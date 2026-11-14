@@ -161,55 +161,19 @@ def test_error_dict_keeps_optional_id() -> None:
     assert "message" not in with_id
 
 
-def test_usable_budget_truth_table(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 1s budget may start with under a second left. A longer one may not.
-
-    The chained compare hid that. A 2s request with 0.5s left must refuse;
-    a 1s request with the same remainder must start.
-    """
-    from plugin.framework import child_runtime as worker_mod
-
-    now = 1000.0
-    monkeypatch.setattr("plugin.framework.child_runtime.time.monotonic", lambda: now)
-    cases = (
-        (1.0, 0.5, 0.5),
-        (2.0, 0.5, None),
-        (0.5, 0.5, None),
-        (1.0, 0.0, None),
-        (2.0, 1.0, 1.0),
-    )
-    for budget, remaining, expected in cases:
-        clock = worker_mod.Deadline.from_absolute(budget, now + remaining)
-        assert clock.usable() == expected, (budget, remaining)
-
-
 @pytest.mark.parametrize(
-    ("budget", "remaining", "usable_sec", "left_sec"),
-    [
-        (0.0, 0.0, None, 0.0),
-        (0.5, 0.5, None, 0.5),
-        (1.0, 0.0, None, 0.0),
-        (1.0, 0.5, 0.5, 0.5),
-        (1.0, 1.0, 1.0, 1.0),
-        (5.0, -0.25, None, -0.25),
-        (5.0, 0.5, None, 0.5),
-        (5.0, 2.5, 2.5, 2.5),
-    ],
+    ("budget", "remaining", "usable_sec", "left_sec"), [(0.0, 0.0, None, 0.0), (0.5, 0.5, None, 0.5), (1.0, 0.0, None, 0.0), (1.0, 0.5, 0.5, 0.5), (1.0, 1.0, 1.0, 1.0), (2.0, 0.5, None, 0.5), (2.0, 1.0, 1.0, 1.0), (5.0, -0.25, None, -0.25), (5.0, 0.5, None, 0.5), (5.0, 2.5, 2.5, 2.5)]
 )
-def test_deadline_budget_table(
-    monkeypatch: pytest.MonkeyPatch,
-    budget: float,
-    remaining: float,
-    usable_sec: float | None,
-    left_sec: float,
-) -> None:
-    """usable() is the only start gate. left() is the true remainder."""
+def test_deadline_budget_table(monkeypatch: pytest.MonkeyPatch, budget: float, remaining: float, usable_sec: float | None, left_sec: float) -> None:
+    """usable() is the only start gate; left() is the true remainder.
+
+    A 2s request with 0.5s left must refuse; a 1s request with the same
+    remainder must start.
+    """
     from plugin.framework.child_runtime import Deadline
 
     now = 1_000.0
     monkeypatch.setattr("plugin.framework.child_runtime.time.monotonic", lambda: now)
-    clock = Deadline.__new__(Deadline)
-    clock.budget_sec = budget
-    clock._end = now + remaining
+    clock = Deadline.from_absolute(budget, now + remaining)
     assert clock.usable() == usable_sec
     assert clock.left() == left_sec

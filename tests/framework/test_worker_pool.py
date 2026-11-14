@@ -8,19 +8,13 @@ import threading
 from typing import Any
 
 from plugin.framework.thread_guard import get_background_task_name
-from plugin.framework.worker_pool import (
-    BackgroundHandle,
-    _DaemonWorkPool,
-    _in_pool_worker,
-    background_pool_max_workers,
-    run_in_background,
-    AsyncProcess,
-    start_stderr_drain,
-)
+from plugin.framework.worker_pool import BackgroundHandle, _DaemonWorkPool, _in_pool_worker, background_pool_max_workers, run_in_background, AsyncProcess, start_stderr_drain
 from plugin.framework.errors import ToolExecutionError
+
 
 def test_run_in_background_success():
     result = []
+
     def success_func():
         result.append(True)
         return "done"
@@ -29,8 +23,10 @@ def test_run_in_background_success():
     t.join()
     assert result == [True]
 
+
 def test_run_in_background_exception():
     error_called = []
+
     def error_func():
         raise ValueError("test error")
 
@@ -46,8 +42,10 @@ def test_run_in_background_exception():
     assert "test error" in error_called[0].details["original_error"]
     assert error_called[0].details["error_type"] == "ValueError"
 
+
 def test_run_in_background_exception_in_error_callback():
     error_called = []
+
     def error_func():
         raise RuntimeError("first error")
 
@@ -60,11 +58,13 @@ def test_run_in_background_exception_in_error_callback():
     t.join()
     assert len(error_called) == 1
 
+
 def test_async_process_init():
     ap = AsyncProcess(["ls", "-l"], stdout_cb=lambda x: None)
     assert ap.args == ["ls", "-l"]
     assert ap.process is None
     assert ap.is_running is False
+
 
 def test_async_process_start_success():
     stdout_lines = []
@@ -82,12 +82,7 @@ def test_async_process_start_success():
 
     # Sleep briefly after flushing output so is_running stays True deterministically
     # across loaded CI runners before the wait thread joins.
-    ap = AsyncProcess(
-        [sys.executable, "-c", "import sys, time; print('out', flush=True); print('err', file=sys.stderr, flush=True); time.sleep(0.3)"],
-        stdout_cb=on_stdout,
-        stderr_cb=on_stderr,
-        on_exit_cb=on_exit
-    )
+    ap = AsyncProcess([sys.executable, "-c", "import sys, time; print('out', flush=True); print('err', file=sys.stderr, flush=True); time.sleep(0.3)"], stdout_cb=on_stdout, stderr_cb=on_stderr, on_exit_cb=on_exit)
     ap.start()
     assert ap.is_running is True
 
@@ -103,6 +98,7 @@ def test_async_process_start_success():
     assert any("out" in line for line in stdout_lines)
     assert any("err" in line for line in stderr_lines)
     assert exit_codes == [0]
+
 
 def test_async_process_start_drain_only():
     ap = AsyncProcess([sys.executable, "-c", "import sys; print('hello'); print('err', file=sys.stderr)"])
@@ -122,21 +118,8 @@ def test_async_process_start_drain_only():
 
 def test_stderr_drain_prevents_pipe_deadlock():
     """Child floods stderr before reading stdin; parent must not hang on the write/read."""
-    script = (
-        "import sys\n"
-        "sys.stderr.write('x' * (128 * 1024))\n"
-        "sys.stderr.flush()\n"
-        "line = sys.stdin.buffer.readline()\n"
-        "sys.stdout.buffer.write(b'ok:' + line)\n"
-        "sys.stdout.buffer.flush()\n"
-    )
-    proc = subprocess.Popen(
-        [sys.executable, "-c", script],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        bufsize=0,
-    )
+    script = "import sys\nsys.stderr.write('x' * (128 * 1024))\nsys.stderr.flush()\nline = sys.stdin.buffer.readline()\nsys.stdout.buffer.write(b'ok:' + line)\nsys.stdout.buffer.flush()\n"
+    proc = subprocess.Popen([sys.executable, "-c", script], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
     # Keep a large diagnostic tail so we can prove the flood was drained (not dropped unread).
     drain = start_stderr_drain(proc.stderr, max_tail_chars=256 * 1024, name="test-stderr-flood")
     assert drain is not None
@@ -155,6 +138,7 @@ def test_stderr_drain_prevents_pipe_deadlock():
     assert out.startswith(b"ok:hello")
     assert len(drain.text()) >= 128 * 1024
 
+
 def test_async_process_start_error():
     ap = AsyncProcess(["/path/to/nonexistent/executable/xyz123"])
     with pytest.raises(ToolExecutionError) as exc:
@@ -162,10 +146,9 @@ def test_async_process_start_error():
     assert "Failed to start process" in str(exc.value)
     assert isinstance(exc.value.__cause__, FileNotFoundError)
 
+
 @pytest.mark.parametrize("fail_on", ["reader", "wait"])
-def test_async_process_start_spawn_failure_kills_child(
-    monkeypatch: pytest.MonkeyPatch, fail_on: str
-) -> None:
+def test_async_process_start_spawn_failure_kills_child(monkeypatch: pytest.MonkeyPatch, fail_on: str) -> None:
     captured: list[subprocess.Popen[Any]] = []
     orig_popen = subprocess.Popen
 
@@ -213,6 +196,7 @@ def test_async_process_start_spawn_failure_kills_child(
                 except (subprocess.TimeoutExpired, OSError):
                     pass
 
+
 def test_async_process_wait_for_exit_callback_error():
     called = []
 
@@ -237,6 +221,7 @@ def test_async_process_wait_for_exit_callback_error():
     assert called == [0]
     assert uncaught == []
     assert ap.is_running is False
+
 
 def test_async_process_terminate_does_not_join_on_caller():
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"])
@@ -320,12 +305,14 @@ def test_async_process_terminate():
     ap._wait_thread.join(timeout=2)
     assert ap.is_running is False
 
+
 def test_async_process_terminate_timeout():
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(10)"])
     ap.start()
 
     # Force a TimeoutExpired to hit the .kill() branch
     original_wait = ap.process.wait
+
     def mocked_wait(*args, **kwargs):
         if "timeout" in kwargs:
             raise subprocess.TimeoutExpired(ap.args, kwargs["timeout"])
@@ -336,6 +323,7 @@ def test_async_process_terminate_timeout():
     ap.terminate(timeout=0.1)
     ap._wait_thread.join(timeout=2)
     assert ap.is_running is False
+
 
 def test_async_process_read_stream_errors():
     ap = AsyncProcess(["ls"])
@@ -356,6 +344,7 @@ def test_async_process_read_stream_errors():
     mock_stream.close.side_effect = OSError("close error")
     ap._read_stream(mock_stream, lambda x: None)
     mock_stream.close.assert_called()
+
 
 def test_async_process_drain_stream_errors():
     ap = AsyncProcess(["ls"])
@@ -403,6 +392,7 @@ def test_async_process_read_stream_short_reads_and_callback_errors():
     ap._read_stream(stream, callback)
     assert received == ["x" * 8192, "next"]
     assert stream.closed is True
+
 
 def test_async_process_terminate_not_running():
     ap = AsyncProcess([sys.executable, "-c", "pass"])
@@ -565,29 +555,30 @@ def test_background_pool_max_workers_default_and_env(monkeypatch: pytest.MonkeyP
     assert background_pool_max_workers() == 2
 
 
-class TestWorkerPoolErrorHandling():
-
+class TestWorkerPoolErrorHandling:
     def test_run_in_background_success_thread_exits(self):
 
         def mock_task(x, y):
-            return (x + y)
+            return x + y
+
         thread = run_in_background(mock_task, 2, 3)
         thread.join()
-        assert (not thread.is_alive())
+        assert not thread.is_alive()
 
     def test_run_in_background_failure(self):
         error_cb = MagicMock()
 
         def mock_task():
-            raise ValueError('Test error')
+            raise ValueError("Test error")
+
         thread = run_in_background(mock_task, error_callback=error_cb)
         thread.join()
-        assert (error_cb.call_count == 1)
+        assert error_cb.call_count == 1
         wrapped_error = error_cb.call_args[0][0]
         assert isinstance(wrapped_error, WorkerPoolError)
-        assert ("Task 'mock_task' failed" in wrapped_error.message)
-        assert (wrapped_error.code == 'WORKER_TASK_FAILED')
-        assert (wrapped_error.details['error_type'] == 'ValueError')
+        assert "Task 'mock_task' failed" in wrapped_error.message
+        assert wrapped_error.code == "WORKER_TASK_FAILED"
+        assert wrapped_error.details["error_type"] == "ValueError"
 
 
 class TestReadStreamStripsNewlines:
@@ -596,6 +587,7 @@ class TestReadStreamStripsNewlines:
     def _make_stream(self, lines):
         """Return a closeable text stream that yields the given strings."""
         import io
+
         return io.StringIO("".join(lines))
 
     @pytest.mark.parametrize(
@@ -669,17 +661,11 @@ class TestReadStreamStripsNewlines:
         ap = AsyncProcess(["dummy"])
         received: list[str] = []
 
-        ap._read_stream(
-            _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]),
-            received.append,
-        )
+        ap._read_stream(_ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]), received.append)
         assert received == ["y" * _MAX_STREAM_LINE_CHARS, "next"]
 
         received.clear()
-        ap._read_stream(
-            _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]),
-            received.append,
-        )
+        ap._read_stream(_ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]), received.append)
         assert received == ["y" * _MAX_STREAM_LINE_CHARS]
 
     def test_read_stream_flushes_partial_line_at_cap(self):
@@ -704,16 +690,8 @@ def test_stderr_drain_short_read_before_eof():
     ``BufferedReader.read(4096)`` waits for 4096 bytes or EOF. Without a
     short-read drain, stderr stays empty while the child is still alive.
     """
-    script = (
-        "import sys, time\n"
-        "sys.stderr.buffer.write(b'hello-stderr-tail')\n"
-        "sys.stderr.buffer.flush()\n"
-        "time.sleep(30)\n"
-    )
-    cases = (
-        {"stderr": subprocess.PIPE},
-        {"stderr": subprocess.PIPE, "text": True, "bufsize": 1},
-    )
+    script = "import sys, time\nsys.stderr.buffer.write(b'hello-stderr-tail')\nsys.stderr.buffer.flush()\ntime.sleep(30)\n"
+    cases = ({"stderr": subprocess.PIPE}, {"stderr": subprocess.PIPE, "text": True, "bufsize": 1})
     for popen_kwargs in cases:
         proc = subprocess.Popen([sys.executable, "-c", script], **popen_kwargs)
         drain = None
@@ -893,12 +871,7 @@ def test_async_process_die_with_parent_off_linux(monkeypatch: pytest.MonkeyPatch
 @pytest.mark.skipif(sys.platform != "linux", reason="PDEATHSIG is Linux-only")
 def test_async_process_pr_get_pdeathsig_armed() -> None:
     """die_with_parent arms PR_SET_PDEATHSIG (PR_GET_PDEATHSIG reads 9)."""
-    script = (
-        "import ctypes\n"
-        "v = ctypes.c_int()\n"
-        "ctypes.CDLL('libc.so.6').prctl(2, ctypes.byref(v), 0, 0, 0)\n"
-        "print(v.value, flush=True)\n"
-    )
+    script = "import ctypes\nv = ctypes.c_int()\nctypes.CDLL('libc.so.6').prctl(2, ctypes.byref(v), 0, 0, 0)\nprint(v.value, flush=True)\n"
     lines: list[str] = []
     ap: AsyncProcess | None = None
     helper_err: BaseException | None = None
@@ -906,11 +879,7 @@ def test_async_process_pr_get_pdeathsig_armed() -> None:
     def _start_from_thread() -> None:
         nonlocal ap, helper_err
         try:
-            ap = AsyncProcess(
-                [sys.executable, "-c", script],
-                die_with_parent=True,
-                stdout_cb=lambda line: lines.append(line),
-            )
+            ap = AsyncProcess([sys.executable, "-c", script], die_with_parent=True, stdout_cb=lambda line: lines.append(line))
             ap.start()
         except BaseException as exc:
             helper_err = exc
@@ -930,7 +899,6 @@ def test_async_process_pr_get_pdeathsig_armed() -> None:
     finally:
         if ap is not None and ap.is_running:
             ap.terminate()
-
 
 
 def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -953,11 +921,7 @@ def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyP
     exits: list[int] = []
     first = None
     second = None
-    ap = AsyncProcess(
-        [sys.executable, "-c", "import time; time.sleep(30)"],
-        stdout_cb=lambda _line: None,
-        on_exit_cb=exits.append,
-    )
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"], stdout_cb=lambda _line: None, on_exit_cb=exits.append)
     try:
         ap.start()
         first = ap.process
@@ -1122,11 +1086,7 @@ def test_run_in_background_keeps_submit_time_send_cancellation():
     Setting a new scope on the caller after the job has started must not
     change what get_current_send_cancellation returns inside that job.
     """
-    from plugin.framework.send_cancellation import (
-        SendCancellation,
-        _current_send_cancellation,
-        get_current_send_cancellation,
-    )
+    from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation, get_current_send_cancellation
 
     old = SendCancellation()
     new = SendCancellation()
@@ -1163,18 +1123,7 @@ def test_async_process_terminate_delivers_sigterm_output():
         if line == "ready":
             ready.set()
 
-    script = (
-        "import sys, signal, time\n"
-        "def on_term(signum, frame):\n"
-        "    time.sleep(0.2)\n"
-        "    sys.stdout.write('after-term\\n')\n"
-        "    sys.stdout.flush()\n"
-        "    sys.exit(0)\n"
-        "signal.signal(signal.SIGTERM, on_term)\n"
-        "sys.stdout.write('ready\\n')\n"
-        "sys.stdout.flush()\n"
-        "time.sleep(30)\n"
-    )
+    script = "import sys, signal, time\ndef on_term(signum, frame):\n    time.sleep(0.2)\n    sys.stdout.write('after-term\\n')\n    sys.stdout.flush()\n    sys.exit(0)\nsignal.signal(signal.SIGTERM, on_term)\nsys.stdout.write('ready\\n')\nsys.stdout.flush()\ntime.sleep(30)\n"
     ap = AsyncProcess([sys.executable, "-c", script], stdout_cb=on_stdout)
     ap.start()
     try:
@@ -1193,12 +1142,14 @@ def test_daemon_work_pool_logs_base_exception_and_keeps_worker_alive(caplog):
     pool = _DaemonWorkPool(1)
     started = threading.Event()
     release = threading.Event()
+
     def raise_system_exit() -> None:
         started.set()
         release.wait(2.0)
         raise SystemExit(42)
 
     import logging
+
     with caplog.at_level(logging.ERROR):
         fut = pool.submit(raise_system_exit)
         assert started.wait(2.0)
@@ -1376,8 +1327,6 @@ def test_stderr_drain_stays_alive_while_the_write_end_is_open() -> None:
     Closing the write end lets the daemon thread leave.
     """
     import os
-
-    from plugin.framework.worker_pool import start_stderr_drain
 
     read_fd, write_fd = os.pipe()
     stream = os.fdopen(read_fd, "rb", buffering=0)

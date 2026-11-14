@@ -33,14 +33,7 @@ class _Pipe:
 
 
 class _Proc:
-    def __init__(
-        self,
-        pid: int = 42,
-        *,
-        stuck: bool = False,
-        events: list[str] | None = None,
-        on_kill: threading.Event | None = None,
-    ) -> None:
+    def __init__(self, pid: int = 42, *, stuck: bool = False, events: list[str] | None = None, on_kill: threading.Event | None = None) -> None:
         self.pid = pid
         self.stuck = stuck
         self.events: list[str] = [] if events is None else events
@@ -68,13 +61,7 @@ class _Proc:
         return -9
 
 
-def _child(
-    proc: Any,
-    tail: Any = None,
-    *,
-    worker_name: str = "Worker",
-    worker_id: int = 1,
-) -> Child:
+def _child(proc: Any, tail: Any = None, *, worker_name: str = "Worker", worker_id: int = 1) -> Child:
     managed = ManagedSubprocess.wrap_existing(proc, label=f"{worker_name} #{worker_id}", stderr_tail=tail)
     return Child(managed, worker_name=worker_name, worker_id=worker_id)
 
@@ -215,9 +202,7 @@ def test_owner_end_io_racing_signal_from_reaps_once() -> None:
     assert proc.kills == 1
 
 
-def test_abandoned_after_wait_timeout(
-    caplog: pytest.LogCaptureFixture, reaper_enqueued: list[Any]
-) -> None:
+def test_abandoned_after_wait_timeout(caplog: pytest.LogCaptureFixture, reaper_enqueued: list[Any]) -> None:
     caplog.set_level(logging.WARNING, logger="compute_service.worker")
 
     tail = StderrTail()
@@ -235,11 +220,7 @@ def test_abandoned_after_wait_timeout(
     assert proc.stderr.closed is False
     assert reaper_enqueued == [child.managed]
 
-    warning_records = [
-        r
-        for r in caplog.records
-        if r.name == "compute_service.worker" and "still alive after SIGKILL" in r.message
-    ]
+    warning_records = [r for r in caplog.records if r.name == "compute_service.worker" and "still alive after SIGKILL" in r.message]
     assert len(warning_records) == 1
     msg = warning_records[0].message
     assert "abandoning" in msg
@@ -253,24 +234,12 @@ def test_abandoned_after_wait_timeout(
     assert len(reaper_enqueued) == 1
 
 
-
-def test_respawn_adopt_refusal_signals_the_unadopted_child(
-    monkeypatch: pytest.MonkeyPatch, reaper_enqueued: list[Any]
-) -> None:
+def test_respawn_adopt_refusal_signals_the_unadopted_child(monkeypatch: pytest.MonkeyPatch, reaper_enqueued: list[Any]) -> None:
     worker = BaseProcessWorker(7, "unused.py", worker_name="Formula", start=False)
     read_calls: list[Any] = []
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.read_pickle_frame",
-        lambda *args, **kwargs: (read_calls.append(args), {"status": "ready"})[1],
-    )
-    monkeypatch.setattr(
-        "plugin.framework.managed_subprocess.optimize_popen_pipes",
-        lambda proc: None,
-    )
-    monkeypatch.setattr(
-        "plugin.framework.managed_subprocess.start_stderr_drain",
-        lambda *args, **kwargs: None,
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", lambda *args, **kwargs: (read_calls.append(args), {"status": "ready"})[1])
+    monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda proc: None)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *args, **kwargs: None)
 
     procs: list[_Proc] = []
 
@@ -377,8 +346,6 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
     Adopt refuses that child, and only that child is signaled; otherwise reap
     sees None and the new interpreter survives until the parent exits.
     """
-    import subprocess
-
 
     original_respawn = BaseProcessWorker.respawn
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
@@ -456,7 +423,6 @@ def test_execute_respawn_respects_request_deadline() -> None:
 
 def test_execute_timeout_does_not_increment_tasks_executed(monkeypatch: pytest.MonkeyPatch) -> None:
     """A timeout does not count. Only a consumed response moves tasks_executed."""
-    import subprocess
     from unittest.mock import MagicMock
 
     # __init__ calls respawn(). A fake script path would launch a real interpreter.
@@ -478,10 +444,7 @@ def test_execute_timeout_does_not_increment_tasks_executed(monkeypatch: pytest.M
     worker.process.wait.side_effect = _wait
     assert worker.tasks_executed == 0
 
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.read_pickle_frame",
-        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=1.0)),
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=1.0)))
 
     res = worker.execute({"code": "time.sleep(10)"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
@@ -495,7 +458,6 @@ def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> N
     Otherwise a blocking write under the worker lock never returns and the
     slot stays leased.
     """
-    import subprocess
     from unittest.mock import MagicMock
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
@@ -506,10 +468,7 @@ def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> N
     worker.process.stdout = MagicMock()
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.write_packed_frame_with_timeout",
-        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="IPC frame", timeout=1.0)),
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", MagicMock(side_effect=subprocess.TimeoutExpired(cmd="IPC frame", timeout=1.0)))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
@@ -534,10 +493,7 @@ def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     worker.process.stdout = MagicMock()
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.read_pickle_frame",
-        MagicMock(side_effect=IpcPartialFrameTimeout("IPC frame stream desynchronized: timeout mid-frame")),
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", MagicMock(side_effect=IpcPartialFrameTimeout("IPC frame stream desynchronized: timeout mid-frame")))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
@@ -558,10 +514,7 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     worker.process.stdout = MagicMock()
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "plugin.framework.process_worker.pack_pickle_frame",
-        MagicMock(side_effect=IpcPayloadSizeError("too big")),
-    )
+    monkeypatch.setattr("plugin.framework.process_worker.pack_pickle_frame", MagicMock(side_effect=IpcPayloadSizeError("too big")))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "PAYLOAD_TOO_LARGE"
@@ -663,14 +616,7 @@ def test_spawn_failure_does_not_increment_tasks_executed(monkeypatch: pytest.Mon
     assert worker.tasks_executed == 0
 
 
-@pytest.mark.parametrize(
-    ("kind", "code"),
-    [
-        ("pipe", "WORKER_PIPE_BROKEN"),
-        ("empty", "EMPTY_RESPONSE"),
-        ("crash", "WORKER_CRASHED"),
-    ],
-)
+@pytest.mark.parametrize(("kind", "code"), [("pipe", "WORKER_PIPE_BROKEN"), ("empty", "EMPTY_RESPONSE"), ("crash", "WORKER_CRASHED")])
 def test_failed_request_does_not_increment_tasks_executed(monkeypatch: pytest.MonkeyPatch, kind: str, code: str) -> None:
     """Pipe, empty, and crash failures do not count toward max_tasks.
 
@@ -678,7 +624,6 @@ def test_failed_request_does_not_increment_tasks_executed(monkeypatch: pytest.Mo
     that process, and the next handshake starts the count at 0.
     """
     from unittest.mock import MagicMock
-
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -692,19 +637,13 @@ def test_failed_request_does_not_increment_tasks_executed(monkeypatch: pytest.Mo
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
 
     if kind == "pipe":
-        monkeypatch.setattr(
-            "plugin.framework.warm_child.write_packed_frame_with_timeout",
-            MagicMock(side_effect=BrokenPipeError("closed")),
-        )
+        monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", MagicMock(side_effect=BrokenPipeError("closed")))
     elif kind == "empty":
         monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
         monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", lambda *_args, **_kwargs: None)
     else:
         monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr(
-            "plugin.framework.warm_child.read_pickle_frame",
-            MagicMock(side_effect=RuntimeError("died")),
-        )
+        monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", MagicMock(side_effect=RuntimeError("died")))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == code
@@ -715,7 +654,6 @@ def test_failed_request_does_not_increment_tasks_executed(monkeypatch: pytest.Mo
 def test_empty_read_during_shutdown_is_service_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     """EOF while the pool is stopping is SERVICE_SHUTDOWN, not a counted crash."""
     from unittest.mock import MagicMock
-
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -743,7 +681,6 @@ def test_write_broken_during_shutdown_is_service_shutdown(monkeypatch: pytest.Mo
     """
     from unittest.mock import MagicMock
 
-
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
@@ -754,10 +691,7 @@ def test_write_broken_during_shutdown_is_service_shutdown(monkeypatch: pytest.Mo
     worker._shutting_down = True
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.write_packed_frame_with_timeout",
-        MagicMock(side_effect=BrokenPipeError("closed")),
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", MagicMock(side_effect=BrokenPipeError("closed")))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "SERVICE_SHUTDOWN"
@@ -772,9 +706,7 @@ def test_read_error_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
     Windows raises TimeoutExpired from is_alive before the read sees EOF. The
     child is already being reaped, so this must not kill again.
     """
-    import subprocess
     from unittest.mock import MagicMock
-
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -857,8 +789,6 @@ def test_abandoned_child_is_not_written_and_a_later_spawn_may_run(monkeypatch: p
     kill() drops that child; otherwise poll() stays None, execute writes to a
     process that never said ready, and the next call refuses to spawn.
     """
-    import subprocess
-
 
     enqueued: list[object] = []
     monkeypatch.setattr("plugin.framework.managed_subprocess._enqueue_reaper", lambda item: enqueued.append(item))
@@ -1045,12 +975,8 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
 
 def test_stderr_drain_name_uses_worker_name() -> None:
     """The drain thread names the pool, or falls back to a generic prefix when slugless."""
-    from plugin.framework.process_worker import BaseProcessWorker
 
-    for name, worker_id, expected in (
-        ("Kokoro", 1, "wa-kokoro-w1-stderr"),
-        ("---", 3, "wa-worker-w3-stderr"),
-    ):
+    for name, worker_id, expected in (("Kokoro", 1, "wa-kokoro-w1-stderr"), ("---", 3, "wa-worker-w3-stderr")):
         worker = BaseProcessWorker(worker_id, "unused.py", worker_name=name, start=False)
         assert worker._drain_name() == expected
 
@@ -1113,7 +1039,6 @@ def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch,
     IpcPartialFrameTimeout is a ConnectionError, so it must match the timeout
     arm rather than falling through to the generic ConnectionError branch.
     """
-    import logging
 
     from plugin.framework.ipc import IpcPartialFrameTimeout
 
@@ -1156,7 +1081,6 @@ def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch
     kill() during the handshake makes the read return empty; shutting down
     must log at INFO and emit no ERROR record.
     """
-    import logging
 
     class _Proc:
         def __init__(self) -> None:
@@ -1200,8 +1124,6 @@ def test_reap_timeout_abandons_and_allows_another_spawn(monkeypatch: pytest.Monk
     The survivor is handed to the module reaper. It is not this slot's child,
     so the next respawn may Popen.
     """
-    import subprocess
-
 
     enqueued: list[object] = []
     monkeypatch.setattr("plugin.framework.managed_subprocess._enqueue_reaper", lambda item: enqueued.append(item))
@@ -1313,8 +1235,6 @@ def test_kill_closes_stdio_then_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     ends open. A child still alive after the wait is abandoned with those pipes
     closed, the slot is cleared, and stderr stays with the drain.
     """
-    import subprocess
-
 
     enqueued: list[object] = []
     monkeypatch.setattr("plugin.framework.managed_subprocess._enqueue_reaper", lambda item: enqueued.append(item))
@@ -1437,8 +1357,6 @@ def test_one_second_budget_above_spawn_floor_still_spawns(monkeypatch: pytest.Mo
 
 def test_popen_failure_leaves_the_slot_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     """Popen raising leaves no child. Stderr is a pipe, not a file to unlink."""
-    import subprocess
-
 
     worker = _worker_without_spawn(monkeypatch)
     saw_pipe: list[bool] = []
@@ -1569,9 +1487,6 @@ def test_handshake_crash_logs_the_drain_tail(monkeypatch: pytest.MonkeyPatch, ca
     On Windows ``is_alive`` runs before EOF, and the drain keeps the text;
     POSIX calls ``is_alive`` only when select times out.
     """
-    import logging
-
-    from plugin.framework.worker_pool import StderrTail
 
     worker = _worker_without_spawn(monkeypatch)
     tail = StderrTail()
@@ -1627,8 +1542,6 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
     Otherwise an overlapping caller failing before adopt reaps the other
     call's healthy child.
     """
-    import logging
-
 
     worker = _worker_without_spawn(monkeypatch)
     second_queued = _second_spawn_queued_event(monkeypatch)
@@ -1675,7 +1588,6 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
         raise OSError("second spawn failed")
 
     def _drain(_stream: object, **_kwargs: object) -> object:
-        from plugin.framework.worker_pool import StderrTail
 
         return StderrTail()
 
@@ -1750,10 +1662,7 @@ def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) 
         worker.process.stdout = MagicMock()
         killed: list[bool] = []
         worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-        monkeypatch.setattr(
-            "plugin.framework.warm_child.read_pickle_frame",
-            MagicMock(side_effect=exc),
-        )
+        monkeypatch.setattr("plugin.framework.warm_child.read_pickle_frame", MagicMock(side_effect=exc))
         res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
         assert killed == [True]
         assert worker.tasks_executed == 0
@@ -1773,8 +1682,6 @@ def test_unadopted_child_that_survives_kill_is_abandoned(monkeypatch: pytest.Mon
     The loser is signaled and the published child is not; otherwise a failed
     wait leaks the loser without storing or logging it.
     """
-    import subprocess
-
 
     enqueued: list[tuple[str, object]] = []
     monkeypatch.setattr("plugin.framework.managed_subprocess._enqueue_reaper", lambda item: enqueued.append(item))
@@ -1829,7 +1736,6 @@ def test_fail_request_skips_stderr_when_it_does_not_kill(monkeypatch: pytest.Mon
     kill=False is shutdown, a clock spent before the frame was sent, or a spawn
     that already logged its own tail.
     """
-    from plugin.framework.worker_pool import StderrTail
 
     worker = _worker_without_spawn(monkeypatch)
 
@@ -1866,7 +1772,6 @@ def test_stderr_drain_keeps_a_bounded_tail(monkeypatch: pytest.MonkeyPatch) -> N
     dropped whole, so the child text arrives in smaller writes.
     """
     from plugin.framework.warm_child import STDERR_LOG_CAP, _STDERR_SNIPPET
-    from plugin.framework.worker_pool import StderrTail
 
     tail = StderrTail(max_chars=STDERR_LOG_CAP)
     piece = "x" * 1024
@@ -1883,14 +1788,7 @@ def test_stderr_drain_keeps_a_bounded_tail(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(snippet) <= _STDERR_SNIPPET
 
 
-@pytest.mark.parametrize(
-    "exc",
-    [
-        pytest.param(pickle.PicklingError("cannot pickle"), id="pickling"),
-        pytest.param(ValueError("bad value"), id="value"),
-        pytest.param(RecursionError("too deep"), id="recursion"),
-    ],
-)
+@pytest.mark.parametrize("exc", [pytest.param(pickle.PicklingError("cannot pickle"), id="pickling"), pytest.param(ValueError("bad value"), id="value"), pytest.param(RecursionError("too deep"), id="recursion")])
 def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPatch, exc: BaseException) -> None:
     """A pickle error before any byte is written leaves the child up.
 
@@ -1898,7 +1796,6 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
     otherwise PicklingError/ValueError/RecursionError escapes as an unhandled 500.
     """
     from unittest.mock import MagicMock
-
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -1910,10 +1807,7 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
     worker.process = proc
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "plugin.framework.process_worker.pack_pickle_frame",
-        MagicMock(side_effect=exc),
-    )
+    monkeypatch.setattr("plugin.framework.process_worker.pack_pickle_frame", MagicMock(side_effect=exc))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "REQUEST_NOT_SERIALIZABLE"
@@ -1930,7 +1824,6 @@ def test_pipe_value_error_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     from unittest.mock import MagicMock
 
-
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     proc = MagicMock()
@@ -1941,10 +1834,7 @@ def test_pipe_value_error_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     worker.process = proc
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.write_packed_frame_with_timeout",
-        MagicMock(side_effect=ValueError("short write")),
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", MagicMock(side_effect=ValueError("short write")))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "WORKER_PIPE_BROKEN"
@@ -1958,9 +1848,6 @@ def test_abandoned_diagnostic_does_not_join_the_drain(monkeypatch: pytest.Monkey
     Joining would wait for text that cannot arrive while the pipe is open.
     The live tail is still readable.
     """
-    import subprocess
-
-    from plugin.framework.worker_pool import StderrTail
 
     enqueued: list[tuple[str, object]] = []
     monkeypatch.setattr("plugin.framework.managed_subprocess._enqueue_reaper", lambda item: enqueued.append(item))
@@ -2133,10 +2020,7 @@ def test_write_attribute_error_is_not_not_serializable(monkeypatch: pytest.Monke
     worker.process = proc
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.write_packed_frame_with_timeout",
-        MagicMock(side_effect=AttributeError("process")),
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", MagicMock(side_effect=AttributeError("process")))
 
     with pytest.raises(AttributeError, match="process"):
         worker.execute({"code": "result = 1"}, timeout_sec=1.0)
@@ -2177,10 +2061,7 @@ def test_after_send_spent_deadline_kills(monkeypatch: pytest.MonkeyPatch) -> Non
     def _write_ok(*_args: object, **_kwargs: object) -> None:
         clock["t"] = 1001.0
 
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.write_packed_frame_with_timeout",
-        _write_ok,
-    )
+    monkeypatch.setattr("plugin.framework.warm_child.write_packed_frame_with_timeout", _write_ok)
 
     def _read_stuck(*_args, **_kwargs: object) -> dict[str, str]:
         raise AssertionError("read should not run")
@@ -2193,7 +2074,6 @@ def test_after_send_spent_deadline_kills(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_respawn_passes_spawn_budget_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.framework.child_runtime import Deadline
-    from plugin.framework.process_worker import BaseProcessWorker
     from plugin.framework.warm_child import supervisor
 
     captured_timeouts: list[float | None] = []
@@ -2201,18 +2081,13 @@ def test_respawn_passes_spawn_budget_to_supervisor(monkeypatch: pytest.MonkeyPat
     def mock_spawn(managed: Any, timeout_sec: float | None = None) -> None:
         captured_timeouts.append(timeout_sec)
 
-    def mock_handshake(
-        managed: Any, *args: Any, start: Any = None, **kwargs: Any
-    ) -> tuple[str, Any, Any]:
+    def mock_handshake(managed: Any, *args: Any, start: Any = None, **kwargs: Any) -> tuple[str, Any, Any]:
         if start is not None:
             start(managed)
         return ("refused", None, None)
 
     monkeypatch.setattr(supervisor, "spawn", mock_spawn)
-    monkeypatch.setattr(
-        "plugin.framework.process_worker.spawn_managed_child_with_handshake",
-        mock_handshake,
-    )
+    monkeypatch.setattr("plugin.framework.process_worker.spawn_managed_child_with_handshake", mock_handshake)
 
     worker = BaseProcessWorker(1, "unused.py", start=False)
 
@@ -2234,8 +2109,6 @@ def test_stuck_kill_drops_the_slot_after_one_signal(monkeypatch: pytest.MonkeyPa
 
     The module reaper keeps waiting. The slot does not.
     """
-    import subprocess
-
 
     enqueued: list[object] = []
     monkeypatch.setattr("plugin.framework.managed_subprocess._enqueue_reaper", lambda item: enqueued.append(item))
@@ -2268,9 +2141,7 @@ def test_stuck_kill_drops_the_slot_after_one_signal(monkeypatch: pytest.MonkeyPa
 
 def test_unpicklable_payload_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pack runs before spawn. A pickle error must not start a child."""
-    import pickle
     from unittest.mock import MagicMock
-
 
     worker = _worker_without_spawn(monkeypatch)
     spawned: list[bool] = []
@@ -2280,10 +2151,7 @@ def test_unpicklable_payload_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> 
         spawned.append(True)
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", _spawn)
-    monkeypatch.setattr(
-        "plugin.framework.process_worker.pack_pickle_frame",
-        MagicMock(side_effect=pickle.PicklingError("no")),
-    )
+    monkeypatch.setattr("plugin.framework.process_worker.pack_pickle_frame", MagicMock(side_effect=pickle.PicklingError("no")))
     worker.process = None
     res = worker.execute({"code": "result = 1"}, timeout_sec=5)
     assert res.get("code") == "REQUEST_NOT_SERIALIZABLE"
@@ -2291,7 +2159,6 @@ def test_unpicklable_payload_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_respawn_popen_kwargs_scrub_session_and_drain(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.framework.process_worker import BaseProcessWorker
 
     recorded_kwargs: dict[str, Any] = {}
 

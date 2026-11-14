@@ -16,14 +16,6 @@ from typing import Any
 import pytest
 
 from compute_service.worker_base import BaseProcessPool
-from plugin.framework.warm_child import Child
-
-
-def _child(proc: object, *, worker_name: str, worker_id: int, tail: object = None) -> Child:
-    from plugin.framework.managed_subprocess import ManagedSubprocess
-
-    managed = ManagedSubprocess.wrap_existing(proc, label=f"{worker_name} #{worker_id}", stderr_tail=tail)  # type: ignore[arg-type]
-    return Child(managed, worker_name=worker_name, worker_id=worker_id)
 
 
 class _Slot:
@@ -310,8 +302,6 @@ def test_pool_init_kills_workers_when_a_later_spawn_fails(monkeypatch: pytest.Mo
 
 
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
-    import pickle
-    import pytest
     from compute_service.worker_stdio import unpack_restricted_pickle_frame
 
     # Safe builtins
@@ -367,7 +357,6 @@ def test_restricted_unpickler_rejects_sized_buffer_alloc(payload: bytes) -> None
 
 def test_restricted_unpickler_accepts_valid_bytearray() -> None:
     """Legitimate protocol 4 and 5 bytearrays are accepted."""
-    import pickle
     from compute_service.worker_stdio import unpack_restricted_pickle_frame
 
     p4 = pickle.dumps(bytearray(b"xyz"), protocol=4)
@@ -395,16 +384,7 @@ def test_restricted_unpickler_rejects_oversized_bytearray8() -> None:
         tracemalloc.stop()
 
 
-@pytest.mark.parametrize(
-    "payload",
-    [
-        b"\x80\x05J\x01",
-        b"\x80\x05M\x01",
-        b"\x80\x05G\x01\x02\x03",
-        b"\x80\x05\x95\x01",
-        b"\x80\x02J\x01",
-    ],
-)
+@pytest.mark.parametrize("payload", [b"\x80\x05J\x01", b"\x80\x05M\x01", b"\x80\x05G\x01\x02\x03", b"\x80\x05\x95\x01", b"\x80\x02J\x01"])
 def test_restricted_unpickler_maps_struct_error_to_value_error(payload: bytes) -> None:
     """Truncated headers raising struct.error are mapped to ValueError."""
     from compute_service.worker_stdio import unpack_restricted_pickle_frame
@@ -415,7 +395,6 @@ def test_restricted_unpickler_maps_struct_error_to_value_error(payload: bytes) -
 
 def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
     """Compute and scripting frames share one unpickler; the allowlists stay different."""
-    import pickle
 
     from compute_service.worker_stdio import RestrictedUnpickler, unpack_restricted_pickle_frame
     from plugin.framework.ipc import AllowlistUnpickler, _SafeUnpickler, unpack_pickle_frame
@@ -438,7 +417,6 @@ def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
 
 def test_run_worker_stdio_loop_breaks_on_decode_error(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
-    import struct
     from compute_service.worker_stdio import run_worker_stdio_loop
 
     # Provide a frame with invalid/corrupt pickle bytes
@@ -589,21 +567,6 @@ def test_evict_idle_workers_drops_last_active() -> None:
         pool.shutdown()
 
 
-def _worker_without_spawn(monkeypatch: pytest.MonkeyPatch):
-    """A slot whose ``__init__`` does not start a real interpreter."""
-    from compute_service.worker_base import BaseProcessWorker
-
-    original = BaseProcessWorker.respawn
-
-    def _no_spawn(self: BaseProcessWorker, timeout_sec: float = 15.0, deadline: object | None = None) -> None:
-        del self, timeout_sec, deadline
-
-    monkeypatch.setattr(BaseProcessWorker, "respawn", _no_spawn)
-    worker = BaseProcessWorker(1, "unused.py")
-    monkeypatch.setattr(BaseProcessWorker, "respawn", original)
-    return worker
-
-
 def test_run_compute_worker_sets_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Compute children mark themselves as workers so host tool calls are refused."""
     import os
@@ -644,11 +607,10 @@ def test_configure_compute_worker_env_preserves_overrides(monkeypatch: pytest.Mo
 
 def test_idle_scan_before_ttl_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
     """An idle-reaper tick before the TTL leaves the live child in idle."""
-    import time
+    from compute_service.worker_base import BaseProcessPool, BaseProcessWorker
 
-    from compute_service.worker_base import BaseProcessPool
-
-    worker = _worker_without_spawn(monkeypatch)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda *_a, **_kw: None)
+    worker = BaseProcessWorker(1, "unused.py")
 
     class _Live:
         def __init__(self) -> None:
@@ -680,9 +642,7 @@ def test_idle_scan_before_ttl_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> 
         pool.shutdown()
 
 
-def test_compute_worker_spawn_runs_on_supervisor_spawner_thread(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_compute_worker_spawn_runs_on_supervisor_spawner_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     """Initial spawn and respawn run Popen on the supervisor spawner thread."""
     from plugin.framework.managed_subprocess import ManagedSubprocess
     from plugin.framework.process_worker import BaseProcessWorker
@@ -821,7 +781,6 @@ def test_run_compute_worker_puts_image_pkgs_on_path(tmp_path: Path, monkeypatch:
 
 def _delay_worker(tmp_path):
     """Stdio worker that sleeps for ``delay`` seconds, then answers with its pid."""
-    from pathlib import Path
 
     repo = Path(__file__).resolve().parents[2]
     script = tmp_path / "delay_worker.py"
@@ -850,7 +809,6 @@ def test_read_timeout_kills_and_next_execute_respawns(tmp_path) -> None:
     The timed-out client already has EXECUTION_TIMEOUT. Keeping the process
     to finish that frame is what the late-drain state machine existed for.
     """
-    from compute_service.worker_base import BaseProcessPool
 
     pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Worker")
     try:
