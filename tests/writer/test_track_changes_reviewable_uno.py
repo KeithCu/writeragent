@@ -264,10 +264,7 @@ def test_split_authors_insert_vs_delete_uno(ctx, doc):
         _reject_all(doc, ctx)
 
 
-from contextlib import contextmanager
-
-
-@contextmanager
+@contextlib.contextmanager
 def _saved_config(doc, ctx, overrides):
     prev = {key: get_config(key) for key in overrides}
     save(overrides)

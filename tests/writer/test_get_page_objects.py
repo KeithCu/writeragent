@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.structural import GetPageObjects, _at_page_anchor_page, _with_left_body_locked
 
 
@@ -20,9 +21,9 @@ def _empty_named_collection():
     return coll
 
 
-def _make_doc(draw=None, graphics=None, tables=None, frames=None):
+def _make_doc(draw=None, tables=None, frames=None):
     doc = MagicMock()
-    doc.getGraphicObjects.return_value = graphics if graphics is not None else _empty_named_collection()
+    doc.getGraphicObjects.return_value = _empty_named_collection()
     doc.getTextTables.return_value = tables if tables is not None else _empty_named_collection()
     doc.getTextFrames.return_value = frames if frames is not None else _empty_named_collection()
     if draw is not None:
@@ -37,14 +38,10 @@ def test_scan_page_does_not_clone_via_body_text():
     body.createTextCursorByRange.side_effect = RuntimeError(
         "End of content node doesn't have the proper start node"
     )
-    doc = MagicMock()
-    doc.getText.return_value = body
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
     draw = MagicMock()
     draw.getCount.return_value = 0
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw)
+    doc.getText.return_value = body
 
     vc = MagicMock()
     vc.getPage.return_value = 1
@@ -118,14 +115,10 @@ def test_execute_clones_view_cursor_via_own_text():
     vc.getText.return_value = own
     vc.getPage.return_value = 1
 
-    doc = MagicMock()
-    doc.getText.return_value = body
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
     draw = MagicMock()
     draw.getCount.return_value = 0
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw)
+    doc.getText.return_value = body
     controller = MagicMock()
     controller.getViewCursor.return_value = vc
     doc.getCurrentController.return_value = controller
@@ -162,13 +155,9 @@ def test_scan_page_retries_getpage_zero_while_locked():
     table.getPropertyValue.side_effect = RuntimeError("no AnchorType")
     tables.getByName.return_value = table
 
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = tables
-    doc.getTextFrames.return_value = _empty_named_collection()
     draw = MagicMock()
     draw.getCount.return_value = 0
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw, tables=tables)
     doc.hasControllersLocked.return_value = True
 
     pages = [0, 1]
@@ -261,7 +250,7 @@ def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatc
     "exc, expect_disposed",
     [
         pytest.param(RuntimeError("position cannot be determined with this method"), False, id="keeps_shape_on_runtime_error"),
-        pytest.param("disposed", True, id="reraises_disposal"),
+        pytest.param(DocumentDisposedError("Document was closed"), True, id="reraises_disposal"),
     ],
 )
 def test_scan_page_geometry_exception(monkeypatch, exc, expect_disposed):
@@ -269,7 +258,6 @@ def test_scan_page_geometry_exception(monkeypatch, exc, expect_disposed):
     from types import SimpleNamespace
 
     import com.sun.star.text.TextContentAnchorType as anchor_types
-    from plugin.framework.errors import DocumentDisposedError
 
     at_page = object()
     monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
@@ -291,7 +279,7 @@ def test_scan_page_geometry_exception(monkeypatch, exc, expect_disposed):
     bad.getShapeType.return_value = "FrameShape"
     bad.Name = "Fly"
     bad.getString.return_value = ""
-    bad.getPosition.side_effect = DocumentDisposedError("Document was closed") if exc == "disposed" else exc
+    bad.getPosition.side_effect = exc
 
     pos = SimpleNamespace(X=10, Y=20)
     size = SimpleNamespace(Width=30, Height=40)
@@ -342,13 +330,9 @@ def test_scan_page_at_page_frame_skips_view_hop(monkeypatch):
     frames.getByName.return_value = frame
 
     tool = GetPageObjects()
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = frames
     draw = MagicMock()
     draw.getCount.return_value = 0
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw, frames=frames)
 
     vc = MagicMock()
     result = tool._scan_page(doc, vc, 3)
@@ -467,14 +451,10 @@ def test_get_page_objects_missing_heading_text_is_an_error():
 
 def test_get_page_objects_paragraph_zero_is_a_real_index():
     tool = GetPageObjects()
-    doc = MagicMock()
-    doc.getText.return_value.getStart.side_effect = RuntimeError("leave failed")
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
     draw = MagicMock()
     draw.getCount.return_value = 0
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw)
+    doc.getText.return_value.getStart.side_effect = RuntimeError("leave failed")
     vc = MagicMock()
     vc.getText.return_value.createTextCursorByRange.return_value = MagicMock()
     doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
@@ -503,14 +483,10 @@ def test_execute_skips_lock_when_page_hop_fails():
             raise RuntimeError("cannot leave nested XText")
 
     vc.gotoRange.side_effect = fail_leave
-    doc = MagicMock()
-    doc.getText.return_value = body
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
     draw = MagicMock()
     draw.getCount.return_value = 0
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw)
+    doc.getText.return_value = body
     doc.getCurrentController.return_value = MagicMock(getViewCursor=MagicMock(return_value=vc))
     ctx = MagicMock()
     ctx.doc = doc
@@ -567,8 +543,7 @@ def test_scan_page_geometry_as_char_baseline_offset(monkeypatch):
     draw = MagicMock()
     draw.getCount.return_value = 1
     draw.getByIndex.return_value = shape
-    doc = _make_doc()
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw)
     tool = GetPageObjects()
     monkeypatch.setattr(tool, "_page_at_range", lambda *a, **k: 1)
 
@@ -606,8 +581,7 @@ def test_scan_page_geometry_falls_back_to_get_position(monkeypatch):
     draw = MagicMock()
     draw.getCount.return_value = 1
     draw.getByIndex.return_value = shape
-    doc = _make_doc()
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw)
 
     result = GetPageObjects()._scan_page(doc, MagicMock(), 1)
     assert result["shapes"][0]["geometry"] == {"x": 7, "y": 8, "width": 5, "height": 6, "position_relative_to": "page"}

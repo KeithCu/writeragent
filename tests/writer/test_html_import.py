@@ -290,7 +290,6 @@ def test_replace_single_range_block_html_in_cell_raises_coded_error():
 
 
 def test_replace_xtext_with_html_undo_rollback_on_import_failure():
-
     text = MagicMock()
     cursor = MagicMock()
     text.createTextCursor.return_value = cursor
@@ -364,7 +363,6 @@ def test_replace_xtext_with_html_plain_html_skips_style_walk():
 
 
 def test_replace_xtext_with_html_undo_rollback_on_field_restore_failure():
-
     text = MagicMock()
     cursor = MagicMock()
     text.createTextCursor.return_value = cursor
@@ -473,7 +471,6 @@ def test_insert_inline_at_cursor_does_not_unescape_plain_text_again():
 
 
 def test_insert_inline_at_cursor_paints_ruby_instead_of_gluing_the_reading():
-
     from plugin.writer import html_import, html_ruby, range_copy
 
     cursor = MagicMock()
@@ -699,7 +696,6 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
 
 
 def test_full_document_without_review_imports_in_place():
-
     from plugin.writer import html_import
 
     model = MagicMock()
@@ -938,15 +934,39 @@ def test_round_trip_read_fodt_autostyle_value():
 
 
 @pytest.mark.parametrize(
-    "para_decl, has_para_el, expected_failed, check_mode",
+    "para_decl, has_para_el, expected_failed, expected_para_calls_fn",
     [
-        pytest.param("background-color:#ffe4c4", True, [], "solid", id="solid_color"),
-        pytest.param("text-align:justify; background-color:#ffe4c4", True, [], "solid_and_align", id="solid_and_align"),
-        pytest.param("background-color:transparent", True, [], "transparent", id="transparent"),
-        pytest.param("background-color:#ffe4c4", False, ["background-color"], "missing_para", id="missing_para_obj"),
+        pytest.param(
+            "background-color:#ffe4c4",
+            True,
+            [],
+            lambda solid, _none: [call("FillColor", 0xFFE4C4), call("FillStyle", solid)],
+            id="solid_color",
+        ),
+        pytest.param(
+            "text-align:justify; background-color:#ffe4c4",
+            True,
+            [],
+            lambda solid, _none: [call("ParaAdjust", 2), call("FillColor", 0xFFE4C4), call("FillStyle", solid)],
+            id="solid_and_align",
+        ),
+        pytest.param(
+            "background-color:transparent",
+            True,
+            [],
+            lambda _solid, none: [call("FillStyle", none)],
+            id="transparent",
+        ),
+        pytest.param(
+            "background-color:#ffe4c4",
+            False,
+            ["background-color"],
+            lambda _solid, _none: [],
+            id="missing_para_obj",
+        ),
     ],
 )
-def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected_failed, check_mode):
+def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected_failed, expected_para_calls_fn):
     from plugin.writer import html_import_styles
 
     model = MagicMock()
@@ -979,25 +999,12 @@ def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected
     )
     assert failed == expected_failed
 
-    if check_mode == "solid":
-        para_el.setPropertyValue.assert_has_calls([
-            call("FillColor", 0xFFE4C4),
-            call("FillStyle", solid_style),
-        ])
-        # Must not set FillStyle or ParaBackColor on the text cursor.
-        cursor_set_props = [c.args[0] for c in para_cur.setPropertyValue.call_args_list]
-        assert "FillStyle" not in cursor_set_props
-        assert "ParaBackColor" not in cursor_set_props
-    elif check_mode == "solid_and_align":
-        para_el.setPropertyValue.assert_has_calls([
-            call("FillColor", 0xFFE4C4),
-            call("FillStyle", solid_style),
-        ])
-        assert call("ParaAdjust", 2) in para_cur.setPropertyValue.call_args_list or any(
-            c.args[0] == "ParaAdjust" for c in para_el.setPropertyValue.call_args_list + para_cur.setPropertyValue.call_args_list
-        )
-    elif check_mode == "transparent":
-        para_el.setPropertyValue.assert_has_calls([call("FillStyle", none_style)])
+    expected_calls = expected_para_calls_fn(solid_style, none_style)
+    if expected_calls:
+        para_el.setPropertyValue.assert_has_calls(expected_calls, any_order=True)
+    # Paragraph formatting and fill properties belong on the paragraph element, never on the cursor.
+    cursor_set_props = {c.args[0] for c in para_cur.setPropertyValue.call_args_list}
+    assert cursor_set_props.isdisjoint({"FillStyle", "ParaBackColor", "ParaAdjust"})
 
 
 def test_declared_para_names_flattens_lists_in_order_and_skips_none():
@@ -1094,7 +1101,6 @@ def test_swap_image_placeholders_refuses_a_picture_it_cannot_keep():
     '<span id="Selo"><img src=\'\'/></span>',
 ])
 def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
-
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer.image_placeholders import _swap_image_placeholders
 
@@ -1103,7 +1109,6 @@ def test_swap_image_placeholders_refuses_non_canonical_empty_src(markup):
 
 
 def test_swap_image_placeholders_leaves_other_content_alone():
-
     from plugin.writer.image_placeholders import _swap_image_placeholders
 
     model = MagicMock()
@@ -1122,7 +1127,6 @@ def _kept(anchor="AT_PARAGRAPH"):
 
 
 def test_restore_puts_a_copy_where_the_marker_is_when_the_original_went():
-
     from plugin.writer import image_placeholders
 
     model = MagicMock()
@@ -1271,7 +1275,6 @@ def test_restore_image_placeholders_passes_name():
 
 
 def test_full_document_refuses_before_deleting_anything():
-
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import
 
@@ -1297,7 +1300,6 @@ def test_html_to_plain_text_values(html_input: str, expected: str):
 
 
 def test_content_has_markup_cases():
-
     # Unclosed elements and attribute variants are markup
     assert content_has_markup("<h4>Title</h4>") is True
     assert content_has_markup("<h4>Title") is True
@@ -1432,7 +1434,6 @@ def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
 
 
 def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
-
     class _Enum:
         def __init__(self, items):
             self._items = list(items)

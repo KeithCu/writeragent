@@ -52,6 +52,7 @@ def _para(style: str):
 def _run_range_export(
     elements=None,
     *,
+    temp_doc=None,
     has_style: bool = True,
     set_style_raises: bool = False,
     portions_fn=None,
@@ -63,7 +64,7 @@ def _run_range_export(
     """Run _range_to_content_via_temp_doc with standard mocked collaborators."""
     from contextlib import ExitStack
 
-    temp_doc = MagicMock()
+    temp_doc = temp_doc if temp_doc is not None else MagicMock()
     temp_text = MagicMock()
     temp_cursor = MagicMock()
     temp_doc.getText.return_value = temp_text
@@ -605,12 +606,15 @@ def test_starwriter_disposal_is_not_wrapped():
 def test_range_xhtml_disposal_does_not_fall_back():
     from plugin.framework.errors import DocumentDisposedError
 
+    temp_doc = MagicMock()
     with pytest.raises(DocumentDisposedError):
         _run_range_export(
             [_para("Standard")],
+            temp_doc=temp_doc,
             export_side_effect=_DisposedException("disposed"),
             passthrough_semantic=False,
         )
+    temp_doc.storeToURL.assert_not_called()
 
 
 def test_offset_window_slices_by_running_offset():

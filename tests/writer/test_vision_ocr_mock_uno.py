@@ -274,7 +274,6 @@ def test_mock_ocr_range_with_one_image(ctx, doc):
 @with_native_doc("writer")
 def test_mock_ocr_multiple_images_preserve_intervening_text(ctx, doc):
     for image_count in (2, 3):
-        doc.getText().setString("")
         fixture = _build_labeled_fixture(ctx, doc, image_count=image_count)
         try:
             _select_whole_document(doc)

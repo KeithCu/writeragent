@@ -699,15 +699,6 @@ def test_next_registered_change_does_not_reuse_orphan_tag_index(failure_mode):
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
     session._active = True
-    calls: list[str] = []
-
-    def tag_missing(redlines, token):
-        calls.append(token)
-        if token == "":
-            return False, 1
-        for item in redlines:
-            item.comment = token
-        return True, 0
 
     if failure_mode == "mutate_then_throw":
         rl1 = _MutateThenThrow("a")
@@ -717,6 +708,16 @@ def test_next_registered_change_does_not_reuse_orphan_tag_index(failure_mode):
         ):
             result1 = session.record_mutation(lambda: "r1")
     else:
+        calls: list[str] = []
+
+        def tag_missing(redlines, token):
+            calls.append(token)
+            if token == "":
+                return False, 1
+            for item in redlines:
+                item.comment = token
+            return True, 0
+
         start1, end1 = _anchor_pair(insert_error=RuntimeError("bookmark insert failed"))
         rl1 = _FakeRl("a", start=start1, end=end1)
         with (

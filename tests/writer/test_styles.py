@@ -1558,8 +1558,14 @@ def test_style_list_calc_cell_styles_returns_entries():
     assert res["styles"][0]["name"] == "Good"
 
 
-@pytest.mark.parametrize("occurrence", [None, 0], ids=["first_range", "occurrence"])
-def test_apply_style_case_sensitive_forwarded_to_search(occurrence):
+@pytest.mark.parametrize(
+    "occurrence, expected_finder",
+    [
+        pytest.param(None, "first", id="first_range"),
+        pytest.param(0, "all", id="occurrence"),
+    ],
+)
+def test_apply_style_case_sensitive_forwarded_to_search(occurrence, expected_finder):
     """ApplyStyle target='search' threads case_sensitive to find_first_range / find_all_ranges."""
     from plugin.writer.styles import ApplyStyle
 
@@ -1569,11 +1575,11 @@ def test_apply_style_case_sensitive_forwarded_to_search(occurrence):
     calls = []
 
     def fake_find_first(doc, s, *, case_sensitive=False):
-        calls.append((s, case_sensitive))
+        calls.append(("first", s, case_sensitive))
         return r1
 
     def fake_find_all(doc, s, *, case_sensitive=False):
-        calls.append((s, case_sensitive))
+        calls.append(("all", s, case_sensitive))
         return [r1, r2]
 
     extra = {} if occurrence is None else {"occurrence": occurrence}
@@ -1583,11 +1589,11 @@ def test_apply_style_case_sensitive_forwarded_to_search(occurrence):
          patch.object(ApplyStyle, "_apply_one", return_value=None):
         res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", **extra)
         assert res_default["status"] == "ok"
-        assert calls[-1] == ("apple", False)
+        assert calls[-1] == (expected_finder, "apple", False)
 
         res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True, **extra)
         assert res_cs["status"] == "ok"
-        assert calls[-1] == ("apple", True)
+        assert calls[-1] == (expected_finder, "apple", True)
 
 
 def test_apply_style_suggests_call_when_single_close_match():

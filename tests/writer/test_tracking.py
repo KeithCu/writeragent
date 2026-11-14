@@ -232,6 +232,7 @@ def test_manage_tracked_changes_bypasses_self_resolve_invariant(undo_fails):
     user_redline = _fake_redline("user edit")
     agent_redline = _fake_redline(_AGENT_COMMENT)
 
+    # Mock the dispatcher mistakenly resolving the agent edit instead of the user edit.
     # First call (materialize) returns both; second call (after dispatch) returns only user_redline.
     def _create_enum():
         enum = MagicMock()
@@ -249,6 +250,7 @@ def test_manage_tracked_changes_bypasses_self_resolve_invariant(undo_fails):
     ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
     ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
 
+    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     start_mock1 = MagicMock()
@@ -262,6 +264,7 @@ def test_manage_tracked_changes_bypasses_self_resolve_invariant(undo_fails):
     if undo_fails:
         ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")
 
+    # Accept index 0 (the user edit), while the mock causes the agent edit to disappear.
     res = tool.execute(ctx, action="accept", index=0)
 
     assert res["status"] == "error"
@@ -471,6 +474,7 @@ def test_single_reject_blocked_on_agent_redline():
 
 def test_single_accept_allowed_on_user_redline():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
+    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     redline = _fake_redline("user edit", text_mock=text_mock)
@@ -625,6 +629,7 @@ def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(acti
 
 def test_single_accept_wrong_redline_is_undone():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
+    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     r0 = _fake_redline("user 0", text_mock=text_mock)
@@ -643,6 +648,7 @@ def test_single_accept_wrong_redline_is_undone():
 
 def test_single_accept_silent_when_nothing_changes():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
+    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     r0 = _fake_redline("user 0", text_mock=text_mock)
@@ -862,6 +868,7 @@ def test_track_changes_list_start_index_keeps_global_indexes():
 
 def test_single_accept_reread_failure_undoes_and_reports():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
+    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     r = _fake_redline("user edit", text_mock=text_mock)

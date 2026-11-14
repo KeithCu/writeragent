@@ -381,21 +381,7 @@ def test_ensure_empty_absorb_inserts_break_for_image_only_paragraph():
     portion = MagicMock()
     portion.getString.return_value = ""
     portion.getPropertyValue.return_value = "TextContent"
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-            self._idx = 0
-
-        def hasMoreElements(self):
-            return self._idx < len(self._items)
-
-        def nextElement(self):
-            item = self._items[self._idx]
-            self._idx += 1
-            return item
-
-    para.createEnumeration.return_value = _Enum([portion])
+    para.createEnumeration.return_value = _FakeReplaceEnum([portion])
     text_obj = MagicMock()
     text_obj.createTextCursorByRange.return_value = para
     cursor.getText.return_value = text_obj
@@ -628,14 +614,14 @@ class _FakeReplaceRange:
 
 
 @pytest.mark.parametrize(
-    "old_str, new_str, go_right_fn, check_ctx",
+    "old_str, new_str, go_right_fn",
     [
-        pytest.param("AB", "XY", lambda _n, _exp: False, True, id="replace"),
-        pytest.param("AAAAAX", "AAAAAY", lambda _n, _exp: False, False, id="equal_run"),
-        pytest.param("ABCD", "AB", lambda _n, exp: not exp, False, id="shrink"),
+        pytest.param("AB", "XY", lambda _n, _exp: False, id="replace"),
+        pytest.param("AAAAAX", "AAAAAY", lambda _n, _exp: False, id="equal_run"),
+        pytest.param("ABCD", "AB", lambda _n, exp: not exp, id="shrink"),
     ],
 )
-def test_replace_preserving_format_raises_when_go_right_stops(old_str, new_str, go_right_fn, check_ctx):
+def test_replace_preserving_format_raises_when_go_right_stops(old_str, new_str, go_right_fn):
     from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import as hi, record_changes
@@ -648,8 +634,7 @@ def test_replace_preserving_format_raises_when_go_right_stops(old_str, new_str, 
             hi.replace_preserving_format(MagicMock(), _FakeReplaceRange(text, old_str), new_str, ctx=ctx)
     assert cursor.writes == []
     assert text.inserts == []
-    if check_ctx:
-        ctx.getServiceManager.assert_not_called()
+    ctx.getServiceManager.assert_not_called()
 
 
 def test_replace_preserving_format_skips_equal_runs():
