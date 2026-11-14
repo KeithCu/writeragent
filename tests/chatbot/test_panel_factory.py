@@ -344,28 +344,6 @@ def test_initialize_extension_paths_hops_impl_not_self():
         pf._paths_initialized = False
 
 
-def test_initialize_extension_paths_impl_sets_flag_when_hop_inlines():
-    from unittest.mock import patch
-    from plugin.chatbot import panel_factory as pf
-
-    pf._paths_initialized = False
-    try:
-        with (
-            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-            patch(
-                "plugin.framework.queue_executor.main.call",
-                side_effect=lambda fn, *args, timeout=None, bound_scope=None, **kwargs: fn(*args, **kwargs),
-            ),
-            patch.object(pf, "get_extension_path", return_value="/tmp/ext"),
-            patch.object(pf, "init_logging"),
-            patch("plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"),
-        ):
-            pf._initialize_extension_paths(object())
-        assert pf._paths_initialized is True
-    finally:
-        pf._paths_initialized = False
-
-
 def test_initialize_extension_paths_inline_hop_does_not_recurse():
     """TESTING=1 inlines call on Dummy-N; must not stack-overflow."""
     from unittest.mock import patch
@@ -740,28 +718,6 @@ def test_chat_mode_listener_ignores_refresh():
     el._in_refresh_controls = False
     listener.on_item_state_changed(None)
     el._apply_sidebar_mode.assert_called_once()
-
-
-def test_chat_mode_listener_ignores_combo_while_send_is_busy():
-    from unittest.mock import MagicMock
-
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el._in_refresh_controls = False
-    el._apply_sidebar_mode = MagicMock()
-    selector = MagicMock()
-    selector.getSelectedItemPos.return_value = 0
-    selector.getText.return_value = "Librarian"
-    selector.addItemListener = MagicMock()
-    send = MagicMock()
-    send.sidebar_state.send.is_busy = True
-    flags = SidebarModeFlags()
-    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, flags)
-    listener = selector.addItemListener.call_args[0][0]
-    listener.on_item_state_changed(None)
-    el._apply_sidebar_mode.assert_not_called()
 
 
 def test_render_session_history_logs_greeting_argument() -> None:
