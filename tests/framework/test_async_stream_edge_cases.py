@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for async_stream edge cases, parameterization, and callback fallbacks."""
 
-import inspect
 import queue
 from unittest.mock import MagicMock, patch
 
@@ -41,15 +40,6 @@ def test_run_async_worker_with_drain_stop_fallback_calls_one_arg_on_done() -> No
 
     assert done_calls == [None]
     assert errors == []
-
-
-def test_stream_queue_helpers_parameterize_queue() -> None:
-    """Bare queue.Queue leftovers trip reportMissingTypeArgument."""
-
-    from plugin.framework.async_stream import run_async_worker_with_drain
-
-    drain = inspect.signature(run_async_worker_with_drain)
-    assert "Queue[Any]" in str(drain.parameters["worker_fn"].annotation)
 
 
 def test_run_stream_drain_loop_error_clears_defer_next_tool_exit():

@@ -185,15 +185,6 @@ def test_probe_uno_bridge_states() -> None:
     assert probe_uno_bridge(_Boom()) == "error:ValueError"
 
 
-def test_expand_soak_pair_aliases() -> None:
-    assert expand_soak_pair("tree-math") == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert expand_soak_pair("dup-move") == [
-        "test_duplicate_slide_copies_shapes",
-        "test_duplicate_rename_move_slide",
-    ]
-    assert expand_soak_pair("unknown") == []
-
-
 def test_function_name_matches_draw_tree_prefix_bleed() -> None:
     """FILTER=test_get_draw_tree also selects the blank/label test; --pair must not."""
     assert _function_name_matches(

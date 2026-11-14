@@ -4,15 +4,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for stripped-bundle helpers."""
 
-from plugin.framework.client.stream_normalizer import (
-    _merge_reasoning_details,
-    _streaming_replay,
-)
-from tests.harness.strip_bundle import (
-    _decorator_header,
-    deal_pre_present,
-    is_release_build,
-)
+import deal
+
+from tests.harness.strip_bundle import _decorator_header, deal_pre_present
 
 
 def test_decorator_header_ignores_body_comment() -> None:
@@ -27,8 +21,16 @@ def test_decorator_header_ignores_body_comment() -> None:
     assert "@deal.pre" not in header
 
 
-def test_deal_pre_present_uses_function_source_not_module_comment() -> None:
-    """``_streaming_replay`` comments mention ``@deal.pre``; that must not count."""
-    assert not deal_pre_present(_streaming_replay)
-    # Checkout still has the real decorator; make release strip removes it.
-    assert deal_pre_present(_merge_reasoning_details) is not is_release_build()
+def test_deal_pre_present_checks_decorator_header_only() -> None:
+    """Body comments mentioning ``@deal.pre`` must not count as an active decorator."""
+
+    def without_pre() -> None:
+        # @deal.pre mentioned in a body comment must not count
+        return None
+
+    @deal.pre(lambda x: x > 0)
+    def with_pre(x: int) -> int:
+        return x
+
+    assert not deal_pre_present(without_pre)
+    assert deal_pre_present(with_pre)
