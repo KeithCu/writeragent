@@ -66,11 +66,12 @@ def test_vectorize_skipped_for_cross_sheet_sumifs():
     }
     model = SheetModel(sheet_name="Dashboard Finished", used_range="C8:C9", cells=cells)
     output, report = build_converted_output_model(model, vectorize=True)
+    non_vec, _non_vec_report = build_converted_output_model(model, vectorize=False)
     assert len(report.converted) == 2
     for addr in ("C8", "C9"):
         formula = output.cells[addr].formula
         _assert_lexer_safe_formula(formula)
-        assert ";0)" not in formula or formula.count(";") < 6
+        assert formula == non_vec.cells[addr].formula
 
 
 def test_clip_whole_column_data_ranges():

@@ -316,11 +316,15 @@ def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytes
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
 
-    def fail_cleanup(*args, **kwargs):
-        raise AssertionError("spill cleanup must not run")
+    cleanup_calls: list[tuple[tuple, dict]] = []
 
-    monkeypatch.setattr("plugin.calc.python.spill.cleanup_orphans", fail_cleanup)
+    # Record instead of raising because run_sheet_modify_pass swallows exceptions from cleanup_orphans.
+    def record_cleanup(*args, **kwargs):
+        cleanup_calls.append((args, kwargs))
+
+    monkeypatch.setattr("plugin.calc.python.spill.cleanup_orphans", record_cleanup)
     run_sheet_modify_pass("ctx", doc, sheet)
+    assert cleanup_calls == []
 
 
 def test_rename_of_one_sheet_keeps_other_sheets_spills(monkeypatch: pytest.MonkeyPatch) -> None:

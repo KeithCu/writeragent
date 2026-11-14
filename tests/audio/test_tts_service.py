@@ -717,15 +717,6 @@ def test_sentence_speak_enabled_uses_schema_default_on():
         assert sentence_speak_enabled() is True
 
 
-def test_sentence_speak_enabled_unset_is_on_saved_false_stays_off():
-    with patch("plugin.audio.tts_service.config.get_config", return_value=True):
-        assert sentence_speak_enabled() is True
-    with patch("plugin.audio.tts_service.config.get_config", return_value=False):
-        assert sentence_speak_enabled() is False
-    with patch("plugin.audio.tts_service.config.get_config", return_value=True):
-        assert sentence_speak_enabled() is True
-
-
 def _speak_sentence_case(cfg, *, provider=None, model=None):
     import plugin.audio.tts_service as tts
 
@@ -1781,21 +1772,12 @@ def test_stop_before_fetch_skips_playback_and_fallback():
     tts.stop_speech()
     assert scope.is_cancelled()
 
-    download_results: list[object] = []
-    real_dl = tts.download_endpoint_speech
-
-    def spy_download(*args, **kwargs):
-        res = real_dl(*args, **kwargs)
-        download_results.append(res)
-        return res
-
-    with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=spy_download) as mock_dl, \
+    with patch("plugin.audio.tts_service.download_endpoint_speech") as mock_dl, \
          patch("plugin.audio.tts_service._play_audio_file") as mock_play, \
          patch("plugin.audio.tts_service._speak_system") as mock_fallback:
         tts._speak_endpoint("hello", "https://example.com/api", "key", cancel=scope)
 
-        if mock_dl.called:
-            assert all(res is None for res in download_results)
+        mock_dl.assert_not_called()
         mock_play.assert_not_called()
         mock_fallback.assert_not_called()
 

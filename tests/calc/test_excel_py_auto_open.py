@@ -310,10 +310,12 @@ def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
         assert doc._close_calls == []
 
 
-def test_maybe_convert_uno_applies_dag_and_ignores_stale_marker(tmp_path: Path):
+@pytest.mark.parametrize("modified_before", [False, True])
+def test_maybe_convert_uno_applies_dag_and_preserves_modified_flag(tmp_path: Path, modified_before: bool):
     src = tmp_path / "py.xlsx"
     _minimal_xlsx(src, with_scripts=True)
     doc = CalcDocStub()
+    doc.setModified(modified_before)
     ok_cell = ConvertedCell(
         sheet="Sheet1",
         cell="A1",
@@ -324,67 +326,22 @@ def test_maybe_convert_uno_applies_dag_and_ignores_stale_marker(tmp_path: Path):
         dag_formula='=PY("1")',
     )
     report = ConversionReport(direction="dag", cells=[ok_cell])
+
+    def _dirty_doc(target_doc, _report):
+        target_doc.setModified(True)
+        return []
+
     with (
         patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
         patch("plugin.doc.udprops.get_document_property", return_value="1"),
         patch("plugin.doc.udprops.set_document_property") as set_prop,
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]) as apply_uno,
+        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", side_effect=_dirty_doc) as apply_uno,
     ):
         assert maybe_convert_excel_py_document(doc) is True
         apply_uno.assert_called_once()
         assert [c.args[1] for c in set_prop.call_args_list] == ["ExcelPyDagMeta"]
-
-
-def test_maybe_convert_restores_unmodified_flag(tmp_path: Path):
-    src = tmp_path / "py.xlsx"
-    _minimal_xlsx(src, with_scripts=True)
-    doc = CalcDocStub()
-    ok_cell = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code="1",
-        converted_code="1",
-        converted=True,
-        dag_formula='=PY("1")',
-    )
-    report = ConversionReport(direction="dag", cells=[ok_cell])
-    with (
-        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
-        patch("plugin.doc.udprops.get_document_property", return_value="1"),
-        patch("plugin.doc.udprops.set_document_property"),
-        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]),
-    ):
-        assert maybe_convert_excel_py_document(doc) is True
-        assert doc.isModified() is False
-
-
-def test_maybe_convert_keeps_already_modified_flag(tmp_path: Path):
-    src = tmp_path / "py.xlsx"
-    _minimal_xlsx(src, with_scripts=True)
-    doc = CalcDocStub()
-    doc.setModified(True)
-    ok_cell = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code="1",
-        converted_code="1",
-        converted=True,
-        dag_formula='=PY("1")',
-    )
-    report = ConversionReport(direction="dag", cells=[ok_cell])
-    with (
-        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
-        patch("plugin.doc.udprops.get_document_property", return_value="1"),
-        patch("plugin.doc.udprops.set_document_property"),
-        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]),
-    ):
-        assert maybe_convert_excel_py_document(doc) is True
-        assert doc.isModified() is True
+        assert doc.isModified() is modified_before
 
 
 def test_maybe_convert_returns_false_when_nothing_converts(tmp_path: Path):
@@ -673,22 +630,8 @@ def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
     sheet.getCellRangeByName("B1").setFormula("=ORIGINAL_B1")
 
     long_code = "x = " + "a" * 1200
-    c1 = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code=long_code,
-        converted_code=long_code,
-        converted=True,
-    )
-    c2 = ConvertedCell(
-        sheet="Sheet1",
-        cell="B1",
-        direction="dag",
-        original_code="y = 2",
-        converted_code="y = 2",
-        converted=True,
-    )
+    c1 = _dag_cell(sheet="Sheet1", cell="A1", converted_code=long_code)
+    c2 = _dag_cell(sheet="Sheet1", cell="B1", converted_code="y = 2")
     report = ConversionReport(direction="dag", cells=[c1, c2])
 
     def _failing_set_formula(val: str):
