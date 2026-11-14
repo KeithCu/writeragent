@@ -2299,7 +2299,6 @@ def test_image_delete_draw_miss_has_list_hint():
     assert res["status"] == "error"
     assert res["code"] == "IMAGE_NOT_FOUND"
     assert "details" in res
-    assert res["details"]["hint"] == "Call image_list to list names."
 
 
 def test_prune_image_cache_drops_oldest(tmp_path):

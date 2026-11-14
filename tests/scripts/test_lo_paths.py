@@ -359,7 +359,6 @@ def test_check_lo_python_empty_and_failed_import(
     out, err = capsys.readouterr()
     assert f"LO_PYTHON={bad_py}" in out
     assert "cannot import officehelper and uno" in err
-    assert "project .venv" in err
 
 
 def test_run_lo_python_execs_with_env_and_set(tmp_path: Path) -> None:

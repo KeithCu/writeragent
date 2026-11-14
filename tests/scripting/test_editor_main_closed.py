@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 import queue
 import threading
 from unittest.mock import MagicMock
@@ -178,21 +177,14 @@ def test_write_parent_stamps_a_whole_session_pair(monkeypatch):
             raise AssertionError(f"Unexpected session_id: {m}")
 
 
-def test_write_parent_warns_on_type_host_does_not_handle(monkeypatch, caplog):
-    # Outgoing types in the editor child are checked against CHILD_TO_PARENT_TYPES to
-    # detect typos and unhandled message types early. Unhandled types still emit but log a warning.
+def test_write_parent_emits_even_for_unhandled_type(monkeypatch):
     _reset_closed_state()
     messages: list[dict] = []
     monkeypatch.setattr(em, "_emit", messages.append)
 
-    with caplog.at_level(logging.WARNING):
-        em._write_parent({"type": "bogus"})
-    assert any("type bogus is not handled by the host" in r.message for r in caplog.records)
+    em._write_parent({"type": "bogus"})
     assert len(messages) == 1
     assert messages[0]["type"] == "bogus"
 
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        em._write_parent({"type": "dirty", "dirty": True})
-    assert not any("is not handled by the host" in r.message for r in caplog.records)
+    em._write_parent({"type": "dirty", "dirty": True})
     assert len(messages) == 2

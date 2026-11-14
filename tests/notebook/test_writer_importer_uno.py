@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import unittest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -161,10 +162,6 @@ def _output_text_for_cell(doc, cell) -> str:
     return str(sel.getString() or "")
 
 
-def _tail_text(doc, n_chars: int = 400) -> str:
-    return (doc.getText().getString() or "")[-n_chars:]
-
-
 def _run_blob(result, output: str) -> str:
     return "\n".join(part for part in (result.status, result.message, output) if part)
 
@@ -176,18 +173,6 @@ def _is_dunder_version_forbid(blob: str) -> bool:
         return True
     # InterpreterError text is ``Forbidden access to dunder attribute: __version__``.
     return "Forbidden" in text and "__version__" in text
-
-
-def _is_missing_numpy(blob: str) -> bool:
-    """Worker venv has no NumPy — environment issue, not a dunder-jail regression."""
-    text = blob or ""
-    if "numpy" not in text.lower():
-        return False
-    return (
-        "ModuleNotFoundError" in text
-        or "No module named" in text
-        or "ImportError" in text
-    )
 
 
 def _graphic_count(doc) -> int:
@@ -347,17 +332,10 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
         text = matching[0][1]
         assert not text.lstrip().startswith("#"), f"leading # on {title!r}: {text!r}"
         heading_hit = next((s for s, t in matching if _style_is_heading(s, level)), None)
-        if heading_hit is None:
-            families = doc.getStyleFamilies().getByName("ParagraphStyles")
-            want = f"Heading {level}"
-            if families.hasByName(want):
-                raise AssertionError(f"{title!r} expected {want}, got {matching!r}")
+        assert heading_hit is not None, f"{title!r} expected Heading {level}, got {matching!r}"
 
-    # Inline ``ndarray`` → HTML <code> when the filter works; do not fail the smoke on CharStyle.
-    if "`ndarray`" in body:
-        print("NOTE: inline backticks remain on ndarray (HTML filter flaky)", flush=True)
-    else:
-        assert "ndarray" in body
+    assert "ndarray" in body
+    assert "`ndarray`" not in body, "inline backticks remain on ndarray"
 
     import re as _re
 
@@ -423,61 +401,37 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     out3 = _output_text_for_cell(doc, state.code_cells[1])
     out5 = _output_text_for_cell(doc, state.code_cells[2])
     outputs = (out1, out3, out5)
-    tail = _tail_text(doc)
 
     # PR 453 treated a sandbox dunder deny as a clean error. That must fail this job.
-    numpy_missing = False
     for cell, result, out in zip(state.code_cells, results, outputs):
         blob = _run_blob(result, out)
         assert not _is_dunder_version_forbid(blob), (
             f"cell {cell.index} still denied __version__ (must not be the outcome): "
             f"status={result.status!r} message={result.message!r} output={out!r}"
         )
-        if result.status == "error" and "__version__" in (result.message or ""):
-            raise AssertionError(
-                f"cell {cell.index} error message still mentions __version__: {result.message!r}"
-            )
-        if result.status == "error" and _is_missing_numpy(blob):
-            numpy_missing = True
-            print(
-                f"NOTE: worker venv has no numpy (environment issue, not a dunder deny): "
-                f"cell {cell.index} {result.message}",
-                flush=True,
-            )
-            continue
-        if numpy_missing:
-            print(
-                f"NOTE: notebook run cell {cell.index} skipped strict ok "
-                f"(numpy missing earlier): {result.message}",
-                flush=True,
-            )
-            continue
+        if result.status == "error" and "numpy" in blob.lower() and (
+            "ModuleNotFoundError" in blob or "No module named" in blob or "ImportError" in blob
+        ):
+            raise unittest.SkipTest(f"worker venv has no numpy: {result.message}")
         assert result.status == "ok", (
-            f"cell {cell.index} expected ok (numpy is present); "
+            f"cell {cell.index} expected ok; "
             f"status={result.status!r} message={result.message!r} output={out!r}"
         )
 
-    if not numpy_missing:
-        assert "NumPy Version" in out1 or any(ch.isdigit() for ch in out1), (
-            f"cell 1 stdout missing version: {out1!r}"
-        )
-        assert "10" in out3 and "20" in out3 and "30" in out3, f"cell 3 array missing: {out3!r}"
-        assert "20" in out5 and "40" in out5 and "60" in out5, f"cell 5 multiplied values missing: {out5!r}"
-        later = doc.getText().getString() or ""
-        ver_at = later.find("NumPy Version")
-        arr_at = later.find("1. Creating Arrays")
-        if ver_at >= 0 and arr_at >= 0:
-            assert ver_at < arr_at, "cell 1 output was inserted after later markdown (document end dump)"
-        assert "NumPy Version" not in tail or "Multiplied" in tail, (
-            f"cell 1 output looks dumped at document end: {tail!r}"
-        )
-        mashed = [t for _s, t in _paragraphs(doc) if "NumPy Version" in t and "Cell 3: Markdown" in t]
-        assert not mashed, f"stdout concatenated onto next heading: {mashed!r}"
-        import re as _re
+    assert "NumPy Version" in out1, f"cell 1 stdout missing version: {out1!r}"
+    assert "10" in out3 and "20" in out3 and "30" in out3, f"cell 3 array missing: {out3!r}"
+    assert "20" in out5 and "40" in out5 and "60" in out5, f"cell 5 multiplied values missing: {out5!r}"
+    later = doc.getText().getString() or ""
+    ver_at = later.find("NumPy Version")
+    arr_at = later.find("1. Creating Arrays")
+    assert 0 <= ver_at < arr_at, "cell 1 output was inserted after later markdown (document end dump)"
+    mashed = [t for _s, t in _paragraphs(doc) if "NumPy Version" in t and "Cell 3: Markdown" in t]
+    assert not mashed, f"stdout concatenated onto next heading: {mashed!r}"
+    import re as _re
 
-        assert _re.search(r"Cell \d+: Markdown", later) is None, (
-            f"Cell N: Markdown chrome still in document after import/run: {later[:500]!r}"
-        )
+    assert _re.search(r"Cell \d+: Markdown", later) is None, (
+        f"Cell N: Markdown chrome still in document after import/run: {later[:500]!r}"
+    )
 
     draw_after_run = _draw_control_names(doc)
     for field in field_names:
@@ -492,14 +446,8 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     with patch("plugin.notebook.notebook_runner.msgbox", capture):
         run_cell_for_doc_hex(ctx, doc, cell_id_to_hex(cell0.cell_id))
     after = _output_text_for_cell(doc, cell0)
-    needle = "NumPy Version"
-    if needle in before:
-        assert after.count(needle) == 1, f"re-run appended duplicate output: {after!r}"
-    elif before.strip() and after.strip():
-        snippet = before.strip()[:40]
-        assert after.count(snippet) <= 1 or after == before or len(after) < len(before) * 2, (
-            f"re-run looks like append: before={before!r} after={after!r}"
-        )
+    assert "NumPy Version" in before, f"cell 0 missing NumPy Version before re-run: {before!r}"
+    assert after.count("NumPy Version") == 1, f"re-run appended duplicate output: {after!r}"
 
     # clear_cell_output paragraph-expand: markdown between code cells must survive re-run.
     body_after = doc.getText().getString() or ""
@@ -632,21 +580,11 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
 
     why_page = _page_of_text(doc, "Why NumPy?")
     dt_page = _page_of_text(doc, "1. DataTypes and attributes")
-    in2_page = _page_of_text(doc, "In [2]:")
     by_page = _paragraphs_with_pages(doc)
-    layout = _paragraphs_with_layout(doc)
-    print(
-        f"medium pages why={why_page} datatypes={dt_page} in2={in2_page} "
-        f"leading_empties={ {p: _leading_empty_count(by_page, p) for p in sorted({pg for pg, _s, _t in by_page})} }",
-        flush=True,
+    assert why_page is not None and dt_page is not None, (why_page, dt_page)
+    assert dt_page == why_page, (
+        f"DataTypes heading skipped to page {dt_page} away from Why NumPy on {why_page}"
     )
-    if why_page is not None and dt_page is not None:
-        assert dt_page == why_page, (
-            f"DataTypes heading skipped to page {dt_page} away from Why NumPy on {why_page}"
-        )
-    # Extra wrap-line pad can make In[2]'s field miss the remainder of page 1.
-    # That is an unsplittable AS_CHARACTER jump, not KeepWithNext glue (DataTypes
-    # staying with Why NumPy is the hole we still forbid).
     pages_used = sorted({pg for pg, _s, _t in by_page})
     for page in pages_used:
         empties = _leading_empty_count(by_page, page)
@@ -655,78 +593,33 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
             f"{[t for pg, _s, t in by_page if pg == page][:6]!r}"
         )
 
-    pages = _writer_page_count(doc)
-    print(f"medium page_count={pages}", flush=True)
+    layout = _paragraphs_with_layout(doc)
     box = _page_box(doc)
-    if box is not None and layout:
-        top, bottom, page_h = box
-        print(f"medium page box top={top} bottom={bottom} h={page_h}", flush=True)
-        for page in pages_used:
-            first = next(
-                (item for item in layout if item[0] == page and (item[3] or "").strip()),
-                None,
-            )
-            if first is None:
+    assert box is not None, "could not read PageStyles box"
+    assert layout, "could not read paragraph layout positions"
+    top, _bottom, page_h = box
+    for page in pages_used:
+        first = next(
+            (item for item in layout if item[0] == page and (item[3] or "").strip()),
+            None,
+        )
+        if first is None:
+            continue
+        _pg, y, _style, text = first
+        local_y = _page_local_y(y, page, page_h)
+        preview = " ".join((text or "").split())[:48]
+        # Skip-before-shape: a quarter-page blank top band is ~5000+ HMM.
+        # ViewCursor Y is document-absolute (page 2 was 28441 on a 27940 page).
+        if page > 1 and local_y > 0:
+            # In [n]: may start a page after a tall unsplittable field (KeepTogether
+            # off). That split is preferred over a glued In+field page hole.
+            if (text or "").strip().startswith("In ["):
                 continue
-            _pg, y, _style, text = first
-            local_y = _page_local_y(y, page, page_h)
-            preview = " ".join((text or "").split())[:48]
-            print(
-                f"medium page {page} first_y={y} local_y={local_y} {preview!r}",
-                flush=True,
-            )
-            # Skip-before-shape: a quarter-page blank top band is ~5000+ HMM.
-            # ViewCursor Y is document-absolute (page 2 was 28441 on a 27940 page).
-            if page > 1 and local_y > 0:
-                # In [n]: may start a page after a tall unsplittable field (KeepTogether
-                # off). That split is preferred over a glued In+field page hole.
-                if (text or "").strip().startswith("In ["):
-                    continue
-                # Tall unsplittable fields can push following markdown below the
-                # old 2500 HMM band; still fail on a near-empty first half-page.
-                assert local_y <= top + 8000, (
-                    f"page {page} blank top band: {preview!r} at local Y={local_y} "
-                    f"(raw Y={y}, top margin {top})"
-                )
-        # Print remaining-space math for code cells that start a page. Do not
-        # assert it: the field paragraph is empty in getString(), so last_y is
-        # the In [n]: gutter, not the bottom of the gray box.
-        from plugin.notebook.form_lookup import find_control_shape_by_name as _find_shape
-
-        for page in pages_used:
-            if page <= 1:
-                continue
-            first = next(
-                (item for item in layout if item[0] == page and (item[3] or "").strip()),
-                None,
-            )
-            if first is None:
-                continue
-            preview = " ".join((first[3] or "").split())[:48]
-            if not preview.startswith("In ["):
-                continue
-            prev = [item for item in layout if item[0] == page - 1 and (item[3] or "").strip()]
-            if not prev:
-                continue
-            last_y = prev[-1][1]
-            last_local = _page_local_y(last_y, page - 1, page_h)
-            remaining = page_h - bottom - last_local
-            last_preview = " ".join((prev[-1][3] or "").split())[:48]
-            field_h = 0
-            in_index = sum(
-                1
-                for item in layout
-                if item[0] < page and (item[3] or "").strip().startswith("In [")
-            )
-            if 0 <= in_index < len(state.code_cells):
-                shp = _find_shape(doc, state.code_cells[in_index].code_field_name)
-                if shp is not None:
-                    field_h = int(shp.getSize().Height)
-            print(
-                f"medium page {page} starts {preview!r} last_prev_y={last_y} "
-                f"last_local={last_local} remaining={remaining} field_h={field_h} "
-                f"last={last_preview!r}",
-                flush=True,
+            # Tall unsplittable fields can push following markdown below the
+            # old 2500 HMM band; still fail on a near-empty first half-page.
+            assert local_y <= top + 8000, (
+                f"page {page} blank top band: {preview!r} at local Y={local_y} "
+                f"(raw Y={y}, top margin {top})"
             )
 
 

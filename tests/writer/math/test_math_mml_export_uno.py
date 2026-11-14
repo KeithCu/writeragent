@@ -60,8 +60,7 @@ def test_portion_math_embed_finds_as_character_formula_uno(ctx: Any, doc: Any) -
 def test_starmath_to_latex_reimports(ctx: Any, doc: Any) -> None:
     res = convert_starmath_to_latex(ctx, "{a} over {b}")
     assert res.ok, res.error_message
-    assert res.latex
-    assert "frac" in res.latex.lower() or "over" in res.latex.lower() or "/" in res.latex
+    assert res.latex == r"\frac{a}{b}", res.latex
     back = convert_latex_to_starmath(ctx, res.latex)
     assert back.ok, back.error_message
     assert back.starmath
@@ -107,7 +106,7 @@ def test_document_to_content_includes_tex(ctx: Any, doc: Any) -> None:
     html = document_to_content(doc, ctx, scope="full")
     assert html
     assert "<math" not in html.lower()
-    assert "frac" in html.lower() or "1" in html
+    assert r"$\frac{1}{2}$" in html, html
     assert html.count("$") == 6
     assert "$$x$$" in html
 

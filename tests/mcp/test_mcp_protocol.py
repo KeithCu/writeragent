@@ -64,8 +64,7 @@ def test_document_echo_payload_logs_and_returns_none(caplog):
 
     caplog.set_level(logging.ERROR, logger="plugin.mcp.mcp_protocol")
     assert _document_echo_payload(_DocWithFailingURL()) is None
-    record = next(r for r in caplog.records if "MCP document echo failed" in r.message)
-    assert record.exc_info is not None
+    record = next(r for r in caplog.records if r.exc_info is not None)
     assert "simulated document URL access failure" in str(record.exc_info[1])
 
 
@@ -1136,7 +1135,7 @@ def test_sse_keepalive_unexpected_error_is_logged(caplog):
     with caplog.at_level(logging.ERROR, logger="plugin.mcp.mcp_protocol"):
         protocol._run_sse_keepalive_loop(http, interval=30)
     sse.release.assert_called_once()
-    assert any(r.exc_info and "SSE keepalive loop exception" in r.getMessage() for r in caplog.records)
+    assert any(r.exc_info is not None for r in caplog.records)
 
 
 def test_process_jsonrpc_writeragent_exception_keeps_message():

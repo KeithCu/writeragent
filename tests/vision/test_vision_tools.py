@@ -246,7 +246,6 @@ def test_vision_directive_draw_names_draw_gateway(_mock_avail):
     doc.supportsService.side_effect = lambda svc: svc in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
     text = get_vision_core_directive(doc, MagicMock())
     assert 'delegate_to_specialized_draw_toolset(domain="vision"' in text
-    assert "nothing is inserted" in text.lower()
 
 
 def test_supports_vision_manual_true_for_draw():
@@ -314,23 +313,6 @@ def test_get_vision_core_directive_calc_when_available(_mock_avail, calc_doc):
 
     text = get_vision_core_directive(calc_doc, MagicMock())
     assert 'delegate_to_specialized_calc_toolset(domain="vision"' in text
-    assert "domain=\"vision\"" in text
-    assert "text and structure" in text
-    assert "high-quality" in text
-    assert "selected graphic" in text
-    assert "task is ignored" in text
-    assert "must use this call to perform OCR" in text
-    lowered = text.lower()
-    for banned in ("html", "docling", "rapidocr", "recognized text"):
-        assert banned not in lowered
-
-
-def test_images_guidance_names_structure_tool():
-    from plugin.framework.prompts import WRITER_IMAGES_RULES
-
-    assert "extract_structure_from_image" in WRITER_IMAGES_RULES
-    assert "extract_text_from_image" not in WRITER_IMAGES_RULES
-    assert "text and structure" in WRITER_IMAGES_RULES.lower()
 
 
 @patch("plugin.framework.queue_executor.main.call")

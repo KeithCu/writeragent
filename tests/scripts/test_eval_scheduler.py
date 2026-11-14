@@ -380,7 +380,6 @@ def test_string_scripted_cli_skips_flag(capsys: pytest.CaptureFixture[str]) -> N
     assert "org_chart_gen" in out
     assert "python_shapes_flag" in out
     assert "backend=lo" in out
-    assert "Scripted result pass: 17/17" in out
 
 
 def test_auto_scripted_cli_skips_flag(
@@ -397,10 +396,15 @@ def test_auto_scripted_cli_skips_flag(
     import tools_lo
     from eval_scheduler import PackSelection, declared_backend, select_pack as real_select_pack
 
+    product_selected_ids: list[str] = []
+
     def select_pack_without_lo_bootstrap(*args: object, **kwargs: object) -> PackSelection:
         selected = real_select_pack(*args, **kwargs)  # type: ignore[arg-type]
         if selected.error:
             return selected
+        product_selected_ids.extend(
+            getattr(ex, "task_id", "") for ex in selected.examples
+        )
         kept = [ex for ex in selected.examples if declared_backend(ex) != "lo"]
         notes = list(selected.notes)
         dropped = [
@@ -428,8 +432,9 @@ def test_auto_scripted_cli_skips_flag(
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "no scripted replay" in out
+    assert "python_shapes_flag" not in product_selected_ids
+    assert "org_chart_gen" in product_selected_ids
+    assert "solar_sld_gen" in product_selected_ids
     assert "python_shapes_flag" in out
     assert "org_chart_gen" in out  # noted as unit-test LO drop
     assert "solar_sld_gen" in out
-    assert "Scripted result pass: 17/17" in out

@@ -44,8 +44,7 @@ def test_convert_mathml_to_starmath_fraction(ctx: Any, doc: Any) -> None:
     )
     res = convert_mathml_to_starmath(ctx, mml)
     assert res.ok, res.error_message
-    assert res.starmath
-    assert "frac" in res.starmath.lower() or "=" in res.starmath
+    assert res.starmath.strip() == "{ x = { frac { 1 } { 2 } } }", res.starmath
 
 
 @native_test

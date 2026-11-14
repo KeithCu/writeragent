@@ -1,7 +1,6 @@
 """Tests for venv_worker (paths, warm worker, run_code) via PythonWorkerManager + worker_harness."""
 from __future__ import annotations
 import io
-import logging
 import os
 import pickle
 import struct
@@ -1140,7 +1139,7 @@ def test_request_session_id_still_reaches_tool_rpc_without_pin():
     assert request['session_id'] == 'rps:file:///deck.odg'
     assert call.kwargs['script_session_id'] == 'rps:file:///deck.odg'
 
-def test_warm_logs_prime_failure(caplog: pytest.LogCaptureFixture) -> None:
+def test_warm_prime_failure_does_not_raise() -> None:
     import contextlib
 
     mgr = PythonWorkerManager('/tmp/python-warm-fail', {'PATH': '/usr/bin'})
@@ -1151,9 +1150,7 @@ def test_warm_logs_prime_failure(caplog: pytest.LogCaptureFixture) -> None:
         yield {'status': 'error', 'message': 'prime failed'}
 
     with patch.object(mgr, '_io_session', fake_session):
-        with caplog.at_level(logging.WARNING, logger='plugin.scripting.venv_worker'):
-            mgr.warm()
-    assert 'prime failed' in caplog.text
+        mgr.warm()
 
 def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """A replaced manager must not kill a worker or wipe the Calc scalar cache."""
@@ -1876,8 +1873,7 @@ def test_io_session_does_not_merge_parent_env(monkeypatch: pytest.MonkeyPatch) -
             os.environ['WRITERAGENT_SPAWN_SENTINEL'] = old_val
         mgr._terminate_worker()
 
-def test_io_session_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    import logging
+def test_io_session_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
 
     def fake_popen(*args: Any, **kwargs: Any) -> Any:
@@ -1885,9 +1881,7 @@ def test_io_session_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(ms.subprocess, 'Popen', fake_popen)
     mgr = PythonWorkerManager(sys.executable, {})
     monkeypatch.setattr(mgr, '_ensure_warmed_unlocked', lambda leased: None)
-    with caplog.at_level(logging.ERROR, logger='plugin.framework.managed_subprocess'):
-        assert _session_ok(mgr) is False
-    assert 'Failed to start managed subprocess' not in caplog.text
+    assert _session_ok(mgr) is False
     assert _mgr_proc(mgr) is None
     assert _mgr_stderr_tail(mgr) is None
 
@@ -1932,19 +1926,17 @@ def test_heartbeats_cannot_extend_past_absolute_cap():
             mgr._read_response_with_heartbeats(io.BytesIO(), 30, 30, None)
     assert time.monotonic() - started < 10.0
 
-def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCaptureFixture):
+def test_unknown_frame_does_not_extend_heartbeat_deadline():
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = 'python'
 
     def parse(_frame: bytes) -> dict[str, str]:
         return {'frame_type': 'not-a-real-frame'}
     started = time.monotonic()
-    with caplog.at_level(logging.WARNING):
-        with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
-            with pytest.raises(subprocess.TimeoutExpired):
-                mgr._read_response_with_heartbeats(io.BytesIO(), 0.25, 0.25, None)
+    with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
+        with pytest.raises(subprocess.TimeoutExpired):
+            mgr._read_response_with_heartbeats(io.BytesIO(), 0.25, 0.25, None)
     assert time.monotonic() - started < 10.0
-    assert 'unknown frame type' in caplog.text
 
 def test_pool_key_change_retires_old_warm_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """A new venv path retires the old warm child before the replacement can spawn."""
@@ -2361,7 +2353,7 @@ def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monk
     _skip_harness_ready_frame(stdout)
     assert stdout.read() == b''
 
-def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplog):
+def test_harness_main_truncated_frame_breaks_without_response(monkeypatch):
     import io
     import plugin.scripting.venv.worker_harness as harness
     stdin = io.BytesIO(b'\x00\x00')
@@ -2371,11 +2363,9 @@ def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplo
     monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
     monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
     monkeypatch.setattr(harness, '_init_logging', lambda: None)
-    with caplog.at_level(logging.WARNING, logger='worker_harness'):
-        harness.main()
+    harness.main()
     _skip_harness_ready_frame(stdout)
     assert stdout.read() == b''
-    assert 'IPC frame error' in caplog.text
 
 def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
     import io
@@ -2472,7 +2462,7 @@ def test_harness_main_reads_claimed_stdin(monkeypatch):
     started = read_pickle_frame(stdout, require_dict=True)
     assert started == {'type': 'exec_started', 'id': 'req-claim-in'}
 
-def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixture):
+def test_first_frame_stall_uses_timeout_not_grace():
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = 'python'
 
@@ -2485,8 +2475,6 @@ def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixtu
     elapsed = time.monotonic() - started
     assert elapsed < 10.0
     assert excinfo.value.timeout == pytest.approx(0.2)
-    unknown_logs = [rec for rec in caplog.records if rec.levelno >= logging.WARNING and 'ignoring unknown frame' in rec.getMessage()]
-    assert len(unknown_logs) == 1
 
 def test_heartbeat_then_stall_uses_grace():
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)

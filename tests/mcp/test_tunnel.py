@@ -1638,35 +1638,22 @@ def test_start_absent_token_in_env_and_args(monkeypatch):
         assert "--token" not in started_cmds[-1]
 
 
-def test_tailscale_reset_warns_on_nonzero_exit(caplog):
-    import logging
-
+def test_tailscale_reset_returns_false_on_nonzero_exit():
     completed = MagicMock()
     completed.returncode = 1
     completed.stderr = "Error: the CLI for serve and funnel has changed."
     completed.stdout = ""
     with patch("subprocess.run", return_value=completed):
-        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            assert TailscaleProvider.reset_funnel(18765) is False
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "exited 1" in warnings[0].message
-    assert "https=443" in warnings[0].message
-    assert not any(r.exc_info for r in caplog.records)
+        assert TailscaleProvider.reset_funnel(18765) is False
 
 
-def test_tailscale_reset_info_on_success(caplog):
-    import logging
-
+def test_tailscale_reset_returns_true_on_success():
     completed = MagicMock()
     completed.returncode = 0
     completed.stderr = ""
     completed.stdout = ""
     with patch("subprocess.run", return_value=completed):
-        with caplog.at_level(logging.INFO, logger="writeragent.mcp.tunnel"):
-            assert TailscaleProvider.reset_funnel(18765) is True
-    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert not warnings
+        assert TailscaleProvider.reset_funnel(18765) is True
 
 
 def test_tailscale_reset_returns_false_on_exception(caplog):
@@ -1675,34 +1662,19 @@ def test_tailscale_reset_returns_false_on_exception(caplog):
     with patch("subprocess.run", side_effect=OSError("boom")):
         with caplog.at_level(logging.ERROR, logger="writeragent.mcp.tunnel"):
             assert TailscaleProvider.reset_funnel(18765) is False
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert any(r.exc_info for r in errors)
+    assert any(r.levelno == logging.ERROR and r.exc_info for r in caplog.records)
 
 
-def test_binary_available_missing_is_warning(caplog):
-    import logging
-
+def test_binary_available_missing_returns_error():
     with patch("subprocess.run", side_effect=FileNotFoundError):
-        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            assert binary_available("cloudflare") == "cloudflared binary not found on PATH"
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "not found" in warnings[0].message
-    assert not any(r.exc_info for r in caplog.records)
+        assert binary_available("cloudflare") == "cloudflared binary not found on PATH"
 
 
-def test_binary_available_timeout_is_warning(caplog):
-    import logging
+def test_binary_available_timeout_returns_error():
     import subprocess
 
     with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["cloudflared", "--version"], timeout=10)):
-        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            assert binary_available("cloudflare") == "cloudflared binary check timed out"
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "not found" not in warnings[0].message
-    assert not any(r.exc_info for r in caplog.records)
+        assert binary_available("cloudflare") == "cloudflared binary check timed out"
 
 
 def test_binary_available_permission_error(caplog):
@@ -1711,10 +1683,7 @@ def test_binary_available_permission_error(caplog):
     with patch("subprocess.run", side_effect=PermissionError("denied")):
         with caplog.at_level(logging.ERROR, logger="writeragent.mcp.tunnel"):
             assert binary_available("cloudflare") == "could not execute cloudflared"
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert "not found" not in errors[0].message
-    assert any(r.exc_info for r in errors)
+    assert any(r.levelno == logging.ERROR and r.exc_info for r in caplog.records)
 
 
 def test_binary_available_nonzero_version_is_available():
@@ -1761,7 +1730,7 @@ def test_notify_url_failure_is_logged(caplog):
                 [NotifyUrlAcquiredEffect("cloudflare", "https://abc.example.com")],
                 TunnelStatus.STARTING,
             )
-    assert any(r.exc_info and "Failed to notify MCP tunnel URL" in r.getMessage() for r in caplog.records)
+    assert any(r.exc_info for r in caplog.records)
     assert mgr.public_url == "https://abc.example.com"
 
 

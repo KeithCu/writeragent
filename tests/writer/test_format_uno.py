@@ -101,8 +101,9 @@ def _read_doc_text(d):
 @native_test
 @with_native_doc("writer")
 def test_document_to_content(ctx, doc):
+    doc.getText().setString("Hello Writer")
     md = document_to_content(doc, ctx, scope="full")
-    assert isinstance(md, str), f"document_to_content did not return string: {type(md)}"
+    assert "Hello Writer" in md, f"document_to_content missed seeded text: {md!r}"
 
 
 @native_test
@@ -157,11 +158,11 @@ def test_search_and_replace(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_get_document_content_scope_range(ctx, doc):
-    full_text = _read_doc_text(doc)
-    if len(full_text) >= 10:
-        result = _get_document_content(doc, ctx, {"scope": "range", "start": 0, "end": 10})
-        assert result.get("status") == "ok", f"get_document_content scope=range failed: {result}"
-        assert result.get("start") == 0 and result.get("end") == 10 and "content" in result, "Malformed response"
+    doc.getText().setString("0123456789abcdef")
+    result = _get_document_content(doc, ctx, {"scope": "range", "start": 0, "end": 10})
+    assert result.get("status") == "ok", f"get_document_content scope=range failed: {result}"
+    assert result.get("start") == 0 and result.get("end") == 10, f"Malformed response: {result}"
+    assert "0123456789" in result.get("content", ""), f"Unexpected range content: {result}"
 
 
 @native_test

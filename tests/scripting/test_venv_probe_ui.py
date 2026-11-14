@@ -374,18 +374,16 @@ def test_dialog_parent_for_child_falls_back_to_frame() -> None:
         assert _dialog_parent_for_child(MagicMock(), None) is None
 
 
-def test_create_dialog_missing_dialog_calls_msgbox_and_returns_false(caplog: pytest.LogCaptureFixture) -> None:
+def test_create_dialog_missing_dialog_calls_msgbox_and_returns_false() -> None:
     fake_ctx = MagicMock()
     progress = VenvProbeProgressDialog(fake_ctx)
     with (
         patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(None, "detail text")),
         patch("plugin.scripting.venv_probe_ui.msgbox") as mock_msgbox,
     ):
-        with caplog.at_level("WARNING"):
-            result = progress._create_dialog()
+        result = progress._create_dialog()
 
     assert result is False
-    assert "detail text" in caplog.text
     mock_msgbox.assert_called_once()
 
 

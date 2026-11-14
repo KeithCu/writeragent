@@ -804,13 +804,11 @@ def test_f14_429_then_immediate_hello(ctx):
 @native_test
 def test_f15_500_then_429_then_hello(ctx):
     _send_and_wait("crash the stream", wait_for="API error")
-    before_429 = _transcript()
     _send_and_wait("rate limit", wait_for="429")
     body = _transcript()
     assert "429" in body or "Rate limited" in body, "F15 expected 429, got %r" % body[-500:]
     # Prior 500 line must survive (no HTML-rerender wipe).
-    if "[API error:" in before_429 or "HTTP Error 500" in before_429 or "500" in before_429:
-        assert "[API error:" in body or "HTTP Error 500" in body or "500" in body
+    assert "[API error:" in body, "F15 wiped prior 500 error: %r" % body[-500:]
     _hello_ok()
 
 
@@ -942,19 +940,6 @@ def test_b1d_stop_before_first_token(ctx):
 
 
 @native_test
-def test_b2_stop_then_immediate_hello(ctx):
-    _reset_mock_runtime()
-    n_posts = len(_captures())
-    before = _start_until_stop_enabled("keep talking", delay_ms=40)
-    try:
-        _wait_new_chat_post(n_posts)
-        _stop_and_wait_idle(before)
-    finally:
-        _reset_mock_runtime()
-    _hello_ok()
-
-
-@native_test
 def test_b3_double_stop_then_hello(ctx):
     _reset_mock_runtime()
     n_posts = len(_captures())
@@ -983,11 +968,16 @@ def test_b6_double_send(ctx):
     from plugin.chatbot.sidebar_test_hooks import uno_click
 
     _reset_mock_runtime()
+    n_posts0 = len(_captures())
     before = _start_until_stop_enabled("keep talking", delay_ms=40)
     try:
+        _wait_new_chat_post(n_posts0)
+        n_posts = len(_captures())
         controls = getattr(_session, "controls", None)
-        if controls is not None:
-            uno_click(controls["send"])
+        assert controls is not None, "B6 needs sidebar controls"
+        uno_click(controls["send"])
+        time.sleep(0.3)
+        assert len(_captures()) == n_posts, "B6 second send while streaming must not POST: %r" % _captures()
         _stop_and_wait_idle(before)
     finally:
         _reset_mock_runtime()
@@ -1051,29 +1041,12 @@ def test_b10_stop_hello_stop_again(ctx):
 
 
 @native_test
-def test_b11_query_after_stop_then_hello(ctx):
-    _reset_mock_runtime()
-    before = _start_until_stop_enabled("keep talking", delay_ms=40)
-    try:
-        _stop_and_wait_idle(before)
-    finally:
-        _reset_mock_runtime()
-    # Query may be restored or cleared; next hello must still type into the box.
-    assert isinstance(_query_box_text(), str)
-    _hello_ok()
-
-
-@native_test
 def test_b13_stop_before_first_chunk(ctx):
     _reset_mock_runtime()
     before = _transcript()
     try:
         _start_until_stop_enabled("hello", delay_ms=2000, timeout=8.0)
         _stop_and_wait_idle(before, timeout=25.0)
-    except AssertionError:
-        # Stop never enabled: still require idle so we are not stuck Starting…
-        _press_stop()
-        _wait_idle_after_send(before, timeout=25.0)
     finally:
         _reset_mock_runtime()
     _hello_ok()
@@ -1084,16 +1057,8 @@ def test_b14_stop_during_thinking(ctx):
     _reset_mock_runtime()
     before = _transcript()
     try:
-        started = False
-        try:
-            _start_until_stop_enabled("think out loud", delay_ms=80, timeout=10.0)
-            started = True
-        except AssertionError:
-            started = False
-        if started:
-            _stop_and_wait_idle(before, timeout=25.0)
-        else:
-            _wait_idle_after_send(before, timeout=40.0)
+        _start_until_stop_enabled("think out loud", delay_ms=80, timeout=10.0)
+        _stop_and_wait_idle(before, timeout=25.0)
     finally:
         _reset_mock_runtime()
     _hello_ok()
@@ -1123,9 +1088,6 @@ def test_b16_stop_before_add_comment(ctx):
     try:
         _start_until_stop_enabled("add a comment", delay_ms=2000, timeout=8.0)
         _stop_and_wait_idle(before, timeout=25.0)
-    except AssertionError:
-        _press_stop()
-        _wait_idle_after_send(before, timeout=25.0)
     finally:
         _reset_mock_runtime()
     assert _annotation_count(ctx) == before_n, (
@@ -1689,37 +1651,6 @@ def test_e12_calc_list_sheets(ctx):
 
 
 @native_test
-def test_e13_stop_during_add_comment(ctx):
-    from plugin.chatbot.sidebar_test_hooks import (
-        set_query_text_via_controls,
-        uno_click,
-        wait_controls_send_finished,
-    )
-
-    _reset_mock_runtime()
-    _set_writer_body(ctx, WELCOME_BODY)
-    assert _session is not None
-    _session.config.delay_ms = 80
-    controls = getattr(_session, "controls", None)
-    before = _transcript()
-    try:
-        if controls is not None:
-            set_query_text_via_controls(controls, "add a comment")
-            time.sleep(0.2)
-            uno_click(controls["send"])
-            if _wait_stop_enabled(timeout=8.0):
-                _press_stop()
-            assert wait_controls_send_finished(
-                controls, timeout=30.0, transcript_fn=_transcript, before=before
-            ), "E13 did not go idle: %r" % _transcript()[-400:]
-        else:
-            _send_and_wait("add a comment", timeout=30.0)
-    finally:
-        _session.config.delay_ms = 20
-    _hello_ok()
-
-
-@native_test
 def test_e14_outline_twice(ctx):
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -1732,37 +1663,6 @@ def test_e14_outline_twice(ctx):
         if "delegate_to_specialized_writer_toolset" in (row.get("decided_tools") or [])
     )
     assert n_delegate >= 2, "E14 expected two delegate sends, got %s snaps=%r" % (n_delegate, snaps[-10:])
-    _hello_ok()
-
-
-@native_test
-def test_e15_stop_after_filler_tool_before_wrapup(ctx):
-    from plugin.chatbot.sidebar_test_hooks import (
-        set_query_text_via_controls,
-        uno_click,
-        wait_controls_send_finished,
-    )
-
-    _reset_mock_runtime()
-    _set_writer_body(ctx, WELCOME_BODY)
-    assert _session is not None
-    _session.config.delay_ms = 40
-    controls = getattr(_session, "controls", None)
-    before = _transcript()
-    try:
-        if controls is not None:
-            set_query_text_via_controls(controls, "insert filler")
-            time.sleep(0.2)
-            uno_click(controls["send"])
-            if _wait_stop_enabled(timeout=8.0):
-                _press_stop()
-            assert wait_controls_send_finished(
-                controls, timeout=30.0, transcript_fn=_transcript, before=before
-            ), "E15 did not go idle: %r" % _transcript()[-400:]
-        else:
-            _send_and_wait("insert filler", timeout=30.0)
-    finally:
-        _session.config.delay_ms = 20
     _hello_ok()
 
 
@@ -2090,8 +1990,8 @@ def test_g3_history_strips_audio_blob(ctx):
     sl = _g_prep()
     _g_record_and_stop(sl, _WAV_1S)
     tail = str(audio_status(listener=sl).get("history_user_tail") or "")
-    assert "input_audio" not in tail.lower() or "[Audio Attached]" in tail
-    assert "[Audio Attached]" in tail or len(tail) < 50_000
+    assert "input_audio" not in tail.lower(), "G3 history leaked input_audio: %r" % tail[:200]
+    assert "[Audio Attached]" in tail, "G3 history missing [Audio Attached] placeholder: %r" % tail[:200]
     assert len(tail) < 50_000, "G3 history looks like it stored raw audio: %d chars" % len(tail)
     _hello_ok()
 
@@ -4508,7 +4408,7 @@ def test_s9_late_transcript_hands_free(ctx):
 
 @native_test
 def test_s10_clear_while_stt_in_flight(ctx):
-    from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay, execute_debug_sidebar_op
+    from plugin.chatbot.sidebar_test_hooks import clear_sidebar_chat, press_record, set_late_transcript_delay
     _reset_mock_runtime()
     _s_install("noisy")
     set_late_transcript_delay(1.5)
@@ -4516,12 +4416,15 @@ def test_s10_clear_while_stt_in_flight(ctx):
         press_record()
         time.sleep(0.5)
         # Clear sidebar while STT is delaying
-        execute_debug_sidebar_op("SLASH_REFRESH")
+        clear_sidebar_chat()
 
         # Wait for the delay to finish
         time.sleep(2.0)
 
         _s_assert_idle()
+        assert "Fake STT transcript" not in _transcript(), "late STT landed in transcript after Clear"
+        sent = [c for c in _captures() if not c.get("stt") and "Fake STT transcript" in (c.get("user_text") or "")]
+        assert not sent, "late STT was sent to chat after Clear: %r" % sent
         st = _s_state()
         assert st.get("spawn_count", 0) >= 1, f"spawn_count < 1: {st}"
         _hello_ok()

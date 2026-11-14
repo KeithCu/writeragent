@@ -104,15 +104,7 @@ def test_writer_prompt_does_not_leak_oracle_totals(
 
 
 def test_native_slot_has_no_gdpval_gold_tree() -> None:
-    # Per docs/eval/eval-2/long-writer-pack/SOURCE.md, this native slot must
-    # not invent a fake GDPval id. Catalog short prefixes of claimed trees may
-    # appear as rejected rows, so only full docs/eval/gdpval/<id>/ claims fail.
     claimed_ids = {task_id for task_id, _ in _EXPERIMENTS}
     gdpval_ids = {path.name for path in _GDPVAL.iterdir() if path.is_dir()}
     assert gdpval_ids <= claimed_ids
-
-    exp_dir = _EVAL2 / "long-writer-pack"
-    source = (exp_dir / "SOURCE.md").read_text(encoding="utf-8")
-    for gold_id in claimed_ids:
-        assert f"docs/eval/gdpval/{gold_id}/" not in source, gold_id
-    assert not (exp_dir / "prompt.gdpval.txt").exists()
+    assert not (_EVAL2 / "long-writer-pack" / "prompt.gdpval.txt").exists()

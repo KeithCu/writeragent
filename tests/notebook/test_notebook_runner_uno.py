@@ -661,7 +661,7 @@ def test_run_cell_execution_error_no_msgbox(ctx, doc):
             flush_ui_idle(ctx)
         assert boxes == [], f"execution error opened msgbox: {boxes!r}"
         body = doc.getText().getString() or ""
-        assert "car" in body.lower() or "not defined" in body.lower() or "InterpreterError" in body
+        assert "InterpreterError: name 'car' is not defined" in body, body
     finally:
         try:
             ipynb.unlink()

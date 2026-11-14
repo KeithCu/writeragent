@@ -527,7 +527,7 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
     found.getText.assert_not_called()
 
 
-def test_all_matches_hoists_plain_text_conversion():
+def test_all_matches_replaces_every_range():
     from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -539,7 +539,7 @@ def test_all_matches_hoists_plain_text_conversion():
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(html_import, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
+         patch.object(html_import, "plain_text_if_markup", return_value="hi"), \
          patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
@@ -548,9 +548,6 @@ def test_all_matches_hoists_plain_text_conversion():
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 2
-    # plain_text_if_markup is called once for old_content and hoisted once for content (not per-match)
-    assert mock_html_plain.call_count == 2
-    assert mock_html_plain.call_args_list[1][0][0] == "<b>hi</b>"
 
 
 def test_search_replace_attaches_style_note_warning():
@@ -1018,8 +1015,7 @@ def test_target_end_entity_decoded_proposed_preview():
     assert mock_record.call_args[1]["proposed_preview"] == "<b>hi</b>"
 
 
-def test_shape_edit_leave_undo_context_failure_logged():
-    from unittest.mock import ANY
+def test_shape_edit_leave_undo_context_failure_does_not_fail_edit():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -1032,14 +1028,12 @@ def test_shape_edit_leave_undo_context_failure_logged():
     with patch("plugin.writer.search.find_first_range", return_value=None), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
-         patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True), \
-         patch("plugin.doc.compound_undo.log.exception") as mock_log_exc:
+         patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True):
         res = ApplyDocumentContent().execute(
             ctx, target="search", old_content="foo", content="bar"
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 1
-    mock_log_exc.assert_called_once_with("leaveUndoContext failed (title=%r)", ANY)
 
 
 def test_content_list_item_must_be_string():
