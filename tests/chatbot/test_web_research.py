@@ -54,7 +54,7 @@ def test_web_research_module_imports_despite_threading_lock_annotation():
     annotations aborts ``ChatbotModule.initialize`` and leaves
     ``librarian_onboarding`` unregistered.
     """
-    subprocess.run(
+    r = subprocess.run(
         [
             sys.executable,
             "-c",
@@ -63,8 +63,8 @@ def test_web_research_module_imports_despite_threading_lock_annotation():
         cwd=Path(__file__).resolve().parents[2],
         capture_output=True,
         text=True,
-        check=True,
     )
+    assert r.returncode == 0, r.stderr
 
 
 def test_web_search_engine_step_chat_text():
