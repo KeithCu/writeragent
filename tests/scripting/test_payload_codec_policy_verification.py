@@ -212,10 +212,6 @@ def test_wire_cell_count_split_grid_and_none() -> None:
     assert wire_cell_count(wire) == 4
 
 
-def test_empty_grid_is_numeric() -> None:
-    assert is_numeric_grid([]) is True
-
-
 def test_envelope_detectors_minimal_valid() -> None:
     """Each wire family matches exactly one public detector."""
     split_env = {

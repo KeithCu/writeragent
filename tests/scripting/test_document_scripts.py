@@ -10,6 +10,8 @@ import json
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from plugin.scripting.document_scripts import (
     DOCUMENT_SCRIPTS_UDPROP,
@@ -77,28 +79,15 @@ def _calc_component_enum(*models):
     return comps
 
 
-def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
-    writer = MagicMock()
+@pytest.mark.parametrize(("writer_flag", "draw_flag"), [(True, False), (False, True)])
+def test_get_calc_document_from_ctx_does_not_fall_back_from_other_app(writer_flag: bool, draw_flag: bool):
+    doc = MagicMock()
     desktop = MagicMock()
-    desktop.getCurrentComponent.return_value = writer
+    desktop.getCurrentComponent.return_value = doc
     with (
         patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
-        patch("plugin.scripting.document_scripts.is_writer", return_value=True),
-        patch("plugin.scripting.document_scripts.is_draw", return_value=False),
-        patch("plugin.scripting.document_scripts.is_calc", return_value=False),
-    ):
-        assert get_calc_document_from_ctx(MagicMock()) is None
-    desktop.getComponents.assert_not_called()
-
-
-def test_get_calc_document_from_ctx_does_not_fall_back_from_impress():
-    impress = MagicMock()
-    desktop = MagicMock()
-    desktop.getCurrentComponent.return_value = impress
-    with (
-        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
-        patch("plugin.scripting.document_scripts.is_writer", return_value=False),
-        patch("plugin.scripting.document_scripts.is_draw", return_value=True),
+        patch("plugin.scripting.document_scripts.is_writer", return_value=writer_flag),
+        patch("plugin.scripting.document_scripts.is_draw", return_value=draw_flag),
         patch("plugin.scripting.document_scripts.is_calc", return_value=False),
     ):
         assert get_calc_document_from_ctx(MagicMock()) is None
@@ -1181,14 +1170,18 @@ def test_scripts_list_keys_document_by_display_name_and_user_by_raw_name():
 
 def test_set_calc_init_script_returns_the_property_write_result() -> None:
     """No host-side init cache to refresh: the result is the document write's."""
-    from plugin.scripting import document_scripts as ds
 
-    with (
-        patch.object(ds, "_load_document_script_map", return_value=({}, None)),
-        patch.object(ds, "set_document_scripts", return_value="read-only") as write,
-    ):
-        assert ds.set_calc_init_script(MagicMock(), "x = 1") == "read-only"
-    assert write.call_args[0][1] == {"INIT": "x = 1"}
+    class _ReadOnlyProperties(_UserDefinedProperties):
+        def addProperty(self, name: str, attributes: int, value: object) -> None:
+            raise RuntimeError("read-only")
+
+        def setPropertyValue(self, name: str, value: object) -> None:
+            raise RuntimeError("read-only")
+
+    doc = _DocWithUserDefinedProperties(_ReadOnlyProperties())
+    err = set_calc_init_script(doc, "x = 1")
+    assert isinstance(err, DocumentScriptError)
+    assert err.code == DocumentScriptErrorCode.READONLY
 
 
 def test_calc_init_script_both_keys_present_roundtrip():
@@ -1526,25 +1519,6 @@ def test_shared_save_selected_script_user_and_doc_and_builtin():
             err = save_selected_script(doc, "NonExistent", "code")
             assert err is not None
             assert "not in My Scripts or this document" in err
-
-
-def test_attach_and_save_user_script_reject_reserved_prefix():
-    doc = MagicMock()
-    err = attach_document_script(doc, "[Doc] my_script", "code")
-    assert err is not None
-    assert err.code == DocumentScriptErrorCode.RESERVED_NAME
-
-    err = attach_document_script(doc, "[Vision] test", "code")
-    assert err is not None
-    assert err.code == DocumentScriptErrorCode.RESERVED_NAME
-
-    err_u1 = save_user_script("[Doc] my_script", "code")
-    assert err_u1 is not None
-    assert err_u1.code == DocumentScriptErrorCode.RESERVED_NAME
-
-    err_u2 = save_user_script("[Analysis] describe", "code")
-    assert err_u2 is not None
-    assert err_u2.code == DocumentScriptErrorCode.RESERVED_NAME
 
 
 

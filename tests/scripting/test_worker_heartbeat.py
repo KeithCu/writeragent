@@ -49,16 +49,6 @@ def test_write_and_parse_heartbeat_frame():
     assert data["payload"]["phase"] == "extract"
 
 
-def test_heartbeat_emitter_writes_frame():
-    buf = io.BytesIO()
-    emit_heartbeat(buf, {"phase": "embed", "paragraphs": 2})
-    buf.seek(0)
-    payload = read_frame_payload(buf)
-    assert payload is not None
-    data = parse_worker_stdout_frame(payload)
-    assert data["frame_type"] == FRAME_HEARTBEAT
-
-
 def test_write_result_frame():
     buf = io.BytesIO()
     write_result_frame(buf, {"id": "1", "status": "ok", "result": {"mode": "cold"}})

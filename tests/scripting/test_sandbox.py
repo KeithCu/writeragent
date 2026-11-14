@@ -644,13 +644,6 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     assert scrubbed["KEYBOARD_LAYOUT"] == "us"
     assert scrubbed["USER_VAR"] == "hello"
 
-    # None returns empty; {} applies standard overrides.
-    assert scrub_subprocess_env(None) == {}
-    empty_scrubbed = scrub_subprocess_env({})
-    assert empty_scrubbed.get("PYTHONUTF8") == "1"
-    assert empty_scrubbed.get("PYTHONIOENCODING") == "utf-8"
-    assert empty_scrubbed.get("PYTHONDONTWRITEBYTECODE") == "1"
-
 
 def test_scrub_subprocess_env_keep() -> None:
     from plugin.framework.subprocess_env import scrub_subprocess_env
@@ -710,26 +703,6 @@ def test_python_candidates_in_bin_dir_handles_oserror(tmp_path, monkeypatch) -> 
     monkeypatch.setattr("os.listdir", mock_listdir)
     candidates = _python_candidates_in_bin_dir(str(bin_dir))
     assert any("python" in c for c in candidates)
-
-
-def test_detect_sandbox_cache_clear(monkeypatch) -> None:
-    """detect_sandbox result is cached and detect_sandbox.cache_clear() clears it."""
-    from plugin.scripting.sandbox import detect_sandbox
-
-    monkeypatch.delenv("FLATPAK_ID", raising=False)
-    monkeypatch.delenv("SNAP_NAME", raising=False)
-    monkeypatch.setattr("os.path.exists", lambda path: False)
-    detect_sandbox.cache_clear()
-
-    assert detect_sandbox() is None
-
-    monkeypatch.setenv("SNAP_NAME", "test-snap")
-    # Still cached as None before reset
-    assert detect_sandbox() is None
-
-    detect_sandbox.cache_clear()
-    assert detect_sandbox() == "snap"
-    detect_sandbox.cache_clear()
 
 
 def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None:

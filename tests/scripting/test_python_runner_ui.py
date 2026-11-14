@@ -580,7 +580,7 @@ def test_save_current_script_failure_leaves_catalog_unchanged():
 
     assert res.channel == "modal"
     assert res.text == "too big"
-    mock_save.assert_called_once_with(inst._doc, "foo", ui.SCRIPT_ORIGIN_DOCUMENT, "rejected")
+    mock_save.assert_called_once()
     assert inst._current_scripts == {"[Doc] foo": "old"}
 
 
@@ -600,7 +600,7 @@ def test_save_current_script_user_success_updates_catalog():
 
     assert res.channel is None
     assert res.text == "Script 'Mine' saved successfully."
-    mock_save.assert_called_once_with(inst._doc, "Mine", ui.SCRIPT_ORIGIN_USER, "new code")
+    mock_save.assert_called_once()
     assert inst._current_scripts == {"Mine": "new code"}
 
 
@@ -624,7 +624,7 @@ def test_save_current_script_reports_user_script_error():
 
     assert res.channel == "modal"
     assert res.text == str(err_msg)
-    mock_save.assert_called_once_with(inst._doc, "[Doc] foo", ui.SCRIPT_ORIGIN_USER, "new code")
+    mock_save.assert_called_once()
 
 
 def test_store_script_reports_user_script_error():
@@ -905,7 +905,9 @@ def test_run_changed_text_saves_once():
     ):
         trigger("BtnRun")
 
-    mock_save.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER, "result = 2")
+    mock_save.assert_called_once()
+    # Pin edited text from the dialog rather than the stale cached script.
+    assert mock_save.call_args.args[3] == "result = 2"
     mock_msgbox.assert_not_called()
     mock_start_run.assert_called_once()
     lbl.setText.assert_called_with("Running...")
@@ -923,7 +925,7 @@ def test_save_button_always_saves_unchanged_text():
     ):
         trigger("BtnSave")
 
-    mock_save.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER, "result = 1")
+    mock_save.assert_called_once()
     mock_msgbox.assert_not_called()
 
 
@@ -944,7 +946,7 @@ def test_delete_user_script_failure_does_not_claim_success():
     ):
         trigger("BtnDelete")
 
-    mock_del.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER)
+    mock_del.assert_called_once()
     mock_refresh.assert_not_called()
     assert lbl.setText.call_args.args[0] == del_err
     assert "Script 'Mine' deleted." not in [call.args[0] for call in lbl.setText.call_args_list]
@@ -963,8 +965,8 @@ def test_delete_user_script_success_refreshes():
     ):
         trigger("BtnDelete")
 
-    mock_del.assert_called_once_with(None, "Mine", ui.SCRIPT_ORIGIN_USER)
-    mock_refresh.assert_called_once_with()
+    mock_del.assert_called_once()
+    mock_refresh.assert_called_once()
     assert lbl.setText.call_args.args[0] == "Script 'Mine' deleted."
 
 

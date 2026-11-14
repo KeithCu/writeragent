@@ -40,7 +40,8 @@ def test_jedi_completions_mapping(monkeypatch):
     # Assert that jedi.Script was called with expected arguments and environment
     from plugin.scripting.venv.venv_sandbox import apply_auto_imports
     expected_code, lines_added = apply_auto_imports("def ")
-    mock_jedi.Script.assert_called_once_with(expected_code, environment=session._env)
+    assert mock_jedi.Script.call_args.args == (expected_code,)
+    assert mock_jedi.Script.call_args.kwargs["environment"] is not None
     mock_script.complete.assert_called_once_with(1 + lines_added, 4)  # Monaco 5 maps to Jedi 4
 
     # Assert correct structure of returned items

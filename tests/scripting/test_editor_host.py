@@ -1160,10 +1160,6 @@ def test_mode_switch_from_run_script_to_calc_cell_dispatches_save():
     assert sent[0][0]["status_ok_text"] == "Saved."
 
 
-def _reader_method_name() -> str:
-    return "_read_incoming"
-
-
 def test_reader_clean_eof_terminates_live_child():
     """Stdout EOF with the child still alive must not leave a reader-less process."""
     editor = PersistentEditor()
@@ -1181,7 +1177,7 @@ def test_reader_clean_eof_terminates_live_child():
 
     with patch.object(editor, "_handle_disconnect", side_effect=_disconnect):
         with patch.object(editor, "terminate", side_effect=_terminate):
-            with patch.object(editor, _reader_method_name(), return_value=None):
+            with patch.object(editor, "_read_incoming", return_value=None):
                 editor._read_loop()
     assert order == ["disconnect", "terminate"]
 
@@ -1194,7 +1190,7 @@ def test_reader_exception_terminates_live_child():
     editor._proc = proc
     with patch.object(editor, "_handle_disconnect"):
         with patch.object(editor, "terminate") as terminate:
-            with patch.object(editor, _reader_method_name(), side_effect=ValueError("bad frame")):
+            with patch.object(editor, "_read_incoming", side_effect=ValueError("bad frame")):
                 editor._read_loop()
     terminate.assert_called_once()
 
@@ -1207,7 +1203,7 @@ def test_reader_finished_leaves_exited_child():
     editor._proc = proc
     with patch.object(editor, "_handle_disconnect") as disconnect:
         with patch.object(editor, "terminate") as terminate:
-            with patch.object(editor, _reader_method_name(), return_value=None):
+            with patch.object(editor, "_read_incoming", return_value=None):
                 editor._read_loop()
     disconnect.assert_called_once()
     terminate.assert_not_called()
@@ -1226,7 +1222,7 @@ def test_reader_finished_ignores_superseded_process():
 
     with patch.object(editor, "_handle_disconnect") as disconnect:
         with patch.object(editor, "terminate") as terminate:
-            with patch.object(editor, _reader_method_name(), side_effect=_swap):
+            with patch.object(editor, "_read_incoming", side_effect=_swap):
                 editor._read_loop()
     disconnect.assert_not_called()
     terminate.assert_not_called()
