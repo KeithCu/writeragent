@@ -65,6 +65,7 @@ def _delegate_schemas() -> list[dict]:
     ]
 
 
+# ctx=None must filter the same as a live ctx (same policy for delegate schemas and specialized tools).
 @pytest.mark.parametrize(
     ("available", "use_ctx", "expected_enum"),
     [

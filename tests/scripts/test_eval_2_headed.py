@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -224,25 +225,27 @@ def test_stage_clean_trial_dir_missing_source(tmp_path: Path) -> None:
         stage_clean_trial_ods(tmp_path / "missing.ods", tmp_path / "trial")
 
 
-@pytest.mark.parametrize(
-    ("task", "expected_name"),
-    [
-        pytest.param(None, "writeragent-eval2-afc", id="default"),
-        pytest.param(TASK_TENANT, "writeragent-eval2-tenant", id="tenant"),
-        pytest.param(TASK_CADAVER, "writeragent-eval2-cadaver", id="cadaver"),
-        pytest.param(TASK_GMP, "writeragent-eval2-gmp", id="gmp"),
-        pytest.param(TASK_WRITER_CALC, "writeragent-eval2-writer-calc", id="writer_calc"),
-        pytest.param(TASK_CALC_PRIMARY, "writeragent-eval2-calc-primary", id="calc_primary"),
-        pytest.param(TASK_REVERSE, "writeragent-eval2-reverse-tenant", id="reverse_tenant"),
-        pytest.param(TASK_LONG, "writeragent-eval2-long-writer", id="long_writer"),
-        pytest.param(TASK_DRAW, "writeragent-eval2-draw", id="draw"),
-        pytest.param(TASK_PYTHON_SHAPES, "writeragent-eval2-python-shapes-flag", id="python_shapes_flag"),
-    ],
-)
-def test_default_eval2_trial_dir_is_tmp_subdir(task: str | None, expected_name: str) -> None:
-    path = default_eval2_trial_dir() if task is None else default_eval2_trial_dir(task)
-    assert path.name == expected_name
-    assert path.parent == Path(tempfile.gettempdir())
+def test_default_eval2_trial_dir_is_tmp_subdir() -> None:
+    tmp_root = Path(tempfile.gettempdir())
+    default_dir = default_eval2_trial_dir()
+    assert default_dir.name == "writeragent-eval2-afc"
+    assert default_dir.parent == tmp_root
+
+    tasks = (
+        TASK_TENANT,
+        TASK_CADAVER,
+        TASK_GMP,
+        TASK_WRITER_CALC,
+        TASK_CALC_PRIMARY,
+        TASK_REVERSE,
+        TASK_LONG,
+        TASK_DRAW,
+        TASK_PYTHON_SHAPES,
+    )
+    dirs = [default_dir, *(default_eval2_trial_dir(task) for task in tasks)]
+    assert all(path.parent == tmp_root for path in dirs)
+    assert all(path.name.startswith("writeragent-eval2-") for path in dirs)
+    assert len({path.name for path in dirs}) == len(dirs)
 
 
 def test_task_max_tool_rounds_routes_by_task() -> None:
@@ -257,29 +260,32 @@ def test_task_max_tool_rounds_routes_by_task() -> None:
     assert task_max_tool_rounds(TASK_CALC_PRIMARY) == EVAL_2_CALC_PRIMARY_MAX_TOOL_ROUNDS
 
 
-_STAGE_TRIAL_CASES = [
-    pytest.param(
+_StageTrialFn = Callable[[Path], Path | tuple[Path, ...]]
+
+_STAGE_TRIAL_CASES: list[tuple[str, _StageTrialFn, Path, list[str], list[str]]] = [
+    (
+        "tenant",
         stage_tenant_trial,
         _TENANT_DIR,
         [LETTER_ODT_NAME, SURVEY_XLSX_NAME, TENANT_MEMO_NAME],
         [TENANT_MEMO_NAME],
-        id="tenant",
     ),
-    pytest.param(
+    (
+        "cadaver",
         stage_cadaver_trial,
         _CADAVER_DIR,
         [CADAVER_BUDGET_XLSX_NAME, CADAVER_PROPOSAL_NAME],
         [CADAVER_PROPOSAL_NAME],
-        id="cadaver",
     ),
-    pytest.param(
+    (
+        "gmp",
         stage_gmp_trial,
         _GMP_DIR,
         [GMP_COA_PDF_NAME, GMP_SPEC_ODT_NAME, GMP_FORM_ODG_NAME, GMP_MEMO_NAME],
         [GMP_MEMO_NAME, GMP_FORM_ODG_NAME],
-        id="gmp",
     ),
-    pytest.param(
+    (
+        "floorstand",
         stage_floorstand_trial,
         _FLOORSTAND_DIR,
         [
@@ -290,54 +296,55 @@ _STAGE_TRIAL_CASES = [
             FLOORSTAND_EMAIL_NAME,
         ],
         [FLOORSTAND_EMAIL_NAME, FLOORSTAND_BUDGET_ODS_NAME],
-        id="floorstand",
     ),
-    pytest.param(
+    (
+        "calc_primary",
         stage_calc_primary_trial,
         _CALC_PRIMARY_DIR,
         [RAW_DATA_ODS_NAME],
         [RAW_DATA_ODS_NAME],
-        id="calc_primary",
     ),
-    pytest.param(
+    (
+        "reverse_tenant",
         stage_reverse_tenant_trial,
         _REVERSE_DIR,
         [CBA_EXCERPT_ODT_NAME, ROSTER_XLSX_NAME, THEATRE_CBA_ODS_NAME],
         [THEATRE_CBA_ODS_NAME, CBA_EXCERPT_ODT_NAME],
-        id="reverse_tenant",
     ),
-    pytest.param(
+    (
+        "long_writer",
         stage_long_writer_trial,
         _LONG_DIR,
         [LONG_FACTS_ODT_NAME, LONG_DECISIONS_ODT_NAME, LONG_PACK_NAME],
         [LONG_PACK_NAME],
-        id="long_writer",
     ),
-    pytest.param(
+    (
+        "draw_primary",
         stage_draw_primary_trial,
         _DRAW_DIR,
         [DRAW_PRIMARY_ODG_NAME],
         [DRAW_PRIMARY_ODG_NAME],
-        id="draw_primary",
     ),
-    pytest.param(
+    (
+        "python_shapes_flag",
         stage_python_shapes_flag_trial,
         _PYTHON_SHAPES_DIR,
         [PYTHON_SHAPES_ODT_NAME],
         [PYTHON_SHAPES_ODT_NAME],
-        id="python_shapes_flag",
     ),
 ]
 
 
 @pytest.mark.parametrize(
-    ("stage_fn", "_task_dir", "expected_names", "expected_returns"),
-    _STAGE_TRIAL_CASES,
+    ("stage_fn", "expected_names", "expected_returns"),
+    [
+        pytest.param(fn, names, returns, id=case_id)
+        for case_id, fn, _task_dir, names, returns in _STAGE_TRIAL_CASES
+    ],
 )
 def test_stage_trial_contains_only_expected_files(
     tmp_path: Path,
-    stage_fn,
-    _task_dir: Path,
+    stage_fn: _StageTrialFn,
     expected_names: list[str],
     expected_returns: list[str],
 ) -> None:
@@ -355,10 +362,12 @@ def test_stage_trial_contains_only_expected_files(
 
 @pytest.mark.parametrize(
     ("stage_fn", "task_dir"),
-    [(row.values[0], row.values[1]) for row in _STAGE_TRIAL_CASES],
-    ids=[row.id for row in _STAGE_TRIAL_CASES],
+    [
+        pytest.param(fn, task_dir, id=case_id)
+        for case_id, fn, task_dir, _names, _returns in _STAGE_TRIAL_CASES
+    ],
 )
-def test_stage_trial_refuses_real_task_dir(stage_fn, task_dir: Path) -> None:
+def test_stage_trial_refuses_real_task_dir(stage_fn: _StageTrialFn, task_dir: Path) -> None:
     with pytest.raises(ValueError, match="protected"):
         stage_fn(task_dir)
 
