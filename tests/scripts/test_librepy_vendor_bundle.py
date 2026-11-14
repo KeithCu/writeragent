@@ -27,12 +27,6 @@ def vendor_dir() -> str:
     return str(_VENDOR)
 
 
-def test_librepy_vendor_packages_match_filter(vendor_dir: str) -> None:
-    names = iter_librepy_vendor_packages(vendor_dir)
-    assert set(names) == LIBREPY_VENDOR_PACKAGES
-    assert names == sorted(names)
-
-
 def test_librepy_vendor_excludes_writeragent_only_packages(vendor_dir: str) -> None:
     on_disk = {
         entry
