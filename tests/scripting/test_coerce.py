@@ -7,8 +7,11 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
-from plugin.scripting.venv.coerce import _parse_numeric_string
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
+from plugin.scripting.venv.coerce import _parse_numeric_string, dedupe_column_names
 
 
 @pytest.mark.parametrize(
@@ -549,6 +552,15 @@ def test_header_row_and_index_col_out_of_range():
 
     empty_res = grid_to_dataframe([], header_row=5, index_col=0)
     assert len(empty_res.df) == 0
+
+
+@pytest.mark.verification
+@given(names=st.lists(st.text(max_size=DEAL_MAX_TOKEN), max_size=DEAL_MAX_SHAPE_DIM))
+def test_dedupe_column_names_uniqueness(names: list[str]) -> None:
+    deduped = dedupe_column_names(names)
+    assert isinstance(deduped, list)
+    assert len(deduped) == len(names)
+    assert len(set(deduped)) == len(deduped)
 
 
 

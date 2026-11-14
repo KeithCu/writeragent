@@ -7,12 +7,21 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 pytest.importorskip("pandas")
 pytest.importorskip("numpy")
 
 from plugin.calc.calc_addin_data import pack_calc_data_for_wire
-from plugin.scripting.calc_range import CalcRange, dataframe_to_labeled_grid, materialize_inputs, result_to_calc_grid
+from plugin.scripting.calc_range import (
+    CalcRange,
+    dataframe_to_labeled_grid,
+    ensure_rectangular_2d,
+    materialize_inputs,
+    pack_calc_range_envelope,
+    result_to_calc_grid,
+)
 from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, is_calc_range_payload
 from plugin.scripting.venv.coerce import grid_to_dataframe
 
@@ -626,3 +635,43 @@ def test_whole_number_cells_arrive_as_int():
     assert all(type(c) is float for c in mixed.values[0]) and mixed.to_numpy().dtype == np.float64
     sp = pytest.importorskip("sympy")
     assert sp.prime(data) == 29
+
+
+@pytest.mark.verification
+@given(grid=st.one_of(
+    st.none(),
+    st.integers(),
+    st.text(),
+    st.lists(st.integers()),
+    st.lists(st.lists(st.integers())),
+))
+def test_ensure_rectangular_2d_invariants(grid) -> None:
+    res = ensure_rectangular_2d(grid)
+    assert isinstance(res, list)
+    if res:
+        first_len = len(res[0])
+        for row in res:
+            assert isinstance(row, list)
+            assert len(row) == first_len
+
+
+@pytest.mark.verification
+def test_ensure_rectangular_2d_string_row_is_one_cell() -> None:
+    """A string row is a cell, not a sequence of characters."""
+    assert ensure_rectangular_2d([["a", "b"], "cd"]) == [["a", "b"], ["cd", None]]
+    assert ensure_rectangular_2d([["a", "b"], b"cd"]) == [["a", "b"], [b"cd", None]]
+    assert ensure_rectangular_2d(["ab", "cd"]) == [["ab", "cd"]]
+
+
+@pytest.mark.verification
+@given(raw_val=st.one_of(st.lists(st.integers()), st.lists(st.lists(st.integers()))))
+def test_calc_range_packing_contracts(raw_val) -> None:
+    envelope = pack_calc_range_envelope(raw_val, address="A1")
+    assert is_calc_range_payload(envelope) is True
+
+    cr = CalcRange(raw_val, address="A1")
+    assert isinstance(cr.values, list)
+    assert cr.nrows == len(cr.values)
+    if cr.values:
+        assert cr.ncols == len(cr.values[0])
+    assert cr.shape == (cr.nrows, cr.ncols)
