@@ -17,7 +17,7 @@ from plugin.writer.math.math_mml_export import (
 
 class _Hit:
     def __init__(
-        self, latex: str = "", display_block: bool = False, embed_name: str | None = None
+        self, display_block: bool = False, embed_name: str | None = None
     ) -> None:
         self.starmath = "a over b"
         self.display_block = display_block
@@ -82,7 +82,7 @@ def test_inject_replaces_mathml_once() -> None:
         "<mrow><mi>x</mi></mrow>"
         "</math> </span></div>"
     )
-    with patch.object(exp, "iter_writer_math_objects", return_value=[_Hit("x", True)]):
+    with patch.object(exp, "iter_writer_math_objects", return_value=[_Hit(display_block=True)]):
         out = inject_math_tex_into_html(object(), object(), html)
     assert out.count("$$x$$") == 1
     assert "<math" not in out.lower()
@@ -93,7 +93,7 @@ def test_inject_count_mismatch_does_not_append() -> None:
     from plugin.writer.math import math_mml_export as exp
 
     html = "<p><math xmlns='http://www.w3.org/1998/Math/MathML'><mi>a</mi></math></p>"
-    hits = [_Hit("a"), _Hit("b")]
+    hits = [_Hit(), _Hit()]
     with patch.object(exp, "iter_writer_math_objects", return_value=hits):
         out = inject_math_tex_into_html(object(), object(), html)
     assert "$a$" in out
@@ -120,7 +120,7 @@ def test_inject_falls_back_to_starmath_when_mathml_fails() -> None:
     from plugin.writer.math import math_mml_export as exp
 
     html = "<p><math xmlns='http://www.w3.org/1998/Math/MathML'><mi>x</mi></math></p>"
-    hit = _Hit("x")
+    hit = _Hit()
     hit.starmath = "a over b"
     with patch.object(exp, "iter_writer_math_objects", return_value=[hit]), patch.object(
         exp, "convert_mathml_to_latex", return_value=MathExportResult(False, None, "boom")
@@ -148,8 +148,8 @@ def test_inject_pairs_display_flag_by_wrapper_id() -> None:
         "<p><math xmlns='http://www.w3.org/1998/Math/MathML'><mi>c</mi></math></p>"
     )
     hits = [
-        _Hit("x", display_block=True, embed_name="Object 9"),
-        _Hit("y", display_block=True, embed_name="Object 2"),
+        _Hit(display_block=True, embed_name="Object 9"),
+        _Hit(display_block=True, embed_name="Object 2"),
     ]
     with patch.object(exp, "iter_writer_math_objects", return_value=hits):
         out = inject_math_tex_into_html(object(), object(), html)

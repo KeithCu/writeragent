@@ -28,14 +28,31 @@ def mock_ctx():
     return TestingFactory.create_context(doc=doc, doc_type="writer")
 
 
-def test_fields_list_empty(mock_ctx):
-    # Setup mock document
-    doc = mock_ctx.doc
+def _mk_field(*, is_annotation: bool = False, presentation: list[str] | None = None):
+    field = MagicMock()
+    if is_annotation:
+        field.supportsService.side_effect = lambda s: s == "com.sun.star.text.textfield.Annotation"
+    else:
+        field.supportsService.return_value = False
+    if presentation is not None:
+        field.getPresentation.side_effect = presentation
+        field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    field.getAnchor.return_value = MagicMock()
+    return field
+
+
+def _attach_fields(doc, *fields):
     mock_fields = MagicMock()
     mock_enum = MagicMock()
-    mock_enum.hasMoreElements.return_value = False
+    mock_enum.hasMoreElements.side_effect = [True] * len(fields) + [False]
+    mock_enum.nextElement.side_effect = list(fields)
     mock_fields.createEnumeration.return_value = mock_enum
     doc.getTextFields.return_value = mock_fields
+    return mock_enum
+
+
+def test_fields_list_empty(mock_ctx):
+    _attach_fields(mock_ctx.doc)
 
     tool = FieldsList()
     res = tool.execute(mock_ctx)
@@ -170,24 +187,9 @@ def test_fields_insert_property_disposal_propagates(mock_ctx):
 
 
 def test_fields_delete(mock_ctx):
-    doc = mock_ctx.doc
-    mock_fields = MagicMock()
-    mock_enum = MagicMock()
-
-    # Mock field objects
-    mock_field_1 = MagicMock()
-    mock_field_2 = MagicMock()
-    mock_field_1.supportsService.return_value = False
-    mock_field_2.supportsService.return_value = False
-    mock_anchor_1 = MagicMock()
-    mock_anchor_2 = MagicMock()
-    mock_field_1.getAnchor.return_value = mock_anchor_1
-    mock_field_2.getAnchor.return_value = mock_anchor_2
-
-    mock_enum.hasMoreElements.side_effect = [True, True, False]
-    mock_enum.nextElement.side_effect = [mock_field_1, mock_field_2]
-    mock_fields.createEnumeration.return_value = mock_enum
-    doc.getTextFields.return_value = mock_fields
+    mock_field_1 = _mk_field()
+    mock_field_2 = _mk_field()
+    _attach_fields(mock_ctx.doc, mock_field_1, mock_field_2)
 
     tool = FieldsDelete()
     # Delete only the second field (ID 2)
@@ -197,8 +199,8 @@ def test_fields_delete(mock_ctx):
     assert res["deleted_count"] == 1
     assert res["requested_count"] == 1
     assert res["missing_ids"] == []
-    mock_anchor_1.setString.assert_not_called()
-    mock_anchor_2.setString.assert_called_once_with("")
+    mock_field_1.getAnchor.return_value.setString.assert_not_called()
+    mock_field_2.getAnchor.return_value.setString.assert_called_once_with("")
 
 
 def test_fields_delete_validation_and_missing_ids(mock_ctx):
@@ -219,12 +221,7 @@ def test_fields_delete_validation_and_missing_ids(mock_ctx):
     assert res["status"] == "error"
 
     # Missing ID returns error mentioning comment_delete
-    doc = mock_ctx.doc
-    mock_fields = MagicMock()
-    mock_enum = MagicMock()
-    mock_enum.hasMoreElements.return_value = False
-    mock_fields.createEnumeration.return_value = mock_enum
-    doc.getTextFields.return_value = mock_fields
+    _attach_fields(mock_ctx.doc)
 
     res = tool.execute(mock_ctx, ids=[1, 1, 99])
     assert res["status"] == "error"
@@ -244,18 +241,8 @@ def test_fields_delete_non_list_ids_assertion(mock_ctx):
 
 
 def test_fields_delete_partial_missing_ids(mock_ctx):
-    doc = mock_ctx.doc
-    mock_fields = MagicMock()
-    mock_enum = MagicMock()
-
-    field1 = MagicMock()
-    field1.supportsService.return_value = False
-    field1.getAnchor.return_value = MagicMock()
-
-    mock_enum.hasMoreElements.side_effect = [True, False]
-    mock_enum.nextElement.return_value = field1
-    mock_fields.createEnumeration.return_value = mock_enum
-    doc.getTextFields.return_value = mock_fields
+    field1 = _mk_field()
+    _attach_fields(mock_ctx.doc, field1)
 
     tool = FieldsDelete()
     res = tool.execute(mock_ctx, ids=[1, 42])
@@ -267,22 +254,9 @@ def test_fields_delete_partial_missing_ids(mock_ctx):
 
 
 def test_fields_skip_annotations_in_list_and_delete(mock_ctx):
-    doc = mock_ctx.doc
-    mock_fields = MagicMock()
-    mock_enum = MagicMock()
-
-    ann_field = MagicMock()
-    ann_field.supportsService.side_effect = lambda s: s == "com.sun.star.text.textfield.Annotation"
-
-    page_field = MagicMock()
-    page_field.supportsService.return_value = False
-    page_field.getPresentation.side_effect = ["Page 1", "1"]
-    page_field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
-
-    mock_enum.hasMoreElements.side_effect = [True, True, False]
-    mock_enum.nextElement.side_effect = [ann_field, page_field]
-    mock_fields.createEnumeration.return_value = mock_enum
-    doc.getTextFields.return_value = mock_fields
+    ann_field = _mk_field(is_annotation=True)
+    page_field = _mk_field(presentation=["Page 1", "1"])
+    mock_enum = _attach_fields(mock_ctx.doc, ann_field, page_field)
 
     # fields_list skips annotation; page_field gets ID 1
     res_list = FieldsList().execute(mock_ctx)
