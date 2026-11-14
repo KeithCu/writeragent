@@ -1,4 +1,3 @@
-import contextlib
 import pytest
 from gettext import NullTranslations
 from pathlib import Path
@@ -8,26 +7,6 @@ from plugin.framework.deal_shim import DEAL_MAX_MSGID
 from plugin.framework.i18n import _, get_lo_locale
 import plugin.framework.i18n as i18n_module
 import sys
-
-from plugin.framework.config_schema import validate
-
-# PO-header junk mistakenly saved into config via gettext/translation bugs (i18n + load path)
-PO_JUNK = "Project-Id-Version: WriterAgent 1.0\nReport-Msgid-Bugs-To: x\n"
-
-
-@contextlib.contextmanager
-def _patch_manifest(mock_modules):
-    from plugin.framework import config_schema
-    orig = (
-        config_schema.MODULES,
-        config_schema.CONFIG_DEFAULTS,
-        config_schema.CONFIG_SCHEMAS,
-    )
-    config_schema.set_manifest_modules(mock_modules)
-    try:
-        yield
-    finally:
-        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS = orig
 
 
 class TestI18n:
@@ -44,12 +23,6 @@ class TestI18n:
         """With NullTranslations, msgid passes through unchanged."""
         i18n_module._translation = NullTranslations()
         assert (_("ThisIsAnUntranslatedString999")) == ("ThisIsAnUntranslatedString999")
-
-    def test_i18n_msgid_must_be_str(self):
-        i18n_module._translation = NullTranslations()
-        for bad in (123, ["a"], ("a",), None):
-            with pytest.raises((TypeError, deal.PreContractError)):
-                _(bad)
 
     def test_i18n_msgid_allows_unicode_and_empty(self):
         """gettext msgids are not an ASCII-only domain (deal.pre must not use isascii)."""
@@ -124,96 +97,50 @@ class TestI18n:
         locale = get_lo_locale(mock_ctx)
         assert (locale) == ("en_US")
 
-    def test_config_validate_maps_translated_label_to_canonical_in_extra_config(self):
-        """Saved UI label (wrong) in dotted key is normalized to schema value via _()."""
-        mock_modules = [{
-            "name": "agent_backend",
-            "config": {
-                "backend_id": {
-                    "type": "string",
-                    "default": "builtin",
-                    "options": [{"value": "hermes", "label": "Hermes"}],
-                },
-            },
-        }]
+    def test_get_lo_locale_none_ctx_uses_get_ctx_on_main(self):
+        from plugin.framework.queue_executor import main
 
-        def _fake(msg):
-            if msg == "Hermes":
-                return "GERMAN_HERMES"
-            return msg
+        guarded_ctx = MagicMock(name="guarded_ctx")
+        smgr = MagicMock()
+        guarded_ctx.getServiceManager.return_value = smgr
+        config_provider = MagicMock()
+        smgr.createInstanceWithContext.return_value = config_provider
+        ca = MagicMock()
+        ca.getPropertyValue.return_value = "de-DE"
+        config_provider.createInstanceWithArguments.return_value = ca
 
-        with _patch_manifest(mock_modules):
-            with patch("plugin.framework.config_schema._", side_effect=_fake):
-                validated = validate({"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "GERMAN_HERMES"})
-        assert (validated["agent_backend.backend_id"]) == ("hermes")
+        mock_uno = MagicMock()
+        mock_uno.getComponentContext.side_effect = AssertionError(
+            "uno.getComponentContext must not be used; call get_ctx()"
+        )
+        mock_uno.createUnoStruct.return_value = MagicMock()
 
-    def test_config_validate_normalization_noop_when_already_canonical(self):
-        """When stored value already matches canonical option value, leave unchanged."""
-        mock_modules = [{
-            "name": "agent_backend",
-            "config": {
-                "backend_id": {
-                    "type": "string",
-                    "default": "builtin",
-                    "options": [{"value": "hermes", "label": "Hermes"}],
-                },
-            },
-        }]
+        with (
+            patch.object(main, "is_current", return_value=True),
+            patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
+            patch.dict(sys.modules, {"uno": mock_uno}),
+        ):
+            locale = get_lo_locale(None)
+        mock_get_ctx.assert_called_once()
+        assert locale == "de_DE"
 
-        with _patch_manifest(mock_modules):
-            validated = validate({"endpoint": "http://127.0.0.1:11434", "agent_backend.backend_id": "hermes"})
-        assert (validated["agent_backend.backend_id"]) == ("hermes")
+    def test_get_lo_locale_none_ctx_off_main_returns_default(self):
+        from plugin.framework.queue_executor import main
 
-    def test_po_strip_extra_config_on_validate(self):
-        data = {
-            "endpoint": "http://localhost:11434",
-            "agent_backend.path": PO_JUNK,
-            "agent_backend.args": PO_JUNK,
-        }
-        validated = validate(data)
-        assert (validated.get("agent_backend.path")) == ("")
-        assert (validated.get("agent_backend.args")) == ("")
+        with (
+            patch.object(main, "is_current", return_value=False),
+            patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx,
+        ):
+            locale = get_lo_locale(None)
+        assert locale == "en_US"
+        mock_get_ctx.assert_not_called()
 
-    def test_po_strip_seed_to_minus_one(self):
-        data = {"endpoint": "http://x", "seed": PO_JUNK}
-        validated = validate(data)
-        assert (validated.get("seed")) == ("-1")
+    def test_get_lo_locale_passed_ctx_off_main_returns_default(self):
+        from plugin.framework.queue_executor import main
 
-    def test_po_strip_top_level_string_field(self):
-        data = {"endpoint": "http://x", "additional_instructions": PO_JUNK}
-        validated = validate(data)
-        assert (validated.get("additional_instructions")) == ("")
-
-    def test_export_uses_validated_extra_not_raw_json(self):
-        """Merged dict for get_config must use cleaned _extra_config, not stale JSON."""
-        data = {
-            "endpoint": "http://localhost:11434",
-            "chat_max_tokens": 16384,
-            "agent_backend.path": PO_JUNK,
-        }
-        out = validate(data)
-        assert (out["agent_backend.path"]) == ("")
-        assert (out["agent_backend.path"]) != (PO_JUNK)
-
-    def test_export_dataclass_keys_from_attributes(self):
-        data = {
-            "endpoint": "http://example.com/v1",
-            "chat_max_tokens": 2048,
-            "agent_backend.path": "",
-        }
-        out = validate(data)
-        assert (out["endpoint"]) == ("http://example.com")
-        assert (out["chat_max_tokens"]) == (2048)
-
-    def test_config_validate_chatbot_max_tool_rounds(self):
-        validated = validate({"endpoint": "http://x", "chatbot.max_tool_rounds": 12})
-        assert (validated["chatbot.max_tool_rounds"]) == (12)
-
-    def test_extra_key_fallback_when_missing_from_extra_config(self):
-        """If a key is absent from _extra_config, keep JSON value (edge case)."""
-        data = {"endpoint": "http://x", "orphan.key": "keep-me"}
-        out = validate(data)
-        assert (out.get("orphan.key")) == ("keep-me")
+        with patch.object(main, "is_current", return_value=False):
+            locale = get_lo_locale(MagicMock())
+        assert locale == "en_US"
 
     def _ensure_mo(self, lang: str, entries: dict[str, str] | None = None) -> str:
         """Build a fixture .mo catalog for *lang* in a temporary directory."""

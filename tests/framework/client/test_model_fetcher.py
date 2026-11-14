@@ -1388,3 +1388,19 @@ def test_get_tts_model_sanitizes_placeholder():
             model = get_tts_model()
             assert model
             assert "(Default for current endpoint)" not in model
+
+
+def test_is_image_only_model():
+    from plugin.framework.client.model_fetcher import is_image_only_model
+
+    # The image-id list is the catalog. A gemini image id is image-only even
+    # though the name heuristic would treat "gemini" as chat.
+    with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=["flux", "google/gemini-2.5-flash-image"]):
+        assert is_image_only_model("https://openrouter.ai/api", "flux") is True
+        assert is_image_only_model("https://openrouter.ai/api", "google/gemini-2.5-flash-image") is True
+        assert is_image_only_model("https://openrouter.ai/api", "google/gemini-2.5-flash") is False
+
+    # None means the catalog did not answer; the name heuristic still applies.
+    with patch("plugin.framework.client.model_fetcher.fetch_available_image_models", return_value=None):
+        assert is_image_only_model("https://openrouter.ai/api", "nonexistent-flux") is True
+        assert is_image_only_model("https://openrouter.ai/api", "nonexistent-gemini") is False

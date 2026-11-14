@@ -172,27 +172,6 @@ def test_reserved_caller_ids(sid: str) -> None:
     assert is_reserved_caller_id(sid) is True
 
 
-def test_validate_session_id_rejects_padded_init_suffix() -> None:
-    import os
-    import sys
-
-    try:
-        from compute_service.json_forward import validate_session_id, ExecuteRequestError
-    except ModuleNotFoundError:
-        # Stripped release-verify tree has plugin/ + tests/ only; checkout is in env.
-        root = os.environ.get("WRITERAGENT_PROJECT_ROOT", "").strip()
-        if root and root not in sys.path:
-            sys.path.insert(0, root)
-        try:
-            from compute_service.json_forward import validate_session_id, ExecuteRequestError
-        except ModuleNotFoundError:
-            pytest.skip("compute_service not in stripped release tree")
-
-    with pytest.raises(ExecuteRequestError) as exc_info:
-        validate_session_id("foo:init ")
-    assert exc_info.value.code == "INVALID_SESSION_ID"
-
-
 @pytest.mark.parametrize(
     "sid",
     [

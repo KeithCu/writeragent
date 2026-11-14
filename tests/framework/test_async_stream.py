@@ -992,3 +992,31 @@ def test_stream_queue_terminal_subscribers_are_independent():
     cell5.clear()
     q.put((StreamQueueKind.ERROR, None))
     assert not cell5.is_set()
+
+
+def test_run_stream_drain_loop_error_handler():
+    from plugin.framework.errors import format_error_payload
+
+    q = queue.Queue()
+    outcome = DrainOutcome()
+    test_error = ValueError("Simulation error")
+    formatted_error = format_error_payload(test_error)
+    q.put((StreamQueueKind.ERROR, formatted_error))
+    error_received = []
+
+    def on_error(e):
+        error_received.append(e)
+
+    run_stream_drain_loop(
+        q,
+        DummyToolkit(),
+        outcome,
+        (lambda c, t: None),
+        on_error=on_error,
+        on_stream_done=(lambda x: True),
+        on_stopped=(lambda: None),
+    )
+    assert outcome.done
+    assert len(error_received) == 1
+    assert error_received[0]["status"] == "error"
+    assert error_received[0]["message"] == "Simulation error"

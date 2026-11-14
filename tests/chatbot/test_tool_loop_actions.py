@@ -1857,6 +1857,39 @@ def test_status_effect_stores_outcome_and_ignores_progress_text():
     assert current_turn(host).outcome == "error"
 
 
+def test_aborted_turn_prevents_reply_save():
+    from plugin.chatbot.tool_loop_actions import TurnController, persist_assistant_on_turn
+
+    class FakeHost:
+        def __init__(self):
+            self._turn = None
+
+    class FakeSession:
+        def __init__(self):
+            self.messages = []
+
+        def add_assistant_message(self, **kwargs):
+            self.messages.append(kwargs)
+
+    session = FakeSession()
+    turn = TurnController(session)
+    host = FakeHost()
+    host._turn = turn
+
+    persist_assistant_on_turn(host, content="alive reply")
+    assert len(session.messages) == 1
+
+    # Aborting without closed_by_document still saves (e.g. Stop partial)
+    turn.abort()
+    persist_assistant_on_turn(host, content="stopped partial")
+    assert len(session.messages) == 2
+
+    # Closed by document prevents saving
+    turn.closed_by_document = True
+    persist_assistant_on_turn(host, content="aborted reply")
+    assert len(session.messages) == 2
+
+
 def test_format_delegate_result_includes_research_cache():
     from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
 

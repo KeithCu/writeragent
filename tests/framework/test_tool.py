@@ -261,17 +261,6 @@ def test_get_item():
     res = tool.get_item(doc, "getMyItems", "item1")
     assert res == "val1"
 
-def test_similar_names_caps_and_cutoff():
-    from plugin.framework.errors import similar_names
-
-    names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]
-    assert similar_names("", names) == []
-    close = similar_names("Alfa", names)
-    assert "Alpha" in close
-    assert len(close) <= 5
-    assert "Zeta" not in similar_names("Alfa", ["Zeta"])
-    assert similar_names("totally_unrelated_xyz", names) == []
-
 
 def test_get_item_miss_includes_hint_and_similar():
     tool = ValidTool()

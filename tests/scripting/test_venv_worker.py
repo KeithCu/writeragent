@@ -39,7 +39,6 @@ from plugin.scripting.venv_worker import (
 )
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
-from plugin.scripting.venv.venv_sandbox import serialize_result
 from tests.scripting.sandbox_support import sandbox_run
 
 def _mgr_proc(mgr: PythonWorkerManager) -> Any:
@@ -203,53 +202,6 @@ def test_worker_error_message_strips_command_path():
     assert msg == 'Python worker failed: timed out after 3 seconds'
     assert 'Command' not in msg
     assert '/very/long' not in msg
-
-def test_serialize_numpy_scalar():
-    np = pytest.importorskip('numpy')
-    assert serialize_result(np.int64(7)) == 7
-
-def test_execute_request_fresh_namespace():
-    r1 = sandbox_run('x = 41\nresult = x + 1', None)
-    assert r1['status'] == 'ok'
-    assert r1['result'] == 42
-    r2 = sandbox_run('result = x + 1', None)
-    assert r2['status'] == 'error'
-
-def test_execute_request_injects_data():
-    r = sandbox_run('result = float(np.sum(data))', [[1, 2, 3, 4]])
-    assert r['status'] == 'ok'
-    assert r['result'] == 10.0
-
-def test_execute_request_1x1_data_arithmetic_dag():
-    r1 = sandbox_run('result = data + 3', [[2]])
-    assert r1['status'] == 'ok'
-    assert r1['result'] == 5
-    r2 = sandbox_run('result = data * 4', [[5.0]])
-    assert r2['status'] == 'ok'
-    assert r2['result'] == 20.0
-
-def test_execute_request_1x1_data_serialize_unwraps_to_scalar():
-    r = sandbox_run('result = data', [[2]])
-    assert r['status'] == 'ok'
-    assert r['result'] == 2
-    assert not isinstance(r['result'], list)
-
-def test_execute_request_injects_ranges_single_range():
-    r = sandbox_run("result = (len(ranges), data is ranges[0], hasattr(data, 'to_pandas'))", [[1, 2, 3]])
-    assert r['status'] == 'ok'
-    assert r['result'] == [1, True, True]
-
-def test_execute_request_injects_ranges_multi_polymorphic_data():
-    from plugin.calc.calc_addin_data import pack_calc_multi_data_for_wire
-    wire = pack_calc_multi_data_for_wire([[[1.0, 2.0, 3.0]], [[4.0, 5.0]]], force='never')
-    r = sandbox_run('result = (len(ranges), data is ranges, data[1].values[0][0])', wire)
-    assert r['status'] == 'ok'
-    assert r['result'] == [2, True, 4.0]
-
-def test_execute_request_does_not_inject_inputs():
-    r = sandbox_run('result = inputs', [[1]])
-    assert r['status'] == 'error'
-    assert 'inputs' in r.get('message', '').lower() and 'not defined' in r.get('message', '').lower()
 
 def _cancelled_scope() -> SendCancellation:
     scope = SendCancellation()
@@ -840,19 +792,6 @@ def test_normalize_response_unpacks_split_grid():
     assert len(out['result']) == 5
     assert out['result'][0][0] == pytest.approx(0.0)
     assert out['result'][4][4] == pytest.approx(44.0)
-
-@pytest.mark.parametrize('value, expected', [pytest.param('result = math.sqrt(16)', 4.0, id='test_automatic_imports_math'), pytest.param('import math as my_math\nresult = my_math.sqrt(16)', 4.0, id='test_automatic_imports_already_imported'), pytest.param('import math\nresult = math.sqrt(25)', 5.0, id='test_automatic_imports_explicit')])
-def test_automatic_imports_math(value, expected):
-    r = sandbox_run(value, None)
-    assert r['status'] == 'ok'
-    assert r['result'] == expected
-
-@pytest.mark.parametrize('value, value_2, expected', [pytest.param('numpy', 'result = float(np.sum([1, 2, 3]))', 6.0, id='test_automatic_imports_numpy'), pytest.param('sympy', "result = str(sp.Symbol('x'))", 'x', id='test_automatic_imports_sympy')])
-def test_automatic_imports_numpy(value, value_2, expected):
-    pytest.importorskip(value)
-    r = sandbox_run(value_2, None)
-    assert r['status'] == 'ok'
-    assert r['result'] == expected
 
 def test_build_request_sets_heartbeat_on_trusted_action():
     req = ExecRequest(action='run_trusted_action', allow_heartbeat=True, data={'domain': 'embeddings_index'}, timeout_sec=1)

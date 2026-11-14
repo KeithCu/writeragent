@@ -197,3 +197,118 @@ def test_crosshair_scrub_subprocess_env_fqn_if_available() -> None:
         if result.returncode == 2:
             pytest.fail(f"CrossHair internal error for {target} (exit 2):\n{combined}")
 
+
+def test_scrub_env_accepts_long_values() -> None:
+    """PATH and workspace paths are longer than the old deal caps."""
+    env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})
+    assert env["PATH"] == "p" * (DEAL_MAX_ARGV + 1)
+    assert env["PYTHONUTF8"] == "1"
+
+
+def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
+    """Tokens ending with blocked words, DATABASE_URL, and *_DSN must be detected while keeping KEYBOARD/XAUTHORITY."""
+    assert _env_name_is_credential("OPENAI_APIKEY") is True
+    assert _env_name_is_credential("GITHUB_APITOKEN") is True
+    assert _env_name_is_credential("AWS_SECRETKEY") is True
+    assert _env_name_is_credential("DATABASE_URL") is True
+    assert _env_name_is_credential("POSTGRES_DSN") is True
+    assert _env_name_is_credential("SENTRY_DSN") is True
+    assert _env_name_is_credential("DSN") is True
+    assert _env_name_is_credential("KEY") is True
+    assert _env_name_is_credential("MY_KEYS") is True
+    assert _env_name_is_credential("MYSQL_PWD") is True
+    assert _env_name_is_credential("GPG_PASSPHRASE") is True
+    assert _env_name_is_credential("PASSWD") is True
+    assert _env_name_is_credential("GITHUB_PAT") is True
+    assert _env_name_is_credential("SLACK_WEBHOOK_URL") is True
+    assert _env_name_is_credential("APIKEY") is True
+    assert _env_name_is_credential("OPENAIAPIKEY") is True
+    assert _env_name_is_credential("GITHUBAPITOKEN") is True
+    assert _env_name_is_credential("AWSSECRETKEY") is True
+    assert _env_name_is_credential("OPENAI-APIKEY") is True
+    assert _env_name_is_credential("OPENAI_API_KEY") is True
+    assert _env_name_is_credential("AWS_ACCESS_KEY_ID") is True
+    assert _env_name_is_credential("KEYRING") is True
+    assert _env_name_is_credential("AUTHORIZATION") is True
+
+    # Allowed tokens/names
+    assert _env_name_is_credential("PWD") is False
+    assert _env_name_is_credential("TOKENIZERS_PARALLELISM") is False
+    assert _env_name_is_credential("MONKEY") is False
+    assert _env_name_is_credential("TURKEY") is False
+    assert _env_name_is_credential("MONKEY_PATCH") is False
+    assert _env_name_is_credential("SECRETARY") is False
+    assert _env_name_is_credential("KEYWORD") is False
+    assert _env_name_is_credential("AUTHORITY") is False
+    assert _env_name_is_credential("PATH") is False
+    assert _env_name_is_credential("KEYBOARD") is False
+    assert _env_name_is_credential("KEYBOARD_LAYOUT") is False
+    assert _env_name_is_credential("KEYBOARD_MODEL") is False
+    assert _env_name_is_credential("XAUTHORITY") is False
+
+
+def test_scrub_drops_dyld_and_python_executable() -> None:
+    base = {
+        "DYLD_LIBRARY_PATH": "/lib",
+        "DYLD_FRAMEWORK_PATH": "/frameworks",
+        "DYLD_FALLBACK_LIBRARY_PATH": "/fallback",
+        "DYLD_FALLBACK_FRAMEWORK_PATH": "/fallback_fw",
+        "PYTHONEXECUTABLE": "/usr/bin/python",
+        "PYTHONNOUSERSITE": "1",
+        "PATH": "/usr/bin:/bin",
+    }
+    scrubbed = scrub_subprocess_env(base)
+    for var in (
+        "DYLD_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH",
+        "DYLD_FALLBACK_LIBRARY_PATH",
+        "DYLD_FALLBACK_FRAMEWORK_PATH",
+        "PYTHONEXECUTABLE",
+        "PYTHONNOUSERSITE",
+    ):
+        assert var not in scrubbed
+    assert scrubbed["PATH"] == "/usr/bin:/bin"
+
+
+def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
+    """PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT are blocked, and empty dict gets overrides."""
+    base = {
+        "PYTHONSTARTUP": "/etc/startup.py",
+        "PYTHONUSERBASE": "/home/u/.local",
+        "PYTHONBREAKPOINT": "0",
+        "PYTHONINSPECT": "1",
+        "DATABASE_URL": "postgres://user:pass@host/db",
+        "WRITERAGENT_COMPUTE_WORKER": "1",
+        "OPENAI_APIKEY": "sk-test",
+        "OPENAIAPIKEY": "sk-test-glued",
+        "POSTGRES_DSN": "postgres://...",
+        "KEYBOARD_LAYOUT": "us",
+        "USER_VAR": "hello",
+    }
+    scrubbed = scrub_subprocess_env(base)
+    assert "PYTHONSTARTUP" not in scrubbed
+    assert "PYTHONUSERBASE" not in scrubbed
+    assert "PYTHONBREAKPOINT" not in scrubbed
+    assert "PYTHONINSPECT" not in scrubbed
+    assert "DATABASE_URL" not in scrubbed
+    assert "WRITERAGENT_COMPUTE_WORKER" not in scrubbed
+    assert "OPENAI_APIKEY" not in scrubbed
+    assert "OPENAIAPIKEY" not in scrubbed
+    assert "POSTGRES_DSN" not in scrubbed
+    assert scrubbed["KEYBOARD_LAYOUT"] == "us"
+    assert scrubbed["USER_VAR"] == "hello"
+
+
+def test_scrub_subprocess_env_keep() -> None:
+    base = {
+        "LD_LIBRARY_PATH": "/custom/lib",
+        "PYTHONHOME": "/opt/lo",
+        "API_KEY": "secret",
+        "USER": "alice",
+    }
+    scrubbed = scrub_subprocess_env(base, keep=("LD_LIBRARY_PATH",))
+    assert scrubbed.get("LD_LIBRARY_PATH") == "/custom/lib"
+    assert "PYTHONHOME" not in scrubbed
+    assert "API_KEY" not in scrubbed
+    assert scrubbed.get("USER") == "alice"
+
