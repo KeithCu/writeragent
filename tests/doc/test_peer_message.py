@@ -764,15 +764,15 @@ def test_annotate_outer_peer_delivery_pending():
 
 
 def test_summarize_peer_tool_on_wire():
-    from plugin.doc.peer_message import _WORK_DESCRIPTION, format_peer_catalog, summarize_peer_tool_on_wire
+    from plugin.doc.peer_message import format_peer_catalog, summarize_peer_tool_on_wire
 
     assert summarize_peer_tool_on_wire([{"function": {"name": "undo"}}]) == (False, 0)
+    # A literal uid= outside a catalog row must not count.
     schemas = [
         {
             "function": {
                 "name": PEER_WORK_TOOL_NAME,
-                "description": _WORK_DESCRIPTION
-                + " "
+                "description": "Target a peer by uid=<id>. "
                 + format_peer_catalog(
                     [
                         {"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"},

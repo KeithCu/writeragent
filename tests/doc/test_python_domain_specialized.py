@@ -276,6 +276,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert inner_ctx.set_active_domain_callback is None
     assert inner_ctx.read_only_target is False
     assert inner_ctx.python_tool_domain == "footnotes,shapes,core"
+    from plugin.chatbot.smol_examples import get_examples_block
     from plugin.scripting.host_rpc import format_script_api_catalog, resolve_allowed_tools
     from plugin.scripting.writeragent_api import DOMAIN_TOOLS
 
@@ -290,6 +291,8 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     instructions = mock_build.call_args.kwargs["instructions"]
     assert format_script_api_catalog(["footnotes", "shapes"]) in instructions
     assert mock_build.call_args.kwargs["final_answer_tool_name"] == "specialized_workflow_finished"
+    # Inner loop must use the script examples block, not the outer *:python block that calls delegate_tool_domains.
+    assert mock_build.call_args.kwargs["examples_block"] == get_examples_block("domain_tools:shapes")
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
@@ -326,6 +329,7 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     from plugin.scripting.host_rpc import format_script_api_catalog
 
     instructions = mock_build.call_args.kwargs["instructions"]
+    assert mock_canvas.return_value.strip() in instructions
     assert format_script_api_catalog(["shapes"]) in instructions
     shapes_ctx = mock_build.call_args[0][0]
     assert shapes_ctx.python_tool_domain == "shapes,core"
@@ -334,6 +338,7 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
     mock_canvas.assert_not_called()
     footnotes_instructions = mock_build.call_args.kwargs["instructions"]
+    assert mock_canvas.return_value.strip() not in footnotes_instructions
     assert format_script_api_catalog(["shapes"]) not in footnotes_instructions
     assert format_script_api_catalog(["footnotes"]) in footnotes_instructions
     assert mock_build.call_args[0][0].python_tool_domain == "footnotes,core"

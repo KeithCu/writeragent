@@ -144,6 +144,7 @@ def test_role_miss_empty_available_is_actionable():
     assert extra["suggest_layout"] == "text"
     assert extra["shape_text_count"] == 0
     assert "hint" in extra
+    assert "slide_layout_set" not in extra["hint"]
     assert "fallback_indices" not in extra
 
 
