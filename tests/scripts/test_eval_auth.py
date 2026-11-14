@@ -93,8 +93,9 @@ def test_require_api_key_openrouter_empty_exits() -> None:
         require_api_key("", "https://openrouter.ai/api/v1")
 
 
-def test_require_api_key_openrouter_accepts_key() -> None:
-    require_api_key("sk-test", "https://openrouter.ai/api/v1")
+def test_require_api_key_openrouter_accepts_key(capsys: pytest.CaptureFixture[str]) -> None:
+    assert require_api_key("sk-test", "https://openrouter.ai/api/v1") is None
+    assert capsys.readouterr().err == ""
 
 
 def test_is_anthropic_model_id() -> None:
@@ -239,13 +240,25 @@ def test_build_eval_api_config_already_anthropic_base(monkeypatch: pytest.Monkey
     assert cfg2["model"] == "claude-sonnet-4-5"
 
 
-def test_require_eval_keys_all_claude_no_openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_require_eval_keys_all_claude_no_openrouter_key(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-key")
-    require_eval_keys(
+    assert require_eval_keys(
         endpoint="https://openrouter.ai/api/v1",
         api_key="",
         models=["anthropic/claude-sonnet-4.5"],
-    )
+    ) is None
+    assert capsys.readouterr().err == ""
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    with pytest.raises(SystemExit):
+        require_eval_keys(
+            endpoint="https://openrouter.ai/api/v1",
+            api_key="",
+            models=["anthropic/claude-sonnet-4.5"],
+        )
 
 
 def test_require_eval_keys_claude_and_openrouter_judge_missing_key_exits(monkeypatch: pytest.MonkeyPatch) -> None:

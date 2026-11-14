@@ -39,9 +39,12 @@ def test_call_tool_result_text_content():
 
 
 def test_call_tool_result_json_serializable():
-    text = json.dumps({"n": 1}, ensure_ascii=False, default=str)
+    text = json.dumps({"n": 1}, ensure_ascii=False)
     payload = wire_types.call_tool_result(text)
-    json.dumps(payload, ensure_ascii=False, default=str)
+    decoded = json.loads(json.dumps(payload, ensure_ascii=False))
+    assert set(decoded.keys()) == {"content"}
+    assert len(decoded["content"]) == 1
+    assert decoded["content"][0] == {"type": "text", "text": text}
 
 
 def test_call_tool_result_image_content():

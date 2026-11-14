@@ -353,7 +353,7 @@ def test_verify_bundle_manifest_accepts_audio_catalog(tmp_path):
     audio_data.mkdir(parents=True)
     (audio_data / "voice_catalog.json").write_text("{}", encoding="utf-8")
 
-    verify_bundle_manifest(str(tmp_path))
+    assert verify_bundle_manifest(str(tmp_path)) is None
 
 
 def test_audio_voice_catalog_is_included():
