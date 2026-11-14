@@ -119,24 +119,28 @@ class _FalsyPage:
 
 
 class _NotesPage:
-    def __init__(self, shape: object) -> None:
-        self._shape = shape
+    def __init__(self, *shapes: object) -> None:
+        self._shapes = list(shapes)
 
     def getCount(self) -> int:
-        return 1
+        return len(self._shapes)
 
     def getByIndex(self, index: int) -> object:
-        if index != 0:
-            raise IndexError(index)
-        return self._shape
+        return self._shapes[index]
 
 
 class _NotesShape:
+    def __init__(self, text: str = "Cue the blank slide") -> None:
+        self._text = text
+
     def getShapeType(self) -> str:
         return "com.sun.star.presentation.NotesShape"
 
     def getString(self) -> str:
-        return "Cue the blank slide"
+        return self._text
+
+    def setString(self, value: str) -> None:
+        self._text = value
 
 
 def test_get_draw_context_for_chat_blank_page_includes_speaker_notes():
@@ -1268,3 +1272,25 @@ def test_get_draw_context_for_chat_renders_group_child_path():
     assert "- [2] GroupShape" in out
     assert '- [2.0.1] CustomShape: pos(100, 200) size(300x400) text: "star"' in out
 
+
+def test_notes_text_and_set_notes_text_functions():
+    from plugin.draw.bridge import notes_text, set_notes_text
+
+    class _ChromeShape:
+        def getShapeType(self):
+            return "com.sun.star.presentation.HeaderShape"
+
+    assert notes_text(None) is None
+    assert set_notes_text(None, "hello") is False
+
+    slide_no_notes = _FalsyPage()
+    slide_no_notes.notes = _NotesPage(_ChromeShape())
+    assert notes_text(slide_no_notes) is None
+    assert set_notes_text(slide_no_notes, "hello") is False
+
+    shape = _NotesShape("initial")
+    slide_with_notes = _FalsyPage()
+    slide_with_notes.notes = _NotesPage(_ChromeShape(), shape)
+    assert notes_text(slide_with_notes) == "initial"
+    assert set_notes_text(slide_with_notes, "updated") is True
+    assert notes_text(slide_with_notes) == "updated"

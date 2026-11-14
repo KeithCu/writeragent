@@ -10,6 +10,7 @@ import pytest
 
 sqlite_vec = pytest.importorskip("sqlite_vec")
 
+from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
 from plugin.embeddings.venv import embeddings_sqlite  # noqa: E402
 
 
@@ -423,3 +424,131 @@ def test_path_is_local_disk_real_path_on_linux(tmp_path):
     if sys.platform != "linux":
         pytest.skip("mountinfo inspection is Linux-specific")
     assert embeddings_sqlite.path_is_local_disk(tmp_path) is True
+
+
+def test_file_is_stale_when_no_rows(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        assert embeddings_sqlite.file_is_stale_in_db(conn, "file:///a.odt", 100.0) is True
+    finally:
+        conn.close()
+
+
+def test_file_is_stale_when_mtime_newer(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        embeddings_sqlite.upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": "file:///a.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 1,
+                "content_hash": content_hash("h"),
+                "text": "h",
+                "file_mtime": 50.0,
+            },
+            [],
+            model="",
+            with_fts=False,
+            with_vec=False,
+        )
+        conn.commit()
+        embeddings_sqlite.mark_file_indexed_in_db(conn, "file:///a.odt", 50.0, indexed_at=50.0)
+        assert embeddings_sqlite.file_is_stale_in_db(conn, "file:///a.odt", 100.0) is True
+        assert embeddings_sqlite.file_is_stale_in_db(conn, "file:///a.odt", 40.0) is False
+    finally:
+        conn.close()
+
+
+def test_file_is_stale_uses_stored_file_mtime_not_wall_clock(tmp_path):
+    """Staleness follows the stored file mtime, not wall-clock last_indexed_at."""
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        embeddings_sqlite.upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": "file:///a.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 1,
+                "content_hash": content_hash("h"),
+                "text": "h",
+                "file_mtime": 50.0,
+            },
+            [],
+            model="",
+            with_fts=False,
+            with_vec=False,
+        )
+        conn.commit()
+        embeddings_sqlite.mark_file_indexed_in_db(conn, "file:///a.odt", 50.0, indexed_at=1_000_000.0)
+        assert embeddings_sqlite.file_is_stale_in_db(conn, "file:///a.odt", 80.0) is True
+        assert embeddings_sqlite.file_is_stale_in_db(conn, "file:///a.odt", 50.0) is False
+        embeddings_sqlite.mark_file_indexed_in_db(conn, "file:///a.odt", 200.0, indexed_at=10.0)
+        assert embeddings_sqlite.file_is_stale_in_db(conn, "file:///a.odt", 200.0) is False
+    finally:
+        conn.close()
+
+
+def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        for para_index, text in ((0, "old"), (2, "gone")):
+            embeddings_sqlite.upsert_chunk_with_vector(
+                conn,
+                {
+                    "doc_url": "file:///a.odt",
+                    "para_index": para_index,
+                    "char_start": 0,
+                    "char_end": len(text),
+                    "content_hash": content_hash(text),
+                    "text": text,
+                    "file_mtime": 1.0,
+                },
+                [],
+                model="",
+                with_fts=False,
+                with_vec=False,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    chunks = [
+        ParagraphChunk(
+            doc_url="file:///a.odt",
+            para_index=0,
+            char_start=0,
+            char_end=3,
+            text="new",
+            content_hash=content_hash("new"),
+            file_mtime=1.0,
+        ),
+        ParagraphChunk(
+            doc_url="file:///a.odt",
+            para_index=1,
+            char_start=0,
+            char_end=5,
+            text="added",
+            content_hash=content_hash("added"),
+            file_mtime=1.0,
+        ),
+    ]
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        to_index, to_delete = embeddings_sqlite.diff_chunk_rows_in_db(conn, "file:///a.odt", chunks)
+    finally:
+        conn.close()
+    assert len(to_index) == 2
+    assert to_delete == [
+        {"doc_url": "file:///a.odt", "para_index": 2, "char_start": 0, "char_end": 4}
+    ]

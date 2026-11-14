@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import pickle
+import stat
 import struct
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from collections.abc import Generator
 from typing import Any
 from unittest.mock import MagicMock, patch
 import pytest
+from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, FRAME_RESULT, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame
@@ -27,6 +29,7 @@ from plugin.scripting.venv_worker import (
     Terminal,
     _TurnState,
     _classify_read_failure,
+    _resolve_worker_python,
     _worker_error_message,
     parse_worker_stdout_frame,
     reset_python_session,
@@ -2778,3 +2781,47 @@ def test_orphan_venv_harness_dies_with_parent(tmp_path: Any) -> None:
         if parent.poll() is None:
             parent.kill()
             parent.wait(timeout=5)
+
+
+def test_embeddings_pool_requires_configured_venv():
+    with (
+        patch("plugin.scripting.venv_worker.get_config", return_value=""),
+        patch("plugin.scripting.venv_worker.resolve_libreoffice_python") as mock_lo,
+    ):
+        exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
+    assert exe is None
+    assert err is not None
+    assert err["code"] == "VENV_NOT_FOUND"
+    mock_lo.assert_not_called()
+
+
+def test_embeddings_pool_invalid_venv_path():
+    with patch("plugin.scripting.venv_worker.get_config", return_value="/no/such/venv"):
+        exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
+    assert exe is None
+    assert err is not None
+    assert err["code"] == "VENV_NOT_FOUND"
+
+
+def test_embeddings_pool_resolves_valid_venv(tmp_path):
+    venv = tmp_path / "embedvenv"
+    bindir = venv / "bin"
+    bindir.mkdir(parents=True)
+    py = bindir / "python3"
+    py.write_text("#!/bin/sh\necho ok\n")
+    py.chmod(py.stat().st_mode | stat.S_IEXEC)
+    with patch("plugin.scripting.venv_worker.get_config", return_value=str(venv)):
+        exe, err = _resolve_worker_python(pool=WORKER_POOL_EMBEDDINGS)
+    assert err is None
+    assert exe == str(py)
+
+
+def test_default_pool_falls_back_to_lo_python_when_venv_empty():
+    with (
+        patch("plugin.scripting.venv_worker.get_config", return_value=""),
+        patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable) as mock_lo,
+    ):
+        exe, err = _resolve_worker_python(pool=WORKER_POOL_DEFAULT)
+    assert err is None
+    assert exe == sys.executable
+    mock_lo.assert_called_once()
