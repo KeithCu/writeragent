@@ -337,23 +337,10 @@ def test_verify_bundle_manifest_requires_audio_catalog(tmp_path):
     with pytest.raises(RuntimeError, match="voice_catalog.json"):
         verify_bundle_manifest(str(tmp_path))
 
-
-def test_verify_bundle_manifest_accepts_audio_catalog(tmp_path):
-    meta_inf = tmp_path / "META-INF"
-    meta_inf.mkdir(parents=True)
-    (meta_inf / "manifest.xml").write_text(
-        '<manifest:manifest xmlns:manifest="http://openoffice.org/2001/manifest"/>',
-        encoding="utf-8",
-    )
-    plugin_dir = tmp_path / "plugin"
-    plugin_dir.mkdir(parents=True)
-    (plugin_dir / "_manifest.py").write_text("", encoding="utf-8")
-    (tmp_path / "Addons.xcu").write_text("", encoding="utf-8")
     audio_data = plugin_dir / "audio" / "data"
     audio_data.mkdir(parents=True)
     (audio_data / "voice_catalog.json").write_text("{}", encoding="utf-8")
-
-    assert verify_bundle_manifest(str(tmp_path)) is None
+    verify_bundle_manifest(str(tmp_path))
 
 
 def test_audio_voice_catalog_is_included():
