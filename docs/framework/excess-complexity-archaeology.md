@@ -4,7 +4,7 @@ Notes from the "s55" cleanup loops (Oct 27–31, 2026; 329 commits,
 one file or module per commit, each titled `NN-module: s55 complexity
 cleanup`). The Oct 30–31 overnight run covered `plugin/`; the `compute_service/`
 directory (parallel to `plugin/`) was done earlier, on Oct 28–29. The loop's
-whole prompt is a short open-ended instruction to remove *excess* complexity.
+whole prompt is a short open-ended instruction to remove *excess* complexity and suggest safe cleanups.
 A second round on Nov 1 (75 commits, including `writer/` and `chatbot/`) is
 summarized near the end; it adds kinds 17 and 18 and a list of new risks.
 A structural review on Nov 12 that followed one request across files adds
