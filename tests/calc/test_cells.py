@@ -714,7 +714,7 @@ def test_read_cell_range_tool_truncates_large_range():
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
 
 
-def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
+def test_read_cell_range_min_over_cap_truncates_to_preview():
     """9×9 fixture (81 cells) is the smallest range-too-large repro.
 
     Chat `read_cell_range` caps at 80 cells.

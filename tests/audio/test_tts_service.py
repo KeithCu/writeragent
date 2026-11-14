@@ -922,6 +922,7 @@ def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
 
 @patch("plugin.audio.tts_service._popen_for_speech", return_value=None)
 def test_play_audio_file_windows_path_not_in_script(mock_popen):
+    import plugin.audio.tts_service as tts_service
     from plugin.audio.tts_service import _play_audio_file
 
     cancel = SendCancellation()
@@ -931,6 +932,7 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     cmd = mock_popen.call_args.args[0]
     assert path not in " ".join(cmd)
     assert "$env:WA_AUDIO_PATH" in cmd[-1]
+    assert cmd[-1] == tts_service._WIN_WAV_PLAYER
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == path
 
     mock_popen.reset_mock()
@@ -940,6 +942,7 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     mp3_cmd = mock_popen.call_args.args[0]
     assert mp3 not in " ".join(mp3_cmd)
     assert "$env:WA_AUDIO_PATH" in mp3_cmd[-1]
+    assert mp3_cmd[-1] == tts_service._WIN_MP3_PLAYER
     assert '"' not in mp3_cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == mp3
 

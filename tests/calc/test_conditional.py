@@ -61,7 +61,10 @@ def test_conditional_formatting_add_validation_errors():
     res_bad_style = tool.execute_safe(ctx, range=["A1:A10"], operator="GREATER", formula1="10", style="Reslt")
     assert res_bad_style["status"] == "error"
     assert res_bad_style["code"] == "INVALID_STYLE"
+    assert res_bad_style["message"] == "Unknown cell style 'Reslt'."
     assert res_bad_style["details"]["similar"][0] == "Result"
+    assert res_bad_style["details"]["hint"] == "Call style_list with family='CellStyles' to list names."
+    assert "Close matches" not in res_bad_style["message"]
 
     # 5. Multiple ranges
     cell_styles.hasByName.return_value = True

@@ -871,6 +871,7 @@ def test_chart_tools_unsupported_document_type(tool_name: str, kwargs: dict[str,
     res = _tool(tool_name).execute_safe(ctx, **kwargs)
     assert res["status"] == "error"
     assert res["code"] == "UNSUPPORTED_DOCUMENT"
+    assert res["message"] == "Unsupported document type for charts."
     if tool_name == "chart_upsert":
         doc.createInstance.assert_not_called()
 
