@@ -138,7 +138,7 @@ def _grid_mismatch_message(
     rows: int,
     cols: int,
     start: tuple[int, int],
-    bad_row: int | None = None,
+    bad_row: int | None,
 ) -> str:
     """Explain a ragged or wrong-shaped 2-D write with the range name and the matching shape."""
     r = len(values)
