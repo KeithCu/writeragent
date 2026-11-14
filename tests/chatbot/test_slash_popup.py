@@ -531,18 +531,15 @@ def test_slash_key_handler_key_pressed_behaviour() -> None:
 
 
 def test_show_matches_repositions_only_before_show():
+    # Fill before reposition (#3137) and reposition while hidden.
     popup, box = _controller()
-    seen_visible: list[bool] = []
-    orig = popup.reposition
-
-    def _wrapped() -> None:
-        seen_visible.append(box.visible)
-        orig()
-
-    popup.reposition = _wrapped  # type: ignore[method-assign]
+    events: list[object] = []
+    fill, repos = popup._fill_visible_list, popup.reposition
+    popup._fill_visible_list = lambda: (events.append("fill"), fill())[1]  # type: ignore[method-assign]
+    popup.reposition = lambda: (events.append(("reposition", box.visible)), repos())[1]  # type: ignore[method-assign]
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/")
-    assert seen_visible == [False]
+    assert events[:2] == ["fill", ("reposition", False)]
     assert box.visible is True
 
 

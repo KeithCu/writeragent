@@ -527,7 +527,7 @@ def test_doc_from_event_onnew_controller_throw_still_returns_calc_source():
 
 
 def test_onload_rewrites_collabora_py_via_call():
-    """OnLoadFinished marshals Collabora rewrite (doc only) then geometric open (ctx, doc)."""
+    """OnLoadFinished marshals geometric open (ctx, doc) then Collabora rewrite (doc only)."""
     from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
 
     ctx = MagicMock()
@@ -683,8 +683,9 @@ def test_onnew_records_geometric_session_via_call():
     ):
         listener.on_document_event(_NewEvent())
         convert.assert_not_called()
-        marshal.assert_called_once()
-        assert marshal.call_args.args == (lifecycle._geometric_open_job, ctx, doc)
+        assert marshal.call_count == 1
+        assert marshal.call_args_list[0][0][0] is lifecycle._geometric_open_job
+        assert marshal.call_args_list[0][0][1:] == (ctx, doc)
 
 
 def test_global_listener_disposed_view_controller_does_not_warn():

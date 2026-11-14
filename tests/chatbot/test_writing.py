@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+from plugin.chatbot.brainstorming import BrainstormResearchWeb
+from plugin.chatbot.deep_research_session import DeepResearchWebTool
 from plugin.chatbot.writing import (
     WritingResearchWeb,
     WritingPlanSessionTool,
@@ -45,18 +47,15 @@ def test_write_document_section_passes_html_array_to_apply_document_content():
 
 
 @pytest.mark.parametrize(
-    "tool_cls_path,expected_deep",
+    "tool_cls,expected_deep",
     [
-        ("plugin.chatbot.brainstorming.BrainstormResearchWeb", False),
-        ("plugin.chatbot.writing.WritingResearchWeb", False),
-        ("plugin.chatbot.deep_research_session.DeepResearchWebTool", True),
+        (BrainstormResearchWeb, False),
+        (WritingResearchWeb, False),
+        (DeepResearchWebTool, True),
     ],
+    ids=["brainstorming", "writing", "deep_research"],
 )
-def test_specialized_web_research_delegates_with_deep_flag(tool_cls_path, expected_deep):
-    import importlib
-
-    mod_name, cls_name = tool_cls_path.rsplit(".", 1)
-    tool_cls = getattr(importlib.import_module(mod_name), cls_name)
+def test_specialized_web_research_delegates_with_deep_flag(tool_cls, expected_deep):
     with patch("plugin.chatbot.web_research.WebResearchTool") as mock_cls:
         instance = mock_cls.return_value
         instance.execute.return_value = {"status": "ok", "result": "facts"}

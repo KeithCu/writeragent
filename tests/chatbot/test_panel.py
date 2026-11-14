@@ -1942,8 +1942,8 @@ def test_do_send_restores_query_text_on_error() -> None:
             listener._do_send()
 
             # _restore_query_text should be called on error
-            mock_set.assert_called_once()
-            assert mock_set.call_args.args[0] == "hello text"
+            assert mock_set.call_count == 1
+            assert mock_set.call_args_list[0][0][0] == "hello text"
 
 
 def test_normal_turn_end_does_not_set_focus() -> None:
