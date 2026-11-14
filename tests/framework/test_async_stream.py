@@ -161,6 +161,34 @@ def test_run_stream_drain_loop_error():
     assert isinstance(errors[0], ValueError)
 
 
+def test_ui_thread_graceful_recovery():
+    """Chunks queued before an ERROR item still drain before on_error fires."""
+    q = queue.Queue()
+    toolkit = DummyToolkit()
+    outcome = DrainOutcome()
+    applied = []
+    errors = []
+
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put((StreamQueueKind.CHUNK, "world"))
+    q.put((StreamQueueKind.ERROR, ValueError("worker thread crashed due to JSON error")))
+
+    run_stream_drain_loop(
+        q,
+        toolkit,
+        outcome,
+        lambda t, is_thinking: applied.append((t, is_thinking)),
+        on_stream_done=lambda i: True,
+        on_stopped=lambda: None,
+        on_error=errors.append,
+    )
+
+    assert outcome.done is True
+    assert applied == [("helloworld", False)]
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+
+
 def test_run_stream_drain_loop_error_on_error_true_drops_batch_tail():
     """Recovered ERROR keeps the drain, but items already pulled are the failed attempt."""
     q = queue.Queue()

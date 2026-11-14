@@ -6,6 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+from io import BytesIO
 import socket
 import time
 from unittest.mock import MagicMock, patch
@@ -137,3 +138,25 @@ def mcp_server():
         config_patcher.stop()
         mcp_config_patcher.stop()
 
+
+class MockHandler:
+    """Mock GenericRequestHandler for testing."""
+
+    def __init__(self, headers, body=b""):
+        self.headers = headers
+        self.rfile = BytesIO(body)
+        self.wfile = BytesIO()
+        self.client_address = ("127.0.0.1", 12345)
+        self.sent_responses = []
+        self.sent_headers = []
+        self.headers_ended = False
+        self.close_connection = False
+
+    def send_response(self, code, message=None):
+        self.sent_responses.append(code)
+
+    def send_header(self, keyword, value):
+        self.sent_headers.append((keyword, value))
+
+    def end_headers(self):
+        self.headers_ended = True

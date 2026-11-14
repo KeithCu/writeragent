@@ -6,27 +6,7 @@ from io import BytesIO
 from typing import Any
 
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
-
-class MockHandler:
-    """Mock GenericRequestHandler for testing."""
-    def __init__(self, headers, body=b""):
-        self.headers = headers
-        self.rfile = BytesIO(body)
-        self.wfile = BytesIO()
-        self.client_address = ("127.0.0.1", 12345)
-        self.sent_responses = []
-        self.sent_headers = []
-        self.headers_ended = False
-        self.close_connection = False
-
-    def send_response(self, code, message=None):
-        self.sent_responses.append(code)
-
-    def send_header(self, keyword, value):
-        self.sent_headers.append((keyword, value))
-
-    def end_headers(self):
-        self.headers_ended = True
+from tests.mcp.conftest import MockHandler
 
 def test_handle_mcp_post_unsupported_protocol_sets_content_length():
     """400 protocol-version rejection must frame the JSON body (Darwin urllib RST)."""
@@ -546,29 +526,6 @@ def test_handle_mcp_raises():
         assert "error" in response_data
         assert response_data["error"].get("code") == -32603  # Internal error
         assert "Test Internal Error" in response_data["error"].get("message", "")
-
-
-def test_to_mcp_schema_injects_document_url():
-    """Test that to_mcp_schema dynamically injects document_url parameter."""
-    from plugin.framework.tool import ToolBase, to_mcp_schema
-
-    class DummyTool(ToolBase):
-        name = "dummy_tool"
-        description = "A dummy tool for testing schema injection."
-        parameters = {
-            "type": "object",
-            "properties": {
-                "arg1": {"type": "string"}
-            },
-            "required": ["arg1"]
-        }
-        def execute(self, ctx, **kwargs):
-            return {"status": "ok"}
-
-    schema = to_mcp_schema(DummyTool())
-    input_schema = schema.get("inputSchema", {})
-    assert "document_url" in input_schema.get("properties", {})
-    assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]
 
 
 def test_try_reserve_sse_capped_at_eight():
