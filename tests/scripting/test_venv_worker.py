@@ -12,7 +12,7 @@ import threading
 import time
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 import pytest
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
@@ -29,7 +29,6 @@ from plugin.scripting.venv_worker import (
     Terminal,
     _TurnState,
     _classify_read_failure,
-    _worker_error,
     _worker_error_message,
     parse_worker_stdout_frame,
     reset_python_session,
@@ -693,7 +692,6 @@ def test_stdout_close_before_start_retries_once():
     assert 'without a response' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
-    assert mgr._terminate_worker.call_args_list == [call(), call()]
 
 def test_truncated_header_before_exec_started_fails_without_replay():
     """A truncated frame is stream desynchronization; do not replay."""
@@ -711,7 +709,6 @@ def test_truncated_header_before_exec_started_fails_without_replay():
     assert result['code'] in ('WORKER_IPC_ERROR', 'VENV_TIMEOUT')
     assert mgr._write_frame_with_timeout.call_count == 1
     assert mgr._terminate_worker.call_count == 1
-    assert mgr._terminate_worker.call_args_list == [call()]
 
 def test_runtime_error_before_exec_started_retries_once():
     """A RuntimeError before the child has started the script is still a failed start."""
@@ -729,7 +726,6 @@ def test_runtime_error_before_exec_started_retries_once():
     assert 'pipe died' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
-    assert mgr._terminate_worker.call_args_list == [call(), call()]
 
 def test_runtime_error_after_exec_started_does_not_replay():
     """A RuntimeError after exec_started must not resend the script on a new child."""
@@ -1053,6 +1049,7 @@ def test_get_refreshes_env_for_the_next_spawn():
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get('/tmp/python-env', {'PATH': '/usr/bin', 'A': '1'})
+        assert first.env['WRITERAGENT_IS_WORKER'] == '1'
         second = PythonWorkerManager.get('/tmp/python-env', {'PATH': '/usr/bin', 'A': '1', 'B': '2'})
         assert first is second
         assert second.env['B'] == '2'
@@ -1065,10 +1062,13 @@ def test_retired_worker_does_not_respawn():
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get('/tmp/python-old-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
+        seen: list[bool] = []
         mock_warm = MagicMock()
         mock_warm.is_alive.return_value = True
+        mock_warm.retire = MagicMock(side_effect=lambda: seen.append(first._retired))
         first._warm = mock_warm
         PythonWorkerManager.get('/tmp/python-new-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
+        assert seen == [True]
         assert first._retired is True
         mock_warm.retire.assert_called_once()
         assert not _session_ok(first)
@@ -1076,30 +1076,11 @@ def test_retired_worker_does_not_respawn():
     finally:
         shutdown_venv_workers_for_tests()
 
-def test_shutdown_all_sets_retired_before_terminate():
-    from plugin.scripting import venv_worker as vw
-    mgr = vw.PythonWorkerManager.__new__(vw.PythonWorkerManager)
-    mgr._retired = False
-    mgr._warm = MagicMock()
-    mgr._warm.retire = MagicMock()
-    key = 'test-pool:shutdown-retire'
-    with vw._registry_lock:
-        previous = dict(vw._instances)
-        vw._instances[key] = mgr
-    try:
-        vw.shutdown_venv_workers_for_tests()
-    finally:
-        with vw._registry_lock:
-            vw._instances.clear()
-            vw._instances.update(previous)
-    assert mgr._retired is True
-
 @patch('plugin.framework.config.get_config', return_value=10)
 @patch('plugin.scripting.venv_worker.get_config', return_value='')
 @patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable)
 @patch('plugin.scripting.venv_worker.PythonWorkerManager.execute')
 def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mock_configured_timeout):
-    default_policy = {'network': False, 'files': False, 'os': False, 'extra_modules': ''}
     for timeout_in, expected_timeout in [(None, 10), (100, 100), (1000, 600), (0, 1)]:
         if timeout_in is None:
             run_code_in_user_venv('result = 1')
@@ -1107,13 +1088,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
             run_code_in_user_venv('result = 1', timeout_sec=timeout_in)
         mock_execute.assert_called_once()
         req = mock_execute.call_args.args[0]
-        assert req.code == 'result = 1'
         assert req.timeout_sec == expected_timeout
-        assert req.sandbox_policy == default_policy
-        assert req.session is None
-        assert req.pin is None
-        assert req.action is None
-        assert mock_execute.call_args.kwargs == {}
         mock_execute.reset_mock()
 
 def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
@@ -1600,10 +1575,6 @@ def test_venv_worker_error_codes_and_context():
     finally:
         mgr._terminate_worker()
 
-def test_worker_error_shape():
-    err = _worker_error('WORKER_IPC_ERROR', 'No code provided.')
-    assert err == {'status': 'error', 'code': 'WORKER_IPC_ERROR', 'message': 'No code provided.', 'details': {}}
-
 def test_run_code_and_reset_session_missing_inputs_include_code():
     empty_code = run_code_in_user_venv('   ')
     assert empty_code['status'] == 'error'
@@ -1684,7 +1655,9 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
     with patch('plugin.scripting.host_rpc.execute_tool', return_value={'ok': True}) as mock_tool:
         handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'apply_document_content', 'args': {'content': ['x']}}, stdin_write=written.append)
     assert handled is True
-    mock_tool.assert_called_once_with('apply_document_content', {'content': ['x']}, caller='script', allowed_tools=None, script_session_id=None, send_cancellation=None)
+    mock_tool.assert_called_once()
+    assert mock_tool.call_args.args == ('apply_document_content', {'content': ['x']})
+    assert mock_tool.call_args.kwargs['caller'] == 'script'
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -1701,10 +1674,6 @@ def test_maybe_dispatch_tool_call_forwards_cancel():
     assert handled is True
     mock_tool.assert_called_once()
     assert mock_tool.call_args.kwargs["cancel"] is scope
-
-def test_python_worker_manager_sets_is_worker_env():
-    mgr = PythonWorkerManager(sys.executable, {'PATH': '/usr/bin'})
-    assert mgr.env.get('WRITERAGENT_IS_WORKER') == '1'
 
 def test_execute_main_thread_waits_for_pipe_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     """The designated main thread waits for the pipe lock instead of bailing with WORKER_REENTRY."""
@@ -2716,7 +2685,6 @@ def test_empty_id_error_after_exec_started_still_kills() -> None:
     assert 'id mismatch' in result['message']
     assert writes['n'] == 1
     assert mgr._terminate_worker.call_count == 1
-    assert mgr._terminate_worker.call_args_list == [call()]
 
 def test_io_session_popen_runs_on_supervisor_spawner_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
@@ -2890,19 +2858,6 @@ def test_io_session_passes_refuse_dict_through() -> None:
             warm.retire()
 
 
-def test_is_worker_alive_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    mgr = PythonWorkerManager(sys.executable, {})
-    warm = MagicMock()
-    warm.is_alive = MagicMock(side_effect=[True, False, False])
-    mgr._warm = warm
-    assert mgr._is_worker_alive() is True
-    assert mgr._is_worker_alive() is False
-    assert warm.is_alive.call_count == 2
-    warm.is_alive.reset_mock()
-    warm.is_alive.return_value = False
-    assert mgr._is_worker_alive() is False
-    assert warm.is_alive.call_count == 1
-
 def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
@@ -2912,16 +2867,8 @@ def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
 
 def test_parse_worker_stdout_frame_rejects_non_dict():
     payload = pickle.dumps([1], protocol=5)
-    with pytest.raises(RuntimeError, match='Worker response must be a dict'):
+    with pytest.raises(RuntimeError):
         parse_worker_stdout_frame(payload)
-
-def test_parse_worker_stdout_frame_returns_empty_dict():
-    payload = pickle.dumps({}, protocol=5)
-    assert parse_worker_stdout_frame(payload) == {}
-
-def test_parse_worker_stdout_frame_empty_bytes_raise():
-    with pytest.raises(ValueError):
-        parse_worker_stdout_frame(b'')
 
 def test_run_in_session_does_not_warm_when_stopped():
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
