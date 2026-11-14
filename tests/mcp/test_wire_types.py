@@ -88,6 +88,9 @@ def test_parse_jsonrpc_request_with_ids(req_id: int | str) -> None:
         {"jsonrpc": "2.0", "id": 1},
         {"jsonrpc": "2.0", "id": 1, "method": ""},
         {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": []},
+        # bool is a subclass of int, so it must not pass as an id.
+        {"jsonrpc": "2.0", "id": True, "method": "ping"},
+        {"jsonrpc": "2.0", "id": False, "method": "ping"},
     ],
 )
 def test_parse_jsonrpc_request_rejects_invalid(msg):

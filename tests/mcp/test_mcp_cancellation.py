@@ -1,7 +1,8 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.send_cancellation import SendCancellation
-from plugin.mcp.mcp_protocol import MCPProtocolHandler
+from plugin.framework.tool import ToolContext
+from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 
 
 def test_mcp_protocol_threads_send_cancellation():
@@ -212,3 +213,104 @@ def test_tools_call_uses_fresh_cancellation_under_agent_session():
         assert cancel is not existing
         assert isinstance(cancel, SendCancellation)
         assert existing.is_cancelled() is False
+
+
+def test_mcp_protocol_short_circuits_if_stopped_after_gate():
+    services_mock = MagicMock()
+    protocol = MCPProtocolHandler(services_mock)
+
+    ctx_mock = MagicMock(spec=ToolContext)
+    scope = SendCancellation()
+    scope.cancel()
+    ctx_mock.send_cancellation = scope
+
+    prepared = _PreparedMcpCall(
+        tool=MagicMock(),
+        context=ctx_mock,
+        doc=MagicMock(),
+        doc_key="file:///test.odt",
+        needs_gate=True,
+        echo=None,
+        is_async=True,
+    )
+
+    protocol.queue_executor.call.return_value = prepared
+    result = protocol._run_tool("test_tool", {}, cancel=SendCancellation())
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
+
+
+def test_invoke_prepared_short_circuits_when_stop_checker_is_latched():
+    services_mock = MagicMock()
+    protocol = MCPProtocolHandler(services_mock)
+    protocol.tool_registry = MagicMock()
+
+    ctx_mock = MagicMock(spec=ToolContext)
+    scope = SendCancellation()
+    scope.cancel()
+    ctx_mock.send_cancellation = scope
+
+    prepared = _PreparedMcpCall(
+        tool=MagicMock(),
+        context=ctx_mock,
+        doc=MagicMock(),
+        doc_key=MagicMock(),
+        needs_gate=False,
+        echo=None,
+    )
+
+    result = protocol._invoke_prepared_mcp_tool(prepared, "test_tool", {"a": 1})
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
+    protocol.tool_registry.execute.assert_not_called()
+
+
+def test_invoke_prepared_does_not_treat_truthy_non_bool_as_stopped():
+    services_mock = MagicMock()
+    protocol = MCPProtocolHandler(services_mock)
+    protocol.tool_registry = MagicMock()
+    protocol.tool_registry.execute.return_value = {"status": "ok"}
+
+    ctx_mock = MagicMock(spec=ToolContext)
+
+    class _TruthyScope:
+        def is_cancelled(self) -> str:
+            return "yes"
+
+    ctx_mock.send_cancellation = _TruthyScope()
+
+    prepared = _PreparedMcpCall(
+        tool=MagicMock(),
+        context=ctx_mock,
+        doc=MagicMock(),
+        doc_key=MagicMock(),
+        needs_gate=False,
+        echo=None,
+    )
+
+    result = protocol._invoke_prepared_mcp_tool(prepared, "test_tool", {"a": 1})
+    assert result.get("status") == "ok"
+    protocol.tool_registry.execute.assert_called_once()
+
+
+def test_in_flight_requests_does_not_leak():
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+
+    # An excluded-tier tool returns early from _mcp_tools_call, and _request_scopes must still be emptied.
+    handler._tool_exposure_mode = MagicMock(return_value="direct_flat")
+
+    tool_mock = MagicMock()
+    tool_mock.tier = "specialized_control"  # excluded in direct_flat
+
+    registry = MagicMock()
+    registry.get.return_value = tool_mock
+    handler.tool_registry = registry
+
+    req = {"jsonrpc": "2.0", "id": "req_1", "method": "tools/call", "params": {"name": "test_tool", "arguments": {}}}
+
+    res = handler._process_jsonrpc(req)
+
+    assert res[0] == 200
+    assert res[1]["result"]["isError"] is True
+
+    # Must not leak in-flight request
+    assert not handler._request_scopes

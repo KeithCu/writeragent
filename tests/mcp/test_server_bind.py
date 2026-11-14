@@ -473,3 +473,18 @@ def test_stop_closes_listen_socket_once():
         if thread.is_alive():
             thread.join(1)
         _release_listener(httpd)
+
+
+def test_tls_bad_cert_fails_before_bind():
+    from unittest.mock import MagicMock
+
+    registry = MagicMock()
+    # pass invalid certs to cause an exception
+    server = HttpServer(registry, port=0, use_ssl=True, ssl_cert="does-not-exist.pem", ssl_key="does-not-exist.pem")
+
+    with pytest.raises(Exception):
+        server.start()
+
+    assert not server.is_running()
+    # The cert is loaded before bind, so a missing file never takes the port.
+    assert server._server is None
