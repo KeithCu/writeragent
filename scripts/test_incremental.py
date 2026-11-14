@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Run pytest or UNO tests incrementally on changed test files and module-matched tests.
 
-Used by ``make test-bot`` and ``make test`` to scope pytest (or ``--uno`` for
+Used by ``make test-bot``, ``make test-uno``, and ``make test`` to scope pytest (or ``--uno`` for
 ``testing_runner.py``) to staged, unstaged, and untracked changes:
 - Changed ``test_*.py`` files under ``tests/`` (excluding ``*_uno.py`` in pytest
   mode; selecting only ``test_*_uno.py`` in ``--uno`` mode) run directly.

@@ -414,7 +414,7 @@ jobs:
           if [ "$WRITERAGENT_CI_DEBUG" = "1" ]; then
             mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"
           fi
-          make test-uno
+          make test-uno-full
 
       - name: Dump leftover processes (CI debug)
         if: ${{ always() && inputs.ci_debug == true }}

@@ -2,7 +2,7 @@
 
 **Not a product fix.** This page is the diagnostic contract for intermittent
 `DisposedException` on `desktop.loadComponentFromURL` in the native runner
-(`plugin/testing_runner.py`, `make test-uno`). Do not treat a green soak as
+(`plugin/testing_runner.py`, `make test-uno` / `make test-uno-full`). Do not treat a green soak as
 proof that LibreOffice or WriterAgent is healthy.
 
 Related: [archive/test_architecture_analysis.md](../archive/test_architecture_analysis.md)
@@ -891,7 +891,7 @@ What the two killer tests do (no product change):
 
 ## What the breadcrumb prints
 
-Default `make test-uno` prints which test is running (`TEST call` /
+Default `make test-uno` / `make test-uno-full` prints which test is running (`TEST call` /
 `TEST returned`), `TEST end` OK / FAIL / SKIP, suite start/end counts, and
 death lines for the current test (`LIFECYCLE` office death, URP dispose,
 `ABORT`). Bootstrap dumps, soffice pid lines, `TEST start`, `SUITE selected`
