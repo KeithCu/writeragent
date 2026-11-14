@@ -123,8 +123,8 @@ def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_drain_loop):
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
-    """After STREAM_DONE with tools, pending/round live on _sm_state; host has no mirror attrs."""
+def test_control_state_on_sm_state(mock_get_config, mock_drain_loop):
+    """After STREAM_DONE with tools, pending/round live on _sm_state."""
     panel, _session = setup_mock_panel()
     tool_calls = [
         {"id": "call_abc", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}
@@ -178,7 +178,7 @@ def test_handle_stream_error_persists_banner():
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_drain_loop):
+def test_handle_stream_stopped_sets_sm_state(mock_get_config, mock_drain_loop):
     from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, _session = setup_mock_panel()
     begin_send_turn(panel)

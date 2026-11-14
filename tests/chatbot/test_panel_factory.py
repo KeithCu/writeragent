@@ -13,6 +13,10 @@ _DIALOG_VIEWS = _REPO_ROOT / "plugin" / "chatbot" / "dialog_views.py"
 _SEND_HANDLERS = _REPO_ROOT / "plugin" / "chatbot" / "send_handlers.py"
 _TOOL_LOOP = _REPO_ROOT / "plugin" / "chatbot" / "tool_loop.py"
 _TOOL_LOOP_ACTIONS = _REPO_ROOT / "plugin" / "chatbot" / "tool_loop_actions.py"
+_COMPACTION = _REPO_ROOT / "plugin" / "chatbot" / "compaction.py"
+
+_NO_CTX_BUILDER = ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat")
+_NO_FACTORY = ("plugin.chatbot.panel_factory", "panel_factory")
 
 
 def _imported_names(path: Path) -> set[str]:
@@ -45,66 +49,46 @@ def _calls_name(path: Path, func_name: str) -> bool:
     return False
 
 
-@pytest.mark.parametrize(
-    ("path", "forbidden", "check_call"),
-    [
-        pytest.param(
-            _FACTORY,
-            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
-            "get_document_context_for_chat",
-            id="panel_factory_no_chat_context_builder",
-        ),
-        pytest.param(
-            _DIALOG_VIEWS,
-            ("plugin.chatbot.tool_loop", "tool_loop"),
-            None,
-            id="dialog_views_no_tool_loop",
-        ),
-        pytest.param(
-            _SEND_HANDLERS,
-            ("plugin.chatbot.panel_factory", "panel_factory"),
-            None,
-            id="send_handlers_no_panel_factory",
-        ),
-        pytest.param(
-            _TOOL_LOOP,
-            ("plugin.chatbot.panel_factory", "panel_factory"),
-            None,
-            id="tool_loop_no_panel_factory",
-        ),
-        pytest.param(
-            _TOOL_LOOP_ACTIONS,
-            ("plugin.chatbot.panel_factory", "panel_factory"),
-            None,
-            id="tool_loop_actions_no_panel_factory",
-        ),
-        pytest.param(
-            _SEND_HANDLERS,
-            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
-            None,
-            id="send_handlers_no_chat_context_builder",
-        ),
-        pytest.param(
-            _TOOL_LOOP,
-            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
-            None,
-            id="tool_loop_no_chat_context_builder",
-        ),
-        pytest.param(
-            _TOOL_LOOP_ACTIONS,
-            ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat"),
-            None,
-            id="tool_loop_actions_no_chat_context_builder",
-        ),
-    ],
-)
-def test_module_import_boundaries(path, forbidden, check_call):
-    """Enforce chatbot module import boundaries (factory, views, send, tool_loop)."""
+_IMPORT_BOUNDARY_CASES = [
+    # Factory wires XDL/controls; document context belongs to ChatSession / send / tool_loop.
+    (_FACTORY, _NO_CTX_BUILDER, "get_document_context_for_chat"),
+    # Dialog views must stay decoupled from the chat tool loop.
+    (_DIALOG_VIEWS, ("plugin.chatbot.tool_loop", "tool_loop"), None),
+    # Send / mid-loop refresh go through ChatSession.refresh_document_context, not panel_factory or the builder.
+    (_SEND_HANDLERS, _NO_FACTORY, None),
+    (_TOOL_LOOP, _NO_FACTORY, None),
+    (_TOOL_LOOP_ACTIONS, _NO_FACTORY, None),
+    (_SEND_HANDLERS, _NO_CTX_BUILDER, None),
+    (_TOOL_LOOP, _NO_CTX_BUILDER, None),
+    (_TOOL_LOOP_ACTIONS, _NO_CTX_BUILDER, None),
+    # Compaction is pure; it runs from both the sidebar and the headless path.
+    (_COMPACTION, ("uno", "plugin.chatbot.panel", "panel", "plugin.chatbot.tool_loop", "tool_loop", "llm_request_lane"), "llm_request_lane"),
+]
+
+
+@pytest.mark.parametrize(("path", "forbidden", "check_call"), _IMPORT_BOUNDARY_CASES)
+def test_module_import_boundaries(path: Path, forbidden: tuple[str, ...], check_call: str | None) -> None:
+    """Guard chatbot module layering boundaries (factory, views, send/tool_loop, compaction)."""
     imported = _imported_names(path)
     for name in forbidden:
         assert name not in imported
     if check_call is not None:
         assert not _calls_name(path, check_call)
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "logger_name"),
+    [
+        ("plugin/chatbot/panel_factory.py", "plugin.chatbot.panel_factory"),
+        ("plugin/librepy/panel_factory.py", "plugin.librepy.panel_factory"),
+    ],
+)
+def test_panel_factory_logger_name_is_explicit(rel_path: str, logger_name: str) -> None:
+    # LibreOffice loads these as UNO components where __name__ is not under
+    # plugin.*, so getLogger(__name__) would route records away from the debug log.
+    src = (_REPO_ROOT / rel_path).read_text(encoding="utf-8")
+    assert "getLogger(__name__)" not in src
+    assert f'logging.getLogger("{logger_name}")' in src
 
 
 class _MockDisposedException(Exception):

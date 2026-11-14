@@ -1893,6 +1893,7 @@ def test_voice_combo_change_does_not_write_config_until_ok():
 
 
 def test_extract_results_skips_missing_control_and_reads_checkbox_bool():
+    """Fields without an XDL control are omitted; otherwise OK would overwrite schema defaults with empty strings."""
     from plugin.chatbot.dialog_views import SettingsDialog
 
     class _Text:

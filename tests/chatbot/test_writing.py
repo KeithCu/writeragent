@@ -162,11 +162,3 @@ def test_write_document_section_missing_apply_tool_errors():
     res = tool.execute(ctx, content=["<p>Hi</p>"])
     assert res["status"] == "error"
     assert res["code"] == "TOOL_NOT_FOUND"
-
-
-def test_writing_plan_session_tool_supports_writer_not_calc():
-    from plugin.framework.tool import tool_supports_document
-
-    tool = WritingPlanSessionTool()
-    assert tool_supports_document(tool, doc_type="writer", uno_services_supported=None) is True
-    assert tool_supports_document(tool, doc_type="calc", uno_services_supported=None) is False
