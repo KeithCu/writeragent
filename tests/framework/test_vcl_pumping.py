@@ -311,9 +311,7 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
             ):
                 result["ok"] = wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01)
 
-        worker = threading.Thread(target=_waiter, name="Dummy-21")
-        worker.start()
-        worker.join(timeout=2.0)
+        _run_off_main(_waiter)
         assert result.get("ok") is True
         assert posts
         assert pe2i_threads == []
@@ -356,9 +354,7 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
             ):
                 result["ok"] = wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01)
 
-        worker = threading.Thread(target=_waiter, name="Dummy-21")
-        worker.start()
-        worker.join(timeout=2.0)
+        _run_off_main(_waiter)
         assert result.get("ok") is True
         assert pe2i_threads == []
     finally:
@@ -395,10 +391,7 @@ def test_post_secondary_idle_coalesces_and_passes_none_scope():
                 _post_secondary_idle(MagicMock())
                 _post_secondary_idle(MagicMock())
 
-        t = threading.Thread(target=_worker, name="Dummy-21")
-        t.start()
-        t.join(timeout=2.0)
-        assert not t.is_alive()
+        _run_off_main(_worker)
         assert len(posts) == 1
         _fn, kwargs = posts[0]
         assert kwargs.get("bound_scope") is None

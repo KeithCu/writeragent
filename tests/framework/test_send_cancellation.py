@@ -230,10 +230,11 @@ def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open,
     mock_resolve.return_value = ("/tmp/budget.ods", None)
     mock_open.return_value = (MagicMock(), "calc", None, True)
 
-    inner_threads: list[threading.Thread] = []
+    inner_in_marshal: list[bool] = []
+    in_marshal = [False]
 
     def fake_inner(*_args, **_kwargs):
-        inner_threads.append(threading.current_thread())
+        inner_in_marshal.append(in_marshal[0])
         return {"status": "ok", "finished": True, "answer": "Q4=100"}
 
     mock_inner.side_effect = fake_inner
@@ -243,7 +244,11 @@ def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open,
     def capture(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         del timeout, bound_scope
         captured_fns.append(fn)
-        return fn(*args, **kwargs)
+        in_marshal[0] = True
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            in_marshal[0] = False
 
     mock_main.side_effect = capture
 
@@ -271,7 +276,7 @@ def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open,
 
     assert result_box["result"]["status"] == "ok"
     assert mock_inner.call_count == 1
-    assert inner_threads == [worker]
+    assert inner_in_marshal == [False]
     assert mock_open in captured_fns
     assert mock_inner not in captured_fns
 

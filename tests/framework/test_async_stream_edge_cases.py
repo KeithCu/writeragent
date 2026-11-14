@@ -6,6 +6,7 @@
 
 import inspect
 import queue
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -13,6 +14,33 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import DummyToolkit
+
+
+def test_run_async_worker_with_drain_stop_fallback_calls_one_arg_on_done() -> None:
+    """When on_stopped_fn is None, STOPPED invokes a one-arg on_done with None."""
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    done_calls: list[object] = []
+    errors: list[object] = []
+
+    def on_done(item: object) -> None:
+        done_calls.append(item)
+
+    def worker(worker_q) -> None:
+        worker_q.put((StreamQueueKind.STOPPED, None))
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=DummyToolkit()):
+        run_async_worker_with_drain(
+            MagicMock(),
+            worker,
+            lambda _text, _is_thinking: None,
+            on_done,
+            errors.append,
+            on_stopped_fn=None,
+        )
+
+    assert done_calls == [None]
+    assert errors == []
 
 
 def test_stream_queue_helpers_parameterize_queue() -> None:
