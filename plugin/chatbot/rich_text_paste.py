@@ -705,6 +705,8 @@ def _copy_formatted_from_hidden_doc_to_control(
             apply_rich_control_para_margins(dest_cursor)
             fill_color = _rich_control_bg_color(model, theme.bg_color)
 
+            # Read the control length once and track offsets locally in _put;
+            # re-reading per portion walks the full control text.
             control_len = get_control_text_length(control)
 
             def _put(

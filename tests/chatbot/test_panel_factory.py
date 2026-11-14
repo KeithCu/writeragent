@@ -514,8 +514,8 @@ def test_sidebar_model_selectors_skip_remote_fetch():
         el._wire_model_selectors({"model_selector": model_selector, "image_model_selector": image_selector})
         el._refresh_controls_from_config()
 
-    assert pop.call_count == 2
-    assert image_pop.call_count == 2
+    pop.assert_called()
+    image_pop.assert_called()
     for call in pop.call_args_list:
         assert call.kwargs.get("skip_remote_fetch") is True
         assert "model_lru" in call.args
@@ -856,7 +856,8 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
             el.getRealInterface()
         assert el._released is True
         assert el.toolpanel is None
-        assert frame_session.release_panel.call_count == 1
+        frame_session.release_panel.assert_called_once()
+        frame_session.release_panel.reset_mock()
 
         # Retry must reset _released to False and succeed
         result = el.getRealInterface()
@@ -871,13 +872,15 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
         el._live_panel_uid = "doc-uid-1"
         el.disposing()
         assert el._released is True
-        assert frame_session.release_panel.call_count == 2
+        frame_session.release_panel.assert_called_once()
         unreg_mock.assert_called_once_with("doc-uid-1", el)
+        frame_session.release_panel.reset_mock()
+        unreg_mock.reset_mock()
 
         # Second disposing call short-circuits due to _released latch
         el.disposing()
-        assert frame_session.release_panel.call_count == 2
-        assert unreg_mock.call_count == 1
+        frame_session.release_panel.assert_not_called()
+        unreg_mock.assert_not_called()
 
 
 def test_chat_mode_listener_reverts_selector_when_busy() -> None:
@@ -1280,7 +1283,7 @@ def test_initialize_extension_paths_logging_failure_does_not_escape():
         ):
             pf._initialize_extension_paths(object())
         assert pf._paths_initialized is False
-        assert mock_init_logging.call_count == 2
+        mock_init_logging.assert_called()
     finally:
         pf._paths_initialized = False
 

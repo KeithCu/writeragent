@@ -924,12 +924,19 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_pool_shutdown_signals_reaper_event(self) -> None:
-        """Pool shutdown sets _reaper_stop_event so reaper threads terminate promptly."""
+    def test_pool_shutdown_stops_reaper_thread(self) -> None:
+        """Pool shutdown stops its idle-reaper thread."""
+        before = _idle_reaper_idents()
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, idle_worker_ttl_sec=3600.0))
-        assert not pool._reaper_stop_event.is_set()
-        pool.shutdown()
-        assert pool._reaper_stop_event.is_set()
+        try:
+            started = _idle_reaper_idents() - before
+            assert len(started) == 1
+            reaper_threads = [t for t in threading.enumerate() if t.ident in started]
+        finally:
+            pool.shutdown()
+        for reaper in reaper_threads:
+            reaper.join(timeout=2.0)
+            assert not reaper.is_alive()
 
     def test_evict_idle_workers_skips_dead_worker(self) -> None:
         """_evict_idle_workers must skip dead workers already in _idle via continue."""
