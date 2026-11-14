@@ -506,11 +506,16 @@ class TestLeadingListImport:
 class TestTightenListIndent:
     """Tests for _tighten_list_indent post-processing helper."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_uno_helpers(self, monkeypatch):
+        import sys
+        mock_uno = sys.modules["uno"]
+        monkeypatch.setattr(mock_uno, "Any", MagicMock(side_effect=lambda type_str, val: val))
+        monkeypatch.setattr(mock_uno, "invoke", MagicMock(side_effect=lambda obj, method, args: None))
+        return mock_uno
+
     def _make_list_para(self, text="• item", level=0, list_id="list1", is_number=True):
         """Create a mock paragraph that uses NumberingRules."""
-        import sys
-        sys.modules["uno"]
-
         para = MagicMock()
         props = {
             "NumberingIsNumber": is_number,
@@ -547,13 +552,7 @@ class TestTightenListIndent:
         body_range.createEnumeration.return_value = enum
         return body_range
 
-    def test_tightens_list_paragraph(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.Any.side_effect = lambda type_str, val: val
-        mock_uno.invoke.side_effect = lambda obj, method, args: None
-        mock_uno.invoke.reset_mock()
-
+    def test_tightens_list_paragraph(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para, rules = self._make_list_para(level=0)
@@ -561,13 +560,9 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        mock_uno.invoke.assert_called_once()
+        _mock_uno_helpers.invoke.assert_called_once()
 
-    def test_skips_non_list_paragraph(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.invoke.reset_mock()
-
+    def test_skips_non_list_paragraph(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para, _ = self._make_list_para(is_number=False)
@@ -575,15 +570,9 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        mock_uno.invoke.assert_not_called()
+        _mock_uno_helpers.invoke.assert_not_called()
 
-    def test_deduplicates_by_list_id_and_level(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.Any.side_effect = lambda type_str, val: val
-        mock_uno.invoke.side_effect = lambda obj, method, args: None
-        mock_uno.invoke.reset_mock()
-
+    def test_deduplicates_by_list_id_and_level(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para1, _ = self._make_list_para(text="item 1", level=0, list_id="same")
@@ -592,15 +581,9 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        assert (mock_uno.invoke.call_count) == (1)
+        assert (_mock_uno_helpers.invoke.call_count) == (1)
 
-    def test_processes_different_levels(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.Any.side_effect = lambda type_str, val: val
-        mock_uno.invoke.side_effect = lambda obj, method, args: None
-        mock_uno.invoke.reset_mock()
-
+    def test_processes_different_levels(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para1, _ = self._make_list_para(level=0, list_id="L1")
@@ -609,7 +592,7 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        assert (mock_uno.invoke.call_count) == (2)
+        assert (_mock_uno_helpers.invoke.call_count) == (2)
 
 
 class TestContainsHtmlTag:

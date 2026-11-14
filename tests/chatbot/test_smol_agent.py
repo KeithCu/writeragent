@@ -1,59 +1,9 @@
 # WriterAgent - combined tests for smolagents functionality
 
-from types import ModuleType, SimpleNamespace
-import sys
+from types import SimpleNamespace
 import time
 from unittest.mock import MagicMock, patch
 import pytest
-
-# =============================================================================
-# UNO mocks for librarian handoff tests
-# =============================================================================
-
-
-class _UnoBase:
-    pass
-
-
-class _XActionListener:
-    pass
-
-
-class _XTextListener:
-    pass
-
-
-class _XWindowListener:
-    pass
-
-
-class _XItemListener:
-    pass
-
-
-class _XEventListener:
-    pass
-
-
-sys.modules.setdefault("uno", MagicMock())
-unohelper_module = sys.modules.setdefault("unohelper", MagicMock())
-unohelper_module.Base = _UnoBase
-
-com_module = sys.modules.setdefault("com", ModuleType("com"))
-sun_module = sys.modules.setdefault("com.sun", ModuleType("com.sun"))
-star_module = sys.modules.setdefault("com.sun.star", ModuleType("com.sun.star"))
-awt_module = sys.modules.setdefault("com.sun.star.awt", ModuleType("com.sun.star.awt"))
-lang_module = sys.modules.setdefault("com.sun.star.lang", ModuleType("com.sun.star.lang"))
-setattr(com_module, "sun", sun_module)
-setattr(sun_module, "star", star_module)
-setattr(star_module, "awt", awt_module)
-setattr(star_module, "lang", lang_module)
-setattr(awt_module, "XActionListener", _XActionListener)
-setattr(awt_module, "XTextListener", _XTextListener)
-setattr(awt_module, "XWindowListener", _XWindowListener)
-setattr(awt_module, "XItemListener", _XItemListener)
-setattr(lang_module, "XEventListener", _XEventListener)
-
 
 # =============================================================================
 # Imports for all test groups

@@ -9,17 +9,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-for mod_name in [
-    "com.sun.star.drawing",
-    "com.sun.star.drawing.FillStyle",
-    "com.sun.star.drawing.LineStyle",
-]:
-    if mod_name not in sys.modules:
-        m = ModuleType(mod_name)
-        m.NONE = 0
-        sys.modules[mod_name] = m
-
 from plugin.writer.images import image_mark
+
+
+@pytest.fixture(autouse=True)
+def _stub_drawing_modules(monkeypatch):
+    for mod_name in (
+        "com.sun.star.drawing",
+        "com.sun.star.drawing.FillStyle",
+        "com.sun.star.drawing.LineStyle",
+    ):
+        if mod_name not in sys.modules:
+            m = ModuleType(mod_name)
+            m.NONE = 0
+            monkeypatch.setitem(sys.modules, mod_name, m)
 
 
 def _graphic(px=(2000, 1000), hmm=(52917, 26458)):

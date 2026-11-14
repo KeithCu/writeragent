@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import inspect
-from pathlib import Path
 import threading
 from typing import Any
 
@@ -19,21 +17,6 @@ from plugin.writer.locale.grammar_work_queue import (
     enqueue_misses,
 )
 from unittest.mock import MagicMock, patch
-
-
-def _grammar_obs_call_sites_present() -> bool:
-    """True when ``grammar_obs(...)`` call sites exist in the work-queue module under test.
-
-    ``make release`` runs pytest against a stripped bundle (``scripts/strip_code.py`` removes
-  only ``grammar_obs`` expression statements). Imports and ``grammar_obs.py`` remain.
-    """
-    from plugin.writer.locale import grammar_work_queue as gwq
-
-    try:
-        source = Path(inspect.getfile(gwq)).read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return "grammar_obs(" in source
 
 
 def _item(seq: int, key: str = "d|en-US|k1", *, partial: bool = False, text: str = "x") -> GrammarWorkItem:
