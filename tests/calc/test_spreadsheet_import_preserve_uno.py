@@ -6,26 +6,8 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
-
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-_GEN_PATH = REPO_ROOT / "scripts" / "generate_serialization_spreadsheet.py"
-
-
-def _load_generator():
-    if not _GEN_PATH.is_file():
-        return None
-    spec = importlib.util.spec_from_file_location("generate_serialization_spreadsheet", _GEN_PATH)
-    assert spec and spec.loader
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    spec.loader.exec_module(mod)
-    return mod
 
 
 @native_test

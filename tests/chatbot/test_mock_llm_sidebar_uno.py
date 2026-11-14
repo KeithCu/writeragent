@@ -9,7 +9,7 @@ Subset: ``make test-mock-sidebar FILTER=C`` (packet), ``FILTER=c1`` (case), or a
 
 Packet G always tries Record (in-process listener or URP ``press_record``).
 Headed machines must run the cases. Skip a single G test only after Record
-does not flip Send → Stop Rec (same class as E8b). Do not skip the packet
+does not flip Send → Stop Rec (same URP limit as press_stop_mouse: no in-process SendButtonListener, so the click is a no-op over URP). Do not skip the packet
 because the runner is URP-only or because ``DISPLAY`` is set (xvfb sets it).
 """
 
@@ -65,7 +65,7 @@ def _setup_mock(ctx):
     except Exception:
         pass
 
-    # Packet E1–E8 must not block on HITL Accept. E9 turns this on locally.
+    # Packet E1–E8 must not block on HITL Accept. R8 turns this on locally.
     _saved_prompt_research = get_config("chatbot.prompt_for_web_research")
     save({"chatbot.prompt_for_web_research": False})
     # Import hooks before later panel creates; factory WeakSet also sees panels
@@ -688,14 +688,6 @@ def test_f3a_hang_the_stream_then_hello(ctx):
 
 
 @native_test
-def test_f3b_hang_stop_mouse_skipped(ctx):
-    raise unittest.SkipTest(
-        "F3b press_stop_mouse needs in-process SendButtonListener; "
-        "URP only has ActionEvent via uno_click (covered by F17)"
-    )
-
-
-@native_test
 def test_f4_sse_pings_then_hello(ctx):
     _send_and_wait("sse pings", wait_for="mock")
     body = _transcript()
@@ -785,13 +777,6 @@ def test_f10_truncated_json_then_hello(ctx):
         "F10 expected recovery stream or error, got %r" % body[-400:]
     )
     _hello_ok()
-
-
-@native_test
-def test_f11_two_dones_then_hello(ctx):
-    # TODO(fix later): FAIL on 2026-08-29 full suite — wait_for="mock" / HTML reply
-    # did not show after two [DONE] lines (one POST, no hello). Isolate with FILTER=f11.
-    raise unittest.SkipTest("F11 two dones: transcript assert failed on live URP; fix later")
 
 
 @native_test
@@ -890,13 +875,6 @@ def test_f17_stop_during_hang_then_hello(ctx):
     _hello_ok()
 
 
-@native_test
-def test_f18_event_ping_then_hello(ctx):
-    # TODO(fix later): FAIL on 2026-08-29 full suite — wait_for="mock" after event: ping
-    # (client closed the socket / BrokenPipeError on the mock). Isolate with FILTER=f18.
-    raise unittest.SkipTest("F18 event ping: transcript assert failed on live URP; fix later")
-
-
 # --- Packet B: Stop, Send FSM ---
 
 
@@ -912,13 +890,6 @@ def test_b1a_stop_ramble_then_hello(ctx):
     finally:
         _reset_mock_runtime()
     _hello_ok()
-
-
-@native_test
-def test_b1b_stop_mouse_skipped(ctx):
-    raise unittest.SkipTest(
-        "B1b press_stop_mouse needs in-process SendButtonListener; URP ActionEvent is B1a"
-    )
 
 
 @native_test
@@ -1008,11 +979,6 @@ def test_b3b_stop_when_idle(ctx):
 
 
 @native_test
-def test_b4_record_skipped(ctx):
-    raise unittest.SkipTest("B4 Record needs a device / Packet G")
-
-
-@native_test
 def test_b6_double_send(ctx):
     from plugin.chatbot.sidebar_test_hooks import uno_click
 
@@ -1048,15 +1014,6 @@ def test_b7_empty_query_no_http(ctx):
     assert len(_captures()) == n_before, "B7 empty send must not POST to mock: %r" % _captures()
     assert _transcript() == before or not _wait_stop_enabled(timeout=0.4)
     _hello_ok()
-
-
-@native_test
-def test_b8_send_enabled_only_with_text(ctx):
-    raise unittest.SkipTest(
-        "B8 harness hole: URP Text= does not fire QueryTextListener / TEXT_UPDATED; "
-        "leftover has_text or Record stays Enabled. Needs harness TEXT_UPDATED sync "
-        "(not product). B7 already covers empty click must not POST."
-    )
 
 
 @native_test
@@ -1104,11 +1061,6 @@ def test_b11_query_after_stop_then_hello(ctx):
     # Query may be restored or cleared; next hello must still type into the box.
     assert isinstance(_query_box_text(), str)
     _hello_ok()
-
-
-@native_test
-def test_b12_record_hooks_skipped(ctx):
-    raise unittest.SkipTest("B12 Record/Stop Rec is Packet G (no mic in Packet B)")
 
 
 @native_test
@@ -1435,11 +1387,6 @@ def test_e1_offline_look_up_then_hello(ctx):
 
 
 @native_test
-def test_e2_online_research_skipped(ctx):
-    raise unittest.SkipTest("E2 live DuckDuckGo is not for CI (--offline only)")
-
-
-@native_test
 def test_e3_add_comment_then_hello(ctx):
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
@@ -1558,146 +1505,6 @@ def test_e8a_stop_during_nested_delegate(ctx):
     finally:
         _session.config.delay_ms = 20
         _session.config.sync_delay_ms = None
-    _hello_ok()
-
-
-@native_test
-def test_e8b_stop_mouse_skipped(ctx):
-    raise unittest.SkipTest(
-        "E8b press_stop_mouse needs in-process SendButtonListener; URP ActionEvent is E8a"
-    )
-
-
-@native_test
-def test_e9a_hitl_accept(ctx):
-    if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
-        raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import save
-
-    _reset_mock_runtime()
-    _set_writer_body(ctx, WELCOME_BODY)
-    save({"chatbot.prompt_for_web_research": True})
-    time.sleep(2.1)
-    controls = getattr(_session, "controls", None)
-    try:
-        from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
-
-        assert controls is not None
-        set_query_text_via_controls(controls, "look up cats")
-        time.sleep(0.2)
-        uno_click(controls["send"])
-        if not _wait_send_label("Accept", timeout=10.0):
-            raise unittest.SkipTest("E9 HITL Accept label never appeared over URP")
-        uno_click(controls["send"])
-        assert wait_controls_send_finished(controls, timeout=90.0, transcript_fn=_transcript), (
-            "E9a did not finish after Accept: %r" % _transcript()[-400:]
-        )
-    finally:
-        save({"chatbot.prompt_for_web_research": False})
-        time.sleep(2.1)
-    _hello_ok()
-
-
-@native_test
-def test_e9b_hitl_reject(ctx):
-    if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
-        raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import save
-
-    _reset_mock_runtime()
-    _set_writer_body(ctx, WELCOME_BODY)
-    save({"chatbot.prompt_for_web_research": True})
-    time.sleep(2.1)
-    controls = getattr(_session, "controls", None)
-    try:
-        from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
-
-        assert controls is not None
-        set_query_text_via_controls(controls, "look up cats")
-        time.sleep(0.2)
-        uno_click(controls["send"])
-        if not _wait_send_label("Accept", timeout=10.0):
-            raise unittest.SkipTest("E9 HITL Accept label never appeared over URP")
-        clear = controls.get("clear")
-        if clear is not None and "reject" in _label(clear).lower():
-            uno_click(clear)
-        else:
-            uno_click(controls["stop"])
-        assert wait_controls_send_finished(controls, timeout=40.0, transcript_fn=_transcript), (
-            "E9b did not go idle after Reject: %r" % _transcript()[-400:]
-        )
-    finally:
-        save({"chatbot.prompt_for_web_research": False})
-        time.sleep(2.1)
-    _hello_ok()
-
-
-@native_test
-def test_e9c_hitl_change(ctx):
-    if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
-        raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import save
-
-    _reset_mock_runtime()
-    _set_writer_body(ctx, WELCOME_BODY)
-    sl = getattr(_session, "listener", None)
-    if sl is None:
-        raise unittest.SkipTest("E9c Change hook needs in-process SendButtonListener")
-    save({"chatbot.prompt_for_web_research": True})
-    time.sleep(2.1)
-    try:
-        from plugin.chatbot.sidebar_test_hooks import press_change, press_send, set_query_text, wait_idle
-
-        set_query_text("look up cats", listener=sl)
-        press_send(listener=sl)
-        if not _wait_send_label("Accept", timeout=10.0):
-            raise unittest.SkipTest("E9 HITL Accept never appeared")
-        press_change("cats", listener=sl)
-        assert wait_idle(listener=sl, timeout=90.0)
-        assert "[Stopped by user]" not in _transcript(), "E9c must not cancel the stream as Stop"
-    finally:
-        save({"chatbot.prompt_for_web_research": False})
-        time.sleep(2.1)
-    _hello_ok()
-
-
-@native_test
-def test_e9d_stop_mouse_during_approval_skipped(ctx):
-    raise unittest.SkipTest("E9d press_stop_mouse needs in-process listener (see F3b)")
-
-
-@native_test
-def test_e9e_stop_action_during_approval(ctx):
-    if getattr(_session, "config", None) and getattr(_session.config, "offline", False):
-        raise unittest.SkipTest("E9 HITL requires web_search tool calls (--offline mock emits final_answer only)")
-    from plugin.framework.config import save
-
-    _reset_mock_runtime()
-    _set_writer_body(ctx, WELCOME_BODY)
-    save({"chatbot.prompt_for_web_research": True})
-    time.sleep(2.1)
-    controls = getattr(_session, "controls", None)
-    try:
-        from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
-
-        assert controls is not None
-        set_query_text_via_controls(controls, "look up cats")
-        time.sleep(0.2)
-        uno_click(controls["send"])
-        if not _wait_send_label("Accept", timeout=10.0):
-            raise unittest.SkipTest("E9 HITL Accept label never appeared over URP")
-        before = _transcript()
-        uno_click(controls["stop"])
-        assert wait_controls_send_finished(controls, timeout=40.0, transcript_fn=_transcript), (
-            "E9e did not finish after Stop/Change: %r" % _transcript()[-400:]
-        )
-        suffix = _transcript()
-        if suffix.startswith(before):
-            suffix = suffix[len(before) :]
-        assert "[Stopped by user]" not in suffix, "E9e Stop during approval must not be StopSendEffect"
-    finally:
-        save({"chatbot.prompt_for_web_research": False})
-        time.sleep(2.1)
     _hello_ok()
 
 
@@ -2144,7 +1951,7 @@ _WAV_5S = os.path.join(os.path.dirname(__file__), "fixtures", "hello-writeragent
 
 _PACKET_G_RECORD_SKIP = (
     "Packet G RECORD_CLICKED did not reach Stop Rec "
-    "(Record no-op after try; same class as E8b)"
+    "(Record no-op after try; no in-process SendButtonListener over URP)"
 )
 
 
@@ -2590,7 +2397,7 @@ def test_g21_hang_ready_init_timeout(ctx):
     timed_out = "timed out" in body or "audio error" in body or "timed out" in err
     started = int(snap.get("stub_start_count") or 0) >= 1 or snap.get("status") == "error"
     if not (timed_out or started):
-        # Record never engaged (URP no-op). Skip after try, same class as E8b.
+        # Record never engaged (URP no-op). Skip after try: no in-process SendButtonListener over URP.
         raise unittest.SkipTest(_PACKET_G_RECORD_SKIP)
     _hello_ok()
 
@@ -3847,7 +3654,7 @@ def test_r8_accept_and_stop(ctx):
     assert controls is not None, "R8 requires the sidebar controls dict"
     execute_debug_sidebar_op("WEB_RESEARCH_PROMPT_ON")
     # HITL approval gates the inner web_search step; the --offline mock answers with
-    # final_answer and never reaches it (why E9 skips). Stop lands before any search runs.
+    # final_answer and never reaches it. Stop lands before any search runs.
     assert _session is not None
     was_offline = _session.config.offline
     _session.config.offline = False

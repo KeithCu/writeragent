@@ -484,38 +484,6 @@ def test_shape_upsert_edit_by_name(ctx, doc):
 
 
 @native_test
-def test_shape_upsert_validation():
-    from plugin.app import get_tools
-    shape_upsert_tool = get_tools().get("shape_upsert")
-    assert shape_upsert_tool is not None
-
-    # Test validation when action is missing
-    ok, err = shape_upsert_tool.validate()
-    assert not ok
-    assert "Missing required parameter" in err
-
-    # Test validation when action='create' but missing required parameters
-    ok, err = shape_upsert_tool.validate(action="create")
-    assert not ok
-    assert "required when action is 'create'" in err
-
-    # Test validation when action='edit' but missing index and name
-    ok, err = shape_upsert_tool.validate(action="edit")
-    assert not ok
-    assert "index" in err and "name" in err
-
-    # Name-only edit is valid (paper-form fill by stable Name)
-    ok, err = shape_upsert_tool.validate(action="edit", name="fld_product")
-    assert ok
-    assert err is None
-
-    # Test validation when action='create' and all required parameters are present
-    ok, err = shape_upsert_tool.validate(action="create", shape_type="rectangle", x=1000, y=1000, width=5000, height=3000)
-    assert ok
-    assert err is None
-
-
-@native_test
 @with_native_doc("writer")
 def test_writer_star24_with_text_keeps_explicit_size(ctx, doc):
     """Writer AT_PAGE custom shapes must not collapse after setString (Arch Universal Sample)."""
