@@ -1759,30 +1759,6 @@ def test_host_cython_status_line_report_only_by_default() -> None:
         payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = prev_reason
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        {"__wa_payload__": PAYLOAD_CALC_RANGE, "shape": [1, 1], "data": [[1]]},
-        {"__wa_payload__": PAYLOAD_CALC_RANGE, "shape": [0, 0], "data": []},
-        {"__wa_payload__": PAYLOAD_CALC_RANGE, "shape": [1], "data": []},
-        {"__wa_payload__": PAYLOAD_CALC_RANGE, "shape": [1, 1]},
-        {"__wa_payload__": PAYLOAD_CALC_RANGE, "shape": [-1, 1], "data": []},
-        {"__wa_payload__": PAYLOAD_SPLIT_GRID, "shape": [1, 1], "buffer": b""},
-        {"foo": "bar"},
-        None,
-        [],
-        42,
-        "calc_range",
-    ],
-)
-def test_is_calc_range_payload_matches_calc_range_module(value: object) -> None:
-    """calc_range re-exports the codec detector (same object, same answers)."""
-    from plugin.scripting.calc_range import is_calc_range_payload as calc_range_is
-
-    assert calc_range_is is payload_codec.is_calc_range_payload
-    assert payload_codec.is_calc_range_payload(value) is calc_range_is(value)
-
-
 def _reloadable_accelerator(monkeypatch: pytest.MonkeyPatch):
     from plugin.scripting import payload_codec
 

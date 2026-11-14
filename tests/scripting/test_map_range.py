@@ -376,13 +376,49 @@ def shape_and_value(draw):
     return [[draw(st.integers(0, 100)) for _ in range(cols)] for _ in range(rows)]
 
 
+def _shape_of(val):
+    if isinstance(val, int):
+        return None
+    if isinstance(val[0], list):
+        if len(val) == 1 and len(val[0]) == 1:
+            return None
+        return (len(val), len(val[0]))
+    return (1, len(val))
+
+
+def _cell_at(val, r, c):
+    if isinstance(val, int):
+        return val
+    if isinstance(val[0], list):
+        if len(val) == 1 and len(val[0]) == 1:
+            return val[0][0]
+        return val[r][c]
+    return val[c]
+
+
 @given(a=shape_and_value(), b=shape_and_value())
 def test_hypothesis_map_over_range_shapes(a, b):
-    try:
-        res = map_over_range(lambda x, y: x + y, a, b)
-        assert res is not None
-    except ValueError:
-        pass  # Expected when broadcast shapes are incompatible
+    shape_a = _shape_of(a)
+    shape_b = _shape_of(b)
+    if shape_a is not None and shape_b is not None and shape_a != shape_b:
+        with pytest.raises(ValueError):
+            map_over_range(lambda x, y: x + y, a, b)
+        return
+
+    res = map_over_range(lambda x, y: x + y, a, b)
+    if shape_a is None and shape_b is None:
+        assert res == _cell_at(a, 0, 0) + _cell_at(b, 0, 0)
+        return
+
+    primary = a if shape_a is not None else b
+    nrows, ncols = shape_a if shape_a is not None else shape_b
+    if not isinstance(primary[0], list):
+        assert res == [_cell_at(a, 0, c) + _cell_at(b, 0, c) for c in range(ncols)]
+    else:
+        assert res == [
+            [_cell_at(a, r, c) + _cell_at(b, r, c) for c in range(ncols)]
+            for r in range(nrows)
+        ]
 
 
 

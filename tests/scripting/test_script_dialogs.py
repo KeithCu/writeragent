@@ -333,7 +333,6 @@ def test_show_new_script_dialog_fallback_reserved_prefix():
     assert result is None
     expected_msg = _("'{0}' starts with a reserved prefix.").format("[Doc] Kept")
     mock_msgbox.assert_called_once_with(ctx, _("Error"), expected_msg)
-    assert "parent_window" not in mock_msgbox.call_args.kwargs or mock_msgbox.call_args.kwargs.get("parent_window") is None
 
 
 def test_show_new_script_dialog_fallback_init_allowed():

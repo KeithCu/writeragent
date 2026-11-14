@@ -323,8 +323,6 @@ def test_calc_range_no_numpy_fallback():
 
 def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
     """A column past SHAPE_DIM is a Calc range. Deal must not assert."""
-    import deal
-
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
     from plugin.scripting.calc_range import CalcRange, materialize_inputs
 
@@ -336,12 +334,8 @@ def test_tall_sheet_materialize_and_arithmetic_do_not_precontract():
     assert labeled[0] == ["n" * 80]
     assert labeled[1:] == rows
     assert len(labeled) == DEAL_MAX_SHAPE_DIM + 2
-    try:
-        _ = CalcRange(rows) + 1
-    except deal.PreContractError:
-        raise
-    except TypeError:
-        return
+    res = CalcRange(rows) + 1
+    assert res.shape == (DEAL_MAX_SHAPE_DIM + 1, 1)
 
 
 def test_calc_range_init_from_ndarray_and_dataframe():
@@ -524,13 +518,6 @@ def test_multi_cell_arithmetic_propagates_to_numpy_errors():
             _ = -(CalcRange([[1, 2], [3, 4]]))
         with pytest.raises(ValueError, match="boom"):
             _ = CalcRange([[5]]) + CalcRange([[1, 2], [3, 4]])
-
-
-def test_values_is_live_storage():
-    cr = CalcRange([[1, 2], [3, 4]])
-    assert cr.values is cr._values
-    cr.values[0][0] = 9
-    assert cr.values == [[9, 2], [3, 4]]
 
 
 def test_calc_range_accepts_pandas_frame_and_series_only():

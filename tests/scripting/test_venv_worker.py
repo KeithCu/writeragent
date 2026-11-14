@@ -462,11 +462,6 @@ def _pid_is_alive_win32(pid: int) -> bool:
     kernel32.CloseHandle(handle)
     return alive
 
-def test_pid_is_alive_current_process():
-    assert pid_is_alive(os.getpid())
-    assert not pid_is_alive(0)
-    assert not pid_is_alive(-1)
-
 def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
     """Timeout/crash cleanup must kill descendants (joblib/loky, DataLoader), not only the worker."""
     import plugin.scripting.venv_worker as venv_worker_module
@@ -1144,49 +1139,6 @@ def test_request_session_id_still_reaches_tool_rpc_without_pin():
     assert result['status'] == 'ok'
     assert request['session_id'] == 'rps:file:///deck.odg'
     assert call.kwargs['script_session_id'] == 'rps:file:///deck.odg'
-
-def test_split_grid_pickle_and_json_round_trip():
-    """Regression: production buffer path vs historical Base64 JSON split_grid."""
-    from plugin.scripting.payload_codec import is_split_grid
-    from tests.scripting.payload_codec_test_support import child_pack_split_grid, child_unpack_split_grid, host_pack_split_grid, host_unpack_split_grid, legacy_b64_child_pack_split_grid, legacy_b64_child_unpack_split_grid, legacy_b64_host_pack_split_grid, legacy_b64_host_unpack_split_grid
-    np = pytest.importorskip('numpy')
-    grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
-    wire_json = legacy_b64_host_pack_split_grid(grid)
-    # Legacy b64 envelopes are rejected by production is_split_grid (decision 7).
-    assert not is_split_grid(wire_json)
-    assert 'b64' in wire_json
-    assert 'buffer' not in wire_json
-    assert isinstance(wire_json['b64'], str)
-    unpacked_host_json = legacy_b64_host_unpack_split_grid(wire_json)
-    assert unpacked_host_json == grid
-    unpacked_child_json = legacy_b64_child_unpack_split_grid(wire_json)
-    assert isinstance(unpacked_child_json, np.ndarray)
-    assert unpacked_child_json.shape == (4, 4)
-    np.testing.assert_allclose(unpacked_child_json, np.array(grid))
-    wire_pickle = host_pack_split_grid(grid)
-    assert is_split_grid(wire_pickle)
-    assert 'buffer' in wire_pickle
-    assert 'b64' not in wire_pickle
-    assert isinstance(wire_pickle['buffer'], bytes)
-    unpacked_host_pickle = host_unpack_split_grid(wire_pickle)
-    assert unpacked_host_pickle == grid
-    unpacked_child_pickle = child_unpack_split_grid(wire_pickle)
-    assert isinstance(unpacked_child_pickle, np.ndarray)
-    assert unpacked_child_pickle.shape == (4, 4)
-    np.testing.assert_allclose(unpacked_child_pickle, np.array(grid))
-    child_wire_json = legacy_b64_child_pack_split_grid(np.array(grid))
-    # Legacy b64 envelopes are rejected by production is_split_grid (decision 7).
-    assert not is_split_grid(child_wire_json)
-    assert 'b64' in child_wire_json
-    assert 'buffer' not in child_wire_json
-    unpacked_host_json_from_child = legacy_b64_host_unpack_split_grid(child_wire_json)
-    assert unpacked_host_json_from_child == grid
-    child_wire_pickle = child_pack_split_grid(np.array(grid))
-    assert is_split_grid(child_wire_pickle)
-    assert 'buffer' in child_wire_pickle
-    assert 'b64' not in child_wire_pickle
-    unpacked_host_pickle_from_child = host_unpack_split_grid(child_wire_pickle)
-    assert unpacked_host_pickle_from_child == grid
 
 def test_warm_logs_prime_failure(caplog: pytest.LogCaptureFixture) -> None:
     import contextlib

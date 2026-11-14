@@ -909,17 +909,17 @@ def test_insert_analysis_result_into_calc() -> None:
     ctx = MagicMock()
     result = {"status": "ok", "result": "val"}
 
-    def _write(_doc, grid, **_kwargs):
-        return len(grid)
-
-    with patch("plugin.calc.analysis_egress.insert_tabular_result_into_calc", side_effect=_write) as mock_insert:
+    with patch("plugin.calc.analysis_egress.insert_tabular_result_into_calc", return_value=2) as mock_insert:
         res = insert_analysis_result_into_calc(doc, ctx, result)
 
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.args[0] is doc
-    grid = mock_insert.call_args.args[1]
-    assert grid
-    assert res == len(grid)
+    mock_insert.assert_called_once_with(
+        doc,
+        [["analysis"], ["(no tabular output)"]],
+        sheet_name=None,
+        start_col=None,
+        start_row=None,
+    )
+    assert res == 2
 
 
 def test_compare_periods_parses_calc_serials_and_years():

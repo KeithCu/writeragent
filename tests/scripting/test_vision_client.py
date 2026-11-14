@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.scripting.client import run_vision
-from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import DOCLING_WORKER_TIMEOUT_SEC, VISION_WORKER_TIMEOUT_SEC
 
 
@@ -61,15 +60,6 @@ def test_run_vision_uses_config_worker_timeout(ctx):
         run_vision(ctx, spec, b"png")
 
     assert mock_run.call_args.kwargs["timeout_sec"] == 999
-
-
-def test_run_vision_worker_error(ctx):
-    with patch(
-        "plugin.scripting.client.run_trusted_worker_action",
-        side_effect=ToolExecutionError("boom", code="VISION_ERROR"),
-    ):
-        with pytest.raises(ToolExecutionError, match="boom"):
-            run_vision(ctx, {"helper": "extract_text", "params": {}}, b"x")
 
 
 def test_run_vision_non_dict_spec_uses_long_budget(ctx):

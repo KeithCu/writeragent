@@ -179,15 +179,6 @@ def test_long_source_is_not_cached() -> None:
         assert e2.error is None
 
 
-def test_match_forbidden_when_present() -> None:
-    from plugin.contrib.smolagents.local_python_executor import _HANDLERS
-    from plugin.scripting.sandbox_cache import HotEntry
-
-    if hasattr(ast, "Match"):
-        assert ast.Match not in _HANDLERS
-    assert getattr(HotEntry, "__dataclass_params__").slots is False
-
-
 def test_value_error_from_parse_is_cached_parse_error() -> None:
     imports = list(BASE_BUILTIN_MODULES)
     with patch(

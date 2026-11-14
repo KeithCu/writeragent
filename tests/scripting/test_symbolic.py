@@ -107,7 +107,8 @@ def test_differentiate_atan(expression, value, expected):
 
     res = differentiate(expression=expression, variable="x")
     assert res["status"] == "ok"
-    assert value in res["text"] or res["latex"] == expected
+    assert res["text"] == value
+    assert res["latex"] == expected
 
 @pytest.mark.parametrize(
     "expression, expected, value, expected_2",
@@ -272,7 +273,9 @@ def test_helpers_match_helper_names():
     from plugin.scripting.helper_registry import bound, names
     import plugin.scripting.venv.symbolic  # noqa: F401
 
-    assert all(callable(bound("symbolic", name)) for name in names("symbolic"))
+    helper_names = names("symbolic")
+    assert helper_names
+    assert all(callable(bound("symbolic", name)) for name in helper_names)
 
 
 def test_factorial_equation_needs_a_space_before_equals():

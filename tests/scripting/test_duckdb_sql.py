@@ -996,10 +996,15 @@ def test_insert_sql_result_into_calc() -> None:
     ctx = MagicMock()
     result = {"status": "ok", "tables": [{"columns": ["a"], "rows": [[1]]}]}
 
-    with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
+    with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=5) as mock_insert:
         res = insert_sql_result_into_calc(doc, ctx, result)
-        assert res == 1
-        mock_insert.assert_called_once()
+        assert res == 5
+        mock_insert.assert_called_once_with(
+            doc,
+            [["query_folder_sql"], [], ["table"], ["a"], [1.0]],
+            start_col=None,
+            start_row=None,
+        )
 
 
 def test_scanner_single_pass_tokenizer_regression():

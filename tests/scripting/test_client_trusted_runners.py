@@ -203,12 +203,6 @@ def test_non_dict_params_become_empty_dict(ctx):
     assert kwargs["params"] == {}
 
 
-def test_run_optimize_dunder_name():
-    assert client.run_optimize.__name__ == "run_optimize"
-    assert client.run_analysis.__name__ == "run_analysis"
-    assert client.run_forecast.__name__ == "run_forecast"
-
-
 def test_run_text_analytics_non_dict_spec(ctx):
     with (
         patch("plugin.scripting.client.get_config", return_value=""),

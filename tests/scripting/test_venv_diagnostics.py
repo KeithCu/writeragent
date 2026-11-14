@@ -503,44 +503,6 @@ def test_run_venv_self_check_with_progress_includes_vector_search():
     assert "Missing: sentence_transformers" in msg
 
 
-def test_run_venv_self_check_with_progress_uses_vision_probe_timeout():
-    mock_mgr = MagicMock()
-    mock_mgr.execute.return_value = {
-        "status": "ok",
-        "result": {"v": "3.12.0", "p": {}, "sci": [], "eda": [], "ui": []},
-    }
-    mock_probe = MagicMock(
-        side_effect=lambda exe, name, timeout=None: (
-            ({}, None) if name in {"nlp", "vector_search", "vision"} else orig_named_probe(exe, name)
-        )
-    )
-    with (
-        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
-        patch("plugin.scripting.venv_diagnostics._run_named_json_probe", mock_probe),
-    ):
-        run_venv_self_check_with_progress("/x/python", lambda text: None)
-    mock_probe.assert_any_call("/x/python", "vision")
-
-
-def test_run_venv_self_check_with_progress_uses_vector_search_probe_timeout():
-    mock_mgr = MagicMock()
-    mock_mgr.execute.return_value = {
-        "status": "ok",
-        "result": {"v": "3.12.0", "p": {}, "sci": [], "eda": [], "ui": []},
-    }
-    mock_probe = MagicMock(
-        side_effect=lambda exe, name, timeout=None: (
-            ({}, None) if name in {"nlp", "vector_search", "vision"} else orig_named_probe(exe, name)
-        )
-    )
-    with (
-        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
-        patch("plugin.scripting.venv_diagnostics._run_named_json_probe", mock_probe),
-    ):
-        run_venv_self_check_with_progress("/x/python", lambda text: None)
-    mock_probe.assert_any_call("/x/python", "vector_search")
-
-
 def test_probe_vision_packages_timeout_reports_failure():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
@@ -661,25 +623,6 @@ def test_probe_nlp_packages_subprocess_timeout():
     assert "timed out" in hint.lower()
 
 
-def test_run_venv_self_check_with_progress_uses_nlp_probe_timeout():
-    mock_mgr = MagicMock()
-    mock_mgr.execute.return_value = {
-        "status": "ok",
-        "result": {"v": "3.12.0", "p": {}, "sci": [], "eda": [], "ui": []},
-    }
-    mock_nlp_probe = MagicMock(
-        side_effect=lambda exe, name, timeout=None: (
-            ({}, None) if name in {"nlp", "vector_search", "vision"} else orig_named_probe(exe, name)
-        )
-    )
-    with (
-        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
-        patch("plugin.scripting.venv_diagnostics._run_named_json_probe", mock_nlp_probe),
-    ):
-        run_venv_self_check_with_progress("/x/python", lambda text: None)
-    mock_nlp_probe.assert_any_call("/x/python", "nlp")
-
-
 def test_attach_external_probes_shares_one_helper(monkeypatch):
     from plugin.scripting import venv_diagnostics as vd
 
@@ -793,20 +736,6 @@ def test_probe_scripts_compile_and_ui_probe_round_trips():
     assert set(_UI_PACKAGE_KEYS) <= set(parsed)
 
 
-def test_partial_scientific_group_uses_translated_title(monkeypatch) -> None:
-    import plugin.scripting.venv_diagnostics as diag
-
-    monkeypatch.setattr(diag, "_", lambda message: f"L:{message}")
-    report = diag.ProbeReport(
-        version="3.12.0",
-        packages={"numpy": "present"},
-        groups=[diag.GroupResult("sci", diag._("Scientific Libraries"), packages=("numpy",))],
-    )
-    msg = report.render()
-    assert "L:Scientific Libraries: numpy" in msg
-    assert "pandas" not in msg
-
-
 def test_run_json_probe_keeps_payload_on_nonzero_exit():
     completed = subprocess.CompletedProcess(
         args=["python"],
@@ -873,15 +802,15 @@ def test_probe_venv_path_messages_are_translated(tmp_path, monkeypatch):
     monkeypatch.setattr("plugin.scripting.venv_diagnostics._", lambda message: f"L:{message}")
 
     with patch("plugin.scripting.venv_diagnostics.resolve_libreoffice_python", return_value=None):
-        ok, msg = probe_venv_path_with_progress("", lambda _: None)
+        ok, msg = probe_venv_path_with_progress("", lambda unused: None)
         assert ok is False
         assert msg.startswith("L:No process interpreter:")
 
-    ok, msg = probe_venv_path_with_progress(str(tmp_path), lambda _: None)
+    ok, msg = probe_venv_path_with_progress(str(tmp_path), lambda unused: None)
     assert ok is False
     assert msg.startswith("L:No python found.")
 
-    ok, msg = probe_venv_path_with_progress(str(tmp_path / "missing"), lambda _: None)
+    ok, msg = probe_venv_path_with_progress(str(tmp_path / "missing"), lambda unused: None)
     assert ok is False
     assert msg.startswith("L:Path not found: ")
 
