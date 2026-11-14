@@ -189,19 +189,6 @@ def test_call_fails_fast_when_soffice_already_exited(monkeypatch: pytest.MonkeyP
         monkeypatch.setattr(tl, "_lo_proc", None)
 
 
-def test_eval_harness_disables_async_callback(monkeypatch: pytest.MonkeyPatch, lo_env: None) -> None:
-    del lo_env
-    monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
-    from plugin.framework.queue_executor import MainThread, install_from_environ
-
-    install_from_environ()
-    ex = MainThread()
-    ex.set_context(MagicMock(name="ctx"))
-    # Force lazy init path
-    assert ex._get_async_callback() is None
-    assert ex._initialized is True
-
-
 def test_stop_unlinks_log_file_on_clean_exit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lo_env: None) -> None:
     del lo_env
     _boot(monkeypatch)

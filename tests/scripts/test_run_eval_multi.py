@@ -55,14 +55,21 @@ def test_out_path_relative_is_cwd(monkeypatch, tmp_path) -> None:
     assert run_eval_multi._out_path(abs_args) == Path(abs_out).resolve()
 
 
-def test_nitro_student_reuses_base_catalog_pricing() -> None:
+def test_nitro_student_reuses_base_catalog_pricing(monkeypatch) -> None:
+    from model_configs import ModelConfig
+
+    base = ModelConfig(
+        openrouter_id="synthetic/base-model",
+        display_name="Synthetic Base",
+        context_window_tokens=131_072,
+        input_cost_per_million=0.25,
+        output_cost_per_million=1.50,
+    )
+    monkeypatch.setitem(run_eval_multi.MODEL_BY_ID, base.openrouter_id, base)
     cfg = run_eval_multi._model_config_for_id(
-        "openai/gpt-oss-120b:nitro", allow_unknown=False
+        "synthetic/base-model:nitro", allow_unknown=False
     )
-    base = run_eval_multi._model_config_for_id(
-        "openai/gpt-oss-120b", allow_unknown=False
-    )
-    assert cfg.openrouter_id == "openai/gpt-oss-120b:nitro"
+    assert cfg.openrouter_id == "synthetic/base-model:nitro"
     assert cfg.input_cost_per_million == base.input_cost_per_million
     assert cfg.output_cost_per_million == base.output_cost_per_million
 
@@ -258,20 +265,32 @@ def test_pareto_tradeoff_score_f1_is_one() -> None:
 
 
 def test_catalog_pricing_from_token_total_does_not_change_correctness() -> None:
-    """1658 Ultra/Super stored only total_tokens; 85/15 split is documented."""
-    from model_configs import MODEL_BY_ID
+    """85/15 split applies synthetic catalog rates to total_tokens without altering correctness."""
+    from model_configs import ModelConfig
 
-    ultra_cfg = MODEL_BY_ID["nvidia/nemotron-3-ultra-550b-a55b"]
-    super_cfg = MODEL_BY_ID["nvidia/nemotron-3-super-120b-a12b"]
-    ultra_corr = 0.8211764705882354
-    super_corr = 0.9035294117647058
+    ultra_cfg = ModelConfig(
+        openrouter_id="synthetic/ultra",
+        display_name="Synthetic Ultra",
+        context_window_tokens=131_072,
+        input_cost_per_million=1.0,
+        output_cost_per_million=4.0,
+    )
+    super_cfg = ModelConfig(
+        openrouter_id="synthetic/super",
+        display_name="Synthetic Super",
+        context_window_tokens=131_072,
+        input_cost_per_million=0.2,
+        output_cost_per_million=0.8,
+    )
+    ultra_corr = 0.80
+    super_corr = 0.90
     ultra = {
         "openrouter_id": ultra_cfg.openrouter_id,
         "avg_correctness": ultra_corr,
-        "avg_metric_score": 0.5022070588235295,
-        "hard_pass_rate": 0.8235294117647058,
-        "n_examples": 17,
-        "total_tokens": 947886,
+        "avg_metric_score": 0.50,
+        "hard_pass_rate": 0.82,
+        "n_examples": 10,
+        "total_tokens": 1_000_000,
         "pricing_known": False,
         "avg_cost_per_example": 0.0,
         "intelligence_per_dollar_correctness": 0.0,
@@ -279,10 +298,10 @@ def test_catalog_pricing_from_token_total_does_not_change_correctness() -> None:
     super_row = {
         "openrouter_id": super_cfg.openrouter_id,
         "avg_correctness": super_corr,
-        "avg_metric_score": 0.5036711764705882,
-        "hard_pass_rate": 0.7058823529411765,
-        "n_examples": 17,
-        "total_tokens": 1374453,
+        "avg_metric_score": 0.50,
+        "hard_pass_rate": 0.70,
+        "n_examples": 10,
+        "total_tokens": 1_000_000,
         "pricing_known": False,
         "avg_cost_per_example": 0.0,
         "intelligence_per_dollar_correctness": 0.0,
@@ -293,25 +312,25 @@ def test_catalog_pricing_from_token_total_does_not_change_correctness() -> None:
 
     assert ultra["avg_correctness"] == ultra_corr
     assert super_row["avg_correctness"] == super_corr
-    assert ultra["hard_pass_rate"] == 0.8235294117647058
-    assert super_row["hard_pass_rate"] == 0.7058823529411765
+    assert ultra["hard_pass_rate"] == 0.82
+    assert super_row["hard_pass_rate"] == 0.70
     assert ultra["pricing_known"] is True
     assert super_row["pricing_known"] is True
-    assert ultra["input_cost_per_million"] == 0.625
-    assert ultra["output_cost_per_million"] == 3.125
-    assert super_row["input_cost_per_million"] == 0.085
-    assert super_row["output_cost_per_million"] == 0.4
-    # 85/15 × catalog rates × recorded totals (17 tasks).
-    assert ultra["avg_cost_per_example"] == pytest.approx(0.055758)
-    assert super_row["avg_cost_per_example"] == pytest.approx(0.010692435838235294)
+    assert ultra["input_cost_per_million"] == ultra_cfg.input_cost_per_million
+    assert ultra["output_cost_per_million"] == ultra_cfg.output_cost_per_million
+    assert super_row["input_cost_per_million"] == super_cfg.input_cost_per_million
+    assert super_row["output_cost_per_million"] == super_cfg.output_cost_per_million
+    # 85/15 × catalog rates × recorded totals (10 tasks).
+    expected_ultra_cost = (0.85 * 1.0 + 0.15 * 4.0) / 10
+    expected_super_cost = (0.85 * 0.2 + 0.15 * 0.8) / 10
+    assert ultra["avg_cost_per_example"] == pytest.approx(expected_ultra_cost)
+    assert super_row["avg_cost_per_example"] == pytest.approx(expected_super_cost)
     assert ultra["intelligence_per_dollar_correctness"] == pytest.approx(
         (ultra_corr ** 2) / ultra["avg_cost_per_example"]
     )
     assert super_row["intelligence_per_dollar_correctness"] == pytest.approx(
         (super_corr ** 2) / super_row["avg_cost_per_example"]
     )
-    assert round(ultra["intelligence_per_dollar_correctness"]) == 12
-    assert round(super_row["intelligence_per_dollar_correctness"]) == 76
 
 
 def test_pareto_tradeoff_score_decreases_with_distance() -> None:

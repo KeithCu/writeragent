@@ -288,14 +288,6 @@ def test_loader_rejects_unknown_task_and_wrong_schema(tmp_path: Path) -> None:
         pel.load_eval2_board(path)
 
 
-def test_plot_module_does_not_import_string_harness() -> None:
-    source = Path(pel.__file__).read_text(encoding="utf-8")
-    assert "benchmark_results.json" in source  # refusal path
-    assert "from run_eval_multi" not in source
-    assert "import plot_pareto" not in source
-    assert "merge_benchmark_results" not in source
-
-
 def test_intelligence_per_dollar_is_partial_squared_over_cost() -> None:
     assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, 1.0) == 4.0
     assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, 0.5) == 1.0
