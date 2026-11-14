@@ -14,6 +14,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.calc.calc_addin_data import (
+    _FALSE_STRINGS,
+    _TRUE_STRINGS,
     _normalize_data_range_addresses,
     _unwrap_cell,
     resolve_python_data,
@@ -297,6 +299,10 @@ def test_unwrap_cell_invariants(val) -> None:
     res = _unwrap_cell(val)
     if val == "":
         assert res is None
+    elif isinstance(val, str) and val.strip() in _TRUE_STRINGS:
+        assert res is True
+    elif isinstance(val, str) and val.strip() in _FALSE_STRINGS:
+        assert res is False
     elif isinstance(val, float) and math.isnan(val):
         assert isinstance(res, float) and math.isnan(res)
     else:
