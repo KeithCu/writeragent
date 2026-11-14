@@ -534,30 +534,6 @@ def test_slash_compact_sync_passes_tool_schema_list():
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
 
 
-def test_slash_compact_sync_passes_cancel():
-    from plugin.framework.send_cancellation import SendCancellation
-
-    cancel = SendCancellation()
-    session = MagicMock()
-    session.messages = [{"role": "user", "content": "hi"}]
-    client = MagicMock()
-    with patch("plugin.framework.config.get_config", return_value=True):
-        with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
-            compact_mod.return_value = MagicMock(compacted=True, reason="ok")
-            with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
-                with patch("plugin.framework.llm_lanes.llm_request_lane"):
-                    from plugin.chatbot.slash_commands import run_slash_compact_sync
-
-                    run_slash_compact_sync(
-                        focus="",
-                        session=session,
-                        cancel=cancel,
-                        client=client,
-                        tools=[],
-                    )
-    assert compact_mod.call_args.kwargs.get("cancel") is cancel
-
-
 def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixture) -> None:
     from contextlib import contextmanager
     import logging

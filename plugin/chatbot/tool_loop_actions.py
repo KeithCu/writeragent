@@ -719,19 +719,13 @@ def persist_assistant_on_turn(
         turn.session.add_assistant_message(content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
 
-def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: TurnController, *, model: Any) -> None:
+def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: TurnController) -> None:
     """Queue a tool failure. A disposed document ends the loop.
 
     A closed document is not a normal tool error. Turning every exception
     into a JSON payload and queuing ``TOOL_DONE`` lets the loop continue.
     ``is_disposal`` is the tool-boundary check; a bare ``RuntimeException``
     from a live document is not disposal.
-
-    Classify against ``model``, the document closed over at spawn. Reading
-    ``host._active_model`` when the worker finishes scores the failure
-    against a later send's live document, so a bare ``RuntimeException``
-    fails ``is_disposal`` and is queued as ``TOOL_DONE``.
-    The same capture keeps the tool from running on the new send.
     """
     formatted = format_error_payload(exc)
     if is_disposal(exc):
@@ -910,11 +904,10 @@ def build_tool_execute_fn(
         # chat argument must not set the eval-harness switch.
         call_args = {key: value for key, value in safe_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
         res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
-        # execute_safe turns a disposed document into a DOCUMENT_DISPOSED
-        # dict. Returning that JSON queues TOOL_DONE and the loop keeps
-        # going on a dead document. Raise instead. The raise below is
-        # classified with this same ``doc`` (the document passed in at
-        # spawn) in ``_queue_tool_failure``.
+        # execute_safe returns DOCUMENT_DISPOSED as a dict; returning that
+        # JSON would queue TOOL_DONE and the loop would keep going on a
+        # dead document. Raising DocumentDisposedError lets
+        # ``_queue_tool_failure``'s ``is_disposal`` end the loop.
         if isinstance(res, dict) and res.get("code") == "DOCUMENT_DISPOSED":
             message = res.get("message")
             text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
@@ -1111,8 +1104,7 @@ class ToolLoopEffectInterpreter:
         if execute_tool_fn is None:
             return True
         # Same object execute_fn receives as ``doc``. It was captured on the
-        # turn at spawn. A later send must not retarget this call or the
-        # disposed-document check.
+        # turn at spawn. A later send must not retarget this call.
         spawn_doc = turn.model
         supports_status = turn.active_supports_status
         # Scope from this send. execute_fn must not read the
@@ -1166,7 +1158,7 @@ class ToolLoopEffectInterpreter:
             except Exception as e:
                 if not effect.is_async:
                     log.debug("sync tool failed name=%s elapsed_ms=%.1f", effect.func_name, (time.perf_counter() - t0) * 1000.0)
-                _queue_tool_failure(effect.call_id, effect.func_name, effect.func_args_str, e, turn, model=spawn_doc)
+                _queue_tool_failure(effect.call_id, effect.func_name, effect.func_args_str, e, turn)
 
         # Use the same dedicated worker as async tools. Calling the tool
         # on the drain thread skips pump_ui_idle, so Stop is not delivered

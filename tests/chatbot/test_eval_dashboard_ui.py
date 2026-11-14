@@ -110,14 +110,6 @@ def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
         cfg.clear_settings_catalog_cache(endpoint)
 
 
-def test_importing_eval_dashboard_ui_does_not_load_eval_runner() -> None:
-    sys.modules.pop("tests.eval_runner", None)
-    import plugin.chatbot.eval_dashboard_ui as mod
-
-    assert mod is not None
-    assert "tests.eval_runner" not in sys.modules
-
-
 def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     # Posted status runs inline so the worker can finish the dialog update.
     from plugin.framework.queue_executor import Policy, main

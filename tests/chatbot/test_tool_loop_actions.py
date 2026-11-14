@@ -501,62 +501,6 @@ def test_sync_document_disposed_dict_queues_error():
     assert host._active_q.get_nowait()[0] == StreamQueueKind.ERROR
 
 
-def test_sync_disposed_payload_queues_error_for_the_spawn_document():
-    """A disposed-document result ends the loop on the document the tool started with.
-
-    execute_fn classifies with the ``doc`` argument. The worker must pass that
-    same object into ``_queue_tool_failure``. Swapping host._active_model to a
-    live document before the failure is scored must not turn it into TOOL_DONE.
-    """
-
-    class RuntimeException(Exception):
-        pass
-
-    class DisposedException(Exception):
-        pass
-
-    class DisposedDoc:
-        def getImplementationName(self):
-            raise DisposedException("disposed")
-
-    class LiveDoc:
-        def getImplementationName(self):
-            return "SwXTextDocument"
-
-    host = FakeHost()
-    spawn_doc = DisposedDoc()
-    host._active_model = spawn_doc
-    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
-    host._active_execute_tool_fn = execute_fn
-    registry, old_main = _install_fake_main_registry()
-
-    def registry_execute(name, ctx, **kwargs):
-        assert ctx.doc is spawn_doc
-        host._active_model = LiveDoc()
-        raise DisposedException("bridge")
-
-    registry.execute.side_effect = registry_execute
-    started: list = []
-    interpreter = ToolLoopEffectInterpreter(host)
-    try:
-        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
-            interpreter.execute(
-                SpawnToolWorkerEffect(
-                    call_id="call_1",
-                    func_name="apply_document_content",
-                    func_args_str="{}",
-                    func_args={},
-                    is_async=False,
-                )
-            )
-        started[0]()
-    finally:
-        _restore_main(old_main)
-    item = host._active_q.get_nowait()
-    assert item[0] == StreamQueueKind.ERROR
-    assert host._active_q.empty()
-
-
 @pytest.mark.parametrize("doc_type_str", ["draw", "impress"])
 def test_execute_fn_marshals_draw_active_page_index(doc_type_str):
     host = FakeHost()
@@ -907,60 +851,6 @@ def _capture_background(started: list):
         return Mock()
 
     return capture
-
-
-def test_async_tool_failure_uses_model_captured_at_spawn():
-    """The tool's own document classifies the failure, not a model stored later.
-
-    A bare RuntimeException is disposal only for the document the tool
-    started against. The host model can change before the worker runs.
-    A new send drops the result instead of delivering it to either queue.
-    """
-    from plugin.chatbot.tool_loop_actions import begin_send_turn
-
-    class DisposedException(Exception):
-        pass
-
-    class RuntimeException(Exception):
-        pass
-
-    class DisposedDoc:
-        def getImplementationName(self):
-            raise DisposedException("disposed")
-
-    class LiveDoc:
-        def getImplementationName(self):
-            return "SwXTextDocument"
-
-    def run(spawn_model, later_model, expected_kind):
-        host = FakeHost()
-        turn = begin_send_turn(host)
-        first_q: queue.Queue = queue.Queue()
-        turn.queue = first_q
-        host._active_q = first_q
-        host._active_model = spawn_model
-        host._active_execute_tool_fn = Mock(side_effect=RuntimeException("bridge"))
-        started: list = []
-        interpreter = ToolLoopEffectInterpreter(host)
-        with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
-            interpreter.execute(
-                SpawnToolWorkerEffect(
-                    call_id="call_old",
-                    func_name="apply_document_content",
-                    func_args_str="{}",
-                    func_args={},
-                    is_async=True,
-                )
-            )
-        host._active_model = later_model
-        started[0]()
-        item = first_q.get_nowait()
-        assert item[0] == expected_kind
-        assert first_q.empty()
-
-    # A bare RuntimeException is never disposal, whichever document is current.
-    run(DisposedDoc(), LiveDoc(), StreamQueueKind.TOOL_DONE)
-    run(LiveDoc(), DisposedDoc(), StreamQueueKind.TOOL_DONE)
 
 
 def test_new_send_drops_the_in_flight_tool_result():

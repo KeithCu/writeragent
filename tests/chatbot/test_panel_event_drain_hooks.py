@@ -181,17 +181,31 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
     status_ctrl = MagicMock()
     rearm = _Rearm()
     q: queue.Queue = queue.Queue()
+    stop_scope = SendCancellation()
+    done_calls = 0
+    stopped_calls = 0
+
+    def _on_done(_item: Any) -> bool:
+        nonlocal done_calls
+        done_calls += 1
+        return True
+
+    def _on_stopped() -> None:
+        nonlocal stopped_calls
+        stopped_calls += 1
 
     def _start_turn() -> None:
+        listener._send_cancellation = stop_scope
         logging_mod.update_activity_state("do_send", status_control=status_ctrl)
         run_stream_drain_loop(
             q,
             MagicMock(),
             DrainOutcome(),
             lambda _text, _thinking: None,
-            on_stream_done=lambda _item: True,
-            on_stopped=lambda: None,
+            on_stream_done=_on_done,
+            on_stopped=_on_stopped,
             on_error=lambda _e: None,
+            cancel=stop_scope,
             rearm=rearm,
         )
 
@@ -207,15 +221,20 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
         listener._run_send_drain()
 
         assert logging_mod._shared()["activity"]["phase"] == "do_send"
+        assert not stop_scope.is_cancelled()
 
         # Dispose mid-stream (calls SendButtonListener.disposing() which sets _panel_teardown = True and cancels scope)
         listener.disposing()
+        assert listener._panel_teardown is True
+        assert stop_scope.is_cancelled()
 
-        # Pump the stream next - it should dispatch STOPPED but wait to check the leak asserts
+        # Pump the stream next - it should dispatch STOPPED and not STREAM_DONE
         q.put((StreamQueueKind.STREAM_DONE, "end"))
 
         rearm.pump()
 
+        assert stopped_calls == 1
+        assert done_calls == 0
         drop_turn.assert_called_once()
 
         assert get_drain_owner() is None

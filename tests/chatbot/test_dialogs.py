@@ -498,14 +498,15 @@ def test_show_text_input_dialog_disposes_when_prepare_raises():
     dlg.dispose.assert_called_once()
 
 
-def test_copy_to_clipboard_log_does_not_include_payload(caplog):
+def test_copy_to_clipboard_log_does_not_include_payload(caplog, monkeypatch):
     import logging
     import sys
     from plugin.chatbot.dialogs import copy_to_clipboard
     from unittest.mock import MagicMock
 
-    sys.modules["com.sun.star.datatransfer"].DataFlavor = MagicMock
-    with caplog.at_level(logging.INFO, logger="writeragent.dialogs"):
+    monkeypatch.setattr(sys.modules["com.sun.star.datatransfer"], "DataFlavor", MagicMock, raising=False)
+    with caplog.at_level(logging.INFO, logger="plugin.chatbot.dialogs"):
         assert copy_to_clipboard(MagicMock(), "SECRET_PAYLOAD") is True
-        assert "SECRET_PAYLOAD" not in caplog.text
+    assert caplog.records
+    assert "SECRET_PAYLOAD" not in caplog.text
 

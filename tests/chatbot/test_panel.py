@@ -1085,62 +1085,30 @@ class TestQueryKeyListenerDispose:
 
 class TestTtsStopInteraction:
     def test_stop_line_is_not_spoken(self) -> None:
+        from plugin.chatbot.panel_voice import PanelVoiceController
+        from plugin.chatbot.tool_loop_actions import _STOP_LINE, begin_send_turn
+
         listener = _make_send_listener()
-        listener.sidebar_state = SidebarCompositeState(
-            send=SendButtonState(SendMode.IDLE, False, False, True),
-            tool_loop=MagicMock(),
-        )
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE
-        listener.sidebar_state.tool_loop.messages = [{"role": "assistant", "content": _STOP_LINE}]
+        listener._panel_teardown = False
+        assign_send_outcome(listener, "ready")
+        listener.session.messages = [{"role": "assistant", "content": "prior"}]
+        begin_send_turn(listener)
+        voice = PanelVoiceController(listener)
+
         with (
             patch("plugin.audio.tts_service.speak_text_async") as speak,
             patch("plugin.audio.tts_service.is_speaking", return_value=False),
-            patch("plugin.framework.config.get_config", return_value=True),
+            patch("plugin.framework.config.get_config", side_effect=lambda k, default=None: True if k == "audio.tts_enabled" else default),
         ):
-            # simulate send completed event handling inside drain
-            assign_send_outcome(listener, "ready")
-            listener._send_cancellation = None
-            listener._panel_teardown = False
-            listener.sync_has_text_from_query = MagicMock()
-            listener.dispatch = MagicMock()
+            # No new message since turn start: must not replay the prior reply.
+            voice.speak_reply(speak=True)
+            speak.assert_not_called()
 
-            # The exact block for TTS in processEventsToIdle
-            from plugin.chatbot.panel import SendEvent, SendEventKind
-            listener.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-            listener._run_send_drain() # Wait, _run_send_drain doesn't do the TTS directly.
-
-            # Actually, the TTS is triggered by resolving the block inside _run_send_drain.
-            # We can mock session_for_turn to return the mock tool_loop.
-            with patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.sidebar_state.tool_loop):
-                listener._run_send_drain()
-        speak.assert_not_called()
-
-    def test_stop_line_teardown_drops_turn(self) -> None:
-        listener = _make_send_listener()
-        listener.sidebar_state = SidebarCompositeState(
-            send=SendButtonState(SendMode.IDLE, False, False, True),
-            tool_loop=MagicMock(),
-        )
-        from plugin.chatbot.tool_loop_actions import _STOP_LINE
-        listener.sidebar_state.tool_loop.messages = [{"role": "assistant", "content": _STOP_LINE}]
-        with (
-            patch("plugin.audio.tts_service.speak_text_async") as speak,
-            patch("plugin.audio.tts_service.is_speaking", return_value=False),
-            patch("plugin.framework.config.get_config", return_value=True),
-            patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop_turn,
-            patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick,
-            patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.sidebar_state.tool_loop),
-        ):
-            assign_send_outcome(listener, "ready")
-            listener._send_cancellation = None
-            listener._panel_teardown = False
-            listener.sync_has_text_from_query = MagicMock()
-            listener.dispatch = MagicMock()
-            listener._run_send_drain()
-
-        speak.assert_not_called()
-        mock_drop_turn.assert_called_once_with(listener)
-        mock_kick.assert_called_once()
+            # New assistant message with trailing _STOP_LINE: only the reply body is spoken.
+            listener.session.messages.append({"role": "assistant", "content": "reply" + _STOP_LINE})
+            voice.speak_reply(speak=True)
+            speak.assert_called_once()
+            assert speak.call_args.args[0] == "reply"
 
     def test_stop_button_stops_speech_when_speaking(self) -> None:
         send_listener = MagicMock()

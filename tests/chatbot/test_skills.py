@@ -61,11 +61,12 @@ class _SkillTestBase:
 
 class TestHumanizerSkillStore(_SkillTestBase):
     def test_default_guidance_when_no_file(self):
+        from plugin.chatbot.skills import HUMANIZER_GUIDANCE
+
         store = SkillStore()
         guidance = store.get_humanizer_guidance()
         self._track_skill_path(store)
-        assert ("HUMANIZER GUIDANCE") in (guidance)
-        assert ("Vary sentence length") in (guidance)
+        assert guidance == HUMANIZER_GUIDANCE
         # It should have seeded the file
         assert (os.path.exists(store.get_humanizer_skill_path()))
 
@@ -130,6 +131,5 @@ Vary your sentences.
         self._track_skill_path(store)
         got = store.get_humanizer_guidance()
         assert got == HUMANIZER_GUIDANCE
-        assert "Vary sentence length" in got
 
 
