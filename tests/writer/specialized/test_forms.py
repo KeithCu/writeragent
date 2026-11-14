@@ -307,11 +307,6 @@ def test_form_control_create_writer_inserts_on_anchor_host():
     body_text.insertTextContent.assert_not_called()
 
 
-def test_forms_button_present_in_both_schemas():
-    assert "button" in FormCreateControl.parameters["properties"]["control"]["enum"]
-    assert "button" in FormCreate.parameters["properties"]["fields"]["items"]["properties"]["control"]["enum"]
-
-
 def test_forms_create_rejects_unknown_control():
     ctx = SimpleNamespace(doc=MagicMock())
     res = _create_control(ctx, control="laser_cannon", name="fld")

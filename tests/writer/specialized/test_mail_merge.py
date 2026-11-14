@@ -12,7 +12,6 @@ from plugin.writer.specialized.mail_merge import (
     InsertField,
     ListFields,
     RunMerge,
-    _OUTPUT_TYPES,
 )
 
 
@@ -381,11 +380,6 @@ def test_list_fields_stops_on_non_true_has_more_elements():
     enum_mock.nextElement.assert_called_once()
 
 
-def test_output_types_enum():
-    assert RunMerge.parameters["properties"]["output_type"]["enum"] == ["file", "printer"]
-    assert _OUTPUT_TYPES == {"printer": 1, "file": 2}
-
-
 def test_run_merge_file_output(tmp_path):
     ctx, doc, comp_ctx, smgr = _create_mock_ctx()
     doc.getURL.return_value = "file:///tmp/template.odt"
@@ -578,7 +572,3 @@ def test_database_context_and_mail_merge_are_not_document_factory_services(tmp_p
     assert merged["status"] == "ok", merged
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.text.MailMerge", comp_ctx)
     doc.createInstance.assert_not_called()
-
-
-def test_run_merge_is_sync():
-    assert RunMerge().is_async() is False

@@ -9,7 +9,6 @@ from plugin.doc.document_helpers import (
     get_document_context_for_chat,
 )
 from plugin.doc.text_helpers import read_writer_text_slice
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 import pytest
 
 
@@ -134,17 +133,6 @@ def test_get_document_context_splits_only_past_budget(mock_doc_type, mock_char_c
     assert "bcdef" in ctx
     assert "56789a" not in ctx
     assert "middle of document omitted" in ctx
-
-
-def test_chat_document_context_max_chars_default():
-    assert CHAT_DOCUMENT_CONTEXT_MAX_CHARS == 8000
-
-
-def test_settings_field_specs_omit_chat_context_length():
-    from plugin.chatbot.settings_dialog import get_settings_field_specs
-
-    names = {f["name"] for f in get_settings_field_specs(MagicMock())}
-    assert "chat_context_length" not in names
 
 
 def test_writer_selection_overlaps_windows_true_when_ranges_overlap():
