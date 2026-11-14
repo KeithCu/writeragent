@@ -553,7 +553,7 @@ def test_language_detect_calls_llm_when_no_persisted_grammar() -> None:
         _lang_detect_cache.pop(item.text, None)
 
 
-def test_worker_chunk_skip_empty_result_chunk_obs() -> None:
+def test_worker_chunk_skip_empty_result_chunk_skips_grammar_check() -> None:
     from plugin.writer.locale.grammar_worker import _worker_process_chunk
 
     item = _item("Hello one.", inflight_key="k1")

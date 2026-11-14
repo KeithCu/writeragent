@@ -450,6 +450,7 @@ setattr(linguistic, "XLinguServiceEventBroadcaster", MockXLinguServiceEventBroad
 
 beans = _create_mock_module("com.sun.star.beans")
 setattr(beans, "PropertyValue", MockPropertyValue)
+setattr(beans, "NamedValue", MockPropertyValue)
 
 sheet = _create_mock_module("com.sun.star.sheet")
 setattr(sheet, "ConditionOperator", MockBase)
@@ -597,7 +598,12 @@ _create_mock_module("com.sun.star.document")
 _create_mock_module("com.sun.star.style")
 _create_mock_module("com.sun.star.style.BreakType")
 _create_mock_module("com.sun.star.ui.UIElementType")
-_create_mock_module("com.sun.star.datatransfer")
+class MockXTransferable:
+    pass
+
+
+datatransfer = _create_mock_module("com.sun.star.datatransfer")
+setattr(datatransfer, "XTransferable", MockXTransferable)
 clipboard = _create_mock_module("com.sun.star.datatransfer.clipboard")
 
 

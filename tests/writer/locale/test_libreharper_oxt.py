@@ -82,15 +82,9 @@ def test_harper_proofreader_identity_and_locale_check(monkeypatch) -> None:
         assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10, proofreader._resolved_profile()) is None
 
         monkeypatch.setattr(ai_grammar_proofreader, "_GRAMMAR_DISABLED_NOTICE_EMITTED", True)
-        with (
-            patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False),
-            patch("plugin.writer.locale.ai_grammar_proofreader.grammar_obs") as mock_obs,
-        ):
+        with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
             assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
             assert ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED is True
-            entry_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_entry"]
-            assert len(entry_calls) == 1
-            assert entry_calls[0].kwargs.get("locale_raw") == "en"
     finally:
         reset_package_extension_id_for_tests()
 

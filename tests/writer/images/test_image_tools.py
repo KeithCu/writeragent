@@ -142,12 +142,13 @@ class TestShouldLinkImagePath:
             assert not (image_tools._should_link_image_path(f.name))
 
     def test_cache_path_is_embedded(self, tmp_path, monkeypatch):
-        cache_dir = tmp_path / "cache"
-        cache_dir.mkdir()
-        monkeypatch.setattr(image_tools, "image_cache_dir", lambda: str(cache_dir))
-        path = cache_dir / "cached.png"
-        path.write_bytes(b"x")
-        assert not (image_tools._should_link_image_path(str(path)))
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+        cache_dir = image_tools.image_cache_dir()
+        os.makedirs(cache_dir, exist_ok=True)
+        path = os.path.join(cache_dir, "cached.png")
+        with open(path, "wb") as f:
+            f.write(b"x")
+        assert not (image_tools._should_link_image_path(path))
 
     def test_symlink_into_temp_is_embedded(self, tmp_path):
         temp_dir = tmp_path / "temp"

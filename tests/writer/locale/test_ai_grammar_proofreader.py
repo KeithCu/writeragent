@@ -549,7 +549,7 @@ class TestTypingIntegration:
             (off2, "harper||s2"),
         }
 
-    def test_harper_fast_path_result_window_obs_is_final_after_lint(
+    def test_harper_fast_path_returns_lint_errors_without_enqueue(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
         """Cache miss + Harper lint: returns lint errors synchronously without enqueuing."""
@@ -582,7 +582,7 @@ class TestTypingIntegration:
         assert len(res.aErrors) == 1
         assert res.aErrors[0].aRuleIdentifier == "harper||Agreement"
 
-    def test_harper_fast_path_empty_lint_result_window_is_final_zero(
+    def test_harper_fast_path_empty_lint_returns_no_errors(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
         """True empty Harper lint returns empty aErrors."""

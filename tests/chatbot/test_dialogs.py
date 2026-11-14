@@ -1,20 +1,5 @@
 import pytest
-import sys
 from unittest.mock import MagicMock, patch
-
-# Mocks specific to UI and dialogs missing from conftest
-class MockXEventListener:
-    pass
-
-class MockXTransferable:
-    pass
-
-class MockXControlContainer:
-    pass
-
-class MockXItemListener:
-    pass
-
 
 # Important: We need to mock `_` inside `plugin.chatbot.dialogs` directly,
 # since it uses `from plugin.framework.i18n import _` inside some functions.
@@ -28,15 +13,6 @@ from plugin.chatbot.dialogs import (
     format_exception_detail,
     _collect_xdl_load_diagnostics,
 )
-
-
-@pytest.fixture(autouse=True)
-def _restore_com_sun_star_for_dialog_tests(monkeypatch):
-    """Install dialog UNO stubs for each test and restore afterwards."""
-    monkeypatch.setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener, raising=False)
-    monkeypatch.setattr(sys.modules["com.sun.star.awt"], "XControlContainer", MockXControlContainer, raising=False)
-    monkeypatch.setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener, raising=False)
-    monkeypatch.setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable, raising=False)
 
 
 def test_show_approval_dialog_disposes_without_flipping_yes():

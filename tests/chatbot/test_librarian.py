@@ -1,17 +1,4 @@
-import sys
-from typing import Any
 from unittest.mock import MagicMock, patch
-import pytest
-
-class MockNamedValue:
-    Name: str = ""
-    Value: Any = None
-
-
-@pytest.fixture(autouse=True)
-def _uno_mocks(monkeypatch):
-    monkeypatch.setattr(sys.modules["com.sun.star.beans"], "NamedValue", MockNamedValue, raising=False)
-
 
 from plugin.chatbot.librarian import (
     get_libreoffice_user_display_name,

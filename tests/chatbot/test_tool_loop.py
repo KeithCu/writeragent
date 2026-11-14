@@ -1,12 +1,10 @@
 from unittest.mock import Mock, MagicMock, patch
 
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
-
-# Now import the actual ToolCallingMixin class from the module
-from plugin.chatbot.tool_loop import ToolCallingMixin  # noqa: E402
-from plugin.chatbot.send_state import SendButtonState, SendMode  # noqa: E402
-from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
-from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display  # noqa: E402
+from plugin.chatbot.tool_loop import ToolCallingMixin
+from plugin.chatbot.send_state import SendButtonState, SendMode
+from plugin.chatbot.sidebar_state import SidebarCompositeState
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 
 class MockSession:
     def __init__(self):
