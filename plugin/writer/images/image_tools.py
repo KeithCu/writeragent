@@ -590,6 +590,9 @@ def _insert_image_to_drawpage(
     y_mm: int | float | None = None,
 ) -> Any:
     draw_page = visual_helpers.draw_page_for_insert(model, inside, page_index)
+    # Capture the Calc target cell before .uno:InsertGraphic runs, so even if a
+    # linked insert selects the new graphic, it anchors to the cell that was selected.
+    calc_target = _calc_insert_cell(model, page_index) if inside == "calc" else None
 
     # When page_index is specified, do not dispatch .uno:InsertGraphic because
     # dispatch inserts on the currently active view page, then setPosition would
@@ -603,7 +606,9 @@ def _insert_image_to_drawpage(
         # Calc's API insert does not select the new picture (fuins1.cxx lcl_InsertGraphic,
         # SdrInsertFlags::DONTMARK when bApi), so it is taken as the shape the dispatch appended.
         if image is None and inside == "calc" and draw_page.getCount() == count + 1:
-            image = draw_page.getByIndex(count)
+            candidate = draw_page.getByIndex(count)
+            if candidate.supportsService(visual_helpers.DRAW_GRAPHIC_SERVICE):
+                image = candidate
         if image is not None:
             is_embedded = False
         else:
@@ -615,8 +620,8 @@ def _insert_image_to_drawpage(
     _apply_graphic_properties(image, width=width, height=height, title=title, description=description, anchor_type=None)
     if is_embedded:
         draw_page.add(image)
-    if inside == "calc":
-        sheet, cell = _calc_insert_cell(model, page_index)
+    if calc_target is not None:
+        sheet, cell = calc_target
         anchor_shape_at_cell(sheet, image, cell)
     else:
         pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)

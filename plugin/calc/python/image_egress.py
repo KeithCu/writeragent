@@ -220,11 +220,12 @@ def _read_plot_tag(shape: Any) -> _PlotTag | None:
 
 
 def _record_plot_tag(shape: Any, target_cell: Any, sha: str | None) -> None:
-    """Store the owner formula cell and image digest in the shape's UserDefinedAttributes.
+    """Store the owner formula cell, anchor cell at write time, and image digest in UserDefinedAttributes.
 
-    Edits to the attribute container take effect when it is set back on the shape. An
-    unchanged tag skips that write, so a recalc with the same image does not mark the
-    document modified.
+    Recording the anchor cell lets a later recalc tell a formula+plot move apart from a
+    user drag (see ``_shape_matches_target_cell``). Edits to the attribute container take
+    effect when it is set back on the shape. An unchanged tag skips that write, so a recalc
+    with the same image does not mark the document modified.
     """
     from com.sun.star.xml import AttributeData
 
@@ -358,6 +359,10 @@ def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool
     - Otherwise the anchor moved on its own (user drag, or columns inserted between the formula
       and slot k); the recorded owner keeps the plot unless another ``=PY()`` formula moved into
       the shifted owner cell.
+
+    If a plot is dragged so that the shifted owner lands on another ``=PY()`` formula, that
+    formula claims it and the duplicate sweep removes the claimant's own plot if it appears later
+    in draw-page order.
     """
     tag = _read_plot_tag(shape)
     if tag is None:

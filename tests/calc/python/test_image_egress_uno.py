@@ -96,7 +96,7 @@ def test_reanchored_plot_slots_chain_reuse_and_sweep_uno(ctx, doc):
 @with_native_doc("calc")
 def test_plot_follows_formula_after_row_and_column_insert_uno(ctx, doc):
     """Inserting rows/columns above or left of the formula reuses the existing plot slots."""
-    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl, _read_plot_tag
 
     sheet = doc.getSheets().getByIndex(0)
     draw_page = sheet.getDrawPage()
@@ -133,6 +133,7 @@ def test_plot_follows_formula_after_row_and_column_insert_uno(ctx, doc):
         assert draw_page.getByIndex(1) == orig_shapes[1]
         assert [(draw_page.getByIndex(i).getPosition().X, draw_page.getByIndex(i).getPosition().Y) for i in range(2)] == moved_positions
         assert moved_positions != orig_positions
+        assert all(_read_plot_tag(draw_page.getByIndex(i)).owner == (2, 3) for i in range(2))
     finally:
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))
@@ -146,8 +147,9 @@ def test_plot_follows_formula_after_row_and_column_insert_uno(ctx, doc):
 @with_native_doc("calc")
 def test_dragged_plot_is_refreshed_in_place_uno(ctx, doc):
     """A plot dragged to another cell is refreshed in place at its new position."""
+    import hashlib
     from com.sun.star.awt import Point
-    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl, _read_plot_tag
 
     sheet = doc.getSheets().getByIndex(0)
     draw_page = sheet.getDrawPage()
@@ -171,6 +173,10 @@ def test_dragged_plot_is_refreshed_in_place_uno(ctx, doc):
         assert draw_page.getCount() == 1
         assert draw_page.getByIndex(0) == shape
         assert (shape.getPosition().X, shape.getPosition().Y) == dragged_pos
+        tag = _read_plot_tag(shape)
+        assert tag.sha == hashlib.sha256(p2["data"]).hexdigest()
+        anchor = shape.getPropertyValue("Anchor").getCellAddress()
+        assert tag.anchor == (anchor.Column, anchor.Row)
     finally:
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))

@@ -308,5 +308,3 @@ def test_selection_top_left_cell():
     shape_controller = MagicMock()
     shape_controller.getSelection.return_value = SimpleNamespace()
     assert selection_top_left_cell(shape_controller, sheet) is None
-
-
