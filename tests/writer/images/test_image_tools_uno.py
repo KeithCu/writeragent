@@ -13,7 +13,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.doc.visual_helpers import GENERATED_IMAGE_MAX_DISPLAY_MM, px_to_units
-from plugin.writer.images.image_tools import insert_image, insert_image_into_header_footer
+from plugin.writer.images.image_tools import insert_image, insert_image_at_locator, insert_image_into_header_footer
 from plugin.writer.page import _scan_region_content
 
 
@@ -226,4 +226,125 @@ def test_writer_graphic_object_get_size_uno(ctx, doc):
     finally:
         # Pooled doc: do not leave the image for later tests.
         graphic.dispose()
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_insert_image_anchors_to_selection_top_left_uno(ctx, doc):
+    """Embedded Calc picture insert anchors to selection top-left, moves on row insert, and uses A1 on another sheet."""
+    import shutil
+    import tempfile
+
+    sheet0 = doc.getSheets().getByIndex(0)
+    draw_page0 = sheet0.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet0)
+
+    tmp_dir = tempfile.mkdtemp(prefix="wa_calc_img_")
+    tmp_png = os.path.join(tmp_dir, "logo.png")
+    shutil.copyfile(_logo_path(), tmp_png)
+    inserted_row = False
+    added_sheet = False
+    try:
+        c5_e7 = sheet0.getCellRangeByPosition(2, 4, 4, 6)
+        controller.select(c5_e7)
+        before = draw_page0.getCount()
+        insert_image_at_locator(ctx, doc, tmp_png, width_mm=30, height_mm=20)
+        assert draw_page0.getCount() == before + 1
+        shape = draw_page0.getByIndex(before)
+
+        c5 = sheet0.getCellByPosition(2, 4)
+        anchor = shape.getPropertyValue("Anchor").getCellAddress()
+        assert (anchor.Column, anchor.Row) == (2, 4)
+        assert (shape.getPosition().X, shape.getPosition().Y) == (c5.Position.X, c5.Position.Y)
+        assert (shape.getSize().Width, shape.getSize().Height) == (3000, 2000)
+        assert shape.getPropertyValue("ResizeWithCell") is False
+
+        sheet0.getRows().insertByIndex(0, 1)
+        inserted_row = True
+        c6 = sheet0.getCellByPosition(2, 5)
+        assert shape.getPosition().Y == c6.Position.Y
+        assert (shape.getSize().Width, shape.getSize().Height) == (3000, 2000)
+
+        doc.getSheets().insertNewByName("SecondSheet", 1)
+        added_sheet = True
+        sheet1 = doc.getSheets().getByIndex(1)
+        draw_page1 = sheet1.getDrawPage()
+        insert_image_at_locator(ctx, doc, tmp_png, width_mm=30, height_mm=20, page_index=1)
+        assert draw_page1.getCount() == 1
+        shape1 = draw_page1.getByIndex(0)
+        anchor1 = shape1.getPropertyValue("Anchor").getCellAddress()
+        assert (anchor1.Sheet, anchor1.Column, anchor1.Row) == (1, 0, 0)
+    finally:
+        while draw_page0.getCount():
+            draw_page0.remove(draw_page0.getByIndex(0))
+        if added_sheet:
+            doc.getSheets().removeByName("SecondSheet")
+        if inserted_row:
+            sheet0.getRows().removeByIndex(0, 1)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_insert_linked_image_is_one_anchored_picture_uno(ctx, doc):
+    """Linked Calc insert creates one linked shape at requested size, anchored to the selected cell."""
+    import uno
+
+    logo = _logo_path()
+    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    c5 = sheet.getCellByPosition(2, 4)
+    controller.select(c5)
+
+    before = draw_page.getCount()
+    try:
+        insert_image_at_locator(ctx, doc, logo, width_mm=30, height_mm=20)
+        assert draw_page.getCount() == before + 1
+        shape = draw_page.getByIndex(before)
+        anchor = shape.getPropertyValue("Anchor").getCellAddress()
+        assert (anchor.Column, anchor.Row) == (2, 4)
+        assert (shape.getSize().Width, shape.getSize().Height) == (3000, 2000)
+        expected_url = uno.systemPathToFileUrl(os.path.abspath(logo))
+        assert shape.getPropertyValue("Graphic").OriginURL == expected_url
+    finally:
+        while draw_page.getCount() > before:
+            draw_page.remove(draw_page.getByIndex(draw_page.getCount() - 1))
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_insert_image_rtl_right_edge_on_cell_uno(ctx, doc):
+    """On an RTL sheet (TableLayout=1), inserted picture's right edge aligns with the cell's right edge."""
+    import shutil
+    import tempfile
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    orig_layout = sheet.TableLayout
+
+    tmp_dir = tempfile.mkdtemp(prefix="wa_calc_rtl_")
+    tmp_png = os.path.join(tmp_dir, "logo.png")
+    shutil.copyfile(_logo_path(), tmp_png)
+    before = draw_page.getCount()
+    try:
+        sheet.TableLayout = 1
+        c5 = sheet.getCellByPosition(2, 4)
+        controller.select(c5)
+        insert_image_at_locator(ctx, doc, tmp_png, width_mm=30, height_mm=20)
+        assert draw_page.getCount() == before + 1
+        shape = draw_page.getByIndex(before)
+        pos = shape.getPosition()
+        width = shape.getSize().Width
+        assert pos.X + width == c5.Position.X + c5.Size.Width
+    finally:
+        sheet.TableLayout = orig_layout
+        while draw_page.getCount() > before:
+            draw_page.remove(draw_page.getByIndex(draw_page.getCount() - 1))
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 

@@ -19,6 +19,7 @@ from plugin.calc.python.image_egress import (
     _PLOT_SHAPE_NAME_PREFIX,
     _PLOT_TAG_ATTR,
     ImageEgressError,
+    _PlotTag,
     _aspect_ratio_changed,
     _format_plot_tag,
     _intrinsic_aspect,
@@ -53,9 +54,9 @@ _IMAGE_PAYLOAD = {
 }
 
 
-def _plot_tag(data: bytes, col: int, row: int) -> str:
-    """Owner and digest tag the egress code writes for *data* at (col, row)."""
-    return _format_plot_tag(col, row, hashlib.sha256(data).hexdigest())
+def _plot_tag(data: bytes, col: int, row: int, anchor: tuple[int, int] | None = None) -> str:
+    """Owner, anchor, and digest tag the egress code writes for *data* at (col, row)."""
+    return _format_plot_tag((col, row), anchor or (col, row), hashlib.sha256(data).hexdigest())
 
 
 class _AttrContainer:
@@ -429,11 +430,17 @@ class _SheetStub:
         table_layout: int = 0,
         rows_visible: bool = True,
         cols_visible: bool = True,
+        formulas: dict[tuple[int, int], str] | None = None,
     ):
         self.DrawPage = page
         self.TableLayout = table_layout
         self._rows_visible = rows_visible
         self._cols_visible = cols_visible
+        self._formulas = formulas or {}
+
+    def getCellByPosition(self, col: int, row: int):
+        formula = self._formulas.get((col, row), "")
+        return SimpleNamespace(getFormula=lambda: formula)
 
     def getPropertyValue(self, name: str):
         if name == "TableLayout":
@@ -1603,14 +1610,16 @@ def test_untagged_anchored_plot_is_reused_and_tagged():
 
 
 def test_parse_and_format_plot_tag():
-    """Verify wa-plot tag formatting and parsing only accepts wa-plot:<col>,<row>[:<sha>]."""
-    assert _format_plot_tag(0, 0) == "wa-plot:0,0"
-    assert _format_plot_tag(2, 5, "sha123") == "wa-plot:2,5:sha123"
+    """Verify wa-plot tag formatting and parsing for current and 0.9.1 formats."""
+    assert _format_plot_tag((0, 0), None) == "wa-plot:0,0"
+    assert _format_plot_tag((2, 5), (6, 5), "sha123") == "wa-plot:2,5@6,5:sha123"
 
-    assert _parse_plot_tag("wa-plot:0,0") == ((0, 0), None)
-    assert _parse_plot_tag("wa-plot:2,5:sha123") == ((2, 5), "sha123")
+    assert _parse_plot_tag("wa-plot:2,5@6,5:sha123") == _PlotTag((2, 5), "sha123", (6, 5))
+    assert _parse_plot_tag("wa-plot:0,0") == _PlotTag((0, 0), None, None)
+    assert _parse_plot_tag("wa-plot:2,5:sha123") == _PlotTag((2, 5), "sha123", None)
 
-    # Revert target: rejection of bare sha or comma-less coordinates in _parse_plot_tag
+    # Revert target: rejection of bare sha, comma-less coordinates, or malformed anchor in _parse_plot_tag
+    assert _parse_plot_tag("wa-plot:2,5@x,5:s") is None
     assert _parse_plot_tag("wa-plot:sha123") is None
     assert _parse_plot_tag("wa-plot") is None
     assert _parse_plot_tag("wa-plot:") is None
@@ -1794,7 +1803,7 @@ def test_rtl_existing_slot_aspect_change_keeps_top_right():
 
 
 def test_duplicate_shape_for_taken_slot_is_swept():
-    """A second shape for an already-taken slot (e.g. a pasted copy) is removed; the first is kept."""
+    """A second shape for an already-taken slot (e.g. a plot pasted from another workbook) is removed; the first is kept."""
     cell = CalcCellStub(col=3, row=6)
     first = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
     copy = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
@@ -1809,3 +1818,101 @@ def test_duplicate_shape_for_taken_slot_is_swept():
     # Revert target: the `slot_idx in taken` check in _drop_extra_plot_slots
     assert page.shapes == [first]
     assert first.getPropertyValue("GraphicURL") == "file:///tmp/dup.svg"
+
+
+def test_plot_moved_with_formula_is_reused_and_retagged():
+    """A plot whose anchor shifted by the same delta as its formula is reused and retagged."""
+    payload = _make_png_payload(100, 50)
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, CalcCellStub(col=2, row=4))
+    _set_tag(shape, _plot_tag(payload["data"], col=2, row=3, anchor=(2, 3)))
+    page = _DrawPage([shape])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    set_calls: list[tuple[str, Any]] = []
+    orig_set_prop = shape.setPropertyValue
+
+    def _track(name: str, val: Any) -> None:
+        set_calls.append((name, val))
+        orig_set_prop(name, val)
+
+    shape.setPropertyValue = _track
+    formula_cell = CalcCellStub(col=2, row=4)
+    with _sheet_insert_ctx(sheet, formula_cell, temp_path="/tmp/moved.png"):
+        insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
+
+    # Revert target: _moved_owner matching target cell in _shape_matches_target_cell
+    doc.createInstance.assert_not_called()
+    assert [c for c in set_calls if c[0] == "GraphicURL"] == []
+    assert _get_tag(shape) == _plot_tag(payload["data"], col=2, row=4, anchor=(2, 4))
+
+
+def test_dragged_plot_stays_with_formula():
+    """A plot dragged to another cell without a =PY() formula at the shifted owner keeps its owner."""
+    payload = _make_png_payload(100, 50)
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, CalcCellStub(col=9, row=12))
+    _set_tag(shape, _format_plot_tag((2, 3), (2, 3), "oldsha"))
+    page = _DrawPage([shape])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    formula_cell = CalcCellStub(col=2, row=3)
+    with _sheet_insert_ctx(sheet, formula_cell, temp_path="/tmp/drag.png"):
+        insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
+
+    doc.createInstance.assert_not_called()
+    assert _get_tag(shape) == _plot_tag(payload["data"], col=2, row=3, anchor=(9, 12))
+
+
+def test_moved_plot_of_another_formula_is_not_taken():
+    """When the shifted owner cell holds another =PY() formula, the original cell does not steal its plot."""
+    payload = _make_png_payload(100, 50)
+    other_plot = _AnchoredShape(
+        _DRAW_GRAPHIC_SERVICE,
+        f"{_PLOT_SHAPE_NAME_PREFIX}_2",
+        CalcCellStub(col=6, row=4),
+    )
+    _set_tag(other_plot, _plot_tag(payload["data"], col=2, row=3, anchor=(6, 3)))
+    page = _DrawPage([other_plot])
+    sheet = _SheetStub(page, formulas={(2, 4): '=PY("x")'})
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+    doc.createInstance.return_value = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", CalcCellStub(col=2, row=3))
+
+    formula_cell = CalcCellStub(col=2, row=3)
+    with _sheet_insert_ctx(sheet, formula_cell, temp_path="/tmp/other.png", geometry=(Point(0, 0), Size(3000, 1000))):
+        insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0, image_count=1)
+
+    # Revert target: _holds_py_formula check in _shape_matches_target_cell
+    assert other_plot in page.shapes
+    assert _get_tag(other_plot) == _plot_tag(payload["data"], col=2, row=3, anchor=(6, 3))
+
+
+def test_same_image_adds_anchor_to_old_tag():
+    """A 0.9.1 tag without an anchor gains @<col>,<row> on a same-digest recalc without GraphicURL write."""
+    payload = _make_png_payload(100, 50)
+    sha = hashlib.sha256(payload["data"]).hexdigest()
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, CalcCellStub(col=1, row=2))
+    _set_tag(shape, f"wa-plot:1,2:{sha}")
+    page = _DrawPage([shape])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    set_calls: list[tuple[str, Any]] = []
+    orig_set_prop = shape.setPropertyValue
+
+    def _track(name: str, val: Any) -> None:
+        set_calls.append((name, val))
+        orig_set_prop(name, val)
+
+    shape.setPropertyValue = _track
+    formula_cell = CalcCellStub(col=1, row=2)
+    with _sheet_insert_ctx(sheet, formula_cell, temp_path="/tmp/oldtag.png"):
+        insert_image_result_on_sheet(payload, code="plt.show()", doc=doc, image_index=0)
+
+    # Revert target: _record_plot_tag in _refresh_existing_plot's same-digest branch
+    assert [c for c in set_calls if c[0] == "GraphicURL"] == []
+    assert _get_tag(shape) == f"wa-plot:1,2@1,2:{sha}"

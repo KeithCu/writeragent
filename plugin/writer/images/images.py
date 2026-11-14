@@ -1224,7 +1224,7 @@ class ImageInsert(ToolWriterImageBase):
         "target='header_first' (or footer_first) — otherwise the image lands in the shared "
         "header and repeats on every page. "
         "On Draw/Impress, optional page (0-based) and x_mm/y_mm place the image; omitted x/y centers it. "
-        "On Calc, page is a 0-based sheet index; x_mm and y_mm are ignored. "
+        "On Calc, page is a 0-based sheet index; the image is anchored to the top-left cell of the selection (A1 of another sheet) and moves with that cell; x_mm and y_mm are ignored. "
         "Sizes and positions are millimetres (not 1/100 mm)."
     )
     parameters: dict[str, Any] | None = {

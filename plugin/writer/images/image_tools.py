@@ -28,6 +28,7 @@ import uno
 from com.sun.star.awt import Size
 from com.sun.star.beans import PropertyValue
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
+from plugin.calc.calc_utils import anchor_shape_at_cell, selection_top_left_cell
 from plugin.doc import visual_helpers
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import clone_text_range
@@ -555,6 +556,26 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
         frame_text.insertString(end, "\n" + title, False)
 
 
+def _calc_insert_cell(model: Any, page_index: int | None) -> tuple[Any, Any]:
+    """Return ``(sheet, cell)`` for anchoring an inserted picture in Calc.
+
+    Uses the top-left cell of the current selection on the active sheet, or A1
+    when the selection is not a range (shape or multi-range). Another sheet has
+    no selection reachable through UNO, so the picture goes to its A1.
+    """
+    controller = model.getCurrentController()
+    active = controller.getActiveSheet()
+    if page_index is None or page_index == active.getRangeAddress().Sheet:
+        sheet = active
+        cell = selection_top_left_cell(controller, sheet)
+    else:
+        sheet = model.getSheets().getByIndex(page_index)
+        cell = None
+    if cell is None:
+        cell = sheet.getCellByPosition(0, 0)
+    return sheet, cell
+
+
 def _insert_image_to_drawpage(
     ctx: Any,
     model: Any,
@@ -577,7 +598,12 @@ def _insert_image_to_drawpage(
     is_embedded = True
     if page_index is None and _should_link_image_path(img_path):
         file_url = _file_url_for_path(img_path)
+        count = draw_page.getCount()
         image = _dispatch_insert_linked_graphic(ctx, model, file_url)
+        # Calc's API insert does not select the new picture (fuins1.cxx lcl_InsertGraphic,
+        # SdrInsertFlags::DONTMARK when bApi), so it is taken as the shape the dispatch appended.
+        if image is None and inside == "calc" and draw_page.getCount() == count + 1:
+            image = draw_page.getByIndex(count)
         if image is not None:
             is_embedded = False
         else:
@@ -589,7 +615,10 @@ def _insert_image_to_drawpage(
     _apply_graphic_properties(image, width=width, height=height, title=title, description=description, anchor_type=None)
     if is_embedded:
         draw_page.add(image)
-    if inside != "calc":
+    if inside == "calc":
+        sheet, cell = _calc_insert_cell(model, page_index)
+        anchor_shape_at_cell(sheet, image, cell)
+    else:
         pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
         if not visual_helpers.safe_try_method(image, "setPosition", pos):
             log.debug(

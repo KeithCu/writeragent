@@ -15,11 +15,12 @@ import logging
 import os
 import re
 import struct
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
-from plugin.calc.calc_utils import get_cell_geometry
+from plugin.calc.calc_utils import get_cell_geometry, selection_top_left_cell, sheet_is_rtl
+from plugin.calc.python.formula_edit import match_py_alias
 from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.queue_executor import main
 from plugin.scripting.payload_codec import write_image_payload_to_temp
 
@@ -43,11 +44,20 @@ _DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 _PLOT_SHAPE_NAME_PREFIX = "WriterAgentPlot"
 _IMAGE_ANNOTATION_PREFIX = "WriterAgent image: "
 
-# Each plot shape carries a wa-plot:<col>,<row>[:<sha>] tag naming its formula cell and
-# the SHA-256 digest of its image. It lives in UserDefinedAttributes, which ODF keeps as a
-# namespaced attribute on the shape, so the shape's Description (alt text) stays the user's.
+# Each plot shape carries a wa-plot:<oc>,<or>[@<ac>,<ar>][:<sha>] tag naming its owner
+# formula cell, the shape's anchor cell when the tag was written, and the SHA-256 digest
+# of its image. Recording the anchor lets a later recalc distinguish a plot that shifted with
+# its formula (row/column insert or delete) from one moved by the user. It lives in
+# UserDefinedAttributes, which ODF keeps as a namespaced attribute on the shape, so the
+# shape's Description (alt text) stays the user's.
 _PLOT_TAG_ATTR = "wa:plot"
 _PLOT_TAG_NAMESPACE = "urn:writeragent:plot"
+
+
+class _PlotTag(NamedTuple):
+    owner: tuple[int, int]
+    sha: str | None
+    anchor: tuple[int, int] | None
 
 
 def _plot_slot_name(image_index: int) -> str:
@@ -148,39 +158,57 @@ def _aspect_ratio_changed(old_w: int, old_h: int, new_w: int, new_h: int) -> boo
     return abs(old_ratio - new_ratio) > 0.01 * max(old_ratio, new_ratio)
 
 
-def _format_plot_tag(col: int, row: int, sha: str | None = None) -> str:
-    """Format the owner cell and optional SHA-256 image digest as wa-plot:<col>,<row>[:<sha>]."""
-    return f"wa-plot:{col},{row}:{sha}" if sha else f"wa-plot:{col},{row}"
+def _format_plot_tag(
+    owner: tuple[int, int],
+    anchor: tuple[int, int] | None,
+    sha: str | None = None,
+) -> str:
+    """Format owner cell, optional anchor cell, and optional SHA-256 digest as a wa-plot tag."""
+    base = f"wa-plot:{owner[0]},{owner[1]}"
+    if anchor is not None:
+        base += f"@{anchor[0]},{anchor[1]}"
+    return f"{base}:{sha}" if sha else base
 
 
-def _parse_plot_tag(desc: Any) -> tuple[tuple[int, int], str | None] | None:
-    """Parse a wa-plot tag into ((col, row), sha_hex).
-
-    Returns None if desc is not a valid wa-plot tag in the format
-    wa-plot:<col>,<row>[:<sha>].
-    """
-    if not isinstance(desc, str) or not desc.startswith("wa-plot:"):
-        return None
-    rest = desc[len("wa-plot:"):]
-    if ":" in rest:
-        coords_part, sha_part = rest.split(":", 1)
-        sha = sha_part if sha_part else None
-    else:
-        coords_part = rest
-        sha = None
-
-    if "," not in coords_part:
+def _parse_col_row(text: str) -> tuple[int, int] | None:
+    """Parse '<col>,<row>' into (col, row), or None."""
+    c_str, sep, r_str = text.partition(",")
+    if not sep:
         return None
     try:
-        c_str, r_str = coords_part.split(",", 1)
-        coords = (int(c_str), int(r_str))
+        return (int(c_str), int(r_str))
     except ValueError:
         return None
 
-    return coords, sha
+
+def _parse_plot_tag(desc: Any) -> _PlotTag | None:
+    """Parse a wa-plot tag into _PlotTag(owner, sha, anchor).
+
+    Accepts both the current ``wa-plot:<oc>,<or>@<ac>,<ar>[:<sha>]`` format and
+    the 0.9.1 ``wa-plot:<oc>,<or>[:<sha>]`` format (with ``anchor=None``).
+    Returns None if *desc* is not a valid wa-plot tag or has an unparsable anchor.
+    """
+    if not isinstance(desc, str) or not desc.startswith("wa-plot:"):
+        return None
+    rest = desc[len("wa-plot:") :]
+    head, colon, sha_part = rest.partition(":")
+    sha = sha_part if (colon and sha_part) else None
+
+    owner_part, at, anchor_part = head.partition("@")
+    owner = _parse_col_row(owner_part)
+    if owner is None:
+        return None
+
+    anchor: tuple[int, int] | None = None
+    if at:
+        anchor = _parse_col_row(anchor_part)
+        if anchor is None:
+            return None
+
+    return _PlotTag(owner=owner, sha=sha, anchor=anchor)
 
 
-def _read_plot_tag(shape: Any) -> tuple[tuple[int, int], str | None] | None:
+def _read_plot_tag(shape: Any) -> _PlotTag | None:
     """Return the shape's parsed wa-plot tag, or None when it has none."""
     try:
         attrs = shape.getPropertyValue("UserDefinedAttributes")
@@ -203,7 +231,7 @@ def _record_plot_tag(shape: Any, target_cell: Any, sha: str | None) -> None:
     addr_key = _cell_address_key(target_cell)
     if addr_key is None:
         return
-    tag = _format_plot_tag(addr_key[1], addr_key[2], sha)
+    tag = _format_plot_tag((addr_key[1], addr_key[2]), _anchor_cell(shape), sha)
     try:
         attrs = shape.getPropertyValue("UserDefinedAttributes")
         data = AttributeData()
@@ -228,14 +256,6 @@ def _graphic_aspect(shape: Any) -> tuple[int, int] | None:
         return int(size.Width), int(size.Height)
     except (AttributeError, TypeError):
         return None
-
-
-def _sheet_is_rtl(sheet: Any) -> bool:
-    """True when sheet writing direction is right-to-left (TableLayout == 1)."""
-    try:
-        return int(sheet.TableLayout) == 1
-    except (AttributeError, TypeError, ValueError):
-        return False
 
 
 def _formula_axis_hidden(sheet: Any, cell: Any) -> bool:
@@ -303,28 +323,61 @@ def _slot_cursor(
     return cursor_x, cursor_y
 
 
-def _shape_matches_target_cell(shape: Any, target_cell: Any) -> bool:
-    """True when the plot shape belongs to the formula cell target_cell.
+def _moved_owner(shape: Any, tag: _PlotTag) -> tuple[int, int] | None:
+    """Return the shifted owner (col, row) when *shape*'s anchor moved since the tag was written, else None."""
+    if tag.anchor is None:
+        return None
+    now = _anchor_cell(shape)
+    if now is None or now == tag.anchor:
+        return None
+    return (tag.owner[0] + now[0] - tag.anchor[0], tag.owner[1] + now[1] - tag.anchor[1])
+
+
+def _holds_py_formula(sheet: Any, cell: tuple[int, int]) -> bool:
+    """True when *cell* ``(col, row)`` on *sheet* holds a ``=PY()`` / ``=PYTHON()`` formula."""
+    col, row = cell
+    if col < 0 or row < 0:
+        return False
+    formula = uno_read(lambda: sheet.getCellByPosition(col, row).getFormula(), "")
+    return isinstance(formula, str) and match_py_alias(formula, require_equals=True) is not None
+
+
+def _shape_matches_target_cell(sheet: Any, shape: Any, target_cell: Any) -> bool:
+    """True when the plot shape belongs to the formula cell *target_cell*.
 
     Positioning a cell-anchored shape makes stock Calc move its anchor to the cell under
-    the shape's top-left corner (ScDrawView::adjustAnchoredPosition, drawvie3.cxx:175-224,
-    calling ScDrawLayer::SetCellAnchoredFromPosition). Slots after the first lie beyond the
+    the shape's top-left corner (``ScDrawView::adjustAnchoredPosition``, ``drawvie3.cxx:175-224``,
+    calling ``ScDrawLayer::SetCellAnchoredFromPosition``). Slots after the first lie beyond the
     formula cell, so they end up anchored to other cells, and LibrePy cannot pin the anchor
-    back. The wa-plot tag therefore decides ownership whatever the anchor says; only a shape
-    without a tag is matched by its anchor. Inserting rows or columns above or left of the
-    formula moves the cell but not the tag, so such a shape is no longer matched and the
-    next recalc creates a new sibling beside it.
+    back. The ``wa-plot`` tag therefore decides ownership; only a shape without a tag is matched
+    by its anchor.
+
+    When a tagged shape's anchor has moved since the tag was written:
+    - If the owner shifted by the same delta equals *target_cell*, the formula and plot moved
+      together (row/column insertion or deletion above or left of them), so it matches.
+    - Otherwise the anchor moved on its own (user drag, or columns inserted between the formula
+      and slot k); the recorded owner keeps the plot unless another ``=PY()`` formula moved into
+      the shifted owner cell.
     """
     tag = _read_plot_tag(shape)
     if tag is None:
         return _shape_anchor_matches_cell(shape, target_cell)
     addr_key = _cell_address_key(target_cell)
-    return addr_key is not None and tag[0] == (addr_key[1], addr_key[2])
+    if addr_key is None:
+        return False
+    here = (addr_key[1], addr_key[2])
+    moved = _moved_owner(shape, tag)
+    if moved is None:
+        return tag.owner == here
+    if moved == here:
+        return True
+    return tag.owner == here and not _holds_py_formula(sheet, moved)
 
 
-def _anchored_plot_slots(draw_page: Any, target_cell: Any) -> list[tuple[Any, int]]:
+def _anchored_plot_slots(sheet: Any, target_cell: Any) -> list[tuple[Any, int]]:
     """Return (shape, slot_index) for all plot shapes belonging to target_cell, in draw-page order."""
     try:
+        draw_page = sheet.DrawPage
         slots: list[tuple[Any, int]] = []
         for index in range(draw_page.getCount()):
             shape = draw_page.getByIndex(index)
@@ -334,7 +387,7 @@ def _anchored_plot_slots(draw_page: Any, target_cell: Any) -> list[tuple[Any, in
             slot_idx = _plot_slot_index(name if isinstance(name, str) else "")
             if slot_idx is None:
                 continue
-            if not _shape_matches_target_cell(shape, target_cell):
+            if not _shape_matches_target_cell(sheet, shape, target_cell):
                 continue
             slots.append((shape, slot_idx))
         return slots
@@ -346,9 +399,11 @@ def _anchored_plot_slots(draw_page: Any, target_cell: Any) -> list[tuple[Any, in
 def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
     """Remove target_cell's plot shapes with slot index >= image_count, and duplicates.
 
-    A second shape for a slot that is already taken (for example a copy-pasted plot) is
-    never refreshed, because _resolve_slot uses the first one, so it is removed too. This
-    matches removePlotSlotsFrom and PlotSlots::maExtra in Collabora's pythonplots.cxx:137-169.
+    A second shape for a slot that is already taken (for example a plot pasted from another
+    workbook whose name did not collide under ``SdrObject::MakeNameUnique``) is never refreshed,
+    because ``_resolve_slot`` uses the first one, so it is removed too. An in-document paste is
+    renamed (e.g. ``WriterAgentPlot 1``) and is never a slot. This matches
+    ``removePlotSlotsFrom`` and ``PlotSlots::maExtra`` in Collabora's ``pythonplots.cxx:137-169``.
     """
     taken: set[int] = set()
     for s, slot_idx in slots:
@@ -463,17 +518,22 @@ def _supports_service(obj: Any, name: str) -> bool:
     return hit is True or (type(hit) is int and hit == 1)
 
 
+def _anchor_cell(shape: Any) -> tuple[int, int] | None:
+    """Return (col, row) of *shape*'s anchor cell, or None when page-anchored or unreadable."""
+    anchor = uno_read(lambda: shape.getPropertyValue("Anchor"), None)
+    if anchor is None or _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
+        return None
+    key = _cell_address_key(anchor)
+    return (key[1], key[2]) if key is not None else None
+
+
 def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
     """True when the shape is already anchored to the same grid cell (not UNO identity).
 
     A page-anchored shape's Anchor is the sheet (range 0,0); that must not count as matching a cell.
     """
-    anchor = shape.getPropertyValue("Anchor")
-    if _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
-        return False
-    left = _cell_address_key(anchor)
-    right = _cell_address_key(target_cell)
-    return left is not None and left == right
+    key = _cell_address_key(target_cell)
+    return key is not None and _anchor_cell(shape) == (key[1], key[2])
 
 
 def _unlink_temp_image(path: str) -> None:
@@ -675,44 +735,10 @@ def _place_new_plot(
     return shape
 
 
-def _refresh_existing_plot(
-    shape: Any,
-    target_cell: Any,
-    file_url: str,
-    data_sha: str | None,
-    aspect: tuple[int, int] | None,
-    rtl: bool,
-) -> None:
-    """Update the graphic on an existing plot shape, keeping the user's rectangle where possible."""
+def _refit_to_aspect(shape: Any, aspect: tuple[int, int], rtl: bool) -> None:
+    """Resize a non-fill plot shape to *aspect*, keeping its long side and anchoring corner."""
     from com.sun.star.awt import Point
 
-    # A GraphicObjectShape does not expose the bytes it was loaded from, so the wa-plot
-    # tag stores their SHA-256 digest. When the new image has the same digest, the reload
-    # is skipped: the document is not marked modified, and the user's size, position,
-    # and crop stay as they are. The tag's owner already matches, because a tagged shape
-    # is only found through its tag.
-    tag = _read_plot_tag(shape)
-    if data_sha is not None and tag is not None and tag[1] == data_sha:
-        return
-
-    old_aspect = _graphic_aspect(shape)
-    try:
-        shape.setPropertyValue("GraphicURL", file_url)
-    except Exception as exc:
-        # The UNO Graphic setter ignores an empty graphic, so a failed load keeps the
-        # previous picture and its old digest; the next recalc tries the load again. The
-        # failure is only logged so the remaining slots still update. Collabora's slot
-        # loop (pythonplots.cxx:563-577) instead shows the empty-graphic placeholder.
-        log.warning("insert_image_result_on_sheet: could not update plot graphic: %s", exc)
-        return
-
-    _record_plot_tag(shape, target_cell, data_sha)
-
-    # Collabora never resizes an existing slot (pythonplots.cxx:573-577). Here the box
-    # changes only when the new graphic's aspect differs from the old graphic's, so a box
-    # the user stretched keeps its shape while the plot's proportions stay the same.
-    if aspect is None or old_aspect is None or not _aspect_ratio_changed(*old_aspect, *aspect):
-        return
     try:
         if bool(shape.getPropertyValue("ResizeWithCell")):
             return
@@ -729,6 +755,44 @@ def _refresh_existing_plot(
             shape.setPosition(Point(int(old_pos.X) + old_w - int(new_size.Width), int(old_pos.Y)))
     except (AttributeError, TypeError):
         log.debug("could not update existing plot geometry", exc_info=True)
+
+
+def _refresh_existing_plot(
+    shape: Any,
+    target_cell: Any,
+    file_url: str,
+    data_sha: str | None,
+    aspect: tuple[int, int] | None,
+    rtl: bool,
+) -> None:
+    """Update the graphic on an existing plot shape, keeping the user's rectangle where possible."""
+    # A GraphicObjectShape does not expose the bytes it was loaded from, so the wa-plot
+    # tag stores their SHA-256 digest. When the new image has the same digest, the reload
+    # is skipped: the user's size, position, and crop stay as they are, and _record_plot_tag
+    # writes only when the owner or anchor changed (or a 0.9.1 tag gains its anchor).
+    tag = _read_plot_tag(shape)
+    if data_sha is not None and tag is not None and tag.sha == data_sha:
+        _record_plot_tag(shape, target_cell, data_sha)
+        return
+
+    old_aspect = _graphic_aspect(shape)
+    try:
+        shape.setPropertyValue("GraphicURL", file_url)
+    except Exception as exc:
+        # The UNO Graphic setter ignores an empty graphic, so a failed load keeps the
+        # previous picture and its old digest; the next recalc tries the load again. The
+        # failure is only logged so the remaining slots still update. Collabora's slot
+        # loop (pythonplots.cxx:563-577) instead shows the empty-graphic placeholder.
+        log.warning("insert_image_result_on_sheet: could not update plot graphic: %s", exc)
+        return
+
+    # Collabora never resizes an existing slot (pythonplots.cxx:573-577). Here the box
+    # changes only when the new graphic's aspect differs from the old graphic's, so a box
+    # the user stretched keeps its shape while the plot's proportions stay the same.
+    if aspect is not None and old_aspect is not None and _aspect_ratio_changed(*old_aspect, *aspect):
+        _refit_to_aspect(shape, aspect, rtl)
+    # Record the tag after the RTL refit, because setPosition on RTL can move the anchor.
+    _record_plot_tag(shape, target_cell, data_sha)
 
 
 def _insert_image_result_on_sheet_impl(
@@ -784,11 +848,7 @@ def _insert_image_result_on_sheet_impl(
             _egress_fail("target sheet has no DrawPage; image was not inserted")
 
         if target_cell is None and ctrl is not None:
-            try:
-                addr = ctrl.getSelection().getRangeAddress()
-                target_cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
-            except Exception:
-                log.debug("insert_image_result_on_sheet: selection fallback failed", exc_info=True)
+            target_cell = selection_top_left_cell(ctrl, sheet)
 
         if image_path:
             tmp_path = image_path
@@ -802,9 +862,9 @@ def _insert_image_result_on_sheet_impl(
         aspect = _intrinsic_aspect(data_bytes) if data_bytes else None
         aspect_size = _aspect_size(aspect)
 
-        slots = _anchored_plot_slots(draw_page, target_cell) if target_cell is not None else []
+        slots = _anchored_plot_slots(sheet, target_cell) if target_cell is not None else []
         shape = _resolve_slot(slots, image_index)
-        rtl = _sheet_is_rtl(sheet)
+        rtl = sheet_is_rtl(sheet)
 
         try:
             if shape is None:

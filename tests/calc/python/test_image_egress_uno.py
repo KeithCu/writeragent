@@ -71,14 +71,14 @@ def test_reanchored_plot_slots_chain_reuse_and_sweep_uno(ctx, doc):
     def run(count: int) -> list:
         for i in range(count):
             _insert_image_result_on_sheet_impl(payloads[i], doc=doc, image_index=i, image_count=count)
-        return [shape for shape, _idx in sorted(_anchored_plot_slots(draw_page, cell), key=lambda s: s[1])]
+        return [shape for shape, _idx in sorted(_anchored_plot_slots(sheet, cell), key=lambda s: s[1])]
 
     try:
         slots = run(3)
         assert len(slots) == 3
         # Calc moved slot 1's anchor off A1 to the cell under its new position.
         assert not _shape_anchor_matches_cell(slots[1], cell)
-        assert _read_plot_tag(slots[1])[0] == (0, 0)
+        assert _read_plot_tag(slots[1]).owner == (0, 0)
         for prev, nxt in zip(slots, slots[1:]):
             assert nxt.getPosition().X == prev.getPosition().X + prev.getSize().Width
 
@@ -87,6 +87,136 @@ def test_reanchored_plot_slots_chain_reuse_and_sweep_uno(ctx, doc):
 
         assert len(run(2)) == 2
         assert draw_page.getCount() == 2
+    finally:
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+
+
+@native_test
+@with_native_doc("calc")
+def test_plot_follows_formula_after_row_and_column_insert_uno(ctx, doc):
+    """Inserting rows/columns above or left of the formula reuses the existing plot slots."""
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    payloads = [
+        {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20 + i, 10)} for i in range(2)
+    ]
+
+    inserted_row = False
+    inserted_col = False
+    try:
+        b3 = sheet.getCellByPosition(1, 2)
+        controller.select(b3)
+        for i in range(2):
+            _insert_image_result_on_sheet_impl(payloads[i], doc=doc, image_index=i, image_count=2)
+        assert draw_page.getCount() == 2
+        orig_shapes = [draw_page.getByIndex(0), draw_page.getByIndex(1)]
+        orig_positions = [(s.getPosition().X, s.getPosition().Y) for s in orig_shapes]
+
+        sheet.getRows().insertByIndex(0, 1)
+        inserted_row = True
+        sheet.getColumns().insertByIndex(0, 1)
+        inserted_col = True
+        moved_positions = [(s.getPosition().X, s.getPosition().Y) for s in orig_shapes]
+
+        c4 = sheet.getCellByPosition(2, 3)
+        controller.select(c4)
+        for i in range(2):
+            _insert_image_result_on_sheet_impl(payloads[i], doc=doc, image_index=i, image_count=2)
+
+        assert draw_page.getCount() == 2
+        assert draw_page.getByIndex(0) == orig_shapes[0]
+        assert draw_page.getByIndex(1) == orig_shapes[1]
+        assert [(draw_page.getByIndex(i).getPosition().X, draw_page.getByIndex(i).getPosition().Y) for i in range(2)] == moved_positions
+        assert moved_positions != orig_positions
+    finally:
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+        if inserted_col:
+            sheet.getColumns().removeByIndex(0, 1)
+        if inserted_row:
+            sheet.getRows().removeByIndex(0, 1)
+
+
+@native_test
+@with_native_doc("calc")
+def test_dragged_plot_is_refreshed_in_place_uno(ctx, doc):
+    """A plot dragged to another cell is refreshed in place at its new position."""
+    from com.sun.star.awt import Point
+    from plugin.calc.python.image_egress import _insert_image_result_on_sheet_impl
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    b3 = sheet.getCellByPosition(1, 2)
+    controller.select(b3)
+
+    p1 = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
+    p2 = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(30, 15)}
+
+    try:
+        _insert_image_result_on_sheet_impl(p1, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 1
+        shape = draw_page.getByIndex(0)
+        shape.setPosition(Point(30000, 20000))
+        dragged_pos = (shape.getPosition().X, shape.getPosition().Y)
+
+        controller.select(b3)
+        _insert_image_result_on_sheet_impl(p2, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 1
+        assert draw_page.getByIndex(0) == shape
+        assert (shape.getPosition().X, shape.getPosition().Y) == dragged_pos
+    finally:
+        while draw_page.getCount():
+            draw_page.remove(draw_page.getByIndex(0))
+
+
+@native_test
+@with_native_doc("calc")
+def test_pasted_plot_copy_survives_recalc_uno(ctx, doc):
+    """A copy-pasted plot gets a non-slot name from Calc and survives recalc."""
+    from plugin.calc.python.image_egress import (
+        _insert_image_result_on_sheet_impl,
+        _plot_slot_index,
+        _read_plot_tag,
+    )
+
+    sheet = doc.getSheets().getByIndex(0)
+    draw_page = sheet.getDrawPage()
+    controller = doc.getCurrentController()
+    controller.setActiveSheet(sheet)
+    b3 = sheet.getCellByPosition(1, 2)
+    controller.select(b3)
+
+    p1 = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(20, 10)}
+    p2 = {"__wa_payload__": "image", "format": "png", "data": _png_bytes(24, 12)}
+
+    try:
+        _insert_image_result_on_sheet_impl(p1, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 1
+        orig = draw_page.getByIndex(0)
+        orig_sha = _read_plot_tag(orig).sha
+
+        controller.select(orig)
+        transferable = controller.getTransferable()
+        h20 = sheet.getCellByPosition(7, 19)
+        controller.select(h20)
+        controller.insertTransferable(transferable)
+        assert draw_page.getCount() == 2
+
+        controller.select(b3)
+        _insert_image_result_on_sheet_impl(p2, doc=doc, image_index=0, image_count=1)
+        assert draw_page.getCount() == 2
+
+        shapes = [draw_page.getByIndex(i) for i in range(2)]
+        copies = [s for s in shapes if _plot_slot_index(s.getPropertyValue("Name")) is None]
+        assert len(copies) == 1
+        assert _read_plot_tag(copies[0]).sha == orig_sha
     finally:
         while draw_page.getCount():
             draw_page.remove(draw_page.getByIndex(0))

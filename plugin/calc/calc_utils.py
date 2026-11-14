@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 import uno
+from com.sun.star.awt import Point
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
@@ -93,6 +94,48 @@ def get_cell_geometry(sheet: Any, cell: Any) -> tuple[Any, Any]:
         cell = sheet.createCursorByRange(cell)
         cell.collapseToMergedArea()
     return cell.Position, cell.Size
+
+
+def sheet_is_rtl(sheet: Any) -> bool:
+    """True when sheet writing direction is right-to-left (TableLayout == 1)."""
+    try:
+        return int(sheet.TableLayout) == 1
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def selection_top_left_cell(controller: Any, sheet: Any) -> Any | None:
+    """Return the top-left cell of *controller*'s selection on *sheet*, or None.
+
+    Shape selections (``SvxShapeCollection``) and multi-range selections
+    (``ScCellRangesObj``) have no ``getRangeAddress`` and return None. A closed
+    document raises.
+    """
+
+    def _read() -> Any:
+        addr = controller.getSelection().getRangeAddress()
+        return sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
+
+    return uno_read(_read, None)
+
+
+def anchor_shape_at_cell(sheet: Any, shape: Any, cell: Any) -> None:
+    """Anchor *shape* to *cell* with Excel's "Move but don't size with cells" semantics.
+
+    Sets ``Anchor`` to *cell* and ``ResizeWithCell`` to False, which LibreOffice
+    exports as OOXML ``twoCellAnchor editAs="oneCell"`` (``xcl97rec.cxx``
+    ``GetEditAs``). Uses ``get_cell_geometry`` so merged blocks resolve to the
+    merged area's coordinates, and mirrors horizontally on RTL sheets
+    (``ScDocument::GetMMRect`` / ``shapeuno.cxx`` "Anchor") so the shape's right
+    edge aligns with the cell's right edge.
+    """
+    pos, size = get_cell_geometry(sheet, cell)
+    shape.setPropertyValue("Anchor", cell)
+    shape.setPropertyValue("ResizeWithCell", False)
+    x = int(pos.X)
+    if sheet_is_rtl(sheet):
+        x += int(size.Width) - int(shape.getSize().Width)
+    shape.setPosition(Point(x, int(pos.Y)))
 
 
 def _runtime_formula_result_value() -> int:
