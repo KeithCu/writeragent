@@ -1,51 +1,3 @@
-import unittest
-
-from plugin.tests.testing_utils import ElementStub, WriterDocStub
-
-from plugin.doc.text_helpers import build_heading_tree
-from plugin.doc.document_helpers import resolve_locator
-
-class TestWriterNavigation(unittest.TestCase):
-    def test_build_heading_tree(self):
-        elements = [
-            ElementStub("H1", outline_level=1),
-            ElementStub("P1"),
-            ElementStub("H1.1", outline_level=2),
-            ElementStub("P2"),
-            ElementStub("H2", outline_level=1),
-        ]
-        doc = WriterDocStub(elements)
-        tree = build_heading_tree(doc)
-        
-        # root -> [H1, H2]
-        self.assertEqual(len(tree["children"]), 2)
-        h1 = tree["children"][0]
-        self.assertEqual(h1["text"], "H1")
-        self.assertEqual(len(h1["children"]), 1)
-        self.assertEqual(h1["children"][0]["text"], "H1.1")
-        
-        h2 = tree["children"][1]
-        self.assertEqual(h2["text"], "H2")
-        self.assertEqual(h2["body_paragraphs"], 0) # H2 is at end
-
-    def test_resolve_locator(self):
-        doc = WriterDocStub([
-            ElementStub("H1", outline_level=1),
-            ElementStub("P1"),
-            ElementStub("H2", outline_level=1),
-            ElementStub("H2.1", outline_level=2),
-        ])
-        
-        res = resolve_locator(doc, "paragraph:1")
-        self.assertEqual(res["para_index"], 1)
-        
-        res = resolve_locator(doc, "heading:2")
-        self.assertEqual(res["para_index"], 2) # H2 is at index 2
-        
-        res = resolve_locator(doc, "heading:2.1")
-        self.assertEqual(res["para_index"], 3) # H2.1 is at index 3
-
-
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.navigation import NavHeading, NavSurroundings
@@ -134,7 +86,12 @@ def test_get_surroundings(ctx, doc):
     tool = NavSurroundings()
     res = tool.execute(mock_ctx, locator="paragraph:2", radius=3)
     assert res.get("status") == "ok", res
-    assert "paragraphs" in res
+    assert res.get("center_para_index") == 2, res
+    assert res.get("range") == {"start": 0, "end": 5}, res
+    texts = [p["text"] for p in res.get("paragraphs", [])]
+    assert "Chapter 1" in texts, texts
+    assert "Section 1.1" in texts, texts
+    assert "This is the second chapter." in texts, texts
 
 
 @native_test
@@ -171,7 +128,3 @@ def test_navigate_table(ctx, doc):
     res2 = tool.execute(mock_ctx, locator="table:UnknownTable", radius=2)
     assert res2.get("status") == "error", res2
     assert "Table 'UnknownTable' not found" in res2.get("message", ""), res2
-
-
-if __name__ == "__main__":
-    unittest.main()

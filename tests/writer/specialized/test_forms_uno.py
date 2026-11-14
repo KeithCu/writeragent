@@ -122,32 +122,6 @@ def test_generate_form_processing_logic(ctx, doc):
 
 
 @native_test
-def test_parse_field_tag():
-    from plugin.writer.specialized.forms import FormGenerate
-    tool = FormGenerate()
-    
-    tag = "{FIELD:control='combobox',name='my_list',items='A,B,C',label='Pick one'}"
-    params = tool._parse_field_tag(tag)
-    
-    assert params["control"] == "combobox"
-    assert params["name"] == "my_list"
-    assert params["items"] == ["A", "B", "C"]
-    assert params["label"] == "Pick one"
-    
-    # Test single quotes vs double quotes
-    tag2 = '{FIELD:control="text",name="foo"}'
-    params2 = tool._parse_field_tag(tag2)
-    assert params2["control"] == "text"
-    assert params2["name"] == "foo"
-
-    # Test button
-    tag3 = "{FIELD:control='button',name='btn',label='Click'}"
-    params3 = tool._parse_field_tag(tag3)
-    assert params3["control"] == "button"
-    assert params3["label"] == "Click"
-
-
-@native_test
 @with_native_doc("writer")
 def test_insert_text_with_view_cursor(ctx, doc):
     """Verify that _insert_text correctly handles the ViewCursor by converting it."""

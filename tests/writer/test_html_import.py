@@ -1457,6 +1457,25 @@ def test_content_has_markup_cases():
     assert content_needs_html_import("R$ 5,00 e R$ 9,00") is False
 
 
+def test_content_has_markup_auto_detection():
+    from plugin.writer.html_import import content_has_markup
+
+    assert not content_has_markup("**bold**")
+    assert not content_has_markup("# Heading")
+    assert not content_has_markup("| col1 | col2 |")
+    assert not content_has_markup("Issue # 5")
+    assert not content_has_markup("a | b")
+    assert not content_has_markup("2**3")
+    assert not content_has_markup("__init__")
+    assert content_has_markup("<b>bold</b>")
+    assert content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>")
+    assert content_has_markup(r"\(x^2\)")
+    assert not content_has_markup("Jane Doe")
+    assert not content_has_markup("Hello world, this is plain text.")
+    assert not content_has_markup("")
+    assert not content_has_markup(None)
+
+
 def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
     from plugin.writer import html_import_styles
 
