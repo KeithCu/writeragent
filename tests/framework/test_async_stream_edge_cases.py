@@ -12,7 +12,7 @@ import pytest
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from plugin.framework.send_cancellation import SendCancellation
-from tests.framework.stream_test_helpers import DummyToolkit
+from tests.framework.stream_test_helpers import DummyToolkit, _drain
 
 
 def test_run_async_worker_with_drain_stop_fallback_calls_one_arg_on_done() -> None:
@@ -42,62 +42,11 @@ def test_run_async_worker_with_drain_stop_fallback_calls_one_arg_on_done() -> No
     assert errors == []
 
 
-def test_run_stream_drain_loop_error_clears_defer_next_tool_exit():
-    """A recovered ERROR clears defer_next_tool_exit so it does not drop later replacement worker batches."""
-    q = queue.Queue()
-    q.put((StreamQueueKind.NEXT_TOOL,))
-    q.put((StreamQueueKind.STATUS, "boom"))
-
-    toolkit = DummyToolkit()
-    outcome = DrainOutcome()
-    applied = []
-
-    batch_counter = [0]
-    original_process = toolkit.processEventsToIdle
-
-    def mock_processEventsToIdle():
-        original_process()
-        c = batch_counter[0]
-        batch_counter[0] += 1
-        if c == 0:
-            q.put((StreamQueueKind.STATUS, "replacement1"))
-        elif c == 1:
-            q.put((StreamQueueKind.STATUS, "replacement2"))
-            q.put((StreamQueueKind.STREAM_DONE, "replacement-done"))
-
-    toolkit.processEventsToIdle = mock_processEventsToIdle
-
-    def on_stream_done(item):
-        return True
-
-    def on_error(e):
-        return True
-
-    def on_status(t):
-        if t == "boom":
-            raise ValueError("boom")
-        applied.append(t)
-
-    run_stream_drain_loop(
-        q,
-        toolkit,
-        outcome,
-        apply_chunk_fn=lambda t, i: None,
-        on_stream_done=on_stream_done,
-        on_stopped=lambda: None,
-        on_error=on_error,
-        on_status_fn=on_status
-    )
-
-    assert "replacement1" in applied
-    assert "replacement2" in applied
-
-
 def test_recovered_error_item_after_next_tool_keeps_drain_alive():
     """A queued ERROR after NEXT_TOOL must not apply the deferred exit when on_error recovers.
 
-    The older test raised inside on_status, which took the except path that
-    already skipped the trailing flush. A real ERROR tuple did not.
+    A handler raise takes the except path, which already skips the trailing flush;
+    only a queued ERROR tuple exercises the deferred-exit path.
     """
     q = queue.Queue()
     q.put((StreamQueueKind.NEXT_TOOL,))
@@ -131,22 +80,7 @@ def test_recovered_error_item_after_next_tool_keeps_drain_alive():
 @pytest.mark.parametrize("empty", [(), []])
 def test_empty_queue_item_is_invalid_tag_not_index_error(empty: tuple | list) -> None:
     """() and [] are a missing kind, not an IndexError in the slice."""
-    q = queue.Queue()
-    q.put(empty)
-    q.put((StreamQueueKind.STREAM_DONE, "later"))
-    errors: list[object] = []
-    done: list[object] = []
-    outcome = DrainOutcome()
-
-    run_stream_drain_loop(
-        q,
-        None,
-        outcome,
-        lambda _text, _is_thinking: None,
-        on_stream_done=lambda item: done.append(item) or True,
-        on_stopped=lambda: None,
-        on_error=lambda payload: errors.append(payload),
-    )
+    outcome, _applied, errors, _stopped, done = _drain([empty, (StreamQueueKind.STREAM_DONE, "later")])
     assert outcome.done is True
     assert done == []
     assert len(errors) == 1
@@ -155,12 +89,7 @@ def test_empty_queue_item_is_invalid_tag_not_index_error(empty: tuple | list) ->
 
 def test_stop_tail_empty_item_does_not_call_on_error():
     """Stop applies the already-pulled tail. An empty item there is dropped."""
-    q = queue.Queue()
-    q.put(())
     calls = [0]
-    stopped: list[bool] = []
-    errors: list[object] = []
-    outcome = DrainOutcome()
     cancel = SendCancellation()
 
     def is_cancelled() -> bool:
@@ -170,16 +99,7 @@ def test_stop_tail_empty_item_does_not_call_on_error():
 
     cancel.is_cancelled = is_cancelled  # type: ignore
 
-    run_stream_drain_loop(
-        q,
-        None,
-        outcome,
-        lambda _text, _is_thinking: None,
-        on_stream_done=lambda _item: True,
-        on_stopped=lambda: stopped.append(True),
-        on_error=lambda payload: errors.append(payload),
-        cancel=cancel,
-    )
+    outcome, _applied, errors, stopped, _done = _drain([()], cancel=cancel)
     assert outcome.done is True
     assert stopped == [True]
     assert errors == []

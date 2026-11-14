@@ -150,24 +150,24 @@ def test_openai_shim_skips_non_dict_image_data():
     assert shim.parse_image_responses({"data": None}) == []
 
 
-def test_openai_shim_parse_sync_response():
-    client_mock = MagicMock()
-    shim = OpenAIShim(client_mock)
-    
+@pytest.mark.parametrize("shim_cls", [OpenAIShim, GoogleShim])
+def test_openai_compatible_shim_parse_sync_response(shim_cls):
+    shim = shim_cls(MagicMock())
+
     mock_payload = {
         "choices": [{
             "message": {
                 "role": "assistant",
-                "content": "Hello from OpenAI",
+                "content": "Hello from provider",
                 "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]
             },
             "finish_reason": "stop"
         }],
         "usage": {"prompt_tokens": 10, "completion_tokens": 5}
     }
-    
-    content, finish_reason, tool_calls, usage, images, message = shim.parse_sync_response(mock_payload)
-    assert content == "Hello from OpenAI"
+
+    content, finish_reason, tool_calls, usage, _images, _message = shim.parse_sync_response(mock_payload)
+    assert content == "Hello from provider"
     assert finish_reason == "stop"
     assert tool_calls == [{"id": "c1", "type": "function", "function": {"name": "test", "arguments": "{}"}}]
     assert usage["prompt_tokens"] == 10
@@ -213,33 +213,6 @@ def test_anthropic_shim_skips_tool_block_without_name():
     assert len(tool_calls) == 1
     assert tool_calls[0]["function"]["name"] == "do_work"
     assert tool_calls[0]["id"] == "t1"
-
-
-def test_google_shim_parse_sync_response():
-    client_mock = MagicMock()
-    shim = GoogleShim(client_mock)
-
-    mock_payload = {
-        "choices": [{
-            "message": {
-                "role": "assistant",
-                "content": "Hello from Google",
-                "tool_calls": [
-                    {"id": "call_1", "type": "function", "function": {"name": "web_search", "arguments": '{"q": "libreoffice"}'}}
-                ]
-            },
-            "finish_reason": "stop"
-        }],
-        "usage": {"prompt_tokens": 15, "completion_tokens": 8}
-    }
-
-    content, finish_reason, tool_calls, usage, images, message = shim.parse_sync_response(mock_payload)
-    assert content == "Hello from Google"
-    assert finish_reason == "stop"
-    assert tool_calls is not None
-    assert len(tool_calls) == 1
-    assert tool_calls[0]["function"]["name"] == "web_search"
-    assert usage["prompt_tokens"] == 15
 
 
 def test_anthropic_json_object_is_a_system_hint_not_a_request_field():

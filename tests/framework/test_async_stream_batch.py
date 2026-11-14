@@ -23,7 +23,7 @@ def _cancelled_scope() -> SendCancellation:
 from plugin.framework.stream_batch import BatchingStreamQueue, DeadlineThread, StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
-from tests.framework.stream_test_helpers import DummyToolkit
+from tests.framework.stream_test_helpers import DummyToolkit, _drain
 
 
 class TestAsyncStreamErrorHandling:
@@ -63,157 +63,116 @@ class TestAsyncStreamErrorHandling:
         assert ('Processing failed' in error_payload['message'])
 
 
-def test_process_batch_handler_raises_on_second_chunk_ends_batch(monkeypatch):
-    """Dispatch-handler raise on the second CHUNK ends the batch without fake success.
+def _run_with_failing_handler(monkeypatch, kind, items, make_on_error):
+    """Patch ``_DISPATCH[kind]`` (not ``apply_chunk_fn``) so the second item hits the inner except.
 
-    Consecutive CHUNKs only append; apply_chunk_fn runs in flush_buffers(). Patch
-    _handle_chunk (not apply_chunk_fn) so this hits the inner except, not the
-    outer catch that test_stream_drain_loop_processing_error covers.
+    Patching ``apply_chunk_fn`` would only hit the outer catch that
+    ``test_stream_drain_loop_processing_error`` already covers.
+    """
+    import plugin.framework.async_stream as async_stream
+
+    q: queue.Queue = queue.Queue()
+    for item in items:
+        q.put(item)
+
+    applied: list[str] = []
+    errors: list[object] = []
+    done_calls: list[object] = []
+    orig = async_stream._DISPATCH[kind]
+    calls = [0]
+
+    def boom_handler(state, data, item):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError(f"second {kind.value}")
+        return orig(state, data, item)
+
+    monkeypatch.setitem(async_stream._DISPATCH, kind, boom_handler)
+
+    outcome = DrainOutcome()
+    async_stream.run_stream_drain_loop(
+        q,
+        None,
+        outcome,
+        lambda text, _is_thinking: applied.append(text),
+        on_stream_done=lambda item: done_calls.append(item) or True,
+        on_stopped=lambda: None,
+        on_error=make_on_error(q, errors),
+    )
+    return outcome, calls[0], errors, applied, done_calls
+
+
+@pytest.mark.parametrize(
+    ("kind", "items", "expected_text", "unexpected_text"),
+    [
+        pytest.param(
+            StreamQueueKind.CHUNK,
+            [
+                (StreamQueueKind.CHUNK, "one"),
+                (StreamQueueKind.CHUNK, "two"),
+                (StreamQueueKind.CHUNK, "three"),
+                (StreamQueueKind.STREAM_DONE, None),
+            ],
+            "one",
+            "three",
+            id="chunk",
+        ),
+        pytest.param(
+            StreamQueueKind.THINKING,
+            [
+                (StreamQueueKind.THINKING, "hmm"),
+                (StreamQueueKind.THINKING, "nope"),
+                (StreamQueueKind.THINKING, "later"),
+                (StreamQueueKind.STREAM_DONE, None),
+            ],
+            "hmm",
+            "later",
+            id="thinking",
+        ),
+    ],
+)
+def test_process_batch_handler_raises_ends_batch(monkeypatch, kind, items, expected_text, unexpected_text):
+    """Dispatch-handler raise on the second item ends the batch without fake success.
 
     STREAM_DONE is already in the dequeued items list; job_done + break skips it
     rather than leaving it on the queue. Do not assert q still holds STREAM_DONE.
     """
-    import plugin.framework.async_stream as async_stream
-
-    q = queue.Queue()
-    q.put((StreamQueueKind.CHUNK, "one"))
-    q.put((StreamQueueKind.CHUNK, "two"))
-    q.put((StreamQueueKind.CHUNK, "three"))
-    q.put((StreamQueueKind.STREAM_DONE, None))
-
-    applied = []
-    errors = []
-    done_calls = []
-    orig = async_stream._DISPATCH[StreamQueueKind.CHUNK]
-    calls = [0]
-
-    def boom_chunk(state, data, item):
-        calls[0] += 1
-        if calls[0] == 2:
-            raise RuntimeError("second chunk")
-        return orig(state, data, item)
-
-    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.CHUNK, boom_chunk)
-
-    def apply_chunk(text, is_thinking):
-        applied.append(text)
-
-    def on_error(e):
-        errors.append(e)
-
-    def on_stream_done(item):
-        done_calls.append(item)
-        return True
-
-    outcome = DrainOutcome()
-    async_stream.run_stream_drain_loop(
-        q, None, outcome, apply_chunk,
-        on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
+    outcome, calls, errors, applied, done_calls = _run_with_failing_handler(
+        monkeypatch,
+        kind,
+        items,
+        lambda _q, errors: lambda e: errors.append(e),
     )
-
     assert outcome.done is True
-    assert calls[0] == 2
+    assert calls == 2
     assert len(errors) == 1
     assert errors[0]["status"] == "error"
-    assert "second chunk" in errors[0]["message"]
+    assert f"second {kind.value}" in errors[0]["message"]
     assert done_calls == []
     joined = "".join(applied)
-    assert "one" in joined
-    assert "three" not in joined
-
-
-def test_process_batch_handler_raises_on_second_thinking_ends_batch(monkeypatch):
-    """Same inner-except contract for THINKING as for CHUNK."""
-    import plugin.framework.async_stream as async_stream
-
-    q = queue.Queue()
-    q.put((StreamQueueKind.THINKING, "hmm"))
-    q.put((StreamQueueKind.THINKING, "nope"))
-    q.put((StreamQueueKind.THINKING, "later"))
-    q.put((StreamQueueKind.STREAM_DONE, None))
-
-    applied = []
-    errors = []
-    done_calls = []
-    orig = async_stream._DISPATCH[StreamQueueKind.THINKING]
-    calls = [0]
-
-    def boom_thinking(state, data, item):
-        calls[0] += 1
-        if calls[0] == 2:
-            raise RuntimeError("second thinking")
-        return orig(state, data, item)
-
-    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.THINKING, boom_thinking)
-
-    def apply_chunk(text, is_thinking):
-        applied.append(text)
-
-    def on_error(e):
-        errors.append(e)
-
-    def on_stream_done(item):
-        done_calls.append(item)
-        return True
-
-    outcome = DrainOutcome()
-    async_stream.run_stream_drain_loop(
-        q, None, outcome, apply_chunk,
-        on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
-    )
-
-    assert outcome.done is True
-    assert calls[0] == 2
-    assert len(errors) == 1
-    assert "second thinking" in errors[0]["message"]
-    assert done_calls == []
-    joined = "".join(applied)
-    assert "hmm" in joined
-    assert "later" not in joined
+    assert expected_text in joined
+    assert unexpected_text not in joined
 
 
 def test_process_batch_handler_error_on_error_true_drops_batch_tail(monkeypatch):
     """on_error returning True keeps the drain and drops the failed attempt's tail."""
-    import plugin.framework.async_stream as async_stream
+    items = [
+        (StreamQueueKind.CHUNK, "one"),
+        (StreamQueueKind.CHUNK, "two"),
+        (StreamQueueKind.CHUNK, "three"),
+        (StreamQueueKind.STREAM_DONE, "stale-done"),
+    ]
 
-    q = queue.Queue()
-    q.put((StreamQueueKind.CHUNK, "one"))
-    q.put((StreamQueueKind.CHUNK, "two"))
-    q.put((StreamQueueKind.CHUNK, "three"))
-    q.put((StreamQueueKind.STREAM_DONE, "stale-done"))
+    def make_on_error(q, errors):
+        def on_error(e):
+            errors.append(e)
+            q.put((StreamQueueKind.STREAM_DONE, "replacement"))
+            return True
+        return on_error
 
-    applied = []
-    errors = []
-    done_calls = []
-    orig = async_stream._DISPATCH[StreamQueueKind.CHUNK]
-    calls = [0]
-
-    def boom_chunk(state, data, item):
-        calls[0] += 1
-        if calls[0] == 2:
-            raise RuntimeError("second chunk")
-        return orig(state, data, item)
-
-    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.CHUNK, boom_chunk)
-
-    def apply_chunk(text, is_thinking):
-        applied.append(text)
-
-    def on_error(e):
-        errors.append(e)
-        q.put((StreamQueueKind.STREAM_DONE, "replacement"))
-        return True
-
-    def on_stream_done(item):
-        done_calls.append(item)
-        return True
-
-    outcome = DrainOutcome()
-    async_stream.run_stream_drain_loop(
-        q, None, outcome, apply_chunk,
-        on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
+    outcome, _calls, errors, applied, done_calls = _run_with_failing_handler(
+        monkeypatch, StreamQueueKind.CHUNK, items, make_on_error
     )
-
     assert outcome.done is True
     assert len(errors) == 1
     assert len(done_calls) == 1
@@ -225,35 +184,21 @@ def test_process_batch_handler_error_on_error_true_drops_batch_tail(monkeypatch)
 
 def test_process_batch_handler_error_on_error_raises_still_sets_job_done(monkeypatch):
     """A raising on_error must still set job_done and must not be retried by the outer catch."""
-    import plugin.framework.async_stream as async_stream
+    items = [
+        (StreamQueueKind.CHUNK, "one"),
+        (StreamQueueKind.CHUNK, "two"),
+        (StreamQueueKind.STREAM_DONE, None),
+    ]
 
-    q = queue.Queue()
-    q.put((StreamQueueKind.CHUNK, "one"))
-    q.put((StreamQueueKind.CHUNK, "two"))
-    q.put((StreamQueueKind.STREAM_DONE, None))
+    def make_on_error(_q, errors):
+        def on_error(e):
+            errors.append(e)
+            raise RuntimeError("on_error error")
+        return on_error
 
-    errors = []
-    orig = async_stream._DISPATCH[StreamQueueKind.CHUNK]
-    calls = [0]
-
-    def boom_chunk(state, data, item):
-        calls[0] += 1
-        if calls[0] == 2:
-            raise RuntimeError("second chunk")
-        return orig(state, data, item)
-
-    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.CHUNK, boom_chunk)
-
-    def on_error(e):
-        errors.append(e)
-        raise RuntimeError("on_error error")
-
-    outcome = DrainOutcome()
-    async_stream.run_stream_drain_loop(
-        q, None, outcome, lambda _t, _th: None,
-        on_stream_done=lambda _i: True, on_stopped=lambda: None, on_error=on_error,
+    outcome, _calls, errors, _applied, _done_calls = _run_with_failing_handler(
+        monkeypatch, StreamQueueKind.CHUNK, items, make_on_error
     )
-
     assert outcome.done is True
     assert len(errors) == 1
 
@@ -454,13 +399,6 @@ def test_stop_on_first_batch_item_applies_pulled_display_text():
 
 def test_stop_tail_drops_string_kind():
     """A bare "chunk" string is not display text. Stop must not apply it or error."""
-    q = queue.Queue()
-    q.put((StreamQueueKind.CHUNK, "hello"))
-    q.put(("chunk", "bad"))
-    q.put((StreamQueueKind.STREAM_DONE, "nope"))
-    applied: list[str] = []
-    errors: list[object] = []
-    stopped: list[bool] = []
     cancel = SendCancellation()
     checks = [0]
 
@@ -470,17 +408,15 @@ def test_stop_tail_drops_string_kind():
 
     cancel.is_cancelled = is_cancelled  # type: ignore
 
-    outcome = DrainOutcome()
-    run_stream_drain_loop(
-        q,
-        None,
-        outcome,
-        lambda text, _is_thinking: applied.append(text),
-        on_stream_done=lambda _item: True,
-        on_stopped=lambda: stopped.append(True),
-        on_error=errors.append,
+    outcome, applied_pairs, errors, stopped, _done = _drain(
+        [
+            (StreamQueueKind.CHUNK, "hello"),
+            ("chunk", "bad"),
+            (StreamQueueKind.STREAM_DONE, "nope"),
+        ],
         cancel=cancel,
     )
+    applied = [text for text, _is_thinking in applied_pairs]
     assert outcome.done is True
     assert stopped == [True]
     assert errors == []
@@ -538,17 +474,6 @@ def test_pump_ui_idle_unblocks_call_when_poke_noop():
                 qe.main.install(saved_policy)
                 while not qe.main._work_queue.empty():
                     qe.main.process_queue()
-
-
-def test_drain_owner_scope_rejects_nesting():
-    from plugin.framework.async_drain_guard import NestedDrainOwnerError, drain_owner_scope, get_drain_owner
-
-    with drain_owner_scope("stream"):
-        assert get_drain_owner() == "stream"
-        with pytest.raises(NestedDrainOwnerError):
-            with drain_owner_scope("nested"):
-                pass
-    assert get_drain_owner() is None
 
 
 def test_pump_ui_idle_still_pumps_vcl_under_drain_owner():

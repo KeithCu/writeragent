@@ -9,11 +9,13 @@ import time
 from unittest.mock import MagicMock, patch
 
 
+import pytest
+
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.send_cancellation import SendCancellation
-from tests.framework.stream_test_helpers import DummyToolkit
+from tests.framework.stream_test_helpers import DummyToolkit, _drain
 
 
 def _cancelled_scope() -> SendCancellation:
@@ -105,29 +107,12 @@ def test_run_async_worker_with_drain_none_apply_chunk():
     assert done_calls == [(StreamQueueKind.STREAM_DONE, "ok")]
 
 
-def test_run_stream_drain_loop_basic():
-    q = queue.Queue()
-    q.put((StreamQueueKind.CHUNK, "hello"))
-    q.put((StreamQueueKind.STREAM_DONE, None))
-
-    toolkit = DummyToolkit()
-    outcome = DrainOutcome()
-
-    applied = []
-    def apply_chunk(t, is_thinking):
-        applied.append((t, is_thinking))
-
-    def stream_done(item):
-        return True
-
-    def noop(*args, **kwargs):
-        pass
-
-    run_stream_drain_loop(
-        q, toolkit, outcome, apply_chunk,
-        on_stream_done=stream_done, on_stopped=noop, on_error=noop
+@pytest.mark.parametrize("toolkit_factory", [DummyToolkit, lambda: None], ids=["with-toolkit", "toolkit-none"])
+def test_run_stream_drain_loop_basic(toolkit_factory):
+    outcome, applied, _errors, _stopped, _done = _drain(
+        [(StreamQueueKind.CHUNK, "hello"), (StreamQueueKind.STREAM_DONE, None)],
+        toolkit=toolkit_factory(),
     )
-
     assert outcome.done is True
     assert ("hello", False) in applied
 
@@ -616,33 +601,6 @@ def test_run_stream_drain_loop_stopped():
     assert outcome.done is True
 
 
-def test_run_stream_drain_loop_toolkit_none():
-    q = queue.Queue()
-    q.put((StreamQueueKind.CHUNK, "hello"))
-    q.put((StreamQueueKind.STREAM_DONE, None))
-
-    outcome = DrainOutcome()
-
-    applied = []
-    def apply_chunk(t, is_thinking):
-        applied.append((t, is_thinking))
-
-    def stream_done(item):
-        return True
-
-    def noop(*args, **kwargs):
-        pass
-
-    # Should run successfully without a toolkit
-    run_stream_drain_loop(
-        q, None, outcome, apply_chunk,
-        on_stream_done=stream_done, on_stopped=noop, on_error=noop
-    )
-
-    assert outcome.done is True
-    assert ("hello", False) in applied
-
-
 def test_run_stream_drain_loop_tool_thinking():
     q = queue.Queue()
     q.put((StreamQueueKind.TOOL_THINKING, "Searching google..."))
@@ -873,71 +831,35 @@ def test_run_stream_drain_loop_connection_drop():
 
 def test_run_stream_drain_loop_rejects_string_kind():
     """First tuple element must be StreamQueueKind, not a bare str matching the value."""
-    q = queue.Queue()
-    q.put(("chunk", "bad"))
-    outcome = DrainOutcome()
-    errors = []
-
-    def on_error(e):
-        errors.append(e)
-
-    run_stream_drain_loop(
-        q,
-        None,
-        outcome,
-        lambda t, is_thinking: None,
-        on_stream_done=lambda i: True,
-        on_stopped=lambda: None,
-        on_error=on_error,
-    )
+    outcome, _applied, errors, _stopped, _done = _drain([("chunk", "bad")])
     assert outcome.done is True
     assert len(errors) == 1
 
 
 def test_invalid_tag_on_error_raise_is_not_called_twice():
     """A raising on_error for a bare string tag is invoked once."""
-    q = queue.Queue()
-    q.put(("chunk", "bad"))
     errors: list[object] = []
 
     def on_error(payload: object) -> None:
         errors.append(payload)
         raise RuntimeError("on_error error")
 
-    outcome = DrainOutcome()
-    run_stream_drain_loop(
-        q,
-        None,
-        outcome,
-        lambda _text, _th: None,
-        on_stream_done=lambda _item: True,
-        on_stopped=lambda: None,
-        on_error=on_error,
-    )
+    outcome, *_ = _drain([("chunk", "bad")], on_error=on_error)
     assert outcome.done is True
     assert len(errors) == 1
 
 
 def test_stopped_item_on_stopped_raise_is_not_an_error():
     """A raising on_stopped for a STOPPED item does not call on_error."""
-    q = queue.Queue()
-    q.put((StreamQueueKind.STOPPED, None))
     stopped: list[bool] = []
-    errors: list[object] = []
 
     def on_stopped() -> None:
         stopped.append(True)
         raise RuntimeError("stop handler failed")
 
-    outcome = DrainOutcome()
-    run_stream_drain_loop(
-        q,
-        None,
-        outcome,
-        lambda _text, _th: None,
-        on_stream_done=lambda _item: True,
+    outcome, _applied, errors, _stopped, _done = _drain(
+        [(StreamQueueKind.STOPPED, None)],
         on_stopped=on_stopped,
-        on_error=errors.append,
     )
     assert outcome.done is True
     assert stopped == [True]
@@ -946,24 +868,15 @@ def test_stopped_item_on_stopped_raise_is_not_an_error():
 
 def test_stop_checker_on_stopped_raise_is_not_an_error():
     """A raising on_stopped from the stop checker does not call on_error."""
-    q = queue.Queue()
-    q.put((StreamQueueKind.CHUNK, "hello"))
     stopped: list[bool] = []
-    errors: list[object] = []
 
     def on_stopped() -> None:
         stopped.append(True)
         raise RuntimeError("stop handler failed")
 
-    outcome = DrainOutcome()
-    run_stream_drain_loop(
-        q,
-        None,
-        outcome,
-        lambda _text, _th: None,
-        on_stream_done=lambda _item: True,
+    outcome, _applied, errors, _stopped, _done = _drain(
+        [(StreamQueueKind.CHUNK, "hello")],
         on_stopped=on_stopped,
-        on_error=errors.append,
         cancel=_cancelled_scope(),
     )
     assert outcome.done is True

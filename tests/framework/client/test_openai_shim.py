@@ -6,19 +6,29 @@ from plugin.framework.client.openai_shim import OpenAIShim, OpenRouterShim, get_
 
 
 class _DummyClient:
-    def __init__(self, provider: str = "openai", headers: dict[str, str] | None = None, config: dict | None = None) -> None:
+    def __init__(
+        self,
+        provider: str = "openai",
+        headers: dict[str, str] | None = None,
+        config: dict | None = None,
+        api_path: str = "/v1",
+    ) -> None:
         self._provider = provider
         self._custom_headers = headers if headers is not None else {"Authorization": "Bearer test"}
         self.config = config or {}
+        self._path = api_path
 
     def _get_provider(self) -> str:
+        return self._provider
+
+    def _service_name(self) -> str:
         return self._provider
 
     def _endpoint(self) -> str:
         return "http://test"
 
     def _api_path(self) -> str:
-        return "/v1"
+        return self._path
 
     def _headers(self) -> dict[str, str]:
         return dict(self._custom_headers)
@@ -108,12 +118,7 @@ def test_generic_provider_image_request_stays_on_generations():
 
 
 def test_openrouter_shim_build_image_request_model_truthy():
-    class DummyClient:
-        def _get_provider(self): return "openrouter"
-        def _endpoint(self): return "http://test"
-        def _api_path(self): return "/api/v1"
-        def _headers(self): return {}
-    shim = OpenRouterShim(DummyClient())
+    shim = OpenRouterShim(_DummyClient(provider="openrouter", headers={}, api_path="/api/v1"))
 
     # When model is None, "model" key must not be present
     _, _, body, _ = shim.build_image_request("a prompt", None, 512, 512)
@@ -137,14 +142,14 @@ def test_responses_effort_uses_openrouter_vocabulary():
     # (openrouter -> nested reasoning.effort), not a hardcoded "openai".
     from plugin.framework.client.base_provider_shim import effort_payload
 
-    class DummyClient:
-        config = {"is_openrouter": True, "reasoning_effort": "high"}
-        def _get_provider(self): return "openrouter"
-        def _endpoint(self): return "http://test"
-        def _api_path(self): return "/api/v1"
-        def _headers(self): return {}
-
-    shim = OpenAIShim(DummyClient())
+    shim = OpenAIShim(
+        _DummyClient(
+            provider="openrouter",
+            headers={},
+            config={"is_openrouter": True, "reasoning_effort": "high"},
+            api_path="/api/v1",
+        )
+    )
     _, url, body, _ = shim.build_chat_request(
         [{"role": "user", "content": "hi"}], 100, None, [{"type": "function", "function": {"name": "f", "parameters": {}}}], False, "openai/gpt-6", None, None
     )
@@ -156,22 +161,11 @@ def test_responses_effort_uses_openrouter_vocabulary():
 def test_openrouter_prompt_caching():
     from plugin.framework.client.shim_helpers import snapshot_text
 
-    class DummyClient:
-        def _get_provider(self):
-            return "openrouter"
-
-        def _endpoint(self):
-            return "http://test"
-
-        def _api_path(self):
-            return "/api/v1"
-
-        def _headers(self):
-            return {}
-
-    shim = OpenRouterShim(DummyClient())
+    client = _DummyClient(provider="openrouter", headers={}, api_path="/api/v1")
+    shim = OpenRouterShim(client)
     snap = snapshot_text("Document text")
     tool_loop_messages = [
+        {"role": "user", "content": "hello"},
         {
             "role": "assistant",
             "content": "",
@@ -192,13 +186,23 @@ def test_openrouter_prompt_caching():
     assert "cache_control" not in data1  # Root JSON has no cache_control
 
     msgs1 = data1["messages"]
-    # Roles become assistant, tool, tool, user (split snapshot onto trailing user message)
-    assert [m["role"] for m in msgs1] == ["assistant", "tool", "tool", "user"]
-    assert msgs1[0]["content"] == ""
-    assert msgs1[1]["content"] == "res1"  # first tool unchanged
-    assert msgs1[2]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
-    assert msgs1[3]["content"] == snap
+    # Roles become user, assistant, tool, tool, user (split snapshot onto trailing user message)
+    assert [m["role"] for m in msgs1] == ["user", "assistant", "tool", "tool", "user"]
+    assert msgs1[0]["content"] == "hello"
+    assert msgs1[1]["content"] == ""
+    assert msgs1[2]["content"] == "res1"  # first tool unchanged
+    assert msgs1[3]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs1[4]["content"] == snap
     assert json.dumps(data1).count("cache_control") == 1
+
+    # Also when history starts directly with an assistant tool round (no leading user turn):
+    _m, _url, body_no_user, _h = shim.build_chat_request(
+        tool_loop_messages[1:], 100, None, None, False, "anthropic/claude-sonnet-4.5", None
+    )
+    msgs_no_user = json.loads(body_no_user)["messages"]
+    assert [m["role"] for m in msgs_no_user] == ["assistant", "tool", "tool", "user"]
+    assert msgs_no_user[2]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs_no_user[3]["content"] == snap
 
     # 2. Same shim with openai/gpt-oss-120b: no cache_control anywhere
     _m, _url, body2, _h = shim.build_chat_request(
@@ -206,21 +210,19 @@ def test_openrouter_prompt_caching():
     )
     data2 = json.loads(body2)
     assert "cache_control" not in data2
-    body2_str = json.dumps(data2)
-    assert "cache_control" not in body2_str
-    assert [m["role"] for m in data2["messages"]] == ["assistant", "tool", "tool"]
+    assert "cache_control" not in json.dumps(data2)
+    assert [m["role"] for m in data2["messages"]] == ["user", "assistant", "tool", "tool"]
 
-    # 3. BaseProviderShim (Cerebras path) keeps assistant + tool + tool order with no cache_control
+    # 3. BaseProviderShim (Cerebras path) keeps user + assistant + tool + tool order with no cache_control
     assert get_provider_shim_class("cerebras") is BaseProviderShim
-    cerebras_shim = BaseProviderShim(DummyClient())
+    cerebras_shim = BaseProviderShim(client)
     _m, _url, body3, _h = cerebras_shim.build_chat_request(
         tool_loop_messages, 100, None, None, False, "llama3.1-70b", None
     )
     data3 = json.loads(body3)
-    msgs3 = data3["messages"]
-    assert [m["role"] for m in msgs3] == ["assistant", "tool", "tool"]
-    body3_str = json.dumps(data3)
-    assert "cache_control" not in body3_str
+    assert [m["role"] for m in data3["messages"]] == ["user", "assistant", "tool", "tool"]
+    assert "cache_control" not in json.dumps(data3)
+
     # 4. User send: folded messages to anthropic/* mark the block before the tail
     user_send_messages = [
         {"role": "user", "content": [
@@ -231,8 +233,7 @@ def test_openrouter_prompt_caching():
     _m, _url, body_u1, _h = shim.build_chat_request(
         user_send_messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
     )
-    data_u1 = json.loads(body_u1)
-    msgs_u1 = data_u1["messages"]
+    msgs_u1 = json.loads(body_u1)["messages"]
     assert len(msgs_u1) == 1
     assert msgs_u1[0]["role"] == "user"
     assert msgs_u1[0]["content"] == [
@@ -241,48 +242,23 @@ def test_openrouter_prompt_caching():
     ]
 
     # 5. User send: openai/gpt-oss-120b and Cerebras keep the single folded user message without cache_control
-    _m, _url, body_u2, _h = shim.build_chat_request(
-        user_send_messages, 100, None, None, False, "openai/gpt-oss-120b", None
-    )
-    data_u2 = json.loads(body_u2)
-    msgs_u2 = data_u2["messages"]
-    assert len(msgs_u2) == 1
-    assert msgs_u2[0]["role"] == "user"
-    assert msgs_u2[0]["content"] == [
-        {"type": "text", "text": "hello"},
-        {"type": "text", "text": snap},
-    ]
-    assert "cache_control" not in json.dumps(data_u2)
-
-    _m, _url, body_u3, _h = cerebras_shim.build_chat_request(
-        user_send_messages, 100, None, None, False, "openai/gpt-oss-120b", None
-    )
-    data_u3 = json.loads(body_u3)
-    msgs_u3 = data_u3["messages"]
-    assert len(msgs_u3) == 1
-    assert msgs_u3[0]["role"] == "user"
-    assert msgs_u3[0]["content"] == [
-        {"type": "text", "text": "hello"},
-        {"type": "text", "text": snap},
-    ]
-    assert "cache_control" not in json.dumps(data_u3)
+    for active_shim in (shim, cerebras_shim):
+        _m, _url, body_u, _h = active_shim.build_chat_request(
+            user_send_messages, 100, None, None, False, "openai/gpt-oss-120b", None
+        )
+        data_u = json.loads(body_u)
+        msgs_u = data_u["messages"]
+        assert len(msgs_u) == 1
+        assert msgs_u[0]["role"] == "user"
+        assert msgs_u[0]["content"] == [
+            {"type": "text", "text": "hello"},
+            {"type": "text", "text": snap},
+        ]
+        assert "cache_control" not in json.dumps(data_u)
 
 
 def test_openai_tool_choice():
-    class DummyClient:
-        def _get_provider(self):
-            return "openai"
-
-        def _endpoint(self):
-            return "http://test"
-
-        def _api_path(self):
-            return "/api/v1"
-
-        def _headers(self):
-            return {}
-
-    shim = OpenAIShim(DummyClient())
+    shim = OpenAIShim(_DummyClient(provider="openai", headers={}, api_path="/api/v1"))
     tools = [{"type": "function", "function": {"name": "test_func", "parameters": {}}}]
     messages = [{"role": "user", "content": "hi"}]
 
@@ -305,75 +281,10 @@ def test_openai_tool_choice():
     assert "tools" in data_none
 
 
-def test_openrouter_tool_round_splits_trailing_snapshot():
-    from plugin.framework.client.shim_helpers import snapshot_text
-
-    class DummyClient:
-        def _get_provider(self):
-            return "openrouter"
-
-        def _service_name(self):
-            return "openrouter"
-
-        def _endpoint(self):
-            return "http://test"
-
-        def _api_path(self):
-            return "/api/v1"
-
-        def _headers(self):
-            return {}
-
-    shim = OpenRouterShim(DummyClient())
-    snap = snapshot_text("Document text")
-    messages = [
-        {"role": "user", "content": "hello"},
-        {
-            "role": "assistant",
-            "content": "",
-            "tool_calls": [
-                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
-                {"id": "t2", "function": {"name": "f2", "arguments": "{}"}},
-            ],
-        },
-        {"role": "tool", "tool_call_id": "t1", "content": "res1"},
-        {"role": "tool", "tool_call_id": "t2", "content": f"res2\n\n{snap}"},
-    ]
-
-    _m, _url, body, _h = shim.build_chat_request(
-        messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
-    )
-    data = json.loads(body)
-    msgs = data["messages"]
-    assert msgs[0]["content"] == "hello"
-    assert msgs[1]["content"] == ""
-    assert msgs[2]["content"] == "res1"
-    assert msgs[3]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
-    assert msgs[4]["role"] == "user"
-    assert msgs[4]["content"] == snap
-    assert json.dumps(data).count("cache_control") == 1
-
-
 def test_openrouter_single_tool_marks_tool_result():
     from plugin.framework.client.shim_helpers import snapshot_text
 
-    class DummyClient:
-        def _get_provider(self):
-            return "openrouter"
-
-        def _service_name(self):
-            return "openrouter"
-
-        def _endpoint(self):
-            return "http://test"
-
-        def _api_path(self):
-            return "/api/v1"
-
-        def _headers(self):
-            return {}
-
-    shim = OpenRouterShim(DummyClient())
+    shim = OpenRouterShim(_DummyClient(provider="openrouter", headers={}, api_path="/api/v1"))
     snap = snapshot_text("Document text")
     messages = [
         {"role": "user", "content": "hello"},

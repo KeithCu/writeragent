@@ -97,22 +97,6 @@ class TestErrorHandling:
         display_empty = format_error_for_display({})
         assert (display_empty) == ("Error: {}")
 
-    def test_librepy_exceptions_hierarchy_and_codes(self):
-        from plugin.framework.errors import CalcError
-
-        # Test base hierarchy and default error codes
-        cases = [
-            (CalcError("calc error"), "CALC_ERROR", WriterAgentException),
-        ]
-
-        for exc, expected_code, parent_cls in cases:
-            assert isinstance(exc, WriterAgentException)
-            assert isinstance(exc, parent_cls)
-            assert (exc.code) == (expected_code)
-            payload = format_error_payload(exc)
-            assert (payload["status"]) == ("error")
-            assert (payload["code"]) == (expected_code)
-
     def test_librepy_format_error_message_advice(self):
         from plugin.framework.errors import format_error_message
 
@@ -611,26 +595,6 @@ def test_uno_call_reraises_writer_agent_exception():
     assert exc_info.value.code == "CONFIG_ERROR"
 
 
-def test_reraise_if_disposed_leaves_runtime_exception():
-    from plugin.framework.errors import DocumentDisposedError, reraise_if_disposed
-
-    class RuntimeException(Exception):
-        pass
-
-    class DisposedException(Exception):
-        pass
-
-    # RuntimeException and ValueError do not raise
-    reraise_if_disposed(RuntimeException("something failed"), object_type="sheet")
-    reraise_if_disposed(ValueError("bad value"), object_type="sheet")
-
-    disp = DisposedException("dead")
-    with pytest.raises(DocumentDisposedError) as exc_info:
-        reraise_if_disposed(disp, object_type="sheet")
-    assert exc_info.value.object_type == "sheet"
-    assert exc_info.value.__cause__ is disp
-
-
 def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
     from plugin.framework.errors import DocumentDisposedError, uno_read
 
@@ -762,7 +726,7 @@ def test_uno_call_uses_uno_message():
 
 
 def test_resolve_exception_message_total():
-    from plugin.framework.errors import format_error_message, resolve_exception_message
+    from plugin.framework.errors import format_error_message
 
     class StrExplodes(Exception):
         def __str__(self) -> str:
@@ -789,6 +753,7 @@ def test_resolve_exception_message_total():
 
     assert resolve_exception_message(BlankStrWithMessage("uno message")) == "uno message"
     assert format_error_message(BlankStrWithMessage("uno message")) == "uno message"
+    assert format_error_payload(ToolExecutionError(BlankStrWithMessage("uno message")))["message"] == "uno message"
 
     class UnoEmptyMessage(Exception):
         __pyunostruct__ = "com.sun.star.uno.RuntimeException"
@@ -799,6 +764,7 @@ def test_resolve_exception_message_total():
 
     assert resolve_exception_message(UnoEmptyMessage()) == "UnoEmptyMessage"
     assert format_error_message(UnoEmptyMessage()) == "UnoEmptyMessage"
+    assert format_error_payload(UnoEmptyMessage())["message"] == "UnoEmptyMessage"
 
     kb = KeyboardInterrupt()
     assert resolve_exception_message(kb) == "KeyboardInterrupt"
@@ -906,8 +872,9 @@ def test_reraise_if_disposed_preserves_instance():
 
     local_exc = LocalDisposedException("object closed")
     with pytest.raises(DocumentDisposedError) as exc_info3:
-        reraise_if_disposed(local_exc, "wrapper message")
+        reraise_if_disposed(local_exc, "wrapper message", object_type="sheet")
     assert exc_info3.value.__cause__ is local_exc
+    assert exc_info3.value.object_type == "sheet"
     assert str(exc_info3.value) == "wrapper message"
 
     reraise_if_disposed(RuntimeException("live error"))
@@ -921,43 +888,6 @@ def test_format_error_for_display_connection_refused():
     display = format_error_for_display(exc)
     assert "Connection Refused" in display
     assert "local AI server" in display
-
-
-def test_resolve_exception_message_standard_python():
-    e = ValueError("something went wrong")
-    assert resolve_exception_message(e) == "something went wrong"
-
-
-def test_resolve_exception_message_uno_style():
-    class ElementExistException(Exception):
-        def __init__(self, message):
-            self.Message = message
-
-        def __str__(self):
-            return ""
-
-    uno_err = ElementExistException("ElementExistException: Chart_0 already exists")
-    assert resolve_exception_message(uno_err) == "ElementExistException: Chart_0 already exists"
-
-    wrapper = ToolExecutionError(uno_err)
-    payload = format_error_payload(wrapper)
-    assert payload["status"] == "error"
-    assert payload["message"] == "ElementExistException: Chart_0 already exists"
-    assert payload["message"] != ""
-
-
-def test_resolve_exception_message_completely_blank():
-    class BlankException(Exception):
-        def __str__(self):
-            return ""
-
-    blank = BlankException()
-    assert resolve_exception_message(blank) == "BlankException"
-
-    payload = format_error_payload(blank)
-    assert payload["status"] == "error"
-    assert payload["message"] == "BlankException"
-    assert payload["message"] != ""
 
 
 from tests.framework.suggested_call_access import (
