@@ -1255,43 +1255,88 @@ _PIN_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E", 30,
 
 
 @pytest.mark.parametrize(
-    ("call", "expected_code", "expected_helper"),
+    ("call", "expected_code", "expected_message", "expected_helper"),
     [
-        (lambda: analysis.kpi_summary(_PIN_GRID, metrics=5), "INVALID_PARAM", "kpi_summary"),
-        (lambda: analysis.kpi_summary(_PIN_GRID, metrics=["Nope"]), "UNKNOWN_COLUMN", "kpi_summary"),
-        (lambda: analysis.kpi_summary(_PIN_GRID, metrics=["Region"]), "NON_NUMERIC_COLUMN", "kpi_summary"),
-        (lambda: analysis.detect_outliers(_PIN_GRID, method="x"), "INVALID_PARAM", "detect_outliers"),
+        (
+            lambda: analysis.kpi_summary(_PIN_GRID, metrics=5),
+            "INVALID_PARAM",
+            "metrics must be a column list, got 5",
+            "kpi_summary",
+        ),
+        (
+            lambda: analysis.kpi_summary(_PIN_GRID, metrics=["Nope"]),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "kpi_summary",
+        ),
+        (
+            lambda: analysis.kpi_summary(_PIN_GRID, metrics=["Region"]),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "kpi_summary",
+        ),
+        (
+            lambda: analysis.detect_outliers(_PIN_GRID, method="x"),
+            "INVALID_PARAM",
+            "method must be iqr, zscore, or isolation_forest, got 'x'",
+            "detect_outliers",
+        ),
         (
             lambda: analysis.group_summary(_PIN_GRID, by=["Region"], metrics=["Sales"], aggfunc={"Units": "sum"}),
             "INVALID_PARAM",
+            "aggfunc key 'Units' is not in Sales",
             "group_summary",
         ),
         (
             lambda: analysis.pivot_aggregate(_PIN_GRID, index="Region", values="Sales", aggfunc=["sum", 3]),
             "INVALID_PARAM",
+            "aggfunc must be a string, list of strings, or dict of column to string, got 3",
             "pivot_aggregate",
         ),
         (
             lambda: analysis.compare_periods([["d", "v"], [1, 2]], date_col="d", value_col="v", period="Z"),
             "INVALID_PARAM",
+            "period must be Y, Q, M, YE, QE, or ME, got 'Z'",
             "compare_periods",
         ),
-        (lambda: analysis.run_regression(_PIN_GRID, target="Region"), "NON_NUMERIC_COLUMN", "run_regression"),
-        (lambda: analysis.cluster_numeric(_PIN_GRID, n_clusters="x"), "INVALID_PARAM", "cluster_numeric"),
-        (lambda: analysis.QuickStats(_PIN_GRID, numeric_columns="Region").tooltip(), "NON_NUMERIC_COLUMN", "quick_stats"),
-        (lambda: analysis.quick_stats(_PIN_GRID, numeric_columns=["Nope"]), "UNKNOWN_COLUMN", "quick_stats"),
+        (
+            lambda: analysis.run_regression(_PIN_GRID, target="Region"),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "run_regression",
+        ),
+        (
+            lambda: analysis.cluster_numeric(_PIN_GRID, n_clusters="x"),
+            "INVALID_PARAM",
+            "n_clusters must be an integer, got 'x'",
+            "cluster_numeric",
+        ),
+        (
+            lambda: analysis.QuickStats(_PIN_GRID, numeric_columns="Region").tooltip(),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "quick_stats",
+        ),
+        (
+            lambda: analysis.quick_stats(_PIN_GRID, numeric_columns=["Nope"]),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "quick_stats",
+        ),
     ],
 )
 def test_analysis_helper_errors_keep_code_message_helper(
     call,
     expected_code: str,
+    expected_message: str,
     expected_helper: str,
 ):
-    res = call()
-    assert res["status"] == "error"
-    assert res["code"] == expected_code
-    assert res["helper"] == expected_helper
-    assert isinstance(res["message"], str) and res["message"]
+    assert call() == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
 
 
 def test_run_analysis_keeps_failed_code_for_plain_errors():

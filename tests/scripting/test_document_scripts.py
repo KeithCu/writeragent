@@ -292,6 +292,7 @@ def test_missing_version_stays_unreadable_and_unsupported_version_names_the_vers
     doc2 = _DocWithUserDefinedProperties(props2)
     err2 = attach_document_script(doc2, "B", "y")
     assert getattr(err2, "code", None) == DocumentScriptErrorCode.UNREADABLE
+    assert "99" in str(err2)
     assert props2.values[DOCUMENT_SCRIPTS_UDPROP] == raw_v99
 
 
@@ -312,7 +313,7 @@ def test_scripts_list_reports_unreadable_envelope():
     assert msg["document_available"] is True
     doc_section = [s for s in msg["sections"] if s["id"] == "document"][0]
     assert doc_section["scripts"] == {}
-    assert msg.get("status_error_text")
+    assert "99" in (msg.get("status_error_text") or "")
 
     with (
         patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from plugin.framework.constants import AUTO_IMPORTS
 from plugin.scripting.import_policy import (
+    format_matplotlib_plot_hint,
     format_venv_import_policy_for_prompt,
 )
 from plugin.scripting.sandbox import (
@@ -82,6 +83,14 @@ def test_venv_policy_auto_imports_match_constants():
         for policy in (compact, full):
             assert alias in policy
             assert module_name in policy
+
+
+def test_matplotlib_plot_hint_impress_matches_draw():
+    assert format_matplotlib_plot_hint(doc_type="impress") == format_matplotlib_plot_hint(doc_type="draw")
+
+
+def test_matplotlib_plot_hint_unknown_empty():
+    assert format_matplotlib_plot_hint(doc_type="unknown") == ""
 
 
 def test_venv_policy_has_no_cross_app_plot_branches():

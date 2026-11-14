@@ -484,15 +484,18 @@ def test_cleanup_stale_native_backups_noop_on_posix(tmp_path):
     assert (tmp_path / "pack.so.old").exists()
 
 
-def test_wave_open_failure_raises_runtime_error():
+def test_wave_open_failure_raises_before_opening_mic():
+    """WAV is created before the mic opens so disk errors aren't reported as PortAudio errors."""
     import threading
     from unittest.mock import MagicMock, patch
     from plugin.scripting.venv.audio_recorder import record_to_wav
 
     fake_sd = MagicMock()
     with patch("plugin.scripting.venv.audio_recorder._import_sounddevice", return_value=fake_sd):
-        with pytest.raises(RuntimeError):
+        with pytest.raises(RuntimeError) as exc_info:
             record_to_wav("/nonexistent_dir_cannot_create/test.wav", threading.Event())
+    fake_sd.InputStream.assert_not_called()
+    assert isinstance(exc_info.value.__cause__, OSError)
 
 
 @pytest.mark.parametrize(

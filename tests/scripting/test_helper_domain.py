@@ -200,11 +200,16 @@ def test_rps_insert_failed_outcome_empty_str_uses_repr():
     assert "result:  (" not in out["message"]
 
 
-def test_rps_insert_failed_outcome_returns_error_message():
+def test_rps_insert_failed_outcome_logs_type_and_exc_info(caplog):
+    """RPS insert-fail path must log str/repr and exc_info so Arch debug shows UNO errors."""
+    import logging
+
     err = RuntimeError("insertDocumentFromURL")
-    out = rps_insert_failed_outcome(err, t0=0.0)
+    with caplog.at_level(logging.ERROR, logger="writeragent.scripting"):
+        out = rps_insert_failed_outcome(err, t0=0.0)
     assert out["ok"] is False
     assert "insertDocumentFromURL" in out["message"]
+    assert any(r.exc_info is not None and "RuntimeError" in r.getMessage() for r in caplog.records)
 
 
 def test_script_uses_run_import_in_comment_not_matched():

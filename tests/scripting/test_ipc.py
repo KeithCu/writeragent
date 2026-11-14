@@ -1163,7 +1163,10 @@ def test_joined_write_aborts_when_child_is_dead() -> None:
 
 
 def test_packed_frame_write_without_int_fileno_writes() -> None:
-    """A stream whose fileno is not an int is written with no deadline."""
+    """A stream whose fileno is not an int is written with no deadline.
+
+    Popen pipes always have an int fileno, so skipping the deadline here is safe.
+    """
     stream = io.BytesIO()
     frame = pack_pickle_frame({"status": "ok"})
     write_packed_frame_with_timeout(stream, frame, 0.01)

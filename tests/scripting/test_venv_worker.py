@@ -1139,6 +1139,19 @@ def test_request_session_id_still_reaches_tool_rpc_without_pin():
     assert request['session_id'] == 'rps:file:///deck.odg'
     assert call.kwargs['script_session_id'] == 'rps:file:///deck.odg'
 
+def test_warm_prime_failure_does_not_raise() -> None:
+    import contextlib
+
+    mgr = PythonWorkerManager('/tmp/python-warm-fail', {'PATH': '/usr/bin'})
+
+    @contextlib.contextmanager
+    def fake_session(*args: object, **kwargs: object):
+        del args, kwargs
+        yield {'status': 'error', 'message': 'prime failed'}
+
+    with patch.object(mgr, '_io_session', fake_session):
+        mgr.warm()
+
 def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """A replaced manager must not kill a worker or wipe the Calc scalar cache."""
     mgr = PythonWorkerManager('/tmp/python-retired', {'PATH': '/usr/bin'})

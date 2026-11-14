@@ -140,6 +140,7 @@ def test_picker_supports_returns_false_when_check_raises():
 
 
 def test_sql_is_result_handles_missing_duckdb_sql():
+    # LibrePy bundles omit duckdb_sql; ImportError must return False so other domains still run.
     from plugin.scripting.domain_registry import WIRING_TABLE
 
     sql_wiring = next(w for w in WIRING_TABLE if w.id == "sql")
