@@ -54,7 +54,7 @@ Explain the code that is here **now**, for a reader who would otherwise be lost.
 | `make test-bot` | Incremental pytest only on changed files/modules (run with `make typecheck` before each commit). |
 | `make pytest` | Full unit pytest only (`-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist `-n auto --dist=loadgroup`; `PYTEST_WORKERS=0` for serial). No live soffice. |
 | `make test-uno` | UNO / LibreOffice tests only: runs `testing_runner.py` with serial live LibreOffice instance. |
-| `make test` | Incremental typecheck + incremental pytest + LO tests. |
+| `make test` | Incremental typecheck + incremental pytest + incremental UNO tests. |
 | `make test-full` | Large or cross-cutting changes only (includes typecheck, SAST, full pytest, LO tests, excel-py-roundtrip) |
 | `make build` | Produce `build/WriterAgent.oxt` only (no install) |
 | `make build-core` | Produce `build/LibrePy.oxt` only (no install) |

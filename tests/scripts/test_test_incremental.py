@@ -175,3 +175,125 @@ def test_main_runs_pytest_command_on_selected_files_only(
     ]
     out = capsys.readouterr().out
     assert "running pytest on 3 file(s)" in out
+
+
+def test_select_uno_files_maps_modules_and_excludes_non_uno_and_user_profile(tmp_path: Path) -> None:
+    for rel in (
+        "plugin/a/b/foo.py",
+        "plugin/pkg/__init__.py",
+        "tests/a/test_foo.py",
+        "tests/a/test_foo_uno.py",
+        "tests/a/test_foo_edge_uno.py",
+        "tests/a/test_foobar_uno.py",
+        "tests/pkg/test_pkg_uno.py",
+        "tests/other/test_direct.py",
+        "tests/other/test_direct_uno.py",
+        "tests/chatbot/test_mock_llm_sidebar_uno.py",
+        "tests/demo/test_demo_video_uno.py",
+    ):
+        _touch(tmp_path, rel)
+
+    selected = tst.select_uno_files(
+        [
+            "plugin/a/b/foo.py",
+            "plugin/pkg/__init__.py",
+            "tests/other/test_direct.py",
+            "tests/other/test_direct_uno.py",
+            "tests/chatbot/test_mock_llm_sidebar_uno.py",
+            "tests/demo/test_demo_video_uno.py",
+            "tests/other/test_deleted_uno.py",
+            "README.md",
+        ],
+        repo_root=tmp_path,
+    )
+    assert selected == [
+        "tests/a/test_foo_edge_uno.py",
+        "tests/a/test_foo_uno.py",
+        "tests/other/test_direct_uno.py",
+        "tests/pkg/test_pkg_uno.py",
+    ]
+
+
+def test_main_uno_exits_zero_when_nothing_maps(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "plugin/untested_mod.py")
+    _touch(tmp_path, "tests/test_only_unit.py")
+
+    rc = tst.main(["--uno", "--", sys.executable, "-c", "raise SystemExit(9)"], repo_root=tmp_path)
+    assert rc == 0
+    assert "no matching UNO files" in capsys.readouterr().out
+
+
+def test_main_uno_returns_fallback_code_on_conftest_change(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "tests/conftest.py")
+
+    rc = tst.main(["--uno", "--", sys.executable, "-c", "raise SystemExit(9)"], repo_root=tmp_path)
+    assert rc == EXIT_FALLBACK_FULL
+    assert "falling back to full UNO" in capsys.readouterr().out
+
+
+def test_main_uno_runs_command_on_selected_files_only(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "plugin/alpha.py")
+    _touch(tmp_path, "tests/test_alpha.py")
+    _touch(tmp_path, "tests/test_alpha_uno.py")
+    _touch(tmp_path, "tests/test_alpha_extra_uno.py")
+    _git(tmp_path, "add", "plugin/alpha.py", "tests/test_alpha.py", "tests/test_alpha_uno.py", "tests/test_alpha_extra_uno.py")
+    _git(tmp_path, "commit", "-m", "committed alpha")
+
+    (tmp_path / "plugin/alpha.py").write_text("x = 2\n", encoding="utf-8")
+    _touch(tmp_path, "tests/test_beta_uno.py")
+
+    marker = tmp_path / "seen_uno.txt"
+    rc = tst.main(
+        [
+            "--uno",
+            "--",
+            sys.executable,
+            "-c",
+            f"import pathlib, sys; pathlib.Path({str(marker)!r}).write_text('\\n'.join(sys.argv[1:]))",
+        ],
+        repo_root=tmp_path,
+    )
+    assert rc == 0
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        "tests/test_alpha_extra_uno.py",
+        "tests/test_alpha_uno.py",
+        "tests/test_beta_uno.py",
+    ]
+    assert "running UNO on 3 file(s)" in capsys.readouterr().out
+
+
+def test_main_uno_print_filter_outputs_space_separated_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "plugin/alpha.py")
+    _touch(tmp_path, "tests/test_alpha_uno.py")
+    _touch(tmp_path, "tests/test_beta_uno.py")
+
+    rc = tst.main(["--uno", "--print-filter"], repo_root=tmp_path)
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "tests/test_alpha_uno.py tests/test_beta_uno.py"
+    assert "running UNO on 2 file(s)" in captured.err
+
+
+def test_main_uno_print_filter_empty_stdout_when_nothing_maps(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo(tmp_path)
+    _touch(tmp_path, "tests/test_only_unit.py")
+
+    rc = tst.main(["--uno", "--print-filter"], repo_root=tmp_path)
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no matching UNO files" in captured.err

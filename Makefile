@@ -226,7 +226,7 @@ help:
 	@echo "                              Set WRITERAGENT_ARCH=x86-64-v[1-4] to override."
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
-	@echo "  make test                   Run incremental typecheck + incremental pytest + LO tests"
+	@echo "  make test                   Run incremental typecheck + incremental pytest + incremental UNO tests"
 	@echo "  make test-bot               Run incremental pytest only on changed files/modules"
 	@echo "  make test-full              Run typecheck (typecheck-full in CI), full pytest + LO tests + excel-py-roundtrip"
 	@echo "  make pytest                 Unit pytest only (xdist -n auto; PYTEST_WORKERS=0 for serial)"
@@ -853,14 +853,22 @@ excel-py-roundtrip:
 		"$(PYTHON)" scripts/roundtrip_excel_py_samples.py --samples PythonExcelSamples --out build/excel_py_roundtrip; \
 	fi
 
-# Incremental typecheck + incremental pytest + UNO tests (for humans and single users).
+# Incremental typecheck + incremental pytest + incremental UNO tests (for humans and single users).
 test:
 	@echo "=== make test: typecheck ==="
 	@$(MAKE) typecheck
-	@echo "=== make test: incremental pytest + LibreOffice ==="
+	@echo "=== make test: incremental pytest + incremental LibreOffice ==="
 	@$(MAKE) test-bot PYTEST_WORKERS=6
 ifneq ($(SKIP_UNO),1)
-	@$(MAKE) test-uno
+	@uno_filter=$$("$(PYTHON)" $(SCRIPTS)/test_incremental.py --uno --print-filter); \
+	rc=$$?; \
+	if [ $$rc -eq 10 ]; then \
+		$(MAKE) test-uno; \
+	elif [ $$rc -ne 0 ]; then \
+		exit $$rc; \
+	elif [ -n "$$uno_filter" ]; then \
+		$(MAKE) test-uno FILTER="$$uno_filter"; \
+	fi
 endif
 
 # SKIP_UNO=1: typecheck + pytest + excel-py-roundtrip only (PR CI unit job).
