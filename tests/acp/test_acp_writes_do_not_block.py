@@ -14,10 +14,12 @@ def test_acp_write_does_not_block(kind: str) -> None:
 
     write_started = threading.Event()
     release_write = threading.Event()
+    write_finished = threading.Event()
 
     def blocking_write(_data: bytes) -> None:
         write_started.set()
         release_write.wait(timeout=5)
+        write_finished.set()
 
     mock_stdin = MagicMock()
     mock_stdin.write.side_effect = blocking_write
@@ -30,8 +32,9 @@ def test_acp_write_does_not_block(kind: str) -> None:
         else:
             conn.send_response("id_123", result={})
 
-        # Caller returned while stdin.write is still blocked on release_write.
+        # Caller must return while stdin.write is still blocked on release_write.
         assert write_started.wait(timeout=5)
+        assert not write_finished.is_set()
         mock_stdin.write.assert_called_once()
         release_write.set()
 
@@ -48,10 +51,12 @@ def test_acp_stop_does_not_block(blocking_point: str) -> None:
 
     entered = threading.Event()
     release = threading.Event()
+    finished = threading.Event()
 
     def block(*_args, **_kwargs) -> None:
         entered.set()
         release.wait(timeout=5)
+        finished.set()
 
     mock_stdin = MagicMock()
     if blocking_point == "stdin.close":
@@ -63,8 +68,9 @@ def test_acp_stop_does_not_block(blocking_point: str) -> None:
 
     with patch("plugin.acp.acp_connection._kill_acp_tree"):
         conn.stop()
-        # stop() returned while the background worker is blocked in close/wait.
+        # stop() must return while the background worker is still blocked in close/wait.
         assert entered.wait(timeout=5)
+        assert not finished.is_set()
         release.set()
 
         if conn._writer_thread is not None:

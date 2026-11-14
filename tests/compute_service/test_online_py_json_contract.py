@@ -115,6 +115,8 @@ class TestOnlinePyJsonContract:
 
     def test_request_body_shape(self) -> None:
         # Document the AddIn request (id + code + optional data + mode).
+        # mode is decoded only for validation (routing uses ?session_id=), and
+        # the worker dict below is hand-built after parse_execute_request.
         body = {
             "id": "py-test-1",
             "code": "result = float(np.sum(data))",
@@ -148,9 +150,6 @@ class TestOnlinePyJsonContract:
 
         assert to_dumb_json_value(np.array([[1.0, float("nan")]])) == [[1.0, None]]
 
-
-class TestBusyPlaceholderSemantics:
-    """Document error payload semantics on sandbox failure."""
 
     def test_error_field_on_sandbox_failure(self) -> None:
         out = _execute_code("import subprocess\nresult = subprocess")

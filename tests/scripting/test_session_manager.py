@@ -7,6 +7,8 @@ import ast
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 import plugin.scripting.session_manager as session_manager
 
 
@@ -380,8 +382,9 @@ def test_workbook_session_id_non_calc_does_not_record() -> None:
     mint.assert_not_called()
 
 
-def test_workbook_session_key_unsaved_when_property_does_not_stick() -> None:
-    """A silent no-op write must not return a minted id that the next read misses."""
+@pytest.mark.parametrize("setter_mode", ["silent", "raises"])
+def test_workbook_session_key_unsaved_when_property_does_not_stick(setter_mode: str) -> None:
+    """A no-op or raising property write must fall back to distinct unsaved UUID keys."""
     from unittest.mock import MagicMock, patch
     import uuid as uuid_mod
 
@@ -389,18 +392,21 @@ def test_workbook_session_key_unsaved_when_property_does_not_stick() -> None:
     mock_doc.getURL.return_value = ""
     written: list[str] = []
 
-    def _silent_set(_doc, _name, value) -> None:
+    def _setter(_doc, _name, value) -> None:
         written.append(str(value))
+        if setter_mode == "raises":
+            raise RuntimeError("no props")
 
     with (
         patch("plugin.scripting.session_manager.get_document_property", return_value="") as mock_get,
-        patch("plugin.scripting.session_manager.set_document_property", side_effect=_silent_set),
+        patch("plugin.scripting.session_manager.set_document_property", side_effect=_setter),
     ):
         key1 = session_manager.mint_document_key(mock_doc)
         key2 = session_manager.mint_document_key(mock_doc)
 
     assert len(written) == 2
-    assert mock_get.call_count >= 2
+    if setter_mode == "silent":
+        assert mock_get.call_count >= 2
     assert key1 != key2
     assert key1 not in written
     assert key2 not in written

@@ -49,7 +49,7 @@ class TestSyncSidebarTextModel:
         ctrl = MagicMock()
         ctrl.getText.return_value = 'anthropic/claude-3.7-sonnet'
 
-        with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
+        with patch('plugin.chatbot.config_ui_helpers.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
             result = sync_sidebar_text_model(ctrl)
 
         assert (result) == ('anthropic/claude-3.7-sonnet')
@@ -65,7 +65,7 @@ class TestSyncSidebarTextModel:
         ctrl = MagicMock()
         ctrl.getText.return_value = 'openai/gpt-oss-120b:nitro'
 
-        with patch('plugin.framework.client.model_fetcher.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
+        with patch('plugin.chatbot.config_ui_helpers.get_text_model', return_value='openai/gpt-oss-120b:nitro'):
             sync_sidebar_text_model(ctrl)
 
         text_model_writes = [
@@ -112,7 +112,7 @@ class TestSyncSidebarTextModel:
              patch('plugin.framework.config.save', side_effect=shared_save), \
              patch('plugin.framework.client.model_fetcher.get_config', side_effect=shared_get_config), \
              patch('plugin.framework.client.model_fetcher.save', side_effect=shared_save), \
-             patch('plugin.framework.client.model_fetcher.get_text_model') as mock_get_text_model:
+             patch('plugin.chatbot.config_ui_helpers.get_text_model') as mock_get_text_model:
             mock_get_text_model.side_effect = lambda: str(self.config_data.get('text_model') or '')
             sync_sidebar_text_model(ctrl)
 
@@ -606,7 +606,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]):
-            with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="llama3.2"):
+            with patch("plugin.chatbot.config_ui_helpers.get_text_model", return_value="llama3.2"):
                 populate_combobox_with_lru(ctrl, "", "prompt_lru", "")
         ctrl.addItems.assert_not_called()
         ctrl.setText.assert_called_with("")
@@ -616,7 +616,7 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         history = ["Use formal tone", "Be concise"]
         with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=history):
-            with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="gpt-4o"):
+            with patch("plugin.chatbot.config_ui_helpers.get_text_model", return_value="gpt-4o"):
                 populate_combobox_with_lru(ctrl, "Use formal tone", "prompt_lru", "")
         ctrl.addItems.assert_called_once_with(tuple(history), 0)
         ctrl.setText.assert_called_with("Use formal tone")
