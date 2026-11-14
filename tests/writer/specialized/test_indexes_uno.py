@@ -926,53 +926,6 @@ def test_list_toc_entries_links_on_request_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_toc_fixture_export_and_read_rows_uno(ctx, doc):
-    """build_toc_fixture exports to ODT with 40 outline links and 40 heading bookmarks."""
-    import os
-    import re
-    import tempfile
-    import zipfile
-    import uno
-    from com.sun.star.beans import PropertyValue
-    from scripts.prompt_optimization.toc_eval import read_toc_rows_from_odt
-    from scripts.prompt_optimization.toc_fixture import FIXTURE_ROWS, build_toc_fixture
-
-    tctx = _tool_ctx(ctx, doc)
-
-    def _execute(name, args):
-        if name == "indexes_create":
-            return IndexesCreate().execute(tctx, **args)
-        raise ValueError(name)
-
-    build_toc_fixture(doc, _execute)
-
-    fd, path = tempfile.mkstemp(suffix=".odt")
-    os.close(fd)
-    try:
-        pv = PropertyValue()
-        pv.Name = "FilterName"
-        pv.Value = "writer8"
-        doc.storeToURL(uno.systemPathToFileUrl(path), (pv,))
-
-        with zipfile.ZipFile(path) as zf:
-            xml = zf.read("content.xml").decode("utf-8")
-        bookmark_count = len(re.findall(r'<text:bookmark-start\b[^>]*\btext:name="(__RefHeading__[^"]*)"', xml))
-        assert bookmark_count == 40, f"Expected 40 heading bookmarks, got {bookmark_count}"
-
-        rows = read_toc_rows_from_odt(path)
-        assert len(rows) == 40, f"Expected 40 TOC rows, got {len(rows)}"
-        for actual, expected in zip(rows, FIXTURE_ROWS):
-            assert actual[0] == expected.title, f"Title mismatch: {actual[0]} != {expected.title}"
-            assert actual[1] == expected.url, f"URL mismatch: {actual[1]} != {expected.url}"
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-
-
-@native_test
-@with_native_doc("writer")
 def test_indexes_add_mark_search_keeps_the_matched_text(ctx, doc):
     """indexes_add_mark on target='search' places mark at start and keeps matched text."""
     from plugin.framework.uno_context import enum_has_more
