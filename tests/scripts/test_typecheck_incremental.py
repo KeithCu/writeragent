@@ -184,9 +184,37 @@ def test_main_returns_fallback_code_when_config_changed(
         encoding="utf-8",
     )
 
-    rc = ti.main(["--tool", "mypy", "--", sys.executable, "-m", "mypy"], repo_root=tmp_path)
+    rc = ti.main(
+        ["--tool", "mypy", "--config-path", "pyproject.toml", "--", sys.executable, "-m", "mypy"],
+        repo_root=tmp_path,
+    )
     assert rc == ti.EXIT_FALLBACK_FULL
     assert "config changed (pyproject.toml)" in capsys.readouterr().out
+
+
+def test_main_returns_fallback_code_when_config_dir_file_changed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo_with_origin_master(tmp_path)
+    _touch(tmp_path, "tests/semgrep/new_rule.yml")
+
+    rc = ti.main(
+        [
+            "--tool",
+            "pyspector",
+            "--root",
+            "plugin",
+            "--config-path",
+            "tests/semgrep",
+            "--",
+            sys.executable,
+            "-c",
+            "pass",
+        ],
+        repo_root=tmp_path,
+    )
+    assert rc == ti.EXIT_FALLBACK_FULL
+    assert "config changed (tests/semgrep/new_rule.yml)" in capsys.readouterr().out
 
 
 def test_main_returns_fallback_code_when_exceeding_max_files(

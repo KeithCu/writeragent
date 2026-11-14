@@ -806,7 +806,7 @@ opengrep-lint: build/uno_thread_safety.yml
 opengrep-lint-incr: build/uno_thread_safety.yml
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
 	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py opengrep "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool opengrep $(OPENGREP_EXCLUDES) -- env SEMGREP_SEND_METRICS=off "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)); \
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py opengrep "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool opengrep --root plugin $(OPENGREP_EXCLUDES) --config-path $(OPENGREP_DIR) --config-path scripts/thread_safety_roots.py -- env SEMGREP_SEND_METRICS=off "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)); \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) opengrep-lint; else exit $$rc; fi
 
 thread-safety-lint:
@@ -981,7 +981,7 @@ mypy-run: ensure-uno
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" -m mypy
 
 mypy-incr-run: ensure-uno
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool mypy -- "$(PYTHON)" -m mypy; \
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool mypy --config-path pyproject.toml -- "$(PYTHON)" -m mypy; \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) mypy-run; else exit $$rc; fi
 
 # Future task: try enabling `reportMissingTypeArgument = true` in pyproject.toml to enforce generic type parameters (dict[str, Any], list[str])
@@ -989,7 +989,7 @@ basedpyright-run: ensure-uno
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" -m basedpyright
 
 basedpyright-incr-run: ensure-uno
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool basedpyright -- "$(PYTHON)" -m basedpyright; \
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool basedpyright --config-path pyproject.toml -- "$(PYTHON)" -m basedpyright; \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) basedpyright-run; else exit $$rc; fi
 
 basedpyright-full-run: ensure-uno
@@ -1003,7 +1003,7 @@ bandit:
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" -m bandit -r plugin -c pyproject.toml --severity-level medium
 
 bandit-incr:
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool bandit -- "$(PYTHON)" -m bandit -c pyproject.toml --severity-level medium; \
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool bandit --root plugin --config-path pyproject.toml -- "$(PYTHON)" -m bandit -c pyproject.toml --severity-level medium; \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) bandit; else exit $$rc; fi
 
 # Cross-file / AI-agent SAST (part of make typecheck / make test; not build/release).
@@ -1021,7 +1021,7 @@ pyspector:
 
 pyspector-incr:
 	@if "$(PYTHON)" -c "import pyspector" >/dev/null 2>&1; then \
-		"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
+		"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --root plugin --config-path pyspector.toml --config-path scripts/run_pyspector.py --config-path scripts/pyspector_semgrep_adapter.py --config-path $(OPENGREP_DIR) --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
 		rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pyspector; else exit $$rc; fi; \
 	else \
 		echo "pyspector not installed — skipped"; \
@@ -1041,7 +1041,7 @@ pyspector:
 
 pyspector-incr:
 	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --root plugin --config-path pyspector.toml --config-path scripts/run_pyspector.py --config-path scripts/pyspector_semgrep_adapter.py --config-path $(OPENGREP_DIR) --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pyspector; else exit $$rc; fi
 
 pyspector-report:

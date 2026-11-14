@@ -12,7 +12,7 @@ Excludes are read directly from their owning configs (``pyproject.toml``,
 ``pyspector.toml``, or ``--exclude`` flags from the ``Makefile``).
 
 Exits with ``EXIT_FALLBACK_FULL`` (10) when ``origin/master`` has no
-merge-base, when a tool's config changed, or when changed files exceed
+merge-base, when any ``--config-path`` changed, or when changed files exceed
 ``--max-files``, so the ``Makefile`` can delegate to the full target.
 """
 
@@ -58,42 +58,43 @@ def _matches_exclude(rel_path: str, pattern: str) -> bool:
 def _load_tool_scope(
     tool: str,
     repo_root: Path,
+    cli_roots: Iterable[str],
     cli_excludes: Iterable[str],
 ) -> tuple[tuple[str, ...], list[str]]:
-    """Load (include_roots, excludes) from the tool's owning config."""
+    """Load (include_roots, excludes) from the tool's owning config or CLI flags."""
+    roots = tuple(f"{_normalize_rel_path(r).rstrip('/')}/" for r in cli_roots)
+
     if tool in ("basedpyright", "mypy", "bandit"):
         pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
         if tool == "basedpyright":
             cfg = pyproject["tool"]["basedpyright"]
-            return tuple(f"{p.rstrip('/')}/" for p in cfg["include"]), list(cfg["exclude"])
+            return roots or tuple(f"{p.rstrip('/')}/" for p in cfg["include"]), list(cfg["exclude"])
         if tool == "mypy":
             cfg = pyproject["tool"]["mypy"]
-            return tuple(f"{p.rstrip('/')}/" for p in cfg["packages"]), list(cfg["exclude"])
+            return roots or tuple(f"{p.rstrip('/')}/" for p in cfg["packages"]), list(cfg["exclude"])
         cfg = pyproject["tool"]["bandit"]
-        return ("plugin/",), list(cfg["exclude_dirs"])
+        return roots or ("plugin/",), list(cfg["exclude_dirs"])
 
     if tool == "opengrep":
-        return ("plugin/",), list(cli_excludes)
+        return roots or ("plugin/",), list(cli_excludes)
 
     if tool == "pyspector":
         pyspector_cfg = tomllib.loads((repo_root / "pyspector.toml").read_text(encoding="utf-8"))
-        return ("plugin/",), list(pyspector_cfg["tool"]["pyspector"]["exclude"])
+        return roots or ("plugin/",), list(pyspector_cfg["tool"]["pyspector"]["exclude"])
 
     raise ValueError(f"Unsupported tool: {tool}")
 
 
-def _config_changed(tool: str, changed: Iterable[str]) -> str | None:
-    """Return the changed config path if a tool's config changed, else ``None``."""
+def _find_changed_config(changed: Iterable[str], config_paths: Iterable[str]) -> str | None:
+    """Return the first changed path matching any ``config_paths`` file or directory."""
+    normalized_cfg = [_normalize_rel_path(p).rstrip("/") for p in config_paths if p]
+    if not normalized_cfg:
+        return None
     for raw in changed:
         rel = _normalize_rel_path(raw)
-        if tool in ("basedpyright", "mypy", "bandit") and rel == "pyproject.toml":
-            return rel
-        if tool == "pyspector" and rel == "pyspector.toml":
-            return rel
-        if tool == "opengrep" and (
-            rel.startswith("tests/semgrep/") or rel == "scripts/thread_safety_roots.py"
-        ):
-            return rel
+        for cfg in normalized_cfg:
+            if rel == cfg or rel.startswith(cfg + "/"):
+                return rel
     return None
 
 
@@ -101,10 +102,11 @@ def filter_files_for_tool(
     tool: str,
     paths: Iterable[str],
     repo_root: Path = REPO_ROOT,
+    cli_roots: Iterable[str] = (),
     cli_excludes: Iterable[str] = (),
 ) -> list[str]:
     """Return sorted, existing Python file paths within ``tool``'s scope."""
-    roots, excludes = _load_tool_scope(tool, repo_root, cli_excludes)
+    roots, excludes = _load_tool_scope(tool, repo_root, cli_roots, cli_excludes)
     selected: set[str] = set()
     for raw in paths:
         rel = _normalize_rel_path(raw)
@@ -193,7 +195,14 @@ def build_invocations(base_cmd: list[str], files: list[str]) -> list[list[str]]:
 def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
     parser = argparse.ArgumentParser(description="Run a checker incrementally on changed Python files.")
     parser.add_argument("--tool", required=True, choices=SUPPORTED_TOOLS)
+    parser.add_argument("--root", action="append", default=[], help="Include root directory")
     parser.add_argument("--exclude", action="append", default=[], help="Exclude path/pattern (opengrep)")
+    parser.add_argument(
+        "--config-path",
+        action="append",
+        default=[],
+        help="File or directory whose change triggers full-check fallback",
+    )
     parser.add_argument("--max-files", type=int, default=0, help="Fall back to full check above N files")
     parser.add_argument("cmd", nargs=argparse.REMAINDER, help="Base command after '--'")
     args = parser.parse_args(argv)
@@ -210,12 +219,12 @@ def main(argv: list[str] | None = None, repo_root: Path = REPO_ROOT) -> int:
         print(f"{args.tool}: origin/master merge-base not found — falling back to full check", flush=True)
         return EXIT_FALLBACK_FULL
 
-    config_hit = _config_changed(args.tool, changed)
+    config_hit = _find_changed_config(changed, args.config_path)
     if config_hit is not None:
         print(f"{args.tool}: config changed ({config_hit}) — falling back to full check", flush=True)
         return EXIT_FALLBACK_FULL
 
-    scoped = filter_files_for_tool(args.tool, changed, repo_root, args.exclude)
+    scoped = filter_files_for_tool(args.tool, changed, repo_root, args.root, args.exclude)
     if not scoped:
         print(f"{args.tool}: no changed files in scope — skipped", flush=True)
         return 0
