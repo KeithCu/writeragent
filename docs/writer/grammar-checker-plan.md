@@ -215,7 +215,7 @@ Settings key **`doc.grammar_proofreader_detect_language`** (Doc tab: **Off** / *
 | **AI (LLM)** | Batch or single-sentence API call via `language_detect_llm_sync`; shares `grammar_llm_request_gate` with grammar HTTP. |
 | **Local (langdetect)** | PyPI `langdetect` in the embeddings venv worker (`_detect_languages_via_langdetect` → [`langdetect_service.detect_languages`](../../plugin/writer/locale/langdetect_service.py)); requires configured venv + `langdetect` in [`EMBEDDINGS_VENV_PIP_INSTALL`](../../plugin/embeddings/venv/embeddings_index.py). Missing venv/package fails the detection pass (Harper-style). |
 
-Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`get_cached_language` / `put_cached_language`); skip detection for incomplete sentences; optional persisted-grammar heuristic to avoid re-detecting known-good text; `normalize_detected_bcp47` maps detector output to grammar-registry tags. Regression: [`test_grammar_worker.py`](../../tests/writer/locale/test_grammar_worker.py), [`test_langdetect_profiles.py`](../../tests/writer/locale/test_langdetect_profiles.py).
+Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`get_cached_language` / `put_cached_language`); skip detection for incomplete sentences; optional persisted-grammar heuristic to avoid re-detecting known-good text; `normalize_detected_bcp47` maps detector output to grammar-registry tags. Regression: [`test_grammar_worker.py`](../../tests/writer/locale/test_grammar_worker.py), [`test_grammar_settings.py`](../../tests/writer/locale/test_grammar_settings.py), [`test_langdetect_rpc.py`](../../tests/embeddings/test_langdetect_rpc.py).
 
 #### Tail enqueue, dedup keys, stale detection, diagnostics
 

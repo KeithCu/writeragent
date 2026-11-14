@@ -780,7 +780,7 @@ Makefile
 | [`tests/calc/test_vision_structure_egress.py`](../../tests/calc/test_vision_structure_egress.py) | Structure egress |
 | [`tests/writer/math/test_latex_dialog_uno.py`](../../tests/writer/math/test_latex_dialog_uno.py) | Insert LaTeX Math dialog |
 | [`tests/writer/math/test_math_mml_convert.py`](../../tests/writer/math/test_math_mml_convert.py) | LaTeX/MathML → StarMath |
-| [`tests/writer/math/test_math_preservation.py`](../../tests/writer/math/test_math_preservation.py) | HTML/math integration |
+| [`tests/writer/test_html_import.py`](../../tests/writer/test_html_import.py) | HTML/math integration |
 | [`tests/framework/test_appearance.py`](../../tests/framework/test_appearance.py) | Theme sync for Monaco |
 | [`tests/calc/python/test_workbook_lifecycle.py`](../../tests/calc/python/test_workbook_lifecycle.py) | Workbook `OnUnload` resets `calc:…` / `:init` sessions |
 | [`tests/librepy/test_main_core.py`](../../tests/librepy/test_main_core.py) | LibrePy bootstrap handlers |

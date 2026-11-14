@@ -6,6 +6,7 @@
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, call, patch
+import pytest
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.specialized.comments import CommentList
 
@@ -395,7 +396,46 @@ def _setup_mock_undo_manager(doc: Any) -> MagicMock:
     return mgr
 
 
-def test_delete_comment_by_name_removes_thread_chain():
+@pytest.mark.parametrize(
+    "specs, kwargs, removed_indices",
+    [
+        pytest.param(
+            [("A", "", "AuthorA"), ("B", "A", "AuthorB"), ("C", "B", "AuthorC"), ("D", "", "AuthorD")],
+            {"name": "A"},
+            [0, 1, 2],
+            id="by_name_removes_thread_chain",
+        ),
+        pytest.param(
+            [("A", "", "AuthorA"), ("B", "A", "AuthorB"), ("C", "B", "AuthorC"), ("D", "", "AuthorD")],
+            {"name": "B"},
+            [1, 2],
+            id="by_name_removes_subthread_only",
+        ),
+        pytest.param(
+            [("A", "", "AuthorA"), ("", "A", "AuthorBlank"), ("E", "", "AuthorE")],
+            {"name": "A"},
+            [0, 1],
+            id="blank_name_reply_removed_and_other_root_stays",
+        ),
+        pytest.param(
+            [("Root", "", "Z"), ("Reply", "Root", "Other")],
+            {"author": "Z"},
+            [0],
+            id="by_author_removes_matching_author_only",
+        ),
+        pytest.param(
+            [("A", "", "Other"), ("B", "A", "Z"), ("OtherZ", "", "Z"), ("D", "", "Other")],
+            {"name": "A", "author": "Z"},
+            [0, 1, 2],
+            id="name_and_author_union_each_field_once",
+        ),
+    ],
+)
+def test_delete_comment_thread_selection(
+    specs: list[tuple[str, str, str]],
+    kwargs: dict[str, str],
+    removed_indices: list[int],
+) -> None:
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
@@ -403,133 +443,13 @@ def test_delete_comment_by_name_removes_thread_chain():
     text_obj = MagicMock()
     doc.getText.return_value = text_obj
     host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "AuthorA", host=host)
-    field_b = _make_comment_field("B", "A", "AuthorB", host=host)
-    field_c = _make_comment_field("C", "B", "AuthorC", host=host)
-    field_d = _make_comment_field("D", "", "AuthorD", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_b, field_c, field_d]
-    )
+    fields = [_make_comment_field(name, parent, author, host=host) for name, parent, author in specs]
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(fields)
     ctx = MagicMock(doc=doc)
 
-    res = CommentDelete().execute(ctx, name="A")
-    assert res == {"status": "ok", "deleted": 3}
-    assert host.removeTextContent.call_args_list == [
-        call(field_a),
-        call(field_b),
-        call(field_c),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_by_name_removes_subthread_only():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "AuthorA", host=host)
-    field_b = _make_comment_field("B", "A", "AuthorB", host=host)
-    field_c = _make_comment_field("C", "B", "AuthorC", host=host)
-    field_d = _make_comment_field("D", "", "AuthorD", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_b, field_c, field_d]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, name="B")
-    assert res == {"status": "ok", "deleted": 2}
-    assert host.removeTextContent.call_args_list == [
-        call(field_b),
-        call(field_c),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_blank_name_reply_removed_and_other_root_stays():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "AuthorA", host=host)
-    field_blank = _make_comment_field("", "A", "AuthorBlank", host=host)
-    field_e = _make_comment_field("E", "", "AuthorE", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_blank, field_e]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, name="A")
-    assert res == {"status": "ok", "deleted": 2}
-    assert host.removeTextContent.call_args_list == [
-        call(field_a),
-        call(field_blank),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_by_author_removes_matching_author_only():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_root = _make_comment_field("Root", "", "Z", host=host)
-    field_reply = _make_comment_field("Reply", "Root", "Other", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_root, field_reply]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, author="Z")
-    assert res == {"status": "ok", "deleted": 1}
-    assert host.removeTextContent.call_args_list == [
-        call(field_root),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_name_and_author_union_each_field_once():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "Other", host=host)
-    field_b = _make_comment_field("B", "A", "Z", host=host)
-    field_other_z = _make_comment_field("OtherZ", "", "Z", host=host)
-    field_d = _make_comment_field("D", "", "Other", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_b, field_other_z, field_d]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, name="A", author="Z")
-    assert res == {"status": "ok", "deleted": 3}
-    assert host.removeTextContent.call_args_list == [
-        call(field_a),
-        call(field_b),
-        call(field_other_z),
-    ]
+    res = CommentDelete().execute(ctx, **kwargs)
+    assert res == {"status": "ok", "deleted": len(removed_indices)}
+    assert host.removeTextContent.call_args_list == [call(fields[idx]) for idx in removed_indices]
     text_obj.removeTextContent.assert_not_called()
 
 
