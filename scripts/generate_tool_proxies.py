@@ -573,6 +573,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
     import builtins
 
     builtin_names = set(dir(builtins))
+    # Keep builtin names (range) out of __all__ so a star-import does not shadow them.
     all_exports = sorted(
         {_proxy_namespace_attr(ns) for ns in groups if _proxy_namespace_attr(ns) not in builtin_names}
         | {

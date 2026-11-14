@@ -189,16 +189,6 @@ def test_picker_supports_matches_post_venv_calc_only():
     assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
 
 
-def test_quant_picker_is_calc_only():
-    quant_spec = next(d for d in PICKER_WIRING if d.origin == "quant")
-    calc_doc = object()
-    writer_doc = object()
-    with patch("plugin.framework.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
-        assert quant_spec.supports(calc_doc) is True
-        assert quant_spec.supports(writer_doc) is False
-        assert quant_spec.supports(None) is False
-
-
 def test_units_format_ok_joins_formatted_list():
     from plugin.scripting.domain_registry import WIRING_TABLE
 

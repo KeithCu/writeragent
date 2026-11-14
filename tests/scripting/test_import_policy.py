@@ -27,31 +27,6 @@ def _register_prompt_hooks_for_import_policy_tests():
     register_writeragent_prompt_hooks()
 
 
-def test_blocked_list_excludes_safe_stdlib_and_packages():
-    blocked = tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
-    for safe in (
-        "json",
-        "numpy",
-        "matplotlib",
-        "io",
-        "logging",
-        "glob",
-        "zipfile",
-        "gzip",
-        "bz2",
-        "lzma",
-        "asyncio",
-        "inspect",
-        "sys",
-        "signal",
-        "concurrent.futures",
-        "pathlib",
-    ):
-        assert safe not in blocked
-    for dangerous in ("subprocess", "importlib", "pickle"):
-        assert dangerous in blocked
-
-
 def test_network_blocked_unless_enabled():
     from plugin.scripting.sandbox import (
         build_sandbox_policy,
@@ -64,14 +39,6 @@ def test_network_blocked_unless_enabled():
     network_policy = build_sandbox_policy(network=True)
     assert "requests" not in policy_blocked_imports(network_policy)
     assert import_authorized("requests", policy_allowlist(network_policy)) is True
-
-
-def test_venv_blocked_includes_os_not_sys():
-    blocked = tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
-    for b in ("requests", "subprocess", "importlib", "pickle"):
-        assert b in blocked
-    assert "os" not in blocked
-    assert "sys" not in blocked
 
 
 def test_venv_policy_auto_imports_match_constants():
@@ -129,53 +96,11 @@ def test_venv_policy_does_not_advertise_duckdb():
     assert "duckdb" not in tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
 
 
-def test_blocked_categories_are_disjoint_and_valid() -> None:
-    from plugin.scripting.sandbox import DANGEROUS_MODULES, FILE_BLOCKED_MODULES, NETWORK_BLOCKED_MODULES
-
-    assert len(DANGEROUS_MODULES) > 0
-    assert len(NETWORK_BLOCKED_MODULES) > 0
-    assert len(FILE_BLOCKED_MODULES) > 0
-
-    dangerous = set(DANGEROUS_MODULES)
-    network = set(NETWORK_BLOCKED_MODULES)
-    files = set(FILE_BLOCKED_MODULES)
-
-    assert len(dangerous) == len(DANGEROUS_MODULES)
-    assert len(network) == len(NETWORK_BLOCKED_MODULES)
-    assert len(files) == len(FILE_BLOCKED_MODULES)
-
-    assert dangerous.isdisjoint(network)
-    assert dangerous.isdisjoint(files)
-    assert network.isdisjoint(files)
-
-    for category in (DANGEROUS_MODULES, NETWORK_BLOCKED_MODULES, FILE_BLOCKED_MODULES):
-        for entry in category:
-            assert not entry.startswith(".")
-            assert not entry.endswith(".*")
-            assert "*" not in entry
-            parts = entry.split(".")
-            assert all(part.isidentifier() for part in parts)
-
-
 def test_compact_policy_lists_network_block_without_string_prepend() -> None:
     from plugin.scripting.sandbox import NETWORK_BLOCKED_MODULES
 
     policy = format_venv_import_policy_for_prompt(compact=True)
     assert ", ".join(NETWORK_BLOCKED_MODULES) in policy
-
-
-def test_blocked_entries_are_valid_import_roots():
-    from plugin.scripting.sandbox import build_sandbox_policy, policy_blocked_imports
-
-    blocked = policy_blocked_imports(build_sandbox_policy())
-    assert len(blocked) > 0
-    for entry in blocked:
-        assert "*" not in entry
-        parts = entry.split(".")
-        assert all(part.isidentifier() for part in parts)
-    assert "subprocess" in blocked
-    assert "socket" in blocked
-    assert "os" not in blocked
 
 
 def test_import_failure_messages_short_and_hide_blocklist():

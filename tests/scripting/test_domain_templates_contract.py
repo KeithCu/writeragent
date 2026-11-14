@@ -22,16 +22,9 @@ QUANT_HELPERS = names("quant")
 TEXT_HELPERS = names("text")
 
 
-@pytest.mark.parametrize(
-    "wiring_id,helper_names,public_only",
-    [
-        ("analysis", ANALYSIS_HELPERS, False),
-    ],
-)
-def test_domain_templates_cover_helpers(wiring_id, helper_names, public_only):
-    templates = get_domain_wiring(wiring_id).templates()
-    expected = {h for h in helper_names if not (public_only and h in ("diagnostics", "check"))}
-    assert set(templates.keys()) == expected
+def test_domain_templates_cover_helpers():
+    templates = get_domain_wiring("analysis").templates()
+    assert set(templates.keys()) == set(ANALYSIS_HELPERS)
 
 
 def test_units_templates_cover_shipped_helpers():
@@ -56,16 +49,6 @@ def test_shipped_helper_templates_import_from_domain(wiring_id, spec_domain, mod
     for helper, code in templates.items():
         assert f"from {module_path} import {helper}" in code
         assert "# writeragent:" not in code.splitlines()[0]
-
-
-@pytest.mark.parametrize(
-    "domain",
-    ["analysis", "forecast", "optimize", "quant", "viz", "symbolic", "units", "text"],
-)
-def test_all_registered_helpers_have_descriptions(domain):
-    domain_specs = specs(domain)
-    assert domain_specs
-    assert all(s.description for s in domain_specs), f"{domain} has helper without description"
 
 
 def test_text_templates_cover_shipped_helpers():

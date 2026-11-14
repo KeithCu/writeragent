@@ -2511,7 +2511,6 @@ class TestPanelR14Fixes:
         spoken_text = mock_speak.call_args[0][0]
         assert "new reply" in spoken_text
         assert "prior" not in spoken_text
-        assert not hasattr(listener, "_send_start_msg_count")
 
     def test_ask_text_not_restored_after_user_row_committed(self) -> None:
         from plugin.chatbot.panel import SendButtonListener

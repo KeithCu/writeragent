@@ -44,6 +44,12 @@ def test_normalize_unknown_id_returns_builtin():
     assert isinstance(get_backend("gemini"), BuiltinBackend)
 
 
+def test_normalize_translated_builtin_labels():
+    assert normalize_backend_id("Built-in") == "builtin"
+    assert normalize_backend_id("Eingebaut") == "builtin"
+    assert isinstance(get_backend("Integriert"), BuiltinBackend)
+
+
 def test_module_yaml_matches_registry_specs():
     data = yaml.safe_load(_MODULE_YAML.read_text(encoding="utf-8"))
     options = data["config"]["backend_id"]["options"]

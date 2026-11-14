@@ -277,12 +277,6 @@ def test_set_system_context_nondict_first_row_inserts_system():
     assert session.messages[1] == "nope"
 
 
-def test_logger_is_module_scoped():
-    from plugin.chatbot import chat_session
-
-    assert chat_session.log.name == "plugin.chatbot.chat_session"
-
-
 def test_messages_for_request_user_send_stable_prefix():
     session = ChatSession(system_prompt="Base system")
     session.add_user_message("Hello AI")

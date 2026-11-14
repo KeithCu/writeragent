@@ -80,7 +80,6 @@ def test_config_schema_import_populates_modules_and_defaults() -> None:
 
     assert schema.MODULES
     assert schema.CONFIG_DEFAULTS
-    assert "scripting.python_auto_spill" in schema.CONFIG_DEFAULTS
 
 
 def test_manifest_config_keys_are_known_in_schema() -> None:

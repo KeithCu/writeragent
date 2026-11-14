@@ -906,21 +906,6 @@ def test_main_bootstrap_job_trigger_extend_selection_none_model():
         mock_action.assert_not_called()
 
 
-# --- Bug 10 tests: TestTypes removed from framework actions ---
-
-
-def test_main_bootstrap_job_trigger_test_types_and_noop():
-    """Bare TestTypes and NoOp no longer dispatch; dotted commands still do."""
-    job = main.MainBootstrapJob(MagicMock())
-    with patch("plugin.app.dispatch_command") as mock_disp:
-        job.trigger("TestTypes")
-        job.trigger("NoOp")
-        mock_disp.assert_not_called()
-
-        job.trigger("main.NoOp")
-        mock_disp.assert_called_once_with("main.NoOp")
-
-
 def test_trigger_body_exception_is_reported():
     """MainBootstrapJob.trigger catches body exceptions and reports them via report_action_failure."""
     job = main.MainBootstrapJob(MagicMock())

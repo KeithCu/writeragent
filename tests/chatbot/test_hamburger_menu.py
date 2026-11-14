@@ -369,16 +369,28 @@ class TestHamburgerMenu:
             assert review_cmd not in commands
 
 
-def test_mcp_status_failure_still_builds_and_executes_hamburger():
+def _make_hamburger_mocks() -> tuple[MagicMock, MagicMock, list[MagicMock]]:
     ctx = MagicMock()
     smgr = MagicMock()
-    popup = MagicMock()
+    created_menus: list[MagicMock] = []
+
+    def _create_popup(*_args: Any) -> MagicMock:
+        menu = MagicMock()
+        if not created_menus:
+            menu.execute.return_value = 0
+        created_menus.append(menu)
+        return menu
+
     ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = popup
-    popup.execute.return_value = 0
+    smgr.createInstanceWithContext.side_effect = _create_popup
     button_ctrl = MagicMock()
     button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
     button_ctrl.getPeer.return_value = MagicMock()
+    return ctx, button_ctrl, created_menus
+
+
+def test_mcp_status_failure_still_builds_and_executes_hamburger():
+    ctx, button_ctrl, created_menus = _make_hamburger_mocks()
 
     with (
         patch("plugin.app.get_menu_text", side_effect=RuntimeError("mcp text failure")),
@@ -389,6 +401,7 @@ def test_mcp_status_failure_still_builds_and_executes_hamburger():
     ):
         show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
+    popup = created_menus[0]
     inserted_labels = [call.args[1] for call in popup.insertItem.call_args_list]
     assert "Settings" in inserted_labels
     assert "Report bug..." in inserted_labels
@@ -434,29 +447,33 @@ def test_static_menu_titles_match_hamburger_and_addons_xcu():
             action = url_elem.split("org.extension.writeragent:", 1)[1]
             addons_titles[action] = title_elem
 
-    # Static actions in hamburger_menu.py and their msgids (excluding MCP dynamic popup strings)
-    hamburger_static_items = {
-        "chatbot.extend_selection": "Extend Selection",
-        "chatbot.edit_selection": "Edit Selection",
-        "scripting.run_python_dialog": "Run Python Script...",
-        "scripting.edit_python_cell": "Edit Python in Cell...",
-        "calc.convert_spreadsheet_to_python": "Convert Sheet to Python...",
-        "embeddings.search_dialog": "Search Nearby Files...",
-        "writer.insert_latex_dialog": "Insert LaTeX Math...",
-        "textanalytics.open_dialog": "Text Analytics...",
-        "main.settings": "Settings",
-        "vision.open_settings": "Vision OCR Settings...",
-        "scripting.reset_python_session": "Reset Python Session",
-        "notebook.run_all": "Run All",
-        "notebook.run_from_here": "Run From Here",
-        "notebook.stop": "Stop",
-        "main.RunFormatTests": "Run format tests",
-        "main.RunCalcTests": "Run calc tests",
-        "main.RunCalcIntegrationTests": "Run Calc API integration tests",
-        "main.RunDrawTests": "Run draw tests",
-        "main.EvaluationDashboard": "Evaluation Dashboard",
-        "main.report_bug": "Report bug...",
-    }
+    # Collect static items directly from show_hamburger_menu (excluding dynamic MCP items).
+    ctx, button_ctrl, created_menus = _make_hamburger_mocks()
+
+    with (
+        patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+        patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True),
+        patch("plugin.chatbot.hamburger_menu.is_draw", return_value=True),
+        patch("plugin.librepy.sidebar_menus.document_has_notebook_registry", return_value=True),
+        patch("plugin.app.tests_bundled", return_value=True),
+        patch("plugin.app.get_menu_text", return_value="Toggle MCP Server"),
+        patch("plugin.app.get_menu_icon", return_value="stopped"),
+    ):
+        show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+    assert created_menus and created_menus[0].execute.called
+
+    hamburger_static_items: dict[str, str] = {}
+    for menu in created_menus:
+        labels_by_id = {call.args[0]: call.args[1] for call in menu.insertItem.call_args_list}
+        for call in menu.setCommand.call_args_list:
+            item_id, command = call.args[0], call.args[1]
+            if command.startswith("org.extension.writeragent:"):
+                action = command.split("org.extension.writeragent:", 1)[1]
+                if action not in ("mcp.toggle_server", "mcp.server_status"):
+                    hamburger_static_items[action] = labels_by_id[item_id]
+
+    assert hamburger_static_items
 
     for action, msgid in hamburger_static_items.items():
         assert msgid == manifest_titles[action]

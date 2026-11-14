@@ -15,13 +15,11 @@ import pytest
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_BRAINSTORMING,
     CHAT_MODE_CHAT,
-    CHAT_MODE_DEEP_RESEARCH,
     CHAT_MODE_IMAGE,
     CHAT_MODE_LIBRARIAN,
     CHAT_MODE_PPT_MASTER,
     CHAT_MODE_WEB_RESEARCH,
     CHAT_MODE_WRITING_PLAN,
-    LIBRARIAN_HISTORY_SESSION_ID,
     SidebarModeFlags,
     SidebarModeController,
     _modes_for,
@@ -48,20 +46,6 @@ def test_mode_labels_match_modes_for_length_and_order():
         assert len(labels) == len(modes)
         for mode, label in zip(modes, labels):
             assert mode_from_label(label, flags) == mode
-
-
-def test_mode_labels_include_brainstorming_when_writer():
-    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_deep_research=True)
-    labels = get_mode_labels(flags)
-    assert len(labels) == 7
-    assert mode_from_label(labels[0], flags) == CHAT_MODE_CHAT
-    assert labels[1] == "Image"
-    assert mode_from_label(labels[1], flags) == CHAT_MODE_IMAGE
-    assert mode_from_label(labels[2], flags) == CHAT_MODE_WEB_RESEARCH
-    assert mode_from_label(labels[3], flags) == CHAT_MODE_DEEP_RESEARCH
-    assert mode_from_label(labels[4], flags) == CHAT_MODE_BRAINSTORMING
-    assert mode_from_label(labels[5], flags) == CHAT_MODE_WRITING_PLAN
-    assert mode_from_label(labels[6], flags) == CHAT_MODE_LIBRARIAN
 
 
 def test_mode_labels_writing_plan_without_brainstorming():
@@ -182,31 +166,12 @@ def test_librarian_default_mode_existing_profile_skips_and_sets_flag():
         mock_mark.assert_called_once()
 
 
-def test_librarian_history_session_id_is_global():
-    assert LIBRARIAN_HISTORY_SESSION_ID == "writeragent_librarian"
-    assert "_web" not in LIBRARIAN_HISTORY_SESSION_ID
-
-
 def test_set_selector_mode_librarian_is_last_index():
     ctrl = MagicMock()
     flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     labels = get_mode_labels(flags)
     set_selector_mode_with_flags(ctrl, CHAT_MODE_LIBRARIAN, flags)
     ctrl.selectItemPos.assert_called_once_with(len(labels) - 1, True)
-
-
-def test_mode_from_label_dropped_from_check_all_fqns():
-    """mode_from_label is omitted from cover_fqns_for_module."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/chatbot/chat_sidebar_mode.py"), require_deal=True)
-    assert not any(f.endswith(".mode_from_label") for f in fqns)
-    assert any(f.endswith(".get_mode_labels") for f in fqns)
 
 
 def test_sidebar_mode_controller_brainstorming_finished():

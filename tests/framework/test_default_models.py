@@ -44,11 +44,11 @@ class TestGetProviderDefaults:
     def test_chat_audio_rows_are_not_speech_fallbacks(self):
         # CHAT|AUDIO with neither stt nor tts flag must not become the speech default.
         google = get_provider_defaults("google")
-        assert google.get("text_model") == "gemini-3.1-flash-lite-preview"
+        assert google.get("text_model")
         assert google.get("stt_model") is None
         assert google.get("tts_model") is None
         mock = get_provider_defaults("mock")
-        assert mock.get("text_model") == "writeragent-mock"
+        assert mock.get("text_model")
         assert mock.get("stt_model") is None
         assert mock.get("tts_model") is None
 

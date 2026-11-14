@@ -454,15 +454,6 @@ def test_truncate_delegate_task_past_source_cap_truncates():
     assert len(preview) == DELEGATE_TASK_CHAT_MAX
 
 
-def test_truncate_delegate_task_no_deal_scaffolding():
-    """Verify tool_loop_state no longer carries _deal_cap or _deal_truncate_task_ok shims."""
-    from plugin.chatbot import tool_loop_state as tls
-
-    assert not hasattr(tls, "_deal_cap")
-    assert not hasattr(tls, "_DEAL_TRUNCATE_TASK_LEN")
-    assert not hasattr(tls, "_deal_truncate_task_ok")
-
-
 def test_next_tool_delegate_gateway_shows_domain_and_task():
     long_task = "Fix the chart legend and axis labels. " * 20
     tool_calls = [
@@ -875,26 +866,6 @@ def test_format_tool_result_chat_text_null_message_uses_fallback():
         {"status": "error", "message": None},
     )
     assert delegate == "[delegate (styles) failed: Unknown error]\n"
-
-
-def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
-    """Ensure format_empty_model_response_debug and format_delegate_running_chat_line stay out of cover_fqns_for_module."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    # Dropped from check-all (require_deal=True) because @deal was removed:
-    check_fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=True)
-    assert not any(f.endswith(".format_empty_model_response_debug") for f in check_fqns)
-    assert not any(f.endswith(".format_delegate_running_chat_line") for f in check_fqns)
-
-    # Dropped from cover-all (require_deal=False) because # crosshair: off is retained:
-    cover_fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=False)
-    assert not any(f.endswith(".format_empty_model_response_debug") for f in cover_fqns)
-    assert not any(f.endswith(".format_delegate_running_chat_line") for f in cover_fqns)
 
 
 def test_describe_empty_response_tool_calls_handles_all_shapes() -> None:

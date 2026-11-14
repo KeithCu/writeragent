@@ -105,7 +105,6 @@ def test_run_trusted_worker_action_builds_packet() -> None:
     assert kwargs["worker_pool"] == WORKER_POOL_DEFAULT
     assert kwargs["allow_heartbeat"] is False
     assert kwargs["on_heartbeat"] is None
-    assert "heartbeat_grace_sec" not in kwargs
     data = kwargs["data"]
     assert data["domain"] == "analysis"
     assert data["helper"] == "describe_data"
@@ -170,7 +169,6 @@ def test_run_trusted_worker_action_heartbeat_callback() -> None:
         )
     kwargs = mock_run.call_args.kwargs
     assert kwargs["allow_heartbeat"] is True
-    assert "heartbeat_grace_sec" not in kwargs
     on_heartbeat = kwargs["on_heartbeat"]
     assert callable(on_heartbeat)
     on_heartbeat({"progress": 1})

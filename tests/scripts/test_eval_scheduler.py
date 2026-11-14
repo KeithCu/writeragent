@@ -39,6 +39,7 @@ def test_declared_backend_defaults_string_and_flag_is_lo() -> None:
         assert kinds[ex["task_id"]] == expected
     assert kinds["python_shapes_flag"] == "lo"
     assert kinds["table_from_mess"] == "string"
+    assert kinds["py_refuse_overlap"] == "string"
 
 
 def test_flag_ask_matches_headed_prompt_file() -> None:

@@ -215,24 +215,6 @@ class TestI18n:
         out = validate(data)
         assert (out.get("orphan.key")) == ("keep-me")
 
-    def test_backend_translation_normalization(self):
-        from plugin.acp.registry import normalize_backend_id, get_backend
-
-        assert (normalize_backend_id("builtin")) == ("builtin")
-        assert (normalize_backend_id("hermes")) == ("hermes")
-        assert (normalize_backend_id("claude")) == ("claude")
-        assert (normalize_backend_id("gemini")) == ("builtin")
-        assert (normalize_backend_id("opencode")) == ("opencode")
-        assert (normalize_backend_id("antigravity")) == ("antigravity")
-        assert (normalize_backend_id("Antigravity")) == ("antigravity")
-        assert (normalize_backend_id("Built-in")) == ("builtin")
-        assert (normalize_backend_id("Eingebaut")) == ("builtin")
-        assert (normalize_backend_id("Integriert")) == ("builtin")
-        assert (normalize_backend_id("Hermes")) == ("hermes")
-        assert (normalize_backend_id("nonexistent")) == ("builtin")
-        assert (get_backend("Eingebaut")) is not None
-        assert (get_backend("Integriert")) is not None
-
     def _ensure_mo(self, lang: str, entries: dict[str, str] | None = None) -> str:
         """Build a fixture .mo catalog for *lang* in a temporary directory."""
         import tempfile

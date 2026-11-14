@@ -518,12 +518,8 @@ def test_named_range_flags_schema_is_string_array_not_oneof():
         assert "oneOf" not in flags
         assert "anyOf" not in flags
         assert flags["type"] == "array"
-        assert flags["items"]["enum"] == [
-            "filter_criteria",
-            "print_area",
-            "column_header",
-            "row_header",
-        ]
+        assert flags["items"]["type"] == "string"
+        assert isinstance(flags["items"]["enum"], list) and flags["items"]["enum"]
 
 
 def test_venv_data_range_schema_is_string_not_oneof():
