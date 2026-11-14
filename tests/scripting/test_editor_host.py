@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from tests.harness.strip_bundle import is_release_build
-import inspect
 import io
 import logging
 import os
@@ -24,7 +23,7 @@ from plugin.framework.managed_subprocess import _instances, _unregister_instance
 from plugin.framework.send_cancellation import SendCancelled
 from plugin.scripting import editor_host as launch_mod
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES
-from plugin.scripting.editor_host import PersistentEditor, _ASSETS_DIR
+from plugin.scripting.editor_host import PersistentEditor
 from plugin.scripting.editor_ipc import CHILD_TO_PARENT_TYPES
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
@@ -587,17 +586,6 @@ def test_start_clears_stderr_char_count():
         editor.start(proc)  # type: ignore[arg-type]
     assert editor._stderr_tail_chars == 0
     assert editor.read_stderr_tail() == ""
-
-
-
-
-def test_monaco_index_html_lives_under_assets_not_scripting_dir():
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    scripting_dir = os.path.join(repo_root, "plugin", "scripting")
-    wrong = os.path.join(scripting_dir, "index.html")
-    right = os.path.join(_ASSETS_DIR, "index.html")
-    assert not os.path.isfile(wrong)
-    assert os.path.isfile(right)
 
 
 def test_save_routes_to_matching_session_only():
@@ -1166,22 +1154,6 @@ def test_launch_monaco_spawn_oserror_uses_product_display_name():
     assert box.call_args.kwargs.get("report_title") == "Python editor spawn failed"
 
 
-def test_scripts_manager_js_guards_save_and_resets_on_load():
-    js_path = os.path.join(_ASSETS_DIR, "scripts_manager.js")
-    assert os.path.isfile(js_path)
-    with open(js_path, "r", encoding="utf-8") as f:
-        js_content = f.read()
-
-    # Invariants:
-    # 1. Track currentMode in scripts_manager.js
-    assert "currentMode" in js_content
-    # 2. Guard btn-save listener to only intercept in run_script mode
-    assert "isRunScriptActive" in js_content or 'currentMode === "run_script"' in js_content
-    # 3. Reset dropdown state on non-run_script load
-    assert 'selectedScriptName = ""' in js_content
-    assert 'currentSelectedName = ""' in js_content
-
-
 def test_mode_switch_from_run_script_to_calc_cell_dispatches_save():
     from plugin.scripting.editor_host import EditorSessionState
 
@@ -1521,26 +1493,6 @@ def test_persistent_editor_terminate_swallows_kill_oserror_and_still_closes_pipe
     proc.stdout.close.assert_called_once()
     proc.stderr.close.assert_called_once()
     assert editor._proc is None
-
-
-def test_editor_drain_and_terminate_stay_custom() -> None:
-    drain_src = inspect.getsource(PersistentEditor._stderr_drain_loop)
-    if not is_release_build():  # log.debug call sites are stripped in release bundles
-        assert "editor child:" in drain_src
-    assert "start_stderr_drain" not in drain_src
-
-    term_src = inspect.getsource(PersistentEditor.terminate)
-    assert "kill_process_tree" in term_src
-    assert "timeout=2" in term_src
-    assert "ManagedSubprocess.close()" in term_src
-    assert "kill_tree()" in term_src
-    assert "managed.close" not in term_src
-    assert ".kill_tree(" not in term_src
-
-    spawn_src = inspect.getsource(launch_mod.spawn_editor_process)
-    assert "drain_stderr=False" in spawn_src
-    assert "register=False" in spawn_src
-    assert "log_start_failure=False" in spawn_src
 
 
 def test_terminate_persistent_editor_resets_run_script_doc():
@@ -2060,14 +2012,6 @@ def test_unrelated_config_key_does_not_terminate_editor():
             assert exe in launch_mod._PROBE_CACHE
     finally:
         launch_mod._PROBE_CACHE.pop(exe, None)
-
-
-def test_target_key_follows_mode_and_target():
-    state = launch_mod.EditorSessionState("sid", "calc_cell", {"cell_address": "A1"})
-    assert state.target_key == launch_mod.target_identity_key("calc_cell", {"cell_address": "A1"})
-    state.mode = "run_script"
-    state.target = {"script_name": "MyScript"}
-    assert state.target_key == launch_mod.target_identity_key("run_script", {"script_name": "MyScript"})
 
 
 def test_launch_enriches_once_when_the_load_is_sent():

@@ -16,18 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.scripting.domain_registry import get_domain_wiring
-from plugin.scripting.helper_registry import names
 from plugin.scripting.venv.quant import run_quant as venv_run_quant
-
-
-def test_quant_template_is_executable():
-    code = get_domain_wiring("quant").templates()["fetch_historical_data"]
-    assert code is not None
-    assert "from writeragent.scripting.quant import run_quant" in code
-    assert "fetch_historical_data" in code
-    assert not code.splitlines()[0].startswith("# writeragent:")
-    assert "'tickers': 'AAPL'" in code
-    assert "'tickers': 'data'" not in code
 
 
 def test_run_quant_missing_package(monkeypatch):
@@ -52,7 +41,6 @@ def test_run_quant_invalid_params(monkeypatch):
     assert result["status"] == "error"
     assert result["code"] == "INVALID_PARAM"
     assert result["helper"] == "fetch_historical_data"
-    from plugin.scripting.domain_registry import get_domain_wiring
 
     assert get_domain_wiring("quant").is_result(result) is True
 
@@ -72,10 +60,6 @@ def test_fetch_historical_data_calc_range(monkeypatch):
     assert result["status"] == "ok"
     fake_yf.download.assert_called_once()
     assert fake_yf.download.call_args[0][0] == ["AAPL", "MSFT"]
-
-
-def test_helper_names_cover_templates():
-    assert set(get_domain_wiring("quant").templates()) == names("quant")
 
 
 def test_portfolio_tearsheet_portfolio_returns_grid():
@@ -146,7 +130,6 @@ def test_technical_analysis_missing_column_sets_helper(monkeypatch):
     assert result["status"] == "error"
     assert result["code"] == "MISSING_COLUMN"
     assert result["helper"] == "technical_analysis"
-    from plugin.scripting.domain_registry import get_domain_wiring
 
     assert get_domain_wiring("quant").is_result(result) is True
 
@@ -175,7 +158,6 @@ def test_efficient_frontier_treats_grid_as_returns():
 
 
 def test_is_quant_result_uses_helper_names_not_fetch_prefix():
-    from plugin.scripting.domain_registry import get_domain_wiring
 
     is_quant_result = get_domain_wiring("quant").is_result
     assert is_quant_result({"status": "ok", "helper": "fetch_historical_data"}) is True

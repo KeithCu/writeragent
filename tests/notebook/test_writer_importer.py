@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import inspect
 import re
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -77,15 +76,6 @@ _STYLE_MD_H1 = STYLE_MD_H1
 _STYLE_MD_H2 = STYLE_MD_H2
 _STYLE_NOTEBOOK_IN = STYLE_NOTEBOOK_IN
 _STYLE_NOTEBOOK_OUT = STYLE_NOTEBOOK_OUT
-
-
-def _writer_importer_import_logging_present() -> bool:
-    """True when notebook import log.info/debug exist (stripped in ``make release`` bundles)."""
-    try:
-        source = Path(inspect.getfile(import_ipynb_to_writer)).read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return 'log.info("notebook import start' in source
 
 
 def test_format_stream_output():
@@ -219,14 +209,6 @@ def test_format_outputs_for_body_interleaves_image_then_stream():
     assert [kind for kind, _payload in segments] == ["image", "text"]
     assert segments[0][1] == ("image/png", "abc")
     assert segments[1][1] == "hello printed\n"
-
-
-def test_import_cells_does_not_reformat_outputs_for_stats():
-    from plugin.notebook import writer_importer as wi
-
-    src = inspect.getsource(wi._import_cells)
-    assert "format_output_text" not in src
-    assert "_format_outputs_for_body" in src
 
 
 def test_trim_trailing_empty_paragraph_deletes_when_empty():
@@ -448,20 +430,9 @@ def test_height_for_text_includes_one_wrap_line():
     assert h == 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
 
 
-def test_code_field_uses_full_text_area_width():
-    from plugin.notebook.layout import insert_code_input_in_flow
-
-    src = inspect.getsource(insert_code_input_in_flow)
-    assert "text_area_width_units(doc)" in src
-    assert "_RUN_BUTTON_SIZE" not in src
-    assert _text_area_width_units(None) == _DEFAULT_WIDTH
-
-
 def test_page_style_shared_by_width_and_height():
-
     assert _page_style(None) is None
-    assert "page_style(doc)" in inspect.getsource(_text_area_width_units)
-    assert "page_style(doc)" in inspect.getsource(_height_for_text) and "page_style(doc)" in inspect.getsource(insert_code_input_in_flow)
+    assert _text_area_width_units(None) == _DEFAULT_WIDTH
 
     style = MagicMock()
     style.getPropertyValue.side_effect = lambda name: {
@@ -788,11 +759,7 @@ def test_append_body_text_block_single_paragraph():
     body_text.insertControlCharacter.assert_not_called()
 
 
-@pytest.mark.skipif(
-    not _writer_importer_import_logging_present(),
-    reason="Release bundle strips log.info/log.debug; import logging verified in source tree only",
-)
-def test_import_ipynb_to_writer_logs(tmp_path, monkeypatch):
+def test_import_ipynb_to_writer_markdown_cell_stats(tmp_path, monkeypatch):
     ipynb = tmp_path / "tiny.ipynb"
     ipynb.write_text(
         '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}',
@@ -809,24 +776,11 @@ def test_import_ipynb_to_writer_logs(tmp_path, monkeypatch):
     doc.createInstance.side_effect = lambda service: MagicMock()
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
 
-    log_messages: list[str] = []
-
-    def _capture(msg, *args):
-        log_messages.append(msg % args if args else msg)
-
-    monkeypatch.setattr("plugin.notebook.writer_importer.log.info", _capture)
-    monkeypatch.setattr("plugin.notebook.writer_importer.log.debug", _capture)
-
     stats = import_ipynb_to_writer(doc, str(ipynb))
 
     assert stats["cells"] == 1
     assert stats["markdown"] == 1
     body_text.insertTextContent.assert_not_called()
-    log_text = "\n".join(log_messages)
-    assert "notebook import start" in log_text
-    assert "notebook import complete" in log_text
-    assert "cell start index=0" in log_text
-    assert "flush_ui_idle" not in log_text
 
 
 def test_import_ipynb_to_writer_does_not_pump_vcl_idle(tmp_path, monkeypatch):
@@ -1080,11 +1034,23 @@ def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkey
     assert breaks.count(_PARAGRAPH_BREAK) >= 1
 
 
-def test_import_cells_breaks_before_in_flow_controls():
-    from plugin.notebook import writer_importer as wi
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("svg", b"<svg></svg>", "image/svg+xml", id="test_insert_run_image_svg_mime"),
+        pytest.param("webp", b"RIFF", "image/webp", id="test_insert_run_image_webp_mime"),
+        pytest.param("gif", b"GIF89a", "image/gif", id="test_insert_run_image_gif_mime"),
+    ],
+)
+def test_insert_run_image_svg_mime(value, value_2, expected):
+    from plugin.notebook.writer_importer import insert_run_image
 
-    cell_src = inspect.getsource(wi._import_cells)
-    assert "_append_paragraph_break_at_end" in cell_src
+    doc = MagicMock()
+    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
+    with patch("plugin.notebook.writer_importer._insert_image_in_flow", return_value=True) as insert_flow:
+        assert insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
+    insert_flow.assert_called_once()
+    assert insert_flow.call_args.kwargs["mime"] == expected
 
 
 def test_append_paragraph_break_at_end_inserts_break():

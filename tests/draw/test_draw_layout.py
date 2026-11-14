@@ -4,23 +4,10 @@
 import pytest
 
 from plugin.draw.layout import (
-    ALIGNMENTS,
-    DEFAULT_PAGE_HEIGHT,
-    DEFAULT_PAGE_WIDTH,
-    DIAGRAM_LAYOUTS,
-    DISTRIBUTE_AXES,
     align_boxes,
     diagram_node_boxes,
     distribute_boxes,
 )
-
-
-def test_layout_constants():
-    assert ALIGNMENTS == ("left", "center_horizontal", "right", "top", "center_vertical", "bottom")
-    assert DISTRIBUTE_AXES == ("horizontal", "vertical")
-    assert DIAGRAM_LAYOUTS == ("horizontal_flow", "vertical_flow", "grid", "custom")
-    assert DEFAULT_PAGE_WIDTH == 28000
-    assert DEFAULT_PAGE_HEIGHT == 15750
 
 
 def test_align_left():

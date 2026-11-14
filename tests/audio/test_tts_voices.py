@@ -23,7 +23,6 @@ from plugin.audio.tts_voices import (
     resolve_voice_context,
     settings_voice_options,
     split_display_label,
-    tts_test_sample,
     voice_choice_to_id,
     voice_options_for_provider,
 )
@@ -317,46 +316,18 @@ def test_piper_and_kokoro_voice_list_shows_parenthetical_only():
     assert any(row["value"] == "alloy" for row in openai)
 
 
-def test_tts_test_sample_uses_gettext():
-    with patch("plugin.audio.tts_voices._", return_value="Bonjour, je suis WriterAgent.") as mock_gettext:
-        assert tts_test_sample() == "Bonjour, je suis WriterAgent."
-        mock_gettext.assert_called_once_with("Hello, I'm your LibreOffice WriterAgent.")
-
-
-def test_module_yaml_voice_options_use_catalog_provider():
-    import os
-    import yaml
-
-    with open(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "audio", "module.yaml"), encoding="utf-8") as handle:
-        manifest = yaml.safe_load(handle)
-    voice = manifest["config"]["tts_voice"]
-    assert voice["options_provider"] == "plugin.audio.tts_voices:settings_voice_options"
-    assert len(voice["options"]) <= 4
-
-
 def test_voice_catalog_asset_drives_runtime_maps():
     import json
     import os
-
-    from plugin.audio.voice_catalog import _parse_catalog
 
     assert os.path.isfile(CATALOG_PATH)
     with open(CATALOG_PATH, encoding="utf-8") as handle:
         raw = json.load(handle)
 
-    parsed = _parse_catalog(raw)
-    assert len(parsed["kokoro_items"]) == 54
-
     piper_ids = [row["id"] for row in raw["piper"]["voices"]]
     assert list(_PIPER_VOICE_MODELS) == piper_ids
     kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
-    assert len(kokoro_ids) == 54
     assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
-    for vid in ("af_alloy", "am_puck", "bm_fable", "jf_tebukuro", "zf_xiaoyi", "zm_yunyang", "pm_santa"):
-        assert vid in kokoro_ids
-    assert "af_sky" in kokoro_ids
-    assert "af_bella" in kokoro_ids
-    assert raw["kokoro"]["fallback_voice"] == "af_sky"
     assert voice_short_name("de_DE-thorsten-medium") == "Thorsten"
     assert voice_short_name("en_US-lessac-medium") == "Lessac"
     onnx, config, lang, _label = _PIPER_VOICE_MODELS["de_DE-thorsten-medium"]

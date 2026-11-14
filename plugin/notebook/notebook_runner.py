@@ -457,7 +457,7 @@ def _delete_paragraph_at(cursor: Any) -> bool:
 
 
 def _collapse_leading_empty_paragraphs(doc: Any, cell: NotebookCodeCell, notebook_in: str | None) -> None:
-    """Remove blank paragraphs between the Output heading and the first stdout line.
+    """Remove blank paragraphs between the cell's nb_out_* bookmark and the first stdout line.
 
     Skip extra PARAGRAPH_BREAK when the output paragraph is already empty—otherwise blanks accumulate on re-run.
     """

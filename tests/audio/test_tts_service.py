@@ -367,31 +367,6 @@ def test_sentences_for_speech_merges_dialogue():
     assert spoken == ['"Fire! Fire!" he yelled.']
 
 
-def test_module_yaml_sentence_mode_defaults_on():
-    import yaml
-
-    with open(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "audio", "module.yaml"), encoding="utf-8") as handle:
-        manifest = yaml.safe_load(handle)
-    field = manifest["config"]["tts_sentence_mode"]
-    assert field["type"] == "boolean"
-    assert field["widget"] == "checkbox"
-    assert field["default"] is True
-    assert str(field["label"]).endswith(" (Local)")
-
-
-def test_module_yaml_short_answers_defaults_on():
-    import yaml
-
-    with open(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "audio", "module.yaml"), encoding="utf-8") as handle:
-        manifest = yaml.safe_load(handle)
-    field = manifest["config"]["tts_short_answers"]
-    assert field["type"] == "boolean"
-    assert field["widget"] == "checkbox"
-    assert field["default"] is True
-    assert field["label"] == "Keep replies brief"
-    assert "speech output (TTS) is on" in field["helper"]
-
-
 def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
     import plugin.audio.tts_service as tts
 

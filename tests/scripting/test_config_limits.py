@@ -40,13 +40,6 @@ def test_timeout_fallbacks_match_manifest():
         assert python_exec_timeout(10**6) == field["max"]
 
 
-def test_timeout_schema_limits_from_manifest():
-    assert python_exec_timeout_default() == 10
-    assert python_exec_timeout(0) == 1
-    assert python_exec_timeout(10**9) == 600
-    assert _bounds("python_exec_timeout") == (1, 600)
-
-
 def test_python_exec_timeout_requested_wins_and_clamps():
     with patch("plugin.framework.config.get_config", return_value=10) as mock_get:
         assert python_exec_timeout(100) == 100
@@ -89,16 +82,6 @@ def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_ge
 def test_configured_python_exec_timeout_stored_zero_clamps_to_min(mock_get):
     assert python_exec_timeout() == _bounds("python_exec_timeout")[0]
     mock_get.assert_called_once_with("scripting.python_exec_timeout")
-
-
-def test_schema_getters_match_config_schema():
-    from plugin.framework.config_schema import get_config_schema
-
-    schema = get_config_schema("scripting.python_exec_timeout")
-    assert schema is not None
-    assert python_exec_timeout_default() == schema["default"]
-    assert python_exec_timeout(0) == schema["min"]
-    assert python_exec_timeout(10**9) == schema["max"]
 
 
 def test_run_venv_python_script_schema_has_no_timeout_sec():

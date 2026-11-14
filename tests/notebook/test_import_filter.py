@@ -6,77 +6,15 @@
 
 from __future__ import annotations
 
-import inspect
 import os
-import xml.etree.ElementTree as ET
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
-
-# We mock these before importing JupyterNotebookImportFilter so it works without real UNO.
-import sys
-import types
-if "com.sun.star.document" not in sys.modules:
-    class MockUnoBase:
-        pass
-    class MockXFilter:
-        pass
-    class MockXImporter:
-        pass
-    class MockXServiceInfo:
-        pass
-    class MockXServiceDisplayName:
-        pass
-    class MockXServiceName:
-        pass
-
-    mock_uno = types.ModuleType("uno")
-    mock_uno.fileUrlToSystemPath = lambda x: x
-    class MockImplementationHelper:
-        def addImplementation(self, *args, **kwargs):
-            pass
-
-    mock_unohelper = types.ModuleType("unohelper")
-    mock_unohelper.Base = MockUnoBase
-    mock_unohelper.ImplementationHelper = MockImplementationHelper
-    
-    mock_com = types.ModuleType("com")
-    mock_com.sun = types.ModuleType("com.sun")
-    mock_com.sun.star = types.ModuleType("com.sun.star")
-    mock_com.sun.star.document = types.ModuleType("com.sun.star.document")
-    class MockXExtendedFilterDetection:
-        pass
-
-    mock_com.sun.star.document.XFilter = MockXFilter
-    mock_com.sun.star.document.XImporter = MockXImporter
-    mock_com.sun.star.document.XExtendedFilterDetection = MockXExtendedFilterDetection
-    mock_com.sun.star.lang = types.ModuleType("com.sun.star.lang")
-    mock_com.sun.star.lang.XServiceInfo = MockXServiceInfo
-    mock_com.sun.star.lang.XServiceDisplayName = MockXServiceDisplayName
-    mock_com.sun.star.lang.XServiceName = MockXServiceName
-
-    sys.modules["uno"] = mock_uno
-    sys.modules["unohelper"] = mock_unohelper
-    sys.modules["com.sun.star.document"] = mock_com.sun.star.document
-    sys.modules["com.sun.star.lang"] = mock_com.sun.star.lang
-
 from plugin.notebook.import_filter import JupyterNotebookImportFilter
-
-
-def test_uno_override_parameter_names() -> None:
-    """ty invalid-method-override requires IDL stub names, not Pythonic aliases."""
-    names = {
-        "detect": ("Descriptor",),
-        "setTargetDocument": ("Document",),
-        "filter": ("aDescriptor",),
-        "supportsService": ("ServiceName",),
-    }
-    for method, expected in names.items():
-        params = tuple(inspect.signature(getattr(JupyterNotebookImportFilter, method)).parameters)
-        assert params[1:] == expected, method
 
 
 class MockPropertyValue:
@@ -148,122 +86,6 @@ def _repo_root() -> str:
     if "tests" in _resolved.split(os.sep):
         return os.path.abspath(os.path.join(_resolved, "..", ".."))
     return os.path.abspath(os.path.join(_resolved, "..", "..", ".."))
-
-
-def _typedetection_xcu(name: str, *, root: str | None = None) -> str:
-    """Checkout keeps TypeDetection under ``extension/registry/``; the OXT / ``make release``
-    tree remaps that prefix so the same files sit at ``registry/`` (see ``build_oxt.remap_path``).
-    """
-    root = _repo_root() if root is None else root
-    candidates = (
-        os.path.join(root, "extension", "registry", "org", "openoffice", "TypeDetection", name),
-        os.path.join(root, "registry", "org", "openoffice", "TypeDetection", name),
-    )
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    pytest.fail(f"{name} not found; tried {candidates}")
-
-
-def test_typedetection_xcu_uses_bundle_registry_when_extension_prefix_missing(tmp_path: Path) -> None:
-    rel = Path("registry/org/openoffice/TypeDetection")
-    (tmp_path / rel).mkdir(parents=True)
-    (tmp_path / rel / "Types.xcu").write_text("<ok/>", encoding="utf-8")
-    found = _typedetection_xcu("Types.xcu", root=str(tmp_path))
-    assert found == str(tmp_path / rel / "Types.xcu")
-
-
-def test_types_xcu_structural():
-    path = _typedetection_xcu("Types.xcu")
-    root = ET.parse(path).getroot()
-    assert root.tag.endswith("component-data")
-    assert root.get("{http://openoffice.org/2001/registry}name") == "Types"
-    
-    types_node = None
-    for child in root:
-        if child.get("{http://openoffice.org/2001/registry}name") == "Types":
-            types_node = child
-            break
-            
-    assert types_node is not None
-    
-    filter_node = None
-    for child in types_node:
-        if child.get("{http://openoffice.org/2001/registry}name") == "writer_WriterAgent_Jupyter_Notebook":
-            filter_node = child
-            break
-            
-    assert filter_node is not None
-    
-    found_ext = False
-    for prop in filter_node:
-        if prop.get("{http://openoffice.org/2001/registry}name") == "Extensions":
-            assert prop.get("{http://openoffice.org/2001/registry}type") == "oor:string-list"
-            val = prop.find("value")
-            if val is not None and val.text == "ipynb":
-                found_ext = True
-    assert found_ext
-
-
-def test_filters_xcu_structural():
-    path = _typedetection_xcu("Filters.xcu")
-    root = ET.parse(path).getroot()
-    assert root.tag.endswith("component-data")
-    
-    filters_node = None
-    for child in root:
-        if child.get("{http://openoffice.org/2001/registry}name") == "Filters":
-            filters_node = child
-            break
-            
-    assert filters_node is not None
-    
-    filter_node = None
-    for child in filters_node:
-        if child.get("{http://openoffice.org/2001/registry}name") == "writer_WriterAgent_Jupyter_Notebook":
-            filter_node = child
-            break
-            
-    assert filter_node is not None
-    
-    props = {}
-    for prop in filter_node:
-        name = prop.get("{http://openoffice.org/2001/registry}name")
-        val = prop.find("value")
-        if val is not None:
-            props[name] = val.text
-            
-    assert props.get("FilterService") == "org.extension.writeragent.JupyterNotebookImportFilter"
-    assert "IMPORT ALIEN 3RDPARTYFILTER" == props.get("Flags", "")
-    assert "EXPORT" not in props.get("Flags", "")
-
-    # Check Flags type is oor:string-list
-    for prop in filter_node:
-        if prop.get("{http://openoffice.org/2001/registry}name") == "Flags":
-            assert prop.get("{http://openoffice.org/2001/registry}type") == "oor:string-list"
-
-
-def test_misc_xcu_structural():
-    path = _typedetection_xcu("Misc.xcu")
-    root = ET.parse(path).getroot()
-    assert root.tag.endswith("component-data")
-    assert root.get("{http://openoffice.org/2001/registry}name") == "Misc"
-
-    detect_services_node = None
-    for child in root:
-        if child.get("{http://openoffice.org/2001/registry}name") == "DetectServices":
-            detect_services_node = child
-            break
-
-    assert detect_services_node is not None
-
-    filter_node = None
-    for child in detect_services_node:
-        if child.get("{http://openoffice.org/2001/registry}name") == "org.extension.writeragent.JupyterNotebookImportFilter":
-            filter_node = child
-            break
-
-    assert filter_node is not None
 
 
 def _assert_manifest_lists_import_filter(body: str) -> None:

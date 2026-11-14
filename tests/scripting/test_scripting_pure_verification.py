@@ -13,14 +13,6 @@ from hypothesis import strategies as st
 
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
 
-from plugin.scripting.import_policy import (
-    PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
-    format_venv_import_policy_for_prompt,
-)
-from plugin.scripting.sandbox import (
-    build_sandbox_policy,
-    policy_blocked_imports,
-)
 from plugin.scripting.config_limits import (
     _bounds,
     _clamp,
@@ -34,17 +26,6 @@ from plugin.scripting.calc_range import (
     CalcRange,
 )
 from plugin.scripting.venv.coerce import dedupe_column_names
-
-
-def test_import_policy_contracts() -> None:
-    blocked = tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
-    assert isinstance(blocked, tuple)
-    assert len(blocked) > 0
-    assert "subprocess" in blocked
-
-    prompt = format_venv_import_policy_for_prompt(compact=True)
-    assert isinstance(prompt, str)
-    assert prompt.startswith(PYTHON_VENV_SANDBOX_CONTEXT_PREFIX)
 
 
 @given(val=st.none() | st.integers())

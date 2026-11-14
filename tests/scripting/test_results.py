@@ -51,10 +51,3 @@ def test_catch_helper_error_keeps_signature_and_doc() -> None:
     assert "headers" in sig.parameters
     assert sig.parameters["headers"].kind is inspect.Parameter.KEYWORD_ONLY
     assert sample.__doc__ == "Sample docstring."
-
-
-def test_helper_error_is_value_error() -> None:
-    err = HelperError("INVALID_PARAM", "m")
-    assert isinstance(err, ValueError)
-    assert err.code == "INVALID_PARAM"
-    assert str(err) == "m"

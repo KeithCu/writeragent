@@ -2816,8 +2816,8 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
         assert _mgr_proc(mgr).poll() is None
 
         # The kernel delivers SIGKILL when the spawn OS thread exits, which can
-        # trail Thread.join() slightly; allow for a loaded CI runner.
-        deadline = time.monotonic() + 15.0
+        # trail Thread.join() slightly; 2s is plenty once prctl is armed.
+        deadline = time.monotonic() + 2.0
         exit_code = None
         while time.monotonic() < deadline:
             exit_code = _mgr_proc(mgr).poll()
