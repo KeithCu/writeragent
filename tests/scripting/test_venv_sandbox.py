@@ -1349,6 +1349,15 @@ def test_apply_auto_imports_skips_shadowed_alias() -> None:
     assert "import datetime as dt" in code2
 
 
+def test_apply_auto_imports_unparseable_source_still_prepends() -> None:
+    from plugin.scripting.venv.venv_sandbox import apply_auto_imports
+
+    # Partial code from the editor must still get imports for completion.
+    code, lines = apply_auto_imports("def ")
+    assert lines > 0
+    assert "import " in code
+
+
 def test_run_sandboxed_code_rejects_non_dict_sandbox_policy() -> None:
     res = sandbox_run("result = 1", sandbox_policy=cast("Any", [("extra_modules", "x")]))
     assert res["status"] == "error"

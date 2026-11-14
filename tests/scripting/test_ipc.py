@@ -1697,6 +1697,33 @@ def test_read_frame_payload_partial_frame_raises_partial():
         os.close(w_fd)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="select slices are POSIX only")
+def test_read_frame_payload_posix_cancels_mid_wait(monkeypatch):
+    scope = SendCancellation()
+    calls = 0
+
+    def mock_select(r, w, x, timeout=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            scope.cancel()
+        return ([], [], [])
+
+    monkeypatch.setattr(plugin.framework.ipc.select, "select", mock_select)
+    r_fd, w_fd = os.pipe()
+    try:
+        reader = os.fdopen(r_fd, "rb", buffering=0)
+        try:
+            with pytest.raises(subprocess.TimeoutExpired) as exc_info:
+                read_frame_payload(reader, 30.0, cancel=scope)
+            assert exc_info.value.timeout == 30.0
+            assert calls <= 2
+        finally:
+            reader.close()
+    finally:
+        os.close(w_fd)
+
+
 def test_read_frame_payload_default_max_payload_bytes_applied():
     too_big = struct.pack("!I", DEFAULT_MAX_PAYLOAD_BYTES + 1)
     with pytest.raises(IpcFrameError):

@@ -1894,7 +1894,7 @@ def test_unrelated_config_key_does_not_terminate_editor():
         launch_mod._PROBE_CACHE.pop(exe, None)
 
 
-def test_launch_enriches_once_when_the_load_is_sent():
+def test_launch_enriches_load_when_sent():
     ctx = MagicMock()
     sent_messages: list[dict] = []
     mock_proc = MagicMock()
@@ -1925,7 +1925,7 @@ def test_launch_enriches_once_when_the_load_is_sent():
         _reset_persistent_editor()
 
 
-def test_launch_enriches_once_when_save_is_queued():
+def test_launch_enriches_pending_load_when_save_is_queued():
     pe = launch_mod._PERSISTENT_EDITOR
     _reset_persistent_editor()
     proc = MagicMock()
