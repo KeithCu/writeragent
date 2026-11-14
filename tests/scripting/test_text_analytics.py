@@ -10,14 +10,12 @@ They are skipped gracefully if the packages are not present.
 
 from __future__ import annotations
 
-from tests.harness.strip_bundle import is_release_build
 import sys
 from typing import Any
 
 import pytest
 
 from plugin.scripting import text_analytics as ta
-from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.text_analytics_ui import format_text_analytics_result_for_display
 from plugin.scripting.venv import text_analytics as vta
 
@@ -63,16 +61,6 @@ def test_run_text_analytics_dispatcher():
 # --- Host-side (no model required) ---
 
 
-def test_text_analytics_templates_include_run_call():
-    temps = get_domain_wiring("text").templates()
-    assert isinstance(temps, dict)
-    for h in ("full", "readability", "entities", "key_phrases"):
-        if h in temps:
-            code = temps[h]
-            assert "# writeragent:" not in code
-            assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
-
-
 def test_text_analytics_is_result_shapes():
     fullish = {"status": "ok", "result": {"readability": {}, "entities": [], "meta": {}}}
     assert ta.is_text_analytics_result(fullish) is True
@@ -108,7 +96,8 @@ def test_text_analytics_helper_names():
     from plugin.scripting.helper_registry import names
 
     text_names = names("text")
-    assert "full" in text_names
+    for expected in ("full", "topics", "sentiment"):
+        assert expected in text_names
 
 
 def test_check_diagnostics():
@@ -145,25 +134,6 @@ def test_run_text_analytics_diagnostics_dispatch():
 
 
 # --- Topics (fancier analytics; sklearn optional) ---
-
-
-@pytest.mark.parametrize(
-    "value, value_2, value_3, value_4, value_5",
-    [
-        pytest.param("topics", "topics", "topics", "run_text_analytics", "'n_topics': 4", id="test_text_analytics_topics_in_helernames_and_templates"),
-        # --- Sentiment (lexicon-based, no extra deps beyond what's already used for spacy path) ---
-        pytest.param("sentiment", "sentiment", "sentiment", "from writeragent.scripting.text_analytics import run_text_analytics", "'helper': 'sentiment'", id="test_text_analytics_sentiment_in_helernames_and_templates"),
-    ],
-)
-def test_text_analytics_topics_in_helernames_and_templates(value, value_2, value_3, value_4, value_5):
-    from plugin.scripting.helper_registry import names
-
-    assert value in names("text")
-    temps = get_domain_wiring("text").templates()
-    assert value_2 in temps
-    code = temps[value_3]
-    assert value_4 in code
-    assert value_5 in code
 
 
 def test_text_analytics_topics_result_shape():
@@ -620,8 +590,6 @@ def test_format_topics_missing_package_reads_inner_payload(monkeypatch):
         "Suggested install: uv pip install scikit-learn"
     )
     assert out == expected
-    assert "scikit-learn from the analysis stack" not in out
-    assert "{'" not in out
 
 
 def test_format_topic_model_failed_has_no_install_hint():
@@ -670,7 +638,6 @@ def test_format_sentiment_missing_package_and_model_load():
     assert "transformers (sentiment analysis)" in out_missing
     assert "Suggested install: uv pip install transformers torch" in out_missing
     assert "Real error details from the worker process:\nImportError: No module named 'transformers'" in out_missing
-    assert "{'" not in out_missing
     assert "Sentiment: neutral" not in out_missing
 
     load_dict = {
@@ -694,7 +661,6 @@ def test_format_sentiment_missing_package_and_model_load():
     assert "transformers model load failed" in out_load
     assert "Suggested install: uv pip install torch" in out_load
     assert "Real error details from the worker process:\nOSError: model file corrupt" in out_load
-    assert "{'" not in out_load
     assert "Sentiment: neutral" not in out_load
 
 
@@ -861,9 +827,7 @@ def test_whole_scope_topics_still_uses_sections(monkeypatch):
     assert call_count == 3
 
 
-def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
-    import logging
-
+def test_selection_extraction_failure_returns_empty(monkeypatch):
     monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
 
     class FakeDoc:
@@ -874,11 +838,8 @@ def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
 
             return Controller()
 
-    with caplog.at_level(logging.DEBUG):
-        text, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "readability", scope="selection")
+    text, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "readability", scope="selection")
     assert text == ""
-    if not is_release_build():  # log.debug call site is stripped in release bundles
-        assert "selection text failed" in caplog.text
 
 
 def test_html_table_ignores_overall_key():

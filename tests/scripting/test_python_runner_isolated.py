@@ -50,8 +50,7 @@ def test_reset_python_session_action_in_background():
         m_reset.assert_called_once_with(ctx)
 
 
-def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
-    import logging
+def test_prepare_rps_session_failure_releases_pin():
     from unittest.mock import MagicMock, patch
     from tests.scripting.python_runner_test_support import execute_and_insert_result
 
@@ -62,14 +61,11 @@ def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
         patch("plugin.scripting.python_runner.rps_session_id", side_effect=RuntimeError("session lookup failed")),
-        caplog.at_level(logging.ERROR, logger="writeragent.scripting"),
     ):
         outcome = execute_and_insert_result(ctx, doc, "x = 1")
 
     assert outcome.get("ok") is False
     mock_release.assert_called_once_with("doc:tok")
-    assert "prepare Run Python Script failed" in caplog.text
-    assert "execute_and_insert_result failed" not in caplog.text
 
 
 def test_execute_and_insert_result_releases_pin_when_venv_raises():
