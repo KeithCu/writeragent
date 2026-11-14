@@ -15,7 +15,7 @@ New features and bugfixes **must include tests**.
 - **Unit:** `tests/`, pytest (`make pytest`) when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file** to maintain consistent naming and visible coverage.
 - **UNO / LibreOffice:** collocated `*_uno.py` files via `testing_runner.py` (`make test-uno`, no pytest)—use `@native_test`, `@setup`, `@teardown`; test functions take `ctx`. Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).
 - **Enumerations:** All `XEnumeration` walks (portions, paragraphs, annotations, desktop components) must use `enum_has_more` (`plugin/framework/uno_context.py`) because `not enum.hasMoreElements()` does not terminate on mock objects.
-- **Execution Policy:** **Do not run tests or `make typecheck` before starting work** unless you need output from a test to understand a failure. Assume the tree and tests are already green. After edits, run tests for the files you changed plus `make typecheck` before each commit (incremental on staged, unstaged, and untracked Python files — usually seconds; skips `thread-safety-lint`, and incremental `basedpyright`/`mypy` do not catch errors in unchanged files broken by a signature change — `make typecheck-full` / CI catches those). `make typecheck-full` takes about **one minute** — wait for it; do not poll every few seconds. Run full `make test` **only if making large refactors** or cross-cutting changes.
+- **Execution Policy:** **Do not run tests or `make typecheck` before starting work** unless you need output from a test to understand a failure. Assume the tree and tests are already green. After edits, run `make test-bot` and `make typecheck` before each commit (incremental on staged, unstaged, and untracked Python files — usually seconds; skips `thread-safety-lint`, and incremental `basedpyright`/`mypy` do not catch errors in unchanged files broken by a signature change — `make typecheck-full` / CI catches those). `make typecheck-full` takes about **one minute** — wait for it; do not poll every few seconds. Run `make test-full` **only if making large refactors** or cross-cutting changes.
 
 When unsure of LibreOffice / UNO API behavior, **inspect it directly**! Do not guess, add layers of speculative fallback code, or flail. You have a full running LibreOffice instance and a fast native test runner:
 ```bash
@@ -51,9 +51,11 @@ Explain the code that is here **now**, for a reader who would otherwise be lost.
 | `make typecheck-full` | Full-repo checkers including `basedpyright` library-source walk and `thread-safety-lint` (used by CI and `make release`; standalone `make thread-safety-lint` also available). |
 | `make deploy` | WriterAgent OXT: build + install/cache sync; **restart LibreOffice** (or `make deploy writer/calc/draw/impress` to launch) |
 | `make deploy-core` | LibrePy OXT only (`build/LibrePy.oxt`); **removes WriterAgent**. |
-| `make pytest` | Unit pytest only: `-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist (`-n auto --dist=loadgroup`; `PYTEST_WORKERS=0` for serial). No live soffice. Single file: `.venv/bin/python -m pytest tests/<area>/test_<module>.py -m "not slow and not integration" --timeout=300` |
+| `make test-bot` | Incremental pytest only on changed files/modules (run with `make typecheck` before each commit). |
+| `make pytest` | Full unit pytest only (`-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist `-n auto --dist=loadgroup`; `PYTEST_WORKERS=0` for serial). No live soffice. |
 | `make test-uno` | UNO / LibreOffice tests only: runs `testing_runner.py` with serial live LibreOffice instance. |
-| `make test` | Large or cross-cutting changes only (includes typecheck, SAST, pytest, LO tests) |
+| `make test` | Incremental typecheck + incremental pytest + incremental UNO tests. |
+| `make test-full` | Large or cross-cutting changes only (includes typecheck, SAST, full pytest, LO tests, excel-py-roundtrip) |
 | `make build` | Produce `build/WriterAgent.oxt` only (no install) |
 | `make build-core` | Produce `build/LibrePy.oxt` only (no install) |
 | `make release` | Typecheck + bandit, verify a stripped tree in `/tmp` (`compileall` + pytest + LO tests), then build/register `build/WriterAgent.oxt` |

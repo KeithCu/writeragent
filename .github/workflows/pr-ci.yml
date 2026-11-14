@@ -226,7 +226,7 @@ jobs:
             mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"
           fi
           # Explicit TYPECHECK_FULL=1 (GitHub Actions also sets CI=true) so PR CI runs full typecheck + thread-safety-lint.
-          TYPECHECK_FULL=1 SKIP_UNO=1 make test
+          TYPECHECK_FULL=1 SKIP_UNO=1 make test-full
 
       - name: Dump leftover processes (CI debug)
         if: ${{ always() && inputs.ci_debug == true }}

@@ -519,7 +519,8 @@ def _module_matches_filters(full_path: str, filters: Sequence[str]) -> bool:
         return True
     func_filters = _test_function_filters(filters)
     path_filters = [f for f in filters if f not in func_filters]
-    if any(token in full_path for token in path_filters):
+    norm_full_path = full_path.replace("\\", "/")
+    if any(token.replace("\\", "/") in norm_full_path for token in path_filters):
         return True
     if not func_filters:
         return False
