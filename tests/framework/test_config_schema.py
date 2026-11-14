@@ -231,6 +231,7 @@ def test_set_endpoint_normalizer() -> None:
         set_endpoint_normalizer(previous)
 
 
+@pytest.mark.verification
 def test_as_bool_truth_table() -> None:
     assert as_bool(True) is True
     assert as_bool(False) is False
@@ -243,6 +244,7 @@ def test_as_bool_truth_table() -> None:
     assert as_bool(None) is False
 
 
+@pytest.mark.verification
 @given(n=st.integers(min_value=-10_000, max_value=10_000))
 @settings(max_examples=80)
 def test_hypothesis_parse_int_round_trip_str(n: int) -> None:
@@ -250,6 +252,7 @@ def test_hypothesis_parse_int_round_trip_str(n: int) -> None:
     assert parse_int_robust(n) == n
 
 
+@pytest.mark.verification
 def test_parse_int_robust_formats_and_raises() -> None:
     assert parse_int_robust(8765.99) == 8765
     assert parse_int_robust(" 8765 ") == 8765
@@ -264,6 +267,7 @@ def test_parse_int_robust_formats_and_raises() -> None:
             parse_int_robust(bad)
 
 
+@pytest.mark.verification
 @given(n=st.floats(allow_nan=False, allow_infinity=False, width=32, min_value=-1e6, max_value=1e6))
 @settings(max_examples=80)
 def test_hypothesis_parse_float_round_trip_str(n: float) -> None:
@@ -271,6 +275,7 @@ def test_hypothesis_parse_float_round_trip_str(n: float) -> None:
     assert parse_float_robust(n) == pytest.approx(n)
 
 
+@pytest.mark.verification
 def test_parse_float_robust_locale_and_int() -> None:
     assert parse_float_robust("1,5") == pytest.approx(1.5)
     assert parse_float_robust("0,25") == pytest.approx(0.25)
@@ -280,6 +285,7 @@ def test_parse_float_robust_locale_and_int() -> None:
     assert parse_float_robust(2.5) == 2.5
 
 
+@pytest.mark.verification
 def test_parse_float_robust_raises() -> None:
     for bad in (None, "", "   ", "not-a-number"):
         with pytest.raises(ValueError):

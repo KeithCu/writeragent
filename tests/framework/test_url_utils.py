@@ -291,6 +291,7 @@ _owu_urls = st.sampled_from(
 )
 
 
+@pytest.mark.verification
 def test_url_helpers_long_and_odd_do_not_precontract() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_URL
 
@@ -302,6 +303,7 @@ def test_url_helpers_long_and_odd_do_not_precontract() -> None:
     assert normalize_endpoint_url(1) == ""  # type: ignore[arg-type]
 
 
+@pytest.mark.verification
 @given(url=_urls)
 @settings(max_examples=80)
 def test_hypothesis_normalize_idempotent(url) -> None:
@@ -313,6 +315,7 @@ def test_hypothesis_normalize_idempotent(url) -> None:
         assert once == ""
 
 
+@pytest.mark.verification
 @given(url=_owu_urls)
 @settings(max_examples=40)
 def test_hypothesis_openwebui_normalize_idempotent(url: str) -> None:
@@ -322,6 +325,7 @@ def test_hypothesis_openwebui_normalize_idempotent(url: str) -> None:
     assert not once.lower().endswith(("/api", "/api/v1", "/v1"))
 
 
+@pytest.mark.verification
 @given(
     url=st.one_of(
         st.just(""),
@@ -335,6 +339,8 @@ def test_hypothesis_api_suffix_shape(url: str) -> None:
     assert suffix in {"/v1", "/v4", "/api/paas/v4", "/v1beta/openai"}
 
 
+# CrossHair marked slow (excluded from default make test).
+@pytest.mark.verification
 @pytest.mark.slow
 def test_crosshair_url_utils_if_available() -> None:
     assert_crosshair_clean(CROSSHAIR_MODULE, timeout=600)

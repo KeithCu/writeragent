@@ -479,7 +479,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 3. **`plugin/mcp/cors.py`** — origin normalize / safety ([`tests/mcp/test_cors_verification.py`](../../tests/mcp/test_cors_verification.py))
 4. **`plugin/framework/config_schema.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_schema.py`](../../tests/framework/test_config_schema.py)); not whole-file CrossHair
 5. **`plugin/framework/tool_schema.py`** — `_normalize_schema_for_strict_providers`, `to_openai_schema`, `to_mcp_schema` (re-exported from [`tool.py`](../../plugin/framework/tool.py); CrossHair FQN stays `plugin.framework.tool._normalize_schema_for_strict_providers`) ([`tests/framework/test_tool_schema_verification.py`](../../tests/framework/test_tool_schema_verification.py))
-6. **`plugin/framework/stream_delta.py`** — `accumulate_delta` (CrossHair FQN `plugin.framework.stream_delta.accumulate_delta`). **`plugin/framework/async_stream.py`** — `_format_agent_tool_stream_line` ([`tests/framework/test_stream_delta.py`](../../tests/framework/test_stream_delta.py))
+6. **`plugin/framework/stream_delta.py`** — `accumulate_delta` (CrossHair FQN `plugin.framework.stream_delta.accumulate_delta`, [`tests/framework/test_stream_delta.py`](../../tests/framework/test_stream_delta.py)). **`plugin/framework/async_stream.py`** — `_format_agent_tool_stream_line` ([`tests/framework/test_async_stream.py`](../../tests/framework/test_async_stream.py))
 7. **FSM catch-up** — CrossHair on `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_errors.py`](../../tests/framework/test_errors.py))
@@ -506,7 +506,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 31. **`plugin/scripting/trusted_rpc.py`** — `parse_worker_dict_result` ([`tests/scripting/test_trusted_rpc.py`](../../tests/scripting/test_trusted_rpc.py))
 32. **`plugin/scripting/editor_errors.py`** — `failure_detail`, `failure_message` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
 33. **`plugin/scripting/excel_xl.py`** — `make_xl` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
-34. **`plugin/calc/calc_utils.py`** — `resolve_sheet_and_cell` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
+34. **`plugin/calc/calc_utils.py`** — `resolve_sheet_and_cell` ([`tests/calc/test_calc_utils.py`](../../tests/calc/test_calc_utils.py))
 35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_sheet_filter_criteria.py`](../../tests/calc/test_sheet_filter_criteria.py))
 36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_resolve_refs.py`](../../tests/calc/test_resolve_refs.py))
 37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py))
@@ -763,12 +763,12 @@ mypy plugin/framework/config.py --strict
 crosshair check plugin/framework/config.py --contracts
 
 # 4. Add to test suite
-pytest tests/test_url_utils_verification.py
+pytest tests/framework/test_url_utils.py
 ```
 
 **Sample test file:**
 ```python
-# tests/test_url_utils_verification.py
+# tests/framework/test_url_utils.py
 import subprocess
 import pytest
 

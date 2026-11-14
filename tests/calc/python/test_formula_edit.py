@@ -334,7 +334,7 @@ def test_normalize_keeps_curly_quotes_in_code_payload():
 
 
 def test_normalize_and_parse_bare_py_token():
-    """CrossHair check raised PatternError on normalize/parse of ``'PY'``.
+    """Cluster A: CrossHair check raised PatternError on normalize/parse of ``'PY'``.
 
     Relib re-parses the PY|PYTHON head regex; a startswith scan must not throw.
     """
@@ -347,7 +347,7 @@ def test_normalize_and_parse_bare_py_token():
 
 
 def test_sanitize_dtype_float_with_control_chars():
-    """escape_code_for_formula and rebuild preserve control characters."""
+    """Cluster B: escape_code_for_formula and rebuild preserve ``dtype=float`` control characters."""
     nul = "dtype=float\x00"
     soh = ".dtype=float\x01"
     assert escape_code_for_formula(nul) == nul
@@ -470,6 +470,7 @@ def _find_crosshair() -> str | None:
     return None
 
 
+@pytest.mark.verification
 @given(code=_CODE_TEXT)
 @settings(max_examples=vhs_max_examples(60, 600), deadline=None)
 def test_hypothesis_escape_embed_parse_round_trip(code: str) -> None:
@@ -482,6 +483,7 @@ def test_hypothesis_escape_embed_parse_round_trip(code: str) -> None:
     assert parts.data_suffix == ")"
 
 
+@pytest.mark.verification
 @given(code=_CODE_TEXT)
 @settings(max_examples=vhs_max_examples(50, 500), deadline=None)
 def test_hypothesis_rebuild_parse_round_trip(code: str) -> None:
@@ -498,6 +500,7 @@ def test_hypothesis_rebuild_parse_round_trip(code: str) -> None:
     assert rebuilt.startswith('=PY("')
 
 
+@pytest.mark.verification
 @given(formula=_CODE_TEXT)
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_normalize_idempotent_after_first(formula: str) -> None:
@@ -506,6 +509,7 @@ def test_hypothesis_normalize_idempotent_after_first(formula: str) -> None:
     assert "\u201c" not in once and "\u201d" not in once
 
 
+@pytest.mark.verification
 @given(inner=_CODE_TEXT.filter(lambda s: not s.startswith('"')))
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_unquoted_code_never_starts_with_quote(inner: str) -> None:
@@ -513,6 +517,7 @@ def test_hypothesis_unquoted_code_never_starts_with_quote(inner: str) -> None:
     assert result is None or not result.startswith('"')
 
 
+@pytest.mark.verification
 @given(body=_CODE_TEXT)
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_quoted_string_bounds(body: str) -> None:
@@ -526,6 +531,7 @@ def test_hypothesis_quoted_string_bounds(body: str) -> None:
     assert 0 < end <= len(s)
 
 
+@pytest.mark.verification
 def test_parse_quoted_string_rejects_negative_start() -> None:
     """CrossHair found IndexError on start=-1; pre + body guard now reject negatives.
 
@@ -539,6 +545,7 @@ def test_parse_quoted_string_rejects_negative_start() -> None:
             _parse_quoted_string('"x"', DEAL_MAX_SOURCE + 1)
 
 
+@pytest.mark.verification
 def test_normalize_lo_preserves_semicolon_inside_quotes() -> None:
     raw = '=SUM("a;b"; C1)'
     out = normalize_lo_formula_for_parse(raw)
@@ -547,6 +554,7 @@ def test_normalize_lo_preserves_semicolon_inside_quotes() -> None:
     assert ", C1)" in out or ",C1)" in out.replace(" ", "")
 
 
+@pytest.mark.verification
 def test_normalize_lo_curly_and_semicolon() -> None:
     formula = '=PY(\u201cx=1\u201d; A1)'
     out = normalize_lo_formula_for_parse(formula)
@@ -555,6 +563,7 @@ def test_normalize_lo_curly_and_semicolon() -> None:
     assert ", A1)" in out or ",A1)" in out.replace(" ", "")
 
 
+@pytest.mark.verification
 def test_formula_edit_overflow_pre_fails_closed() -> None:
     if not deal_pre_present(PyFormula.compose):
         pytest.skip("@deal.pre stripped in release bundle")
@@ -597,6 +606,7 @@ def test_formula_edit_overflow_pre_fails_closed() -> None:
         build_data_suffix(too_many)
 
 
+@pytest.mark.verification
 @given(suffix=_ASCII_BINDING)
 @settings(max_examples=vhs_max_examples(50, 500), deadline=None)
 def test_hypothesis_format_data_binding_display_invariants(suffix: str) -> None:
@@ -606,19 +616,8 @@ def test_hypothesis_format_data_binding_display_invariants(suffix: str) -> None:
         assert not res.startswith(";") and not res.startswith(",") and not res.endswith(")")
 
 
-def test_normalize_py_token_is_not_pattern_error() -> None:
-    """Cluster A: CrossHair ``normalize_formula_string('PY')`` PatternError."""
-    assert normalize_formula_string("PY") == "PY"
-    assert PyFormula.parse("PY") is None
-
-
-def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
-    """Cluster B: ``dtype=float`` + NUL/SOH."""
-    assert escape_code_for_formula("dtype=float\x00") == "dtype=float\x00"
-    rebuilt = PyFormula("=PY(", "x", data_suffix=")").render(".dtype=float\x01")
-    assert ".dtype=float\x01" in rebuilt
-
-
+# CrossHair marked slow (excluded from default make test).
+@pytest.mark.verification
 @pytest.mark.slow
 @pytest.mark.parametrize("target", _CROSSHAIR_TARGETS)
 def test_crosshair_formula_edit_fqn_if_available(target: str) -> None:

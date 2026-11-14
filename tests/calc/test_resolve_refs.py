@@ -14,6 +14,8 @@ from plugin.calc.excel_py_convert.resolve_refs import (
     resolve_dep,
 )
 
+pytestmark = pytest.mark.verification
+
 
 class DummyModel:
     def __init__(self) -> None:

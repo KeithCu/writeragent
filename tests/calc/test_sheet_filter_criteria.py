@@ -102,6 +102,7 @@ def test_criterion_strict_parsing_rejections() -> None:
         parse_sheet_filter_criterion({"field": 0, "operator": "no-such-op", "value": "a"}, True)
 
 
+@pytest.mark.verification
 @pytest.mark.parametrize(
     "conn, expected",
     [("AND", 0), ("and", 0), (None, 0), ("OR", 1), ("or", 1)],
@@ -110,6 +111,7 @@ def test_filter_connection_code_valid(conn: str | None, expected: int) -> None:
     assert filter_connection_code(conn) == expected
 
 
+@pytest.mark.verification
 def test_filter_connection_code_invalid() -> None:
     with pytest.raises(ToolExecutionError) as exc:
         filter_connection_code("INVALID_CONN")
@@ -117,6 +119,7 @@ def test_filter_connection_code_invalid() -> None:
 
 
 # Values are FilterOperator2 IDL constants; _NAME_TO_CODE is derived from label order, so a reordered label must fail here.
+@pytest.mark.verification
 @pytest.mark.parametrize(
     "op, expected",
     [
@@ -133,11 +136,13 @@ def test_resolve_filter_operator_code_valid(op: str, expected: int) -> None:
     assert resolve_filter_operator_code(op) == expected
 
 
+@pytest.mark.verification
 def test_resolve_filter_operator_code_invalid() -> None:
     with pytest.raises(ToolExecutionError):
         resolve_filter_operator_code("UNKNOWN_OPERATOR_123")
 
 
+@pytest.mark.verification
 def test_filter_string_longer_than_token_is_invalid_param() -> None:
     """An over-long operator is ToolExecutionError (INVALID_PARAM), not PreContractError."""
     too_long = "A" * (DEAL_MAX_TOKEN + 1)
@@ -147,6 +152,7 @@ def test_filter_string_longer_than_token_is_invalid_param() -> None:
         filter_connection_code(too_long)
 
 
+@pytest.mark.verification
 def test_parse_sheet_filter_criterion_basic() -> None:
     raw = {"field": 0, "operator": "EQUAL", "value": "test"}
     field, op_code, conn, is_num, num_val, str_val = parse_sheet_filter_criterion(raw, is_first=True)
@@ -156,6 +162,7 @@ def test_parse_sheet_filter_criterion_basic() -> None:
     assert str_val == "test"
 
 
+@pytest.mark.verification
 def test_parse_sheet_filter_criterion_bad_field_is_invalid_param() -> None:
     with pytest.raises(ToolExecutionError, match="Invalid filter 'field'"):
         parse_sheet_filter_criterion({"field": "", "operator": "EQUAL", "value": "x"}, is_first=True)

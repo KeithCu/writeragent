@@ -291,6 +291,7 @@ def test_resolve_python_data_returns_calc_error_message():
     assert err == "Data range has 500000 cells; maximum is 250000."
 
 
+@pytest.mark.verification
 @given(val=st.one_of(st.integers(), st.floats(), st.text(), st.booleans(), st.none()))
 def test_unwrap_cell_invariants(val) -> None:
     res = _unwrap_cell(val)
@@ -302,6 +303,7 @@ def test_unwrap_cell_invariants(val) -> None:
         assert res == val
 
 
+@pytest.mark.verification
 @given(data=st.one_of(
     st.none(),
     st.integers(),
