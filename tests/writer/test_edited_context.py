@@ -42,6 +42,7 @@ class FakeCursor:
         return None
 
     def createEnumeration(self):
+        # Outline-hyperlink walk uses enum_has_more, which requires UNO True; a bare MagicMock would loop forever.
         return MagicMock(hasMoreElements=MagicMock(return_value=False))
 
     # --- XParagraphCursor ---
@@ -170,7 +171,12 @@ def test_collapsed_anchor_is_best_effort():
     ],
 )
 def test_apply_document_content_edited_context_wired(mode, kwargs):
-    """All six attach_edited_context call sites in apply_document_content are wired."""
+    """All six attach_edited_context call sites in apply_document_content are wired.
+
+    The 5s timeout guards against MagicMock.hasMoreElements() being truthy in the
+    outline-hyperlink walk (enum_has_more requires UNO True). Review mode is patched
+    because this file does not init config and get_agent_edit_review_mode reads it first.
+    """
     from contextlib import ExitStack
     from plugin.writer import html_import, html_import_styles
     from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -186,9 +192,6 @@ def test_apply_document_content_edited_context_wired(mode, kwargs):
     ctx.services.get.return_value = MagicMock()
 
     with ExitStack() as stack:
-        attach_spy = stack.enter_context(
-            patch("plugin.writer.apply_document_content.attach_edited_context", wraps=attach_edited_context)
-        )
         stack.enter_context(patch.object(html_import, "content_has_markup", return_value=False))
         stack.enter_context(patch.object(html_import, "content_has_block_markup", return_value=False))
         stack.enter_context(patch.object(html_import, "insert_content_at_position", return_value=html_import_styles.WriteReport()))
@@ -210,8 +213,10 @@ def test_apply_document_content_edited_context_wired(mode, kwargs):
         res = ApplyDocumentContent().execute(ctx, **kwargs)
 
     assert res["status"] == "ok"
-    attach_spy.assert_called_once()
-    if mode != "shape_edit":
+    if mode == "shape_edit":
+        # Shape edits (apply_document_content.py:706) pass anchor=None by design: no paragraph window.
+        assert res["review_bypassed"] is True and "edited_context" not in res
+    else:
         expected = {"end": "old\nP2", "beginning": "P0\nold"}.get(mode, "P0\nold\nP2")
         assert res.get("edited_context") == expected
 

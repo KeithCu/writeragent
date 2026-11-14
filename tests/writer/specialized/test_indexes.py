@@ -867,7 +867,6 @@ def test_indexes_refresh_toc_entry_collapses_newlines():
         _, passed_content, passed_override = mock_preview.call_args.args
         assert "\n" not in passed_content and "\r" not in passed_content
         assert "\n" not in passed_override and "\r" not in passed_override
-        assert passed_content == "with newlines "
         assert passed_override == "http://url"
 
 

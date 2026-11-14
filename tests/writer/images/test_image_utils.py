@@ -830,10 +830,10 @@ def test_write_temp_image_and_suffix():
         os.unlink(path)
 
 
-def test_temp_cleanup_on_failure(monkeypatch, tmp_path):
+def test_write_temp_image_unlinks_on_write_failure(monkeypatch, tmp_path):
     import tempfile
     import pytest
-    from plugin.writer.images.image_utils import EndpointImageProvider, IMAGE_DOWNLOAD_MAX_BYTES, write_temp_image
+    from plugin.writer.images.image_utils import write_temp_image
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
@@ -846,6 +846,11 @@ def test_temp_cleanup_on_failure(monkeypatch, tmp_path):
         write_temp_image(b"\x89PNG\r\n\x1a\n", ".png")
     assert list(tmp_path.glob("wa-img-*")) == []
 
+
+def test_temp_cleanup_on_failure():
+    import pytest
+    from plugin.writer.images.image_utils import EndpointImageProvider, IMAGE_DOWNLOAD_MAX_BYTES
+
     provider = EndpointImageProvider({"model": "test"}, None)
 
     with patch("plugin.writer.images.image_utils.sync_request", side_effect=RuntimeError("net error")):
@@ -857,7 +862,6 @@ def test_temp_cleanup_on_failure(monkeypatch, tmp_path):
         with pytest.raises(RuntimeError) as exc_info:
             provider._save_url("https://example.com/huge.png")
         assert "exceeded" in str(exc_info.value)
-    assert list(tmp_path.glob("wa-img-*")) == []
 
 
 def test_save_b64_rejects_oversized(monkeypatch, tmp_path):

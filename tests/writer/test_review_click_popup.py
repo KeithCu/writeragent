@@ -192,19 +192,9 @@ class FakeController:
         pass
 
 
-def _stub_awt(monkeypatch: pytest.MonkeyPatch) -> None:
-    import sys
-    import types
-
-    awt = types.ModuleType("com.sun.star.awt")
-    awt.XMouseClickHandler = type("XMouseClickHandler", (), {})  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt)
-
-
 def test_registration_dedup_and_detach(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    _stub_awt(monkeypatch)
     monkeypatch.setattr(
         "plugin.writer.change_context_menu.make_interceptor",
         lambda m: MagicMock(model=m),
@@ -234,7 +224,6 @@ def test_registration_dedup_and_detach(
 def test_handler_disposing_calls_remove_mouse_click_handler(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    _stub_awt(monkeypatch)
     monkeypatch.setattr(
         "plugin.writer.change_context_menu.make_interceptor",
         lambda m: MagicMock(model=m),
@@ -247,7 +236,7 @@ def test_handler_disposing_calls_remove_mouse_click_handler(
 
     handler = _click_handlers(review_registry)[0][1]
     assert isinstance(handler, review_click_popup.ClickReviewHandler)
-    handler.on_disposing(ctrl)
+    handler.disposing(ctrl)
 
     assert ctrl.remove_count == 1
     assert len(_click_handlers(review_registry)) == 0
@@ -256,7 +245,6 @@ def test_handler_disposing_calls_remove_mouse_click_handler(
 def test_cleanup_disposed_controllers(
     monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
 ) -> None:
-    _stub_awt(monkeypatch)
     monkeypatch.setattr(
         "plugin.writer.change_context_menu.make_interceptor",
         lambda m: MagicMock(model=m),
@@ -289,7 +277,6 @@ def _click(x: int, y: int, count: int) -> Any:
 
 def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Double-click: the first release must not open the modal popup (it swallowed the 2nd click)."""
-    _stub_awt(monkeypatch)
     monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.0)
     shown: list[tuple[int, int]] = []
     deferred_calls: list[tuple[Any, tuple[Any, ...]]] = []
