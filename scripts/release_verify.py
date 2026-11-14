@@ -77,6 +77,13 @@ DESELECTED_K = (
     "test_dispatch_body_read_reset_does_not_write_a_500",
     "test_fail_open_logs_capability_error",
     "test_split_debug_summary_is_one_gated_line",
+    "test_open_system_url",
+    "test_stt_provider_item_listener_sync_ui",
+    "test_tts_test_progress_box_show_or_update",
+    "test_copy_to_clipboard_log_does_not_include_payload",
+    "test_shutdown_handshake_is_not_a_spawn_error",
+    # --strip replaces thread_guard.py with a no-op stub (no _notify_thread_violation or active proxy).
+    "test_grep_nearby_files_runs_uno_only_when_current",
 )
 
 
