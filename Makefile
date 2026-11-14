@@ -157,12 +157,12 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test pytest test-uno test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full check-ext check-setup deploy ensure-uno _check-lo-python \
+        log log-tail lo-log test pytest test-uno test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full _typecheck-full-run check-ext check-setup deploy ensure-uno _check-lo-python \
         verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
         crosshair-cover-all crosshair-cover-all-deep \
-        lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
+        lo-start-log opengrep-lint opengrep-lint-incr opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
-        set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run basedpyright basedpyright-run basedpyright-full-run pyrefly-run \
+        set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit bandit-incr pyspector pyspector-incr pyspector-report ty-run mypy-run mypy-incr-run pyright-run basedpyright basedpyright-run basedpyright-incr-run basedpyright-full-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar vulture \
         eval-deps run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
 
@@ -177,7 +177,7 @@ help:
 	@echo "  make build                  Build .oxt with tests (regular build, no Cython)"
 	@echo "  make build-native           Build .oxt with Cython accelerator"
 	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
-	@echo "  make release                Typecheck + bandit, then stripped-bundle tests in /tmp"
+	@echo "  make release                typecheck-full, then stripped-bundle tests in /tmp"
 	@echo "                              (asserts, debug/info, deal stripped), then build/register"
 	@echo "                              the release .oxt. (Cython if 'make native')"
 	@echo "  make release-verify         Run stripped-bundle verification tests without full release build"
@@ -226,7 +226,7 @@ help:
 	@echo "                              Set WRITERAGENT_ARCH=x86-64-v[1-4] to override."
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
-	@echo "  make test                   Run ty, mypy, pyright, pyspector, bandit, pytest + LO tests + excel-py-roundtrip"
+	@echo "  make test                   Run typecheck (typecheck-full in CI), pytest + LO tests + excel-py-roundtrip"
 	@echo "  make pytest                 Unit pytest only (xdist -n auto; PYTEST_WORKERS=0 for serial)"
 	@echo "  WRITERAGENT_CI_DEBUG=1      Opt-in hang diagnostics (nodeid trail, faulthandler, --max-worker-restart=0)"
 	@echo "  make mock-llm               Fake OpenAI chat server on :18766 (sidebar soak: scroll, tools, Stop, errors)"
@@ -263,8 +263,9 @@ help:
 	@echo "  make opengrep-rules-audit   Live registry sweep (p/python; manual triage only)"
 	@echo "  make uno-thread-lint        Alias for make opengrep-lint"
 	@echo "  make opengrep-install       Install Opengrep CLI (~/.local/bin or bin/opengrep)"
-	@echo "  make typecheck              ruff-for-build, then basedpyright/bandit/opengrep/pyspector/ty/thread-safety/mypy in parallel (basedpyright does not walk numpy/etc. source)"
-	@echo "  make typecheck-full         same as typecheck, but basedpyright walks library source (numpy/etc.); used by make release"
+	@echo "  make typecheck              ruff-for-build, then incremental basedpyright/bandit/opengrep/pyspector/mypy (vs local master) + full ty in parallel (skips thread-safety-lint; CI=true or TYPECHECK_FULL=1 runs typecheck-full)"
+	@echo "  make typecheck-full         full-repo checkers including basedpyright library source and thread-safety-lint; used by CI and make release"
+	@echo "  make thread-safety-lint     Standalone UNO thread-safety + deadlock AST check (included in typecheck-full, not default typecheck)"
 	@echo "  make ensure-uno             Link system UNO into .venv if import uno fails (auto-run; exits non-zero if missing)"
 	@echo "  make fix-uno                Same as ensure-uno with verbose output"
 	@echo "  make mypy / make basedpyright / make pyrefly / make bandit   Single-tool runs (bandit: plugin/, excludes contrib + tests)"
@@ -629,13 +630,29 @@ check-ext:
 	@"$(PYTHON)" -c "from plugin._manifest import MODULES; print('Manifest OK: %d modules, %d with config' % (len(MODULES), len([m for m in MODULES if m.get('config')])))"
 
 
+# TYPECHECK_FULL=1 or CI=true: make typecheck runs typecheck-full.
+_USE_FULL_TYPECHECK :=
+ifneq ($(filter true 1,$(CI)),)
+_USE_FULL_TYPECHECK := 1
+endif
+ifneq ($(filter true 1,$(TYPECHECK_FULL)),)
+_USE_FULL_TYPECHECK := 1
+endif
+
 # -j6 leaves a core free. Do not pass basedpyright --threads: it nests workers on this pool.
 typecheck: manifest ruff-for-build
-	@echo "=== typecheck: basedpyright + bandit + opengrep + pyspector + ty + thread-safety + mypy (parallel) ==="
-	@$(MAKE) -j6 basedpyright-run bandit opengrep-lint pyspector ty-run thread-safety-lint mypy-run
+ifeq ($(_USE_FULL_TYPECHECK),1)
+	@$(MAKE) _typecheck-full-run
+else
+	@echo "=== typecheck (incremental): basedpyright + bandit + opengrep + pyspector + ty + mypy (parallel) ==="
+	@$(MAKE) -j6 basedpyright-incr-run bandit-incr opengrep-lint-incr pyspector-incr ty-run mypy-incr-run
+endif
 
-# Same tools as typecheck, but basedpyright analyzes numpy/pandas/etc. implementation.
+# Full-repo checkers including thread-safety-lint and basedpyright library-source walk.
 typecheck-full: manifest ruff-for-build
+	@$(MAKE) _typecheck-full-run
+
+_typecheck-full-run:
 	@echo "=== typecheck-full: basedpyright (library source) + bandit + opengrep + pyspector + ty + thread-safety + mypy (parallel) ==="
 	@$(MAKE) -j6 basedpyright-full-run bandit opengrep-lint pyspector ty-run thread-safety-lint mypy-run
 
@@ -785,6 +802,12 @@ opengrep-lint: build/uno_thread_safety.yml
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
 	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py opengrep env SEMGREP_SEND_METRICS=off "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)) plugin
+
+opengrep-lint-incr: build/uno_thread_safety.yml
+	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
+	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py opengrep "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool opengrep --root plugin $(OPENGREP_EXCLUDES) --config-path $(OPENGREP_DIR) --config-path scripts/thread_safety_roots.py -- env SEMGREP_SEND_METRICS=off "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)); \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) opengrep-lint; else exit $$rc; fi
 
 thread-safety-lint:
 	"$(PYTHON)" scripts/lint_thread_safety.py plugin
@@ -957,9 +980,17 @@ ty-run: ensure-uno
 mypy-run: ensure-uno
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" -m mypy
 
+mypy-incr-run: ensure-uno
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool mypy --config-path pyproject.toml -- "$(PYTHON)" -m mypy; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) mypy-run; else exit $$rc; fi
+
 # Future task: try enabling `reportMissingTypeArgument = true` in pyproject.toml to enforce generic type parameters (dict[str, Any], list[str])
 basedpyright-run: ensure-uno
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" -m basedpyright
+
+basedpyright-incr-run: ensure-uno
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool basedpyright --config-path pyproject.toml -- "$(PYTHON)" -m basedpyright; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) basedpyright-run; else exit $$rc; fi
 
 basedpyright-full-run: ensure-uno
 	@test -f pyrightconfig.full.json || (echo "pyrightconfig.full.json missing — without -p config basedpyright scans .venv and hangs" && exit 1)
@@ -971,14 +1002,27 @@ pyrefly-run: ensure-uno
 bandit:
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" -m bandit -r plugin -c pyproject.toml --severity-level medium
 
+bandit-incr:
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool bandit --root plugin --config-path pyproject.toml -- "$(PYTHON)" -m bandit -c pyproject.toml --severity-level medium; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) bandit; else exit $$rc; fi
+
 # Cross-file / AI-agent SAST (part of make typecheck / make test; not build/release).
 # Wrapper disables reviewed FP rules; see scripts/run_pyspector.py.
 # PyPI has no CPython 3.13 Windows wheel, so uv sync does not install pyspector
 # there. Skip on Windows instead of failing typecheck; Linux and macOS still fail if missing.
+# pyspector scan accepts a single PATH; above 5 changed files, fall back to full scan for cross-file analysis.
 ifeq ($(OS),Windows_NT)
 pyspector:
 	@if "$(PYTHON)" -c "import pyspector" >/dev/null 2>&1; then \
 		"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan plugin --ai -c pyspector.toml --msg=False; \
+	else \
+		echo "pyspector not installed — skipped"; \
+	fi
+
+pyspector-incr:
+	@if "$(PYTHON)" -c "import pyspector" >/dev/null 2>&1; then \
+		"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --root plugin --config-path pyspector.toml --config-path scripts/run_pyspector.py --config-path scripts/pyspector_semgrep_adapter.py --config-path $(OPENGREP_DIR) --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
+		rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pyspector; else exit $$rc; fi; \
 	else \
 		echo "pyspector not installed — skipped"; \
 	fi
@@ -994,6 +1038,11 @@ else
 pyspector:
 	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan plugin --ai -c pyspector.toml --msg=False
+
+pyspector-incr:
+	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --root plugin --config-path pyspector.toml --config-path scripts/run_pyspector.py --config-path scripts/pyspector_semgrep_adapter.py --config-path $(OPENGREP_DIR) --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pyspector; else exit $$rc; fi
 
 pyspector-report:
 	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
