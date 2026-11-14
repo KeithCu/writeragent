@@ -388,11 +388,14 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
         del path
         if cancel is not None and not long_started.is_set():
             assert long_started.wait(2), "next sentence was not synthesizing while the short one played"
+        return True
 
     utt = tts._begin_utterance()
 
     try:
-        with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
+        with patch.object(tts, "_prepare_kokoro_misaki", return_value=True), patch.object(
+            tts, "_synthesize_sentence_clip", side_effect=synth
+        ), patch.object(
             tts, "_play_audio_file", side_effect=play
         ):
             tts._run_sentence_pipeline(
