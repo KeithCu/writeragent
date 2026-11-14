@@ -928,69 +928,54 @@ def test_inherit_env_popen_and_wrapper_see_none(monkeypatch: pytest.MonkeyPatch)
                 _reap_for_test(sub_win)
 
 
-@pytest.mark.parametrize("use_devnull", [True, False], ids=["devnull", "default_stderr"])
+@pytest.mark.parametrize(
+    ("ctor_kwargs", "stub_drain"),
+    [
+        pytest.param({"stderr": subprocess.DEVNULL}, False, id="devnull"),
+        pytest.param({}, True, id="default_stderr"),
+    ],
+)
 def test_register_false_skipped_by_shutdown_all(
-    monkeypatch: pytest.MonkeyPatch, use_devnull: bool
+    monkeypatch: pytest.MonkeyPatch, ctor_kwargs: dict[str, Any], stub_drain: bool
 ) -> None:
     import plugin.framework.managed_subprocess as ms
 
-    mock_proc = MagicMock()
-    mock_proc.pid = 2222
-    mock_proc.stdin = MagicMock()
-    mock_proc.stdout = MagicMock()
-    mock_proc.stderr = None if use_devnull else MagicMock()
-    mock_proc.poll.return_value = 0 if use_devnull else None
+    def _make_mock_proc(pid: int) -> MagicMock:
+        proc = MagicMock()
+        proc.pid = pid
+        proc.stdin = MagicMock()
+        proc.stdout = MagicMock()
+        proc.stderr = MagicMock() if stub_drain else None
+        proc.poll.return_value = None if stub_drain else 0
+        return proc
 
-    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **kw: mock_proc)
-    if not use_devnull:
+    unreg_proc = _make_mock_proc(2222)
+    reg_proc = _make_mock_proc(2223)
+    procs = iter([unreg_proc, reg_proc])
+
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **kw: next(procs))
+    if stub_drain:
         monkeypatch.setattr(ms, "start_stderr_drain", lambda *a, **kw: MagicMock())
 
-    extra_kwargs: dict[str, Any] = {"stderr": subprocess.DEVNULL} if use_devnull else {}
-    inst_unregistered = ms.ManagedSubprocess(["echo"], register=False, **extra_kwargs)
+    inst_unregistered = ms.ManagedSubprocess(["echo"], register=False, **ctor_kwargs)
     inst_unregistered.start()
     assert inst_unregistered not in ms._instances
+    ms.shutdown_all()
+    unreg_proc.kill.assert_not_called()
 
-    if use_devnull:
-        inst_registered = ms.ManagedSubprocess(["echo"], **extra_kwargs)
-        inst_registered.start()
-        assert inst_registered in ms._instances
-        _reap_for_test(inst_registered)
-        assert inst_registered not in ms._instances
-    else:
-        ms.shutdown_all()
-        mock_proc.kill.assert_not_called()
+    inst_registered = ms.ManagedSubprocess(["echo"], **ctor_kwargs)
+    inst_registered.start()
+    assert inst_registered in ms._instances
+    _reap_for_test(inst_registered)
+    assert inst_registered not in ms._instances
 
 
 @pytest.mark.parametrize(
-    ("cmd", "ctor_kwargs", "exc_cls", "exc_args", "match_re", "check_default_and_single_use"),
+    ("cmd", "ctor_kwargs", "exc_cls", "exc_args"),
     [
-        pytest.param(
-            ["fail"],
-            {"stderr": subprocess.DEVNULL},
-            OSError,
-            ("exec failed",),
-            r"^exec failed$",
-            True,
-            id="stderr_devnull",
-        ),
-        pytest.param(
-            ["python", "editor_main.py"],
-            {"drain_stderr": False},
-            OSError,
-            ("exec failed",),
-            r"^exec failed$",
-            True,
-            id="drain_stderr_false",
-        ),
-        pytest.param(
-            ["dummy"],
-            {},
-            FileNotFoundError,
-            (2, "No such file", "missing"),
-            None,
-            False,
-            id="default_stderr_file_not_found",
-        ),
+        pytest.param(["fail"], {"stderr": subprocess.DEVNULL}, OSError, ("exec failed",), id="stderr_devnull"),
+        pytest.param(["python", "editor_main.py"], {"drain_stderr": False}, OSError, ("exec failed",), id="drain_stderr_false"),
+        pytest.param(["dummy"], {}, FileNotFoundError, (2, "No such file", "missing"), id="default_stderr_file_not_found"),
     ],
 )
 def test_log_start_failure_false_reraises_original(
@@ -1000,48 +985,51 @@ def test_log_start_failure_false_reraises_original(
     ctor_kwargs: dict[str, Any],
     exc_cls: type[OSError],
     exc_args: tuple[Any, ...],
-    match_re: str | None,
-    check_default_and_single_use: bool,
 ) -> None:
+    import re
     import plugin.framework.managed_subprocess as ms
 
+    err = exc_cls(*exc_args)
+    err_re = re.escape(str(err))
+
     def fail_popen(*a: Any, **kw: Any) -> None:
-        raise exc_cls(*exc_args)
+        raise err
 
     monkeypatch.setattr(ms.subprocess, "Popen", fail_popen)
     if "stderr" not in ctor_kwargs and ctor_kwargs.get("drain_stderr", True):
         monkeypatch.setattr(ms, "start_stderr_drain", lambda *a, **kw: MagicMock())
 
-    sub_quiet = ms.ManagedSubprocess(cmd, log_start_failure=False, register=False, **ctor_kwargs)
+    sub_quiet = ms.ManagedSubprocess(cmd, log_start_failure=False, **ctor_kwargs)
     with caplog.at_level("ERROR", logger="plugin.framework.managed_subprocess"):
-        with pytest.raises(exc_cls, match=match_re):
+        with pytest.raises(exc_cls, match=f"^{err_re}$"):
             sub_quiet.start()
     assert sub_quiet.popen is None
     assert sub_quiet not in ms._instances
     assert "Failed to start managed subprocess" not in caplog.text
 
-    if not check_default_and_single_use:
-        return
-
     caplog.clear()
-    sub_loud = ms.ManagedSubprocess(cmd, register=False, **ctor_kwargs)
+    sub_loud = ms.ManagedSubprocess(cmd, **ctor_kwargs)
     with caplog.at_level("ERROR", logger="plugin.framework.managed_subprocess"):
-        with pytest.raises(RuntimeError, match=r"^Failed to start managed subprocess: exec failed$"):
+        with pytest.raises(RuntimeError, match=f"^Failed to start managed subprocess: {err_re}$"):
             sub_loud.start()
+    assert sub_loud not in ms._instances
     assert "Failed to start managed subprocess" in caplog.text
 
     mock_proc = MagicMock()
     mock_proc.pid = 3333
     mock_proc.stdin = MagicMock()
     mock_proc.stdout = MagicMock()
-    mock_proc.stderr = None
+    mock_proc.stderr = MagicMock() if "stderr" not in ctor_kwargs else None
     mock_proc.poll.return_value = None
     monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **kw: mock_proc)
 
-    sub_quiet.start()
-    assert sub_quiet.popen is mock_proc
-    with pytest.raises(RuntimeError, match=r"^ManagedSubprocess is single-use$"):
+    try:
         sub_quiet.start()
+        assert sub_quiet.popen is mock_proc
+        with pytest.raises(RuntimeError, match=r"^ManagedSubprocess is single-use$"):
+            sub_quiet.start()
+    finally:
+        _reap_for_test(sub_quiet)
 
 
 @pytest.mark.parametrize(

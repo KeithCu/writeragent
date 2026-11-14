@@ -1722,13 +1722,17 @@ def _guard_probe_registry():
 
 
 @pytest.mark.parametrize(
-    "params",
+    ("params", "expected"),
     [
-        pytest.param({"note": "keep"}, id="plain_params"),
-        pytest.param({"bypass_thread_guard": False, "note": "keep"}, id="bypass_false_in_dict"),
+        pytest.param({"note": "keep"}, {"status": "ok", "note": "keep"}, id="plain_params"),
+        pytest.param(
+            {"bypass_thread_guard": False, "note": "keep"},
+            {"status": "ok", "note": "keep", "ignored_parameters": ["bypass_thread_guard"]},
+            id="bypass_false_in_dict",
+        ),
     ],
 )
-def test_execute_unguarded_skips_guard(params: dict[str, Any]) -> None:
+def test_execute_unguarded_skips_guard(params: dict[str, Any], expected: dict[str, Any]) -> None:
     """execute_unguarded must still bypass."""
     reg, ctx, calls, seen = _guard_probe_registry()
     marshalled: list[str] = []
@@ -1741,8 +1745,7 @@ def test_execute_unguarded_skips_guard(params: dict[str, Any]) -> None:
         # Same shape as tools_lo: keyword, then **params.
         out = reg.execute_unguarded("dummy_sync", ctx, **params)
 
-    assert out.get("status") == "ok"
-    assert out.get("note") == "keep"
+    assert out == expected
     assert calls == ["execute"]
     assert seen == [{"note": "keep"}]
     assert marshalled == []
@@ -1754,7 +1757,7 @@ def test_execute_unguarded_skips_guard(params: dict[str, Any]) -> None:
         pytest.param(True, True, id="bg_true"),
         pytest.param(1, True, id="bg_1"),
         pytest.param("yes", True, id="bg_yes"),
-        pytest.param(True, False, id="inline_dict_literal"),
+        pytest.param(True, False, id="inline"),
     ],
 )
 def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object, on_bg_thread: bool) -> None:
@@ -1768,6 +1771,7 @@ def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object, on_bg_th
     marshalled: list[str] = []
     box: dict[str, Any] = {}
     worker_exc: list[BaseException] = []
+    args = {"bypass_thread_guard": bypass, "note": "keep"}
 
     def fake_marshal(fn):
         marshalled.append("marshal")
@@ -1775,11 +1779,7 @@ def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object, on_bg_th
 
     def run_call() -> None:
         try:
-            if on_bg_thread:
-                args = {"bypass_thread_guard": bypass, "note": "keep"}
-                box["out"] = reg.execute("dummy_sync", ctx, **args)
-            else:
-                box["out"] = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": bypass, "note": "keep"})
+            box["out"] = reg.execute("dummy_sync", ctx, **args)
         except BaseException as exc:
             worker_exc.append(exc)
 

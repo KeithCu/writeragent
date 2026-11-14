@@ -339,8 +339,16 @@ def test_strip_think_tags_no_tags():
     assert clean == "Direct output without tags."
     assert thinking is None
 
-@pytest.mark.parametrize("same_index", [False, True], ids=["distinct_indices", "same_index_merged"])
-def test_streaming_replay_encrypted_fragments_past_shape_dim(same_index: bool) -> None:
+@pytest.mark.parametrize(
+    ("same_index", "expected_fn"),
+    [
+        pytest.param(False, lambda n: [f"x{i}" for i in range(n)], id="distinct_indices"),
+        pytest.param(True, lambda n: ["x" * n], id="same_index_merged"),
+    ],
+)
+def test_streaming_replay_encrypted_fragments_past_shape_dim(
+    same_index: bool, expected_fn: object
+) -> None:
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
 
     n = DEAL_MAX_SHAPE_DIM + 1
@@ -354,13 +362,7 @@ def test_streaming_replay_encrypted_fragments_past_shape_dim(same_index: bool) -
     replay = sn._streaming_replay("", meta)
     assert isinstance(replay, dict)
     details = replay.get("reasoning_details", [])
-    if same_index:
-        assert len(details) == 1
-        assert details[0]["data"] == "x" * n
-    else:
-        assert len(details) == n
-        for i in range(n):
-            assert details[i]["data"] == f"x{i}"
+    assert [d["data"] for d in details] == expected_fn(n)  # type: ignore[operator]
 
 
 def test_iterate_sse_skips_comments_blanks_and_keeps_data_and_raw_json():

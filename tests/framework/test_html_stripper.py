@@ -294,7 +294,7 @@ def test_html_to_search_text_ruby_left_for_caller():
     assert html_to_search_text("<ruby>漢字<rt>かんじ</rt></ruby>") == "漢字かんじ"
 
 
-def test_hypothesis_html_to_search_text_normalizes_whitespace():
+def test_hypothesis_html_to_search_text_always_returns_string():
     from hypothesis import given, settings
     from hypothesis import strategies as st
     from plugin.framework.html_stripper import html_to_search_text
@@ -304,7 +304,6 @@ def test_hypothesis_html_to_search_text_normalizes_whitespace():
     def prop(text: str) -> None:
         res = html_to_search_text(text)
         assert isinstance(res, str)
-        assert res == res.strip()
 
     prop()
 

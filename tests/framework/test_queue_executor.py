@@ -327,7 +327,7 @@ def test_get_async_callback_unavailable(monkeypatch: pytest.MonkeyPatch, mode: s
 
     with patch("plugin.framework.queue_executor.log.warning") as mock_warn:
         res = main._get_async_callback()
-        again = main._get_async_callback() if mode == "ctx_raises" else None
+        again = main._get_async_callback()
     assert res is None
     assert again is None
     # Missing context or unavailable service must not latch; the next marshal retries.
@@ -681,6 +681,8 @@ def test_execute_logical_main_without_py_main_enqueues():
 
 @pytest.mark.parametrize("reason", ["agent_session", "background_task"])
 def test_execute_refuses_fallback_from_background(reason: str) -> None:
+    import contextlib
+
     if reason == "agent_session":
         main._async_callback_service = None
         main._initialized = True
@@ -690,20 +692,14 @@ def test_execute_refuses_fallback_from_background(reason: str) -> None:
     def run_on_worker() -> None:
         try:
             task_name = None if reason == "agent_session" else "worker-test"
+            session_ctx = sc.agent_session() if reason == "agent_session" else contextlib.nullcontext()
             with (
                 patch.object(main, "_get_async_callback", return_value=None),
                 patch("plugin.framework.thread_guard.get_background_task_name", return_value=task_name),
+                session_ctx,
+                pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
             ):
-                if reason == "agent_session":
-                    with sc.agent_session(), pytest.raises(
-                        RuntimeError, match="AsyncCallback unavailable from background thread"
-                    ):
-                        main.call(lambda: res_holder.append(1))
-                else:
-                    with pytest.raises(
-                        RuntimeError, match="AsyncCallback unavailable from background thread"
-                    ):
-                        main.call(lambda: res_holder.append(1))
+                main.call(lambda: res_holder.append(1))
         except BaseException as exc:
             worker_exc.append(exc)
 

@@ -71,12 +71,16 @@ def test_hypothesis_strip_html_tags_removes_real_tags(sample: tuple[str, str]) -
     assert ">" not in res
 
 
-@given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK))
+@given(
+    text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK),
+    data=st.data(),
+)
 @settings(max_examples=100)
-def test_hypothesis_strip_html_tags_no_crash_on_malformed_markup(text: str) -> None:
-    # Whole-string and streaming stripping must agree without crashing on malformed markup.
+def test_hypothesis_strip_html_tags_no_crash_on_malformed_markup(text: str, data: st.DataObject) -> None:
+    # Two-chunk streaming across any split point must match whole-string stripping on malformed markup.
+    split_at = data.draw(st.integers(min_value=0, max_value=len(text)))
     stripper = StreamingHTMLStripper()
-    assert stripper.feed(text) + stripper.finalize() == strip_html_tags(text)
+    assert stripper.feed(text[:split_at]) + stripper.feed(text[split_at:]) + stripper.finalize() == strip_html_tags(text)
 
 
 def test_strip_html_tags_streaming_equivalence() -> None:
