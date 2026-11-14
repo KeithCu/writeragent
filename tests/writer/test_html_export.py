@@ -1,3 +1,4 @@
+import base64
 import re
 from unittest.mock import MagicMock, patch
 
@@ -5,8 +6,10 @@ import pytest
 
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.html_export import (
+    _apply_image_export_options,
     _inject_page_number_attributes,
     _range_to_content_via_temp_doc,
+    strip_embedded_image_data,
     xtext_to_content,
 )
 
@@ -746,10 +749,6 @@ def test_stripping():
     assert result == expected
 
 
-import base64
-from plugin.writer.html_export import _apply_image_export_options, strip_embedded_image_data
-
-
 def test_strip_embedded_image_data_removes_base64_keeps_external_url():
     b64 = base64.b64encode(b"png-bytes").decode("ascii")
     html = (
@@ -776,3 +775,77 @@ def test_apply_image_export_options_skips_when_include_images_true():
     b64 = base64.b64encode(b"x").decode("ascii")
     html = f'<img src="data:image/png;base64,{b64}"/>'
     assert _apply_image_export_options(html, include_images=True) == html
+
+
+def _enum(items):
+    e = MagicMock()
+    rest = list(items)
+    e.hasMoreElements.side_effect = lambda: True if rest else False
+    e.nextElement.side_effect = lambda: rest.pop(0)
+    return e
+
+
+def _text_portion(text, ptype="Text", **props):
+    p = MagicMock()
+    values = {"TextPortionType": ptype}
+    values.update(props)
+    p.getPropertyValue.side_effect = lambda n: values[n]
+    p.getString.return_value = text
+    return p
+
+
+def _para_of(portions):
+    para = MagicMock()
+    para.createEnumeration.side_effect = lambda: _enum(portions)
+    return para
+
+
+def test_visible_portions_skips_tracked_deletions():
+    """Shared walk with get_string_without_tracked_deletions — a divergence would paint one
+    run's formatting onto another run's characters."""
+    from plugin.writer import html_export as hx
+
+    para = _para_of([
+        _text_portion("kept "),
+        _text_portion("", "Redline", RedlineType="Delete"),
+        _text_portion("deleted"),
+        _text_portion("", "Redline", RedlineType="Delete"),
+        _text_portion(" tail"),
+    ])
+
+    assert "".join(chunk for _p, chunk in hx._visible_portions(para)) == "kept  tail"
+
+
+def test_visible_portions_ignores_non_delete_redlines():
+    from plugin.writer import html_export as hx
+
+    para = _para_of([
+        _text_portion("", "Redline", RedlineType="Insert"),
+        _text_portion("inserted text"),
+    ])
+
+    assert "".join(chunk for _p, chunk in hx._visible_portions(para)) == "inserted text"
+
+
+def test_visible_portions_warns_when_walk_hits_cap():
+    """Silent truncate hid later runs' Char*; the agent needs a warning that the paint is partial."""
+    from plugin.writer import html_export as hx
+
+    para = _para_of([_text_portion("a"), _text_portion("b"), _text_portion("c")])
+    truncated = []
+    chunks = [chunk for _p, chunk in hx._visible_portions(para, limit=2, truncated_out=truncated)]
+
+    assert chunks == ["a", "b"]
+    assert len(truncated) == 1
+
+
+def test_visible_portions_does_not_warn_when_enum_is_exhausted():
+    from plugin.writer import html_export as hx
+
+    para = _para_of([_text_portion("a"), _text_portion("b")])
+    truncated = []
+    chunks = [chunk for _p, chunk in hx._visible_portions(para, limit=2, truncated_out=truncated)]
+
+    assert chunks == ["a", "b"]
+    assert truncated == []
+

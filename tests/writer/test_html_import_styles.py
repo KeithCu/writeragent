@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Tests for heading extraction, link resolution, and diagnostics in html_import_styles."""
+"""Tests for plugin.writer.html_import_styles."""
 
 from __future__ import annotations
 
@@ -351,8 +351,6 @@ def test_block_styles_stop_at_the_end_of_the_import():
     """More styles than imported paragraphs must not style the text after the import (the old
     text a full_document had just deleted: its Delete turned into a Format change)."""
 
-    from plugin.writer import html_import_styles
-
     text = MagicMock()
     walk_cur = MagicMock()
     starts = [0, 1, 2, 3]
@@ -380,8 +378,6 @@ def test_block_styles_stop_at_the_end_of_the_import():
 
 
 def test_apply_block_lo_styles_token_cache_reads_element_names_once():
-    from plugin.writer import html_import_styles
-
     model = MagicMock()
     fam = MagicMock()
     fam.getElementNames.return_value = ["Heading 1", "Standard"]
@@ -404,8 +400,6 @@ def test_apply_block_lo_styles_token_cache_reads_element_names_once():
 
 
 def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
-    from plugin.writer import html_import_styles
-
     model = MagicMock()
     fam = MagicMock()
     # "Heading1" matches both literal "Heading1" and compact form of "Heading 1" -> ambiguous
@@ -426,8 +420,6 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
 
 
 def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
-    from plugin.writer import html_import_styles
-
     model = MagicMock()
     fam = MagicMock()
     fam.getElementNames.return_value = ["Standard"]
@@ -448,8 +440,6 @@ def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
 
 
 def test_apply_block_lo_styles_skips_when_style_already_matches():
-    from plugin.writer import html_import_styles
-
     model = MagicMock()
     fam = MagicMock()
     fam.getElementNames.return_value = ["Heading 1", "Standard"]
@@ -495,8 +485,6 @@ def test_parse_data_lo_para_text_align_center():
 
 def test_apply_block_lo_styles_returns_failures():
     """apply_block_lo_styles returns property names for dropped, failed, or unreached slots."""
-    from plugin.writer import html_import_styles
-
     model = MagicMock()
     model.getStyleFamilies.return_value.getByName.return_value = None
 
@@ -608,7 +596,7 @@ def test_every_read_para_name_has_a_writer_or_is_listed_read_only():
     A property added to the read table without a writer would otherwise only show up as
     one more warning; this makes it a test failure that forces a decision.
     """
-    from plugin.writer import html_import_styles, xhtml_style_postprocess
+    from plugin.writer import xhtml_style_postprocess
 
     read_names = {css for _odf, css in xhtml_style_postprocess._FODT_OVERRIDE_ATTRS}
     writers = set(html_import_styles._para_writers())
@@ -706,8 +694,6 @@ def test_round_trip_read_fodt_autostyle_value():
     ],
 )
 def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected_failed, expected_para_calls_fn):
-    from plugin.writer import html_import_styles
-
     model = MagicMock()
     fam = MagicMock()
     fam.getElementNames.return_value = ["Standard"]
@@ -784,8 +770,6 @@ def test_extractor_handles_data_lo_para():
 
 
 def test_apply_block_lo_styles_cursor_walk_no_prefix_enumeration():
-    from plugin.writer import html_import_styles
-
     text = MagicMock()
     next_calls = []
     text.createEnumeration.return_value.hasMoreElements.side_effect = lambda: True

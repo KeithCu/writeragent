@@ -830,10 +830,7 @@ def test_iter_elements_stops_for_magicmock():
     assert list(iter_elements(_UnoFalse())) == []
 
 
-
-
 def test_enum_hit_walk_cap_and_warning_are_honest():
-    from unittest.mock import MagicMock
     from plugin.doc import text_helpers as fmt
 
     more = MagicMock()
@@ -850,81 +847,3 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
     assert len(dest) == 1
 
-
-def _enum(items):
-    from unittest.mock import MagicMock
-
-    e = MagicMock()
-    rest = list(items)
-    e.hasMoreElements.side_effect = lambda: True if rest else False
-    e.nextElement.side_effect = lambda: rest.pop(0)
-    return e
-
-
-def _text_portion(text, ptype="Text", **props):
-    from unittest.mock import MagicMock
-
-    p = MagicMock()
-    values = {"TextPortionType": ptype}
-    values.update(props)
-    p.getPropertyValue.side_effect = lambda n: values[n]
-    p.getString.return_value = text
-    return p
-
-
-def _para_of(portions):
-    from unittest.mock import MagicMock
-
-    para = MagicMock()
-    para.createEnumeration.side_effect = lambda: _enum(portions)
-    return para
-
-
-def test_visible_portions_skips_tracked_deletions():
-    """Shared walk with get_string_without_tracked_deletions — a divergence would paint one
-    run's formatting onto another run's characters."""
-    from plugin.writer import html_export as hx
-
-    para = _para_of([
-        _text_portion("kept "),
-        _text_portion("", "Redline", RedlineType="Delete"),
-        _text_portion("deleted"),
-        _text_portion("", "Redline", RedlineType="Delete"),
-        _text_portion(" tail"),
-    ])
-
-    assert "".join(chunk for _p, chunk in hx._visible_portions(para)) == "kept  tail"
-
-
-def test_visible_portions_ignores_non_delete_redlines():
-    from plugin.writer import html_export as hx
-
-    para = _para_of([
-        _text_portion("", "Redline", RedlineType="Insert"),
-        _text_portion("inserted text"),
-    ])
-
-    assert "".join(chunk for _p, chunk in hx._visible_portions(para)) == "inserted text"
-
-
-def test_visible_portions_warns_when_walk_hits_cap():
-    """Silent truncate hid later runs' Char*; the agent needs a warning that the paint is partial."""
-    from plugin.writer import html_export as hx
-
-    para = _para_of([_text_portion("a"), _text_portion("b"), _text_portion("c")])
-    truncated = []
-    chunks = [chunk for _p, chunk in hx._visible_portions(para, limit=2, truncated_out=truncated)]
-
-    assert chunks == ["a", "b"]
-    assert len(truncated) == 1
-
-
-def test_visible_portions_does_not_warn_when_enum_is_exhausted():
-    from plugin.writer import html_export as hx
-
-    para = _para_of([_text_portion("a"), _text_portion("b")])
-    truncated = []
-    chunks = [chunk for _p, chunk in hx._visible_portions(para, limit=2, truncated_out=truncated)]
-
-    assert chunks == ["a", "b"]
-    assert truncated == []

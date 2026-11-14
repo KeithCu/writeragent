@@ -7,13 +7,18 @@
 No UNO / LibreOffice. Pure algorithm + reconstruction property tests.
 """
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
 import pytest
 
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE
 from plugin.writer.word_diff_split import (
+    SplitResult,
     SubEdit,
     split_change,
     tokenize,
 )
+from tests.harness.vhs_budget import vhs_max_examples
 
 
 def apply_sub_edits(old: str, sub_edits: list[SubEdit]) -> str:
@@ -566,13 +571,7 @@ def test_astral_offsets_are_python_code_points():
     assert apply_sub_edits(old, result.sub_edits) == new
 
 
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE
-from plugin.writer.word_diff_split import SplitResult
-from tests.harness.vhs_budget import vhs_max_examples
-
+# Hypothesis: light under ``make verify``; deep via ``make vhs`` (capped alphabets).
 # Cap size/alphabet so deep VHS does not fight greedy regex oracles (FV §8.1 C).
 _SAFE_TEXT = st.text(
     alphabet=st.characters(blacklist_categories=("Cs", "Cc"), blacklist_characters="\x00"),
@@ -580,7 +579,7 @@ _SAFE_TEXT = st.text(
 )
 
 
-def test_split_change_longer_than_source_runs() -> None:
+def test_verification_split_change_longer_than_source_runs() -> None:
     """Selection text past DEAL_MAX_SOURCE is a real diff, not a contract error."""
     too_long = "x " * (DEAL_MAX_SOURCE + 1)
     left = split_change(too_long, "a")
@@ -591,13 +590,12 @@ def test_split_change_longer_than_source_runs() -> None:
 
 @given(old=_SAFE_TEXT, new=_SAFE_TEXT)
 @settings(max_examples=vhs_max_examples(100, 1000), deadline=None)
-def test_hypothesis_split_change_fraction_bounds(old: str, new: str) -> None:
+def test_verification_hypothesis_split_change_fraction_bounds(old: str, new: str) -> None:
     res = split_change(old, new)
     assert isinstance(res, SplitResult)
     assert 0.0 <= res.fraction_changed <= 1.0
 
     for sub in res.sub_edits:
         assert 0 <= sub.old_start <= sub.old_end <= len(old)
-
 
 

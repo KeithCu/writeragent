@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.writer.edit_review import (
+    annotate_review_status,
     edit_review_wait_seconds,
     get_agent_edit_review_mode,
     review_recording_enabled,
@@ -1113,10 +1114,10 @@ def test_replace_range_collapses_doubled_newlines_between_paragraphs():
     assert text_obj.insertControlCharacter.call_count == 2
 
 
+# R1 (robustness): a successful edit result must carry the CURRENT review status per-call,
+# so the model is correct even if the initialize manual is stale (manual is sent once at
+# connect; toggling the mode later doesn't update it).
 def _annotate_review_status_with_mode(mode, result):
-    from unittest.mock import patch
-    from plugin.writer.edit_review import annotate_review_status
-
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode):
         return annotate_review_status(result)
 

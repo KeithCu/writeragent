@@ -1,200 +1,21 @@
 
+from contextlib import contextmanager
 import html as html_mod
 from typing import Any
-
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from plugin.writer.html_export import HTML_FILTER
 from plugin.writer.html_import import (
-    ensure_html_linebreaks,
+    _wrap_html_fragment,
     content_has_markup,
+    ensure_html_linebreaks,
+    insert_html_fragment_at_cursor,
     replace_xtext_with_html,
 )
-from plugin.writer.html_ruby import (
-    apply_ruby_spans,
-    extract_and_strip_ruby,
-)
 
 
-def test_extract_and_strip_ruby_simple():
-    html = "<p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>"
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == "<p>前漢字後</p>"
-    # Offset 1: the visible text before the ruby is 前, not the first character of the file.
-    assert spans == [("漢字", "かんじ", True, 1)]
-
-
-def test_extract_and_strip_ruby_under_and_rp():
-    html = '<ruby style="ruby-position: under">東京<rp>(</rp><rt>とうきょう</rt><rp>)</rp></ruby>'
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == "東京"
-    assert spans == [("東京", "とうきょう", False, 0)]
-
-
-def test_extract_and_strip_ruby_position_ignores_unrelated_attrs():
-    html = '<ruby class="thunder">東京<rt>とうきょう</rt></ruby>'
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == "東京"
-    assert len(spans) == 1
-    assert spans[0].is_above is True
-
-
-def test_extract_and_strip_ruby_unbalanced_ruby_has_no_spans():
-    html = "<ruby>漢字<rt>かんじ</rt>" * 2000
-    clean, spans = extract_and_strip_ruby(html)
-    assert spans == []
-    assert "<rt>" not in clean
-    assert "かんじ" not in clean
-
-
-def test_extract_and_strip_ruby_uppercase_tags():
-    html = "<RUBY>漢字<RT>かんじ</RT></RUBY>"
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == "漢字"
-    assert spans == [("漢字", "かんじ", True, 0)]
-
-
-def test_extract_and_strip_ruby_noop():
-    html = "<p>plain</p>"
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == html
-    assert spans == []
-
-
-class _RubyCursor:
-    """Plain-text cursor: goRight and getString share one string."""
-
-    def __init__(self, text: str) -> None:
-        self._text = text
-        self.start = 0
-        self.end = 0
-        self.ruby: tuple[int, int, str] | None = None
-
-    def gotoEnd(self, expand: bool) -> bool:
-        if expand:
-            self.end = len(self._text)
-        else:
-            self.start = self.end = len(self._text)
-        return True
-
-    def goRight(self, count: int, expand: bool) -> bool:
-        if expand:
-            self.end += count
-        else:
-            self.start += count
-            self.end = self.start
-        return self.end <= len(self._text) and self.start <= len(self._text)
-
-    def getString(self) -> str:
-        return self._text[self.start:self.end]
-
-    def setPropertyValue(self, name: str, value: object) -> None:
-        if name == "RubyText":
-            self.ruby = (self.start, self.end, str(value))
-
-
-class _RubyText:
-    def __init__(self, text: str) -> None:
-        self._text = text
-        self.cursors: list[_RubyCursor] = []
-
-    def getStart(self) -> int:
-        return 0
-
-    def createTextCursorByRange(self, origin: object) -> _RubyCursor:
-        cursor = _RubyCursor(self._text)
-        if isinstance(origin, _RubyCursor):
-            cursor.start = origin.start
-            cursor.end = origin.end
-        self.cursors.append(cursor)
-        return cursor
-
-
-def test_ruby_reading_attaches_to_later_base_not_the_first_copy():
-    """A plain 漢字 before <ruby>漢字</ruby> must not take the reading."""
-    html = "<p>漢字と<ruby>漢字<rt>かんじ</rt></ruby></p>"
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == "<p>漢字と漢字</p>"
-    assert spans == [("漢字", "かんじ", True, len("漢字と"))]
-    text = _RubyText("漢字と漢字")
-    apply_ruby_spans(text, spans)
-    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
-    assert painted == [(len("漢字と"), len("漢字と漢字"), "かんじ")]
-
-
-def test_ruby_offset_is_relative_to_the_imported_suffix():
-    """skip_chars is existing text. The span offset is inside the inserted suffix."""
-    prefix = "前置き"
-    suffix = "漢字と漢字"
-    text = _RubyText(prefix + suffix)
-    spans = [("漢字", "かんじ", True, len("漢字と"))]
-    apply_ruby_spans(text, spans, skip_chars=len(prefix))
-    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
-    start = len(prefix) + len("漢字と")
-    assert painted == [(start, start + len("漢字"), "かんじ")]
-
-
-def test_ruby_readings_stay_on_their_own_repeated_base():
-    html = "<p><ruby>漢字<rt>いち</rt></ruby><ruby>漢字<rt>に</rt></ruby></p>"
-    _unused, spans = extract_and_strip_ruby(html)
-    assert [span[1] for span in spans] == ["いち", "に"]
-    assert [span[3] for span in spans] == [0, len("漢字")]
-    text = _RubyText("漢字漢字")
-    apply_ruby_spans(text, spans)
-    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
-    assert painted == [(0, 2, "いち"), (2, 4, "に")]
-
-
-def test_ruby_offset_counts_br_before_the_base():
-    html = "<p>漢字<br>x<ruby>漢字<rt>かんじ</rt></ruby></p>"
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == "<p>漢字<br>x漢字</p>"
-    assert spans == [("漢字", "かんじ", True, len("漢字\nx"))]
-    text = _RubyText("漢字\nx漢字")
-    apply_ruby_spans(text, spans)
-    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
-    assert painted == [(4, 6, "かんじ")]
-
-
-def test_ruby_offset_counts_paragraph_end():
-    html = "<p>a</p><p><ruby>漢字<rt>かんじ</rt></ruby></p>"
-    clean, spans = extract_and_strip_ruby(html)
-    assert clean == "<p>a</p><p>漢字</p>"
-    assert spans == [("漢字", "かんじ", True, len("a\n"))]
-
-
-def test_ruby_repeated_base_after_br_keeps_own_reading():
-    html = "<p><ruby>漢字<rt>いち</rt></ruby>漢字<br><ruby>漢字<rt>に</rt></ruby></p>"
-    _clean, spans = extract_and_strip_ruby(html)
-    text = _RubyText("漢字漢字\n漢字")
-    apply_ruby_spans(text, spans)
-    painted = [cursor.ruby for cursor in text.cursors if cursor.ruby]
-    assert painted == [(0, 2, "いち"), (5, 7, "に")]
-
-
-def test_ruby_spans_forward_cursor_walk():
-    # One hundred spans spread through a long string: len(text.cursors) stays far below
-    # one cursor per span plus a full restart, and painted triples match offsets.
-    spans = []
-    parts = []
-    offset = 0
-    expected_painted = []
-    for i in range(100):
-        filler = f"filler{i}"
-        parts.append(filler)
-        offset += len(filler)
-        base = "漢"
-        reading = f"かん{i}"
-        spans.append((base, reading, True, offset))
-        expected_painted.append((offset, offset + len(base), reading))
-        parts.append(base)
-        offset += len(base)
-    full_text = "".join(parts)
-    text = _RubyText(full_text)
-    apply_ruby_spans(text, spans)
-    painted = [c.ruby for c in text.cursors if c.ruby]
-    assert painted == expected_painted
-    assert len(text.cursors) <= 205
 
 
 def test_mixed_math_segments_produce_separate_ruby_spans_without_tex_source():
@@ -593,17 +414,10 @@ _FRAME = ('<div data-lo-style="Standard"><div style="float:left" class="graphic-
           'Pelotas.</div>')
 
 
-def _graphics_doc(*names):
-
-    model = MagicMock()
-    graphics = model.getGraphicObjects.return_value
-    graphics.hasByName.side_effect = lambda name: name in names
-    return model
-
-
 def test_full_document_refuses_before_deleting_anything():
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer import html_import
+    from tests.writer.test_image_placeholders import _graphics_doc
 
     model = _graphics_doc()
     with pytest.raises(ToolExecutionError):
@@ -2152,17 +1966,6 @@ def test_run_writer_mutation_with_optional_review_import_error():
     with patch("builtins.__import__", side_effect=import_without_edit_review):
         run_writer_mutation_with_optional_review(MagicMock(), MagicMock(), apply_fn)
     apply_fn.assert_called_once()
-
-
-from contextlib import contextmanager
-from unittest.mock import MagicMock
-
-
-from plugin.writer.html_export import HTML_FILTER
-from plugin.writer.html_import import (
-    _wrap_html_fragment,
-    insert_html_fragment_at_cursor,
-)
 
 
 @contextmanager
