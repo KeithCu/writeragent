@@ -624,13 +624,21 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
 
 
 @pytest.mark.parametrize(
-    "spawn_method, spawn_args, stream_method",
+    "spawn_fn, get_stream_fn",
     [
-        pytest.param("_spawn_llm_worker", (128, [{"name": "t"}], 0), "stream_request_with_tools", id="llm_worker"),
-        pytest.param("_spawn_final_stream", (256,), "stream_chat_response", id="final_stream"),
+        pytest.param(
+            lambda inst, q, client: inst._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0),
+            lambda client: client.stream_request_with_tools,
+            id="llm_worker",
+        ),
+        pytest.param(
+            lambda inst, q, client: inst._spawn_final_stream(q, client, 256),
+            lambda client: client.stream_chat_response,
+            id="final_stream",
+        ),
     ],
 )
-def test_worker_spawn_passes_session_id_cache_routing_key(test_instance, spawn_method, spawn_args, stream_method):
+def test_worker_spawn_passes_session_id_cache_routing_key(test_instance, spawn_fn, get_stream_fn):
     from plugin.chatbot.compaction import CompactResult
     from plugin.chatbot.tool_loop_actions import current_turn
 
@@ -656,10 +664,10 @@ def test_worker_spawn_passes_session_id_cache_routing_key(test_instance, spawn_m
         patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
     ):
-        getattr(test_instance, spawn_method)(MagicMock(), client, *spawn_args)
+        spawn_fn(test_instance, MagicMock(), client)
         captured["fn"]()
 
-    stream_fn = getattr(client, stream_method)
+    stream_fn = get_stream_fn(client)
     stream_fn.assert_called_once()
     assert stream_fn.call_args.kwargs["cache_session_id"] == "doc-1"
 

@@ -21,13 +21,13 @@ def ctx():
 
 
 @pytest.mark.parametrize(
-    "fn_name, extra_args, extra_kwargs",
+    "fn, helper_name, extra_args, extra_kwargs",
     [
-        pytest.param("hybrid_search", ("dspy", 20), {"near_slop": 10}, id="hybrid_search"),
-        pytest.param("knn_search", ("query", 5), {}, id="knn_search"),
+        pytest.param(embeddings_service.hybrid_search, "hybrid_search", ("dspy", 20), {"near_slop": 10}, id="hybrid_search"),
+        pytest.param(embeddings_service.knn_search, "knn_search", ("query", 5), {}, id="knn_search"),
     ],
 )
-def test_search_happy_path(ctx, tmp_path, fn_name, extra_args, extra_kwargs):
+def test_search_happy_path(ctx, tmp_path, fn, helper_name, extra_args, extra_kwargs):
     corpus_db = str(tmp_path / "corpus.db")
     worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]}
     with (
@@ -36,25 +36,54 @@ def test_search_happy_path(ctx, tmp_path, fn_name, extra_args, extra_kwargs):
         patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value="sqlite"),
         patch("plugin.framework.constants.folder_rerank_enabled", return_value=False),
     ):
-        fn = getattr(embeddings_service, fn_name)
         result = fn(ctx, corpus_db, *extra_args, model=DEFAULT_EMBEDDING_MODEL, **extra_kwargs)
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
-    assert mock_run.call_args.kwargs["helper"] == fn_name
+    assert mock_run.call_args.kwargs["helper"] == helper_name
     assert mock_run.call_args.kwargs["params"]["db_path"] == corpus_db
 
 
 @pytest.mark.parametrize(
-    "action, mode_value",
+    "invoke, mode_value",
     [
-        pytest.param("index_paragraphs", "zvec", id="index_paragraphs_zvec"),
-        pytest.param("delete_paragraphs", "lancedb", id="delete_paragraphs_lancedb"),
-        pytest.param("maintain_folder_index", "llama_index", id="maintain_folder_index_llama_index"),
-        pytest.param("maintain_folder_index", "lancedb", id="maintain_folder_index_lancedb"),
-        pytest.param("hybrid_search", "llama_index", id="hybrid_search_llama_index"),
+        pytest.param(
+            lambda ctx, corpus_db, meta_json, _folder: embeddings_service.index_paragraphs(
+                ctx, corpus_db, meta_json, [{"text": "hi"}], model=DEFAULT_EMBEDDING_MODEL
+            ),
+            "zvec",
+            id="index_paragraphs_zvec",
+        ),
+        pytest.param(
+            lambda ctx, corpus_db, meta_json, _folder: embeddings_service.delete_paragraphs(
+                ctx, corpus_db, meta_json, [{"doc_url": "file:///a.odt", "para_index": 0}], model=DEFAULT_EMBEDDING_MODEL
+            ),
+            "lancedb",
+            id="delete_paragraphs_lancedb",
+        ),
+        pytest.param(
+            lambda ctx, _corpus_db, _meta_json, folder: embeddings_service.maintain_folder_index(
+                ctx, folder, model=DEFAULT_EMBEDDING_MODEL
+            ),
+            "llama_index",
+            id="maintain_folder_index_llama_index",
+        ),
+        pytest.param(
+            lambda ctx, _corpus_db, _meta_json, folder: embeddings_service.maintain_folder_index(
+                ctx, folder, model=DEFAULT_EMBEDDING_MODEL
+            ),
+            "lancedb",
+            id="maintain_folder_index_lancedb",
+        ),
+        pytest.param(
+            lambda ctx, corpus_db, _meta_json, _folder: embeddings_service.hybrid_search(
+                ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL
+            ),
+            "llama_index",
+            id="hybrid_search_llama_index",
+        ),
     ],
 )
-def test_actions_pass_configured_search_mode(ctx, tmp_path, action, mode_value):
+def test_actions_pass_configured_search_mode(ctx, tmp_path, invoke, mode_value):
     corpus_db = str(tmp_path / "corpus.db")
     meta_json = str(tmp_path / "meta.json")
     folder = str(tmp_path / "folder")
@@ -63,14 +92,7 @@ def test_actions_pass_configured_search_mode(ctx, tmp_path, action, mode_value):
         patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120),
         patch("plugin.embeddings.embeddings_service.configured_folder_search_mode", return_value=mode_value),
     ):
-        if action == "index_paragraphs":
-            embeddings_service.index_paragraphs(ctx, corpus_db, meta_json, [{"text": "hi"}], model=DEFAULT_EMBEDDING_MODEL)
-        elif action == "delete_paragraphs":
-            embeddings_service.delete_paragraphs(ctx, corpus_db, meta_json, [{"doc_url": "file:///a.odt", "para_index": 0}], model=DEFAULT_EMBEDDING_MODEL)
-        elif action == "maintain_folder_index":
-            embeddings_service.maintain_folder_index(ctx, folder, model=DEFAULT_EMBEDDING_MODEL)
-        else:
-            embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
+        invoke(ctx, corpus_db, meta_json, folder)
     assert mock_run.call_args.kwargs["params"]["search_mode"] == mode_value
 
 

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for guard_uno boundaries (Tier 1/2 chokepoints)."""
+"""Tests for get_ctx fallbacks, off-main locale guard, and desktop element controller skips."""
 
 from __future__ import annotations
 

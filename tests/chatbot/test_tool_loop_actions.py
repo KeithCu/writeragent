@@ -63,7 +63,6 @@ class FakeHost:
         self.statuses = []
         self.refreshed_tools = 0
         self.spawned_llm = []
-        self.spawned_final = []
         self.document = Mock()
         self._send_cancellation = SendCancellation()
         from plugin.chatbot.tool_loop_actions import begin_send_turn
@@ -230,7 +229,32 @@ class FakeHost:
         self.spawned_llm.append((q, client, max_tokens, tools, round_num, query_text))
 
     def _spawn_final_stream(self, q, client, max_tokens):
-        self.spawned_final.append((q, client, max_tokens))
+        del q, client, max_tokens
+
+
+def test_interpreter_dispatches_core_outcomes():
+    from plugin.chatbot.tool_loop_state import (
+        ExitLoopEffect,
+        SpawnLLMWorkerEffect,
+        TriggerNextToolEffect,
+    )
+
+    host = FakeHost()
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    assert interpreter.execute(ExitLoopEffect()) is True
+    assert interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="ready")) is False
+    assert current_turn(host).outcome == "ready"
+
+    assert interpreter.execute(TriggerNextToolEffect()) is False
+    assert host._active_q.get_nowait() == (StreamQueueKind.NEXT_TOOL,)
+
+    assert interpreter.execute(UpdateDocumentContextEffect()) is False
+    assert host.session.system_context == ("base prompt", "fresh doc")
+
+    assert interpreter.execute(SpawnLLMWorkerEffect(round_num=3)) is False
+    assert host.refreshed_tools == 1
+    assert len(host.spawned_llm) == 1
 
 
 def test_update_document_context_effect_stops_when_document_is_gone():

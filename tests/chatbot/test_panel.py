@@ -2150,8 +2150,9 @@ class TestPanelR3Fixes:
     def test_stop_tts_helper(self) -> None:
         from plugin.chatbot.panel import _stop_tts
 
-        with patch("plugin.audio.tts_service.stop_speech", side_effect=RuntimeError("audio err")):
+        with patch("plugin.audio.tts_service.stop_speech", side_effect=RuntimeError("audio err")) as mock_stop:
             _stop_tts()  # must not raise
+        assert mock_stop.called
 
     def test_mouse_listeners_removed_on_dispose(self) -> None:
         from plugin.chatbot.panel import attach_record_mouse_listener, attach_stop_mouse_listener
