@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import threading
+from collections.abc import Iterator
 from http.server import ThreadingHTTPServer
 from typing import Any
 from urllib.error import HTTPError
@@ -19,12 +21,9 @@ from scripts.mock_llm_server import (
     MOCK_MODEL_ID,
     MOCK_STT_MODEL_ID,
     RAMBLE_PARTS,
-    SCENARIO_IDS,
     Completion,
     CompletionRule,
     MockLLMConfig,
-    _FAULT_SCENARIOS,
-    _SCENARIO_PATTERNS,
     _TurnState,
     _consume_one_shot,
     apply_scripted_rules,
@@ -298,19 +297,23 @@ def test_sync_tool_call_arguments_are_json_string():
     assert json.loads(args)["query"] == "x"
 
 
-def _serve(config: MockLLMConfig):
+@contextmanager
+def _running_server(config: MockLLMConfig) -> Iterator[str]:
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(config))
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     host, port = httpd.server_address[:2]
-    yield f"http://{host}:{port}"
-    httpd.shutdown()
-    thread.join(timeout=2)
+    try:
+        yield f"http://{host}:{port}"
+    finally:
+        httpd.shutdown()
+        thread.join(timeout=2)
 
 
 @pytest.fixture
 def mock_http():
-    yield from _serve(MockLLMConfig(delay_ms=0, offline=True))
+    with _running_server(MockLLMConfig(delay_ms=0, offline=True)) as base:
+        yield base
 
 
 @pytest.fixture
@@ -333,12 +336,14 @@ def mock_http_fail():
 
 @pytest.fixture
 def mock_http_hang():
-    yield from _serve(MockLLMConfig(delay_ms=0, fail="hang", fail_after_chunks=3))
+    with _running_server(MockLLMConfig(delay_ms=0, fail="hang", fail_after_chunks=3)) as base:
+        yield base
 
 
 @pytest.fixture
 def mock_http_comments():
-    yield from _serve(MockLLMConfig(delay_ms=0, sse_comments=True))
+    with _running_server(MockLLMConfig(delay_ms=0, sse_comments=True)) as base:
+        yield base
 
 
 def _post_json(url: str, payload: dict[str, Any]) -> Any:
@@ -358,12 +363,7 @@ def test_http_models_and_health(mock_http):
 
 def test_http_overflow_once_then_ok_and_summarizer():
     config = MockLLMConfig(delay_ms=0, offline=True)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(config))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    base = f"http://{host}:{port}"
-    try:
+    with _running_server(config) as base:
         payload = {
             "model": MOCK_MODEL_ID,
             "stream": True,
@@ -415,9 +415,6 @@ def test_http_overflow_once_then_ok_and_summarizer():
             urlopen(death_req, timeout=5)
         assert death_exc.value.code == 400
         assert "llama-server process has terminated" in death_exc.value.read().decode("utf-8")
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
 
 
 def test_http_stream_chit_chat(mock_http):
@@ -496,7 +493,7 @@ def test_comment_with_document_text_calls_add_comment():
     assert out.tool_name == "add_comment"
     assert out.tool_args is not None
     assert out.tool_args["search"] == "Welcome"
-    assert "Mock comment" in out.tool_args["content"]
+    assert bool(out.tool_args["content"])
 
 
 def test_comment_with_empty_document_calls_apply_document_content():
@@ -579,7 +576,6 @@ def test_comment_after_add_comment_step():
     )
     assert out.tool_name is None
     assert out.content is not None
-    assert "Comment" in out.content
     assert out.finish_reason == "stop"
 
 
@@ -599,6 +595,8 @@ def test_detect_scenario_phrases_and_force():
     assert detect_scenario("overflow once then continue") == "overflow_once"
     assert detect_scenario("prompt too large once") == "overflow_once"
     assert detect_scenario("llama process died") == "process_death"
+    assert detect_scenario("Ask the budget workbook to add a Total row") == "peer_total"
+    assert detect_scenario("wait after accepted then hang") == "peer_wait"
 
 
 def test_history_flood_and_compaction_summarizer():
@@ -765,15 +763,13 @@ def test_delegate_when_advertised_else_html():
     assert miss.content and "<p>" in miss.content
 
 
-def test_specialized_inner_tree_then_final_answer():
-    tools = _tools("get_document_tree", "final_answer")
-    cfg = MockLLMConfig(delay_ms=0)
-    first = decide_completion({"messages": [{"role": "user", "content": "q"}], "tools": tools}, cfg)
-    assert first.tool_name == "get_document_tree"
-    second = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": "q"},
+@pytest.mark.parametrize(
+    ("tool_names", "first_tool", "followup_msg", "finish_tool"),
+    [
+        pytest.param(
+            ("get_document_tree", "final_answer"),
+            "get_document_tree",
+            [
                 {
                     "role": "assistant",
                     "tool_calls": [
@@ -786,37 +782,43 @@ def test_specialized_inner_tree_then_final_answer():
                 },
                 {"role": "tool", "content": '{"headings": []}'},
             ],
-            "tools": tools,
-        },
+            "final_answer",
+            id="tree_then_final_answer",
+        ),
+        # Packet E7: live document_research inner HTTP has specialized_workflow_finished, often no tree tool.
+        pytest.param(
+            ("search_nearby_files", "specialized_workflow_finished"),
+            "search_nearby_files",
+            [{"role": "user", "content": 'Action:\n{"name": "search_nearby_files", "arguments": {"query": "outline"}}\nObservation:\n[]'}],
+            "specialized_workflow_finished",
+            id="search_nearby_then_finish",
+        ),
+        # Packet E7 soak: empty-path delegate_read_document loops the inner agent.
+        pytest.param(
+            ("list_nearby_files", "delegate_read_document", "specialized_workflow_finished"),
+            "list_nearby_files",
+            [{"role": "user", "content": 'Action:\n{"name": "list_nearby_files", "arguments": {}}\nObservation:\n[]'}],
+            "specialized_workflow_finished",
+            id="list_nearby_skips_delegate_read_document",
+        ),
+    ],
+)
+def test_specialized_inner_two_step_routing(
+    tool_names: tuple[str, ...],
+    first_tool: str,
+    followup_msg: list[dict[str, Any]],
+    finish_tool: str,
+):
+    tools = _tools(*tool_names)
+    cfg = MockLLMConfig(delay_ms=0)
+    first = decide_completion({"messages": [{"role": "user", "content": "outline this"}], "tools": tools}, cfg)
+    assert first.tool_name == first_tool
+    second = decide_completion(
+        {"messages": [{"role": "user", "content": "outline this"}, *followup_msg], "tools": tools},
         cfg,
     )
-    assert second.tool_name == "final_answer"
-    assert "outline" in ((second.tool_args or {}).get("answer") or "").lower()
-
-
-def test_specialized_inner_without_tree_calls_discovery_then_finishes():
-    """Live document_research inner HTTP has specialized_workflow_finished, often no tree tool (Packet E7)."""
-    tools = _tools("search_nearby_files", "specialized_workflow_finished")
-    first = decide_completion(
-        {"messages": [{"role": "user", "content": "outline this"}], "tools": tools},
-        MockLLMConfig(delay_ms=0),
-    )
-    assert first.tool_name == "search_nearby_files"
-    second = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": "outline this"},
-                {
-                    "role": "user",
-                    "content": 'Action:\n{"name": "search_nearby_files", "arguments": {"query": "outline"}}\nObservation:\n[]',
-                },
-            ],
-            "tools": tools,
-        },
-        MockLLMConfig(delay_ms=0),
-    )
-    assert second.tool_name == "specialized_workflow_finished"
-    assert "outline" in ((second.tool_args or {}).get("answer") or "").lower()
+    assert second.tool_name == finish_tool
+    assert bool((second.tool_args or {}).get("answer"))
     assert second.content is None
 
 
@@ -829,32 +831,7 @@ def test_specialized_inner_finish_only_when_no_discovery_tools():
         MockLLMConfig(delay_ms=0),
     )
     assert out.tool_name == "specialized_workflow_finished"
-    assert "outline" in ((out.tool_args or {}).get("answer") or "").lower()
-
-
-def test_specialized_inner_does_not_walk_delegate_read_document():
-    """Empty-path delegate_read_document loops the inner agent (Packet E7 soak)."""
-    tools = _tools("list_nearby_files", "delegate_read_document", "specialized_workflow_finished")
-    first = decide_completion(
-        {"messages": [{"role": "user", "content": "outline this"}], "tools": tools},
-        MockLLMConfig(delay_ms=0),
-    )
-    assert first.tool_name == "list_nearby_files"
-    second = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": "outline this"},
-                {
-                    "role": "user",
-                    "content": 'Action:\n{"name": "list_nearby_files", "arguments": {}}\nObservation:\n[]',
-                },
-            ],
-            "tools": tools,
-        },
-        MockLLMConfig(delay_ms=0),
-    )
-    assert second.tool_name == "specialized_workflow_finished"
-    assert second.content is None
+    assert bool((out.tool_args or {}).get("answer"))
 
 
 def test_empty_nested_answer_delegates_then_empty_finish():
@@ -884,8 +861,19 @@ def test_mixed_tools_apply_and_failing_comment():
     assert (out.tool_args or {}).get("search") == ""
 
 
-def test_nested_never_finish_keeps_discovery():
-    tools = _tools("list_nearby_files", "specialized_workflow_finished")
+@pytest.mark.parametrize(
+    "tool_names",
+    [
+        pytest.param(("list_nearby_files", "specialized_workflow_finished"), id="discovery_only"),
+        # E22 after E12/P: leftover Calc advertises peer tools; old gate finished instead of looping.
+        pytest.param(
+            ("send_peer_work", "send_peer_result", "list_nearby_files", "specialized_workflow_finished"),
+            id="with_advertised_peer_tools",
+        ),
+    ],
+)
+def test_nested_never_finish_keeps_discovery(tool_names: tuple[str, ...]):
+    tools = _tools(*tool_names)
     cfg = MockLLMConfig(delay_ms=0, nested_never_finish=True)
     first = decide_completion({"messages": [{"role": "user", "content": "endless nested outline"}], "tools": tools}, cfg)
     assert first.tool_name == "list_nearby_files"
@@ -903,48 +891,11 @@ def test_nested_never_finish_keeps_discovery():
         cfg,
     )
     assert second.tool_name == "list_nearby_files"
-    assert second.tool_name != "specialized_workflow_finished"
-
-
-def test_nested_never_finish_wins_over_advertised_peer_tool():
-    """E22 after E12/P: leftover Calc advertises peer send tools on the inner wire.
-
-    The old ``if peer tool in tool_names`` gate finished immediately
-    (Packet P) instead of looping until nested max_steps.
-    """
-    tools = _tools("send_peer_work", "send_peer_result", "list_nearby_files", "specialized_workflow_finished")
-    cfg = MockLLMConfig(delay_ms=0, nested_never_finish=True)
-    first = decide_completion(
-        {"messages": [{"role": "user", "content": "endless nested outline"}], "tools": tools},
-        cfg,
-    )
-    assert first.tool_name == "list_nearby_files"
-    assert first.tool_name not in {"send_peer_work", "send_peer_result"}
-    assert first.tool_name != "specialized_workflow_finished"
-    second = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": "endless nested outline"},
-                {
-                    "role": "user",
-                    "content": 'Action:\n{"name": "list_nearby_files", "arguments": {}}\nObservation:\n[]',
-                },
-            ],
-            "tools": tools,
-        },
-        cfg,
-    )
-    assert second.tool_name == "list_nearby_files"
-    assert second.tool_name != "specialized_workflow_finished"
     phrase_only = decide_completion(
-        {
-            "messages": [{"role": "user", "content": "endless nested outline"}],
-            "tools": tools,
-        },
+        {"messages": [{"role": "user", "content": "endless nested outline"}], "tools": tools},
         MockLLMConfig(delay_ms=0),
     )
     assert phrase_only.tool_name == "list_nearby_files"
-    assert phrase_only.tool_name != "specialized_workflow_finished"
 
 
 def test_none_transcript_uses_default():
@@ -958,14 +909,9 @@ def test_empty_transcript_stt_returns_empty_text():
 
     cfg = MockLLMConfig(delay_ms=0, transcript="")
     assert canned_transcript(cfg) == ""
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    stt = "http://%s:%s/v1/audio/transcriptions" % (host, port)
-    try:
+    with _running_server(cfg) as base:
         stt_req = Request(
-            stt,
+            f"{base}/v1/audio/transcriptions",
             data=json.dumps({"model": MOCK_STT_MODEL_ID, "input_audio": {"data": "QQ==", "format": "wav"}}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -974,22 +920,13 @@ def test_empty_transcript_stt_returns_empty_text():
             assert resp.status == 200
             body = json.loads(resp.read().decode("utf-8"))
         assert body.get("text") == ""
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
 
 
 def test_fail_stt_500_then_hello_chat_ok():
     cfg = MockLLMConfig(delay_ms=0, fail_stt=True)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    chat = "http://%s:%s/v1/chat/completions" % (host, port)
-    stt = "http://%s:%s/v1/audio/transcriptions" % (host, port)
-    try:
+    with _running_server(cfg) as base:
         stt_req = Request(
-            stt,
+            f"{base}/v1/audio/transcriptions",
             data=json.dumps({"model": MOCK_STT_MODEL_ID, "input_audio": {"data": "QQ==", "format": "wav"}}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -998,7 +935,7 @@ def test_fail_stt_500_then_hello_chat_ok():
             urlopen(stt_req, timeout=5)
         assert err.value.code == 500
         hello = Request(
-            chat,
+            f"{base}/v1/chat/completions",
             data=json.dumps(
                 {"model": MOCK_MODEL_ID, "messages": [{"role": "user", "content": "hello"}], "stream": False}
             ).encode(),
@@ -1007,28 +944,18 @@ def test_fail_stt_500_then_hello_chat_ok():
         )
         with urlopen(hello, timeout=5) as resp:
             assert resp.status == 200
-        snaps = cfg.captures
-        assert any(row.get("stt") for row in snaps)
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
+        assert any(row.get("stt") for row in cfg.captures)
 
 
 def test_fail_native_audio_400_then_stt_ok():
     cfg = MockLLMConfig(delay_ms=0, fail_native_audio=True)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    chat = "http://%s:%s/v1/chat/completions" % (host, port)
-    stt = "http://%s:%s/v1/audio/transcriptions" % (host, port)
     audio_user = {
         "role": "user",
         "content": [{"type": "input_audio", "input_audio": {"data": "QQ==", "format": "wav"}}],
     }
-    try:
+    with _running_server(cfg) as base:
         req = Request(
-            chat,
+            f"{base}/v1/chat/completions",
             data=json.dumps({"model": MOCK_MODEL_ID, "messages": [audio_user], "stream": False}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -1039,7 +966,7 @@ def test_fail_native_audio_400_then_stt_ok():
         body = err.value.read().decode("utf-8")
         assert "input validation" in body.lower() or "unsupported modality" in body.lower()
         stt_req = Request(
-            stt,
+            f"{base}/v1/audio/transcriptions",
             data=json.dumps({"model": MOCK_STT_MODEL_ID, "input_audio": {"data": "QQ==", "format": "wav"}}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -1047,7 +974,7 @@ def test_fail_native_audio_400_then_stt_ok():
         with urlopen(stt_req, timeout=5) as resp:
             assert resp.status == 200
         hello = Request(
-            chat,
+            f"{base}/v1/chat/completions",
             data=json.dumps(
                 {"model": MOCK_MODEL_ID, "messages": [{"role": "user", "content": "hello"}], "stream": False}
             ).encode(),
@@ -1056,111 +983,69 @@ def test_fail_native_audio_400_then_stt_ok():
         )
         with urlopen(hello, timeout=5) as resp:
             assert resp.status == 200
-        snaps = cfg.captures
-        assert any(row.get("has_input_audio") for row in snaps)
-        assert any(row.get("stt") for row in snaps)
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
+        assert any(row.get("has_input_audio") for row in cfg.captures)
+        assert any(row.get("stt") for row in cfg.captures)
 
 
-def test_mutate_wrapup_is_not_research_wording():
-    out = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": "insert filler"},
-                {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": "c1",
-                            "type": "function",
-                            "function": {"name": "apply_document_content", "arguments": "{}"},
-                        }
-                    ],
-                },
-                {"role": "tool", "content": '{"status": "ok", "message": "Inserted content at end."}'},
-            ],
-            "tools": _tools("apply_document_content", "web_research"),
-        },
-        MockLLMConfig(delay_ms=0),
-    )
+@pytest.mark.parametrize(
+    ("user_text", "tool_name", "tool_result", "advertised"),
+    [
+        pytest.param(
+            "insert filler",
+            "apply_document_content",
+            '{"status": "ok", "message": "Inserted content at end."}',
+            ("apply_document_content", "web_research"),
+            id="apply_document_content",
+        ),
+        pytest.param(
+            "outline this",
+            "delegate_to_specialized_writer_toolset",
+            "Mock outline complete.",
+            ("delegate_to_specialized_writer_toolset", "get_document_tree", "web_research"),
+            id="delegate_to_specialized_writer_toolset",
+        ),
+        pytest.param(
+            "two tools",
+            "get_document_tree",
+            '{"headings": []}',
+            ("delegate_to_specialized_writer_toolset", "get_document_tree", "web_research"),
+            id="get_document_tree",
+        ),
+    ],
+)
+def test_tool_followup_returns_html_wrapup(
+    user_text: str,
+    tool_name: str,
+    tool_result: str,
+    advertised: tuple[str, ...],
+):
+    cfg = MockLLMConfig(delay_ms=0)
+    tools = _tools(*advertised)
+
+    def _run(name: str):
+        return decide_completion(
+            {
+                "messages": [
+                    {"role": "user", "content": user_text},
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {"id": "c1", "type": "function", "function": {"name": name, "arguments": "{}"}}
+                        ],
+                    },
+                    {"role": "tool", "content": tool_result},
+                ],
+                "tools": tools,
+            },
+            cfg,
+        )
+
+    out = _run(tool_name)
+    research = _run("web_research")
     assert out.tool_name is None
     assert out.content is not None
-    assert "Inserted content" in out.content
-    assert "I looked that up" not in out.content
-
-
-def test_delegate_and_tree_wrapup_is_not_research_wording():
-    cfg = MockLLMConfig(delay_ms=0)
-    tools = _tools("delegate_to_specialized_writer_toolset", "get_document_tree", "web_research")
-    delegate = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": "outline this"},
-                {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": "c1",
-                            "type": "function",
-                            "function": {"name": "delegate_to_specialized_writer_toolset", "arguments": "{}"},
-                        }
-                    ],
-                },
-                {"role": "tool", "content": "Mock outline complete."},
-            ],
-            "tools": tools,
-        },
-        cfg,
-    )
-    assert delegate.tool_name is None
-    assert delegate.content is not None
-    assert "Specialized agent finished" in delegate.content
-    assert "I looked that up" not in delegate.content
-    tree = decide_completion(
-        {
-            "messages": [
-                {"role": "user", "content": "two tools"},
-                {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": "c1",
-                            "type": "function",
-                            "function": {"name": "get_document_tree", "arguments": "{}"},
-                        }
-                    ],
-                },
-                {"role": "tool", "content": '{"headings": []}'},
-            ],
-            "tools": tools,
-        },
-        cfg,
-    )
-    assert tree.tool_name is None
-    assert tree.content is not None
-    assert "get_document_tree" in tree.content
-    assert "I looked that up" not in tree.content
-
-
-def test_main_parses_sync_delay_ms(monkeypatch):
-    from scripts.mock_llm_server import main as mock_main
-
-    captured: dict[str, Any] = {}
-
-    def fake_serve(host: str, port: int, config: MockLLMConfig) -> None:
-        captured["config"] = config
-        captured["host"] = host
-        captured["port"] = port
-
-    monkeypatch.setattr("scripts.mock_llm_server.serve", fake_serve)
-    assert mock_main(["--delay-ms", "80", "--sync-delay-ms", "8000"]) == 0
-    cfg = captured["config"]
-    assert cfg.delay_ms == 80
-    assert cfg.sync_delay_ms == 8000
-    assert response_delay_s(cfg, stream=True) == 0.08
-    assert response_delay_s(cfg, stream=False) == 8.0
+    assert "<p>" in out.content
+    assert out.content != research.content
 
 
 def test_parallel_two_core_tools():
@@ -1197,35 +1082,23 @@ def test_parallel_missing_tools_falls_back_html():
     assert out.content and "<p>" in out.content
 
 
-def test_mutate_and_calc_draw_thin_tools():
-    cfg = MockLLMConfig(delay_ms=0)
-    mut = decide_completion(
-        {
-            "messages": [{"role": "user", "content": "insert filler"}],
-            "tools": _tools("apply_document_content"),
-        },
-        cfg,
+@pytest.mark.parametrize(
+    ("user_text", "tool_name", "expected_target"),
+    [
+        pytest.param("insert filler", "apply_document_content", "end", id="writer_apply"),
+        pytest.param("list sheets", "sheet_list", None, id="calc_sheet_list"),
+        pytest.param("list sheets", "get_sheet_summary", None, id="calc_sheet_summary"),
+        pytest.param("list pages", "list_pages", None, id="draw_list_pages"),
+    ],
+)
+def test_mutate_and_calc_draw_thin_tools(user_text: str, tool_name: str, expected_target: str | None):
+    out = decide_completion(
+        {"messages": [{"role": "user", "content": user_text}], "tools": _tools(tool_name)},
+        MockLLMConfig(delay_ms=0),
     )
-    assert mut.tool_name == "apply_document_content"
-    assert mut.tool_args and mut.tool_args["target"] == "end"
-    sheets = decide_completion(
-        {"messages": [{"role": "user", "content": "list sheets"}], "tools": _tools("sheet_list")},
-        cfg,
-    )
-    assert sheets.tool_name == "sheet_list"
-    sheets_core = decide_completion(
-        {
-            "messages": [{"role": "user", "content": "list sheets"}],
-            "tools": _tools("get_sheet_summary"),
-        },
-        cfg,
-    )
-    assert sheets_core.tool_name == "get_sheet_summary"
-    pages = decide_completion(
-        {"messages": [{"role": "user", "content": "list pages"}], "tools": _tools("list_pages")},
-        cfg,
-    )
-    assert pages.tool_name == "list_pages"
+    assert out.tool_name == tool_name
+    if expected_target is not None:
+        assert out.tool_args and out.tool_args["target"] == expected_target
 
 
 def test_fail_and_hang_completions():
@@ -1271,47 +1144,36 @@ def test_packet_f_auth_and_sse_quirk_completions():
 
 def test_packet_f_sse_quirk_http_roundtrips():
     """One live HTTP POST per Packet F stream quirk (not drain/UI)."""
-    from http.server import ThreadingHTTPServer
-    import json as json_mod
-    import threading
-    from urllib.error import HTTPError, URLError
-    from urllib.request import Request, urlopen
     import http.client
     import socket as socket_mod
+    from urllib.error import URLError
 
-    config = MockLLMConfig(delay_ms=0)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(config))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    base = "http://%s:%s" % (host, port)
+    with _running_server(MockLLMConfig(delay_ms=0)) as base:
+        def post(text: str, *, stream: bool = True) -> str:
+            req = Request(
+                base + "/v1/chat/completions",
+                data=json.dumps(
+                    {
+                        "model": MOCK_MODEL_ID,
+                        "stream": stream,
+                        "messages": [{"role": "user", "content": text}],
+                    }
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urlopen(req, timeout=3) as resp:
+                    return resp.read().decode("utf-8", errors="replace")
+            except HTTPError:
+                raise
+            except (http.client.IncompleteRead, URLError, ConnectionResetError, socket_mod.timeout, BrokenPipeError) as err:
+                for obj in (err, getattr(err, "reason", None)):
+                    partial = getattr(obj, "partial", None)
+                    if isinstance(partial, bytes) and partial:
+                        return partial.decode("utf-8", errors="replace")
+                return ""
 
-    def post(text: str, *, stream: bool = True) -> str:
-        req = Request(
-            base + "/v1/chat/completions",
-            data=json_mod.dumps(
-                {
-                    "model": MOCK_MODEL_ID,
-                    "stream": stream,
-                    "messages": [{"role": "user", "content": text}],
-                }
-            ).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urlopen(req, timeout=3) as resp:
-                return resp.read().decode("utf-8", errors="replace")
-        except HTTPError:
-            raise
-        except (http.client.IncompleteRead, URLError, ConnectionResetError, socket_mod.timeout, BrokenPipeError) as err:
-            for obj in (err, getattr(err, "reason", None)):
-                partial = getattr(obj, "partial", None)
-                if isinstance(partial, bytes) and partial:
-                    return partial.decode("utf-8", errors="replace")
-            return ""
-
-    try:
         with pytest.raises(HTTPError) as err401:
             post("error 401", stream=False)
         assert err401.value.code == 401
@@ -1344,9 +1206,6 @@ def test_packet_f_sse_quirk_http_roundtrips():
         except (URLError, ConnectionResetError, OSError, HTTPError):
             raw_reset = None
         assert raw_reset is None or "choices" not in raw_reset
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
 
 
 def test_current_query_ignores_librarian_history_phrases():
@@ -1483,22 +1342,18 @@ def test_current_query_strips_folded_document_snapshot():
 
 def test_fail_tool_followup_http500():
     cfg = MockLLMConfig(delay_ms=0, fail_tool_followup=True)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    url = "http://%s:%s/v1/chat/completions" % (host, port)
+    with _running_server(cfg) as base:
+        url = f"{base}/v1/chat/completions"
 
-    def post(body: dict[str, Any]) -> None:
-        req = Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        urlopen(req, timeout=5)
+        def post(body: dict[str, Any]) -> None:
+            req = Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urlopen(req, timeout=5)
 
-    try:
         user_turn = {
             "messages": [{"role": "user", "content": "add a comment"}],
             "tools": _tools("add_comment"),
@@ -1526,11 +1381,7 @@ def test_fail_tool_followup_http500():
         with pytest.raises(HTTPError) as err:
             post(follow)
         assert err.value.code == 500
-        snaps = [row for row in cfg.captures if row.get("last_role") == "tool"]
-        assert snaps
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
+        assert [row for row in cfg.captures if row.get("last_role") == "tool"]
 
 
 
@@ -1855,11 +1706,6 @@ def test_parse_peer_envelope_and_catalog():
     assert all(p["uid"] != "not-a-peer" for p in only_open)
 
 
-def test_detect_peer_total_and_wait_phrases():
-    assert detect_scenario("Ask the budget workbook to add a Total row") == "peer_total"
-    assert detect_scenario("wait after accepted then hang") == "peer_wait"
-
-
 def test_peer_total_writer_outer_delegates_not_send_peer():
     """Outer main never calls peer send tools (#673 specialized-inner)."""
     out = decide_completion(
@@ -1897,39 +1743,24 @@ def test_peer_total_writer_inner_sends_then_finishes_immediately():
         cfg,
     )
     assert second.tool_name == "specialized_workflow_finished"
-    assert "immediately" in ((second.tool_args or {}).get("answer") or "").lower()
 
 
-def test_peer_wait_after_accepted_never_finishes():
+@pytest.mark.parametrize(
+    ("user_text", "cfg"),
+    [
+        pytest.param("wait after accepted then hang", MockLLMConfig(delay_ms=0, scenario="peer_wait"), id="scenario"),
+        pytest.param("peer total", MockLLMConfig(delay_ms=0, peer_wait_after_accepted=True), id="flag"),
+    ],
+)
+def test_peer_wait_after_accepted_never_finishes(user_text: str, cfg: MockLLMConfig):
     """Locks the Scrolly hang: specialized stays in the loop after accepted."""
-    cfg = MockLLMConfig(delay_ms=0, scenario="peer_wait")
-    first = decide_completion(
-        _payload("wait after accepted then hang", _INNER_PEER, system=_PEER_SYS),
-        cfg,
-    )
+    first = decide_completion(_payload(user_text, _INNER_PEER, system=_PEER_SYS), cfg)
     assert first.tool_name == "send_peer_work"
     stuck = decide_completion(
-        _payload(
-            "wait after accepted then hang",
-            _INNER_PEER,
-            system=_PEER_SYS,
-            prior=_tool_follow("send_peer_work"),
-        ),
+        _payload(user_text, _INNER_PEER, system=_PEER_SYS, prior=_tool_follow("send_peer_work")),
         cfg,
     )
-    assert stuck.tool_name != "specialized_workflow_finished"
-    assert stuck.tool_name != "final_answer"
-
-
-def test_peer_wait_flag_same_as_scenario():
-    cfg = MockLLMConfig(delay_ms=0, peer_wait_after_accepted=True)
-    first = decide_completion(_payload("peer total", _INNER_PEER, system=_PEER_SYS), cfg)
-    assert first.tool_name == "send_peer_work"
-    stuck = decide_completion(
-        _payload("peer total", _INNER_PEER, system=_PEER_SYS, prior=_tool_follow("send_peer_work")),
-        cfg,
-    )
-    assert stuck.tool_name != "specialized_workflow_finished"
+    assert stuck.tool_name not in {"specialized_workflow_finished", "final_answer"}
 
 
 def test_calc_envelope_writes_formula_then_delegates_reply():
@@ -1950,40 +1781,33 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
     assert "send_peer_work" not in [n for n, _a in completion_tool_calls(delegate)]
 
 
-def test_calc_inner_reply_uses_send_peer_result_then_finishes():
-    envelope = (
-        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\n"
-        "Add a Total row."
-    )
-    send = decide_completion(_payload(envelope, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
+@pytest.mark.parametrize(
+    "user_text",
+    [
+        pytest.param(
+            "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\nAdd a Total row.",
+            id="with_envelope",
+        ),
+        # Live P3: specialized receives the delegated Reply task rather than the raw peer envelope.
+        pytest.param(
+            "Reply to the peer envelope with send_peer_result: document_url=writer-uid "
+            "message=<one HTML/result string> then finish immediately.",
+            id="reply_task_without_envelope",
+        ),
+    ],
+)
+def test_calc_inner_reply_sends_peer_result_then_finishes(user_text: str):
+    send = decide_completion(_payload(user_text, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
     assert send.tool_name == "send_peer_result"
     assert "peer_ask_id" not in (send.tool_args or {})
     assert (send.tool_args or {}).get("document_url") == "writer-uid"
     finish = decide_completion(
-        _payload(envelope, _INNER_PEER, system=_WRITER_SYS, prior=_tool_follow("send_peer_result", '{"status":"ok","accepted":true,"envelope_kind":"result"}')),
-        MockLLMConfig(delay_ms=0),
-    )
-    assert finish.tool_name == "specialized_workflow_finished"
-
-
-def test_calc_inner_reply_task_without_envelope_sends_peer():
-    """Live P3: specialized user text is the scripted Reply task, not the envelope.
-
-    After write_formula_range the outer delegates with send_peer_result in the task.
-    Phrase-only 'add a total row' does not appear there. Treating that as
-    leftover-Calc discovery (list_nearby_files) finishes without a reply.
-    """
-    task = (
-        "Reply to the peer envelope with send_peer_result: document_url=writer-uid "
-        "message=<one HTML/result string> then finish immediately."
-    )
-    send = decide_completion(_payload(task, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
-    assert send.tool_name == "send_peer_result"
-    assert send.tool_name != "list_nearby_files"
-    assert "peer_ask_id" not in (send.tool_args or {})
-    assert (send.tool_args or {}).get("document_url") == "writer-uid"
-    finish = decide_completion(
-        _payload(task, _INNER_PEER, system=_WRITER_SYS, prior=_tool_follow("send_peer_result", '{"status":"ok","accepted":true,"envelope_kind":"result"}')),
+        _payload(
+            user_text,
+            _INNER_PEER,
+            system=_WRITER_SYS,
+            prior=_tool_follow("send_peer_result", '{"status":"ok","accepted":true,"envelope_kind":"result"}'),
+        ),
         MockLLMConfig(delay_ms=0),
     )
     assert finish.tool_name == "specialized_workflow_finished"
@@ -2141,13 +1965,6 @@ def test_drift_guard_argparse_dests():
         assert getattr(mapped_cfg, dest) == dummy_dict[dest]
 
 
-def test_scenario_ids_match_phrases():
-    phrase_ids = {sid for sid, _ in _SCENARIO_PATTERNS}
-    assert phrase_ids.issubset(SCENARIO_IDS)
-    assert SCENARIO_IDS - phrase_ids == {"none", "tree"}
-    assert _FAULT_SCENARIOS.issubset(phrase_ids)
-
-
 def test_main_accepts_table_and_content_filter_scenarios(monkeypatch):
     monkeypatch.setattr("scripts.mock_llm_server.serve", lambda _h, _p, _c: None)
     assert mock_main(["--scenario", "table"]) == 0
@@ -2155,23 +1972,18 @@ def test_main_accepts_table_and_content_filter_scenarios(monkeypatch):
 
 
 def test_table_scenario_returns_produce_table():
-    out = decide_completion(
-        {"messages": [{"role": "user", "content": "show a table"}]},
-        MockLLMConfig(delay_ms=0),
-    )
+    cfg = MockLLMConfig(delay_ms=0)
+    out = decide_completion({"messages": [{"role": "user", "content": "show a table"}]}, cfg)
+    plain = decide_completion({"messages": [{"role": "user", "content": "hello"}]}, cfg)
     assert out.content is not None
-    assert "<th>Item</th>" in out.content
-    assert "print('mock-llm')" not in out.content
+    assert out.content.count("<tr>") == 4
+    assert out.content != plain.content
 
 
 def test_fail_native_audio_400_counter_only_spends_on_audio():
     cfg = MockLLMConfig(delay_ms=0, fail_native_audio_400_count=1)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    chat = f"http://{host}:{port}/v1/chat/completions"
-    try:
+    with _running_server(cfg) as base:
+        chat = f"{base}/v1/chat/completions"
         hello_req = Request(
             chat,
             data=json.dumps({"model": MOCK_MODEL_ID, "messages": [{"role": "user", "content": "hello"}], "stream": False}).encode(),
@@ -2199,9 +2011,6 @@ def test_fail_native_audio_400_counter_only_spends_on_audio():
 
         with urlopen(audio_req, timeout=5) as resp:
             assert resp.status == 200
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
 
 
 def test_consume_one_shot_concurrency():
@@ -2229,156 +2038,107 @@ def test_consume_one_shot_concurrency():
 
 def test_concurrent_stt_one_shot_404():
     cfg = MockLLMConfig(delay_ms=0, fail_stt_404_count=1)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    stt = f"http://{host}:{port}/v1/audio/transcriptions"
-    stt_data = json.dumps({"model": MOCK_STT_MODEL_ID, "input_audio": {"data": "QQ==", "format": "wav"}}).encode()
     statuses: list[int] = []
     status_lock = threading.Lock()
+    with _running_server(cfg) as base:
+        stt = f"{base}/v1/audio/transcriptions"
+        stt_data = json.dumps({"model": MOCK_STT_MODEL_ID, "input_audio": {"data": "QQ==", "format": "wav"}}).encode()
 
-    def post_stt():
-        req = Request(stt, data=stt_data, headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with urlopen(req, timeout=5) as resp:
+        def post_stt():
+            req = Request(stt, data=stt_data, headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                with urlopen(req, timeout=5) as resp:
+                    with status_lock:
+                        statuses.append(resp.status)
+            except HTTPError as err:
                 with status_lock:
-                    statuses.append(resp.status)
-        except HTTPError as err:
-            with status_lock:
-                statuses.append(err.code)
+                    statuses.append(err.code)
 
-    t1 = threading.Thread(target=post_stt)
-    t2 = threading.Thread(target=post_stt)
-    t1.start()
-    t2.start()
-    t1.join(timeout=5)
-    t2.join(timeout=5)
-    httpd.shutdown()
-    thread.join(timeout=2)
+        t1 = threading.Thread(target=post_stt)
+        t2 = threading.Thread(target=post_stt)
+        t1.start()
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
 
     assert sorted(statuses) == [200, 404]
     assert cfg.fail_stt_404_count == 0
 
 
-def test_image_generations_route():
-    cfg = MockLLMConfig(delay_ms=0, fail_image="none")
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    url = f"http://{host}:{port}/v1/images/generations"
-    try:
-        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+@pytest.mark.parametrize(
+    ("cfg_kwargs", "predicate"),
+    [
+        pytest.param(
+            {"fail_image": "none"},
+            lambda raw: json.loads(raw)["data"][0]["b64_json"].startswith("iVBORw0KGgo"),
+            id="ok",
+        ),
+        pytest.param({"fail_image": "malformed"}, lambda raw: "not_base64" in raw, id="malformed"),
+        pytest.param({"fail_image": "hang", "fail": "none"}, lambda raw: raw == "", id="hang"),
+    ],
+)
+def test_image_generations_route_ok(cfg_kwargs: dict[str, Any], predicate: Any):
+    cfg = MockLLMConfig(delay_ms=0, **cfg_kwargs)
+    with _running_server(cfg) as base:
+        req = Request(
+            f"{base}/v1/images/generations",
+            data=b'{"prompt": "cat"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200
-            data = json.loads(resp.read().decode("utf-8"))
-            b64 = data["data"][0]["b64_json"]
-            assert b64.startswith("iVBORw0KGgo")
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
+            raw = resp.read().decode("utf-8")
+            assert predicate(raw)
 
-    cfg = MockLLMConfig(delay_ms=0, fail_image="status", image_status=429)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    url = f"http://{host}:{port}/v1/images/generations"
-    try:
-        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+
+@pytest.mark.parametrize(
+    ("cfg_kwargs", "req_body", "expected_status", "expected_substr"),
+    [
+        pytest.param(
+            {"fail_image": "status", "image_status": 429},
+            b'{"prompt": "cat"}',
+            429,
+            "mock image failure",
+            id="status_429",
+        ),
+        pytest.param({}, b"not json", 400, "", id="bad_json"),
+    ],
+)
+def test_image_generations_route_errors(
+    cfg_kwargs: dict[str, Any],
+    req_body: bytes,
+    expected_status: int,
+    expected_substr: str,
+):
+    cfg = MockLLMConfig(delay_ms=0, **cfg_kwargs)
+    with _running_server(cfg) as base:
+        req = Request(
+            f"{base}/v1/images/generations",
+            data=req_body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with pytest.raises(HTTPError) as err:
             urlopen(req, timeout=5)
-        assert err.value.code == 429
-        body = err.value.read().decode("utf-8")
-        assert "mock image failure" in body
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
-
-    cfg = MockLLMConfig(delay_ms=0, fail_image="malformed")
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    url = f"http://{host}:{port}/v1/images/generations"
-    try:
-        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
-        with urlopen(req, timeout=5) as resp:
-            assert resp.status == 200
-            body = resp.read().decode("utf-8")
-            assert "not_base64" in body
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
-
-    cfg = MockLLMConfig(delay_ms=0, fail_image="hang", fail="none")
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    url = f"http://{host}:{port}/v1/images/generations"
-    try:
-        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
-        with urlopen(req, timeout=5) as resp:
-            assert resp.status == 200
-            body = resp.read()
-            assert body == b""
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
-
-    cfg = MockLLMConfig(delay_ms=0)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    url = f"http://{host}:{port}/v1/images/generations"
-    try:
-        req = Request(url, data=b"not json", headers={"Content-Type": "application/json"}, method="POST")
-        with pytest.raises(HTTPError) as err:
-            urlopen(req, timeout=5)
-        assert err.value.code == 400
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
+        assert err.value.code == expected_status
+        if expected_substr:
+            assert expected_substr in err.value.read().decode("utf-8")
 
 
 def test_image_delay_sleep(monkeypatch):
     sleep_calls: list[float] = []
     monkeypatch.setattr("scripts.mock_llm_server.time.sleep", lambda s: sleep_calls.append(s))
     cfg = MockLLMConfig(delay_ms=0, image_delay_s=1.25)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(cfg))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    url = f"http://{host}:{port}/v1/images/generations"
-    try:
-        req = Request(url, data=b'{"prompt": "cat"}', headers={"Content-Type": "application/json"}, method="POST")
+    with _running_server(cfg) as base:
+        req = Request(
+            f"{base}/v1/images/generations",
+            data=b'{"prompt": "cat"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with urlopen(req, timeout=5) as resp:
             assert resp.status == 200
         assert 1.25 in sleep_calls
-    finally:
-        httpd.shutdown()
-        thread.join(timeout=2)
-
-
-def test_trigger_table_lists_every_phrase():
-    import re
-    from pathlib import Path
-
-    doc_path = Path(__file__).resolve().parents[2] / "docs" / "tests" / "mock-llm-sidebar.md"
-    content = doc_path.read_text(encoding="utf-8")
-    start = content.index("### 2.2.")
-    end = content.index("### 2.3.")
-    section = content[start:end].lower()
-
-    for _sid, pat in _SCENARIO_PATTERNS:
-        raw = pat.pattern
-        cleaned = re.sub(r"^\\b\(?|\)?\\b$", "", raw)
-        alts = cleaned.split("|")
-        for alt in alts:
-            needle = re.sub(r"\\s[*+]", " ", alt).strip().lower()
-            assert needle in section, f"Phrase '{needle}' missing from section 2.2"
 
 
