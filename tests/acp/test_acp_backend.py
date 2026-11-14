@@ -2682,7 +2682,7 @@ class TestAntigravityManagedLogArgs:
             backend._ensure_connection()
         cmd_line = captured["cmd_line"]
         assert "--log-file" in cmd_line
-        assert "/tmp/wa-user/agy-acp.log" in cmd_line
+        assert os.path.join("/tmp/wa-user", "agy-acp.log") in cmd_line
 
     def test_user_log_file_not_duplicated(self):
         captured: dict[str, list[str]] = {}

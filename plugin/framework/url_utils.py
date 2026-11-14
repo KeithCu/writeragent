@@ -14,6 +14,7 @@ separate section — do not fold it into ``normalize_endpoint_url``.
 from __future__ import annotations
 
 import os
+import posixpath
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -145,9 +146,14 @@ def path_to_file_url(path: str) -> str:
 
     Normalize with ``os.path.abspath`` then ``Path.as_uri()`` so Unix yields
     ``file:///…`` (three slashes). ``urljoin('file:', …)`` wrongly produces
-    ``file:/…``. Not an LLM endpoint helper; no ``@deal`` (those contracts are
-    for HTTP strings). UNO-free so embeddings extract can import this module.
+    ``file:/…``. POSIX absolute paths (leading ``/``, not ``//``) use
+    ``posixpath.normpath`` + ``urllib.parse.quote`` so they do not pick up a
+    Windows drive letter. Not an LLM endpoint helper; no ``@deal`` (those
+    contracts are for HTTP strings). UNO-free so embeddings extract can import
+    this module.
     """
+    if path.startswith("/") and not path.startswith("//"):
+        return "file://" + urllib.parse.quote(posixpath.normpath(path))
     return Path(os.path.abspath(path)).as_uri()
 
 

@@ -136,7 +136,8 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
         return None, error_dict(ec.INVALID_FILE_PATH, "file_path must be a non-empty string path")
     if not ocr_path_is_allowed(file_path, allow_prefixes):
         return None, dict(_FILE_PATH_DENIED)
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    # O_BINARY prevents Windows text-mode CRLF/0x1A truncation when reading binary files.
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(os.path.expanduser(file_path.strip()), flags)
     except FileNotFoundError:
