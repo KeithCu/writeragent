@@ -381,9 +381,9 @@ def test_settings_numeric_fields_have_schema_bounds(tmp_path: Path) -> None:
     for module in iter_settings_field_modules(MODULES):
         prefix = str(module["name"]).replace(".", "_")
         for field_name, schema in (module.get("config") or {}).items():
-            if not isinstance(schema, dict) or schema.get("internal") or schema.get("librepy_only"):
+            if not isinstance(schema, dict) or schema.get("internal"):
                 continue
-            if schema.get("widget") != "number" or "min" not in schema or "max" not in schema:
+            if schema.get("widget") not in ("number", "slider") or "min" not in schema or "max" not in schema:
                 continue
             ctrl_id = f"{prefix}__{field_name}"
             assert ctrl_id in elements, f"Missing numeric field {ctrl_id}"

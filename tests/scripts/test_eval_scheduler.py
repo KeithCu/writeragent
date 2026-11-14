@@ -17,7 +17,7 @@ _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
-from dataset import ALL_EXAMPLES, to_eval_examples  # noqa: E402
+from dataset import ALL_EXAMPLES, PYTHON_SHAPES_FLAG_ASK, to_eval_examples  # noqa: E402
 from eval_scheduler import (  # noqa: E402
     LoLane,
     clamp_lo_workers,
@@ -39,6 +39,16 @@ def test_declared_backend_defaults_string_and_flag_is_lo() -> None:
         assert kinds[ex["task_id"]] == expected
     assert kinds["python_shapes_flag"] == "lo"
     assert kinds["table_from_mess"] == "string"
+
+
+def test_flag_ask_matches_headed_prompt_file() -> None:
+    flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
+    prompt = (
+        Path(__file__).resolve().parents[2]
+        / "docs/eval/eval-2/python-shapes-flag/prompt.writeragent.txt"
+    )
+    assert prompt.read_text(encoding="utf-8").strip() == PYTHON_SHAPES_FLAG_ASK
+    assert flag["user_question"] == PYTHON_SHAPES_FLAG_ASK
 
 
 def test_resolve_backend_cli_overrides_row() -> None:

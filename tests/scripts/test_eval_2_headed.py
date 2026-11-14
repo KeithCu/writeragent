@@ -93,7 +93,7 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def test_read_max_tool_rounds_absent_is_15() -> None:
+def test_read_max_tool_rounds_absent_uses_default() -> None:
     assert read_max_tool_rounds({}) == DEFAULT_MAX_TOOL_ROUNDS
 
 
@@ -257,7 +257,7 @@ def test_default_eval2_trial_dir_is_tmp_subdir() -> None:
     assert flag.parent == Path(tempfile.gettempdir())
 
 
-def test_task_max_tool_rounds_gmp_is_150() -> None:
+def test_task_max_tool_rounds_routes_by_task() -> None:
     assert task_max_tool_rounds(TASK_TENANT) == EVAL_2_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_CADAVER) == EVAL_2_MAX_TOOL_ROUNDS
     assert task_max_tool_rounds(TASK_LONG) == EVAL_2_MAX_TOOL_ROUNDS
