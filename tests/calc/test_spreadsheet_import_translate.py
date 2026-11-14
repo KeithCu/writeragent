@@ -544,9 +544,9 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=ADDRESS(1; 1)", [], "$A$1", id="address"),
         pytest.param("=AREAS(A1:B10)", [], 1.0, id="areas"),
         pytest.param("=YEARFRAC(45000; 45365)", [], pytest.approx(1.0, abs=0.1), id="yearfrac"),
-        pytest.param("=DAYS360(44927; 45292)", [], 360.0, id="days360"),
-        pytest.param("=NETWORKDAYS.INTL(46181; 46185; 1)", [], 5.0, id="networkdays_intl"),
-        pytest.param("=WORKDAY.INTL(46181; 4; 1)", [], 46185.0, id="workday_intl"),
+        pytest.param("=DAYS360(44927; 45292)", [], 360.0, id="days360"),  # 2023-01-01 to 2024-01-01
+        pytest.param("=NETWORKDAYS.INTL(46181; 46185; 1)", [], 5.0, id="networkdays_intl"),  # Mon-Fri
+        pytest.param("=WORKDAY.INTL(46181; 4; 1)", [], 46185.0, id="workday_intl"),  # Mon + 4 days -> Fri
         pytest.param("=XOR(TRUE; FALSE; TRUE)", [], False, id="xor_false"),
         pytest.param("=XOR(TRUE; FALSE; FALSE)", [], True, id="xor_true"),
         pytest.param("=CHAR(65)", [], "A", id="char"),
@@ -574,7 +574,7 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=IRR(A1:A3)", [-100, 110, 0], pytest.approx(0.1, abs=1e-7), id="irr"),
         # Stats, regression, trig
         pytest.param("=DEVSQ(A1:A3)", [1.0, 3.0, 5.0], 8.0, id="devsq"),
-        pytest.param("=KURT(A1:A4)", [1.0, 2.0, 3.0, 4.0], pytest.approx(-1.2, abs=1e-9), id="kurt"),
+        pytest.param("=KURT(A1:A4)", [1.0, 2.0, 3.0, 4.0], pytest.approx(-1.2, abs=1e-9), id="kurt"),  # Excel/Calc kurtosis of [1,2,3,4] is -1.2
         pytest.param("=SKEW(A1:A3)", [1.0, 2.0, 3.0], pytest.approx(0.0, abs=1e-9), id="skew"),
         pytest.param("=SLOPE(A1:A3; B1:B3)", [[2.0, 4.0, 6.0], [1.0, 2.0, 3.0]], 2.0, id="slope"),
         pytest.param("=INTERCEPT(A1:A3; B1:B3)", [[3.0, 5.0, 7.0], [1.0, 2.0, 3.0]], 1.0, id="intercept"),
@@ -589,13 +589,13 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=SEC(0)", [], pytest.approx(1.0, abs=1e-9), id="sec"),
         pytest.param("=SECH(0)", [], pytest.approx(1.0, abs=1e-9), id="sech"),
         # Statistical A, error, engineering, bitwise
-        pytest.param("=STDEVA(A1:A3)", [1.0, 2.0, "x"], pytest.approx(1.0, abs=1e-9), id="stdeva"),
+        pytest.param("=STDEVA(A1:A3)", [1.0, 2.0, "x"], pytest.approx(1.0, abs=1e-9), id="stdeva"),  # [1, 2, "x"] -> [1, 2, 0]
         pytest.param("=STDEVPA(A1:A3)", [1.0, 2.0, "x"], pytest.approx(0.81649658, abs=1e-7), id="stdevpa"),
         pytest.param("=VARA(A1:A3)", [1.0, 2.0, "x"], pytest.approx(1.0, abs=1e-9), id="vara"),
-        pytest.param("=VARPA(A1:A3)", [1.0, 2.0, "x"], pytest.approx(2 / 3.0, abs=1e-9), id="varpa"),
-        pytest.param("=MAXA(A1:A3)", [-1.0, -2.0, "x"], 0.0, id="maxa"),
-        pytest.param("=MINA(A1:A3)", [1.0, 2.0, True], 1.0, id="mina_true"),
-        pytest.param("=MINA(A1:A3)", [1.0, 2.0, False], 0.0, id="mina_false"),
+        pytest.param("=VARPA(A1:A3)", [1.0, 2.0, "x"], pytest.approx(2 / 3.0, abs=1e-9), id="varpa"),  # [1, 2, "x"] -> [1, 2, 0]
+        pytest.param("=MAXA(A1:A3)", [-1.0, -2.0, "x"], 0.0, id="maxa"),  # "x" becomes 0.0
+        pytest.param("=MINA(A1:A3)", [1.0, 2.0, True], 1.0, id="mina_true"),  # TRUE becomes 1.0
+        pytest.param("=MINA(A1:A3)", [1.0, 2.0, False], 0.0, id="mina_false"),  # FALSE becomes 0.0
         pytest.param("=ERF(0.5)", [], pytest.approx(0.520499877, abs=1e-7), id="erf"),
         pytest.param("=ERFC(0.5)", [], pytest.approx(0.479500123, abs=1e-7), id="erfc"),
         pytest.param("=DELTA(5; 5)", [], 1.0, id="delta"),
@@ -718,6 +718,7 @@ def test_translate_unsupported_group_d_functions(formula):
     ],
 )
 def test_translate_group_e_emit_only(formula, expected_substr):
+    """scipy is optional in the venv; these helpers return NaN without it, so only check that the formula translates and names the helper."""
     res = translate_formula(formula, "A1")
     assert res.ok
     if expected_substr is not None:

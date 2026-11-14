@@ -223,7 +223,7 @@ def test_pred_code_in_cell_ref_to_successor_skips_attach():
 
 @pytest.mark.parametrize("chain_len", [3, 4])
 def test_reverse_ref_chain_skips_attach(chain_len: int):
-    """A1 -> A{N}; A2..A{N-1} attach sequentially; A{N} must not attach (would cycle)."""
+    """A1 -> A{N}; A2..A{N-1} attach sequentially; A{N} must not attach (A1->A{N}->A{N-1}->...->A1 cycle)."""
     cells = [_cell("A1", f'=PY("c1"; A{chain_len})')] + [
         _cell(f"A{idx}", f'=PY("c{idx}")') for idx in range(2, chain_len + 1)
     ]
@@ -484,16 +484,16 @@ def test_only_matching_orphan_rehomes_unmatched_is_dropped():
 @pytest.mark.parametrize("chain_len", [3, 4])
 def test_row_insert_chain_rehomes_all_keys(chain_len: int):
     """A1..A{N} shifted +1 row after A1; every attach record follows its cell."""
-    cells = [_cell("A1", '=PY("c1")')]
-    for idx in range(2, chain_len + 1):
-        pred = "A1" if idx == 2 else f"A{idx}"
-        cells.append(_cell(f"A{idx + 1}", f'=PY("c{idx}";{pred})'))
+    # Row insert after A1 shifts A2.. down one, so old A(idx-1) is now A{idx} (except A1).
+    shifted = [(idx, f"A{idx + 1}", "A1" if idx == 2 else f"A{idx}") for idx in range(2, chain_len + 1)]
+    cells = [_cell("A1", '=PY("c1")')] + [
+        _cell(addr, f'=PY("c{idx}";{pred})') for idx, addr, pred in shifted
+    ]
     incoming = {f"A{idx}": GeometricRecord(predecessor=f"A{idx - 1}") for idx in range(2, chain_len + 1)}
     patches, records = _repair(cells, incoming)
     assert patches == ()
-    for idx in range(2, chain_len + 1):
-        pred = "A1" if idx == 2 else f"A{idx}"
-        assert records[f"A{idx + 1}"].predecessor == pred
+    for unused, addr, pred in shifted:
+        assert records[addr].predecessor == pred
     assert "A2" not in records
 
 
