@@ -11,40 +11,45 @@ from plugin.framework.client.provider_detection import get_provider_from_endpoin
 @pytest.mark.parametrize(
     ("api_config", "expected_provider", "expected_endpoint", "expected_key", "expected_style"),
     [
-        (
+        pytest.param(
             {"endpoint": "https://openrouter.ai/api/v1", "api_key": "sk-or-testkey123"},
             "openrouter",
             "https://openrouter.ai/api",
             "sk-or-testkey123",
             "bearer",
+            id="openrouter-strips-v1",
         ),
-        (
+        pytest.param(
             {"endpoint": "http://localhost:11434", "api_key": ""},
             "ollama",
             "http://localhost:11434",
             "",
             "none",
+            id="ollama-keyless-no-header",
         ),
-        (
+        pytest.param(
             {"endpoint": "http://localhost:1234", "api_key": ""},
             "lmstudio",
             "http://localhost:1234",
             "",
             "none",
+            id="lmstudio-keyless-no-header",
         ),
-        (
+        pytest.param(
             {"endpoint": "http://my-custom-endpoint:8080/v1"},
             "custom",
             "http://my-custom-endpoint:8080",
             "",
             "bearer",
+            id="custom-keyless-defaults-bearer",
         ),
-        (
+        pytest.param(
             {"endpoint": "https://completely.different.url", "api_key": "valid-key", "is_openrouter": True},
             "openrouter",
             "https://completely.different.url",
             "valid-key",
             "bearer",
+            id="is_openrouter-bypasses-url-detection",
         ),
     ],
 )
@@ -183,12 +188,13 @@ def test_build_auth_headers_rejects_control_chars():
 @pytest.mark.parametrize(
     ("api_config", "expected_code", "expected_provider", "expected_msg"),
     [
-        ({}, "missing_endpoint", None, "No endpoint configured"),
-        (
+        pytest.param({}, "missing_endpoint", "", "No endpoint configured", id="missing-endpoint"),
+        pytest.param(
             {"endpoint": "https://api.openai.com/v1", "api_key": "   "},
             "missing_api_key",
             "openai",
             "No API key configured",
+            id="openai-requires-nonblank-api-key",
         ),
     ],
 )
@@ -197,8 +203,7 @@ def test_resolve_auth_for_config_errors(api_config, expected_code, expected_prov
         resolve_auth_for_config(api_config)
 
     assert exc_info.value.code == expected_code
-    if expected_provider is not None:
-        assert exc_info.value.provider == expected_provider
+    assert exc_info.value.provider == expected_provider
     assert expected_msg in str(exc_info.value)
 
 

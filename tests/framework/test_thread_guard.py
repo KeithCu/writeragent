@@ -5,6 +5,7 @@
 """Unit tests for the Layer A UNO thread-safety guard (thread_guard.py)."""
 
 import importlib
+import logging
 import os
 import threading
 import _thread
@@ -15,7 +16,7 @@ import pytest
 
 # Import after possible env setup in specific tests; we mutate the module flags for isolation.
 import plugin.framework.thread_guard as tg
-from plugin.framework.queue_executor import Policy, install_from_environ, main
+from plugin.framework.queue_executor import MainThread, Policy, install_from_environ, main
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +91,7 @@ def test_is_current_detects(monkeypatch):
     # Non-main thread must not be reported as current
     fake_bg = MagicMock()
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
-    monkeypatch.setattr(main, "designated", None)
+    monkeypatch.setattr(MainThread, "designated", None)
     assert main.is_current() is False
 
 
@@ -138,10 +139,12 @@ def test_assert_logs_warning_when_guard_off_from_bg(monkeypatch, caplog):
     tg.GUARD_ON = False
     tg.set_background_task("run_thing")
     try:
-        with caplog.at_level("WARNING", logger="plugin.framework.thread_guard"):
+        with caplog.at_level(logging.WARNING, logger=tg.log.name):
             tg.assert_main_thread("document_helpers.resolve")
         assert any(
-            "UNO thread violation" in r.message and "document_helpers.resolve" in r.message
+            r.levelno == logging.WARNING
+            and tg.THREAD_VIOLATION_MARK in r.message
+            and "document_helpers.resolve" in r.message
             for r in caplog.records
         )
     finally:

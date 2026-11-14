@@ -526,6 +526,7 @@ def test_is_cancelled_predicate():
 
 
 def test_scope_unset_is_shared():
+    """Verify _SCOPE_UNSET is identical across modules under a fresh import order."""
     import subprocess
     import sys
 
