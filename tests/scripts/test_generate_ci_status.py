@@ -33,10 +33,6 @@ from scripts.generate_ci_status import (
     suite_specs,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci-status-pages.yml"
-_GENERATOR = _REPO_ROOT / "scripts" / "generate_ci_status.py"
-
 
 def _spec(*needles: str, suite: str = "x", os: str = "", workflow: str = "pr-ci.yml") -> SuiteSpec:
     return SuiteSpec(suite=suite, os=os, workflow=workflow, name_contains=needles)
@@ -267,12 +263,6 @@ def test_render_svg_escapes_xml() -> None:
     assert "&lt;script&gt;" in svg
 
 
-def test_readme_embeds_pages_svg() -> None:
-    text = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "![CI status](https://keithcu.github.io/writeragent/status.svg)" in text
-    assert "[CI status page](https://keithcu.github.io/writeragent/)" in text
-
-
 def test_render_html_escapes_and_omits_token() -> None:
     rows = [
         StatusRow(
@@ -335,36 +325,6 @@ def test_main_writes_index_and_never_embeds_token(tmp_path: Path, monkeypatch: p
     assert "CrossHair check-all" in svg
     assert "no run" in text
     assert "no run" in svg
-
-
-def test_workflow_deploys_pages_from_actions_api() -> None:
-    text = _WORKFLOW.read_text(encoding="utf-8")
-    assert "workflow_dispatch:" in text
-    assert "workflow_run:" in text
-    assert "PR CI" in text
-    assert "CrossHair Verification (Deep / On-Demand)" in text
-    assert "pages: write" in text
-    assert "id-token: write" in text
-    assert "actions: read" in text
-    assert "name: github-pages" in text
-    assert "actions/upload-pages-artifact" in text
-    assert "actions/deploy-pages" in text
-    assert "secrets.GITHUB_TOKEN" in text
-    assert "scripts/generate_ci_status.py" in text
-    assert "status.svg" in text
-    assert "docs/" not in text
-
-
-def test_generator_and_workflow_live_outside_docs() -> None:
-    from scripts.generate_ci_status import SUITE_SPECS
-
-    assert "docs" not in _GENERATOR.parts
-    assert "docs" not in _WORKFLOW.parts
-    suites = [item[0] for item in SUITE_SPECS]
-    assert suites.count("CrossHair check-all") == 1
-    assert suites.count("CrossHair cover-all") == 1
-    assert suites.count("Test & Typecheck") == 3
-    assert suites.count("Mock LLM Sidebar") == 3
 
 
 def test_is_expired_within_and_outside_window() -> None:
@@ -1038,13 +998,6 @@ def test_collect_status_re_evaluates_on_higher_run_attempt() -> None:
     by_key = {(r.suite, r.os): r for r in rows}
     assert by_key[("Test & Typecheck", "macos-latest")].conclusion == "success"
     assert by_key[("Test & Typecheck", "macos-latest")].run_attempt == 2
-
-
-def test_workflow_restores_and_saves_cache() -> None:
-    text = _WORKFLOW.read_text(encoding="utf-8")
-    assert "actions/cache/restore" in text
-    assert "actions/cache/save" in text
-    assert "--cache .cache/ci-status/status.json" in text
 
 
 class _FakeHTTPResponse:

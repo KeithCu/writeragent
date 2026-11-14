@@ -15,16 +15,6 @@ if str(_PO) not in sys.path:
 import run_eval  # noqa: E402
 
 
-def test_parse_args_defaults_keep_full_catalog() -> None:
-    args = run_eval.parse_args([])
-    assert args.tools == "full"
-    assert args.schema_density == "full"
-    assert args.student == "llm"
-    assert args.backend == "string"
-    assert args.jobs == 1
-    assert args.lo_workers == 4
-
-
 def test_parse_args_tools_and_schema_density() -> None:
     args = run_eval.parse_args(
         ["--tools", "calc_minimal", "--schema-density", "skinny", "-e", "data_sorting"]

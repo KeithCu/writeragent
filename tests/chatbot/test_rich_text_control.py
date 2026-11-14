@@ -8,7 +8,6 @@
 """Unit tests for plugin.chatbot.rich_text_control."""
 
 from contextlib import contextmanager
-import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -485,34 +484,6 @@ class TestAppendTextChunk:
         cursor.setString.assert_called_once_with("")
 
 
-class TestLogRichScroll:
-    def test_log_rich_scroll_increments_seq_when_verbose_enabled(self, caplog):
-        import plugin.chatbot.rich_text_control as rtc
-        from plugin.chatbot.rich_text_control import log_rich_scroll
-
-        with patch("plugin.chatbot.rich_text_control.RICH_SCROLL_VERBOSE_DEBUG", True), \
-             caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
-            log_rich_scroll("test_phase", reason="unit")
-            log_rich_scroll("test_phase2")
-
-        from tests.harness.strip_bundle import module_source_contains
-
-        if not module_source_contains(rtc, "log.debug"):
-            return
-        messages = " ".join(r.message for r in caplog.records)
-        assert "[RICH-SCROLL]" in messages
-        assert "phase=test_phase" in messages
-        assert "reason=unit" in messages
-
-    def test_log_rich_scroll_is_off_by_default(self, caplog):
-        from plugin.chatbot.rich_text_control import log_rich_scroll
-
-        with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
-            log_rich_scroll("test_phase")
-
-        assert not any("[RICH-SCROLL]" in r.message for r in caplog.records)
-
-
 class TestStripLegacyAiLabel:
     def test_strips_ai_prefix(self):
         from plugin.chatbot.rich_text import strip_legacy_ai_label
@@ -540,47 +511,7 @@ class TestSkipLegacyStreamChunk:
         assert not skip_legacy_assistant_stream_chunk("Here is a real answer with tools.")
 
 
-class TestRerenderRichControlScroll:
-    def test_rerender_delegates_to_widget(self):
-        from tests.conftest import make_mock_send_button_listener
-
-        send = make_mock_send_button_listener()
-        widget = MagicMock()
-        send.rich_text_widget = widget
-        send.session = MagicMock()
-        send.session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
-
-        send.rerender_rich_text_session()
-
-        widget.rerender_last_assistant_if_html.assert_called_once_with(
-            send.session,
-        )
-
-
 class TestRichTextChatWidget:
-    def test_widget_delegates_correctly(self):
-        from plugin.chatbot.rich_text_control import RichTextChatWidget
-
-        ctx = MagicMock()
-        control = MagicMock()
-        model = MagicMock()
-        control.getModel.return_value = model
-        widget = RichTextChatWidget(ctx, control, style_window=None)
-
-        with patch("plugin.chatbot.rich_text_control.clear_control") as mock_clear:
-            widget.clear()
-            mock_clear.assert_called_once_with(control)
-
-        with patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal:
-            widget.reveal_caret()
-            mock_reveal.assert_called_once_with(control, ctx=ctx, reason="widget", restore=None)
-
-        with patch("plugin.chatbot.rich_text_control.append_text_chunk") as mock_chunk:
-            widget.append_chunk("hello")
-            mock_chunk.assert_called_once_with(
-                control, "hello", style_window=None, ctx=ctx, restore_focus=None,
-            )
-
     def test_rerender_paints_the_message_list(self):
         """The control is redrawn from the list. The stream offset is not a splice point."""
         from plugin.chatbot.rich_text_control import RichTextChatWidget

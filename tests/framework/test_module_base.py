@@ -1,6 +1,6 @@
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from plugin.framework.module_base import ModuleBase, ModuleLoader
 from plugin.framework.module_graph import topo_sort
@@ -211,14 +211,6 @@ def test_load_modules_logs_initialize_failure_when_shutdown_fails(mock_load_mani
 
 class MyModule(ModuleBase):
     name = 'my_module'
-
-def test_module_base_lifecycle_methods():
-    mod = MyModule()
-    services = MagicMock()
-    mod.initialize(services)
-    mod.start_background(services)
-    mod.shutdown()
-    mod.on_action('some_action')
 
 
 def test_core_and_writer_manifests_omit_format_service():

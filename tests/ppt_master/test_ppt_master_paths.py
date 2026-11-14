@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from plugin.contrib.ppt_master.upstream import collect_svg_files_upstream
 from plugin.ppt_master.paths import (
     _configured_data_root,
     _dev_clone_data_root,
+    apply_data_root_env,
     data_root_status_for_path,
     find_data_root_in_site_packages,
     resolve_data_root,
@@ -113,4 +115,25 @@ def test_resolve_data_root_env_accepts_outer_clone_path(tmp_path: Path, monkeypa
     monkeypatch.setattr(config_mod, "get_config", lambda key: "")
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(outer))
     assert resolve_data_root() == inner
+
+
+def test_apply_data_root_env_sets_env_when_valid(tmp_path: Path, monkeypatch) -> None:
+    _outer, inner = _make_outer_clone_layout(tmp_path)
+    # Register a restore point so teardown removes PPT_MASTER_DATA_ROOT even if unset initially.
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "")
+    monkeypatch.delenv("PPT_MASTER_DATA_ROOT", raising=False)
+    monkeypatch.setattr("plugin.ppt_master.paths.resolve_data_root", lambda _ctx=None: inner)
+    root = apply_data_root_env()
+    assert root == inner
+    assert os.environ.get("PPT_MASTER_DATA_ROOT") == str(inner)
+
+
+def test_apply_data_root_env_leaves_env_unset_for_placeholder(tmp_path: Path, monkeypatch) -> None:
+    missing = tmp_path / "not_a_data_root"
+    monkeypatch.setenv("PPT_MASTER_DATA_ROOT", "")
+    monkeypatch.delenv("PPT_MASTER_DATA_ROOT", raising=False)
+    monkeypatch.setattr("plugin.ppt_master.paths.resolve_data_root", lambda _ctx=None: missing)
+    root = apply_data_root_env()
+    assert root == missing
+    assert os.environ.get("PPT_MASTER_DATA_ROOT") is None
 

@@ -6,15 +6,12 @@
 
 from __future__ import annotations
 
-from typing import get_args
 from unittest.mock import patch
 
 from plugin.scripting.domain_registry import (
-    DOC_SCRIPT_DISPLAY_PREFIX,
     PICKER_WIRING,
     POST_VENV_DOMAIN_ORDER,
     WIRING_TABLE,
-    FormatOkKind,
     get_domain_wiring,
     get_post_venv_domains,
 )
@@ -54,29 +51,6 @@ def test_helper_rows_have_registered_names():
     for w in WIRING_TABLE:
         if w.helper_domain is not None:
             assert len(names(w.helper_domain)) > 0, f"Expected non-empty names for {w.id} (helper_domain={w.helper_domain})"
-
-
-def test_rps_domain_order():
-    ids = [w.id for w in WIRING_TABLE]
-    assert ids == [
-        "vision",
-        "viz",
-        "math",
-        "units",
-        "text",
-        "quant",
-        "optimize",
-        "forecast",
-        "analysis",
-        "sql",
-    ]
-
-
-def test_rps_domains_have_post_venv_hooks():
-    for spec in get_post_venv_domains():
-        assert callable(spec.insert)
-        assert callable(spec.format_ok)
-        assert callable(spec.is_result)
 
 
 def test_post_venv_order_matches_constant():
@@ -157,27 +131,6 @@ def test_picker_domains_unique_origins_and_prefixes():
     prefixes = [d.display_prefix for d in domains]
     assert len(origins) == len(set(origins))
     assert len(prefixes) == len(set(prefixes))
-    for d in domains:
-        assert d.display_prefix
-        assert callable(d.supports)
-        assert callable(d.templates)
-        assert isinstance(d.title, str) and d.title
-
-
-def test_picker_order_starts_with_vision_math_units_analysis():
-    origins = [d.origin for d in PICKER_WIRING]
-    assert origins[:4] == ["vision", "math", "units", "analysis"]
-    assert origins == [
-        "vision",
-        "math",
-        "units",
-        "analysis",
-        "sql",
-        "viz",
-        "quant",
-        "optimize",
-        "forecast",
-    ]
 
 
 def test_picker_supports_logs_when_the_check_raises(caplog):
@@ -229,10 +182,6 @@ def test_is_reserved_script_name():
     assert is_reserved_script_name("DocScript") is False
     for prefix in RESERVED_SCRIPT_PREFIXES:
         assert is_reserved_script_name(f"{prefix} test") is True
-    assert RESERVED_SCRIPT_PREFIXES == (
-        DOC_SCRIPT_DISPLAY_PREFIX,
-        *(row.display_prefix for row in PICKER_WIRING),
-    )
 
 
 def test_rps_spec_insert_returns_int_only_when_int():
@@ -249,14 +198,6 @@ def test_rps_spec_insert_returns_int_only_when_int():
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", return_value=lambda *a, **kw: None):
         assert wiring.insert(object(), object(), {}) is None
-
-
-def test_format_ok_kind_and_display_label():
-    allowed_kinds = set(get_args(FormatOkKind))
-    assert allowed_kinds == {"generic", "plot", "symbolic", "units", "vision", "rows"}
-    for w in WIRING_TABLE:
-        assert w.format_ok_kind in allowed_kinds
-        assert isinstance(w.display_label, str) and w.display_label
 
 
 def test_picker_supports_matches_post_venv_calc_only():

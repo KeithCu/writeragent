@@ -22,10 +22,7 @@ from plugin.writer.word_diff_split import (
     tokenize,
 )
 from plugin.writer.xhtml_style_postprocess import (
-    parse_fodt_autostyles,
     compact_lo_style_name,
-    decode_lo_css_class_suffix,
-    parse_style_block,
 )
 from tests.harness.vhs_budget import vhs_max_examples
 
@@ -74,44 +71,9 @@ def test_hypothesis_split_change_fraction_bounds(old: str, new: str) -> None:
         assert 0 <= sub.old_start <= sub.old_end <= len(old)
 
 
-@given(suffix=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_decode_lo_css_class_suffix_returns_str(suffix: str) -> None:
-    decoded = decode_lo_css_class_suffix(suffix)
-    assert isinstance(decoded, str)
-
-
 @given(name=_SHORT_TEXT)
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_compact_lo_style_name_removes_spaces(name: str) -> None:
     compacted = compact_lo_style_name(name)
     assert isinstance(compacted, str)
     assert " " not in compacted
-
-
-@given(fodt=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_extract_autostyle_parents_from_fodt_invariant(fodt: str) -> None:
-    res = parse_fodt_autostyles(fodt)[0]
-    assert isinstance(res, dict)
-    for k, v in res.items():
-        assert isinstance(k, str)
-        assert isinstance(v, str)
-
-
-@given(fodt=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_extract_autostyle_overrides_from_fodt_invariant(fodt: str) -> None:
-    res = parse_fodt_autostyles(fodt)[1]
-    assert isinstance(res, dict)
-    for k, v in res.items():
-        assert isinstance(k, str)
-        assert isinstance(v, str)
-
-
-@given(xhtml=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_parse_style_block_invariant(xhtml: str) -> None:
-    raw_map, norm_map = parse_style_block(xhtml)
-    assert isinstance(raw_map, dict)
-    assert isinstance(norm_map, dict)

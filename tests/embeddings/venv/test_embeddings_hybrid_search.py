@@ -6,11 +6,15 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from plugin.embeddings.venv.embeddings_hybrid_search import hybrid_corpus_search  # noqa: E402
+
+M = "plugin.embeddings.venv.embeddings_hybrid_search."
 
 
 def _fused_candidates() -> list[dict]:
@@ -45,94 +49,80 @@ def _fused_candidates() -> list[dict]:
     ]
 
 
-def test_hybrid_calls_cross_encoder_when_rerank_model_set() -> None:
-    fused = _fused_candidates()
-    reranked = [fused[2], fused[0]]
-
+@contextmanager
+def _patch_hybrid_search(fused: list[dict]):
     conn = MagicMock()
-    with (
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.connect_corpus_db", return_value=conn),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.embed_texts", return_value={"vectors": [[1.0, 0.0, 0.0, 0.0]]}),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.fts_corpus_search", return_value=[]),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.vec0_search", return_value=[]),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.load_embeddings_for_candidates"),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.merge_hybrid_hits", return_value=list(fused)),
-        patch(
-            "plugin.embeddings.venv.embeddings_hybrid_search.expand_candidates_to_parent_paragraphs",
-            side_effect=lambda _db, rows: rows,
-        ),
-        patch(
-            "plugin.embeddings.venv.embeddings_hybrid_search.cross_encoder_rerank_candidates",
-            return_value=reranked,
-        ) as rerank_mock,
-    ):
-        result = hybrid_corpus_search(
-            "/tmp/corpus.db",
-            "streaming sidebar",
-            2,
-            model_name="test-model",
-            use_mmr=True,
-            rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+    with ExitStack() as stack:
+        stack.enter_context(patch(f"{M}connect_corpus_db", return_value=conn))
+        stack.enter_context(patch(f"{M}embed_texts", return_value={"vectors": [[1.0, 0.0, 0.0, 0.0]]}))
+        stack.enter_context(patch(f"{M}fts_corpus_search", return_value=[]))
+        stack.enter_context(patch(f"{M}vec0_search", return_value=[]))
+        stack.enter_context(patch(f"{M}load_embeddings_for_candidates"))
+        stack.enter_context(patch(f"{M}merge_hybrid_hits", return_value=list(fused)))
+        stack.enter_context(
+            patch(
+                f"{M}expand_candidates_to_parent_paragraphs",
+                side_effect=lambda _db, rows: rows,
+            )
         )
-
-    rerank_mock.assert_called_once()
-    assert len(result["hits"]) == 2
-    assert result["hits"][0]["doc_url"] == "file:///c.odt"
+        yield
 
 
-def test_hybrid_skips_rerank_when_k_is_one() -> None:
-    fused = _fused_candidates()
-
-    conn = MagicMock()
-    with (
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.connect_corpus_db", return_value=conn),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.embed_texts", return_value={"vectors": [[1.0, 0.0, 0.0, 0.0]]}),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.fts_corpus_search", return_value=[]),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.vec0_search", return_value=[]),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.load_embeddings_for_candidates"),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.merge_hybrid_hits", return_value=list(fused)),
-        patch(
-            "plugin.embeddings.venv.embeddings_hybrid_search.expand_candidates_to_parent_paragraphs",
-            side_effect=lambda _db, rows: rows,
+@pytest.mark.parametrize(
+    "n_fused,k,rerank_model,use_mmr,rerank_called,expected_urls",
+    [
+        pytest.param(
+            3,
+            2,
+            "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            True,
+            True,
+            ["file:///c.odt", "file:///a.odt"],
+            id="rerank-when-model-set",
         ),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.cross_encoder_rerank_candidates") as rerank_mock,
-    ):
-        hybrid_corpus_search(
-            "/tmp/corpus.db",
-            "streaming sidebar",
+        pytest.param(
+            3,
             1,
-            model_name="test-model",
-            use_mmr=True,
-            rerank_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        )
-
-    rerank_mock.assert_not_called()
-
-
-def test_hybrid_skips_rerank_when_disabled() -> None:
-    fused = _fused_candidates()[:2]
-
-    conn = MagicMock()
-    with (
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.connect_corpus_db", return_value=conn),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.embed_texts", return_value={"vectors": [[1.0, 0.0, 0.0, 0.0]]}),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.fts_corpus_search", return_value=[]),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.vec0_search", return_value=[]),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.load_embeddings_for_candidates"),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.merge_hybrid_hits", return_value=list(fused)),
-        patch(
-            "plugin.embeddings.venv.embeddings_hybrid_search.expand_candidates_to_parent_paragraphs",
-            side_effect=lambda _db, rows: rows,
+            "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            True,
+            False,
+            ["file:///a.odt"],
+            id="skip-when-k-is-one",
         ),
-        patch("plugin.embeddings.venv.embeddings_hybrid_search.cross_encoder_rerank_candidates") as rerank_mock,
+        pytest.param(
+            2,
+            2,
+            None,
+            False,
+            False,
+            ["file:///a.odt", "file:///b.odt"],
+            id="skip-when-disabled",
+        ),
+    ],
+)
+def test_hybrid_corpus_search_rerank(
+    n_fused: int,
+    k: int,
+    rerank_model: str | None,
+    use_mmr: bool,
+    rerank_called: bool,
+    expected_urls: list[str],
+) -> None:
+    fused = _fused_candidates()[:n_fused]
+    rerank_return = [fused[2], fused[0]] if n_fused == 3 else []
+
+    with (
+        _patch_hybrid_search(fused),
+        patch(f"{M}cross_encoder_rerank_candidates", return_value=rerank_return) as rerank,
     ):
         result = hybrid_corpus_search(
             "/tmp/corpus.db",
             "streaming sidebar",
-            2,
+            k,
             model_name="test-model",
-            use_mmr=False,
+            use_mmr=use_mmr,
+            rerank_model=rerank_model,
         )
 
-    rerank_mock.assert_not_called()
-    assert len(result["hits"]) == 2
+    assert rerank.call_count == (1 if rerank_called else 0)
+    assert [h["doc_url"] for h in result["hits"]] == expected_urls

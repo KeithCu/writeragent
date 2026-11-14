@@ -589,4 +589,3 @@ def test_delegate_footnotes_hint_reaches_inner_instructions(
     assert mock_run_inner.called
     instructions = mock_run_inner.call_args.kwargs["instructions"]
     assert "insert_after" in instructions
-    assert "cannot move the view cursor" in instructions

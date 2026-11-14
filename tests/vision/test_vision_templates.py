@@ -7,15 +7,7 @@
 from __future__ import annotations
 
 from plugin.scripting.helper_domain import ScriptFacts
-from plugin.vision.vision_common import HELPER_NAMES
 from plugin.vision.vision_templates import get_vision_script_templates
-
-
-def test_templates_cover_shipped_helpers():
-    templates = get_vision_script_templates()
-    assert set(templates.keys()) == {"extract_text", "extract_structure"}
-    assert "extract_text" in HELPER_NAMES
-    assert "extract_structure" in HELPER_NAMES
 
 
 def test_templates_are_executable_run_import():

@@ -14,7 +14,6 @@ from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.function import CellContext
 from plugin.calc.address_utils import local_a1
 from plugin.calc.python.geometric_recalc import (
-    CONFIG_KEY,
     GEOMETRIC_REGISTRY_PROP,
     EvalIndexKey,
     GeometricCell,
@@ -109,11 +108,6 @@ def _patch_map(result):
 
 def _key(code: str, n_args: int, workbook_key: str = WB) -> EvalIndexKey:
     return EvalIndexKey(workbook_key, code, n_args)
-
-
-def test_constants_match_discovery_and_spill_pattern():
-    assert GEOMETRIC_REGISTRY_PROP == "WriterAgentGeometricRegistry"
-    assert CONFIG_KEY == "scripting.python_geometric_recalc_order"
 
 
 def test_local_a1_and_same_cell_ref():

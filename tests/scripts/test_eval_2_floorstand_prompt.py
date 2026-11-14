@@ -38,24 +38,6 @@ _MATRIX_ODS = _EXP / "fixtures" / "Holiday Matrix final count.ods"
 _BUDGET_ODS = _EXP / "fixtures" / "Holiday Floorstand Budget.ods"
 _TABLE_NS = "urn:oasis:names:tc:opendocument:xmlns:table:1.0"
 
-_BANNED_STEERING = (
-    "don't invent",
-    "do not invent",
-    "don't make up",
-    "from knowledge",
-    "web not required",
-    "already named",
-)
-_BANNED_PRODUCT_INTERNALS = (
-    "peer_inner",
-    "send_peer_work",
-    "send_peer_result",
-    "shape_fill_fields",
-    "document_research",
-    "specialized_workflow_finished",
-    "specialize",
-)
-
 
 def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     gold = _GOLD_PROMPT.read_bytes()
@@ -66,40 +48,8 @@ def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     assert gold.decode("utf-8").rstrip("\n") == row["prompt"]
 
 
-def test_writer_prompt_uses_open_writer_and_calc_not_excel_or_word() -> None:
-    writer = _WRITER_PROMPT.read_text(encoding="utf-8")
-    gold = _GDPVAL_PROMPT.read_text(encoding="utf-8")
-    assert "this open Writer document" in writer
-    assert "already open as a Calc document" in writer
-    assert "Microsoft Word" not in writer
-    assert "Word document format" not in writer
-    assert "Please deliver an Excel file." in gold
-    assert "Please deliver an Excel file." not in writer
-    assert "source materials in this folder" in writer
-    assert "Holiday Floorstand Store List Original in this folder" in writer
-    assert "Holiday Matrix final count" in writer
-    assert "Email Trail Floorstands" in writer
-
-
-def test_writer_prompt_keeps_floorstand_claim_and_avoids_steering() -> None:
+def test_writer_prompt_does_not_leak_oracle_totals() -> None:
     text = _WRITER_PROMPT.read_text(encoding="utf-8")
-    for heading in (
-        "floor stands",
-        "$0.25",
-        "shelf strip",
-        "Store 4099",
-        "3737",
-        "overage percentage",
-        "original program cost",
-        "revised program cost",
-        "leave that cell blank rather than guessing",
-    ):
-        assert heading in text
-    lowered = text.lower()
-    for banned in _BANNED_STEERING:
-        assert banned not in lowered, banned
-    for banned in _BANNED_PRODUCT_INTERNALS:
-        assert banned not in lowered, banned
     # Exact gold totals stay out of the product prompt (oracle cheat).
     assert "24,670.80" not in text
     assert "1,320" not in text

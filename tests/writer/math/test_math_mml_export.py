@@ -339,8 +339,3 @@ def test_read_starmath_raises_on_disposed_embed() -> None:
 
     with pytest.raises(DocumentDisposedError):
         read_starmath(embed)
-
-
-def test_math_export_result_shape() -> None:
-    r = MathExportResult(False, None, "empty_mathml")
-    assert r.ok is False

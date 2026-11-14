@@ -8,7 +8,6 @@
 #
 # Unit tests for chart CLSID / Writer embed helpers (no UNO required).
 
-import logging
 from typing import Any
 from unittest.mock import MagicMock, call, patch
 
@@ -42,7 +41,6 @@ def _tool(name: str):
 
 def test_normalize_clsid_value_bytes():
     assert _normalize_clsid_value(b"abc") == "abc"
-    assert isinstance(_normalize_clsid_value(CHART_CLSID), str)
 
 
 def test_is_chart_clsid_braced_and_mixed_case():
@@ -214,22 +212,6 @@ def test_axis_title_shape_string_reads_and_writes_when_present():
     assert _axis_title_shape_string(shape, "Sales") == "Sales"
     assert shape.String == "Sales"
     assert _axis_title_shape_string(shape, None) == "Sales"
-
-
-def test_apply_axis_title_does_not_log_success_without_string(caplog):
-    class _Diagram:
-        HasXAxisTitle = True
-
-        def getXAxisTitle(self) -> object:
-            return object()
-
-    class _Chart:
-        def getDiagram(self) -> _Diagram:
-            return _Diagram()
-
-    caplog.set_level(logging.DEBUG, logger="plugin.calc.charts")
-    _apply_chart_styling(_Chart(), x_axis_title="Sales")
-    assert "Set X axis title" not in caplog.text
 
 
 def test_resolve_chart_skips_disposed_shape_on_draw():

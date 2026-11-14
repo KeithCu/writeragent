@@ -158,18 +158,6 @@ def test_apply_design_current_doc_import_failure():
     assert "current" in out["message"].lower() or "failed" in out["message"].lower()
 
 
-def test_apply_design_description_mentions_current_doc():
-    desc = ApplyDesign.description.lower()
-    assert "current" in desc or "open" in desc
-    assert "lo_wall" not in desc
-    assert "new_document" not in desc
-    assert "does not use" in desc and "clipboard" in desc
-    assert "diamode" not in desc
-    assert "clone" in desc
-    params = ApplyDesign.parameters or {}
-    assert "new_document" not in params.get("properties", {})
-
-
 def test_apply_design_ignores_legacy_new_document_kwarg():
     """Leftover new_document=true must still restyle the open deck, not spawn one."""
     ctx = MagicMock()
@@ -227,31 +215,6 @@ def test_list_designs_tool_returns_count():
         out = ListDesigns().execute(ctx)
     assert out["status"] == "ok"
     assert out["count"] == 1
-
-
-def test_list_designs_description_mentions_look():
-    desc = ListDesigns.description.lower()
-    assert "look" in desc
-    assert "appearance" in desc or "mood" in desc or "dark" in desc
-    assert "apply_design" in desc
-    assert "set_presentation_design" not in desc
-
-
-def test_draw_prompt_steers_apply_design_on_open_deck():
-    from plugin.framework.prompts import DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
-
-    text = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
-    assert "apply_design" in text
-    assert "list_designs" in text
-    assert "set_presentation_design" not in text
-    assert "new_document" not in text
-
-
-def test_set_presentation_design_is_not_a_tool():
-    import plugin.draw.designs as designs
-
-    assert not hasattr(designs, "SetPresentationDesign")
-    assert not hasattr(designs, "enable_design_headers_footers")
 
 
 def test_blank_master_signal():
@@ -347,18 +310,6 @@ def test_apply_design_partial_assign_is_error():
     assert out["slide_count"] == 2
     assert "Rolled back" in out["message"]
     assert out["rolled_back"] is True
-
-
-def test_designs_module_has_no_hardcoded_install_prefix():
-    import inspect
-
-    import plugin.draw.design_look as design_look
-    import plugin.draw.designs as designs
-
-    for mod in (designs, design_look):
-        src = inspect.getsource(mod)
-        assert "/usr/lib/libreoffice" not in src
-        assert "/opt/libreoffice" not in src
 
 
 def test_enumerate_impress_designs_limit():

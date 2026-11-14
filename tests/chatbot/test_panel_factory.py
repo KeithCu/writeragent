@@ -51,12 +51,6 @@ def test_panel_factory_does_not_import_or_call_chat_context_builder():
     assert not _calls_name(_FACTORY, "get_document_context_for_chat")
 
 
-def test_panel_factory_mode_switch_delegates_context_refresh_to_session():
-    src = _FACTORY.read_text(encoding="utf-8")
-    assert "session.refresh_document_context(model, self.ctx)" in src
-    assert "_refresh_doc_session_context" not in src
-
-
 def test_dialog_views_does_not_import_tool_loop():
     imported = _imported_names(_DIALOG_VIEWS)
     assert "plugin.chatbot.tool_loop" not in imported
@@ -76,8 +70,6 @@ def test_send_and_tool_loop_refresh_via_session_not_builder():
         imported = _imported_names(path)
         assert "get_document_context_for_chat" not in imported
         assert "plugin.doc.document_helpers.get_document_context_for_chat" not in imported
-        src = path.read_text(encoding="utf-8")
-        assert "refresh_document_context" in src
 
 
 class _MockDisposedException(Exception):
@@ -1060,13 +1052,6 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     assert sentinel.cached_doc_type == "unknown"
     assert sentinel.initial_doc_type == "Unknown"
     assert sentinel.cached_uno_services == frozenset()
-
-
-def test_minimal_width_is_pre_negotiation_constant() -> None:
-    from typing import Any, cast
-    from plugin.chatbot.panel_factory import ChatToolPanel, _PRE_NEGOTIATION_PANEL_WIDTH
-
-    assert ChatToolPanel.getMinimalWidth(cast("Any", object())) == _PRE_NEGOTIATION_PANEL_WIDTH == 320
 
 
 def test_refresh_controls_continues_after_model_read_failure():

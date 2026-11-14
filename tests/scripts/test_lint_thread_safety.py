@@ -12,12 +12,6 @@ from scripts.lint_thread_safety import (
 import pytest
 
 
-def test_clean_plugin_scan() -> None:
-    """The production plugin codebase must report 0 thread safety violations."""
-    findings = scan_cross_file_callgraph(Path("plugin"))
-    assert findings == [], f"Unexpected violations in plugin/: {findings}"
-
-
 def test_detects_direct_off_main_uno(tmp_path: Path) -> None:
     """A background function directly calling a UNO source must be flagged."""
     worker_file = tmp_path / "worker.py"

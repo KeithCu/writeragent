@@ -1,17 +1,6 @@
 import pytest
-import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-
-# Ensure UNO is mocked if running outside LibreOffice
-try:
-    import uno  # noqa: F401
-except ImportError:
-    sys.modules["uno"] = MagicMock()
-    sys.modules["unohelper"] = MagicMock()
-    com_mock = MagicMock()
-    sys.modules["com"] = com_mock
-    sys.modules["com.sun.star.text"] = MagicMock()
 
 from plugin.tests.testing_utils import TestingFactory
 from plugin.writer.specialized.fields import FieldsInsert, FieldsList, FieldsDelete

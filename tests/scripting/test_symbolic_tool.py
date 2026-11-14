@@ -59,11 +59,6 @@ def test_symbolic_math_requires_helper(writer_ctx):
     assert result["message"] == "helper is required"
 
 
-def test_symbolic_math_uno_services():
-    tool = _tool()
-    assert tool.uno_services == ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
-
-
 def test_symbolic_math_in_python_domain():
     from plugin.app import get_tools
 

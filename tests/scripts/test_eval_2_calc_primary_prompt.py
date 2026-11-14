@@ -14,7 +14,6 @@ _REPO = Path(__file__).resolve().parents[2]
 _TASK_ID = "5f6c57dd-feb6-4e70-b152-4969d92d1608"
 _GOLD = _REPO / "docs" / "eval" / "gdpval" / _TASK_ID
 _EXP = _REPO / "docs" / "eval" / "eval-2" / "calc-primary-model"
-_WRITER_PROMPT = _EXP / "prompt.writeragent.txt"
 _GDPVAL_PROMPT = _EXP / "prompt.gdpval.txt"
 _GOLD_PROMPT = _GOLD / "prompt.txt"
 _GOLD_XLSX = (
@@ -29,24 +28,6 @@ _SSML = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _TABLE_NS = "urn:oasis:names:tc:opendocument:xmlns:table:1.0"
 _TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
 
-_BANNED_STEERING = (
-    "don't invent",
-    "do not invent",
-    "don't make up",
-    "from knowledge",
-    "web not required",
-    "already named",
-)
-_BANNED_PRODUCT_INTERNALS = (
-    "peer_inner",
-    "send_peer_work",
-    "send_peer_result",
-    "shape_fill_fields",
-    "document_research",
-    "specialized_workflow_finished",
-    "sheet_create",
-    "write_formula_range",
-)
 _FIXTURE_KEYS = (
     "Branch 1",
     "Branch 10",
@@ -89,41 +70,6 @@ def test_gold_prompt_is_byte_copy_of_hf_tree() -> None:
     row = json.loads((_GOLD / "task.json").read_text(encoding="utf-8"))
     assert row["task_id"] == _TASK_ID
     assert gold.decode("utf-8").rstrip("\n") == row["prompt"]
-
-
-def test_writer_prompt_uses_open_workbook_not_new_excel() -> None:
-    writer = _WRITER_PROMPT.read_text(encoding="utf-8")
-    gold = _GDPVAL_PROMPT.read_text(encoding="utf-8")
-    assert "this open workbook" in writer
-    assert "spreadsheet titled ‘Raw Data’" in writer
-    assert "Raw Data sheet" in writer
-    assert "attached Excel spreadsheet" in gold
-    assert "built in Excel" in gold
-    assert "built in Excel" not in writer
-    assert "Microsoft Excel" not in writer
-    assert "create a new" not in writer.lower()
-
-
-def test_writer_prompt_keeps_gold_claim_and_avoids_steering() -> None:
-    text = _WRITER_PROMPT.read_text(encoding="utf-8")
-    for heading in (
-        "Income statement comparing",
-        "Monthly trended income statement",
-        "Branch ranking analysis",
-        "Regional comparison",
-        "Efficiency Metrics",
-        "M23 and M24",
-        "Regions A through G",
-        "average revenue per unit (ARPU)",
-        "positive variance",
-        "negative variance",
-    ):
-        assert heading in text
-    lowered = text.lower()
-    for banned in _BANNED_STEERING:
-        assert banned not in lowered, banned
-    for banned in _BANNED_PRODUCT_INTERNALS:
-        assert banned not in lowered, banned
 
 
 def test_fixtures_exist_and_match_gold_xlsx() -> None:

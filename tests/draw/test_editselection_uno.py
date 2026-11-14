@@ -9,7 +9,6 @@ from unittest.mock import patch
 from plugin.doc.visual_helpers import controller_selection
 from plugin.draw.editselection import do_draw_extend_edit, iter_draw_rewrite_targets
 from plugin.draw.tables import _cell_string, _table_model, iter_table_shapes
-from plugin.draw.transform_engine import _set_shape_text
 from plugin.framework.i18n import _
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -47,7 +46,7 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
     page = doc.getDrawPages().getByIndex(0)
     shape = doc.createInstance("com.sun.star.drawing.TextShape")
     page.add(shape)
-    _set_shape_text(shape, "Hello")
+    shape.setString("Hello")
     controller = doc.getCurrentController()
     if hasattr(controller, "setCurrentPage"):
         controller.setCurrentPage(page)

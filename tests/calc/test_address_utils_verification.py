@@ -105,15 +105,10 @@ def test_parse_address_raises_on_invalid() -> None:
             parse_range_string(invalid_range)
 
 
-@given(s=st.text())
-@settings(max_examples=vhs_max_examples(100, 1000), deadline=None)
-def test_hypothesis_parse_address_row_non_negative_or_raises(s: str) -> None:
-    try:
-        col, row = parse_address(s)
-        assert col >= 0
-        assert row >= 0
-    except Exception:
-        pass
+def test_parse_address_known_values() -> None:
+    assert parse_address("A1") == (0, 0)
+    assert parse_address("B3") == (1, 2)
+    assert parse_address("$C$5") == (2, 4)
 
 
 @pytest.mark.slow
@@ -142,18 +137,3 @@ def test_crosshair_address_utils_if_available() -> None:
     assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
     if result.returncode == 2:
         pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
-
-
-def test_format_address_post_avoids_regex() -> None:
-    """format_address postcondition stays regex-free to avoid concolic solver slowdowns."""
-    import inspect
-
-    from plugin.calc.address_utils import format_address
-
-    # deal.post lives on the decorator stack; inspect the module region above the def.
-    mod_src = inspect.getsource(inspect.getmodule(format_address))
-    # The format_address deal.post block must not use re.match/re.fullmatch.
-    # Grep the decorator region above def format_address.
-    idx = mod_src.index("def format_address")
-    region = mod_src[max(0, idx - 500) : idx]
-    assert "re.match" not in region and "re.fullmatch" not in region

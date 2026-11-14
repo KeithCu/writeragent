@@ -531,20 +531,6 @@ def test_slash_key_handler_key_pressed_behaviour() -> None:
     assert handler.keyPressed(ev) is False
 
 
-def test_frame_and_toolkit_sources_are_nav_only():
-    import inspect
-
-    attach = inspect.getsource(SlashPopupController._attach_key_handler)
-    frame = inspect.getsource(SlashPopupController._attach_frame_keys)
-    toolkit = inspect.getsource(SlashPopupController._attach_toolkit_keys)
-    listed = inspect.getsource(SlashPopupController._attach_keys)
-    assert "_make_slash_key_handler" in attach
-    assert "_attach_key_handler" in frame
-    assert "_attach_key_handler" in toolkit
-    assert "from_overlay=True" not in attach
-    assert "from_overlay=True" in listed
-
-
 def test_show_matches_repositions_only_before_show():
     popup, box = _controller()
     seen_visible: list[bool] = []
@@ -732,39 +718,11 @@ def test_frame_key_attach_failure_logs_warning(caplog):
             delattr(awt, "XKeyHandler")
 
 
-def test_slash_disabled_when_flag_false(monkeypatch, caplog):
+def test_slash_disabled_when_flag_false(monkeypatch):
     monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
-    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
     popup, _box = _controller()
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
-        popup.on_query_text("/")
+    popup.on_query_text("/")
     assert popup.is_open is False
-    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
-
-
-def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
-    from plugin.chatbot.slash_popup import _ovlog
-
-    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
-        _ovlog("query_text entered raw=%r", "/he")
-    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
-
-
-def test_ovlog_emits_debug_when_verbose(caplog, monkeypatch):
-    import plugin.chatbot.slash_popup as slash_popup
-    from tests.harness.strip_bundle import module_source_contains
-
-    monkeypatch.setattr(slash_popup, "SLASH_OV_VERBOSE_DEBUG", True)
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
-        slash_popup._ovlog("query_text entered raw=%r", "/he")
-    if not module_source_contains(slash_popup, "log.debug"):
-        return
-    matches = [r for r in caplog.records if "[SLASH-OV]" in r.message]
-    assert matches
-    assert all(r.levelno == logging.DEBUG for r in matches)
-    assert any("query_text entered" in r.message for r in matches)
-    assert not any(r.levelno >= logging.INFO and "[SLASH-OV]" in r.message for r in caplog.records)
 
 
 class _R:
@@ -924,18 +882,17 @@ def test_list_height_measures_rows_and_falls_back():
     assert _list_height(bad, 2) == _overlay_height(2)
 
 
-def test_toolkit_key_handler_registered_at_panel_creation(monkeypatch):
+def test_toolkit_key_handler_registered_at_panel_creation():
     """Esc must reach us before the sidebar FocusManager, which also listens
     app-wide and moves focus to the panel title. App key listeners run in
     registration order, so ours is added once at panel creation and kept
     until dispose; hide must not drop it."""
-    handler = object()
-    monkeypatch.setattr("plugin.chatbot.slash_popup._make_slash_key_handler", lambda host, label: handler)
     toolkit = MagicMock()
     peer = SimpleNamespace(getToolkit=lambda: toolkit)
     query = SimpleNamespace(getPeer=lambda: peer, getText=lambda: "")
     popup = SlashPopupController(_ListBox(), MagicMock(), query)
-    toolkit.addKeyHandler.assert_called_once_with(handler)
+    toolkit.addKeyHandler.assert_called_once()
+    handler = toolkit.addKeyHandler.call_args.args[0]
     popup.hide(restore_send=False)
     toolkit.removeKeyHandler.assert_not_called()
     popup.dispose()

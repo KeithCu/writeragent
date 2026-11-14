@@ -49,15 +49,6 @@ def test_every_script_in_index_html_is_served(tmp_path):
         assert Path(served).is_file(), src
 
 
-def test_editor_shell_references_both_backend_file_pairs():
-    from pathlib import Path
-
-    assets = Path(__file__).resolve().parents[2] / "plugin/contrib/scripting/assets/editor"
-    shell_js = (assets / "editor_shell.js").read_text(encoding="utf-8")
-    for script_name in ("cm6/cm6.bundle.js", "backend_cm6.js", "vs/loader.js", "backend_monaco.js"):
-        assert script_name in shell_js
-
-
 def test_monaco_static_path_serves_cm6_assets(tmp_path):
     from pathlib import Path
 

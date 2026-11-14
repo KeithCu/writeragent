@@ -58,10 +58,6 @@ class TestQueryEnterSend:
         assert not (query_enter_triggers_primary_send(1280, 1 | 2))
 
 
-    def test_doc_yaml_default_enter_sends_true(self):
-        pass
-
-
 def _live_bus_callbacks(bus: Any, event: str) -> list[Any]:
     subs = bus._subscribers.get(event) or []
     live: list[Any] = []

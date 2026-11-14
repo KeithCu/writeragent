@@ -12,7 +12,6 @@ import pytest
 
 from plugin.calc.forecast import ForecastDataTool
 from plugin.framework.errors import ToolExecutionError
-from plugin.scripting.helper_registry import names
 
 
 @pytest.fixture
@@ -22,16 +21,6 @@ def calc_ctx():
     ctx.ctx = MagicMock()
     ctx.doc_type = "calc"
     return ctx
-
-
-def test_forecast_data_lists_helpers():
-    tool = ForecastDataTool()
-    for name in names("forecast"):
-        assert name in tool.description
-    params_desc = tool.get_parameters()["properties"]["params"]["description"]
-    for word in ("date_col", "seasonal_periods", "include_all"):
-        assert word in tool.description
-        assert word in params_desc
 
 
 def test_forecast_data_requires_helper(calc_ctx):

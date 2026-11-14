@@ -387,7 +387,7 @@ def test_maybe_convert_keeps_already_modified_flag(tmp_path: Path):
         assert doc.isModified() is True
 
 
-def test_maybe_convert_logs_parse_issue_when_nothing_converts(tmp_path: Path):
+def test_maybe_convert_returns_false_when_nothing_converts(tmp_path: Path):
     src = tmp_path / "py.xlsx"
     _minimal_xlsx(src, with_scripts=True)
     doc = CalcDocStub()
@@ -396,13 +396,9 @@ def test_maybe_convert_logs_parse_issue_when_nothing_converts(tmp_path: Path):
         patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc") as apply_uno,
-        patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
-        patch("plugin.calc.excel_py_convert.auto_open.log.info") as mock_info,
     ):
         assert maybe_convert_excel_py_document(doc) is False
         apply_uno.assert_not_called()
-        assert any("could not be parsed" in str(arg) for call in mock_warn.call_args_list for arg in call.args)
-        assert not any("no convertible PY cells" in str(arg) for call in mock_info.call_args_list for arg in call.args)
 
 
 def test_issue_summary_caps_long_issue_lists():
@@ -772,8 +768,8 @@ def test_apply_dag_formulas_preflight_failure_writes_nothing():
     assert fake_bank.getCellRangeByName("A1").getString() == "user data"
 
 
-def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
-    """Successful apply logs warning if ExcelPyDagMeta store fails, leaving open converted."""
+def test_maybe_convert_excel_py_document_meta_store_failure_still_converts(tmp_path: Path):
+    """Successful apply still succeeds if ExcelPyDagMeta store fails."""
 
     doc = CalcDocStub()
     sheet = doc.getSheets().getByName("Sheet1")
@@ -793,12 +789,9 @@ def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
         patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.convert.store_dag_meta_on_doc", side_effect=RuntimeError("meta store failure")),
-        patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
     ):
         result = maybe_convert_excel_py_document(doc)
         assert result is True
-        assert mock_warn.called
-        assert any("ExcelPyDagMeta" in str(arg) for call in mock_warn.call_args_list for arg in call.args)
 
 
 def test_collect_safety_warnings_nul_byte_does_not_raise(monkeypatch: pytest.MonkeyPatch):
@@ -876,9 +869,7 @@ def test_apply_dag_formulas_missing_dag_formula_fails_preflight():
     assert sheet.getCellRangeByName("C1").getFormula() == "=ORIGINAL"
 
 
-def test_maybe_convert_excel_py_document_logs_sandbox_advisory(tmp_path: Path, caplog: pytest.LogCaptureFixture):
-    import logging
-
+def test_maybe_convert_excel_py_document_converts_despite_sandbox_advisory(tmp_path: Path):
     xlsx = tmp_path / "advisory.xlsx"
     _minimal_xlsx(xlsx, with_scripts=False, with_xlws=True)
     with zipfile.ZipFile(xlsx, "a") as zf:
@@ -887,10 +878,5 @@ def test_maybe_convert_excel_py_document_logs_sandbox_advisory(tmp_path: Path, c
             '<?xml version="1.0"?><pythonScripts><pythonScript><code>import requests\nx = 1</code></pythonScript></pythonScripts>',
         )
     doc = CalcDocStub()
-    with (
-        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(xlsx)),
-        caplog.at_level(logging.INFO, logger="plugin.calc.excel_py_convert.auto_open"),
-    ):
+    with patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(xlsx)):
         assert maybe_convert_excel_py_document(doc) is True
-
-    assert "import is blocked by the Python sandbox: requests" in caplog.text

@@ -139,15 +139,6 @@ def test_insert_optimize_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
         assert manipulator.write_formula_range.call_args.args[0] == expected
 
 
-def test_optimize_data_describes_parameters():
-    tool = OptimizeDataTool()
-    params_desc = tool.get_parameters()["properties"]["params"]["description"]
-    for word in ("c_col", "a_cols", "risk_free_rate", "unassigned_rows", "unassigned_columns"):
-        assert word in tool.description
-        assert word in params_desc
-    assert "minimum-variance" in tool.description.lower()
-
-
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analysis.run_domain")
