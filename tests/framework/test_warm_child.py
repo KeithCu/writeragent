@@ -241,6 +241,38 @@ def test_idle_ttl_kills_idle_not_leased(tmp_path: Any, supervisor: Supervisor) -
         warm.retire()
 
 
+def _pid_is_alive_win32(pid: int) -> bool:
+    if sys.platform != "win32":
+        return False
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    access = 0x00100000 | 0x1000  # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+    handle = kernel32.OpenProcess(access, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == 5
+    exit_code = ctypes.c_ulong()
+    still_active = 259
+    alive = (
+        bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)))
+        and exit_code.value == still_active
+    )
+    kernel32.CloseHandle(handle)
+    return alive
+
+
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        return _pid_is_alive_win32(int(pid))
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor: Supervisor) -> None:
     script = _stdio_worker(
         tmp_path,
@@ -255,11 +287,7 @@ def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor
     deadline = time.monotonic() + 5.0
 
     def pid_gone() -> bool:
-        try:
-            os.kill(pid, 0)
-            return False
-        except OSError:
-            return True
+        return not _pid_is_alive(pid)
 
     assert _wait_until(deadline, pid_gone)
     with warm.lease(Deadline(5)) as leased:

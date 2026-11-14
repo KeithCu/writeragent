@@ -30,9 +30,31 @@ from plugin.ppt_master.pptx_build import (
 )
 
 
+def _pid_is_alive_win32(pid: int) -> bool:
+    if sys.platform != "win32":
+        return False
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    access = 0x00100000 | 0x1000  # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+    handle = kernel32.OpenProcess(access, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == 5
+    exit_code = ctypes.c_ulong()
+    still_active = 259
+    alive = (
+        bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)))
+        and exit_code.value == still_active
+    )
+    kernel32.CloseHandle(handle)
+    return alive
+
+
 def pid_is_alive(pid: int | None) -> bool:
     if pid is None or pid <= 0:
         return False
+    if sys.platform == "win32":
+        return _pid_is_alive_win32(int(pid))
     try:
         os.kill(pid, 0)
     except OSError:
@@ -43,18 +65,17 @@ def pid_is_alive(pid: int | None) -> bool:
 def _wait_grandchild_gone(gpid: int, timeout: float = 5.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            os.kill(gpid, 0)
-        except (ProcessLookupError, OSError):
+        if not pid_is_alive(gpid):
             return True
-        try:
-            state = Path(f"/proc/{gpid}/stat").read_text().split()[2]
-        except (FileNotFoundError, ProcessLookupError):
-            return True
-        except OSError:
-            state = ""
-        if state == "Z":
-            return True
+        if sys.platform.startswith("linux"):
+            try:
+                state = Path(f"/proc/{gpid}/stat").read_text().split()[2]
+            except (FileNotFoundError, ProcessLookupError):
+                return True
+            except OSError:
+                state = ""
+            if state == "Z":
+                return True
         time.sleep(0.05)
     return False
 
@@ -179,7 +200,7 @@ def test_build_project_pptx_cancel_kills_child(mock_cfg, mock_resolve, tmp_path:
         with _registry_lock:
             assert target_inst not in _instances
         assert not pid_is_alive(pid)
-        if sys.platform != "win32" and gc_pid is not None:
+        if gc_pid is not None:
             assert _wait_grandchild_gone(gc_pid), f"grandchild pid {gc_pid} survived kill_tree"
     finally:
         shutdown_all()
