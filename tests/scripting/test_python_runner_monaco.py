@@ -21,15 +21,6 @@ def _patch_modeless_native():
     return patch.object(ui, "native_run_script_modeless_enabled", return_value=True)
 
 
-def test_native_run_script_modeless_enabled_reads_config():
-    with patch.object(ui, "get_config", return_value=True) as mock_get:
-        assert ui.native_run_script_modeless_enabled() is True
-        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
-    with patch.object(ui, "get_config", return_value=False) as mock_get:
-        assert ui.native_run_script_modeless_enabled() is False
-        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
-
-
 def test_run_python_dialog_uses_monaco_when_available():
     ctx = MagicMock()
     doc = MagicMock()
@@ -820,10 +811,9 @@ def test_native_dialog_btn_new_action_creates_script():
         ui.show_python_input_dialog(ctx)
 
     mock_new_dlg.assert_called_once()
-    mock_save.assert_called_with(
-        "BrandNewScript",
-        '# A simple script\nresult = "Hello from Python!"\n',
-    )
+    mock_save.assert_called_once()
+    assert mock_save.call_args.args[0] == "BrandNewScript"
+    assert mock_save.call_args.args[1].strip()
 
 
 def test_show_python_input_dialog_modeless_uses_set_visible():

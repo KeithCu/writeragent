@@ -15,11 +15,9 @@ the small list path returns them unchanged.
 from __future__ import annotations
 
 import array
-import ast
 import math
 import sys
 from decimal import Decimal
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -60,19 +58,13 @@ from tests.scripting.payload_codec_test_support import (
     pickle5_roundtrip,
     rect_shape_for_cell_count,
 )
+from tests.harness.import_guards import assert_no_toplevel_import
 from tests.scripting.serialization_ab_support import cython_accelerator_context
 
 
 def test_host_module_does_not_import_numpy_at_module_level():
     """Host path must stay NumPy-free at import time (ABI / LO embedded Python)."""
-    src = Path(payload_codec.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert not alias.name.startswith("numpy"), alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            assert not node.module.startswith("numpy"), node.module
+    assert_no_toplevel_import(payload_codec, ("numpy",))
 
 
 @pytest.mark.parametrize(

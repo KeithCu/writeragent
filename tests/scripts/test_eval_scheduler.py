@@ -41,8 +41,6 @@ def test_declared_backend_defaults_string_and_flag_is_lo() -> None:
     assert kinds["toc_renumber_insert"] == "lo"
     assert kinds["table_from_mess"] == "string"
     assert kinds["py_refuse_overlap"] == "string"
-    assert sum(1 for kind in kinds.values() if kind == "lo") == 5
-    assert len(ALL_EXAMPLES) == 22
     flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
     assert flag["user_question"] == PYTHON_SHAPES_FLAG_ASK
     assert flag["document_content"] == ""

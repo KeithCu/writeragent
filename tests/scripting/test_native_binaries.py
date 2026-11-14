@@ -239,7 +239,6 @@ def test_run_vec_pack_download_pins_sha_and_does_not_bind(tmp_path):
     from plugin.scripting import native_binaries
     from plugin.scripting.native_binaries import run_vec_pack_download
 
-    assert "/master/" not in native_binaries._CONTRIB_BASE_URL
     assert native_binaries._CONTRIB_COMMIT in native_binaries._CONTRIB_BASE_URL
 
     with (

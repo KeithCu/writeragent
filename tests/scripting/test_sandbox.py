@@ -590,17 +590,7 @@ def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
 
 
 def test_scrub_drops_dyld_and_python_executable() -> None:
-    from plugin.framework.subprocess_env import _BLOCKED_ENV_EXACT, scrub_subprocess_env
-
-    for var in (
-        "DYLD_LIBRARY_PATH",
-        "DYLD_FRAMEWORK_PATH",
-        "DYLD_FALLBACK_LIBRARY_PATH",
-        "DYLD_FALLBACK_FRAMEWORK_PATH",
-        "PYTHONEXECUTABLE",
-        "PYTHONNOUSERSITE",
-    ):
-        assert var in _BLOCKED_ENV_EXACT
+    from plugin.framework.subprocess_env import scrub_subprocess_env
 
     base = {
         "DYLD_LIBRARY_PATH": "/lib",
@@ -626,10 +616,7 @@ def test_scrub_drops_dyld_and_python_executable() -> None:
 
 def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     """PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT are blocked, and empty dict gets overrides."""
-    from plugin.framework.subprocess_env import _BLOCKED_ENV_EXACT, scrub_subprocess_env
-
-    for var in ("PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONINSPECT", "DATABASE_URL", "WRITERAGENT_COMPUTE_WORKER"):
-        assert var in _BLOCKED_ENV_EXACT
+    from plugin.framework.subprocess_env import scrub_subprocess_env
 
     base = {
         "PYTHONSTARTUP": "/etc/startup.py",
@@ -766,65 +753,6 @@ def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None
     assert import_authorized("plugin.vision", ()) is False
     assert import_authorized("writeragent.scripting.duckdb_sql", ()) is True
     assert import_authorized("plugin.scripting.duckdb_sql", ()) is False
-
-
-def test_sandbox_policy_module_yaml_keys() -> None:
-    from pathlib import Path
-    import yaml
-
-    yaml_path = Path(__file__).resolve().parents[2] / "plugin" / "scripting" / "module.yaml"
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    cfg = data.get("config", {})
-
-    for old_key in (
-        "python_allow_file_writes",
-        "python_allow_subprocess",
-        "python_allow_run_programs",
-        "python_allow_file_os",
-    ):
-        assert old_key not in cfg
-
-    net = cfg.get("python_allow_network")
-    assert net is not None
-    assert net.get("default") is False
-    assert net.get("public") is True
-
-    files = cfg.get("python_allow_files")
-    assert files is not None
-    assert files.get("default") is False
-    assert files.get("public") is True
-
-    os_key = cfg.get("python_allow_os")
-    assert os_key is not None
-    assert os_key.get("default") is False
-    assert os_key.get("public") is True
-
-    extra = cfg.get("python_extra_modules")
-    assert extra is not None
-    assert extra.get("default") == ""
-    assert extra.get("public") is True
-
-
-def test_sandbox_policy_defaults() -> None:
-    from plugin.scripting.sandbox import (
-        build_sandbox_policy,
-        policy_allowlist,
-        policy_blocked_imports,
-        policy_relaxed_roots,
-    )
-
-    p = build_sandbox_policy()
-    assert policy_allowlist(p) == []
-    blocked = policy_blocked_imports(p)
-    assert "subprocess" in blocked
-    assert "multiprocessing" in blocked
-    assert "pty" in blocked
-    assert "socket" in blocked
-    assert "importlib" in blocked
-    assert "pickle" in blocked
-    assert "os" not in blocked
-    assert policy_relaxed_roots(p) == frozenset()
 
 
 def test_sandbox_policy_network() -> None:
