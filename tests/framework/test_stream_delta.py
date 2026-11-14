@@ -163,6 +163,28 @@ def test_coalesce_split_tool_calls_lone_empty_name_dropped():
     assert coalesce_split_tool_calls([]) == []
 
 
+def test_coalesce_strips_harmony_suffix_from_tool_name():
+    out = coalesce_split_tool_calls([
+        {"id": "c1", "function": {"name": "read_cell_range<|channel|>commentary", "arguments": "{}"}},
+    ])
+    assert len(out) == 1
+    assert out[0]["id"] == "c1"
+    assert out[0]["function"]["name"] == "read_cell_range"
+    assert out[0]["function"]["arguments"] == "{}"
+
+
+def test_coalesce_keeps_tag_only_name_as_its_own_call():
+    out = coalesce_split_tool_calls([
+        {"id": "c1", "function": {"name": "a", "arguments": "{"}},
+        {"id": "c2", "function": {"name": "<|channel|>x", "arguments": "}"}},
+    ])
+    assert len(out) == 2
+    assert out[0]["function"]["name"] == "a"
+    assert out[0]["function"]["arguments"] == "{"
+    assert out[1]["function"]["name"] == "<|channel|>x"
+    assert out[1]["function"]["arguments"] == "}"
+
+
 _CROSSHAIR_TARGET = "plugin.framework.stream_delta.accumulate_delta"
 
 

@@ -34,6 +34,7 @@ cancel is ``SendCancellation`` (Stop sets a flag / closes HTTP), not
 
 from __future__ import annotations
 
+import difflib
 import logging
 import queue
 import time
@@ -970,6 +971,26 @@ class ToolRegistry:
         # crosshair: off
         return self._execute_impl(tool_name, ctx, True, kwargs)
 
+    def _unknown_tool_error(self, tool_name: str, ctx: ToolContext) -> dict[str, Any]:
+        """Build an UNKNOWN_TOOL error naming up to three close offered tools."""
+        offered = [
+            t.name
+            for t in self.get_tools(
+                doc_type=ctx.doc_type,
+                uno_services_supported=ctx.uno_services_supported or None,
+                active_domain=ctx.active_domain,
+            )
+            if t.name
+        ]
+        close = difflib.get_close_matches(tool_name, offered, n=3)
+        hint = f" Did you mean: {', '.join(close)}?" if close else " Call a tool from your tool list by its exact name."
+        return make_tool_error(
+            f"No tool named '{tool_name}'.{hint}",
+            code="UNKNOWN_TOOL",
+            tool_name=tool_name,
+            suggestions=close,
+        )
+
     def _execute_impl(self, tool_name: str, ctx: ToolContext, bypass_thread_guard: bool, tool_kwargs: dict[str, Any]) -> dict[str, Any]:
         """Internal tool execution implementation.
 
@@ -983,11 +1004,12 @@ class ToolRegistry:
             tool = self._tools.get(tool_name)
             if tool is None:
                 # Return a structured error instead of raising KeyError so the model
-                # receives actionable feedback ("no tool named X") rather than an
-                # opaque traceback via execute_fn's unexpected-exception handler.
+                # receives actionable feedback ('no tool named X', plus the closest
+                # offered names) rather than an opaque traceback via execute_fn's
+                # unexpected-exception handler.
                 # This covers hallucinated names (e.g. 'write_formulas') and the
                 # 'unknown' sentinel from null tool-name tool calls alike.
-                return make_tool_error(f"No tool named '{tool_name}' is registered. Check the tool name and retry.", code="UNKNOWN_TOOL", tool_name=tool_name)
+                return self._unknown_tool_error(tool_name, ctx)
 
             # Check document compatibility using cached doc_type / UNO services (no live doc probe).
             if not tool_supports_document(tool, doc_type=ctx.doc_type, uno_services_supported=getattr(ctx, "uno_services_supported", None)):

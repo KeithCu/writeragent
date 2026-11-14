@@ -175,6 +175,32 @@ def test_apply_inner_outcome_mutating_calls_no_note() -> None:
     assert "code" not in result
 
 
+def test_apply_inner_outcome_incomplete_without_edits_has_note() -> None:
+    final_ans = "Could not finish"
+    calls_ro = [InnerToolCall("get_document_tree", {"status": "ok"}, mutating=False)]
+    res_note = apply_inner_outcome({"status": "ok", "result": final_ans}, final_ans, calls_ro, expect_edits=True)
+    assert res_note["status"] == "incomplete"
+    assert res_note["note"] == NO_EDIT_TOOL_NOTE
+
+    calls_mut = [InnerToolCall("edit_shape", {"status": "ok"}, mutating=True)]
+    res_mut = apply_inner_outcome({"status": "ok", "result": final_ans}, final_ans, calls_mut, expect_edits=True)
+    assert res_mut["status"] == "incomplete"
+    assert "note" not in res_mut
+
+    res_ro_domain = apply_inner_outcome({"status": "ok", "result": final_ans}, final_ans, calls_ro, expect_edits=False)
+    assert res_ro_domain["status"] == "incomplete"
+    assert "note" not in res_ro_domain
+
+
+def test_apply_inner_outcome_error_without_edits_has_note() -> None:
+    read_err = {"status": "error", "message": "Bookmark not found"}
+    calls = [InnerToolCall("get_document_tree", read_err, mutating=False)]
+    result = apply_inner_outcome({"status": "ok", "result": ""}, "", calls, expect_edits=True)
+    assert result["status"] == "error"
+    assert result["code"] == "SPECIALIZED_TOOL_ERROR"
+    assert result["note"] == NO_EDIT_TOOL_NOTE
+
+
 def test_apply_inner_outcome_plain_text_is_incomplete() -> None:
     final_ans = "text"
     payload = {"status": "ok", "result": "text"}

@@ -105,8 +105,53 @@ def test_write_formula_range_rejects_wide_array():
     manipulator = CellManipulator(bridge)
     from unittest.mock import patch
     with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
-        with pytest.raises(CalcError, match=r"Array is 2x3 but range is 2x2"):
+        with pytest.raises(CalcError) as exc_info:
             manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
+    msg = str(exc_info.value)
+    assert "A1:B2" in msg
+    assert "2×3" in msg
+    assert "2×2" in msg
+    assert "starting at A1" in msg
+
+
+def test_write_formula_range_ragged_grid_names_row():
+    bridge = MagicMock()
+    rng = MagicMock()
+    addr = MagicMock()
+    addr.StartColumn = 0
+    addr.EndColumn = 1
+    addr.StartRow = 0
+    addr.EndRow = 1
+    rng.getRangeAddress.return_value = addr
+    bridge.resolve_range_or_address.return_value = rng
+    manipulator = CellManipulator(bridge)
+    from unittest.mock import patch
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
+        with pytest.raises(CalcError) as exc_info:
+            manipulator.write_formula_range("A1:B2", [[1, 2], [3]])
+    msg = str(exc_info.value)
+    assert "row 2" in msg
+    assert "A1:B2" in msg
+
+
+def test_write_formula_range_ragged_grid_single_cell_names_row():
+    bridge = MagicMock()
+    rng = MagicMock()
+    addr = MagicMock()
+    addr.StartColumn = 0
+    addr.EndColumn = 0
+    addr.StartRow = 0
+    addr.EndRow = 0
+    rng.getRangeAddress.return_value = addr
+    bridge.resolve_range_or_address.return_value = rng
+    manipulator = CellManipulator(bridge)
+    from unittest.mock import patch
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
+        with pytest.raises(CalcError) as exc_info:
+            manipulator.write_formula_range("A1", [[1, 2], [3]])
+    assert "row 2" in str(exc_info.value)
+
+
 def test_write_array_formula_refusal_leaves_prior_array():
     # Old array A1:B1. The new result is 1x3, and C1 already has a value.
     # Refusing must not clear A1:B1. B1 belongs to the array being replaced,

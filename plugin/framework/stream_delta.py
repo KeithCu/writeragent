@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""SSE snapshot merge for streaming tool calls.
+"""SSE snapshot merge and tool-call repair for streaming and sync responses.
 
 ``accumulate_delta`` and ``coalesce_split_tool_calls`` run inside the LLM
 client while it builds an assistant message. The UI drain never calls them.
@@ -98,6 +98,19 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
     return acc
 
 
+def _tool_name_without_template_suffix(name: str) -> str:
+    """Strip a leaked chat-template channel tag from a tool name."""
+    # gpt-oss (harmony chat format) sometimes appends its channel tag to the
+    # function name (e.g. ``read_cell_range<|channel|>commentary``). ``<|``
+    # never appears in a real tool name, so everything from the first ``<|``
+    # on is dropped. A name that is only a tag is left alone so the registry
+    # reports it as unknown instead of merging it as a split fragment.
+    if "<|" not in name:
+        return name
+    prefix = name.split("<|", 1)[0].strip()
+    return prefix or name
+
+
 def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
     """Merge provider stream-split phantom tool_calls into the prior real call.
 
@@ -107,6 +120,10 @@ def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
     the empty-name call is executed (UNKNOWN_TOOL / ``tool_call_id: ""``) and
     the next API round 400s with ``tool_calls[n].function.name must be a
     non-empty string``.
+
+    Also strips leaked chat-template channel tags (such as
+    ``<|channel|>commentary``) from kept function names so both streaming and
+    sync tool calls reach the registry with clean names.
 
     Walks ``tool_calls`` in order. Empty/missing ``function.name`` entries
     append their ``function.arguments`` string onto the previous kept call and
@@ -128,6 +145,8 @@ def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
         if name:
             kept_tc = dict(tc)
             kept_fn = dict(fn)
+            if isinstance(name, str):
+                kept_fn["name"] = _tool_name_without_template_suffix(name)
             kept_tc["function"] = kept_fn
             kept.append(kept_tc)
             continue

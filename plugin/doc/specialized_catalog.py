@@ -227,12 +227,18 @@ def apply_inner_outcome(
     *,
     expect_edits: bool,
 ) -> dict[str, Any]:
-    """Set status/code/message on a sub-agent payload from the observed call log.
+    """Set status/code/message/note on a sub-agent payload from the observed call log.
 
     Mutates and returns payload so the main agent sees an accurate report of what tools
-    ran, whether failures were recovered, and whether any document edits took place.
+    ran, whether failures were recovered, and—on any exit (ok, incomplete, or error)—
+    whether any document-editing tool ran.
     """
     unrecovered, recovered = partition_tool_errors(calls)
+    # The note is true on every exit because mutating is the tool kind; if no editing
+    # tool ran at all, the document is unchanged whether the run finished, stopped
+    # early, or failed.
+    if expect_edits and not any(c.mutating for c in calls):
+        payload["note"] = NO_EDIT_TOOL_NOTE
     if unrecovered:
         # Unrecovered tool errors fail the delegation; the finish answer is kept in answer.
         messages = [_err_text(err) for err in unrecovered]
@@ -259,9 +265,6 @@ def apply_inner_outcome(
 
     if recovered:
         payload["recovered_tool_errors"] = [_err_text(err) for err in recovered]
-
-    if expect_edits and not any(c.mutating for c in calls):
-        payload["note"] = NO_EDIT_TOOL_NOTE
 
     return payload
 
