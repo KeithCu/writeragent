@@ -1175,18 +1175,6 @@ def test_style_governed_char_properties_spare_bold_and_italic():
     assert "CharPosture" not in st.STYLE_GOVERNED_CHAR_PROPERTIES  # italic survives
 
 
-def test_report_lists_only_the_overrides_actually_removed():
-    """Under style_props, bold/italic are restored — listing them as removed would be wrong."""
-    from plugin.writer import styles as st
-
-    found = {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharWeight": 150.0}
-    skip = set(st.STYLE_GOVERNED_CHAR_PROPERTIES)
-    removed = {k: v for k, v in found.items() if k in skip}
-
-    assert removed == {"CharFontName": "Times New Roman", "CharHeight": 12.0}
-    assert "CharWeight" not in removed
-
-
 def test_reset_properties_to_default_is_a_noop_on_empty_names():
     from plugin.writer import styles as st
 

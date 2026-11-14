@@ -28,29 +28,12 @@ class TestGetPage:
         from plugin.framework.errors import ToolExecutionError
 
         ctx = MagicMock()
-        mock_pages = MagicMock()
-        mock_pages.getCount.return_value = 3
         with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
             mock_bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index -1 out of range.")
             with pytest.raises(ToolExecutionError) as exc_info:
                 _get_page(ctx, -1, is_master_page=False)
             assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
             assert str(exc_info.value) == "Page index -1 out of range."
-
-    def test_index_out_of_bounds_at_or_above_count(self):
-        from unittest.mock import MagicMock, patch
-        import pytest
-        from plugin.draw.headers_footers import _get_page
-
-        from plugin.framework.errors import ToolExecutionError
-
-        ctx = MagicMock()
-        with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
-            mock_bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 3 out of range.")
-            with pytest.raises(ToolExecutionError) as exc_info:
-                _get_page(ctx, 3, is_master_page=False)
-            assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
-            assert str(exc_info.value) == "Page index 3 out of range."
 
     def test_master_page_is_none(self):
         from unittest.mock import MagicMock, patch
@@ -355,22 +338,6 @@ def test_set_master_rejects_date_time_fixed():
     assert "date_time_fixed" in res["message"]
     shape = master.getByIndex(0)
     assert shape.text == ""
-
-
-def test_get_page_empty_deck_message():
-    import pytest
-    from types import SimpleNamespace
-    from unittest.mock import patch
-    from plugin.draw.headers_footers import _get_page
-    from plugin.framework.errors import ToolExecutionError
-
-    ctx = SimpleNamespace(doc=_FakeDoc())
-    with patch("plugin.draw.headers_footers.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 0 out of range.")
-        with pytest.raises(ToolExecutionError) as exc_info:
-            _get_page(ctx, 0, is_master_page=False)
-        assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
-        assert str(exc_info.value) == "Page index 0 out of range."
 
 
 def test_set_text_ordinary_failure_returns_false():

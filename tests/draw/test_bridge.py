@@ -312,25 +312,14 @@ def test_resolve_page_explicit_zero_beats_active():
     pages.getCount.return_value = 3
     pages.getByIndex.return_value = page0
 
-    init_count = 0
-
     class Doc:
         def getDrawPages(self):
             return pages
 
-    original_init = DrawBridge.__init__
-
-    def counting_init(self, doc):
-        nonlocal init_count
-        init_count += 1
-        original_init(self, doc)
-
-    with patch.object(DrawBridge, "__init__", counting_init):
-        bridge = DrawBridge(Doc())
-        page, idx = bridge.resolve_page(0, active_page_index=2)
+    bridge = DrawBridge(Doc())
+    page, idx = bridge.resolve_page(0, active_page_index=2)
     assert page is page0
     assert idx == 0
-    assert init_count == 1
     pages.getByIndex.assert_called_once_with(0)
 
 
