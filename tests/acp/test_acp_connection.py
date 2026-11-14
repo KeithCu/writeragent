@@ -164,77 +164,41 @@ class TestACPConnectionReaderExit:
             worker.join(timeout=2)
             reader.join(timeout=2)
 
-    def test_malformed_json_unblocks_in_flight_send_request(self):
-        conn = ACPConnection(cmd_line=["agent"])
-        release = threading.Event()
-        entered = threading.Event()
-        proc = _live_proc()
-
-        calls = {"n": 0}
-
-        def readline(limit: int = -1) -> bytes:
-            calls["n"] += 1
-            if calls["n"] == 1:
-                entered.set()
-                assert release.wait(timeout=2)
-                # Non-object JSON is skipped. The next readline is EOF,
-                # which ends the loop and must still unblock the prompt.
-                return b"[1, 2]\n"
-            return b""
-
-        proc.stdout.readline.side_effect = readline
-        conn._proc = proc
-        conn._running = True
-        reader = threading.Thread(target=conn._reader_loop, daemon=True)
-        reader.start()
-        assert entered.wait(timeout=2)
-        errors: list[BaseException] = []
-
-        def run() -> None:
-            try:
-                conn.send_request("session/prompt", {"sessionId": "s"}, timeout=30)
-            except Exception as exc:
-                errors.append(exc)
-
-        worker = threading.Thread(target=run)
-        worker.start()
-        try:
-            deadline = time.monotonic() + 2
-            while time.monotonic() < deadline and not conn._pending:
-                time.sleep(0.01)
-            assert conn._pending
-            started = time.monotonic()
-            release.set()
-            worker.join(timeout=2)
-            _assert_prompt_unblocked(errors, worker)
-            assert time.monotonic() - started < 2
-            assert "terminated" in str(errors[0]).lower()
-        finally:
-            release.set()
-            conn.stop()
-            worker.join(timeout=2)
-            reader.join(timeout=2)
-
-    def test_non_object_json_skipped_while_prompt_in_flight(self):
-        """Bare number, true/false, string, and array lines must not kill the reader.
-
-        Non-object JSON lines must be skipped without killing the reader. Treating
-        them as dicts raises inside the loop, aborts reading, and fails an in-flight
-        prompt while the child is still alive.
-        """
+    @pytest.mark.parametrize(
+        ("lines", "expect_eof_error"),
+        [
+            pytest.param([b"[1, 2]\n"], True, id="malformed_json_eof_unblocks"),
+            pytest.param(
+                [
+                    b"42\n",
+                    b"true\n",
+                    b"false\n",
+                    b'"stray"\n',
+                    b"[1, 2]\n",
+                    b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
+                ],
+                False,
+                id="non_object_json_skipped",
+            ),
+            pytest.param(
+                [
+                    b'{"jsonrpc": "2.0", "id": true, "result": {"text": "stolen"}}\n',
+                    b'{"jsonrpc": "2.0", "id": [1], "result": {}}\n',
+                    b'{"jsonrpc": "2.0", "id": {"n": 1}, "result": {}}\n',
+                    b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
+                ],
+                False,
+                id="unhashable_id_skipped",
+            ),
+        ],
+    )
+    def test_reader_handles_non_standard_json_lines(self, lines: list[bytes], expect_eof_error: bool):
+        """Non-object JSON and unhashable ids are skipped without killing the reader; EOF unblocks."""
         conn = ACPConnection(cmd_line=["agent"])
         release = threading.Event()
         entered = threading.Event()
         done = threading.Event()
         proc = _live_proc()
-        lines = [
-            b"42\n",
-            b"true\n",
-            b"false\n",
-            b'"stray"\n',
-            b"[1, 2]\n",
-            b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
-        ]
         calls = {"n": 0}
 
         def readline(limit: int = -1) -> bytes:
@@ -245,8 +209,9 @@ class TestACPConnectionReaderExit:
             index = calls["n"] - 1
             if index < len(lines):
                 return lines[index]
-            # Hold past the assertion so EOF cannot be what delivered the result.
-            assert done.wait(timeout=5)
+            if not expect_eof_error:
+                # Hold past the assertion so EOF cannot be what delivered the result.
+                assert done.wait(timeout=5)
             return b""
 
         proc.stdout.readline.side_effect = readline
@@ -260,94 +225,24 @@ class TestACPConnectionReaderExit:
 
         def run() -> None:
             try:
-                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=5))
+                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=30 if expect_eof_error else 5))
             except Exception as exc:
                 errors.append(exc)
 
         worker = threading.Thread(target=run)
         worker.start()
         try:
-            deadline = time.monotonic() + 2
-            while time.monotonic() < deadline and not conn._pending:
-                time.sleep(0.01)
-            assert conn._pending
-            started = time.monotonic()
+            assert _wait_until(lambda: bool(conn._pending))
             release.set()
             worker.join(timeout=2)
-            assert worker.is_alive() is False
-            assert errors == []
-            assert results == [{"text": "kept-answer"}]
-            assert reader.is_alive()
-            assert time.monotonic() - started < 2
-        finally:
-            done.set()
-            release.set()
-            conn.stop()
-            worker.join(timeout=2)
-            reader.join(timeout=2)
-
-    def test_unhashable_id_does_not_kill_reader(self):
-        """An object id that is an array, object, or JSON boolean must not kill the reader.
-
-        JSON ids that are not hashable scalars must not kill the reader or steal
-        an in-flight response (for example boolean ``true`` colliding with id 1).
-        The reader stays up and the real response after junk lines is returned.
-        """
-        conn = ACPConnection(cmd_line=["agent"])
-        release = threading.Event()
-        entered = threading.Event()
-        done = threading.Event()
-        proc = _live_proc()
-        lines = [
-            b'{"jsonrpc": "2.0", "id": true, "result": {"text": "stolen"}}\n',
-            b'{"jsonrpc": "2.0", "id": [1], "result": {}}\n',
-            b'{"jsonrpc": "2.0", "id": {"n": 1}, "result": {}}\n',
-            b'{"jsonrpc": "2.0", "id": 1, "result": {"text": "kept-answer"}}\n',
-        ]
-        calls = {"n": 0}
-
-        def readline(limit: int = -1) -> bytes:
-            calls["n"] += 1
-            if calls["n"] == 1:
-                entered.set()
-                assert release.wait(timeout=2)
-            index = calls["n"] - 1
-            if index < len(lines):
-                return lines[index]
-            # Hold past the assertion so EOF cannot be what delivered the result.
-            assert done.wait(timeout=5)
-            return b""
-
-        proc.stdout.readline.side_effect = readline
-        conn._proc = proc
-        conn._running = True
-        reader = threading.Thread(target=conn._reader_loop, daemon=True)
-        reader.start()
-        assert entered.wait(timeout=2)
-        results: list[object] = []
-        errors: list[BaseException] = []
-
-        def run() -> None:
-            try:
-                results.append(conn.send_request("session/prompt", {"sessionId": "s"}, timeout=5))
-            except Exception as exc:
-                errors.append(exc)
-
-        worker = threading.Thread(target=run)
-        worker.start()
-        try:
-            deadline = time.monotonic() + 2
-            while time.monotonic() < deadline and not conn._pending:
-                time.sleep(0.01)
-            assert conn._pending
-            started = time.monotonic()
-            release.set()
-            worker.join(timeout=2)
-            assert worker.is_alive() is False
-            assert errors == []
-            assert results == [{"text": "kept-answer"}]
-            assert reader.is_alive()
-            assert time.monotonic() - started < 2
+            if expect_eof_error:
+                _assert_prompt_unblocked(errors, worker)
+                assert "terminated" in str(errors[0]).lower()
+            else:
+                assert worker.is_alive() is False
+                assert errors == []
+                assert results == [{"text": "kept-answer"}]
+                assert reader.is_alive()
         finally:
             done.set()
             release.set()
@@ -565,34 +460,25 @@ class TestStdinWriteCapturesProc:
         conn._running = True
         assert (conn.send_request("initialize", {}, timeout=2)) == ({"protocolVersion": 1})
 
-    def test_error_object_still_raises(self):
+    @pytest.mark.parametrize(
+        ("method", "error_obj", "match", "expected_rpc_code"),
+        [
+            pytest.param("session/set_model", {"code": -32602, "message": "Unknown model ID: x"}, "Unknown model ID", -32602, id="with_rpc_code"),
+            pytest.param("initialize", {"message": "nope"}, "nope", None, id="without_rpc_code"),
+        ],
+    )
+    def test_error_object_raises(self, method: str, error_obj: dict, match: str, expected_rpc_code: int | None):
         conn = ACPConnection(cmd_line=["agent"])
         proc = _live_proc()
-        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"error": {"message": "nope"}})
+        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"error": error_obj})
         conn._proc = proc
         conn._running = True
-        with pytest.raises(ToolExecutionError, match="nope"):
-            conn.send_request("initialize", {}, timeout=2)
-
-    def test_error_object_includes_rpc_code_when_int(self):
-        conn = ACPConnection(cmd_line=["agent"])
-        proc = _live_proc()
-        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"error": {"code": -32602, "message": "Unknown model ID: x"}})
-        conn._proc = proc
-        conn._running = True
-        with pytest.raises(ToolExecutionError, match="Unknown model ID") as exc_info:
-            conn.send_request("session/set_model", {}, timeout=2)
-        assert exc_info.value.details.get("rpc_code") == -32602
-
-    def test_error_object_without_code_has_no_rpc_code(self):
-        conn = ACPConnection(cmd_line=["agent"])
-        proc = _live_proc()
-        proc.stdin.flush.side_effect = lambda: self._resolve_pending(conn, 1, {"error": {"message": "nope"}})
-        conn._proc = proc
-        conn._running = True
-        with pytest.raises(ToolExecutionError, match="nope") as exc_info:
-            conn.send_request("initialize", {}, timeout=2)
-        assert "rpc_code" not in exc_info.value.details
+        with pytest.raises(ToolExecutionError, match=match) as exc_info:
+            conn.send_request(method, {}, timeout=2)
+        if expected_rpc_code is None:
+            assert "rpc_code" not in exc_info.value.details
+        else:
+            assert exc_info.value.details.get("rpc_code") == expected_rpc_code
 
     def test_send_request_closed_stdin_is_tool_error(self):
         """A pipe stop() already closed must not escape as ValueError.
@@ -684,12 +570,7 @@ class TestStdinWriteCapturesProc:
         conn._proc = _proc_nulled_on_bool(conn, stdin)
         conn._running = True
         conn.send_notification("session/cancel", {"sessionId": "s"})
-        import time
-        for _ in range(50):
-            if stdin.written:
-                break
-            time.sleep(0.01)
-        assert stdin.written
+        assert _wait_until(lambda: bool(stdin.written))
         assert b"session/cancel" in stdin.written[0]
 
     def test_send_response_writes_captured_proc(self):
@@ -698,12 +579,7 @@ class TestStdinWriteCapturesProc:
         conn._proc = _proc_nulled_on_bool(conn, stdin)
         conn._running = True
         conn.send_response(4, result={"outcome": {"outcome": "cancelled"}})
-        import time
-        for _ in range(50):
-            if stdin.written:
-                break
-            time.sleep(0.01)
-        assert stdin.written
+        assert _wait_until(lambda: bool(stdin.written))
         assert b'"id": 4' in stdin.written[0]
 
     @pytest.mark.parametrize(
@@ -722,12 +598,7 @@ class TestStdinWriteCapturesProc:
         conn._proc = _proc_nulled_on_bool(conn, stdin)
         conn._running = True
         conn.send_response(4, result=result)
-        import time
-        for _ in range(50):
-            if stdin.written:
-                break
-            time.sleep(0.01)
-        assert stdin.written
+        assert _wait_until(lambda: bool(stdin.written))
         payload = json.loads(stdin.written[0].decode("utf-8"))
         assert (payload["result"]) == (expected)
         assert (payload["id"]) == (4)

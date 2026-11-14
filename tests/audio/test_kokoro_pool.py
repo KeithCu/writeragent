@@ -158,7 +158,8 @@ def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path, superv
         assert pool.is_warm_alive()
         time.sleep(0.15)
         cancel.cancel()
-        thread.join(3)
+        thread.join(1.0)
+        assert not thread.is_alive()
         assert result.get("code") == "WORKER_CANCELLED"
         recovered = pool.execute({"text": "after", "out_path": str(tmp_path / "after.wav")})
         assert recovered["status"] == "ok"
@@ -490,6 +491,9 @@ def test_get_kokoro_pool_caches_for_configured_venv(monkeypatch):
     monkeypatch.setattr("plugin.audio.kokoro_pool.resolve_venv_python", fake_resolve)
     monkeypatch.setattr("plugin.audio.kokoro_pool.KokoroProcessPool", DummyPool)
 
+    with kp._POOL_LOCK:
+        kp._POOL = None
+        kp._POOL_CONFIG_VENV = None
     try:
         p1 = kp.get_kokoro_pool()
         assert p1 is not None
@@ -498,6 +502,7 @@ def test_get_kokoro_pool_caches_for_configured_venv(monkeypatch):
         p2 = kp.get_kokoro_pool()
         assert p2 is p1
         assert len(resolve_calls) == 1
+        assert len(shutdowns) == 0
 
         config_val["path"] = "/venv2"
         p3 = kp.get_kokoro_pool()
@@ -554,65 +559,6 @@ def test_kokoro_child_spec_env_and_spawn(monkeypatch, supervisor):
         assert "PYTHONPATH" in popen_env
     finally:
         pool.shutdown()
-
-
-def test_venv_path_change_retires_warm_child(monkeypatch):
-    import plugin.audio.kokoro_pool as kp
-
-    retire_calls: list[Any] = []
-
-    class TrackingPool(KokoroProcessPool):
-        def shutdown(self) -> None:
-            retire_calls.append(self)
-            super().shutdown()
-
-    monkeypatch.setattr(kp, "KokoroProcessPool", TrackingPool)
-    config = {"path": "/venv/a"}
-    monkeypatch.setattr("plugin.framework.config.get_config", lambda _k: config["path"])
-    monkeypatch.setattr(
-        "plugin.audio.kokoro_pool.resolve_venv_python",
-        lambda p: f"{p}/bin/python",
-    )
-    with kp._POOL_LOCK:
-        kp._POOL = None
-        kp._POOL_CONFIG_VENV = None
-    try:
-        p1 = kp.get_kokoro_pool()
-        assert p1 is not None
-        p2 = kp.get_kokoro_pool()
-        assert p2 is p1
-        assert len(retire_calls) == 0
-
-        config["path"] = "/venv/b"
-        p3 = kp.get_kokoro_pool()
-        assert p3 is not p1
-        assert p1 in retire_calls
-    finally:
-        with kp._POOL_LOCK:
-            if kp._POOL is not None:
-                kp._POOL.shutdown()
-            kp._POOL = None
-            kp._POOL_CONFIG_VENV = None
-
-
-def test_cancel_inflight_returns_without_blocking_on_reap(tmp_path, supervisor):
-    script = _fake_worker_script(tmp_path)
-    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None, supervisor=supervisor)
-    cancel = SendCancellation()
-    result: dict[str, object] = {}
-
-    def _run() -> None:
-        result.update(pool.execute({"text": "block", "out_path": str(tmp_path / "b.wav")}, cancel=cancel))
-
-    thread = threading.Thread(target=_run)
-    thread.start()
-    deadline = time.monotonic() + 2
-    assert _wait_until(deadline, pool.is_warm_alive)
-    cancel.cancel()
-    join_deadline = time.monotonic() + 1.0
-    assert _wait_until(join_deadline, lambda: not thread.is_alive())
-    assert result.get("code") == "WORKER_CANCELLED"
-    pool.shutdown()
 
 
 @pytest.mark.slow
