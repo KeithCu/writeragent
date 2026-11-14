@@ -1689,6 +1689,12 @@ def test_managed_subprocess_die_with_parent(monkeypatch: pytest.MonkeyPatch) -> 
         spawn_calls.append(managed)
         return orig_spawn(managed, timeout_sec)
 
+    import ctypes
+    import plugin.framework.child_runtime as cr
+
+    # Stub prctl so bind_pdeathsig succeeds on non-Linux hosts where libc.so.6 is absent.
+    monkeypatch.setattr(cr, "_prctl", lambda *unused_args: 0)
+
     monkeypatch.setattr(supervisor, "spawn", tracked_spawn)
     proc_routed = ManagedSubprocess(
         [sys.executable, "-c", "pass"],
@@ -1704,8 +1710,6 @@ def test_managed_subprocess_die_with_parent(monkeypatch: pytest.MonkeyPatch) -> 
     # When libc cannot be loaded, start() still spawns the child without preexec_fn
     recorded_kwargs.clear()
     spawn_calls.clear()
-    import ctypes
-    import plugin.framework.child_runtime as cr
 
     def _raise_cdll(*unused_args: object, **unused_kwargs: object) -> None:
         raise OSError("libc.so.6 not found")
