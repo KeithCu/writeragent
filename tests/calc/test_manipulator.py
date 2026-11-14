@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import CalcError, UnoObjectError
-from plugin.calc.manipulator import CellManipulator, WritePlan
+from plugin.calc.manipulator import CellManipulator, WritePlan, _parse_formula_or_values_string
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -92,6 +92,7 @@ def test_measure_array_does_not_write_the_used_xfd_cells():
     assert cleared == [(16383, 5), (16383, 6)]
     assert all(row not in (0, 1) for _col, row, _formula in written)
 
+
 def test_write_formula_range_rejects_wide_array():
     bridge = MagicMock()
     rng = MagicMock()
@@ -104,9 +105,12 @@ def test_write_formula_range_rejects_wide_array():
     bridge.resolve_range_or_address.return_value = rng
     manipulator = CellManipulator(bridge)
     from unittest.mock import patch
+
     with patch("plugin.calc.manipulator._uno_range_address", return_value=addr):
         with pytest.raises(CalcError, match=r"Array is 2x3 but range is 2x2"):
             manipulator.write_formula_range("A1:B2", [[1, 2, 3], [4, 5, 6]])
+
+
 def test_write_array_formula_refusal_leaves_prior_array():
     # Old array A1:B1. The new result is 1x3, and C1 already has a value.
     # Refusing must not clear A1:B1. B1 belongs to the array being replaced,
@@ -121,11 +125,7 @@ def test_write_array_formula_refusal_leaves_prior_array():
         def getFormula(self) -> str:
             return self._formula
 
-    formulas = {
-        (0, 0): "=OLD",
-        (1, 0): "=OLD",
-        (2, 0): "keep",
-    }
+    formulas = {(0, 0): "=OLD", (1, 0): "=OLD", (2, 0): "keep"}
     cells = {pos: _Cell(text) for pos, text in formulas.items()}
 
     class _Cursor:
@@ -152,10 +152,7 @@ def test_write_array_formula_refusal_leaves_prior_array():
                     return ""
 
                 def getFormulaArray(self) -> tuple[tuple[str, ...], ...]:
-                    return tuple(
-                        tuple(formulas.get((col, row), "") for col in range(c1, c2 + 1))
-                        for row in range(r1, r2 + 1)
-                    )
+                    return tuple(tuple(formulas.get((col, row), "") for col in range(c1, c2 + 1)) for row in range(r1, r2 + 1))
 
                 def setArrayFormula(self, formula: str) -> None:
                     writes.append((box, formula))
@@ -372,13 +369,7 @@ def test_array_preview_capped():
     anchor.getString.return_value = ""
     sheet.getCellByPosition.return_value = anchor
 
-    res = manipulator._write_array_formula(
-        sheet,
-        "=MUNIT(20)",
-        start=(0, 0),
-        end=(19, 2),
-        premeasured_array_size=(3, 20),
-    )
+    res = manipulator._write_array_formula(sheet, "=MUNIT(20)", start=(0, 0), end=(19, 2), premeasured_array_size=(3, 20))
     assert res["rows"] == 3
     assert res["cols"] == 20
     assert len(res["preview"]) == 3
@@ -393,10 +384,7 @@ def test_sort_range_bounds_and_valid_types():
     bridge.resolve_range_or_address.return_value = mock_range
 
     manipulator = CellManipulator(bridge)
-    with (
-        patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
-        patch("plugin.calc.manipulator.TableSortField", create=True) as tsf_cls,
-    ):
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr), patch("plugin.calc.manipulator.TableSortField", create=True) as tsf_cls:
         with pytest.raises(CalcError, match=r"0 to 1"):
             manipulator.range_sort("A1:B10", sort_column=2)
         mock_range.createSortDescriptor.assert_not_called()
@@ -430,11 +418,7 @@ def test_sort_range_skips_key_read_for_single_data_row():
     mock_range.createSortDescriptor.return_value = []
 
     manipulator = CellManipulator(bridge)
-    with (
-        patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
-        patch("plugin.calc.manipulator.TableSortField", create=True),
-        patch("uno.Any"),
-    ):
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr), patch("plugin.calc.manipulator.TableSortField", create=True), patch("uno.Any"):
         res = manipulator.range_sort("A1:B2", sort_column=0, ascending=True, has_header=True)
         mock_range.getCellRangeByPosition.assert_not_called()
         mock_range.sort.assert_called_once()
@@ -573,10 +557,7 @@ def test_set_cell_style_v_align_writes_vert_justify_ints(v_align: str, expected:
 
 def test_plan_write_lets_bridge_error_through():
     bridge = MagicMock()
-    bridge.resolve_range_or_address.side_effect = UnoObjectError(
-        "No sheet named 'Nope'. Available: Sheet1",
-        details={"hint": "h"},
-    )
+    bridge.resolve_range_or_address.side_effect = UnoObjectError("No sheet named 'Nope'. Available: Sheet1", details={"hint": "h"})
     manipulator = CellManipulator(bridge)
 
     with pytest.raises(UnoObjectError) as exc_plan:
@@ -592,10 +573,7 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
     from plugin.calc.manipulator import refuse_occupied_cells
 
     sheet = MagicMock()
-    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (
-        ("a", "b", ""),
-        ("", "", "c"),
-    )
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("a", "b", ""), ("", "", "c"))
 
     with pytest.raises(CalcError, match=r"needs A1:C2, but 1 cell\(s\).*\(first: C2\)"):
         refuse_occupied_cells(sheet, 0, 0, 2, 1, skip=[(0, 0, 1, 0)])
@@ -604,10 +582,7 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
     sheet.getCellByPosition.assert_not_called()
 
     empty_sheet = MagicMock()
-    empty_sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (
-        ("", ""),
-        ("", ""),
-    )
+    empty_sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("", ""), ("", ""))
     refuse_occupied_cells(empty_sheet, 0, 0, 1, 1)
 
 
@@ -621,99 +596,71 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
     ],
 )
 def test_csv_text_delimiter_choice_gives_grid(text, grid):
-    from plugin.calc.manipulator import _parse_formula_or_values_string
-
     assert _parse_formula_or_values_string(text) == grid
 
 
 class TestFormulaParsingLogic:
     def test_parse_json_array(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = '["A"; "B"; "C"]'
         assert _parse_formula_or_values_string(s) == ["A", "B", "C"]
 
     def test_parse_raw_semicolon(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = "Name;Age;Country;Salary"
         assert _parse_formula_or_values_string(s) == ["Name", "Age", "Country", "Salary"]
 
     def test_complex_formula_in_json_array(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = '["Highest Consumer"; "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]'
+        # Ensure the semicolon inside the formula is NOT replaced by a comma
         result = _parse_formula_or_values_string(s)
         assert result == ["Highest Consumer", "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]
 
     def test_complex_formula_in_raw_string(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
+        # If the AI sends a raw string containing a semicolon-delimited list of values
+        # where one value is a formula. NOTE: This is less common but we handle it via csv.reader.
         s = 'ID; "=INDEX(A2:A11;MATCH(1;B2:B11;0))"'
         result = _parse_formula_or_values_string(s)
         assert result == ["ID", "=INDEX(A2:A11;MATCH(1;B2:B11;0))"]
 
     def test_formula_not_split(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
+        # Should return None so it's treated as a single formula string
         assert _parse_formula_or_values_string("=SUM(A1;A2)") is None
 
     def test_single_value_not_split(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         assert _parse_formula_or_values_string("Plain text") is None
 
     def test_nested_json_arrays(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = '[["r1c1"; "r1c2"]; ["r2c1"; "r2c2"]]'
         assert _parse_formula_or_values_string(s) == [["r1c1", "r1c2"], ["r2c1", "r2c2"]]
 
     def test_unicode_and_emoji(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = '["Česká"; "Republika"; "📈"]'
         assert _parse_formula_or_values_string(s) == ["Česká", "Republika", "📈"]
 
     def test_quoted_semicolon_in_formula_json(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = '["=IF(A1=\\";\\"; 1; 0)"]'
         assert _parse_formula_or_values_string(s) == ['=IF(A1=";"; 1; 0)']
 
     def test_trailing_spaces_in_json(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = '  [  "A"  ;  "B"  ]  '
         assert _parse_formula_or_values_string(s) == ["A", "B"]
 
     def test_raw_string_with_quotes_and_semis(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = 'Normal; "Quoted;Semi"; "Formula;=A1"'
         assert _parse_formula_or_values_string(s) == ["Normal", "Quoted;Semi", "Formula;=A1"]
 
     def test_empty_fields_detection(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         assert _parse_formula_or_values_string("a;;b") == ["a", "", "b"]
 
     def test_single_cell_range_comma_prose_is_literal(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = "Hello ケイス, this is a test."
         assert _parse_formula_or_values_string(s, single_cell_range=True) is None
         assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Hello ケイス", "this is a test."]
 
     def test_single_cell_range_comment_with_comma(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = "Note: see section 3, paragraph 2."
         assert _parse_formula_or_values_string(s, single_cell_range=True) is None
 
     def test_single_cell_range_semicolon_prose_is_literal(self):
-        from plugin.calc.manipulator import _parse_formula_or_values_string
-
         s = "Left; right"
         assert _parse_formula_or_values_string(s, single_cell_range=True) is None
         assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Left", "right"]

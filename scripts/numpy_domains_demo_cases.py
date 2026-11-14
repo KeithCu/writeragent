@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Demo case definitions for the NumPy domains manual QA spreadsheet.
 
-Shared by ``scripts/generate_numpy_domains_demo_spreadsheet.py`` and pytest smoke tests.
+Used by ``scripts/generate_numpy_domains_demo_spreadsheet.py``.
 """
 
 from __future__ import annotations

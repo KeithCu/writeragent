@@ -18,22 +18,16 @@ from plugin.calc.python.spill import perform_deferred_spill
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.queue_executor import main
 from plugin.tests.testing_utils import CalcDocStub
-from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, reset_calc_workbook_states
+from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, ctx_with_doc as _ctx_with_doc, reset_calc_workbook_states
 
 
 def test_perform_deferred_spill_applies_standard_keys_to_temporal_neighbours(monkeypatch: pytest.MonkeyPatch) -> None:
     formats = MagicMock()
     formats.getStandardFormat.side_effect = lambda fmt_type, _loc: {2: 37, 4: 63, 6: 70}[fmt_type]
     formats.getFormatIndex.return_value = 64
-    formats.getByKey.side_effect = lambda key: SimpleNamespace(
-        getPropertyValue=lambda prop: 2 if key == 40 and prop == "Type" else 16
-    )
+    formats.getByKey.side_effect = lambda key: SimpleNamespace(getPropertyValue=lambda prop: 2 if key == 40 and prop == "Type" else 16)
 
-    doc = CalcDocStub(
-        url="file:///spill_fmt.ods",
-        props={"RuntimeUID": "uid-spill-fmt", "CharLocale": SimpleNamespace(Language="en", Country="US", Variant="")},
-        number_formats=formats,
-    )
+    doc = CalcDocStub(url="file:///spill_fmt.ods", props={"RuntimeUID": "uid-spill-fmt", "CharLocale": SimpleNamespace(Language="en", Country="US", Variant="")}, number_formats=formats)
     sheet = doc.getSheets().getByName("Sheet1")
     code = "grid"
     sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
@@ -44,21 +38,8 @@ def test_perform_deferred_spill_applies_standard_keys_to_temporal_neighbours(mon
     state = WorkbookState.for_doc(doc)
     assert state is not None
     try:
-        grid = [
-            ["2026-08-08", "PT30H"],
-            ["x", "2026-08-08T12:00:00"],
-            ["2026-08-08", 5],
-        ]
-        perform_deferred_spill(
-            "Sheet1",
-            0,
-            0,
-            grid,
-            doc=doc,
-            sheet=sheet,
-            code=code,
-            key=state.key,
-        )
+        grid = [["2026-08-08", "PT30H"], ["x", "2026-08-08T12:00:00"], ["2026-08-08", 5]]
+        perform_deferred_spill("Sheet1", 0, 0, grid, doc=doc, sheet=sheet, code=code, key=state.key)
 
         # B1 (col 1, row 0): duration 1.25 with elapsed key 64
         b1 = sheet.getCellByPosition(1, 0)
@@ -86,22 +67,13 @@ def test_perform_deferred_spill_applies_standard_keys_to_temporal_neighbours(mon
         assert b3.getPropertyValue("NumberFormat") == 0
 
         rec = state.spills[("Sheet1", 0, 0)]
-        assert [(c.kind, c.value) for c in rec.cells] == [
-            ("n", 1.25),
-            ("s", "x"),
-            ("n", 46242.5),
-            ("n", 46242.0),
-            ("n", 5.0),
-        ]
+        assert [(c.kind, c.value) for c in rec.cells] == [("n", 1.25), ("s", "x"), ("n", 46242.5), ("n", 46242.0), ("n", 5.0)]
     finally:
         WorkbookState.forget_key(state.key)
 
 
 def test_perform_deferred_spill_error_and_empty_neighbours_record_kinds(monkeypatch: pytest.MonkeyPatch) -> None:
-    doc = CalcDocStub(
-        url="file:///spill_err.ods",
-        props={"RuntimeUID": "uid-spill-err"},
-    )
+    doc = CalcDocStub(url="file:///spill_err.ods", props={"RuntimeUID": "uid-spill-err"})
     sheet = doc.getSheets().getByName("Sheet1")
     code = "errs"
     sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
@@ -110,20 +82,8 @@ def test_perform_deferred_spill_error_and_empty_neighbours_record_kinds(monkeypa
     state = WorkbookState.for_doc(doc)
     assert state is not None
     try:
-        grid = [
-            [1, "#N/A"],
-            ["#VALUE!", ""],
-        ]
-        perform_deferred_spill(
-            "Sheet1",
-            0,
-            0,
-            grid,
-            doc=doc,
-            sheet=sheet,
-            code=code,
-            key=state.key,
-        )
+        grid = [[1, "#N/A"], ["#VALUE!", ""]]
+        perform_deferred_spill("Sheet1", 0, 0, grid, doc=doc, sheet=sheet, code=code, key=state.key)
 
         # B1 (#N/A): no =#ERR formula written
         assert sheet.getCellByPosition(1, 0).getFormula() == ""
@@ -131,22 +91,9 @@ def test_perform_deferred_spill_error_and_empty_neighbours_record_kinds(monkeypa
         assert sheet.getCellByPosition(0, 1).getFormula() == "=#ERR519!"
 
         rec = state.spills[("Sheet1", 0, 0)]
-        assert [(c.kind, c.value) for c in rec.cells] == [
-            ("err", 32767),
-            ("err", 519),
-            ("e", None),
-        ]
+        assert [(c.kind, c.value) for c in rec.cells] == [("err", 32767), ("err", 519), ("e", None)]
     finally:
         WorkbookState.forget_key(state.key)
-
-
-def _ctx_with_doc(doc: CalcDocStub | None = None):
-    desktop = MagicMock()
-    desktop.getCurrentComponent.return_value = doc
-    desktop.getComponents.return_value = None
-    smgr = MagicMock()
-    smgr.createInstanceWithContext.return_value = desktop
-    return SimpleNamespace(ServiceManager=smgr, getServiceManager=lambda: smgr)
 
 
 def _fire_sheet_modify(ctx, doc, sheet, sheet_name="Sheet1"):
@@ -163,7 +110,6 @@ def _fire_sheet_modify(ctx, doc, sheet, sheet_name="Sheet1"):
     return st
 
 
-
 def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that spill registry loads from and saves to document properties correctly."""
     import json
@@ -173,15 +119,7 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def mock_get_prop(model, name, default=None):
         if name == "WriterAgentSpillRegistry":
-            return saved_payload if saved_payload is not None else json.dumps({
-                "Sheet1:1,1": {
-                    "code": "orig_code",
-                    "cells": [
-                        {"r": 2, "c": 1, "t": "n", "v": 20.0},
-                        {"r": 3, "c": 1, "t": "n", "v": 30.0},
-                    ],
-                }
-            })
+            return saved_payload if saved_payload is not None else json.dumps({"Sheet1:1,1": {"code": "orig_code", "cells": [{"r": 2, "c": 1, "t": "n", "v": 20.0}, {"r": 3, "c": 1, "t": "n", "v": 30.0}]}})
         return default
 
     def mock_set_prop(model, name, value):
@@ -208,21 +146,12 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert rec.cells[0].kind == "n" and rec.cells[0].value == 20.0
     assert rec.cells[1].kind == "n" and rec.cells[1].value == 30.0
 
-    SPILL_REGISTRY[key] = SpillRecord(
-        code="some_code",
-        cells=[SpillCell(2, 1, "n", 20.0), SpillCell(3, 1, "n", 30.0)],
-    )
+    SPILL_REGISTRY[key] = SpillRecord(code="some_code", cells=[SpillCell(2, 1, "n", 20.0), SpillCell(3, 1, "n", 30.0)])
     _spill.save_spill_registry_for_doc(doc, st)
 
     assert saved_payload is not None
     data = json.loads(saved_payload)
-    assert data["Sheet1:1,1"] == {
-        "code": "some_code",
-        "cells": [
-            {"r": 2, "c": 1, "t": "n", "v": 20.0},
-            {"r": 3, "c": 1, "t": "n", "v": 30.0},
-        ],
-    }
+    assert data["Sheet1:1,1"] == {"code": "some_code", "cells": [{"r": 2, "c": 1, "t": "n", "v": 20.0}, {"r": 3, "c": 1, "t": "n", "v": 30.0}]}
 
     # Add a second load of that object JSON
     reset_calc_workbook_states()
@@ -233,7 +162,6 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert rec2.spills == [(2, 1), (3, 1)]
     assert rec2.code == "some_code"
     assert rec2.cells[0].kind == "n" and rec2.cells[0].value == 20.0
-
 
 
 def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -257,15 +185,7 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
-    st.spills[("Sheet1", 1, 1)] = SpillRecord(
-        code="c",
-        cells=[
-            SpillCell(2, 1, "n", float("nan")),
-            SpillCell(3, 1, "n", float("inf")),
-            SpillCell(4, 1, "n", float("-inf")),
-            SpillCell(5, 1, "n", 1.5),
-        ],
-    )
+    st.spills[("Sheet1", 1, 1)] = SpillRecord(code="c", cells=[SpillCell(2, 1, "n", float("nan")), SpillCell(3, 1, "n", float("inf")), SpillCell(4, 1, "n", float("-inf")), SpillCell(5, 1, "n", 1.5)])
     key = (st.key, "Sheet1", 1, 1)
     try:
         _spill.save_spill_registry_for_doc(doc, st)
@@ -273,12 +193,7 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
         saved = stored.get("WriterAgentSpillRegistry")
         assert saved is not None
         data = json.loads(saved)
-        assert data["Sheet1:1,1"]["cells"] == [
-            {"r": 2, "c": 1, "t": "n", "v": "nan"},
-            {"r": 3, "c": 1, "t": "n", "v": "inf"},
-            {"r": 4, "c": 1, "t": "n", "v": "-inf"},
-            {"r": 5, "c": 1, "t": "n", "v": 1.5},
-        ]
+        assert data["Sheet1:1,1"]["cells"] == [{"r": 2, "c": 1, "t": "n", "v": "nan"}, {"r": 3, "c": 1, "t": "n", "v": "inf"}, {"r": 4, "c": 1, "t": "n", "v": "-inf"}, {"r": 5, "c": 1, "t": "n", "v": 1.5}]
 
         reset_calc_workbook_states()
         st2 = WorkbookState.for_doc(doc)
@@ -292,7 +207,6 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
         assert rec.cells[3].value == 1.5
     finally:
         reset_calc_workbook_states()
-
 
 
 def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -320,10 +234,7 @@ def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
-    st.spills[("Sheet1", 0, 0)] = SpillRecord(
-        code="result = [float('nan'), 1.0]",
-        cells=[SpillCell(1, 0, "n", float("nan"))],
-    )
+    st.spills[("Sheet1", 0, 0)] = SpillRecord(code="result = [float('nan'), 1.0]", cells=[SpillCell(1, 0, "n", float("nan"))])
     key = (st.key, "Sheet1", 0, 0)
     try:
         _spill.save_spill_registry_for_doc(doc, st)
@@ -344,7 +255,6 @@ def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.
         assert sheet.getCellByPosition(0, 1).getValue() == 42.0
     finally:
         reset_calc_workbook_states()
-
 
 
 def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -413,26 +323,10 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         assert WorkbookState.for_doc(doc1) is not None and WorkbookState.for_doc(doc1).loaded
         assert WorkbookState.for_doc(doc2) is not None and WorkbookState.for_doc(doc2).loaded
 
-        SPILL_REGISTRY[key1] = SpillRecord(
-            code="untitled_spill_a",
-            cells=[SpillCell(2, 1, "n", 2.0), SpillCell(3, 1, "n", 3.0)],
-        )
+        SPILL_REGISTRY[key1] = SpillRecord(code="untitled_spill_a", cells=[SpillCell(2, 1, "n", 2.0), SpillCell(3, 1, "n", 3.0)])
         _spill.save_spill_registry_for_doc(doc1, WorkbookState.for_doc(doc1))
-        assert json.loads(stored[id(doc1)]) == {
-            "Sheet1:1,1": {
-                "code": "untitled_spill_a",
-                "cells": [
-                    {"r": 2, "c": 1, "t": "n", "v": 2.0},
-                    {"r": 3, "c": 1, "t": "n", "v": 3.0},
-                ],
-            }
-        }
-        assert json.loads(stored[id(doc2)]) == {
-            "Sheet1:1,1": {
-                "code": "untitled_spill_b",
-                "cells": [{"r": 9, "c": 9, "t": "n", "v": 1.0}],
-            }
-        }
+        assert json.loads(stored[id(doc1)]) == {"Sheet1:1,1": {"code": "untitled_spill_a", "cells": [{"r": 2, "c": 1, "t": "n", "v": 2.0}, {"r": 3, "c": 1, "t": "n", "v": 3.0}]}}
+        assert json.loads(stored[id(doc2)]) == {"Sheet1:1,1": {"code": "untitled_spill_b", "cells": [{"r": 9, "c": 9, "t": "n", "v": 1.0}]}}
 
         # Book 1's modify clears only book 1, even though both sheets are Sheet1.
         sheet1.getCellByPosition(1, 1).setFormula("")
@@ -440,32 +334,24 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         assert key1 not in SPILL_REGISTRY
         assert SPILL_REGISTRY[key2].spills == [(9, 9)]
 
-        SPILL_REGISTRY[key1] = SpillRecord(
-            code="untitled_spill_a",
-            cells=[SpillCell(2, 1, "n", 2.0)],
-        )
+        SPILL_REGISTRY[key1] = SpillRecord(code="untitled_spill_a", cells=[SpillCell(2, 1, "n", 2.0)])
         WorkbookState.forget_key("uid-spill-1")
         assert key1 not in SPILL_REGISTRY
         assert SPILL_REGISTRY[key2].spills == [(9, 9)]
 
         # A scheduled identity from book 1 must not write book 2.
-        _spill.perform_deferred_spill(
-            "Sheet1", 1, 1, [[8], [9]], doc=doc2, sheet=sheet2, code="untitled_spill_b", key="uid-spill-1"
-        )
+        _spill.perform_deferred_spill("Sheet1", 1, 1, [[8], [9]], doc=doc2, sheet=sheet2, code="untitled_spill_b", key="uid-spill-1")
         assert sheet2.getCellByPosition(1, 2).getValue() in (0, 0.0)
         assert ("", "Sheet1", 1, 1) not in SPILL_REGISTRY
 
         # Matching lifecycle key spills this book.
-        _spill.perform_deferred_spill(
-            "Sheet1", 1, 1, [[3], [4]], doc=doc2, sheet=sheet2, code="untitled_spill_b", key="uid-spill-2"
-        )
+        _spill.perform_deferred_spill("Sheet1", 1, 1, [[3], [4]], doc=doc2, sheet=sheet2, code="untitled_spill_b", key="uid-spill-2")
         assert sheet2.getCellByPosition(1, 2).getValue() == 4.0
         assert ("", "Sheet1", 1, 1) not in SPILL_REGISTRY
         assert ("uid-spill-2", "Sheet1", 1, 1) in SPILL_REGISTRY
     finally:
         reset_calc_workbook_states()
         reset_calc_workbook_states()
-
 
 
 def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -483,10 +369,7 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     st = WorkbookState.for_doc(doc)
     assert st is not None
     key = (st.key, "Sheet1", 1, 1)
-    SPILL_REGISTRY[key] = _spill.SpillRecord(
-        code="some_code",
-        cells=[_spill.SpillCell(2, 1, "n", 20.0)],
-    )
+    SPILL_REGISTRY[key] = _spill.SpillRecord(code="some_code", cells=[_spill.SpillCell(2, 1, "n", 20.0)])
 
     cell_B2 = MagicMock()
     cell_B3 = MagicMock()
@@ -508,13 +391,12 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     assert key in SPILL_REGISTRY
     cell_B3.clearContents.assert_not_called()
 
-    cell_B2.getFormula.return_value = ''
+    cell_B2.getFormula.return_value = ""
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
     assert key not in SPILL_REGISTRY
     cell_B3.clearContents.assert_called_once_with(55)
     assert len(saved) == 1
-
 
 
 def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -538,10 +420,7 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     st = WorkbookState.for_doc(owner)
     assert st is not None
     key = (st.key, "Sheet1", 1, 1)
-    SPILL_REGISTRY[key] = _spill.SpillRecord(
-        code='=PY("test")',
-        cells=[_spill.SpillCell(2, 1, "n", 99.0)],
-    )
+    SPILL_REGISTRY[key] = _spill.SpillRecord(code='=PY("test")', cells=[_spill.SpillCell(2, 1, "n", 99.0)])
     try:
         ctx = MagicMock()
         SheetModifyDispatcher(ctx, active, "Sheet1").modified(SimpleNamespace(Source=sheet))
@@ -551,7 +430,6 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
         assert saved == [owner]
     finally:
         SPILL_REGISTRY.pop(key, None)
-
 
 
 def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -566,10 +444,7 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
     st = WorkbookState.for_doc(doc)
     assert st is not None
     key = (st.key, "Sheet1", 1, 1)
-    SPILL_REGISTRY[key] = _spill.SpillRecord(
-        code="keep",
-        cells=[_spill.SpillCell(2, 1, "n", 20.0)],
-    )
+    SPILL_REGISTRY[key] = _spill.SpillRecord(code="keep", cells=[_spill.SpillCell(2, 1, "n", 20.0)])
 
     origin = MagicMock()
     spilled = MagicMock()
@@ -598,12 +473,10 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
         SPILL_REGISTRY.pop(key, None)
 
 
-
 def _clear_spill_timer_registry() -> None:
     from plugin.calc.python.workbook_state import WorkbookState
 
     WorkbookState.reset_for_tests()
-
 
 
 def test_off_main_spill_timer_registers_cached_workbook_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -641,7 +514,6 @@ def test_off_main_spill_timer_registers_cached_workbook_key(monkeypatch: pytest.
         _clear_spill_timer_registry()
 
 
-
 def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each cached model keeps its own unload key; a missing model stays blank."""
     from plugin.calc.python.workbook_state import WorkbookState
@@ -668,7 +540,6 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
         _clear_spill_timer_registry()
 
 
-
 def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -678,14 +549,11 @@ def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     state = WorkbookState.for_doc(doc)
     assert state is not None
-    _spill.perform_deferred_spill(
-        "Sheet1", 0, 0, [["x", "y"]], doc=doc, sheet=sheet, code="result = 1", key=state.key
-    )
+    _spill.perform_deferred_spill("Sheet1", 0, 0, [["x", "y"]], doc=doc, sheet=sheet, code="result = 1", key=state.key)
     b1 = sheet.getCellByPosition(1, 0)
     assert b1.getString() == ""
     assert b1.getValue() == 0
     assert ("Sheet1", 0, 0) not in state.spills
-
 
 
 def test_off_main_spill_timer_does_not_register_empty_lkey() -> None:
@@ -698,7 +566,6 @@ def test_off_main_spill_timer_does_not_register_empty_lkey() -> None:
         assert WorkbookState.known(None) is None
     finally:
         _clear_spill_timer_registry()
-
 
 
 def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
@@ -754,7 +621,6 @@ def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
             SPILL_REGISTRY.pop(key, None)
 
 
-
 def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """When doc.getSheets().getByName(sheet_name) raises, the passed sheet object receives the spill."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -775,21 +641,11 @@ def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(m
 
     from plugin.calc.python.workbook_state import WorkbookState
 
-    _spill.perform_deferred_spill(
-        "Sheet1",
-        0,
-        0,
-        grid,
-        doc=doc,
-        sheet=passed_sheet,
-        code="result = [[1, 2], [3, 4]]",
-        key=WorkbookState.for_doc(doc).key,
-    )
+    _spill.perform_deferred_spill("Sheet1", 0, 0, grid, doc=doc, sheet=passed_sheet, code="result = [[1, 2], [3, 4]]", key=WorkbookState.for_doc(doc).key)
 
     assert passed_sheet.getCellByPosition(1, 0).getValue() == 2.0
     assert passed_sheet.getCellByPosition(0, 1).getValue() == 3.0
     assert passed_sheet.getCellByPosition(1, 1).getValue() == 4.0
-
 
 
 def test_spill_remap_when_block_moves_with_formula(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -816,14 +672,7 @@ def test_spill_remap_when_block_moves_with_formula(monkeypatch: pytest.MonkeyPat
 
     # Old registry entry at row 4
     old_key = (st.key, "Sheet1", 4, 0)
-    SPILL_REGISTRY[old_key] = _spill.SpillRecord(
-        code=code,
-        cells=[
-            _spill.SpillCell(5, 0, "n", 1.0),
-            _spill.SpillCell(6, 0, "n", 2.0),
-            _spill.SpillCell(7, 0, "n", 3.0),
-        ],
-    )
+    SPILL_REGISTRY[old_key] = _spill.SpillRecord(code=code, cells=[_spill.SpillCell(5, 0, "n", 1.0), _spill.SpillCell(6, 0, "n", 2.0), _spill.SpillCell(7, 0, "n", 3.0)])
 
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
@@ -834,7 +683,6 @@ def test_spill_remap_when_block_moves_with_formula(monkeypatch: pytest.MonkeyPat
     assert sheet.getCellByPosition(0, 6).getValue() == 1.0
     assert sheet.getCellByPosition(0, 7).getValue() == 2.0
     assert sheet.getCellByPosition(0, 8).getValue() == 3.0
-
 
 
 def test_spill_clear_does_not_follow_cut_paste(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -859,10 +707,7 @@ def test_spill_clear_does_not_follow_cut_paste(monkeypatch: pytest.MonkeyPatch) 
     sheet.getCellByPosition(0, 5).setValue(2.0)
 
     old_key = (st.key, "Sheet1", 4, 0)
-    SPILL_REGISTRY[old_key] = _spill.SpillRecord(
-        code=code,
-        cells=[_spill.SpillCell(5, 0, "n", 2.0)],
-    )
+    SPILL_REGISTRY[old_key] = _spill.SpillRecord(code=code, cells=[_spill.SpillCell(5, 0, "n", 2.0)])
 
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
@@ -870,7 +715,6 @@ def test_spill_clear_does_not_follow_cut_paste(monkeypatch: pytest.MonkeyPatch) 
     assert (st.key, "Sheet1", 4, 3) not in SPILL_REGISTRY
     # Spilled cell at (col 0, row 5) was cleared
     assert sheet.getCellByPosition(0, 5).getValue() in (0, 0.0)
-
 
 
 def test_spill_clear_skips_formula_cell_and_edited_value(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -899,14 +743,7 @@ def test_spill_clear_skips_formula_cell_and_edited_value(monkeypatch: pytest.Mon
     sheet.getCellByPosition(0, 3).setValue(3.0)
 
     key = (st.key, "Sheet1", 0, 0)
-    SPILL_REGISTRY[key] = _spill.SpillRecord(
-        code="result = [1, 2, 3]",
-        cells=[
-            _spill.SpillCell(1, 0, "n", 1.0),
-            _spill.SpillCell(2, 0, "n", 2.0),
-            _spill.SpillCell(3, 0, "n", 3.0),
-        ],
-    )
+    SPILL_REGISTRY[key] = _spill.SpillRecord(code="result = [1, 2, 3]", cells=[_spill.SpillCell(1, 0, "n", 1.0), _spill.SpillCell(2, 0, "n", 2.0), _spill.SpillCell(3, 0, "n", 3.0)])
 
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
@@ -917,7 +754,6 @@ def test_spill_clear_skips_formula_cell_and_edited_value(monkeypatch: pytest.Mon
     assert sheet.getCellByPosition(0, 2).getValue() == 999.0
     # Matching cell cleared
     assert sheet.getCellByPosition(0, 3).getValue() in (0, 0.0)
-
 
 
 def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -943,13 +779,7 @@ def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.
     sheet.getCellByPosition(0, 2).setValue(0.0)
 
     key = (st.key, "Sheet1", 0, 0)
-    SPILL_REGISTRY[key] = _spill.SpillRecord(
-        code="result = [0.0, 0.0]",
-        cells=[
-            _spill.SpillCell(1, 0, "n", 0.0),
-            _spill.SpillCell(2, 0, "n", 0.0),
-        ],
-    )
+    SPILL_REGISTRY[key] = _spill.SpillRecord(code="result = [0.0, 0.0]", cells=[_spill.SpillCell(1, 0, "n", 0.0), _spill.SpillCell(2, 0, "n", 0.0)])
 
     _fire_sheet_modify(MagicMock(), doc, sheet)
 
@@ -957,7 +787,6 @@ def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.
     assert sheet.getCellByPosition(0, 1).getString() == "note"
     assert sheet.getCellByPosition(0, 2).getType() == 0
     assert sheet.getCellByPosition(0, 2).getString() == ""
-
 
 
 def test_cell_matches_stored_value_type_gate() -> None:
@@ -1018,7 +847,6 @@ def test_cell_matches_stored_value_type_gate() -> None:
     assert _cell_matches_stored_value(val_str_sheet, 0, 0, SpillCell(0, 0, "s", "target")) is False
 
 
-
 def test_cell_matches_stored_value_err() -> None:
     fake_cell_519 = SimpleNamespace(getError=lambda: 519)
     fake_cell_no_err = SimpleNamespace()
@@ -1027,6 +855,7 @@ def test_cell_matches_stored_value_err() -> None:
     class FakeSheet:
         def __init__(self, cell):
             self._cell = cell
+
         def getCellByPosition(self, col, row):
             return self._cell
 
@@ -1040,19 +869,11 @@ def test_cell_matches_stored_value_err() -> None:
     assert _spill._cell_matches_stored_value(sheet_no_err, 0, 0, rec_519) is False
 
 
-
 def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPatch) -> None:
     import json
 
-    payload = json.dumps({
-        "Sheet1:1,1": [[2, 1]],
-        "Sheet1:x,1": [[0, 0]],
-        "Sheet1:4,4": {"code": "later", "cells": [{"r": 5, "c": 4, "t": "n", "v": 1.0}]},
-    })
-    monkeypatch.setattr(
-        "plugin.calc.python.spill.get_document_property",
-        lambda model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
-    )
+    payload = json.dumps({"Sheet1:1,1": [[2, 1]], "Sheet1:x,1": [[0, 0]], "Sheet1:4,4": {"code": "later", "cells": [{"r": 5, "c": 4, "t": "n", "v": 1.0}]}})
+    monkeypatch.setattr("plugin.calc.python.spill.get_document_property", lambda model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default)
     doc = CalcDocStub(url="file:///fake_malformed.ods")
 
     reset_calc_workbook_states()
@@ -1065,7 +886,6 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
     assert (doc_key, "Sheet1", 1, 1) not in SPILL_REGISTRY
     assert (doc_key, "Sheet1", 4, 4) in SPILL_REGISTRY
     assert len([k for k in SPILL_REGISTRY if k[0] == doc_key]) == 1
-
 
 
 def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
@@ -1095,7 +915,6 @@ def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
     assert WorkbookState.for_doc(non_str_stub).key == "calc:file:///x.ods"
 
 
-
 def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -1122,4 +941,3 @@ def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.M
     finally:
         if key1:
             WorkbookState.forget_key(key1)
-

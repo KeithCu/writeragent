@@ -14,25 +14,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import plugin.audio.tts_service as tts
-from plugin.audio.tts_service import (
-    clean_text_for_speech,
-    is_speaking,
-    sentence_speak_enabled,
-    sentences_for_speech,
-    speak_text_async,
-    stop_speech,
-    uses_sentence_by_sentence,
-)
+from plugin.audio.tts_service import clean_text_for_speech, is_speaking, sentence_speak_enabled, sentences_for_speech, speak_text_async, stop_speech, uses_sentence_by_sentence
 from plugin.framework.send_cancellation import SendCancellation, wait_for_approval
 
 
 def test_clean_text_for_speech_markdown():
-    raw = (
-        "# Heading\n\n"
-        "Here is some **bold** and *italic* text with a [link](https://example.com).\n\n"
-        "```python\ndef foo():\n    return 42\n```\n\n"
-        "And some `inline code` here."
-    )
+    raw = "# Heading\n\nHere is some **bold** and *italic* text with a [link](https://example.com).\n\n```python\ndef foo():\n    return 42\n```\n\nAnd some `inline code` here."
     cleaned = clean_text_for_speech(raw)
     assert "#" not in cleaned
     assert "**" not in cleaned
@@ -74,14 +61,7 @@ def test_clean_text_for_speech_math_preserved():
     assert clean_text_for_speech("2*3*4") == "2*3*4"
     assert clean_text_for_speech("<b>bold</b>") == "bold"
     assert clean_text_for_speech('<a href="https://example.com">t</a>') == "t"
-    spoken = clean_text_for_speech(
-        "- first item\n"
-        "* second item\n"
-        "> a quote\n"
-        "| a | b |\n"
-        "|---|---|\n"
-        "| 1 | 2 |\n"
-    )
+    spoken = clean_text_for_speech("- first item\n* second item\n> a quote\n| a | b |\n|---|---|\n| 1 | 2 |\n")
     assert spoken == "first item second item a quote a b 1 2"
     assert "|" not in spoken
     assert "---" not in spoken
@@ -140,15 +120,8 @@ def test_is_speaking_lifecycle():
 
 
 def test_speak_text_async_routing_local():
-    cfg = {
-        "audio.tts_enabled": True,
-        "audio.tts_provider": "kokoro",
-        "audio.tts_speed": 1.1,
-        "audio.tts_voice_kokoro": "af_bella",
-    }
-    with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: cfg.get(k, d)), \
-         patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), \
-         patch("plugin.audio.tts_service._speak_local") as mock_local:
+    cfg = {"audio.tts_enabled": True, "audio.tts_provider": "kokoro", "audio.tts_speed": 1.1, "audio.tts_voice_kokoro": "af_bella"}
+    with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: cfg.get(k, d)), patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), patch("plugin.audio.tts_service._speak_local") as mock_local:
         speak_text_async("Hello Kokoro")
         assert mock_local.call_args.args == ("kokoro", "Hello Kokoro")
         assert mock_local.call_args.kwargs["voice"] == "af_bella"
@@ -166,16 +139,8 @@ def test_speak_text_async_routing_local():
 
 
 def test_speak_text_async_uses_dialog_overrides_when_config_disabled():
-    with patch("plugin.framework.config.get_config", return_value=False), \
-         patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), \
-         patch("plugin.audio.tts_service._speak_local") as mock_local:
-        speak_text_async(
-            "Bonjour",
-            provider="Kokoro (Local Neural, ONNX CPU)",
-            voice="jf_alpha (Kokoro JP Female - Alpha)",
-            speed=1.25,
-            enabled=True,
-        )
+    with patch("plugin.framework.config.get_config", return_value=False), patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kw: fn()), patch("plugin.audio.tts_service._speak_local") as mock_local:
+        speak_text_async("Bonjour", provider="Kokoro (Local Neural, ONNX CPU)", voice="jf_alpha (Kokoro JP Female - Alpha)", speed=1.25, enabled=True)
         mock_local.assert_called_once()
         assert mock_local.call_args.args == ("kokoro", "Bonjour")
         assert mock_local.call_args.kwargs["voice"] == "jf_alpha"
@@ -189,7 +154,6 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
     from plugin.audio.tts_service import _speak_local
 
     utt = tts._begin_utterance()
-
 
     model = tmp_path / "kokoro-v1.0.onnx"
     voices = tmp_path / "voices-v1.0.bin"
@@ -218,12 +182,14 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
             return _Proc()
 
         ensure = MagicMock(return_value=True)
-        with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=str(py)), \
-             patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
-             patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure), \
-             patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
-             patch("plugin.audio.tts_service.get_kokoro_pool", return_value=None), \
-             patch("plugin.audio.tts_service._play_audio_file") as play:
+        with (
+            patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=str(py)),
+            patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=(str(model), str(voices))),
+            patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure),
+            patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen),
+            patch("plugin.audio.tts_service.get_kokoro_pool", return_value=None),
+            patch("plugin.audio.tts_service._play_audio_file") as play,
+        ):
             _speak_local("kokoro", text, voice=voice, speed=1.0, utt=utt)
         assert play.called
         assert len(launched) == 1
@@ -242,17 +208,18 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
 
     utt = tts._begin_utterance()
 
-
     model = tmp_path / "kokoro-v1.0.onnx"
     voices = tmp_path / "voices-v1.0.bin"
     model.write_bytes(b"m")
     voices.write_bytes(b"v")
 
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=str(tmp_path / "python")), \
-         patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
-         patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None), \
-         patch("plugin.framework.managed_subprocess.subprocess.Popen") as popen, \
-         patch("plugin.audio.tts_service._speak_system") as system:
+    with (
+        patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=str(tmp_path / "python")),
+        patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=(str(model), str(voices))),
+        patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None),
+        patch("plugin.framework.managed_subprocess.subprocess.Popen") as popen,
+        patch("plugin.audio.tts_service._speak_system") as system,
+    ):
         _speak_local("kokoro", "こんにちは", voice="jf_alpha", speed=1.0, utt=utt)
 
     popen.assert_not_called()
@@ -275,19 +242,8 @@ def test_sentence_pipeline_installs_misaki_once_per_reply(tmp_path):
     utt = tts._begin_utterance()
 
     try:
-        with patch.object(tts, "ensure_kokoro_misaki", ensure), \
-             patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), \
-             patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
-             patch.object(tts, "_play_audio_file"), \
-             patch.object(tts, "_speak_system") as system:
-            tts._run_sentence_pipeline(
-                ["一。", "二。", "三。"],
-                "kokoro",
-                "jf_alpha",
-                1.0,
-                None,
-                utt,
-            )
+        with patch.object(tts, "ensure_kokoro_misaki", ensure), patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(tts, "_play_audio_file"), patch.object(tts, "_speak_system") as system:
+            tts._run_sentence_pipeline(["一。", "二。", "三。"], "kokoro", "jf_alpha", 1.0, None, utt)
     finally:
         tts.stop_speech()
 
@@ -304,18 +260,8 @@ def test_sentence_pipeline_stop_during_misaki_install_skips_os_speech():
     utt = tts._begin_utterance()
 
     try:
-        with patch.object(tts, "ensure_kokoro_misaki", return_value=None), \
-             patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), \
-             patch.object(tts, "_synthesize_sentence_clip") as synth, \
-             patch.object(tts, "_speak_system") as system:
-            tts._run_sentence_pipeline(
-                ["こんにちは。", "次の文。"],
-                "kokoro",
-                "jf_alpha",
-                1.0,
-                None,
-                utt,
-            )
+        with patch.object(tts, "ensure_kokoro_misaki", return_value=None), patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(tts, "_synthesize_sentence_clip") as synth, patch.object(tts, "_speak_system") as system:
+            tts._run_sentence_pipeline(["こんにちは。", "次の文。"], "kokoro", "jf_alpha", 1.0, None, utt)
     finally:
         tts.stop_speech()
 
@@ -334,12 +280,9 @@ class _FakeSentenceBI:
 
 
 def test_sentences_for_speech_uses_grammar_splitter_and_keeps_short_fragments():
-    with patch(
-        "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
-        return_value=(_FakeSentenceBI(), "en-US"),
-    ), patch(
-        "plugin.writer.locale.grammar_proofread_locale.filter_sentence_spans_for_thresholds",
-        side_effect=AssertionError("TTS must not apply the grammar churn filter"),
+    with (
+        patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(_FakeSentenceBI(), "en-US")),
+        patch("plugin.writer.locale.grammar_proofread_locale.filter_sentence_spans_for_thresholds", side_effect=AssertionError("TTS must not apply the grammar churn filter")),
     ):
         spoken = sentences_for_speech("Hi. No", object())
 
@@ -347,10 +290,7 @@ def test_sentences_for_speech_uses_grammar_splitter_and_keeps_short_fragments():
 
 
 def test_sentences_for_speech_merges_dialogue():
-    with patch(
-        "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
-        return_value=(_FakeSentenceBI(), "en-US"),
-    ):
+    with patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(_FakeSentenceBI(), "en-US")):
         spoken = sentences_for_speech('"Fire! Fire!" he yelled.', object())
 
     assert spoken == ['"Fire! Fire!" he yelled.']
@@ -382,19 +322,8 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
     utt = tts._begin_utterance()
 
     try:
-        with patch.object(tts, "_prepare_kokoro_misaki", return_value=True), patch.object(
-            tts, "_synthesize_sentence_clip", side_effect=synth
-        ), patch.object(
-            tts, "_play_audio_file", side_effect=play
-        ):
-            tts._run_sentence_pipeline(
-                [short, longer],
-                "kokoro",
-                "af_bella",
-                1.0,
-                None,
-                utt,
-            )
+        with patch.object(tts, "_prepare_kokoro_misaki", return_value=True), patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(tts, "_play_audio_file", side_effect=play):
+            tts._run_sentence_pipeline([short, longer], "kokoro", "af_bella", 1.0, None, utt)
     finally:
         tts.stop_speech()
     assert long_started.is_set()
@@ -428,19 +357,8 @@ def test_ready_queue_backpressure_stops_past_the_cap(max_clips):
 
     def run() -> None:
         try:
-            with patch.object(tts, "SPEECH_READY_MAX_CLIPS", cap), patch.object(
-                tts, "_synthesize_sentence_clip", side_effect=synth
-            ), patch.object(tts, "_play_audio_file", side_effect=play), patch.object(
-                tts, "_speak_system", side_effect=speak_system
-            ):
-                tts._run_sentence_pipeline(
-                    sentences,
-                    "kokoro",
-                    "af_bella",
-                    1.0,
-                    None,
-                    utt,
-                )
+            with patch.object(tts, "SPEECH_READY_MAX_CLIPS", cap), patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(tts, "_play_audio_file", side_effect=play), patch.object(tts, "_speak_system", side_effect=speak_system):
+                tts._run_sentence_pipeline(sentences, "kokoro", "af_bella", 1.0, None, utt)
         finally:
             finished.set()
 
@@ -490,20 +408,15 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
 
     def run() -> None:
         try:
-            with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
-                tts, "_prepare_kokoro_misaki", return_value=True
-            ), patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(
-                tts, "_play_audio_file", side_effect=play
-            ), patch.object(tts, "_speak_system") as mock_system:
+            with (
+                patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"),
+                patch.object(tts, "_prepare_kokoro_misaki", return_value=True),
+                patch.object(tts, "_synthesize_sentence_clip", side_effect=synth),
+                patch.object(tts, "_play_audio_file", side_effect=play),
+                patch.object(tts, "_speak_system") as mock_system,
+            ):
                 system_mock.append(mock_system)
-                tts._run_sentence_pipeline(
-                    ["First sentence.", "Second sentence."],
-                    "kokoro",
-                    "af_bella",
-                    1.0,
-                    None,
-                    utt,
-                )
+                tts._run_sentence_pipeline(["First sentence.", "Second sentence."], "kokoro", "af_bella", 1.0, None, utt)
         finally:
             finished.set()
 
@@ -584,21 +497,15 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
 
     def run() -> None:
         try:
-            with patch.object(tts, "run_in_background", side_effect=track_bg), patch.object(
-                tts, "resolve_kokoro_python", return_value="/venv/bin/python"
-            ), patch.object(tts, "_prepare_kokoro_misaki", return_value=True), patch.object(
-                tts, "_synthesize_sentence_clip", side_effect=blocking_synth
-            ), patch.object(tts, "_play_audio_file", side_effect=track_play), patch.object(
-                tts, "_speak_system", side_effect=track_system
+            with (
+                patch.object(tts, "run_in_background", side_effect=track_bg),
+                patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"),
+                patch.object(tts, "_prepare_kokoro_misaki", return_value=True),
+                patch.object(tts, "_synthesize_sentence_clip", side_effect=blocking_synth),
+                patch.object(tts, "_play_audio_file", side_effect=track_play),
+                patch.object(tts, "_speak_system", side_effect=track_system),
             ):
-                tts._run_sentence_pipeline(
-                    ["Hello."],
-                    "kokoro",
-                    "af_bella",
-                    1.0,
-                    None,
-                    utt,
-                )
+                tts._run_sentence_pipeline(["Hello."], "kokoro", "af_bella", 1.0, None, utt)
         finally:
             finished.set()
 
@@ -615,9 +522,7 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
         assert system_calls == []
         tracked = temp_path[0] if temp_path else ""
         assert tracked
-        assert _wait_until(deadline, lambda: not os.path.exists(tracked)), (
-            f"temp file still present after stop: {tracked}"
-        )
+        assert _wait_until(deadline, lambda: not os.path.exists(tracked)), f"temp file still present after stop: {tracked}"
     finally:
         release_synth.set()
         tts.stop_speech()
@@ -631,19 +536,14 @@ def test_stop_before_start_spawns_nothing():
     utt = tts._begin_utterance()
     tts.stop_speech()
 
-    with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
-        tts, "_prepare_kokoro_misaki", return_value=True
-    ), patch.object(tts, "_popen_for_speech") as mock_popen, patch.object(
-        tts, "_synthesize_sentence_clip"
-    ) as mock_synth, patch.object(tts, "_play_audio_file") as mock_play:
-        tts._run_sentence_pipeline(
-            ["Hello."],
-            "kokoro",
-            "af_bella",
-            1.0,
-            None,
-            utt,
-        )
+    with (
+        patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"),
+        patch.object(tts, "_prepare_kokoro_misaki", return_value=True),
+        patch.object(tts, "_popen_for_speech") as mock_popen,
+        patch.object(tts, "_synthesize_sentence_clip") as mock_synth,
+        patch.object(tts, "_play_audio_file") as mock_play,
+    ):
+        tts._run_sentence_pipeline(["Hello."], "kokoro", "af_bella", 1.0, None, utt)
         mock_popen.assert_not_called()
         mock_synth.assert_not_called()
         mock_play.assert_not_called()
@@ -699,10 +599,7 @@ def test_sentence_speak_enabled_uses_schema_default_on():
     from plugin.framework.config_schema import resolve_default
 
     assert resolve_default("audio.tts_sentence_mode") is True
-    with patch(
-        "plugin.audio.tts_service.config.get_config",
-        side_effect=lambda key: resolve_default(key),
-    ):
+    with patch("plugin.audio.tts_service.config.get_config", side_effect=lambda key: resolve_default(key)):
         assert sentence_speak_enabled() is True
 
 
@@ -726,6 +623,7 @@ def _speak_sentence_case(cfg, *, provider=None, model=None):
         def _call(*args, **kwargs):
             del kwargs
             oneshot[name] = args[0]
+
         return _call
 
     def remember_local(*args, **kwargs):
@@ -737,38 +635,25 @@ def _speak_sentence_case(cfg, *, provider=None, model=None):
             return True
         return cfg.get(key, default)
 
-    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
-        "plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kwargs: fn()
-    ), patch(
-        "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",
-        return_value=(_FakeSentenceBI(), "en-US"),
-    ), patch("plugin.audio.tts_service.sentences_for_speech", side_effect=spy_split), patch(
-        "plugin.audio.tts_service._run_sentence_pipeline", side_effect=fake_pipeline
-    ), patch("plugin.audio.tts_service._speak_system", side_effect=remember("system")), patch(
-        "plugin.audio.tts_service._speak_local", side_effect=remember_local
-    ), patch(
-        "plugin.audio.tts_service._speak_endpoint", side_effect=remember("endpoint")
-    ), patch(
-        "plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api/v1"
-    ), patch("plugin.framework.config.get_api_key_for_endpoint", return_value="test-key"):
-        tts.speak_text_async(
-            "Hi. Not done yet",
-            ctx=object(),
-            provider=provider,
-            model=model,
-            voice="af_sky",
-        )
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
+        patch("plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kwargs: fn()),
+        patch("plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale", return_value=(_FakeSentenceBI(), "en-US")),
+        patch("plugin.audio.tts_service.sentences_for_speech", side_effect=spy_split),
+        patch("plugin.audio.tts_service._run_sentence_pipeline", side_effect=fake_pipeline),
+        patch("plugin.audio.tts_service._speak_system", side_effect=remember("system")),
+        patch("plugin.audio.tts_service._speak_local", side_effect=remember_local),
+        patch("plugin.audio.tts_service._speak_endpoint", side_effect=remember("endpoint")),
+        patch("plugin.framework.config.get_current_endpoint", return_value="https://openrouter.ai/api/v1"),
+        patch("plugin.framework.config.get_api_key_for_endpoint", return_value="test-key"),
+    ):
+        tts.speak_text_async("Hi. Not done yet", ctx=object(), provider=provider, model=model, voice="af_sky")
     return captured, oneshot
 
 
 def test_kokoro_and_piper_honor_sentence_mode():
     for prov in ("kokoro", "piper"):
-        cfg = {
-            "audio.tts_enabled": True,
-            "audio.tts_provider": prov,
-            "audio.tts_speed": 1.0,
-            "audio.tts_sentence_mode": True,
-        }
+        cfg = {"audio.tts_enabled": True, "audio.tts_provider": prov, "audio.tts_speed": 1.0, "audio.tts_sentence_mode": True}
         captured, oneshot = _speak_sentence_case(cfg)
         assert captured["split"] is True
         assert captured["sentences"] == ["Hi.", "Not done yet"]
@@ -783,34 +668,20 @@ def test_kokoro_and_piper_honor_sentence_mode():
 
 
 def test_unset_sentence_mode_splits_kokoro():
-    cfg = {
-        "audio.tts_enabled": True,
-        "audio.tts_provider": "kokoro",
-        "audio.tts_speed": 1.0,
-    }
+    cfg = {"audio.tts_enabled": True, "audio.tts_provider": "kokoro", "audio.tts_speed": 1.0}
     captured, oneshot = _speak_sentence_case(cfg)
     assert captured["sentences"] == ["Hi.", "Not done yet"]
     assert oneshot == {}
 
 
 def test_endpoint_and_native_do_not_split():
-    endpoint_cfg = {
-        "audio.tts_enabled": True,
-        "audio.tts_provider": "endpoint",
-        "audio.tts_speed": 1.0,
-        "audio.tts_sentence_mode": True,
-    }
+    endpoint_cfg = {"audio.tts_enabled": True, "audio.tts_provider": "endpoint", "audio.tts_speed": 1.0, "audio.tts_sentence_mode": True}
     captured, oneshot = _speak_sentence_case(endpoint_cfg, model="openai/gpt-4o-audio-preview")
     assert "split" not in captured
     assert "sentences" not in captured
     assert oneshot == {"endpoint": "Hi. Not done yet"}
 
-    system_cfg = {
-        "audio.tts_enabled": True,
-        "audio.tts_provider": "system",
-        "audio.tts_speed": 1.0,
-        "audio.tts_sentence_mode": True,
-    }
+    system_cfg = {"audio.tts_enabled": True, "audio.tts_provider": "system", "audio.tts_speed": 1.0, "audio.tts_sentence_mode": True}
     captured, oneshot = _speak_sentence_case(system_cfg)
     assert "split" not in captured
     assert "sentences" not in captured
@@ -881,12 +752,8 @@ def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
     utt = tts._begin_utterance()
 
     try:
-        with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
-             patch.object(tts, "_play_audio_file") as play, \
-             patch.object(tts, "_speak_system") as system:
-            tts._run_sentence_pipeline(
-                ["One.", "Two.", "Three."], "kokoro", "af_sky", 1.0, None, utt,
-            )
+        with patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(tts, "_play_audio_file") as play, patch.object(tts, "_speak_system") as system:
+            tts._run_sentence_pipeline(["One.", "Two.", "Three."], "kokoro", "af_sky", 1.0, None, utt)
     finally:
         tts.stop_speech()
 
@@ -932,10 +799,7 @@ def test_windows_player_nonzero_exit_triggers_os_fallback():
     mock_proc.wait.return_value = 1
 
     try:
-        with patch("sys.platform", "win32"), \
-             patch("plugin.audio.tts_service.download_endpoint_speech", return_value=_EndpointClip(b"ID3fake", ".mp3")), \
-             patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), \
-             patch("plugin.audio.tts_service._speak_system") as mock_system:
+        with patch("sys.platform", "win32"), patch("plugin.audio.tts_service.download_endpoint_speech", return_value=_EndpointClip(b"ID3fake", ".mp3")), patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), patch("plugin.audio.tts_service._speak_system") as mock_system:
             tts._speak_endpoint("Hello world.", "https://example.com/api", "key", cancel=utt.scope)
         mock_system.assert_called_once()
         assert mock_system.call_args.args[0] == "Hello world."
@@ -952,10 +816,12 @@ def test_piper_timeout_scaling_and_reap(tmp_path):
     mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["piper"], timeout=30)
     mock_proc.returncode = None
 
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"), \
-         patch("os.path.isfile", return_value=True), \
-         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc):
+    with (
+        patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"),
+        patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"),
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc),
+    ):
         # Long text
         long_text = "Word " * 200
         try:
@@ -983,12 +849,14 @@ def test_piper_rejects_nonzero_exit_even_when_wav_is_nonempty(tmp_path):
     mock_proc.communicate.return_value = ("", "boom")
     mock_proc.returncode = 2
 
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"), \
-         patch("os.path.isfile", return_value=True), \
-         patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), \
-         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), \
-         patch("plugin.audio.tts_service._release_temp") as release:
+    with (
+        patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"),
+        patch("plugin.audio.tts_service.resolve_piper_model_file", return_value="/models/v.onnx"),
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)),
+        patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc),
+        patch("plugin.audio.tts_service._release_temp") as release,
+    ):
         assert _piper_audio_file("hello", "voice", 1.0, None, utt) is None
     release.assert_called_with(str(wav))
 
@@ -998,27 +866,21 @@ def test_run_synth_to_temp_returns_a_path_only_for_a_nonempty_file(tmp_path):
 
     cancel = SendCancellation()
     wav = tmp_path / "out.wav"
-    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "")), \
-         patch("plugin.audio.tts_service._release_temp") as release:
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "")), patch("plugin.audio.tts_service._release_temp") as release:
         assert _run_synth_to_temp(str(wav), ["cmd"], cancel, label="T") == (None, "")
         release.assert_called_once_with(str(wav))
 
     wav.write_bytes(b"RIFF")
-    with patch("plugin.audio.tts_service._run_synth", return_value=(2, "", "boom")), \
-         patch("plugin.audio.tts_service._release_temp") as release:
+    with patch("plugin.audio.tts_service._run_synth", return_value=(2, "", "boom")), patch("plugin.audio.tts_service._release_temp") as release:
         assert _run_synth_to_temp(str(wav), ["cmd"], cancel, label="T") == (None, "")
         release.assert_called_once_with(str(wav))
 
-    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "warn")), \
-         patch("plugin.audio.tts_service._release_temp") as release:
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, "", "warn")), patch("plugin.audio.tts_service._release_temp") as release:
         assert _run_synth_to_temp(str(wav), ["cmd"], cancel, label="T") == (str(wav), "")
     release.assert_not_called()
 
-    with patch("plugin.audio.tts_service._run_synth", return_value=(0, '{"g2p": "espeak"}', "")), \
-         patch("plugin.audio.tts_service._release_temp") as release:
-        assert _run_synth_to_temp(
-            str(wav), ["cmd"], cancel, label="T"
-        ) == (str(wav), '{"g2p": "espeak"}')
+    with patch("plugin.audio.tts_service._run_synth", return_value=(0, '{"g2p": "espeak"}', "")), patch("plugin.audio.tts_service._release_temp") as release:
+        assert _run_synth_to_temp(str(wav), ["cmd"], cancel, label="T") == (str(wav), '{"g2p": "espeak"}')
     release.assert_not_called()
 
 
@@ -1033,6 +895,7 @@ def test_play_audio_file_player_order_and_fallback(tmp_path):
     # For WAV: order is ffplay, mpv, pw-play, paplay, aplay (mpg123 excluded)
     with patch("sys.platform", "linux"), patch("shutil.which", return_value=True):
         from plugin.audio.tts_service import _get_player_candidates
+
         wav_players = [p[0] for p in _get_player_candidates(wav_file)]
         assert "mpg123" not in wav_players
         assert wav_players == ["ffplay", "mpv", "pw-play", "paplay", "aplay"]
@@ -1048,19 +911,14 @@ def test_play_audio_file_player_order_and_fallback(tmp_path):
     proc2 = MagicMock()
     proc2.wait.return_value = 0  # Success
 
-    with patch("plugin.audio.tts_service._get_player_candidates", return_value=[
-        ("ffplay", ["ffplay", wav_file], None),
-        ("mpv", ["mpv", wav_file], None),
-    ]), patch("plugin.audio.tts_service._popen_for_speech", side_effect=[proc1, proc2]):
+    with patch("plugin.audio.tts_service._get_player_candidates", return_value=[("ffplay", ["ffplay", wav_file], None), ("mpv", ["mpv", wav_file], None)]), patch("plugin.audio.tts_service._popen_for_speech", side_effect=[proc1, proc2]):
         assert _play_audio_file(wav_file, cancel) is True
         assert proc1.wait.called
         assert proc2.wait.called
 
     failed = MagicMock()
     failed.wait.return_value = 1
-    with patch("plugin.audio.tts_service._get_player_candidates", return_value=[
-        ("ffplay", ["ffplay", wav_file], None),
-    ]), patch("plugin.audio.tts_service._popen_for_speech", return_value=failed):
+    with patch("plugin.audio.tts_service._get_player_candidates", return_value=[("ffplay", ["ffplay", wav_file], None)]), patch("plugin.audio.tts_service._popen_for_speech", return_value=failed):
         assert _play_audio_file(wav_file, cancel) is False
 
 
@@ -1167,19 +1025,9 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path, max_clips)
     utt = tts._begin_utterance()
 
     try:
-        with patch.object(tts, "SPEECH_READY_MAX_CLIPS", cap), \
-             patch.object(tts, "run_in_background", side_effect=track_bg), \
-             patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), \
-             patch.object(tts, "_play_audio_file", side_effect=play):
+        with patch.object(tts, "SPEECH_READY_MAX_CLIPS", cap), patch.object(tts, "run_in_background", side_effect=track_bg), patch.object(tts, "_synthesize_sentence_clip", side_effect=synth), patch.object(tts, "_play_audio_file", side_effect=play):
             with pytest.raises(RuntimeError, match="player exploded"):
-                tts._run_sentence_pipeline(
-                    sentences,
-                    "kokoro",
-                    "af_sky",
-                    1.0,
-                    None,
-                    utt,
-                )
+                tts._run_sentence_pipeline(sentences, "kokoro", "af_sky", 1.0, None, utt)
         assert producer_threads
         thread, done = producer_threads[0]
         assert done.wait(2)
@@ -1200,15 +1048,14 @@ def test_kokoro_oneshot_times_out_and_reaps(tmp_path):
     mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["py"], timeout=60)
     mock_proc.returncode = None
     wav = tmp_path / "out.wav"
-    with patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), \
-         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), \
-         patch("plugin.audio.tts_service._release_temp") as release:
+    with patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), patch("plugin.audio.tts_service._release_temp") as release:
         result = _kokoro_oneshot_to_file("/py", "hello", "af_sky", 1.0, "/m", "/v", utt)
     assert result is None
     assert mock_proc.communicate.call_args.kwargs["timeout"] >= 60
     mock_proc.kill.assert_called_once()
     mock_proc.wait.assert_called()
     release.assert_called_with(str(wav))
+
 
 def test_kokoro_warm_exception_allows_fallback(tmp_path):
     import plugin.audio.tts_service as tts
@@ -1218,9 +1065,7 @@ def test_kokoro_warm_exception_allows_fallback(tmp_path):
     pool = MagicMock()
     pool.execute.side_effect = RuntimeError("spawn blew up")
     wav = tmp_path / "w.wav"
-    with patch("plugin.audio.tts_service.get_kokoro_pool", return_value=pool), \
-         patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), \
-         patch("plugin.audio.tts_service._release_temp") as release:
+    with patch("plugin.audio.tts_service.get_kokoro_pool", return_value=pool), patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), patch("plugin.audio.tts_service._release_temp") as release:
         path, allow = _kokoro_warm_to_file("hi", "af_sky", 1.0, "/m", "/v", utt)
     assert path is None
     assert allow is True
@@ -1250,10 +1095,7 @@ def test_prepare_kokoro_misaki_stale_utterance_does_not_touch_current():
     utt_a = tts._begin_utterance()
     utt_b = tts._begin_utterance()
     try:
-        with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), \
-             patch.object(tts, "kokoro_lang_uses_misaki", return_value=True), \
-             patch.object(tts, "kokoro_g2p_lang", return_value="ja"), \
-             patch.object(tts, "ensure_kokoro_misaki", return_value=False):
+        with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(tts, "kokoro_lang_uses_misaki", return_value=True), patch.object(tts, "kokoro_g2p_lang", return_value="ja"), patch.object(tts, "ensure_kokoro_misaki", return_value=False):
             _prepare_kokoro_misaki("こんにちは", "jf_alpha", None, utt_a)
         assert utt_b.misaki == {}
     finally:
@@ -1289,8 +1131,7 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
 
     cancel = SendCancellation()
     try:
-        with patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
-             patch("plugin.framework.managed_subprocess.start_stderr_drain", side_effect=AssertionError("drain")):
+        with patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), patch("plugin.framework.managed_subprocess.start_stderr_drain", side_effect=AssertionError("drain")):
             res = tts._run_synth(["piper", "--model", "m"], cancel, stdin_text="hello", timeout=12.5)
 
         assert res == (7, "", "piper-err")
@@ -1325,13 +1166,8 @@ def test_popen_for_speech_raw_env_object_and_devnull() -> None:
     cancel = SendCancellation()
     run_calls: list[Any] = []
     try:
-        with patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
-             patch.object(ms.ManagedSubprocess, "run", side_effect=lambda *a, **k: run_calls.append((a, k))):
-            res = tts._popen_for_speech(
-                ["powershell", "-NoProfile", "-Command", "x"],
-                cancel,
-                env=env,
-            )
+        with patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), patch.object(ms.ManagedSubprocess, "run", side_effect=lambda *a, **k: run_calls.append((a, k))):
+            res = tts._popen_for_speech(["powershell", "-NoProfile", "-Command", "x"], cancel, env=env)
 
         assert res is fake_proc
         kwargs = captured_kwargs[0]
@@ -1365,8 +1201,7 @@ def test_reap_proc_windows_taskkill_timeout_stays_five() -> None:
         recorded.append((args, kwargs))
         return subprocess.CompletedProcess(args, 0)
 
-    with patch.object(tts.sys, "platform", "win32"), \
-         patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
+    with patch.object(tts.sys, "platform", "win32"), patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
         tts._reap_proc(proc)
 
     assert len(recorded) == 1
@@ -1390,9 +1225,7 @@ def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
         recorded.append((args, kwargs))
         return subprocess.CompletedProcess(args, 0)
 
-    with patch.object(tts, "_procs", [proc]), \
-         patch.object(tts, "run_in_background", side_effect=lambda fn, **_kw: fn()), \
-         patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
+    with patch.object(tts, "_procs", [proc]), patch.object(tts, "run_in_background", side_effect=lambda fn, **_kw: fn()), patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
         tts.stop_speech()
 
     assert len(recorded) == 1
@@ -1418,9 +1251,7 @@ def test_stop_speech_non_spd_player_skips_spd_say_stop() -> None:
         recorded.append((args, kwargs))
         return subprocess.CompletedProcess(args, 0)
 
-    with patch.object(tts, "_procs", [proc]), \
-         patch.object(tts, "run_in_background", side_effect=lambda fn, **_kw: fn()), \
-         patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
+    with patch.object(tts, "_procs", [proc]), patch.object(tts, "run_in_background", side_effect=lambda fn, **_kw: fn()), patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
         tts.stop_speech()
 
     assert recorded == []
@@ -1450,8 +1281,7 @@ def test_speak_text_async_clears_active_when_worker_fails_to_start():
         on_complete_called = True
 
     try:
-        with patch("plugin.framework.config.get_config", side_effect=_cfg), \
-             patch("plugin.audio.tts_service.run_in_background", side_effect=_fake_run_in_background):
+        with patch("plugin.framework.config.get_config", side_effect=_cfg), patch("plugin.audio.tts_service.run_in_background", side_effect=_fake_run_in_background):
             with pytest.raises(RuntimeError, match="no thread"):
                 speak_text_async("Hello", on_complete=_done)
         assert not on_complete_called
@@ -1488,8 +1318,7 @@ def test_popen_cancelled_during_spawn_reaps_on_dedicated_thread():
         cancel.cancel()
 
     try:
-        with patch.object(ManagedSubprocess, "start", _fake_start), \
-             patch("plugin.audio.tts_service.run_in_background", side_effect=_fake_run_in_background):
+        with patch.object(ManagedSubprocess, "start", _fake_start), patch("plugin.audio.tts_service.run_in_background", side_effect=_fake_run_in_background):
             proc = tts._popen_for_speech(["true"], cancel)
             assert proc is None
             assert ("tts-reap", True) in calls
@@ -1517,9 +1346,7 @@ def test_kokoro_warm_passes_scaled_timeout() -> None:
 
     utt = tts._begin_utterance()
     mock_pool = MockPool()
-    with patch.object(tts, "get_kokoro_pool", return_value=mock_pool), \
-         patch.object(tts, "_new_speech_temp", return_value="/tmp/test.wav"), \
-         patch.object(tts, "_release_temp"):
+    with patch.object(tts, "get_kokoro_pool", return_value=mock_pool), patch.object(tts, "_new_speech_temp", return_value="/tmp/test.wav"), patch.object(tts, "_release_temp"):
         _kokoro_warm_to_file(short_text, "af_sky", 1.0, "/models/k.onnx", "/models/v.bin", utt=utt)
         _kokoro_warm_to_file(long_text, "af_sky", 1.0, "/models/k.onnx", "/models/v.bin", utt=utt)
 
@@ -1532,8 +1359,7 @@ def test_kokoro_audio_file_skips_model_download_without_venv() -> None:
     from plugin.audio.tts_service import _kokoro_audio_file
 
     utt = tts._begin_utterance()
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=None), \
-         patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve:
+    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value=None), patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve:
         res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, utt)
         assert res is None
         resolve.assert_not_called()
@@ -1543,8 +1369,7 @@ def test_kokoro_audio_file_resolves_models_when_venv_exists() -> None:
     from plugin.audio.tts_service import _kokoro_audio_file
 
     utt = tts._begin_utterance()
-    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=("/no/model.onnx", "/no/voices.bin")) as resolve:
+    with patch("plugin.audio.tts_service.resolve_kokoro_python", return_value="/venv/bin/python"), patch("plugin.audio.tts_service.resolve_kokoro_model_files", return_value=("/no/model.onnx", "/no/voices.bin")) as resolve:
         res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, utt)
         resolve.assert_called_once()
         assert res is None
@@ -1555,9 +1380,7 @@ def test_sentence_kokoro_without_venv_warns_once_and_uses_os_speech(caplog: pyte
 
     utt = tts._begin_utterance()
     try:
-        with patch.object(tts, "resolve_kokoro_python", return_value=None), \
-             patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve, \
-             patch.object(tts, "_speak_system") as system:
+        with patch.object(tts, "resolve_kokoro_python", return_value=None), patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve, patch.object(tts, "_speak_system") as system:
             with caplog.at_level("WARNING", logger="plugin.audio.tts_service"):
                 tts._run_sentence_pipeline(["One.", "Two."], "kokoro", "af_sky", 1.0, None, utt)
         resolve.assert_not_called()
@@ -1578,9 +1401,7 @@ def test_spd_say_nonzero_exit_stops_remaining_chunks() -> None:
     mock_proc.wait.return_value = 1
     cancel = SendCancellation()
 
-    with patch("sys.platform", "linux"), \
-         patch("shutil.which", side_effect=fake_which), \
-         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as mock_popen:
+    with patch("sys.platform", "linux"), patch("shutil.which", side_effect=fake_which), patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as mock_popen:
         _speak_system("a" * 4001, speed=1.0, cancel=cancel)
     mock_popen.assert_called_once()
 
@@ -1595,9 +1416,7 @@ def test_spd_say_zero_exit_speaks_every_chunk() -> None:
     mock_proc.wait.return_value = 0
     cancel = SendCancellation()
 
-    with patch("sys.platform", "linux"), \
-         patch("shutil.which", side_effect=fake_which), \
-         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as mock_popen:
+    with patch("sys.platform", "linux"), patch("shutil.which", side_effect=fake_which), patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as mock_popen:
         _speak_system("a" * 4001, speed=1.0, cancel=cancel)
     assert mock_popen.call_count == 2
 
@@ -1620,9 +1439,7 @@ def test_spd_say_killed_by_stop_does_not_warn(caplog: pytest.LogCaptureFixture) 
 
         mock_proc.wait.side_effect = fake_wait
 
-        with patch("sys.platform", "linux"), \
-             patch("shutil.which", side_effect=fake_which), \
-             patch.object(tts, "_popen_for_speech", return_value=mock_proc) as mock_popen:
+        with patch("sys.platform", "linux"), patch("shutil.which", side_effect=fake_which), patch.object(tts, "_popen_for_speech", return_value=mock_proc) as mock_popen:
             with caplog.at_level("WARNING", logger="plugin.audio.tts_service"):
                 tts._speak_system("a" * 4001, speed=1.0, cancel=scope)
         mock_popen.assert_called_once()
@@ -1652,22 +1469,13 @@ def test_stop_speech_reaps_inline_when_cleanup_thread_fails(tmp_path: Any) -> No
 
 def test_notify_kokoro_g2p_fallback():
     from plugin.audio.kokoro_g2p import g2p_fallback_warning
-    from plugin.audio.tts_service import (
-        _begin_utterance,
-        _notify_kokoro_g2p_fallback,
-    )
+    from plugin.audio.tts_service import _begin_utterance, _notify_kokoro_g2p_fallback
 
     messages: list[str] = []
     utt = _begin_utterance()
 
     # warning with voice substitute, misaki_ready=False, g2p="misaki" -> list stays empty
-    _notify_kokoro_g2p_fallback(
-        "Kokoro voice 'jf_x' is not in /v; using af_sky",
-        utt,
-        "ja",
-        messages.append,
-        g2p="misaki",
-    )
+    _notify_kokoro_g2p_fallback("Kokoro voice 'jf_x' is not in /v; using af_sky", utt, "ja", messages.append, g2p="misaki")
     assert messages == []
 
     # warning with G2P_FAILED_MARK, misaki_ready=False, g2p="espeak" -> notifies once
@@ -1716,8 +1524,7 @@ def test_utterance_cancel_hooks_run_outside_speech_lock():
             events.append(kwargs.get("name"))
             return None
 
-        with patch("plugin.audio.tts_service.config.get_config", side_effect=fake_get_config), \
-             patch("plugin.audio.tts_service.run_in_background", side_effect=fake_run_in_background):
+        with patch("plugin.audio.tts_service.config.get_config", side_effect=fake_get_config), patch("plugin.audio.tts_service.run_in_background", side_effect=fake_run_in_background):
             tts.speak_text_async("Hello")
 
         assert events == [("hook", False), "tts-cleanup", "tts-speak"]
@@ -1739,9 +1546,7 @@ def test_stop_before_fetch_skips_playback_and_fallback():
     tts.stop_speech()
     assert scope.is_cancelled()
 
-    with patch("plugin.audio.tts_service.download_endpoint_speech") as mock_dl, \
-         patch("plugin.audio.tts_service._play_audio_file") as mock_play, \
-         patch("plugin.audio.tts_service._speak_system") as mock_fallback:
+    with patch("plugin.audio.tts_service.download_endpoint_speech") as mock_dl, patch("plugin.audio.tts_service._play_audio_file") as mock_play, patch("plugin.audio.tts_service._speak_system") as mock_fallback:
         tts._speak_endpoint("hello", "https://example.com/api", "key", cancel=scope)
 
         mock_dl.assert_not_called()
@@ -1834,12 +1639,9 @@ def test_capped_ready_queue_put_wakes_on_stop():
 
 def test_speak_text_async_on_complete_fires_when_worker_raises():
     """on_complete still fires when the speech provider raises."""
+
     def _cfg(key, default=None):
-        return {
-            "audio.tts_enabled": True,
-            "audio.tts_provider": "system",
-            "audio.tts_speed": 1.0,
-        }.get(key, default)
+        return {"audio.tts_enabled": True, "audio.tts_provider": "system", "audio.tts_speed": 1.0}.get(key, default)
 
     completed = threading.Event()
     threads: list[threading.Thread] = []
@@ -1852,9 +1654,7 @@ def test_speak_text_async_on_complete_fires_when_worker_raises():
         return t
 
     try:
-        with patch("plugin.framework.config.get_config", side_effect=_cfg), \
-             patch("plugin.audio.tts_service._speak_system", side_effect=RuntimeError("boom")), \
-             patch("plugin.audio.tts_service.run_in_background", side_effect=_tracking_bg):
+        with patch("plugin.framework.config.get_config", side_effect=_cfg), patch("plugin.audio.tts_service._speak_system", side_effect=RuntimeError("boom")), patch("plugin.audio.tts_service.run_in_background", side_effect=_tracking_bg):
             speak_text_async("hello", on_complete=completed.set)
             assert completed.wait(timeout=2.0), "on_complete did not fire after worker error"
             assert is_speaking() is False
@@ -1892,4 +1692,3 @@ def test_remember_download_failed_ignores_stale_generation():
         assert not utt.download_failed("piper")
     finally:
         tts.stop_speech()
-
