@@ -6,6 +6,21 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
+from plugin.writer.search import (
+    _compare_normalize,
+    _paragraph_matches_part,
+    build_search_not_found_response,
+    closest_mismatch,
+    DASH_CLASS,
+    drawing_shape_containing,
+    escape_for_lo_regex,
+    HORIZONTAL_SPACE_CLASS,
+    normalize_search_string_for_find,
+    old_content_covers_most,
+    prepare_old_content,
+    SINGLE_QUOTE_CLASS,
+)
+
 # ---- D6: regex / case in the edit path --------------------------------------
 
 def test_find_ranges_regex_case_builds_descriptor():
@@ -1609,22 +1624,6 @@ def test_replace_text_in_shape_regex_skips_leading_empty():
     cursor.goRight.assert_any_call(1, False)
     cursor.goRight.assert_any_call(1, True)
     cursor.setString.assert_called_once_with("B")
-
-
-from plugin.writer.search import (
-    _compare_normalize,
-    _paragraph_matches_part,
-    build_search_not_found_response,
-    closest_mismatch,
-    DASH_CLASS,
-    drawing_shape_containing,
-    escape_for_lo_regex,
-    HORIZONTAL_SPACE_CLASS,
-    normalize_search_string_for_find,
-    old_content_covers_most,
-    prepare_old_content,
-    SINGLE_QUOTE_CLASS,
-)
 
 
 def test_normalize_search_string_collapses_nbsp():

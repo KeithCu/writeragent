@@ -7,9 +7,12 @@ import pytest
 import plugin.app as app
 from plugin.doc.document_helpers import (
     DocumentService,
+    _inject_selection_markers,
+    _writer_selection_overlaps_windows,
     get_document_context_for_chat,
     resolve_locator,
 )
+from plugin.doc.text_helpers import read_writer_text_slice
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
 
@@ -572,13 +575,6 @@ def test_excerpt_overlap_other_xtext_is_false():
         assert _writer_excerpt_overlaps_selection(
             model, 0, 10, _Pos(_Text()), _Pos(_Text())) is False
     model.getText.return_value.compareRegionStarts.assert_not_called()
-
-
-from plugin.doc.document_helpers import (
-    _inject_selection_markers,
-    _writer_selection_overlaps_windows,
-)
-from plugin.doc.text_helpers import read_writer_text_slice
 
 
 @patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="visible text")

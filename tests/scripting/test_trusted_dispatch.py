@@ -291,6 +291,7 @@ def test_text_unknown_helper_with_empty_text_is_unknown_helper():
 
 
 def test_dispatch_vision_calls_run_vision():
+    """Trusted vision runs via run_trusted_action dispatch (not sandbox string stubs)."""
     with patch(
         "plugin.vision.venv.vision.run_vision",
         return_value={"status": "ok", "helper": "extract_text", "full_text": "x"},
