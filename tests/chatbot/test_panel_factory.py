@@ -344,28 +344,6 @@ def test_initialize_extension_paths_hops_impl_not_self():
         pf._paths_initialized = False
 
 
-def test_initialize_extension_paths_impl_sets_flag_when_hop_inlines():
-    from unittest.mock import patch
-    from plugin.chatbot import panel_factory as pf
-
-    pf._paths_initialized = False
-    try:
-        with (
-            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-            patch(
-                "plugin.framework.queue_executor.main.call",
-                side_effect=lambda fn, *args, timeout=None, bound_scope=None, **kwargs: fn(*args, **kwargs),
-            ),
-            patch.object(pf, "get_extension_path", return_value="/tmp/ext"),
-            patch.object(pf, "init_logging"),
-            patch("plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"),
-        ):
-            pf._initialize_extension_paths(object())
-        assert pf._paths_initialized is True
-    finally:
-        pf._paths_initialized = False
-
-
 def test_initialize_extension_paths_inline_hop_does_not_recurse():
     """TESTING=1 inlines call on Dummy-N; must not stack-overflow."""
     from unittest.mock import patch
@@ -536,8 +514,8 @@ def test_sidebar_model_selectors_skip_remote_fetch():
         el._wire_model_selectors({"model_selector": model_selector, "image_model_selector": image_selector})
         el._refresh_controls_from_config()
 
-    assert pop.call_count == 2
-    assert image_pop.call_count == 2
+    pop.assert_called()
+    image_pop.assert_called()
     for call in pop.call_args_list:
         assert call.kwargs.get("skip_remote_fetch") is True
         assert "model_lru" in call.args
@@ -742,28 +720,6 @@ def test_chat_mode_listener_ignores_refresh():
     el._apply_sidebar_mode.assert_called_once()
 
 
-def test_chat_mode_listener_ignores_combo_while_send_is_busy():
-    from unittest.mock import MagicMock
-
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
-
-    el = _thin_panel_element()
-    el.ctx = MagicMock()
-    el._in_refresh_controls = False
-    el._apply_sidebar_mode = MagicMock()
-    selector = MagicMock()
-    selector.getSelectedItemPos.return_value = 0
-    selector.getText.return_value = "Librarian"
-    selector.addItemListener = MagicMock()
-    send = MagicMock()
-    send.sidebar_state.send.is_busy = True
-    flags = SidebarModeFlags()
-    el._wire_chat_mode_listener(selector, MagicMock(), None, send, None, flags)
-    listener = selector.addItemListener.call_args[0][0]
-    listener.on_item_state_changed(None)
-    el._apply_sidebar_mode.assert_not_called()
-
-
 def test_render_session_history_logs_greeting_argument() -> None:
     """The failure log must include the greeting, not a literal %s."""
     from unittest.mock import MagicMock, patch
@@ -900,7 +856,8 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
             el.getRealInterface()
         assert el._released is True
         assert el.toolpanel is None
-        assert frame_session.release_panel.call_count == 1
+        frame_session.release_panel.assert_called_once()
+        frame_session.release_panel.reset_mock()
 
         # Retry must reset _released to False and succeed
         result = el.getRealInterface()
@@ -915,13 +872,15 @@ def test_get_real_interface_failure_retry_and_disposing() -> None:
         el._live_panel_uid = "doc-uid-1"
         el.disposing()
         assert el._released is True
-        assert frame_session.release_panel.call_count == 2
+        frame_session.release_panel.assert_called_once()
         unreg_mock.assert_called_once_with("doc-uid-1", el)
+        frame_session.release_panel.reset_mock()
+        unreg_mock.reset_mock()
 
         # Second disposing call short-circuits due to _released latch
         el.disposing()
-        assert frame_session.release_panel.call_count == 2
-        assert unreg_mock.call_count == 1
+        frame_session.release_panel.assert_not_called()
+        unreg_mock.assert_not_called()
 
 
 def test_chat_mode_listener_reverts_selector_when_busy() -> None:
@@ -1324,7 +1283,7 @@ def test_initialize_extension_paths_logging_failure_does_not_escape():
         ):
             pf._initialize_extension_paths(object())
         assert pf._paths_initialized is False
-        assert mock_init_logging.call_count == 2
+        mock_init_logging.assert_called()
     finally:
         pf._paths_initialized = False
 

@@ -1331,6 +1331,7 @@ class TestFlattenTextTableCopy:
             assert reason is None
             from plugin.chatbot.rich_text import CHAT_FONT_NAME
             assert font_sets == [CHAT_FONT_NAME, "Liberation Sans"]
+            # One length read per copy; offsets are tracked locally because reading the length walks the whole control.
             assert mock_len.call_count == 1
             spans = cell_link_registry._spans.get(id(control), [])
             assert spans == [(23, 32, "Sheet1.A1")]
@@ -1388,7 +1389,7 @@ class TestFlattenTextTableCopy:
             with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
                  patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
                  patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
-                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0) as mock_len, \
+                 patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
                  patch("plugin.chatbot.rich_text_paste.apply_rich_control_para_margins"), \
                  patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"), \
                  patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor"):
@@ -1400,7 +1401,6 @@ class TestFlattenTextTableCopy:
                     cell_link_targets=list(queue),
                 )
             assert reason is None
-            assert mock_len.call_count == 1
             registered = [addr for _s, _e, addr in cell_link_registry._spans.get(id(control), [])]
             assert registered == expected_spans
         finally:

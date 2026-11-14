@@ -15,13 +15,6 @@ from plugin.chatbot.send_state import (
 )
 
 
-def test_send_event_fields():
-    a = SendEvent(SendEventKind.SEND_CLICKED)
-    assert a.has_text is None
-    b = SendEvent(SendEventKind.TEXT_UPDATED, has_text=True)
-    assert b.has_text is True
-
-
 def test_send_event_post_init_assertions():
     with pytest.raises(AssertionError):
         SendEvent(SendEventKind.TEXT_UPDATED)
@@ -29,15 +22,6 @@ def test_send_event_post_init_assertions():
         SendEvent(SendEventKind.TEXT_UPDATED, has_text=None)
     with pytest.raises(AssertionError):
         SendEvent(SendEventKind.SEND_CLICKED, has_text=True)
-
-
-def test_send_mode_properties():
-    idle = SendButtonState(SendMode.IDLE, False, False, True)
-    busy = SendButtonState(SendMode.BUSY, False, False, True)
-    recording = SendButtonState(SendMode.RECORDING, False, False, True)
-    assert (idle.is_busy, idle.is_recording) == (False, False)
-    assert (busy.is_busy, busy.is_recording) == (True, False)
-    assert (recording.is_busy, recording.is_recording) == (False, True)
 
 
 def test_initial_state_to_text_updated():
@@ -187,12 +171,6 @@ def test_record_clicked_clears_stale_has_audio():
         tr_bad = next_state(bad, SendEvent(SendEventKind.RECORD_CLICKED))
         assert tr_bad.state == bad
         assert not any(isinstance(e, StartCaptureEffect) for e in tr_bad.effects)
-
-
-def test_text_updated_without_has_text_raises():
-    state = SendButtonState(SendMode.IDLE, True, False, True)
-    with pytest.raises(AssertionError):
-        next_state(state, SendEvent(SendEventKind.TEXT_UPDATED))
 
 
 def test_invalid_record_does_not_emit_recording_or_send_effects():

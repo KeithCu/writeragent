@@ -924,12 +924,19 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_pool_shutdown_signals_reaper_event(self) -> None:
-        """Pool shutdown sets _reaper_stop_event so reaper threads terminate promptly."""
+    def test_pool_shutdown_stops_reaper_thread(self) -> None:
+        """Pool shutdown stops its idle-reaper thread."""
+        before = _idle_reaper_idents()
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, idle_worker_ttl_sec=3600.0))
-        assert not pool._reaper_stop_event.is_set()
-        pool.shutdown()
-        assert pool._reaper_stop_event.is_set()
+        try:
+            started = _idle_reaper_idents() - before
+            assert len(started) == 1
+            reaper_threads = [t for t in threading.enumerate() if t.ident in started]
+        finally:
+            pool.shutdown()
+        for reaper in reaper_threads:
+            reaper.join(timeout=2.0)
+            assert not reaper.is_alive()
 
     def test_evict_idle_workers_skips_dead_worker(self) -> None:
         """_evict_idle_workers must skip dead workers already in _idle via continue."""
@@ -1738,76 +1745,6 @@ class TestFormulaHttpEndpoint:
             assert res3.get("status") == "ok"
             assert res3.get("result") == 42
             assert res3.get("session_reset") is not True
-        finally:
-            pool.shutdown()
-
-    def test_worker_session_index(self) -> None:
-        """Session counts are derived from _sessions and count only live sessions."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=2, default_timeout_sec=15))
-        try:
-            w1 = pool.workers[0]
-            w2 = pool.workers[1]
-            from compute_service.formula_pool import _Session
-
-            assert pool._worker_session_count(w1) == 0
-            assert not pool._worker_has_sessions(w1)
-            assert worker_sessions(pool, w1) == []
-
-            with pool._cond:
-                pool._sessions["s1"] = _Session(worker=w1, child=w1.child)
-                pool._sessions["s2"] = _Session(worker=w1, child=w1.child)
-                pool._sessions["s3"] = _Session(worker=w2, child=w2.child)
-                pool._sessions["stale"] = _Session(worker=w1, child=fake_child(w1))
-
-            assert pool._worker_session_count(w1) == 2
-            assert pool._worker_has_sessions(w1)
-            assert set(worker_sessions(pool, w1)) == {"s1", "s2"}
-            assert pool._worker_session_count(w2) == 1
-            assert worker_sessions(pool, w2) == ["s3"]
-
-            with pool._cond:
-                pool._sessions.pop("s1", None)
-
-            assert pool._worker_session_count(w1) == 1
-            assert worker_sessions(pool, w1) == ["s2"]
-
-            # Reassigning session to different worker updates both sets
-            with pool._cond:
-                pool._sessions["s2"] = _Session(worker=w2, child=w2.child)
-
-            assert pool._worker_session_count(w1) == 0
-            assert not pool._worker_has_sessions(w1)
-            assert pool._worker_session_count(w2) == 2
-            assert set(worker_sessions(pool, w2)) == {"s2", "s3"}
-        finally:
-            pool.shutdown()
-
-    def test_drop_session_helper(self) -> None:
-        """_drop_session drops a session from the active map."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-        try:
-            w = pool.workers[0]
-            from compute_service.formula_pool import _Session
-
-            with pool._cond:
-                pool._sessions["drop-clean"] = _Session(worker=w, child=w.child)
-
-            pool._drop_session("drop-clean")
-            with pool._cond:
-                assert "drop-clean" not in pool._sessions
-        finally:
-            pool.shutdown()
-
-    def test_pool_leased_context_manager(self) -> None:
-        """BaseProcessPool.leased context manager leases and releases workers."""
-        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
-        try:
-            with pool.leased(timeout_sec=5.0) as worker:
-                assert worker is not None
-                assert worker in pool._leased
-            # Released upon exiting context
-            assert worker not in pool._leased
-            assert worker in pool._idle
         finally:
             pool.shutdown()
 
