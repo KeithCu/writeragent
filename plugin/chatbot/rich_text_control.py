@@ -1192,7 +1192,7 @@ def post_collapse_key(control: Any, ctx: Any) -> bool:
         tk = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         if tk is None or not hasattr(tk, "keyPress"):
             return False
-        ev = uno.createUnoStruct("com.sun.star.awt.KeyEvent")
+        ev = cast("Any", uno.createUnoStruct("com.sun.star.awt.KeyEvent"))
         ev.Source = peer
         ev.KeyCode = uno.getConstantByName("com.sun.star.awt.Key.END")
         ev.Modifiers = uno.getConstantByName("com.sun.star.awt.KeyModifier.MOD1")
