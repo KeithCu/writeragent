@@ -8,6 +8,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import _progress_verbose as _progress, native_test
 from plugin.tests.testing_utils import (
     execute_calc_tool as _execute_calc_tool,
@@ -61,7 +62,7 @@ def _iter_cell_text_portions_for_test(cell):
     yielded = 0
     while True:
         _progress("insert_cell_html: portions hasMoreElements block=%s" % block_i)
-        if not top.hasMoreElements():
+        if not enum_has_more(top):
             _progress(
                 "insert_cell_html: portions hasMoreElements=False block=%s yielded=%s"
                 % (block_i, yielded)
@@ -94,7 +95,7 @@ def _iter_cell_text_portions_for_test(cell):
                 "insert_cell_html: portions inner hasMoreElements block=%s inner=%s"
                 % (block_i, inner_i)
             )
-            if not inner.hasMoreElements():
+            if not enum_has_more(inner):
                 break
             any_inner = True
             _progress(
