@@ -971,6 +971,7 @@ def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> N
     ):
         ensure_writeragent_proofreader_configured(ctx)
         mock_warmup.assert_called_once()
+        assert mock_warmup.call_args.kwargs["user_config_dir"] == "/tmp/lo-user"
 
 
 def test_ensure_writeragent_proofreader_configured_skips_warmup_without_config_dir() -> None:

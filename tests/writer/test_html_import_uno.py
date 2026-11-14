@@ -454,6 +454,7 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
         got_img = GetDocumentContent().execute(tool_ctx, scope="full", include_images=False)
         assert got_img.get("status") == "ok", got_img
         img_html = got_img.get("content") or ""
+        # logo_32.png is a user path, so it is linked (_should_link_image_path); the export keeps the file URL and only strips data: payloads.
         assert (
             "<img" in img_html.lower()
             and 'id="Image' in img_html
