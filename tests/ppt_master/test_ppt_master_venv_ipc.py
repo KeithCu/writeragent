@@ -9,36 +9,25 @@ from __future__ import annotations
 import io
 import subprocess
 import sys
-from typing import Any
 
 import pytest
 
 import plugin.ppt_master.venv.ipc as ppt_ipc
-import plugin.framework.ipc as scripting_ipc
-from plugin.framework.ipc import IpcFrameError, pack_pickle_frame, read_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, pack_pickle_frame, read_pickle_frame
 
 
 def test_write_frame_uses_claimed_stream_including_size_error(monkeypatch: pytest.MonkeyPatch) -> None:
     claimed = io.BytesIO()
-    monkeypatch.setattr(scripting_ipc, "_child_ipc_stream", claimed)
+    monkeypatch.setattr(ppt_ipc, "get_child_ipc_stream", lambda: claimed)
 
-    recorded_streams: list[Any] = []
-    calls = {"n": 0}
+    oversized = b"x" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)
+    ppt_ipc._write_frame({"id": "1", "type": "tool_call", "tool": "t", "args": {"blob": oversized}})
 
-    def _mock_write_pickle_frame(stream: Any, message: Any, **kwargs: Any) -> None:
-        calls["n"] += 1
-        recorded_streams.append(stream)
-        if calls["n"] == 1:
-            raise IpcFrameError("too big")
-
-    monkeypatch.setattr(ppt_ipc, "write_pickle_frame", _mock_write_pickle_frame)
-
-    ppt_ipc._write_frame({"id": "1", "type": "tool_call", "tool": "t", "args": {}})
-
-    assert calls["n"] == 2
-    assert len(recorded_streams) == 2
-    assert recorded_streams[0] is claimed
-    assert recorded_streams[1] is claimed
+    claimed.seek(0)
+    reply = read_pickle_frame(claimed)
+    assert reply is not None
+    assert reply["id"] == "1"
+    assert reply["status"] == "error"
 
 
 def test_read_host_response_uses_claimed_stdin(monkeypatch: pytest.MonkeyPatch) -> None:

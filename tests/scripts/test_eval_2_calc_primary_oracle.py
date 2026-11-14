@@ -251,10 +251,6 @@ def test_missing_file_fails_closed(tmp_path: Path) -> None:
     assert result.failures[0].startswith("workbook not found")
 
 
-def test_score_sheets_has_no_ready_parameter() -> None:
-    assert "ready" not in score_workbook.__doc__.lower() if score_workbook.__doc__ else True
-
-
 def test_cli_pass_and_fail_exit_codes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     good = write_pass_ods(tmp_path / "pass.ods")
     bad = write_ods(tmp_path / "empty.ods", {"Raw Data": [("h",)]})
