@@ -17,15 +17,9 @@ from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_S
 from plugin.framework.errors import DocumentDisposedError
 from plugin.ppt_master.adapter import uno_pptx_import
 from plugin.ppt_master.adapter.uno_pptx_import import _copy_page_notes, _import_slides_from_source
-import os
-import tempfile
 from unittest.mock import MagicMock
 
-from plugin.draw.shape_clone import (
-    SHAPE_CLONE_PROPS,
-    ClonedShape,
-    clone_shape,
-)
+from plugin.draw.shape_clone import ClonedShape
 from plugin.ppt_master.adapter.uno_pptx_import import copy_shapes_to_page
 from tests.harness.strip_bundle import skip_if_release_build
 
@@ -368,12 +362,6 @@ def test_copy_page_notes_skips_non_dispose_exceptions() -> None:
     _copy_page_notes(source, target)
 
 
-# --- migrated from test_uno_shape_postprocess.py ---
-
-# hidden-document pool items; assigning one and closing the source aborts soffice
-_POOL_ITEM_PROPS = ("Graphic", "GraphicURL", "FillBitmap", "Background")
-
-
 class _ScFakeShape:
     def __init__(self, shape_type: str, props: dict[str, Any] | None = None, text: str = "") -> None:
         self.shape_type = shape_type
@@ -431,90 +419,6 @@ class _ScFakePage:
         self.shapes.remove(shape)
 
 
-def test_copy_props_omit_hidden_pool_items():
-    for name in _POOL_ITEM_PROPS:
-        assert name not in SHAPE_CLONE_PROPS
-    assert "FillGradient" not in SHAPE_CLONE_PROPS
-    assert "FillHatch" not in SHAPE_CLONE_PROPS
-
-
-def test_graphic_clone_reimports_pixels_instead_of_aliasing_source_pool(monkeypatch):
-    live = object()
-    owned = object()
-    source = _ScFakeShape(
-        "com.sun.star.drawing.GraphicObjectShape",
-        {"FillColor": 5, "Graphic": live, "GraphicURL": "vnd.sun.star.GraphicObject:hidden-pool"},
-        text="cap",
-    )
-    dest = _ScFakeShape("com.sun.star.drawing.GraphicObjectShape")
-    doc = MagicMock()
-    doc.createInstance.return_value = dest
-    page = _ScFakePage()
-    provider = MagicMock()
-    provider.queryGraphic.side_effect = [None, owned]
-    uno_ctx = MagicMock()
-    uno_ctx.ServiceManager.createInstanceWithContext.return_value = provider
-    created: list[str] = []
-    real_mkstemp = tempfile.mkstemp
-
-    def tracking_mkstemp(*args: Any, **kwargs: Any) -> tuple[int, str]:
-        fd, path = real_mkstemp(*args, **kwargs)
-        created.append(path)
-        return fd, path
-
-    monkeypatch.setattr(tempfile, "mkstemp", tracking_mkstemp)
-
-    result = clone_shape(doc, page, source, uno_ctx=uno_ctx)
-
-    assert result.shape is dest
-    assert result.reimported is True
-    assert result.graphic_shapes == 1
-    assert result.graphic_reimports == 1
-    graphic_values = [value for name, value in dest.sets if name == "Graphic"]
-    assert graphic_values == [owned]
-    assert live not in graphic_values
-    assert all(name != "GraphicURL" for name, value in dest.sets)
-    assert dest.props["FillColor"] == 5
-    assert created
-    assert all(not os.path.exists(path) for path in created)
-
-
-def test_rectangle_clone_does_not_touch_graphic_provider():
-    source = _ScFakeShape("com.sun.star.drawing.RectangleShape", {"FillColor": 9}, text="hi")
-    dest = _ScFakeShape("com.sun.star.drawing.RectangleShape")
-    doc = MagicMock()
-    doc.createInstance.return_value = dest
-    uno_ctx = MagicMock()
-
-    result = clone_shape(doc, _ScFakePage(), source, uno_ctx=uno_ctx)
-
-    assert result.shape is dest
-    assert result.reimported is None
-    assert dest.props["FillColor"] == 9
-    assert "Graphic" not in dest.props
-    assert "GraphicURL" not in dest.props
-    uno_ctx.ServiceManager.createInstanceWithContext.assert_not_called()
-
-
-def test_graphic_clone_without_context_does_not_alias_live_graphic():
-    live = object()
-    source = _ScFakeShape(
-        "com.sun.star.drawing.GraphicObjectShape",
-        {"Graphic": live, "GraphicURL": "vnd.sun.star.GraphicObject:hidden-pool"},
-    )
-    dest = _ScFakeShape("com.sun.star.drawing.GraphicObjectShape")
-    doc = MagicMock()
-    doc.createInstance.return_value = dest
-
-    result = clone_shape(doc, _ScFakePage(), source, uno_ctx=None)
-
-    assert result.shape is dest
-    assert result.reimported is False
-    assert "Graphic" not in dest.props
-    assert "GraphicURL" not in dest.props
-    assert all(name != "Graphic" or value is not live for name, value in dest.sets)
-
-
 def test_copy_shapes_to_page_reimports_graphics_with_context():
     live = object()
     owned = object()
@@ -534,45 +438,6 @@ def test_copy_shapes_to_page_reimports_graphics_with_context():
 
     assert copied == 1
     assert dest.props.get("Graphic") is owned
-
-
-def test_clone_shape_copies_fill_gradient_and_hatch():
-    doc = MagicMock()
-    page = _ScFakePage()
-
-    # 1. Gradient with value="GRADIENT"
-    dest1 = _ScFakeShape("com.sun.star.drawing.RectangleShape")
-    doc.createInstance.return_value = dest1
-    grad_val = MagicMock()
-    grad_val.value = "GRADIENT"
-    grad_struct = MagicMock()
-    source1 = _ScFakeShape(
-        "com.sun.star.drawing.RectangleShape",
-        {"FillStyle": grad_val, "FillGradient": grad_struct},
-    )
-    clone_shape(doc, page, source1)
-    assert dest1.props.get("FillGradient") is grad_struct
-
-    # 2. Gradient with int 2
-    dest2 = _ScFakeShape("com.sun.star.drawing.RectangleShape")
-    doc.createInstance.return_value = dest2
-    source2 = _ScFakeShape(
-        "com.sun.star.drawing.RectangleShape",
-        {"FillStyle": 2, "FillGradient": grad_struct},
-    )
-    clone_shape(doc, page, source2)
-    assert dest2.props.get("FillGradient") is grad_struct
-
-    # 3. Hatch
-    dest3 = _ScFakeShape("com.sun.star.drawing.RectangleShape")
-    doc.createInstance.return_value = dest3
-    hatch_struct = MagicMock()
-    source3 = _ScFakeShape(
-        "com.sun.star.drawing.RectangleShape",
-        {"FillStyle": 3, "FillHatch": hatch_struct},
-    )
-    clone_shape(doc, page, source3)
-    assert dest3.props.get("FillHatch") is hatch_struct
 
 
 def test_copy_shapes_to_page_disposal_raises_while_runtime_exception_skips():

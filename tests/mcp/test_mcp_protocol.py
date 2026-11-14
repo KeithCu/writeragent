@@ -460,7 +460,7 @@ def test_stale_batch_containing_initialize_is_404(monkeypatch):
 
 def test_debug_endpoint_auth_matrix(monkeypatch):
     from plugin.mcp.mcp_protocol import MCPProtocolHandler
-    from tests.mcp.test_mcp_server import MockHandler
+    from tests.mcp.conftest import MockHandler
 
     def _get_headers(req: MockHandler) -> dict[str, Any]:
         headers = dict(req.headers)
@@ -527,7 +527,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
 
 @pytest.mark.parametrize("payload", [[1, 2], 1, "x", True])
 def test_handle_debug_post_rejects_non_object_json(payload):
-    from tests.mcp.test_mcp_server import MockHandler
+    from tests.mcp.conftest import MockHandler
 
     services = MagicMock()
     handler = MCPProtocolHandler(services, debug_token="test-token")
@@ -1168,3 +1168,62 @@ def test_prepare_mcp_execution_passes_arguments_to_requires_document_lock(lock):
     assert isinstance(prepared, _PreparedMcpCall)
     assert seen == [args]
     assert prepared.needs_gate is lock
+
+
+def test_empty_batch_returns_400():
+    from plugin.mcp.wire_types import INVALID_REQUEST
+
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+    mock_handler = MagicMock()
+    mock_handler.headers = {}
+
+    handler._send_json = MagicMock()
+    handler._handle_mcp([], mock_handler)
+
+    handler._send_json.assert_called_with(
+        mock_handler,
+        400,
+        {"jsonrpc": "2.0", "id": None, "error": {"code": INVALID_REQUEST, "message": "Empty batch"}},
+    )
+
+
+def test_batch_initialize_rejected():
+    from plugin.mcp.wire_types import INVALID_REQUEST
+    import plugin.mcp.mcp_session as mcp_session
+
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+    mock_handler = MagicMock()
+    mock_handler.headers = {}
+
+    msg = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}},
+        }
+    ]
+
+    with patch.object(mcp_session, "mint_session_id_once") as mock_mint:
+        handler._send_json = MagicMock()
+        handler._process_jsonrpc = MagicMock()
+
+        handler._handle_mcp(msg, mock_handler)
+
+        mock_mint.assert_not_called()
+        handler._process_jsonrpc.assert_not_called()
+        handler._send_json.assert_called_with(
+            mock_handler,
+            400,
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": INVALID_REQUEST,
+                    "message": "initialize must not be part of a JSON-RPC batch",
+                },
+            },
+        )
+

@@ -80,13 +80,13 @@ class TestStreamingFuzz:
             tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
         )
 
-        assert (result["finish_reason"]) == ("length")
-        assert (result.get("tool_calls")) is not None
-        assert (len(result["tool_calls"])) == (1)
+        assert result["finish_reason"] == "length"
+        assert result.get("tool_calls") is not None
+        assert len(result["tool_calls"]) == 1
 
         fn = result["tool_calls"][0].get("function") or {}
         # The string should be correctly concatenated, even if it's invalid JSON
-        assert (fn["arguments"]) == ("{\"arg1\": ")
+        assert fn["arguments"] == "{\"arg1\": "
 
     def test_unexpected_schema_structures(self):
         """Ensure feeding structurally invalid delta dictionaries raises a clean Exception that doesn't cause a fatal error but gets caught."""
@@ -126,7 +126,7 @@ class TestStreamingFuzz:
             )
 
         # The error is formatted by format_error_message, verify it caught the TypeError from accumulate_delta
-        assert ("Unexpected, list delta entry `index` value is not an integer" in str(ctx.value))
+        assert "Unexpected, list delta entry `index` value is not an integer" in str(ctx.value)
 
     def test_ui_thread_graceful_recovery(self):
         """Simulate an error in the worker thread to ensure run_stream_drain_loop correctly drains it without breaking processEventsToIdle() loop."""
@@ -165,7 +165,7 @@ class TestStreamingFuzz:
             on_stream_done=on_stream_done, on_stopped=noop, on_error=on_error
         )
 
-        assert (outcome.done)
-        assert (len(errors)) == (1)
-        assert (isinstance(errors[0], ValueError))
+        assert outcome.done
+        assert len(errors) == 1
+        assert isinstance(errors[0], ValueError)
 

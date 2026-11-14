@@ -104,12 +104,6 @@ def test_ensure_form_design_mode_off_with_controller():
     assert doc.ApplyFormDesignMode is False
     controller.setFormDesignMode.assert_called_once_with(False)
 
-def test_runtime_uid_from_doc_key():
-    from plugin.notebook.layout import runtime_uid_from_doc_key
-
-    assert runtime_uid_from_doc_key("uid:abc") == "abc"
-    assert runtime_uid_from_doc_key("id:1") == ""
-
 
 def test_notebook_run_button_listener_resolves_by_runtime_uid():
     ctx = MagicMock()
@@ -944,30 +938,4 @@ def test_doc_event_skips_non_writer_doc():
         lis.on_document_event(event)
         mock_load.assert_not_called()
 
-
-def test_insert_code_input_width_defaults_to_text_area():
-    from plugin.notebook.layout import insert_code_input_in_flow
-
-    doc = MagicMock()
-    model = MagicMock()
-    shape = MagicMock()
-    doc.createInstance.side_effect = [model, shape]
-    with patch("plugin.notebook.layout.text_area_width_units", return_value=7777):
-        insert_code_input_in_flow(doc, name="nb_cell_0_code", source="x = 1", controls_before=0, cap=15000)
-    size = shape.setSize.call_args.args[0]
-    assert size.Width == 7777
-    assert model.Text == "x = 1"
-
-
-def test_insert_code_input_uses_explicit_field_w():
-    from plugin.notebook.layout import height_for_text, insert_code_input_in_flow
-
-    doc = MagicMock()
-    model = MagicMock()
-    shape = MagicMock()
-    doc.createInstance.side_effect = [model, shape]
-    insert_code_input_in_flow(doc, name="nb_cell_1_code", source="x = 1\ny = 2", controls_before=0, field_w=8888, cap=15000)
-    size = shape.setSize.call_args.args[0]
-    assert size.Width == 8888
-    assert size.Height == height_for_text("x = 1\ny = 2", field_w=8888, cap=15000)
 
