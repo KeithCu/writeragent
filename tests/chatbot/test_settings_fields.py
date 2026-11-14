@@ -210,10 +210,10 @@ def test_read_settings_control_skips_missing_and_checkbox_is_bool():
 @pytest.mark.parametrize(
     ("init_val", "peer_val", "set_raises", "expected_val", "expected_set_calls"),
     [
-        (1.0, 42.0, False, 42.0, [42.0]),
-        (42.0, 42.0, False, 42.0, []),
-        (42, None, False, 42, []),
-        (1.0, 42.0, True, 42.0, []),
+        pytest.param(1.0, 42.0, False, 42.0, [42.0], id="commits_peer_text_before_getvalue"),
+        pytest.param(42.0, 42.0, False, 42.0, [], id="spun_value_ignores_stale_caption"),
+        pytest.param(42, None, False, 42, [], id="without_peer_keeps_getvalue"),
+        pytest.param(1.0, 42.0, True, 42.0, [], id="uses_peer_when_setvalue_fails"),
     ],
 )
 def test_read_settings_control_numeric_peer(init_val, peer_val, set_raises, expected_val, expected_set_calls):
@@ -223,7 +223,7 @@ def test_read_settings_control_numeric_peer(init_val, peer_val, set_raises, expe
         def getValue(self):
             return peer_val
 
-    class _Ctrl:
+    class _BaseCtrl:
         def __init__(self):
             self.value = init_val
 
@@ -239,10 +239,11 @@ def test_read_settings_control_numeric_peer(init_val, peer_val, set_raises, expe
         def getText(self):
             return "1"
 
-    if peer_val is not None:
-        _Ctrl.getPeer = lambda _self: _Peer()  # type: ignore[attr-defined]
+    class _PeerCtrl(_BaseCtrl):
+        def getPeer(self):
+            return _Peer()
 
-    ctrl = _Ctrl()
+    ctrl = _PeerCtrl() if peer_val is not None else _BaseCtrl()
     assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == expected_val
     assert set_value_calls == expected_set_calls
 

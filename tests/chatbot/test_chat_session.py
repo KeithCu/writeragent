@@ -1,6 +1,9 @@
 """Pure unit tests for ChatSession message/history rules (no UNO)."""
 
+import json
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.chatbot.chat_session import (
     ChatSession,
@@ -110,22 +113,18 @@ def test_persist_rules_with_mock_db():
     assert not any(c.args and c.args[0] == "tool" for c in mock_db.add_message.call_args_list)
 
 
-import json
-import pytest
-
-
 @pytest.mark.parametrize(
-    ("exc", "session_id"),
+    "exc",
     [
-        (json.JSONDecodeError("bad", "doc", 0), "sid-bad"),
-        (OSError("disk"), "sid-os"),
+        pytest.param(json.JSONDecodeError("bad", "doc", 0), id="json_decode_error"),
+        pytest.param(OSError("disk"), id="oserror"),
     ],
 )
-def test_load_failure_does_not_seed_system_row(exc, session_id):
+def test_load_failure_does_not_seed_system_row(exc):
     mock_db = MagicMock()
     mock_db.get_messages.side_effect = exc
     with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
-        session = ChatSession(system_prompt="Sys", session_id=session_id)
+        session = ChatSession(system_prompt="Sys", session_id="sid-fail")
 
     assert session.messages == []
     assert session.history_notice == ""

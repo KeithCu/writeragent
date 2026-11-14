@@ -686,9 +686,12 @@ class _TurnSession:
         self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
 
 
+_DEFAULT_SESSION = object()
+
+
 class _TurnHost:
-    def __init__(self, messages=None, session=None) -> None:
-        self.session = session if session is not None else _TurnSession(messages)
+    def __init__(self, messages=None, session=_DEFAULT_SESSION) -> None:
+        self.session = _TurnSession(messages) if session is _DEFAULT_SESSION else session
         self._turn = None
 
 
@@ -1613,7 +1616,6 @@ def test_turn_controller_can_write_guards():
     # None session prevents write
     turn_no_sess = TurnController(None)
     host_no_sess = _TurnHost(session=None)
-    host_no_sess.session = None
     host_no_sess._turn = turn_no_sess
     assert turn_no_sess.can_write(host_no_sess) is False
 

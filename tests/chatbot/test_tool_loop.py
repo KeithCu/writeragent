@@ -1163,14 +1163,14 @@ def test_toolkit_none_starts_drain_and_first_worker():
     )
 
 
-@pytest.mark.parametrize(
-    ("is_final", "chunk_text", "expected_status", "expected_done_kind"),
-    [
-        (False, "Hello", "Thinking...", StreamQueueKind.STREAM_DONE),
-        (True, "World", "Finishing...", StreamQueueKind.FINAL_DONE),
-    ],
-)
-def test_retry_status_restored_on_first_chunk(is_final, chunk_text, expected_status, expected_done_kind):
+def _drain_items(q):
+    items = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    return items
+
+
+def test_retry_status_restored_on_first_chunk():
     import queue
     from plugin.chatbot.tool_loop_actions import current_turn
 
@@ -1183,48 +1183,73 @@ def test_retry_status_restored_on_first_chunk(is_final, chunk_text, expected_sta
     client = MagicMock()
     client.stopped.return_value = False
 
-    def fake_worker_stream(*_args, **kwargs):
+    def fake_stream(*_args, **kwargs):
         kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
-        kwargs["append_callback"](chunk_text)
-        return {"content": chunk_text, "tool_calls": []}
+        kwargs["append_callback"]("Hello")
+        return {"content": "Hello", "tool_calls": []}
 
-    def fake_final_stream(messages, max_tokens, append_c, append_t, **kwargs):
-        kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
-        append_c(chunk_text)
-
-    if is_final:
-        client.stream_chat_response.side_effect = fake_final_stream
-    else:
-        client.stream_request_with_tools.side_effect = fake_worker_stream
+    client.stream_request_with_tools.side_effect = fake_stream
     started = []
 
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
         patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
     ):
-        if is_final:
-            ToolCallingMixin._spawn_final_stream(panel, batched, client, 100)
-        else:
-            ToolCallingMixin._spawn_llm_worker(panel, batched, client, 100, [], 0)
+        ToolCallingMixin._spawn_llm_worker(panel, batched, client, 100, [], 0)
         started[0]()
     batched._timer.stop()
 
-    items = []
-    while not q.empty():
-        items.append(q.get_nowait())
-
-    kinds = [item[0] for item in items]
-    assert kinds == [
+    items = _drain_items(q)
+    assert [item[0] for item in items] == [
         StreamQueueKind.STATUS,
         StreamQueueKind.STATUS,
         StreamQueueKind.CHUNK,
-        expected_done_kind,
+        StreamQueueKind.STREAM_DONE,
     ]
     assert items[0] == (StreamQueueKind.STATUS, "Provider busy, retrying in 0.4s…")
-    assert items[1] == (StreamQueueKind.STATUS, expected_status)
-    assert items[2] == (StreamQueueKind.CHUNK, chunk_text)
-    if is_final:
-        assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
+    assert items[1] == (StreamQueueKind.STATUS, "Thinking...")
+    assert items[2] == (StreamQueueKind.CHUNK, "Hello")
+
+
+def test_retry_status_restored_on_first_chunk_final_stream():
+    import queue
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    panel, _session = setup_mock_panel()
+    turn = current_turn(panel)
+    q = queue.Queue()
+    turn.queue = q
+    batched = BatchingStreamQueue(q, batch_interval=10)
+    turn.batcher = batched
+    client = MagicMock()
+    client.stopped.return_value = False
+
+    def fake_stream(messages, max_tokens, append_c, append_t, **kwargs):
+        kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
+        append_c("World")
+
+    client.stream_chat_response.side_effect = fake_stream
+    started = []
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
+        patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
+    ):
+        ToolCallingMixin._spawn_final_stream(panel, batched, client, 100)
+        started[0]()
+    batched._timer.stop()
+
+    items = _drain_items(q)
+    assert [item[0] for item in items] == [
+        StreamQueueKind.STATUS,
+        StreamQueueKind.STATUS,
+        StreamQueueKind.CHUNK,
+        StreamQueueKind.FINAL_DONE,
+    ]
+    assert items[0] == (StreamQueueKind.STATUS, "Provider busy, retrying in 0.4s…")
+    assert items[1] == (StreamQueueKind.STATUS, "Finishing...")
+    assert items[2] == (StreamQueueKind.CHUNK, "World")
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
 
 
 def test_spawn_final_stream_passes_active_tools_and_tool_choice_none():

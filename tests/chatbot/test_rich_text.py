@@ -178,31 +178,35 @@ class TestAppendRichText:
         assert body_range.CharColor == 0x2A6099
 
     @pytest.mark.parametrize(
-        ("source", "field_color", "dialog_color", "expected"),
+        ("field_color", "dialog_color", "expected"),
         [
-            ("doc", 0xFFFFFF, 0xEFF0F1, (0xE0E1E2, 0x2A6099, 0x1E293B)),
-            ("doc", 0x1E1E1E, None, (0x1E1E1E, 0x60A5FA, 0xE2E8F0)),
-            ("style_window", 0x1E1E1E, None, (0x1E1E1E, 0x60A5FA, 0xE2E8F0)),
-            ("fallback", None, None, (0xE0E1E2, 0x2A6099, 0x1E293B)),
+            pytest.param(0xFFFFFF, 0xEFF0F1, (0xE0E1E2, 0x2A6099, 0x1E293B), id="light"),
+            pytest.param(0x1E1E1E, None, (0x1E1E1E, 0x60A5FA, 0xE2E8F0), id="dark"),
         ],
     )
-    def test_get_theme_colors(self, source, field_color, dialog_color, expected):
-        """get_theme_colors resolves light/dark palettes from doc, style_window, or fallback."""
+    def test_get_theme_colors_from_doc(self, field_color, dialog_color, expected):
+        """get_theme_colors resolves light and dark palettes from the document window."""
         from plugin.chatbot.rich_text import get_theme_colors
 
-        if source == "style_window":
-            style_settings = MagicMock(FieldColor=field_color)
-            style_window = MagicMock(StyleSettings=style_settings)
-            assert get_theme_colors(style_window=style_window) == expected
-        elif source == "fallback":
-            assert get_theme_colors(MockDoc()) == expected
-        else:
-            doc = MockDoc()
-            style_settings = MagicMock(FieldColor=field_color)
-            if dialog_color is not None:
-                style_settings.DialogColor = dialog_color
-            doc.getCurrentController().getFrame().getContainerWindow().StyleSettings = style_settings
-            assert get_theme_colors(doc) == expected
+        doc = MockDoc()
+        style_settings = MagicMock(FieldColor=field_color)
+        if dialog_color is not None:
+            style_settings.DialogColor = dialog_color
+        doc.getCurrentController().getFrame().getContainerWindow().StyleSettings = style_settings
+        assert get_theme_colors(doc) == expected
+
+    def test_get_theme_colors_from_style_window(self):
+        """get_theme_colors can read StyleSettings directly from the sidebar window."""
+        from plugin.chatbot.rich_text import get_theme_colors
+
+        style_window = MagicMock(StyleSettings=MagicMock(FieldColor=0x1E1E1E))
+        assert get_theme_colors(style_window=style_window) == (0x1E1E1E, 0x60A5FA, 0xE2E8F0)
+
+    def test_get_theme_colors_graceful_fallback(self):
+        """get_theme_colors returns standard light palette when StyleSettings are missing."""
+        from plugin.chatbot.rich_text import get_theme_colors
+
+        assert get_theme_colors(MockDoc()) == (0xE0E1E2, 0x2A6099, 0x1E293B)
 
     def test_append_rich_text_uses_dynamic_dark_colors(self):
         """_append_rich_text_with_span formats role prefix using dynamic dark mode colors."""

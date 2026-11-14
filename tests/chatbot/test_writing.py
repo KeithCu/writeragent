@@ -16,24 +16,11 @@ from plugin.chatbot.writing import (
     WriteDocumentSection,
 )
 from plugin.chatbot.sub_agent_tools import collect_sub_agent_tools
-from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
+from plugin.framework.tool import ToolContext, ToolRegistry
 
 
-class _ApplyDocumentContentStub(ToolBase):
-    name = "apply_document_content"
-    description = "stub"
-    parameters = {"type": "object", "properties": {}, "required": []}
-
-    def __init__(self):
-        super().__init__()
-        self.execute_safe = MagicMock(return_value={"status": "ok", "message": "applied"})
-
-    def execute(self, ctx, **kwargs):
-        return self.execute_safe(ctx, **kwargs)
-
-
-def test_write_document_section_passes_html_array_to_apply_document_content():
-    apply_stub = _ApplyDocumentContentStub()
+def test_write_document_section_passes_html_array_to_apply_document_content(apply_document_content_stub):
+    apply_stub = apply_document_content_stub
     registry = ToolRegistry(services={})
     registry.register(apply_stub)
 
@@ -133,8 +120,8 @@ def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_bu
     assert any(tool_adapter.name == "reply_to_user" for tool_adapter in tools)
 
 
-def test_write_document_section_rejects_dict_item():
-    apply_stub = _ApplyDocumentContentStub()
+def test_write_document_section_rejects_dict_item(apply_document_content_stub):
+    apply_stub = apply_document_content_stub
     registry = ToolRegistry(services={})
     registry.register(apply_stub)
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
@@ -155,8 +142,8 @@ def test_write_document_section_rejects_empty_content():
     assert res["code"] == "INVALID_CONTENT"
 
 
-def test_write_document_section_coerces_unknown_target_to_end():
-    apply_stub = _ApplyDocumentContentStub()
+def test_write_document_section_coerces_unknown_target_to_end(apply_document_content_stub):
+    apply_stub = apply_document_content_stub
     registry = ToolRegistry(services={})
     registry.register(apply_stub)
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})

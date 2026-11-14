@@ -561,6 +561,7 @@ def _worker_env(
     compact_side_effect: Any = None,
     lane_side_effect: Any = _NoopLane,
 ):
+    """Patch worker background/lane/compaction deps; auto_compact=None leaves get_config unpatched."""
     from plugin.chatbot.compaction import CompactResult
 
     captured: dict[str, Any] = {}
@@ -570,6 +571,8 @@ def _worker_env(
         captured["fn"] = fn
 
     client = MagicMock()
+    # MagicMock attributes are truthy. Use stopped.return_value so send_stopped
+    # does not treat an idle client as Stop before compact runs.
     client.stopped.return_value = False
     client.stream_request_with_tools.return_value = {"content": "ok"}
     client.config = {"api_key": "test-key"}
@@ -763,7 +766,6 @@ def test_final_stream_done_and_stop_partial(test_instance):
     b2 = BatchingStreamQueue(q2, batch_interval=10)
     turn.queue = q2
     turn.batcher = b2
-    client.stopped.return_value = False
 
     def fake_stream_abort(messages, max_tokens, append_c, append_t, cancel=None, status_callback=None, **kwargs):
         append_c("ab")
@@ -1087,12 +1089,18 @@ def _audio_fallback_patches(cfg_model="chat-model", cfg_endpoint="https://exampl
 @pytest.mark.parametrize(
     ("turn_model", "turn_ep", "cfg_model", "cfg_ep"),
     [
-        ("chat-model", "https://example", "chat-model", "https://example"),
-        ("turn-captured-model", "https://captured-endpoint", "newly-selected-model", "https://new-endpoint"),
+        pytest.param("chat-model", "https://example", "chat-model", "https://example", id="same_model_replaces_db_row"),
+        pytest.param(
+            "turn-captured-model",
+            "https://captured-endpoint",
+            "newly-selected-model",
+            "https://new-endpoint",
+            id="mid_turn_model_change",
+        ),
     ],
 )
 def test_native_audio_stt_fallback_replaces_db_row_and_uses_turn_model(turn_model, turn_ep, cfg_model, cfg_ep):
-    """Fallback STT replaces the audio message row in DB and marks the turn's model unsupported."""
+    """Fallback STT replaces the audio DB row and, if the model is changed in the combobox mid-turn, marks the turn's model unsupported."""
     from plugin.chatbot.tool_loop import try_native_audio_stt_fallback
 
     host = _make_audio_fallback_host(text_model=turn_model, endpoint=turn_ep)
@@ -1121,7 +1129,8 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     from plugin.chatbot.tool_loop import try_native_audio_stt_fallback
     from plugin.chatbot.tool_loop_actions import TurnController, assign_send_outcome
 
-    host = _make_audio_fallback_host()
+    host = MagicMock()
+    host.audio_wav_path = "/fake/a.wav"
     turn = TurnController(host.session)
     turn.alive = True
     turn.session = host.session

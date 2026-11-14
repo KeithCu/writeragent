@@ -319,7 +319,7 @@ def test_click_row_accepts_command_chrome_does_not_dump_help():
 
 
 @pytest.mark.parametrize(("typed", "expected_name"), [("/explain", "explain"), ("/translate", "translate")])
-def test_enter_on_exact_command_runs_with_empty_arg(typed: str, expected_name: str):
+def test_enter_on_exact_command_runs_with_empty_arg_and_does_not_complete_draft(typed: str, expected_name: str):
     from plugin.chatbot.send_state import SendEventKind
     from plugin.chatbot.slash_commands import filter_slash_commands
 
