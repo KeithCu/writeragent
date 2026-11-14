@@ -201,7 +201,10 @@ def test_notebook_code_cell_from_dict():
 
 
 def test_cell_id_from_hex():
+    from plugin.notebook.cell_registry import cell_id_to_hex
+
     assert cell_id_from_hex("12345678123412341234123456789abc") == "12345678-1234-1234-1234-123456789abc"
+    assert cell_id_to_hex("12345678-1234-1234-1234-123456789abc") == "12345678123412341234123456789abc"
     # Uppercase and leading/trailing whitespace
     assert cell_id_from_hex("  12345678123412341234123456789ABC  ") == "12345678-1234-1234-1234-123456789abc"
     # Invalid length

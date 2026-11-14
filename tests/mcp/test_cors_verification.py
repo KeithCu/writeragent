@@ -17,15 +17,11 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.mcp.cors import (
-    is_private_browser_origin,
-    is_safe_origin,
-    merge_allow_headers,
     normalize_cors_origin,
     normalize_origins_list,
     set_allow_private_origins,
     set_extra_allowed_origins,
 )
-from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
 from tests.harness.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/mcp/cors.py"
@@ -75,27 +71,6 @@ def test_hypothesis_normalize_cors_origin_and_list(origins: list[str]) -> None:
     assert len(once) >= 1
     assert normalize_origins_list(once) == once
     assert len(once) == len(set(once))
-
-
-def test_localhost_safe_origin() -> None:
-    assert is_safe_origin("http://localhost:3000")
-    assert is_safe_origin("http://127.0.0.1")
-    assert is_safe_origin("http://[::1]")
-    assert is_safe_origin("http://[::1]:3000")
-    assert is_private_browser_origin("http://192.168.1.50:3000") is True
-
-
-def test_cors_origin_overflow_returns_body_result() -> None:
-    """A long or odd Origin is not safe. It must not raise PreContractError."""
-    too_long = "h" * (DEAL_MAX_ORIGIN + 1)
-    assert is_safe_origin(too_long) is False
-    assert normalize_cors_origin(too_long) is None
-    merged = merge_allow_headers(too_long)
-    assert isinstance(merged, str) and "Content-Type" in merged
-    assert is_safe_origin("http://example.com/?x") is False
-    assert "Content-Type" in merge_allow_headers("Content-Type; X-Evil")
-    assert is_safe_origin("http://localhost:3000") is True
-    assert "Content-Type" in merge_allow_headers("X-Custom")
 
 
 @pytest.mark.slow

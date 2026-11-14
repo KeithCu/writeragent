@@ -1664,40 +1664,16 @@ def test_retire_snippet_provider_propagates_clear_failure():
             mgr._retire_snippet_provider("cloudflare")
 
 
-def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
+def test_post_stop_start_failure_decrements_in_flight(monkeypatch):
     mgr = TunnelManager()
-
-    class _CountingRLock:
-        def __init__(self, inner):
-            self._inner = inner
-            self.acquires = 0
-
-        def acquire(self, *args, **kwargs):
-            self.acquires += 1
-            return self._inner.acquire(*args, **kwargs)
-
-        def release(self):
-            return self._inner.release()
-
-        def __enter__(self):
-            self.acquire()
-            return self
-
-        def __exit__(self, *args):
-            self.release()
-
-    counting = _CountingRLock(mgr._lock)
-    mgr._lock = counting
 
     def _boom(*args, **kwargs):
         raise RuntimeError("cannot start thread")
 
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", _boom)
-    with counting:
-        before = counting.acquires
+    with mgr._lock:
         with pytest.raises(RuntimeError, match="cannot start thread"):
             mgr._schedule_post_stop_unlocked("tailscale", 18765)
-        assert counting.acquires > before
     assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 

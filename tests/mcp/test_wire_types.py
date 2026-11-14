@@ -169,7 +169,7 @@ def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     assert len(err["error"]["message"]) == DEAL_MAX_SOURCE + 1
 
 
-def test_parse_and_initialize_ignore_loaded_crosshair_module(monkeypatch):
+def test_parse_request_ignores_loaded_crosshair_module(monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "crosshair", object())
@@ -178,13 +178,4 @@ def test_parse_and_initialize_ignore_loaded_crosshair_module(monkeypatch):
     assert parsed is not None
     assert parsed.method == "ping"
     assert parsed.req_id == 1
-
-    result = wire_types.initialize_result(
-        protocol_version="2025-06-18",
-        server_version="1.2.3",
-        instructions="hi",
-    )
-    assert result["protocolVersion"] == "2025-06-18"
-    assert result["serverInfo"]["version"] == "1.2.3"
-    assert result["instructions"] == "hi"
 

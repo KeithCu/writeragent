@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -328,24 +329,6 @@ def test_shared_notebook_session_via_sandbox(fresh_sandbox_sessions):
     assert r2["result"] == 42
 
 
-@pytest.mark.parametrize(
-    "hex_id,expected_ok",
-    [
-        ("abc", False),
-        ("0" * 32, True),
-    ],
-)
-def test_cell_id_hex_round_trip(hex_id, expected_ok):
-    from plugin.notebook.cell_registry import cell_id_from_hex
-
-    restored = cell_id_from_hex(hex_id)
-    if not expected_ok:
-        assert restored is None
-        return
-    assert restored is not None
-    assert cell_id_to_hex(restored) == hex_id
-
-
 def test_is_next_cell_boundary_markdown_and_code():
     assert _is_next_cell_boundary("Heading 3", "Cell 3: Markdown", None) is True
     assert _is_next_cell_boundary("Heading 3", "Cell 5: Raw", None) is True
@@ -380,203 +363,133 @@ def test_paragraph_string_expands_collapsed_cursor():
     probe.gotoEndOfParagraph.assert_called_once_with(True)
 
 
-def test_clear_cell_output_uses_set_string_not_delete_contents():
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = "old stdout"
+class _FakePos:
+    def __init__(self, index: int) -> None:
+        self.index = index
 
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = "old stdout"
 
-    def goto_next(_expand):
-        walker.ParaStyleName = "WriterAgent Notebook In"
-        walker.getString.return_value = "[In [ ]]\tCell 2: Code"
+class _FakeCursor:
+    def __init__(self, paras: list[tuple[str, str]], text: "_FakeXText", index: int = 0, collapsed: bool = False) -> None:
+        self.paras = paras
+        self._text = text
+        self.index = index
+        self._end_index = index
+        self._collapsed = collapsed
+        self._expanded = False
+
+    @property
+    def ParaStyleName(self) -> str:
+        return self.paras[self.index][0]
+
+    def getText(self) -> "_FakeXText":
+        return self._text
+
+    def getString(self) -> str:
+        if self._collapsed and not self._expanded:
+            return ""
+        return self.paras[self.index][1]
+
+    def getStart(self) -> _FakePos:
+        return _FakePos(self.index)
+
+    def gotoStartOfParagraph(self, _expand: bool) -> None:
+        return None
+
+    def gotoEndOfParagraph(self, expand: bool) -> None:
+        self._expanded = expand
+
+    def gotoNextParagraph(self, _expand: bool) -> bool:
+        if self.index + 1 >= len(self.paras):
+            return False
+        self.index += 1
         return True
 
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "end-pos"
+    def gotoEnd(self, _expand: bool) -> None:
+        self.index = len(self.paras)
 
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
+    def gotoRange(self, pos: _FakePos, expand: bool) -> None:
+        if expand:
+            self._end_index = pos.index
+        else:
+            self.index = pos.index
 
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
+    def setString(self, value: str) -> None:
+        assert value == ""
+        del self.paras[self.index : self._end_index]
+
+
+class _FakeXText:
+    def __init__(self, paras: list[tuple[str, str]], collapsed: bool = False) -> None:
+        self.paras = paras
+        self.collapsed = collapsed
+
+    def createTextCursorByRange(self, pos: Any) -> _FakeCursor:
+        return _FakeCursor(self.paras, self, index=pos.index, collapsed=self.collapsed)
+
+    def deleteContents(self, *_args: Any) -> None:
+        raise AssertionError("deleteContents must not be called")
+
+
+def _walker_scenario(paragraphs: list[tuple[str, str]], *, collapsed: bool = False) -> list[tuple[str, str]]:
+    paras = list(paragraphs)
+    text = _FakeXText(paras, collapsed=collapsed)
+    start = _FakeCursor(paras, text, index=0, collapsed=collapsed)
     doc = MagicMock()
     doc.getText.return_value = text
-
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
+        patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
         patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
+    return paras
 
-    text.deleteContents.assert_not_called()
-    sel.gotoRange.assert_called_once_with("end-pos", True)
-    sel.setString.assert_called_once_with("")
 
 @pytest.mark.parametrize(
-    "value, value_2",
+    "paragraphs,expected_remaining,collapsed",
     [
-        pytest.param("Quotations", "A blockquote", id="test_clear_cell_output_stops_at_markdown_blockquote"),
-        pytest.param("Heading 3", "Cell 3: Markdown", id="test_clear_cell_output_stops_at_markdown_cell_heading"),
+        pytest.param(
+            [("Preformatted Text", "old stdout"), ("WriterAgent Notebook In", "[In [ ]]\tCell 2: Code")],
+            [("WriterAgent Notebook In", "[In [ ]]\tCell 2: Code")],
+            False,
+            id="uses_set_string_not_delete_contents",
+        ),
+        pytest.param(
+            [("Preformatted Text", "Array: [10 20 30]"), ("Quotations", "A blockquote")],
+            [("Quotations", "A blockquote")],
+            False,
+            id="stops_at_markdown_blockquote",
+        ),
+        pytest.param(
+            [("Preformatted Text", "Array: [10 20 30]"), ("Heading 3", "Cell 3: Markdown")],
+            [("Heading 3", "Cell 3: Markdown")],
+            False,
+            id="stops_at_markdown_cell_heading",
+        ),
+        pytest.param(
+            [("Preformatted Text", "old stdout"), ("Heading 3", "Cell 3: Markdown")],
+            [("Heading 3", "Cell 3: Markdown")],
+            True,
+            id="collapsed_cursor_stops_at_markdown",
+        ),
+        pytest.param(
+            [("Text Body", ""), ("Preformatted Text", "old stdout"), ("Heading 2", "Reshape and transpose")],
+            [("Text Body", ""), ("Heading 2", "Reshape and transpose")],
+            False,
+            id="skips_control_row_then_clears_stdout",
+        ),
     ],
 )
-def test_clear_cell_output_stops_at_markdown_blockquote(value, value_2):
-    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = "Array: [10 20 30]"
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = "Array: [10 20 30]"
-
-    def goto_next(_expand):
-        walker.ParaStyleName = value
-        walker.getString.return_value = value_2
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "Array: [10 20 30]\n"
-
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_called_once_with("")
-    walker.gotoStartOfParagraph.assert_called_once()
-
-def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
-    """Live Writer collapsed cursors return empty getString(); expand to find chrome."""
-    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = ""
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = ""
-    para_text = {"v": "old stdout"}
-    probe = MagicMock()
-    probe.getString.side_effect = lambda: para_text["v"]
-    walker.getText.return_value.createTextCursorByRange.return_value = probe
-
-    def goto_next(_expand):
-        walker.ParaStyleName = "Heading 3"
-        para_text["v"] = "Cell 3: Markdown"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
-
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_called_once_with("")
-    walker.gotoStartOfParagraph.assert_called_once()
+def test_clear_cell_output_stops_at_boundaries(paragraphs, expected_remaining, collapsed):
+    assert _walker_scenario(paragraphs, collapsed=collapsed) == expected_remaining
 
 
 def test_clear_cell_output_skips_empty_control_paragraph():
     """▶+field getString is empty (frames omitted). setString there deleted ▶ and nb_out_*."""
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Text Body"
-    start.getString.return_value = ""
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Text Body"
-    walker.getString.return_value = ""
-
-    def goto_next(_expand):
-        walker.ParaStyleName = "Heading 2"
-        walker.getString.return_value = "Reshape and transpose"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_not_called()
-
-
-def test_clear_cell_output_skips_control_row_then_clears_stdout():
-    """Bookmark home is empty Text Body; stdout in the next Preformatted paragraph."""
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Text Body"
-    start.getString.return_value = ""
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Text Body"
-    walker.getString.return_value = ""
-    steps = {"n": 0}
-
-    def goto_next(_expand):
-        steps["n"] += 1
-        if steps["n"] == 1:
-            walker.ParaStyleName = "Preformatted Text"
-            walker.getString.return_value = "old stdout"
-            return True
-        walker.ParaStyleName = "Heading 2"
-        walker.getString.return_value = "Reshape and transpose"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_called_once_with("")
+    paras = [("Text Body", ""), ("Heading 2", "Reshape and transpose")]
+    assert _walker_scenario(paras) == paras
 
 
 def test_is_output_bookmark_home_empty_text_body_not_heading():
@@ -970,51 +883,10 @@ def test_run_cell_for_doc_hex_setup_error_shows_msgbox():
             boxed.assert_called_once_with(ctx, "WriterAgent", "Code cell is empty.")
 def test_clear_cell_output_preserves_spacer_before_next_heading():
     """Delete stdout but not the empty paragraph immediately before the next cell."""
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = "old stdout"
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = "old stdout"
-    step = {"n": 0}
-    spacer_start = MagicMock(name="spacer-start")
-
-    def goto_next(_expand):
-        step["n"] += 1
-        if step["n"] == 1:
-            walker.ParaStyleName = "Text Body"
-            walker.getString.return_value = ""
-            return True
-        walker.ParaStyleName = "Heading 2"
-        walker.getString.return_value = "1. Creating Arrays"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = spacer_start
-
-    range_start = MagicMock(name="range_start")
-    spacer_copy = MagicMock(name="spacer_copy")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
-
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, spacer_copy, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
-        patch("plugin.notebook.notebook_runner._is_output_bookmark_home", return_value=False),
-        patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    walker.gotoRange.assert_called_once_with(spacer_copy, False)
-    sel.setString.assert_called_once_with("")
+    remaining = _walker_scenario(
+        [("Preformatted Text", "old stdout"), ("Text Body", ""), ("Heading 2", "1. Creating Arrays")]
+    )
+    assert remaining == [("Text Body", ""), ("Heading 2", "1. Creating Arrays")]
 
 
 def _three_cells():

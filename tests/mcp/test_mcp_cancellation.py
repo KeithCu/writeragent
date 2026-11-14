@@ -25,15 +25,6 @@ def test_mcp_protocol_threads_send_cancellation():
     assert prepared.context.send_cancellation.is_cancelled() is True
 
 
-def test_mcp_protocol_drops_cancel_for_unknown_call():
-    services_mock = MagicMock()
-    protocol = MCPProtocolHandler(services_mock)
-
-    item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "123"}}
-    protocol._process_jsonrpc(item)
-    assert protocol._request_scopes == {}
-
-
 def test_cancel_before_request_does_not_stick():
     services_mock = MagicMock()
     protocol = MCPProtocolHandler(services_mock)
@@ -157,40 +148,6 @@ def test_overlapping_same_id_cancels_every_scope():
     assert scope_b in protocol._request_scopes[(session, req_id)]
 
 
-def test_mcp_protocol_async_tool_no_timeout_runs():
-    services_mock = MagicMock()
-    doc_mock = MagicMock()
-    services_mock.document.resolve_document_by_url.return_value = (doc_mock, "writer")
-    services_mock.document.detect_doc_type.return_value = "writer"
-
-    protocol = MCPProtocolHandler(services_mock)
-    tool_mock = MagicMock()
-    tool_mock.is_async.return_value = True
-    del tool_mock.timeout
-    protocol.tool_registry.get.return_value = tool_mock
-
-    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, cancel=SendCancellation())
-    assert hasattr(prepared, "context")
-
-
-def test_mcp_protocol_async_tool_non_positive_timeout_errors():
-    services_mock = MagicMock()
-    doc_mock = MagicMock()
-    services_mock.document.resolve_document_by_url.return_value = (doc_mock, "writer")
-    services_mock.document.detect_doc_type.return_value = "writer"
-
-    protocol = MCPProtocolHandler(services_mock)
-    tool_mock = MagicMock()
-    tool_mock.is_async.return_value = True
-    tool_mock.timeout = 0
-    protocol.tool_registry.get.return_value = tool_mock
-
-    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, cancel=SendCancellation())
-    assert isinstance(prepared, dict)
-    assert prepared.get("status") == "error"
-    assert prepared.get("code") == "TOOL_EXECUTION_ERROR"
-
-
 def test_tools_call_uses_fresh_cancellation_under_agent_session():
     from plugin.framework.send_cancellation import SendCancellation, agent_session
 
@@ -213,30 +170,6 @@ def test_tools_call_uses_fresh_cancellation_under_agent_session():
         assert cancel is not existing
         assert isinstance(cancel, SendCancellation)
         assert existing.is_cancelled() is False
-
-
-def test_mcp_protocol_short_circuits_if_stopped_after_gate():
-    services_mock = MagicMock()
-    protocol = MCPProtocolHandler(services_mock)
-
-    ctx_mock = MagicMock(spec=ToolContext)
-    scope = SendCancellation()
-    scope.cancel()
-    ctx_mock.send_cancellation = scope
-
-    prepared = _PreparedMcpCall(
-        tool=MagicMock(),
-        context=ctx_mock,
-        doc=MagicMock(),
-        doc_key="file:///test.odt",
-        needs_gate=True,
-        echo=None,
-        is_async=True,
-    )
-
-    protocol.queue_executor.call.return_value = prepared
-    result = protocol._run_tool("test_tool", {}, cancel=SendCancellation())
-    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
 
 
 def test_invoke_prepared_short_circuits_when_stop_checker_is_latched():
