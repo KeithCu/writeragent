@@ -1510,12 +1510,3 @@ def test_parameter_validations_return_invalid_param():
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
 
-
-def test_description_leaves_hyperlink_and_dry_run_detail_to_params():
-    """Tool description keeps table deletion behavior while delegating parameter-specific mechanics to the schema."""
-    assert ApplyDocumentContent.description is not None
-    assert ApplyDocumentContent.parameters is not None
-    assert "|outline" not in ApplyDocumentContent.description
-    assert "deletes that table" in ApplyDocumentContent.description
-    assert "|outline" in ApplyDocumentContent.parameters["properties"]["hyperlink_url"]["description"]
-

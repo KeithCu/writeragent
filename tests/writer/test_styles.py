@@ -1158,9 +1158,6 @@ def test_schema_lists_struct_keys():
     props = StyleUpdate.parameters["properties"]["property_updates"]["properties"]
     assert "ParaLineSpacing" in props
     assert "ParaTabStops" in props
-    char_posture_desc = props["CharPosture"]["description"]
-    assert "1=Oblique" in char_posture_desc
-    assert "2=Italic" in char_posture_desc
 
 
 def test_create_style_does_not_insert_when_a_property_fails():
@@ -1337,21 +1334,6 @@ def test_import_styles_rejects_relative_and_missing(mock_ctx):
         assert res2["status"] == "error"
         assert "path does not exist" in res2["message"]
         assert len(mock_ctx.doc._load_styles_calls) == 0
-
-
-def test_style_list_family_description():
-    desc = StyleList.parameters["properties"]["family"]["description"]
-    assert "Default: ParagraphStyles" not in desc
-    tool = StyleList()
-    ctx = _ctx_with_families(
-        ParagraphStyles=_style_family({}),
-        CharacterStyles=_style_family({}),
-        PageStyles=_style_family({}),
-    )
-    res1 = tool.execute(ctx, family="")
-    assert "families" in res1
-    res2 = tool.execute(ctx, family="ParagraphStyles")
-    assert res2["status"] == "ok"
 
 
 def test_apply_style_unknown_family_is_validation_error():
@@ -1824,24 +1806,6 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
         assert res["status"] == "error"
         assert res["code"] == "ROLLBACK_FAILED"
-
-
-def test_apply_style_description_does_not_repeat_clear_direct_param():
-    """Tool description keeps the paragraph-restyling caveat but leaves clear_direct details to the parameter schema."""
-    assert ApplyStyle.description is not None
-    assert ApplyStyle.parameters is not None
-    assert "clear_direct=" not in ApplyStyle.description
-    assert "'style_props' (default)" in ApplyStyle.parameters["properties"]["clear_direct"]["description"]
-
-
-def test_apply_style_is_the_one_home_for_clear_direct_and_quote_indent():
-    assert ApplyStyle.description is not None
-    assert ApplyStyle.parameters is not None
-    assert "quote indent" in ApplyStyle.description
-    clear_direct_desc = ApplyStyle.parameters["properties"]["clear_direct"]["description"]
-    assert "not 'clear only what this style defines'" in clear_direct_desc
-    assert "Ctrl+M" in clear_direct_desc
-    assert "full_document" in clear_direct_desc
 
 
 

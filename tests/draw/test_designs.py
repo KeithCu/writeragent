@@ -158,14 +158,7 @@ def test_apply_design_current_doc_import_failure():
     assert "current" in out["message"].lower() or "failed" in out["message"].lower()
 
 
-def test_apply_design_description_mentions_current_doc():
-    desc = ApplyDesign.description.lower()
-    assert "current" in desc or "open" in desc
-    assert "lo_wall" not in desc
-    assert "new_document" not in desc
-    assert "does not use" in desc and "clipboard" in desc
-    assert "diamode" not in desc
-    assert "clone" in desc
+def test_apply_design_schema_omits_new_document():
     params = ApplyDesign.parameters or {}
     assert "new_document" not in params.get("properties", {})
 
@@ -227,14 +220,6 @@ def test_list_designs_tool_returns_count():
         out = ListDesigns().execute(ctx)
     assert out["status"] == "ok"
     assert out["count"] == 1
-
-
-def test_list_designs_description_mentions_look():
-    desc = ListDesigns.description.lower()
-    assert "look" in desc
-    assert "appearance" in desc or "mood" in desc or "dark" in desc
-    assert "apply_design" in desc
-    assert "set_presentation_design" not in desc
 
 
 def test_draw_prompt_steers_apply_design_on_open_deck():

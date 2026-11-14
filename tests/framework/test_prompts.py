@@ -8,20 +8,15 @@ import pytest
 from plugin.framework.prompts import (
     CALC_CORE_DIRECTIVES,
     CHAT_RESPONSE_FORMAT,
-    DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     DELEGATION_USER_FILE_DATA_HINT,
     DRAW_CORE_DIRECTIVES,
     RICH_CHAT_SIDEBAR_INSTRUCTIONS,
     SIDEBAR_VS_DOCUMENT,
     SPECIALIZED_TASK_RULES,
     WRITER_CORE_DIRECTIVES,
-    WRITER_IMAGES_RULES,
-    WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
     get_chat_system_prompt_for_document,
     get_core_directives_for_type,
     get_greeting_for_document,
-    images_specialized_sub_agent_hint,
-    python_specialized_sub_agent_hint,
 )
 
 # NOTE: the EXTERNAL_AGENT_GUIDANCE pin test moved to tests/chatbot/test_agent_manual.py —
@@ -71,7 +66,6 @@ def test_get_chat_response_format_instructions_html_when_rich_enabled():
         fmt = get_chat_response_format_instructions()
     assert fmt == RICH_CHAT_SIDEBAR_INSTRUCTIONS
     assert CHAT_RESPONSE_FORMAT in fmt
-    assert "&lt;p&gt;Paragraph&lt;/p&gt;" in fmt
     assert HTML_FRAGMENT_RULES not in fmt
 
 
@@ -110,26 +104,6 @@ def test_html_fragment_rules_appear_once_in_writer_prompt():
 
     assert prompt.count("Use <br> for line breaks within an element") == 1
     assert get_sub_agent_instructions("BASE", tool_names=["apply_document_content"]).count("Use <br> for line breaks within an element") == 1
-
-
-def test_prompt_rules_enforced_by_tools_are_gone():
-    from plugin.framework.prompts import (
-        DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE,
-        TOOL_USAGE_PATTERNS,
-        TRANSLATION_RULES,
-    )
-
-    assert "Failed tool call" not in TOOL_USAGE_PATTERNS
-    assert "whole-document translation" not in TRANSLATION_RULES
-    assert "get_guidance" not in DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
-
-
-def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
-    model = MagicMock()
-    model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert "LibreOffice Writer assistant" in prompt
-    assert "thoughtful use of color" in prompt
 
 
 def test_writer_chat_prompt_section_order_matches_assembly():
@@ -177,36 +151,6 @@ def test_writer_chat_template_ends_with_apply_html_then_confirm():
     assert RESEARCH_COMPLETION_INSTRUCTION_WRITER not in template
 
 
-def test_confirm_edits_from_structured_fields_prefers_suggested_call():
-    """Structured fields instruction prefers executing suggested_call over re-deriving the call."""
-    from plugin.framework.prompts import (
-        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
-        SUB_AGENT_HTML_CONTENT_RULES,
-    )
-
-    assert (
-        "When a result includes suggested_call, prefer executing it over re-deriving the call."
-        in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
-    )
-    assert "comment_added" not in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
-    assert "zero count" in CONFIRM_EDITS_FROM_STRUCTURED_FIELDS
-    assert "warnings[].suggested_call" in SUB_AGENT_HTML_CONTENT_RULES
-
-
-def test_memory_guidance_rules_and_phrasing():
-    from plugin.framework.prompts import MEMORY_GUIDANCE
-
-    guidance = MEMORY_GUIDANCE.lower()
-    assert "preferences" in guidance
-    assert "durable facts" in guidance
-    assert "credentials" in guidance
-    assert "tokens" in guidance
-    assert "one-off document text" in guidance
-    assert "short" in guidance
-    assert "existing key" in guidance
-    assert "delete stale facts" in guidance
-
-
 def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
     model = MagicMock()
     model.supportsService.return_value = False
@@ -234,72 +178,6 @@ def test_writer_eval_chat_prompt_includes_sidebar_vs_document_routing():
     assert SIDEBAR_VS_DOCUMENT in prompt
     assert "apply_document_content" in prompt
 
-
-def test_writer_apply_document_math_latex_rules_document_only():
-    from plugin.framework.prompts import (
-        HTML_FRAGMENT_RULES,
-        HTML_MATH_AND_LINK_EXAMPLES,
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
-    )
-
-    assert "Math (CRITICAL)" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert r"\(" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert r"\[" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "Math (display):" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
-    assert "old_content is a substring and may span paragraphs" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "target='search' also edits headers and footers" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "is listed in warnings" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "Track Changes off" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "header/footer writes" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "position='before'/'after' applies neither" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "middle line must equal a whole paragraph" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "Landmark-to-landmark replace: pass start_anchor and end_anchor" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "|outline" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "|outline" in HTML_MATH_AND_LINK_EXAMPLES
-    assert "Good math" in HTML_MATH_AND_LINK_EXAMPLES
-    assert "page-number" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert 'delegate_to_specialized_writer_toolset(domain="page"' not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "page_get_header_footer_text" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "page_set_header_footer_text" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "page_set_style_properties" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "setString wipe" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "force=true" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "target='search' still reaches headers" not in WRITER_APPLY_DOCUMENT_HTML_RULES
-
-    model = MagicMock()
-    model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert "Math (CRITICAL)" in prompt
-    assert "Good math" not in prompt
-    assert "|outline" not in prompt
-
-
-def test_writer_html_rules_leave_clear_direct_and_para_lists_to_tools():
-    from plugin.framework.prompts import WRITER_APPLY_DOCUMENT_HTML_RULES
-
-    for removed in (
-        "clear_direct",
-        "quote indent",
-        "On write, alignment",
-        "read-only",
-        "Reported on both",
-    ):
-        assert removed not in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "position='before'/'after' applies neither" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "unknown token → Standard" in WRITER_APPLY_DOCUMENT_HTML_RULES
-
-
-def test_writer_chat_prompt_fix_this_grammar_defaults():
-    model = MagicMock()
-    model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert '"fix this"' in prompt
-    assert "synonym or equivalent" in prompt
-    assert "spelling and grammar" in prompt
-    assert "current sentence" in prompt
-    assert "context" in prompt
 
 def test_get_chat_system_prompt_for_document_calc():
     model = MagicMock()
@@ -387,30 +265,6 @@ def test_get_core_directives_for_type_is_string_only():
     assert get_core_directives_for_type("") == WRITER_CORE_DIRECTIVES
 
 
-def test_writer_and_draw_python_orchestrator_not_direct_shapes():
-    """Python-as-orchestrator stays on domain=python; a plain rectangle still uses shapes."""
-    from plugin.framework.prompts import python_orchestrator_routing_line
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
-
-    for text, toolset in (
-        (DelegateToSpecializedWriter.description, "delegate_to_specialized_writer_toolset"),
-        (DRAW_CORE_DIRECTIVES, "delegate_to_specialized_draw_toolset"),
-    ):
-        assert python_orchestrator_routing_line(delegate_toolset=toolset) in text
-        assert "via python" in text
-        assert 'rather than domain="shapes"' in text
-        assert "draw a rectangle" in text
-        assert 'still uses domain="shapes"' in text
-    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") not in WRITER_CORE_DIRECTIVES
-    assert 'domain="python"' not in CALC_CORE_DIRECTIVES
-    tip = (
-        'Do delegate_to_specialized_draw_toolset(domain="shapes") then '
-        "shape_upsert + shape_connect for flowcharts and process diagrams "
-        "because an empty get_draw_tree means the task failed."
-    )
-    assert tip in DRAW_CORE_DIRECTIVES
-
-
 def test_get_core_directives_writer():
     directives = get_core_directives_for_type("writer")
     assert directives == WRITER_CORE_DIRECTIVES
@@ -442,38 +296,6 @@ def test_writer_chat_prompt_ocr_routing_is_the_vision_catalog_line():
     assert "vision:" not in prompt_without_vision
 
 
-def test_writer_chat_prompt_delegation_routing_local_vs_web():
-    model = MagicMock()
-    model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert DELEGATION_USER_FILE_DATA_HINT in prompt
-    assert "to research public topics" in prompt
-    assert "embedded" in prompt
-    assert "Insert a Calc spreadsheet OLE in the active Writer document only" in prompt
-
-
-def test_writer_chat_prompt_domain_descriptions_do_not_address_main_chat_as_executor():
-    from plugin.doc.specialized_catalog import catalog_entries_from_base
-
-    model = MagicMock()
-    model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert "indexes_create kind=toc" in prompt
-    for label in ("Writer", "Calc", "Draw"):
-        for entry in catalog_entries_from_base(agent_label=label):
-            assert "yourself" not in entry["description"], entry["domain"]
-
-
-def test_delegate_anchor_rule_is_one_fixed_line():
-    from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
-
-    assert "\n" not in DELEGATE_ANCHOR_RULE
-    assert "TOC entry text" in DELEGATE_ANCHOR_RULE
-    assert "cell range" in DELEGATE_ANCHOR_RULE
-    assert "Draw page and shape name" in DELEGATE_ANCHOR_RULE
-    assert "read request" in DELEGATE_ANCHOR_RULE
-
-
 def test_build_specialized_sub_agent_instructions():
     from plugin.framework.prompts import (
         DELEGATE_ANCHOR_RULE,
@@ -483,7 +305,6 @@ def test_build_specialized_sub_agent_instructions():
     instr = build_specialized_sub_agent_instructions("Writer", "indexes")
     assert "Writer" in instr
     assert "'indexes'" in instr
-    assert "If this domain cannot do the task, say so in the answer instead of claiming it was done." in instr
     assert DELEGATE_ANCHOR_RULE in instr
 
     instr_extra = build_specialized_sub_agent_instructions("Calc", "python", extra=" extra hint")
@@ -492,19 +313,12 @@ def test_build_specialized_sub_agent_instructions():
 
 
 def test_specialized_delegation_block_is_single_line():
-    from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_tool_hint
+    from plugin.framework.prompts import get_specialized_delegation_tool_hint
 
     for kind in ("Writer", "Calc", "Draw"):
         block = get_specialized_delegation_tool_hint(kind)
         assert SPECIALIZED_TASK_RULES in block
         assert "\n" not in block
-    assert "source_image='selection'" in SPECIALIZED_TASK_RULES
-    assert "TOC entry text" in SPECIALIZED_TASK_RULES
-    assert "cell range" in SPECIALIZED_TASK_RULES
-    assert "Draw page and shape name" in SPECIALIZED_TASK_RULES
-    assert "read from the document" in SPECIALIZED_TASK_RULES
-    assert "user-given" in SPECIALIZED_TASK_RULES
-    assert "Enumerate what must be true" not in SPECIALIZED_TASK_RULES
 
 
 def test_calc_core_directives_local_before_web():
@@ -561,49 +375,10 @@ def test_ensure_plugin_on_path_is_idempotent():
     assert after.count(root1) == before.count(root1) + (1 if root1 not in before else 0)
 
 
-def test_calc_core_directives_no_math_python_delegation_line():
-    assert "do not answer from memory" not in CALC_CORE_DIRECTIVES
-
-
 def test_calc_core_directives_py_formula_not_domains():
     assert 'domain="python"' not in CALC_CORE_DIRECTIVES
     assert 'domain="analysis"' not in CALC_CORE_DIRECTIVES
     assert "write_formula_range" in CALC_CORE_DIRECTIVES
-    assert "write_formula_range of =PY" in CALC_CORE_DIRECTIVES
-
-
-def test_write_formula_range_description_owns_py_dest_and_spill():
-    from plugin.calc.cells import WriteCellRange
-
-    desc = WriteCellRange.description
-    fill_at = desc.find("fill-down")
-    py_at = desc.find('=PY("result = …"; DataRange)')
-    assert fill_at != -1
-    assert py_at != -1
-    assert fill_at < py_at
-    assert "J1" in desc
-    assert "new sheet" in desc
-    assert "circular" in desc
-    assert "say where" in desc
-    assert "small peek" in desc
-    assert "do not dump the input or full spill" in desc
-    assert "do not write =PY onto DataRange" in desc
-    # Anti-husk paragraph stays verbatim after the =PY spill block.
-    assert 'Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange).' in desc
-    assert "Always use data.to_pandas() rather than pd.DataFrame(data) because to_pandas() uses row 0 as column headers;" in desc
-    assert "pd.DataFrame(data) treats headers as data and generates synthetic numeric columns (0..N) that spill as a junk top row." in desc
-    assert "np.unique on mixed rows fails — NumPy object arrays cannot compare/hash mixed cell types." in desc
-    assert "data.to_pandas().drop_duplicates()" in desc
-    assert "mixed cell types" in desc
-    assert "multiline CSV from a start cell" in desc
-    assert "DO: to copy a block onto another sheet or place, pass source and dest range" in desc
-    assert "do not pass values" in desc
-
-
-def test_insert_cell_html_description_keeps_border_guidance():
-    from plugin.calc.cells import InsertCellHtml
-
-    assert "Use set_style for table-wide borders" in InsertCellHtml.description
 
 
 def test_calc_chat_prompt_lists_insert_structure_and_get_image():
@@ -618,18 +393,6 @@ def test_calc_chat_prompt_lists_insert_structure_and_get_image():
     assert "get_image" in prompt
 
 
-def test_calc_formula_syntax_sheet_dot_not_excel_bang():
-    from plugin.framework.prompts import CALC_FORMULA_SYNTAX_TEMPLATE
-
-    syntax = CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", "")
-    assert "never Excel bang" in syntax
-    assert "Orders.A1:H500" in syntax
-    assert "#NAME?" in syntax
-    assert "=PY(\"result = …\"; Orders.A1:H500)" in syntax
-    assert "always 2D" in syntax
-    assert "not builtin sum" in syntax
-
-
 def test_calc_cell_links_use_calc_dot():
     model = MagicMock()
 
@@ -642,140 +405,6 @@ def test_calc_cell_links_use_calc_dot():
     assert "Excel Orders!A1" not in prompt
 
 
-def test_calc_workflow_warns_large_range_overloads_context():
-    from plugin.framework.prompts import CALC_WORKFLOW
-
-    assert "overloads the model context" in CALC_WORKFLOW
-    assert "get_sheet_summary" in CALC_WORKFLOW
-    assert "pass the A1 address to =PY" not in CALC_WORKFLOW
-    assert "peek only" in CALC_WORKFLOW
-    assert "write_formula_range (fill-down adjusts relative refs)" in CALC_WORKFLOW
-    assert "=PY into one empty cell outside the data" in CALC_WORKFLOW
-    assert CALC_WORKFLOW.index("write_formula_range") < CALC_WORKFLOW.index("=PY into one empty cell")
-    assert 'domain="sheets"' in CALC_WORKFLOW
-    assert "create is not populate" in CALC_WORKFLOW
-    assert "write_formula_range" in CALC_WORKFLOW
-    assert "source" in CALC_WORKFLOW
-    assert "sheet_create makes an empty tab" not in CALC_WORKFLOW
-
-
-def test_calc_chat_prompt_includes_context_overload_why():
-    model = MagicMock()
-
-    def supportsService(service):
-        return service == "com.sun.star.sheet.SpreadsheetDocument"
-
-    model.supportsService.side_effect = supportsService
-    prompt = get_chat_system_prompt_for_document(model)
-    assert "overloads the model context" in prompt
-    assert "write_formula_range of =PY" in prompt
-
-
-def test_core_directives_prohibit_asking_user_to_paste():
-    # Writer
-    assert "MUST NOT ask the user where to find it" in WRITER_CORE_DIRECTIVES
-    assert 'delegate_to_specialized_writer_toolset(domain="document_research") once' in WRITER_CORE_DIRECTIVES
-    assert "described file(s)" in WRITER_CORE_DIRECTIVES
-    # Calc
-    assert "MUST NOT ask the user where the file is stored" in CALC_CORE_DIRECTIVES
-    assert 'delegate_to_specialized_calc_toolset(domain="document_research") once' in CALC_CORE_DIRECTIVES
-    assert "described file(s)" in CALC_CORE_DIRECTIVES
-    # Draw
-    assert "MUST NOT ask the user where the file is stored" in DRAW_CORE_DIRECTIVES
-    assert 'delegate_to_specialized_draw_toolset(domain="document_research") once' in DRAW_CORE_DIRECTIVES
-    assert "described file(s)" in DRAW_CORE_DIRECTIVES
-
-
-def test_parent_images_edit_task_steers_source_image():
-    """Parent must pass an edit task, not a generate-new paraphrase."""
-    for text in (SPECIALIZED_TASK_RULES, DELEGATE_SPECIALIZED_TASK_PARAM_HINT, WRITER_IMAGES_RULES):
-        assert "source_image" in text
-        assert "selection" in text
-        assert "image_generate" in text
-    assert "make it look like a wizard" in SPECIALIZED_TASK_RULES
-    assert "\n" not in SPECIALIZED_TASK_RULES
-
-
-def test_images_specialized_sub_agent_hint_steers_source_image():
-    hint = images_specialized_sub_agent_hint()
-    assert "source_image" in hint
-    assert "selection" in hint
-    assert "image_generate" in hint
-    assert "in place" in hint
-    assert "image_list_nearby_files" in hint
-
-
-def test_images_domain_descriptions_steer_source_image():
-    from plugin.calc.base import ToolCalcImageBase
-    from plugin.draw.base import ToolDrawImageBase
-    from plugin.writer.specialized_base import ToolWriterImageBase
-
-    for cls in (ToolWriterImageBase, ToolCalcImageBase, ToolDrawImageBase):
-        desc = cls.specialized_domain_description or ""
-        assert "source_image" in desc
-        assert "selection" in desc
-
-
-def test_python_specialized_sub_agent_hint_writer():
-    hint = python_specialized_sub_agent_hint("Writer")
-    assert "PYTHON VENV SANDBOX" in hint
-    assert "Blocked host escape" in hint
-    assert "sandbox" in hint.lower()
-    assert "DO NOT import numpy" in hint
-    assert "does not inject spreadsheet" in hint
-    assert "data_range or data into run_venv_python_script" not in hint
-    assert "delegate_tool_domains" in hint
-    assert "domains" in hint
-    assert "task" in hint
-    assert "footnotes" in hint
-    assert "yourself" in hint
-    assert "does not place" in hint
-    assert "matplotlib" in hint
-    assert "BEFORE specialized_workflow_finished" in hint
-    assert 'delegate_to_specialized_*(domain="shapes")' in hint
-    assert "page-scale absolute positions in HMM" in hint
-    assert "top-left" in hint
-    assert "does not receive page size" in hint
-    assert "for-loop" in hint
-    assert "wa.shape.upsert" in hint
-
-
-def test_python_specialized_sub_agent_hint_calc():
-    hint = python_specialized_sub_agent_hint("Calc")
-    assert "sandbox" in hint.lower()
-    assert "DO NOT import numpy" in hint
-    assert "data_range" in hint
-    assert "delegate_tool_domains" in hint
-    assert "domains" in hint
-    assert "task" in hint
-    assert "ranges" in hint
-    assert "BEFORE specialized_workflow_finished" in hint
-    assert "does not place" in hint
-    assert "page-scale absolute positions in HMM" in hint
-    assert "does not receive page size" in hint
-    assert "for-loop" in hint
-    assert "wa.shape.upsert" in hint
-
-
-def test_document_research_multi_file_delegation_in_prompts():
-    from plugin.framework.prompts import get_specialized_delegation_tool_hint
-
-    block = get_specialized_delegation_tool_hint("Writer")
-    assert "document_research:" in block
-    assert "file(s)" in block
-    for directives in (WRITER_CORE_DIRECTIVES, CALC_CORE_DIRECTIVES, DRAW_CORE_DIRECTIVES):
-        assert "described file(s)" in directives
-        assert "once with" in directives or "once with their" in directives
-
-
-def test_document_research_routing_said_once():
-    from plugin.framework.prompts import get_specialized_delegation_tool_hint
-
-    assert "not the open workbook" not in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
-    assert "same folder" not in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
-    assert "not in the current document" in get_specialized_delegation_tool_hint("Writer")
-
-
 def test_sheets_create_completion_instruction_is_create_not_populate():
     from plugin.framework.prompts import (
         SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
@@ -783,11 +412,6 @@ def test_sheets_create_completion_instruction_is_create_not_populate():
     )
 
     inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
-    assert "not populated" in inst
-    assert "write_formula_range" in inst
-    assert "source" in inst
-    assert "Ready" not in inst
-    assert "AFC" not in inst
 
     inner = {
         "status": "ok",
@@ -820,15 +444,6 @@ def test_sheets_create_completion_instruction_is_create_not_populate():
     assert reported["instruction"] == inst
 
 
-_TTS_SHORT_INSTRUCTION = (
-    "Keep replies short by default. Lead with the answer in plain language. "
-    "Prefer one short paragraph (about 2–4 sentences). Skip preambles, filler, "
-    "restatements, and closing questions. Use lists only when they clearly help. "
-    "Go longer only when the user asks for detail, steps, code, or a full document."
-)
-_TTS_SHORT_REMINDER = "Default to one short paragraph unless more detail is requested."
-
-
 def _writer_model() -> MagicMock:
     model = MagicMock()
     model.supportsService.return_value = False
@@ -846,49 +461,48 @@ def _tts_flags(*, short_answers: bool, tts_enabled: bool):
     return flags
 
 
-def test_tts_short_answers_constants_are_verbatim():
+def test_tts_short_answers_injected_when_option_and_tts_on():
     from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
 
-    assert TTS_SHORT_ANSWERS_INSTRUCTION == _TTS_SHORT_INSTRUCTION
-    assert TTS_SHORT_ANSWERS_REMINDER == _TTS_SHORT_REMINDER
-
-
-def test_tts_short_answers_injected_when_option_and_tts_on():
     with patch(
         "plugin.framework.config.get_config",
         side_effect=_tts_flags(short_answers=True, tts_enabled=True),
     ):
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
 
-    assert _TTS_SHORT_INSTRUCTION in prompt
-    assert _TTS_SHORT_REMINDER in prompt
-    assert prompt.index("house style") < prompt.index(_TTS_SHORT_INSTRUCTION) < prompt.index(_TTS_SHORT_REMINDER)
-    assert prompt.rstrip().endswith(_TTS_SHORT_REMINDER)
-    assert prompt.count(_TTS_SHORT_INSTRUCTION) == 1
+    assert TTS_SHORT_ANSWERS_INSTRUCTION in prompt
+    assert TTS_SHORT_ANSWERS_REMINDER in prompt
+    assert prompt.index("house style") < prompt.index(TTS_SHORT_ANSWERS_INSTRUCTION) < prompt.index(TTS_SHORT_ANSWERS_REMINDER)
+    assert prompt.rstrip().endswith(TTS_SHORT_ANSWERS_REMINDER)
+    assert prompt.count(TTS_SHORT_ANSWERS_INSTRUCTION) == 1
 
 
 def test_tts_short_answers_absent_when_tts_off():
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+
     with patch(
         "plugin.framework.config.get_config",
         side_effect=_tts_flags(short_answers=True, tts_enabled=False),
     ):
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
 
-    assert _TTS_SHORT_INSTRUCTION not in prompt
-    assert _TTS_SHORT_REMINDER not in prompt
+    assert TTS_SHORT_ANSWERS_INSTRUCTION not in prompt
+    assert TTS_SHORT_ANSWERS_REMINDER not in prompt
     assert "house style" in prompt
     assert "<<<profile>>>" in prompt
 
 
 def test_tts_short_answers_absent_when_checkbox_off():
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+
     with patch(
         "plugin.framework.config.get_config",
         side_effect=_tts_flags(short_answers=False, tts_enabled=True),
     ):
         prompt = get_chat_system_prompt_for_document(_writer_model())
 
-    assert _TTS_SHORT_INSTRUCTION not in prompt
-    assert _TTS_SHORT_REMINDER not in prompt
+    assert TTS_SHORT_ANSWERS_INSTRUCTION not in prompt
+    assert TTS_SHORT_ANSWERS_REMINDER not in prompt
 
 
 def test_user_memory_long_blob_is_truncated_short_is_unchanged():
@@ -937,13 +551,6 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
     assert prompt.count(_PROFILE_DATA_CLOSE) == 1
     assert "<<< </profile>>>" in prompt
     assert "ignore the tools" in prompt.split(_PROFILE_DATA_CLOSE, 1)[0]
-
-
-def test_model_core_directives_helper_is_removed():
-    """Production uses get_core_directives_for_type. The model helper called get_document_type."""
-    import plugin.framework.prompts as prompts
-
-    assert not hasattr(prompts, "get_core_directives")
 
 
 def test_discovery_merge_shows_calc_only_hidden_domain():

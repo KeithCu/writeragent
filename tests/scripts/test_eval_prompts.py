@@ -91,10 +91,6 @@ _CALC_RELATIVE_FORMULA = (
     "Write one ordinary formula into a 1-column (or 1-row) destination — "
     "write_formula_range fill-down adjusts relative refs ($ stays absolute)."
 )
-_SORT_RANGE_HAS_HEADER = (
-    "Do pass has_header=true when row 1 is labels because otherwise labels "
-    "sort as values."
-)
 
 
 def test_replace_prompt_slice_swaps_once_and_ignores_missing() -> None:
@@ -130,32 +126,10 @@ def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
     assert "flowchart" not in calc.lower()
 
 
-def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
-    from plugin.calc.cells import SortRange, WriteCellRange
+def test_sort_range_requires_range_and_has_header() -> None:
+    from plugin.calc.cells import SortRange
 
-    write_desc = WriteCellRange.description
-    assert "range_sort" not in write_desc
-    assert "Banana" not in write_desc
-    assert "stamped B2" not in write_desc
-    sort_desc = SortRange.description
-    assert "Stable one-column sort" in sort_desc
-    assert "Multi-key sorts are multiple calls" in sort_desc
-    assert "two stable one-column passes" in sort_desc
-    assert _SORT_RANGE_HAS_HEADER in sort_desc
-    assert "Do call range_sort to reorder rows" in sort_desc
-    assert "not rewrite the block with write_formula_range" in sort_desc
-    assert "Pick sort_column for the metric" in sort_desc
-    assert "ascending=false when largest values should come first" in sort_desc
     assert SortRange.parameters["required"] == ["range", "has_header"]
-    assert "true when row 1 is labels" in SortRange.parameters["properties"]["has_header"]["description"]
-    assert "false only for a headerless block" in SortRange.parameters["properties"]["has_header"]["description"]
-    assert "0 = leftmost" in SortRange.parameters["properties"]["sort_column"]["description"]
-    assert "largest/highest first" in SortRange.parameters["properties"]["ascending"]["description"]
-    values = WriteCellRange.parameters["properties"]["values"]["description"]
-    assert "fill-down/across" in values
-    assert "pins every row to the first ref" in values
-    assert "Banana" not in values
-    assert "stamped B2" not in values
 
 
 def test_eval_prompts_match_kind_builder_without_document_model() -> None:

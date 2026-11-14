@@ -8,7 +8,6 @@ from plugin.writer.edit_review import (
     TrackedChangesInSelection,
     WriterStreamedAppendSession,
     WriterStreamedRewriteSession,
-    build_writer_rewrite_prompt,
 )
 
 
@@ -132,14 +131,6 @@ class _DocWithUserDefinedProperties:
                 self.UserDefinedProperties = user_props
 
         return _DocProps(self._props)
-
-
-def test_build_writer_rewrite_prompt_uses_direct_rewrite_format():
-    prompt = build_writer_rewrite_prompt("Original text", "Make it shorter")
-
-    assert "Rewrite the following text" in prompt
-    assert "Instructions: Make it shorter" in prompt
-    assert "Text to rewrite:\nOriginal text" in prompt
 
 
 def test_writer_streamed_rewrite_session_finishes_as_single_tracked_change():

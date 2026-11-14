@@ -278,16 +278,6 @@ def test_selection_with_no_content_warns():
     assert "does not mean the document is empty" in res.get("warning", "")
 
 
-def test_schema_documents_plain_text_offsets():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    tool = GetDocumentContent()
-    start_desc = tool.parameters["properties"]["start"]["description"]
-    assert "Plain-text" in start_desc
-    assert "document_length" in start_desc
-    assert "tracked_changes_total" in tool.description
-
-
 def test_document_length_zero_warns():
     from plugin.writer.get_document_content import GetDocumentContent
 

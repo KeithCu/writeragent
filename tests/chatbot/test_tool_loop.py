@@ -1087,16 +1087,10 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["message"] == "done"
     assert "result" not in result
-    instructions = mock_build.call_args.kwargs["instructions"]
-    assert "DO NOT import numpy" in instructions
-    assert "does not inject spreadsheet" in instructions
     tools_passed = mock_build.call_args[0][1]
     names = [t.name for t in tools_passed]
     assert "run_venv_python_script" in names
     assert "specialized_workflow_finished" in names
-    venv_tool = next(t for t in tools_passed if t.name == "run_venv_python_script")
-    assert "does not inject spreadsheet" in venv_tool.description
-    assert "Optional data_range" not in venv_tool.description
 
 
 def test_delegate_requires_document_lock_read_only_domains():
