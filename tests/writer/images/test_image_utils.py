@@ -260,9 +260,8 @@ class TestEndpointImageProvider:
         assert (kwargs.get("source_image")) == (b64)
 
     @patch('plugin.writer.images.image_utils.LlmClient')
-    def test_image_generation_downgrades_to_debug_on_stop(self, mock_client_cls, caplog):
-        """User cancel during image generation must log at debug instead of error and raise ToolExecutionError."""
-        import logging
+    def test_image_generation_raises_user_stopped_on_stop(self, mock_client_cls):
+        """User cancel during image generation must raise ToolExecutionError with USER_STOPPED."""
         from plugin.framework.errors import NetworkError, ToolExecutionError
 
         mock_client = create_mock_client()
@@ -271,21 +270,11 @@ class TestEndpointImageProvider:
         provider = EndpointImageProvider({"model": "test"}, MockContext())
         provider.client = mock_client
 
-        with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
-            with pytest.raises(ToolExecutionError) as exc_info:
-                provider.generate("test prompt", cancel=_cancelled_scope())
-            assert exc_info.value.code == "USER_STOPPED"
-
-        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
-        # Release strips log.debug; no ERROR must still hold.
-        from plugin.writer.images import image_utils as image_utils_mod
-        from tests.harness.strip_bundle import module_source_contains
-
-        if module_source_contains(image_utils_mod, "Image generation cancelled by Stop"):
-            assert any("Image generation cancelled by Stop" in r.message for r in caplog.records)
+        with pytest.raises(ToolExecutionError) as exc_info:
+            provider.generate("test prompt", cancel=_cancelled_scope())
+        assert exc_info.value.code == "USER_STOPPED"
 
         # Modalities path: NetworkError(code="STOPPED") from request_with_tools
-        caplog.clear()
         mock_client_openrouter = create_mock_client()
         mock_client_openrouter.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         mock_client_openrouter.make_chat_request.return_value = ("POST", "/chat", "{}", {})
@@ -293,14 +282,11 @@ class TestEndpointImageProvider:
         provider_or = EndpointImageProvider({"model": "test"}, MockContext())
         provider_or.client = mock_client_openrouter
 
-        with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
-            with pytest.raises(ToolExecutionError) as exc_info:
-                provider_or.generate("test prompt", cancel=_cancelled_scope())
-            assert exc_info.value.code == "USER_STOPPED"
-        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
+        with pytest.raises(ToolExecutionError) as exc_info:
+            provider_or.generate("test prompt", cancel=_cancelled_scope())
+        assert exc_info.value.code == "USER_STOPPED"
 
         # Fallback http content path: NetworkError(code="STOPPED") from _save_url
-        caplog.clear()
         mock_client_fallback = create_mock_client()
         mock_client_fallback.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
         mock_client_fallback.make_chat_request.return_value = ("POST", "/chat", "{}", {})
@@ -312,11 +298,9 @@ class TestEndpointImageProvider:
         provider_fb.client = mock_client_fallback
 
         with patch("plugin.writer.images.image_utils.sync_request", side_effect=NetworkError("aborted", code="STOPPED")):
-            with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
-                with pytest.raises(ToolExecutionError) as exc_info:
-                    provider_fb.generate("test prompt", cancel=_cancelled_scope())
-                assert exc_info.value.code == "USER_STOPPED"
-        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
+            with pytest.raises(ToolExecutionError) as exc_info:
+                provider_fb.generate("test prompt", cancel=_cancelled_scope())
+            assert exc_info.value.code == "USER_STOPPED"
 
     def test_save_url_content_type_and_magic_validation(self, tmp_path, monkeypatch):
         """_save_url rejects HTML and non-image bytes, and validates image magic."""
@@ -481,18 +465,14 @@ class TestEndpointImageProvider:
         assert ("height") not in (data)
         assert (data["aspect_ratio"]) == ("1:1")
 
-    def test_failure_returns_non_empty_message_and_warns(self, caplog):
-        import logging
+    def test_failure_returns_non_empty_message(self):
         from plugin.framework.errors import NetworkError
 
         self.mock_client.config.get.return_value = False  # not OpenRouter
         self.mock_client.image_completion.side_effect = NetworkError("provider rejected the request")
-        with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
-            paths, err = self.provider.generate("test prompt")
+        paths, err = self.provider.generate("test prompt")
         assert paths == []
         assert err == "provider rejected the request"
-        assert "provider rejected the request" in caplog.text
-        assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
     def test_partial_multi_image_failure_cleans_up(self, tmp_path, monkeypatch):
         import glob

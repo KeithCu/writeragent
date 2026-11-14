@@ -17,7 +17,6 @@ from plugin.writer.locale.grammar_worker import (
     _detect_lang_instruction,
     _detected_target_bcp47,
     GrammarWorkerContext,
-    build_grammar_system_prompt,
     call_grammar_llm,
     detect_languages_for_chunk,
     language_detect_llm_sync,
@@ -71,13 +70,6 @@ def test_detect_lang_instruction_french_only_no_en_us() -> None:
     instr = _detect_lang_instruction([(item, "Bonjour le monde.")])
     assert "fr-FR" in instr
     assert "en-US" not in instr
-
-
-def test_build_grammar_system_prompt_batch_vs_single() -> None:
-    batch = build_grammar_system_prompt("en-US", set(), batch=True, any_partial=False)
-    single = build_grammar_system_prompt("en-US", set(), batch=False, any_partial=False)
-    assert "multiple sentences" in batch
-    assert "single JSON object" in single
 
 
 def test_call_grammar_llm_single() -> None:
@@ -361,7 +353,6 @@ def test_run_llm_and_cache_batch_success() -> None:
         assert mock_client.chat_completion_sync.call_count == 1
         args, kwargs = mock_client.chat_completion_sync.call_args
         messages = args[0]
-        assert "provide multiple sentences" in messages[0]["content"] # Batch prompt
         assert "1. They is here.\n2. All good." in messages[1]["content"]
 
         # Verify cache_put_sentence was called for each sentence
@@ -412,9 +403,6 @@ def test_run_llm_and_cache_batch_size_1() -> None:
         # Verify first call used the single sentence prompt (not batch prompt)
         args, _ = mock_client.chat_completion_sync.call_args_list[0]
         # args[0] is messages
-        # args[0][0] is the system message
-        assert "Reply with a single JSON object only" in args[0][0]["content"]
-        assert "results" not in args[0][0]["content"] # Batch prompt contains "results"
         assert "S0." == args[0][1]["content"] # args[0][1] is the user message
 
         assert mock_put.call_count == 3

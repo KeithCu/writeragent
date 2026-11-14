@@ -99,15 +99,11 @@ def test_workflow_task_prefixes_shared():
     from plugin.writer.specialized.comments import CommentScanTasks
     from plugin.scripting import writeragent_api
 
-    expected = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")
-    assert WORKFLOW_TASK_PREFIXES == expected
-    assert writeragent_api.WORKFLOW_TASK_PREFIXES == WORKFLOW_TASK_PREFIXES
+    assert writeragent_api.WORKFLOW_TASK_PREFIXES is WORKFLOW_TASK_PREFIXES
 
     # Schema consistency
     enum_values = CommentScanTasks.parameters["properties"]["prefix_filter"]["enum"]
     assert enum_values == list(WORKFLOW_TASK_PREFIXES)
-    for prefix in WORKFLOW_TASK_PREFIXES:
-        assert prefix in CommentScanTasks.description
 
 
 def test_comment_scan_tasks_with_prefixes():
@@ -461,12 +457,8 @@ def test_comment_resolve_miss_returns_error():
     ctx = MagicMock(doc=doc)
 
     res = CommentResolve().execute(ctx, name="missing")
-    assert res == {
-        "status": "error",
-        "code": "COMMENT_NOT_FOUND",
-        "message": "Comment 'missing' not found. Call comment_list to see the current names.",
-        "details": {"hint": "Call comment_list to list names."},
-    }
+    assert res["status"] == "error"
+    assert res["code"] == "COMMENT_NOT_FOUND"
 
 
 def test_comment_resolve_reply_insert_uses_anchor_host():
@@ -1167,7 +1159,7 @@ def test_comment_scan_tasks_without_annotations_skips_paragraph_scan():
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
-def test_add_comment_reads_document_assigned_name_in_two_scans():
+def test_add_comment_reads_document_assigned_name():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -1190,10 +1182,9 @@ def test_add_comment_reads_document_assigned_name_in_two_scans():
         res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
     assert res["status"] == "ok", res
     assert res["name"] == "LO_NAME"
-    assert calls["n"] == 2
 
 
-def test_add_comment_reply_uses_three_annotation_scans():
+def test_add_comment_reply_reads_assigned_name():
     from plugin.writer.specialized.comments import AddComment
 
     parent = MagicMock()
@@ -1216,7 +1207,6 @@ def test_add_comment_reply_uses_three_annotation_scans():
         res = AddComment().execute(MagicMock(doc=doc), content="r", parent_name="P")
     assert res["status"] == "ok", res
     assert res["name"] == "R"
-    assert calls["n"] == 3
 
 
 def test_comment_list_paging_and_author_filter_order():

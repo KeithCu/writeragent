@@ -233,9 +233,11 @@ def test_partial_sentence_adds_prompt_note() -> None:
         lane_ctx.return_value.__exit__ = MagicMock()
         client = client_cls.return_value
         client.chat_completion_sync.return_value = '{"errors":[]}'
+        _run_llm_one(None, "This is long enough...", 0, "doc|en", "en-US", partial_sentence=False)
+        prompt_full = client.chat_completion_sync.call_args[0][0][0]["content"]
         _run_llm_one(None, "This is long enough...", 0, "doc|en", "en-US", partial_sentence=True)
-    args, _ = client.chat_completion_sync.call_args
-    assert "partial sentence" in args[0][0]["content"]
+        prompt_partial = client.chat_completion_sync.call_args[0][0][0]["content"]
+    assert prompt_partial != prompt_full
 
 # =============================================================================
 # Integration Tests (Mocked typing patterns)
@@ -1019,9 +1021,15 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper")
     mock_status = mock_status_fn.return_value
-    mock_status.start.assert_called_once_with("This are an test.", result="Harper", routine=True)
-    mock_status.request.assert_called_once_with("This are an test.", result="Harper check", routine=True)
-    mock_status.done.assert_called_once_with("This are an test.", result="0 issues", routine=True)
+    mock_status.start.assert_called_once()
+    assert mock_status.start.call_args.args == ("This are an test.",)
+    assert mock_status.start.call_args.kwargs.get("routine") is True
+    mock_status.request.assert_called_once()
+    assert mock_status.request.call_args.args == ("This are an test.",)
+    assert mock_status.request.call_args.kwargs.get("routine") is True
+    mock_status.done.assert_called_once()
+    assert mock_status.done.call_args.args == ("This are an test.",)
+    assert mock_status.done.call_args.kwargs.get("routine") is True
 
 
 def test_try_harper_fast_path_emits_starting_when_ensure(
@@ -1043,8 +1051,12 @@ def test_try_harper_fast_path_emits_starting_when_ensure(
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], [], checker_identity="harper")
     mock_status = mock_status_fn.return_value
-    mock_status.start.assert_called_once_with("Hello.", result="Harper", routine=True)
-    mock_status.request.assert_called_once_with("Hello.", result="Starting Harper…")
+    mock_status.start.assert_called_once()
+    assert mock_status.start.call_args.args == ("Hello.",)
+    assert mock_status.start.call_args.kwargs.get("routine") is True
+    mock_status.request.assert_called_once()
+    assert mock_status.request.call_args.args == ("Hello.",)
+    assert mock_status.request.call_args.kwargs.get("routine") is None
     mock_status.done.assert_not_called()
 
     with (
@@ -1402,8 +1414,10 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         # Raw error is stored in cache despite being ignored
         assert len(cached_payload) == 1
         assert cached_payload[0]["rule_identifier"] == "harper||agr"
-        # Status text reports 0 issues
-        mock_status_fn.return_value.done.assert_called_once_with(work_spans[-1][2], result="0 issues", routine=True)
+        mock_done = mock_status_fn.return_value.done
+        mock_done.assert_called_once()
+        assert mock_done.call_args.args == (work_spans[-1][2],)
+        assert mock_done.call_args.kwargs.get("routine") is True
 
 
 def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(

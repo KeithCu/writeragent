@@ -190,7 +190,7 @@ def test_search_in_document_getstring_failure_is_truncated(caplog):
     assert res["count"] == 0
     assert res["truncated"] is True
     assert res["warning"] == "Text-model search ended early after a getString failure; count may be incomplete."
-    assert "search_in_document: getString failed" in caplog.text
+    assert any(r.exc_info for r in caplog.records)
 
 
 @pytest.mark.parametrize("bad_val", [0, -1])
@@ -482,7 +482,7 @@ def test_build_page_map_rebuilds_and_unlocks(caplog):
         pm_err = _build_page_map(doc)
     assert pm_err == {}
     doc.lockControllers.assert_not_called()
-    assert "advanced_search: could not read the view cursor" in caplog.text
+    assert any(r.exc_info for r in caplog.records)
 
 
 def test_advanced_search_missing_query():

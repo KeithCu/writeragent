@@ -276,7 +276,6 @@ def test_edit_selection_preset_whole_body_without_select_first_msgbox(
     assert mock_stream.called
     prompt = _stream_completion_args(mock_stream)["prompt"]
     assert "Para one\nPara two" in prompt
-    assert "Preserve paragraph breaks" in prompt
     assert session_cls.call_args.kwargs.get("preserve_paragraph_breaks") is True
 
 

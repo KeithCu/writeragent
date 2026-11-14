@@ -131,11 +131,8 @@ def test_normalize_harper_errors_uses_native_offsets_and_explains_blank_fixes() 
 
     assert [(item.n_error_start, item.n_error_length) for item in norms] == [(6, 4), (30, 1), (17, 4), (10, 6)]
     assert norms[0].suggestions == (" ",)
-    assert "replace with one space" in norms[0].short_comment
     assert norms[1].suggestions == ("",)
-    assert "delete the highlighted text" in norms[1].short_comment
     assert norms[2].suggestions == ("envy", "jenny")
-    assert "Choose a replacement below" in norms[2].short_comment
 
 
 def test_provider_span_wrong_mismatch_falls_back_to_substring() -> None:

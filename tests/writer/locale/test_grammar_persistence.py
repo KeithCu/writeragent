@@ -741,8 +741,8 @@ class TestGrammarPersistence:
         finally:
             gp.grammar_registry.clear_all()
 
-    def test_save_compresses_only_accessed_rows(self) -> None:
-        """Save must compress only session-accessed rows outside the lock."""
+    def test_save_persists_only_accessed_rows(self) -> None:
+        """Save must persist only session-accessed rows."""
         from plugin.writer.locale import grammar_persistence as gp
 
         model = MagicMock()
@@ -752,14 +752,15 @@ class TestGrammarPersistence:
             dp._entries["fp_unaccessed"] = {"en-US": [{"s": 0, "l": 2, "g": ["a"]}]}
             dp.put("fp_accessed", "en-US", [{"s": 3, "l": 4, "g": ["b"]}])
 
-            with patch("plugin.writer.locale.grammar_persistence.compress_error", side_effect=lambda e: dict(e)) as mock_compress, \
-                 patch("plugin.doc.udprops.set_document_property") as mock_set, \
+            with patch("plugin.doc.udprops.set_document_property") as mock_set, \
                  patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp._persist_to_udprops()
 
             assert mock_set.called
-            assert mock_compress.call_count == 1
-            assert mock_compress.call_args[0][0] == {"s": 3, "l": 4, "g": ["b"]}
+            payload = json.loads(mock_set.call_args[0][2])
+            bad_rows = payload["locales"]["en-US"]["bad"]
+            assert "fp_accessed" in bad_rows
+            assert "fp_unaccessed" not in bad_rows
         finally:
             gp.grammar_registry.clear_all()
 

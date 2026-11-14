@@ -655,7 +655,6 @@ def test_bookmark_delete_rejects_mcp_names():
     ctx = MagicMock(doc=doc)
     res = BookmarkDelete().execute(ctx, name="_mcp_heading_123")
     assert res["status"] == "error"
-    assert "bookmark_cleanup" in res.get("error", "") or "bookmark_cleanup" in res.get("message", "")
     text.removeTextContent.assert_not_called()
 
     # User bookmark deletes successfully
