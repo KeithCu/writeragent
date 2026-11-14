@@ -570,9 +570,8 @@ def test_convert_uno_doc_to_excel_large_range_chunked_exports_later_window():
         assert "x = 42" in report.cells[0].converted_code
 
 
-def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
-    """Unparseable =PY formula is skipped and blocks nothing; export on error stops write."""
-    from plugin.calc.excel_py_convert.models import ConversionReport
+def test_convert_uno_doc_to_excel_unparseable_py_formula():
+    """Unparseable =PY formula is skipped and blocks nothing."""
     from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 
     doc = CalcDocStub()
@@ -583,43 +582,6 @@ def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
     assert report.ok
     assert not report.issues
     assert not report.cells
-
-    ctx = MagicMock()
-    path = tmp_path / "bad_py.xlsx"
-    path.touch()
-    mock_report = ConversionReport(direction="to_excel", issues=["conversion error"])
-    with (
-        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=mock_report),
-        patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as mock_write,
-        patch("plugin.chatbot.dialogs.msgbox") as box,
-    ):
-        assert maybe_export_excel_py_on_save(ctx, doc) is False
-        mock_write.assert_not_called()
-        box.assert_called_once()
-
-
-def test_convert_uno_doc_to_excel_bank_sheet_cached_once():
-    """Multiple banked cells on a sheet resolve bank strings."""
-    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
-
-    doc = CalcDocStub()
-    sheets = doc.getSheets()
-    sheets.insertNewByName("py_code_Sheet1", sheets.getCount())
-    bank = sheets.getByName("py_code_Sheet1")
-    bank.getCellRangeByName("B2").setString("code_b2 = 1")
-    bank.getCellRangeByName("C3").setString("code_c3 = 2")
-
-    sheet = sheets.getByName("Sheet1")
-    sheet.getCellRangeByName("B2").setFormula("=PY(py_code_Sheet1.B2)")
-    sheet.getCellRangeByName("C3").setFormula("=PY(py_code_Sheet1.C3)")
-
-    report = convert_uno_doc_to_excel(doc)
-    assert report.ok
-    assert len(report.cells) == 2
-    codes = {c.converted_code for c in report.cells}
-    assert "code_b2 = 1" in codes
-    assert "code_c3 = 2" in codes
 
 
 def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):

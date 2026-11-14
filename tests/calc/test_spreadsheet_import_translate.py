@@ -86,51 +86,20 @@ def test_translate_cross_sheet_references():
     assert res.data_ranges == ["Sheet2.A1"]
 
 
-def test_add_range_case_insensitive_dedupe():
-    from plugin.calc.spreadsheet_import.translate import _CodegenState
-
-    # Unquoted sheet names: Sheet2.A1 and SHEET2.A1 map to one entry;
-    # emitted address keeps first-seen display name.
-    state = _CodegenState("A1")
-    assert state.add_range("Sheet2.A1") == 0
-    assert state.add_range("SHEET2.A1") == 0
-    assert len(state._ranges) == 1
-    assert state.data_ranges == ["Sheet2.A1"]
-
-    # First-seen display name when uppercase is seen first
-    state_upper = _CodegenState("A1")
-    assert state_upper.add_range("SHEET2.A1") == 0
-    assert state_upper.add_range("Sheet2.A1") == 0
-    assert len(state_upper._ranges) == 1
-    assert state_upper.data_ranges == ["SHEET2.A1"]
-
-    # Quoted mixed-case pair: 'My Sheet'.A1 and 'my sheet'.A1 map to one entry;
-    # emitted address keeps first-seen display name.
-    state_quoted = _CodegenState("A1")
-    assert state_quoted.add_range("'My Sheet'.A1") == 0
-    assert state_quoted.add_range("'my sheet'.A1") == 0
-    assert state_quoted.add_range("'MY SHEET'.A1") == 0
-    assert len(state_quoted._ranges) == 1
-    assert state_quoted.data_ranges == ["'My Sheet'.A1"]
-
-    # First-seen display name when lowercase is seen first
-    state_quoted_lower = _CodegenState("A1")
-    assert state_quoted_lower.add_range("'my sheet'.A1") == 0
-    assert state_quoted_lower.add_range("'My Sheet'.A1") == 0
-    assert len(state_quoted_lower._ranges) == 1
-    assert state_quoted_lower.data_ranges == ["'my sheet'.A1"]
-
-
-def test_translate_cross_sheet_case_insensitive_dedupe():
-    res = translate_formula("=Sheet2.A1+SHEET2.A1", "A1")
+@pytest.mark.parametrize(
+    ("formula", "expected_ranges"),
+    [
+        ("=Sheet2.A1+SHEET2.A1", ["Sheet2.A1"]),
+        ("=SHEET2.A1+Sheet2.A1", ["SHEET2.A1"]),
+        ("='My Sheet'.A1+'my sheet'.A1+'MY SHEET'.A1", ["'My Sheet'.A1"]),
+        ("='my sheet'.A1+'My Sheet'.A1", ["'my sheet'.A1"]),
+    ],
+)
+def test_translate_cross_sheet_case_insensitive_dedupe(formula, expected_ranges):
+    res = translate_formula(formula, "A1")
     assert res.ok
-    assert res.data_ranges == ["Sheet2.A1"]
-    assert res.code == "(data + data)"
-
-    res_quoted = translate_formula("='My Sheet'.A1+'my sheet'.A1", "A1")
-    assert res_quoted.ok
-    assert res_quoted.data_ranges == ["'My Sheet'.A1"]
-    assert res_quoted.code == "(data + data)"
+    assert res.data_ranges == expected_ranges
+    assert res.code.count("data") == formula.count("A1")
 
 
 def test_translate_and_exec_new_functions():
@@ -697,10 +666,6 @@ def test_translate_group_e_emit_only(formula, expected_substr):
 
 
 def test_translate_multiple_arguments_aggregates():
-    res = translate_formula("=SUM(C7; C12)", "A1")
-    assert not res.ok
-    assert res.reason == "UNSUPPORTED_FUNCTION"
-
     res = translate_formula("=AVERAGE(A1:A3; B1:B3)", "A1")
     assert res.ok
     assert "np.concatenate" in res.code

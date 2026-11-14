@@ -13,6 +13,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.error_detector import (
     ErrorDetector,
     is_calc_error_display,
@@ -187,27 +189,22 @@ def test_explain_error_reads_the_named_sheet():
     inspector.read_cell.assert_called_once_with("Sheet2.B1")
 
 
-def test_detect_and_explain_caps_explanations():
+@pytest.mark.parametrize(
+    ("total", "expected_count", "expected_truncated"),
+    [
+        (51, 50, True),
+        (2, 2, False),
+    ],
+)
+def test_detect_and_explain_truncation_cap(total, expected_count, expected_truncated):
     detector = ErrorDetector(MagicMock(), MagicMock())
-    detector.detect_errors = MagicMock(return_value=[{"address": f"A{i + 1}", "formula": "", "error": {}} for i in range(51)])
+    detector.detect_errors = MagicMock(return_value=[{"address": f"A{i + 1}", "formula": "", "error": {}} for i in range(total)])
     detector.explain_error = MagicMock(side_effect=lambda address: {"address": address})
 
-    res = detector.detect_and_explain("A1:A51")
-    assert res["total_error_count"] == 51
-    assert res["error_count"] == 50
-    assert res["truncated"] is True
-    assert len(res["errors"]) == 50
-
-
-def test_detect_and_explain_uncapped():
-    detector = ErrorDetector(MagicMock(), MagicMock())
-    detector.detect_errors = MagicMock(return_value=[{"address": f"A{i + 1}", "formula": "", "error": {}} for i in range(2)])
-    detector.explain_error = MagicMock(side_effect=lambda address: {"address": address})
-
-    res = detector.detect_and_explain("A1:A2")
-    assert res["total_error_count"] == 2
-    assert res["error_count"] == 2
-    assert res["truncated"] is False
-    assert len(res["errors"]) == 2
+    res = detector.detect_and_explain(f"A1:A{total}")
+    assert res["total_error_count"] == total
+    assert res["error_count"] == expected_count
+    assert res["truncated"] is expected_truncated
+    assert len(res["errors"]) == expected_count
 
 
