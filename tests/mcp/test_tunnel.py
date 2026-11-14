@@ -245,6 +245,7 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
 
         assert mgr.start(18765, "cloudflare", provider_token="cf-tok") is True
         assert started_envs[1].get("TUNNEL_TOKEN") == "cf-tok"
+        assert "cf-tok" not in started_cmds[1]
 
         assert mgr.start(18765, "bore", provider_token="relay.example sec") is True
         assert started_envs[2].get("BORE_SECRET") == "sec"

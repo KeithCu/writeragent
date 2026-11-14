@@ -1420,6 +1420,18 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
         worker.kill()
 
 
+def test_stderr_drain_name_uses_worker_name() -> None:
+    """The drain thread names the pool, or falls back to a generic prefix when slugless."""
+    from plugin.framework.process_worker import BaseProcessWorker
+
+    for name, worker_id, expected in (
+        ("Kokoro", 1, "wa-kokoro-w1-stderr"),
+        ("---", 3, "wa-worker-w3-stderr"),
+    ):
+        worker = BaseProcessWorker(worker_id, "unused.py", worker_name=name, start=False)
+        assert worker._drain_name() == expected
+
+
 def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
     """Startup that overruns the deadline kills the child and does not read a frame.
 
@@ -1557,6 +1569,29 @@ def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch
     assert len(info_records) == 1
     assert not any(record.levelno >= logging.ERROR for record in caplog.records)
     assert worker.process is None
+
+
+def test_run_compute_worker_sets_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compute children mark themselves as workers so host tool calls are refused."""
+    import os
+
+    from compute_service.worker_stdio import run_compute_worker
+
+    seen: dict[str, str | None] = {}
+
+    def _loop(handler: object, *, max_payload_bytes: int = 0) -> int:
+        del handler, max_payload_bytes
+        seen["is_worker"] = os.environ.get("WRITERAGENT_IS_WORKER")
+        seen["compute"] = os.environ.get("WRITERAGENT_COMPUTE_WORKER")
+        return 0
+
+    monkeypatch.setattr("compute_service.worker_stdio.run_worker_stdio_loop", _loop)
+    monkeypatch.delenv("WRITERAGENT_IS_WORKER", raising=False)
+    monkeypatch.delenv("WRITERAGENT_COMPUTE_WORKER", raising=False)
+
+    assert run_compute_worker(lambda _req: {"status": "ok"}) == 0
+    assert seen["is_worker"] == "1"
+    assert seen["compute"] == "1"
 
 
 def test_configure_compute_worker_env_preserves_overrides(monkeypatch: pytest.MonkeyPatch) -> None:

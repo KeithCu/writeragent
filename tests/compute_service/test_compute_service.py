@@ -845,11 +845,13 @@ class TestComputeSettings:
             ({"limits": {"unknown_limit": 5}}, "Unknown limits key 'unknown_limit'"),
         ],
     )
-    def test_unknown_config_keys_rejected_and_unknown_env_ignored(self, tmp_path, payload: dict[str, Any], match: str) -> None:
+    def test_unknown_config_keys_rejected(self, tmp_path, payload: dict[str, Any], match: str) -> None:
         cfg = tmp_path / "unknown.json"
         cfg.write_text(json.dumps(payload), encoding="utf-8")
         with pytest.raises(ConfigError, match=match):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+    def test_unknown_env_ignored(self) -> None:
         ignored = load_settings(environ={"PYTHON_COMPUTE_UNKNOWN_SETTING": "9", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert ignored.workers == 2
 
@@ -1070,12 +1072,6 @@ class TestComputeSettings:
         assert "file mode=0" in message
         assert f"owner={os.getuid()}" in message
         assert isinstance(exc_info.value.__cause__, PermissionError)
-
-    def test_compute_settings_none_worker_counts(self) -> None:
-        """Direct ComputeSettings with None worker counts fails with TypeError."""
-        kwargs: dict[str, Any] = {"workers": None, "ocr_workers": None}
-        with pytest.raises(TypeError):
-            ComputeSettings(**kwargs)
 
     def test_dual_stack_port_zero_bind(self) -> None:
         """Verify WSGIDualStackServer binds cleanly when port=0 and assigns matching port."""

@@ -22,6 +22,7 @@ import tempfile
 from unittest.mock import MagicMock
 
 from plugin.draw.shape_clone import (
+    SHAPE_CLONE_PROPS,
     ClonedShape,
     clone_shape,
 )
@@ -369,6 +370,9 @@ def test_copy_page_notes_skips_non_dispose_exceptions() -> None:
 
 # --- migrated from test_uno_shape_postprocess.py ---
 
+# hidden-document pool items; assigning one and closing the source aborts soffice
+_POOL_ITEM_PROPS = ("Graphic", "GraphicURL", "FillBitmap", "Background")
+
 
 class _ScFakeShape:
     def __init__(self, shape_type: str, props: dict[str, Any] | None = None, text: str = "") -> None:
@@ -425,6 +429,13 @@ class _ScFakePage:
 
     def remove(self, shape: Any) -> None:
         self.shapes.remove(shape)
+
+
+def test_copy_props_omit_hidden_pool_items():
+    for name in _POOL_ITEM_PROPS:
+        assert name not in SHAPE_CLONE_PROPS
+    assert "FillGradient" not in SHAPE_CLONE_PROPS
+    assert "FillHatch" not in SHAPE_CLONE_PROPS
 
 
 def test_graphic_clone_reimports_pixels_instead_of_aliasing_source_pool(monkeypatch):

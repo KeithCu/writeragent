@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-
 from plugin.librepy.python_sidebar import (
     _CALC_ONLY_IDS,
     _CONTROL_IDS,
