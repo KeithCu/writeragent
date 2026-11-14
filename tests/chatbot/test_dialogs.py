@@ -17,11 +17,6 @@ class MockXControlContainer:
 class MockXItemListener:
     pass
 
-setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
-setattr(sys.modules["com.sun.star.awt"], "XControlContainer", MockXControlContainer)
-setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener)
-setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable)
-
 
 # Important: We need to mock `_` inside `plugin.chatbot.dialogs` directly,
 # since it uses `from plugin.framework.i18n import _` inside some functions.
