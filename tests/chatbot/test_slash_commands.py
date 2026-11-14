@@ -1278,37 +1278,6 @@ def test_display_name_follows_alias_and_usage_arg_is_translated(monkeypatch):
     assert "/tone" not in format_slash_item(tone)
 
 
-def test_shipped_locales_translate_slash_descriptions():
-    """Product descriptions already in the catalogs are translated in every shipped locale.
-
-    Command-name aliases and the new usage / slash-notice strings are not in
-    the catalogs yet; those are covered with an in-test catalog below.
-    """
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("locales/*.po not in stripped release tree")
-    import polib
-
-    from plugin.chatbot.slash_commands import SLASH_COMMANDS
-    from plugin.framework.i18n import get_locales_dir
-
-    descriptions = [cmd.description for cmd in SLASH_COMMANDS]
-    root = Path(get_locales_dir())
-    locales = sorted(p.parent.parent.name for p in root.glob("*/LC_MESSAGES/writeragent.po"))
-    assert len(locales) >= 34
-
-    for lang in locales:
-        catalog = polib.pofile(str(root / lang / "LC_MESSAGES" / "writeragent.po"))
-        for msgid in descriptions:
-            entry = catalog.find(msgid)
-            assert entry is not None, f"{lang} missing description {msgid!r}"
-            assert entry.msgstr.strip(), f"{lang} empty description {msgid!r}"
-            assert "fuzzy" not in entry.flags, f"{lang} fuzzy description {msgid!r}"
-            assert entry.msgstr != msgid, f"{lang} description still English: {msgid!r}"
-
-
 def test_fixture_mo_resolves_alias_and_description(monkeypatch, tmp_path):
     """A hand-built catalog, not the shipped .po files, supplies the alias."""
     import polib

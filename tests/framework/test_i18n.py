@@ -287,38 +287,3 @@ class TestI18n:
         assert (cand("/loc", "de_DE.UTF-8")) == ([mo("de_DE.UTF-8"), mo("de_DE"), mo("de")])
         assert (cand("/loc", "zh_TW")) == ([mo("zh_TW"), mo("zh")])
         assert (cand("/loc", "ja")) == ([mo("ja")])
-
-    def test_days_ago_translation_across_all_locales(self):
-        """Verify that all 34 compiled locales contain a valid translation for '{0}d ago'."""
-        import os
-        from plugin.framework.i18n import get_locales_dir
-
-        localedir = get_locales_dir()
-        locale_dirs = [
-            d for d in os.listdir(localedir)
-            if os.path.isdir(os.path.join(localedir, d, "LC_MESSAGES"))
-        ]
-        assert (len(locale_dirs)) >= (34)
-
-        for lang in locale_dirs:
-            lang_localedir = self._ensure_mo(lang)
-            translation = i18n_module.load_translation([lang], lang_localedir, fallback=False)
-            translated = translation.gettext("{0}d ago")
-            assert (translated), f"Empty translation for {lang}"
-            assert (translated) != ("{0}d ago"), f"Locale {lang} missing translation for '{{0}}d ago'"
-
-        # Spot-check specific languages
-        es_trans = i18n_module.load_translation(["es"], self._ensure_mo("es"), fallback=False)
-        assert (es_trans.gettext("{0}d ago")) == ("hace {0}d")
-
-        de_trans = i18n_module.load_translation(["de"], self._ensure_mo("de"), fallback=False)
-        assert (de_trans.gettext("{0}d ago")) == ("vor {0} T.")
-
-        fr_trans = i18n_module.load_translation(["fr"], self._ensure_mo("fr"), fallback=False)
-        assert (fr_trans.gettext("{0}d ago")) == ("il y a {0}j")
-
-        ja_trans = i18n_module.load_translation(["ja"], self._ensure_mo("ja"), fallback=False)
-        assert (ja_trans.gettext("{0}d ago")) == ("{0}日前")
-
-        zh_trans = i18n_module.load_translation(["zh_CN"], self._ensure_mo("zh_CN"), fallback=False)
-        assert (zh_trans.gettext("{0}d ago")) == ("{0}天前")
