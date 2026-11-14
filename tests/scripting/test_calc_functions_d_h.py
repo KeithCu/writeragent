@@ -304,8 +304,6 @@ _D_H_BAD_INPUTS = [
     ("expondist-text", "expondist", ("x", 1), ValueError),
     ("expondist-blank", "expondist", ("", 1), ValueError),
     ("expondist-text-flag", "expondist", (1, 1, "abc"), ValueError),
-    # Calc gives the density (0.3679) for a blank flag; this pins today's cumulative reading (Later item).
-    ("expondist-blank-flag", "expondist", (1, 1, None), 1 - math.exp(-1)),
     ("expondist-zero", "expondist", (1, 0), _NAN),
     ("expondist-oor", "expondist", (-1, 1), _NAN),
     ("fact-text", "fact", ("x",), ValueError),

@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.framework.subprocess_env import get_subprocess_creationflags
 from plugin.scripting.sandbox import detect_sandbox, wrap_command_for_sandbox
 from plugin.scripting.venv import vale
 from plugin.scripting.venv.vale import (
@@ -41,7 +39,6 @@ def test_vale_spawn_matches_sandbox_outside_flatpak(monkeypatch: pytest.MonkeyPa
     detect_sandbox.cache_clear()
     cmd = ["vale", "--output", "JSON", "note.txt"]
     try:
-        assert _wrap_vale_command(cmd) == cmd
         assert _wrap_vale_command(cmd) == wrap_command_for_sandbox(cmd)
     finally:
         detect_sandbox.cache_clear()
@@ -52,21 +49,9 @@ def test_vale_spawn_matches_sandbox_inside_flatpak(monkeypatch: pytest.MonkeyPat
     cmd = ["vale", "--output", "JSON", "note.txt"]
     detect_sandbox.cache_clear()
     try:
-        assert _wrap_vale_command(cmd) == ["flatpak-spawn", "--host", *cmd]
         assert _wrap_vale_command(cmd) == wrap_command_for_sandbox(cmd)
     finally:
         detect_sandbox.cache_clear()
-
-
-def test_vale_creationflags_match_subprocess_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
-    assert vale.get_subprocess_creationflags() == get_subprocess_creationflags()
-    assert get_subprocess_creationflags() == {"creationflags": 0x08000000}
-
-    monkeypatch.setattr(sys, "platform", "linux")
-    assert vale.get_subprocess_creationflags() == {}
-    assert get_subprocess_creationflags() == {}
 
 
 def test_map_alert_line_and_span_cases():

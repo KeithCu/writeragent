@@ -5,7 +5,10 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Shared helpers for payload_codec / split_grid tests."""
+"""Shared helpers for payload_codec / split_grid tests.
+
+The ``legacy_b64_*`` helpers are used by ``scripts/bench_serialization.py`` (``json+sg`` lane).
+"""
 
 from __future__ import annotations
 

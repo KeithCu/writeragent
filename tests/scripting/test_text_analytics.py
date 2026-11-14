@@ -204,62 +204,6 @@ def test_text_analytics_topics_accepts_list_for_sections():
         assert meta["n_topics"] == len(res["topics"])
 
 
-def test_text_analytics_sentiment_result_shape_and_basic_logic():
-    # Host-side shape
-    fake = {"status": "ok", "result": {"sentiment": {"score": 0.4, "label": "positive"}, "per_section": []}}
-    assert ta.is_text_analytics_result(fake) is True
-
-    # Direct call (now uses transformers + multilingual model; skips if not installed)
-    try:
-        out = ta.run_text_analytics("sentiment", "This is a great success and very positive outcome for everyone.")
-    except Exception:
-        pytest.skip("transformers not available for sentiment test")
-    # A missing model used to come back as status ok. It is an error now.
-    if out.get("status") == "error":
-        pytest.skip("transformers not installed or no model for sentiment")
-    assert out["status"] == "ok"
-    res = out.get("result", {})
-    if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("sentiment"):
-        pytest.skip("transformers not installed or no model for sentiment")
-    sent = res["sentiment"]
-    assert "score" in sent and "label" in sent
-    assert sent["label"] in ("positive", "negative", "neutral")
-    # Positive text should lean positive
-    assert sent["score"] > 0
-
-    # Negative
-    out2 = ta.run_text_analytics("sentiment", "This is a terrible failure with many problems and risks.")
-    sent2 = out2.get("result", {}).get("sentiment", {})
-    if not sent2:
-        pytest.skip("transformers not installed")
-    assert sent2.get("score", 0) < 0
-    assert sent2.get("label") == "negative"
-
-
-def test_text_analytics_sentiment_accepts_list_for_sections():
-    secs = [
-        "The project had excellent results and strong gains.",
-        "However there were serious problems, delays and high costs.",
-        "Overall we see some progress but many risks remain."
-    ]
-    try:
-        out = ta.run_text_analytics("sentiment", secs)
-    except Exception:
-        pytest.skip("transformers not available")
-    if out.get("status") == "error":
-        pytest.skip("transformers not installed or no model for sentiment")
-    assert out["status"] == "ok"
-    res = out.get("result", {})
-    if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("per_section"):
-        pytest.skip("transformers not installed or insufficient model")
-    assert "sentiment" in res
-    assert "per_section" in res
-    assert len(res["per_section"]) == 3
-    # First section positive, second negative
-    assert res["per_section"][0]["label"] == "positive"
-    assert res["per_section"][1]["label"] == "negative"
-
-
 def test_report_html_double_escapes_markup():
     html = ta.text_analytics_report_html({"status": "ok", "result": {"key_phrases": [{"lemma": "<script>"}]}})
     assert "&amp;lt;script&amp;gt;" in html

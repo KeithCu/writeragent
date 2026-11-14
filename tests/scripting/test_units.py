@@ -453,7 +453,9 @@ def test_dispatch_matches_helper_names():
     from plugin.scripting.helper_registry import bound, names
     import plugin.scripting.venv.units  # noqa: F401
 
-    assert all(callable(bound("units", name)) for name in names("units"))
+    helper_names = names("units")
+    assert helper_names
+    assert all(callable(bound("units", name)) for name in helper_names)
 
 
 def test_run_units_pairwise_units_broadcast_suffixes():

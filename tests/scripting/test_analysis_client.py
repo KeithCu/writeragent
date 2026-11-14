@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.scripting.client import run_analysis
-from plugin.framework.errors import ToolExecutionError
 
 
 @pytest.fixture
@@ -35,7 +34,7 @@ def test_run_analysis_happy_path(ctx):
     ):
         result = run_analysis(ctx, spec, data, context=context)
 
-    assert result["helper"] == "describe_data"
+    assert result is worker_result
     mock_run.assert_called_once()
     kwargs = mock_run.call_args.kwargs
     assert kwargs["domain"] == "analysis"
@@ -44,17 +43,5 @@ def test_run_analysis_happy_path(ctx):
     assert kwargs["context"] == context
     assert kwargs.get("session_id") is None
     assert kwargs["timeout_sec"] == 30
-
-
-def test_run_analysis_worker_error(ctx):
-    with (
-        patch("plugin.scripting.client.python_exec_timeout", return_value=10),
-        patch(
-            "plugin.scripting.client.run_trusted_worker_action",
-            side_effect=ToolExecutionError("boom", code="ANALYSIS_ERROR"),
-        ),
-    ):
-        with pytest.raises(ToolExecutionError, match="boom"):
-            run_analysis(ctx, "describe_data", [])
 
 

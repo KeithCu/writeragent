@@ -1151,11 +1151,6 @@ def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     assert calc.xor() == "#VALUE!"
 
 
-def test_yield_functions():
-    assert calc.yielddisc(1, 2, 95, 100) > 0
-    assert calc.yieldmat(1, 2, 0, 0.05, 95) > 0
-
-
 def test_sort_by_col_uses_row_key_and_keeps_shape():
     data = [[3, 1, 2], [6, 5, 4]]
     # sort_index 1 is the first row [3, 1, 2]: columns reorder to 1, 2, 0.

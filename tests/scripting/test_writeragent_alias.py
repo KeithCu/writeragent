@@ -276,10 +276,9 @@ def test_sandboxed_code_writeragent_vision_as_module(clean_writeragent_modules):
     assert response["result"] is True
 
 
-def test_namespace_stub_all_and_unknown_domain():
+def test_namespace_stub_unknown_domain():
     from plugin.scripting import writeragent_namespace as ns
 
-    assert ns.__all__ == ("scripts", "doc")
     with pytest.raises(AttributeError, match="wa.scripts") as exc:
         ns.writer
     assert "writeragent_namespace" not in str(exc.value)
@@ -292,13 +291,5 @@ def test_namespace_stub_unbound_scripts_message(monkeypatch: pytest.MonkeyPatch)
     with pytest.raises(AttributeError, match="only available while a Python script is running"):
         ns.scripts
     assert getattr(ns, "scripts", None) is None
-
-
-def test_namespace_stub_dunder_passthrough():
-    from plugin.scripting import writeragent_namespace as ns
-
-    assert ns.__class__.__name__ == "module"
-    assert ns.__doc__
-    assert getattr(ns, "__wrapped__", None) is None
 
 

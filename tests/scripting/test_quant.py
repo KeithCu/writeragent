@@ -82,7 +82,7 @@ def test_portfolio_tearsheet_portfolio_returns_grid():
     assert result["helper"] == "portfolio_tearsheet"
     assert "metrics" in result
     assert isinstance(result["metrics"], dict)
-    assert "Cumulative Return" in result["metrics"] or len(result["metrics"]) > 0
+    assert "Cumulative Return" in result["metrics"]
 
 
 def test_portfolio_tearsheet_with_date_column_and_single_column_param():
