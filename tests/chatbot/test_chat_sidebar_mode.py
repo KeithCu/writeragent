@@ -64,7 +64,7 @@ def test_mode_labels_include_brainstorming_when_writer():
     assert mode_from_label(labels[6], flags) == CHAT_MODE_LIBRARIAN
 
 
-def test_mode_labels_omit_brainstorming_for_calc():
+def test_mode_labels_writing_plan_without_brainstorming():
     flags = SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
     labels = get_mode_labels(flags)
     assert len(labels) == 5
