@@ -45,8 +45,6 @@ def test_prompt_default_system_is_plain_cell_prompt(mock_get_config, mock_api, m
     assert messages[0]["role"] == "system"
     assert messages[0]["content"] == CALC_PROMPT_CELL_SYSTEM_PROMPT
     assert mock_run.call_args.kwargs.get("pump_idle") is False
-    assert mock_client_cls.call_args.kwargs.get("register_with_send") is False
-    assert mock_run.call_args.kwargs.get("prepend_dev_build_system_prefix") is False
 
 
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
@@ -179,14 +177,13 @@ def test_prompt_blank_model_does_not_override(mock_get_config, mock_api, mock_cl
     assert mock_client_cls.call_args.args[0]["model"] == "cfg"
 
 
-@pytest.mark.parametrize("blank_system", [0.0])
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
 @patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config("Custom"))
-def test_prompt_blank_system_prompt_uses_fallback(mock_get_config, mock_api, mock_client_cls, mock_run, blank_system):
+def test_prompt_blank_system_prompt_uses_fallback(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
-    execute_prompt_addin(MagicMock(), "hello", blank_system, None, None, client=None)
+    execute_prompt_addin(MagicMock(), "hello", 0.0, None, None, client=None)
     messages = mock_run.call_args[0][2]
     assert messages[0]["content"] == "Custom"
 

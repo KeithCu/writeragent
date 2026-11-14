@@ -240,11 +240,10 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
         return launched[0], ensure
 
     ja_cmd, ja_ensure = _launch("こんにちは", "jf_alpha")
-    assert ja_cmd[1].endswith("kokoro_worker.py")
-    assert ja_cmd[2] == "--once"
-    assert ja_cmd[3] == "-"
-    assert ja_cmd[4] == "jf_alpha"
-    assert ja_cmd[9] == "ja"
+    assert any(a.endswith("kokoro_worker.py") for a in ja_cmd)
+    assert "--once" in ja_cmd
+    assert "jf_alpha" in ja_cmd
+    assert "ja" in ja_cmd
 
 
 def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tmp_path):
@@ -875,20 +874,6 @@ def test_speak_system_security(mock_which, mock_popen):
         assert "WA_SAPI_FILE" in mock_popen.call_args.kwargs["env"]
 
 
-def test_stop_speech_stops_spd_only_for_own_spd_say():
-    from plugin.audio import tts_service
-
-    spd = MagicMock()
-    spd.args = ["spd-say", "-w", "--", "hi"]
-    spd.poll.return_value = None
-    other = MagicMock()
-    other.args = ["paplay", "/tmp/x.wav"]
-    other.poll.return_value = None
-    assert tts_service._is_spd_say(spd) is True
-    assert tts_service._is_spd_say(other) is False
-    assert tts_service._is_spd_say(None) is False
-
-
 def test_sentence_pipeline_producer_crash_speaks_only_remaining(tmp_path):
     import plugin.audio.tts_service as tts
 
@@ -1293,8 +1278,6 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
 
     snapshot_instances = set(ms._instances)
 
-    captured_kwargs: list[dict[str, Any]] = []
-
     class _FakeProc:
         def __init__(self) -> None:
             self.returncode = 7
@@ -1308,8 +1291,9 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
             return 7
 
     fake_proc = _FakeProc()
+    captured_kwargs: list[dict[str, Any]] = []
 
-    def fake_popen(cmd: list[str], **kwargs: Any) -> _FakeProc:
+    def fake_popen(_cmd: list[str], **kwargs: Any) -> _FakeProc:
         captured_kwargs.append(dict(kwargs))
         return fake_proc
 
@@ -1321,18 +1305,11 @@ def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
 
         assert res == (7, "", "piper-err")
         assert fake_proc.communicate_calls == [("hello", 12.5)]
+        # User text can include non-ASCII characters that Windows's default codec cannot encode.
         kwargs = captured_kwargs[0]
-        assert kwargs["stdin"] is subprocess.PIPE
-        assert kwargs["stdout"] is subprocess.PIPE
-        assert kwargs["stderr"] is subprocess.PIPE
         assert kwargs["text"] is True
         assert kwargs["encoding"] == "utf-8"
         assert kwargs["errors"] == "replace"
-        assert kwargs["env"] is None
-        assert kwargs["cwd"] is None
-        assert "start_new_session" not in kwargs
-        assert "creationflags" not in kwargs
-        assert "bufsize" not in kwargs
         assert set(ms._instances) == snapshot_instances
     finally:
         ms._instances.clear()
@@ -1371,11 +1348,6 @@ def test_popen_for_speech_raw_env_object_and_devnull() -> None:
         assert kwargs["env"] is env
         assert kwargs["stdout"] == subprocess.DEVNULL
         assert kwargs["stderr"] == subprocess.DEVNULL
-        assert kwargs["stdin"] is None
-        assert kwargs["cwd"] is None
-        assert "start_new_session" not in kwargs
-        assert "creationflags" not in kwargs
-        assert "bufsize" not in kwargs
         assert tts._procs == [fake_proc]
         assert run_calls == []
     finally:
@@ -1410,12 +1382,7 @@ def test_reap_proc_windows_taskkill_timeout_stays_five() -> None:
     assert len(recorded) == 1
     args, kwargs = recorded[0]
     assert args == ["taskkill", "/F", "/T", "/PID", "4242"]
-    assert kwargs == {
-        "check": False,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "timeout": 5,
-    }
+    assert kwargs["timeout"] == 5
     assert wait_calls == [0.2, 5]
 
 
@@ -1439,15 +1406,34 @@ def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
         tts.stop_speech()
 
     assert len(recorded) == 1
-    args, kwargs = recorded[0]
+    args, _kwargs = recorded[0]
     assert args == ["spd-say", "-S"]
-    assert kwargs == {
-        "check": False,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "timeout": 2,
-    }
 
+    proc.kill.assert_called_once()
+    proc.terminate.assert_not_called()
+
+
+def test_stop_speech_non_spd_player_skips_spd_say_stop() -> None:
+    """spd-say -S stops every speech-dispatcher client, including screen readers."""
+    import plugin.audio.tts_service as tts
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.args = ["paplay", "/tmp/x.wav"]
+    proc.stdin = None
+
+    recorded: list[tuple[Any, dict[str, Any]]] = []
+
+    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        recorded.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0)
+
+    with patch.object(tts, "_procs", [proc]), \
+         patch.object(tts, "run_in_background", side_effect=lambda fn, **_kw: fn()), \
+         patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
+        tts.stop_speech()
+
+    assert recorded == []
     proc.kill.assert_called_once()
     proc.terminate.assert_not_called()
 

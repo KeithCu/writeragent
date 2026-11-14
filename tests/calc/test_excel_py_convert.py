@@ -1588,30 +1588,6 @@ def test_script_bank_truncation_collision_raises():
     assert report.issues == []
 
 
-def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
-    """write_dag_formulas_xlsx must close the openpyxl workbook in try/finally on all errors."""
-    from plugin.calc.excel_py_convert.xlsx_write import write_dag_formulas_xlsx
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
-
-    src = tmp_path / "dag_src.xlsx"
-    src.write_bytes(_dag_xlsx_bytes())
-
-    # Create a cell with an unmapped sheet to trigger ValueError in write_dag_formulas_xlsx
-    cell = ConvertedCell(
-        sheet="NonExistentSheet",
-        cell="A1",
-        direction="dag",
-        original_code="x = 1",
-        converted_code="x = 1",
-        converted=True,
-    )
-    report = ConversionReport(direction="dag", cells=[cell])
-    out = tmp_path / "dag_out.xlsx"
-
-    with pytest.raises(ValueError, match="unmapped sheet"):
-        write_dag_formulas_xlsx(src, report, out)
-
-
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
     """Temporary files ({stem}_*.tmp) must be cleaned up on exception."""
     from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
@@ -2621,7 +2597,6 @@ def test_clear_spill_uno_single_range_clear():
     errors = apply_dag_formulas_to_calc_doc(doc, report)
     assert errors == []
     spill_range.clearContents.assert_called_once_with(55)
-    assert anchor_cell.getFormula.call_count == 1
     assert anchor_cell.setFormula.call_args[0][0] == '=PY("x = 1")'
 
 

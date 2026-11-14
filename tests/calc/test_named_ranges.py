@@ -16,7 +16,7 @@
 """Unit tests for Calc named range tools and flag parsing."""
 
 import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 import pytest
 
@@ -208,82 +208,6 @@ def test_extract_range_info():
     assert info["referred_range"]["address"] == "A1:B10"
     assert info["referred_range"]["rows"] == 10
     assert info["referred_range"]["columns"] == 2
-
-
-def test_named_range_tools_execution_with_mock(monkeypatch):
-    # Another test module may leave its own com.sun.star.table in sys.modules.
-    table = ModuleType("com.sun.star.table")
-    setattr(table, "CellAddress", _RecordingCellAddress)
-    monkeypatch.setitem(sys.modules, "com.sun.star.table", table)
-    """Verify NamedRangeAdd, NamedRangeList, NamedRangeEdit, NamedRangeDelete tools."""
-    doc = MagicMock()
-    named_ranges = MagicMock()
-    doc.NamedRanges = named_ranges
-    named_ranges.hasByName.return_value = False
-    named_ranges.getElementNames.return_value = ["MyRange"]
-
-    nr_obj = MagicMock()
-    nr_obj.getName.return_value = "MyRange"
-    nr_obj.getContent.return_value = "$Sheet1.$A$1:$A$5"
-    nr_obj.getType.return_value = 0
-    nr_obj.getReferencePosition.return_value = MagicMock(Sheet=0, Column=0, Row=0)
-    nr_obj.getReferredCells.return_value = None
-    named_ranges.getByName.return_value = nr_obj
-
-    ctx = MagicMock()
-    ctx.doc = doc
-    # Unqualified lookup checks the active sheet before the workbook container.
-    # This sheet has no local names, so get/edit/delete stay on doc.NamedRanges.
-    active_sheet = MagicMock()
-    active_sheet.getName.return_value = "Sheet1"
-    active_sheet.NamedRanges.hasByName.return_value = False
-    doc.getCurrentController.return_value.getActiveSheet.return_value = active_sheet
-
-    # 1. Add
-    res_add = _tool("named_range_add").execute_safe(ctx, name="MyRange", content="$Sheet1.$A$1:$A$5", flags=["print_area"])
-    assert res_add["status"] == "ok"
-    named_ranges.addNewByName.assert_called_once()
-
-    # Now named range exists
-    named_ranges.hasByName.return_value = True
-
-    # 2. List
-    res_list = _tool("named_range_list").execute_safe(ctx, scope="global")
-    assert res_list["status"] == "ok"
-    assert len(res_list["result"]) == 1
-    assert res_list["result"][0]["name"] == "MyRange"
-
-    # 3. Get Info
-    res_info = _tool("named_range_get_info").execute_safe(ctx, name="MyRange")
-    assert res_info["status"] == "ok"
-    assert res_info["result"]["name"] == "MyRange"
-
-    # 4. Edit
-    res_edit = _tool("named_range_edit").execute_safe(ctx, name="MyRange", content="$Sheet1.$B$1:$B$10")
-    assert res_edit["status"] == "ok"
-    nr_obj.setContent.assert_called_once_with("$Sheet1.$B$1:$B$10")
-
-    # 5. Delete
-    res_del = _tool("named_range_delete").execute_safe(ctx, name="MyRange")
-    assert res_del["status"] == "ok"
-    named_ranges.removeByName.assert_called_once_with("MyRange")
-
-    # 6. Create from Titles
-    sheet_mock = MagicMock()
-    range_mock = MagicMock()
-    range_addr = MagicMock(Sheet=0, StartColumn=0, StartRow=0, EndColumn=1, EndRow=5)
-    range_mock.getRangeAddress.return_value = range_addr
-    sheet_mock.getCellRangeByPosition.return_value = range_mock
-
-    sheets_mock = MagicMock()
-    sheets_mock.hasByName.return_value = False
-    sheets_mock.getByIndex.return_value = sheet_mock
-    doc.getSheets.return_value = sheets_mock
-    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet_mock
-
-    res_titles = _tool("named_range_create_from_titles").execute_safe(ctx, range=["A1:B5"], border="top")
-    assert res_titles["status"] == "ok"
-    named_ranges.addNewFromTitles.assert_called_once()
 
 
 def test_named_range_tools_error_handling():

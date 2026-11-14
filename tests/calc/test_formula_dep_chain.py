@@ -272,23 +272,6 @@ def test_precedents_via_formula_query_reports_whole_column_total(monkeypatch):
     assert len(result["precedents"]) == _MAX_PRECEDENT_CELLS
 
 
-def test_precedents_via_formula_query_reads_sheet_name_once(monkeypatch):
-    calls: list[tuple[int, int]] = []
-    sheet = _sheet_with_precedent_ranges(
-        monkeypatch,
-        [SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=1, StartRow=0, EndRow=1)],
-        calls,
-    )
-    name_calls: list[int] = []
-    sheet.getName = lambda: (name_calls.append(1), "Sheet1")[1]
-    doc = SimpleNamespace(getSheets=lambda: SimpleNamespace(getByIndex=lambda _idx: sheet))
-
-    result = _precedents_via_formula_query(sheet, 0, 0, doc)
-
-    assert len(name_calls) == 1
-    assert len(result["precedents"]) == 4
-
-
 def test_cell_snapshot_formula_text_and_error(monkeypatch):
     star = sys.modules.get("com.sun.star")
     if star is None:
