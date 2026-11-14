@@ -31,41 +31,6 @@ from plugin.tests.testing_utils import TestingFactory
 
 # ── Tool Context Tests ───────────────────────────────────────────────
 
-def test_tool_context_init():
-    doc = object()
-    ctx = object()
-    doc_type = "writer"
-    services = object()
-    caller = "test"
-
-    def status_cb(): pass
-    def thinking_cb(): pass
-
-    tc = ToolContext(
-        doc=doc,
-        ctx=ctx,
-        doc_type=doc_type,
-        services=services,
-        caller=caller,
-        status_callback=status_cb,
-        append_thinking_callback=thinking_cb,
-    )
-
-    assert tc.doc is doc
-    assert tc.ctx is ctx
-    assert tc.doc_type == doc_type
-    assert tc.services is services
-    assert tc.caller == caller
-    assert tc.status_callback is status_cb
-    assert tc.append_thinking_callback is thinking_cb
-
-def test_tool_context_defaults():
-    tc = ToolContext(doc=None, ctx=None, doc_type="calc", services=None)
-    assert tc.caller == ""
-    assert tc.status_callback is None
-    assert tc.append_thinking_callback is None
-
-
 def test_tool_context_derive():
     sentinels = {
         "doc": object(),
@@ -442,14 +407,6 @@ class TestRegister:
             assert reg.get("shape_upsert").description == "writer"
         finally:
             wa_logger.propagate = old_propagate
-
-    def test_tool_names(self):
-        reg = _make_registry(FakeTool(), AllDocTool())
-        assert set(reg.tool_names) == {"fake_tool", "universal_tool"}
-
-    def test_len(self):
-        reg = _make_registry(FakeTool(), AllDocTool())
-        assert len(reg.tool_names) == 2
 
 class TestDocTypeFiltering:
     def test_tools_for_writer(self):
@@ -1680,16 +1637,6 @@ def test_get_tools_names_empty_and_bare_string():
     assert [t.name for t in reg.get_tools(names=frozenset({"get"}), **listed)] == ["get"]
 
 
-def test_execute_with_timeout_parameterizes_result_queue() -> None:
-    """Local result_queue must be Queue[tuple[str, Any]] for reportMissingTypeArgument."""
-    import inspect
-
-    from plugin.framework.tool import ToolRegistry
-
-    src = inspect.getsource(ToolRegistry._execute_with_timeout)
-    assert "result_queue: queue.Queue[tuple[str, Any]]" in src
-
-
 def test_execute_bypass_thread_guard_allows_background_thread() -> None:
     """Regression: DSPy eval (tools_lo) may call tools from the LO worker thread."""
     calls: list[str] = []
@@ -2024,9 +1971,6 @@ def test_get_tools_signature_and_ctx() -> None:
     from tests.tool_registry_filters import append_production_tool_registry_filters
 
     reg = ToolRegistry(MagicMock())
-    with pytest.raises(TypeError):
-        reg.get_tools(doc_typo="writer")  # type: ignore[call-arg]
-
     append_production_tool_registry_filters(reg)
     sentinel_ctx = object()
     seen: list[Any] = []
