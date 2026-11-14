@@ -6,14 +6,12 @@
 
 from __future__ import annotations
 
-import types
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
 from plugin.draw.tree import (
-    GetDrawTree,
     attach_label_hints,
     build_shape_tree,
     coerce_control_state,
@@ -520,24 +518,4 @@ def test_iter_shape_addresses():
     assert yielded[2] == ("1.0", child, outer_group)
     assert yielded[3] == ("1.1", inner_group, outer_group)
     assert yielded[4] == ("1.1.0", grandchild, inner_group)
-
-
-def test_get_draw_tree_uses_resolve_page():
-    from unittest.mock import patch
-
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (object(), 2)
-        with patch("plugin.draw.tree.build_shape_tree", lambda page: []):
-            res = GetDrawTree().execute(cast("Any", types.SimpleNamespace(doc=object(), active_page_index=0)), page=2)
-    assert res == {"status": "ok", "page": 2, "tree": []}
-
-
-def test_get_draw_tree_page_error_is_tool_error():
-    from plugin.framework.errors import ToolExecutionError
-    from unittest.mock import patch
-
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 9 out of range.")
-        with pytest.raises(ToolExecutionError, match="Page index 9 out of range."):
-            GetDrawTree().execute(cast("Any", types.SimpleNamespace(doc=object(), active_page_index=0)), page=9)
 

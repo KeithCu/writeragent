@@ -684,9 +684,6 @@ def test_set_cell_keeps_nested_table_in_frame():
     )
     assert res["status"] == "ok", res
     assert res["nested_tables"] == ["Child"]
-    assert parent._nested_by_cell["B2"][-1].getName() == "Child" if hasattr(
-        parent._nested_by_cell["B2"][-1], "getName"
-    ) else True
     # Frame stays; a caption paragraph is inserted at the start.
     assert any(isinstance(el, FakeTextFrame) for el in parent._nested_by_cell["B2"])
 
@@ -1432,9 +1429,8 @@ def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
 
     disposed_table = FakeTable(1, 1)
     disposed_table.getCellByName = MagicMock(side_effect=DisposedException("object disposed"))
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(DisposedException):
         TableGetCells().execute(SimpleNamespace(doc=FakeWriterDoc({"T": disposed_table})), name="T")
-    assert "disposed" in str(exc_info.value).lower() or type(exc_info.value).__name__ == "DisposedException"
 
 
 
@@ -1460,9 +1456,8 @@ def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
     disposed_table = MagicMock()
     disposed_table.getRows.side_effect = DisposedException("disposed document")
     doc_disposed = FakeWriterDoc({"Disposed": disposed_table})
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(DisposedException):
         TableList().execute(SimpleNamespace(doc=doc_disposed))
-    assert "disposed" in str(exc_info.value).lower() or type(exc_info.value).__name__ == "DisposedException"
 
 
 def test_resolve_uno_context():
@@ -1473,16 +1468,17 @@ def test_resolve_uno_context():
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
+    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.table_nesting import _is_text_table, cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")
-    with pytest.raises(Exception):
+    with pytest.raises(DocumentDisposedError):
         _is_text_table(disposed_obj)
 
     disposed_cell = MagicMock()
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")
-    with pytest.raises(Exception):
+    with pytest.raises(DocumentDisposedError):
         cell_hosted_table_names(disposed_cell)
 
 

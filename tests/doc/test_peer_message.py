@@ -766,7 +766,7 @@ def test_annotate_outer_peer_delivery_pending():
 
 
 def test_summarize_peer_tool_on_wire():
-    from plugin.doc.peer_message import _WORK_DESCRIPTION, format_peer_catalog, log_peer_tool_on_wire, summarize_peer_tool_on_wire
+    from plugin.doc.peer_message import _WORK_DESCRIPTION, format_peer_catalog, summarize_peer_tool_on_wire
 
     assert summarize_peer_tool_on_wire([{"function": {"name": "undo"}}]) == (False, 0)
     schemas = [
@@ -787,7 +787,6 @@ def test_summarize_peer_tool_on_wire():
     # _WORK_DESCRIPTION itself contains a literal "uid=…"; only catalog rows count.
     assert "uid=" in _WORK_DESCRIPTION
     assert summarize_peer_tool_on_wire(schemas) == (True, 2)
-    log_peer_tool_on_wire(schemas)
 
 
 def test_kick_start_extracted_peer_send_returns_false():

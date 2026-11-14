@@ -1244,18 +1244,3 @@ def test_shape_group_rejects_duplicate_indices():
         out = GroupShapes().execute(ctx, indices=[0, 0])
     assert out["status"] == "error"
     page.group.assert_not_called()
-
-
-def test_digit_string_ref_is_index():
-    page = MagicMock()
-    shape = MagicMock()
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
-        "plugin.draw.tree.find_shape_on_page", return_value=(2, shape, page, None)
-    ) as mock_find:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        DeleteShape().execute(ctx, index="2")
-        mock_find.assert_called_once()
-        assert mock_find.call_args.kwargs["index"] == "2"
-        assert mock_find.call_args.kwargs.get("name") is None

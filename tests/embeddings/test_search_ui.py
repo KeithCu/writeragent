@@ -285,7 +285,7 @@ class TestSearchDialog:
 
         mock_bg.assert_not_called()
         mock_doc.assert_called_once_with(dialog._ctx)
-        assert status_lbl.getModel().Label
+        assert status_lbl.getModel().Label == "Cache Status: No active document"
 
     def test_search_marshals_doc_resolution_before_background_work(self):
         dialog, mock_dlg, _controls = _make_bare_dialog()
