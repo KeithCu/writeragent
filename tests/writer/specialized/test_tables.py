@@ -1402,7 +1402,7 @@ class DisposedException(Exception):
 
 
 def test_table_get_cells_cell_read_error_skipped_and_disposal_reraised():
-    """Bug 3: TableGetCells continues on cell read failure, and re-raises disposal."""
+    """Bug 3: TableGetCells skips failing cell on read failure, and re-raises disposal."""
     from unittest.mock import MagicMock
 
     table = FakeTable(1, 2, cells={"A1": "ok"})

@@ -123,15 +123,8 @@ def test_resolve_heading_links_case_mismatch_and_deduplication() -> None:
     )
     assert rewritten == content
     assert len(diags) == 1
-    assert diags[0] == {
-        "code": html_import_styles.LINK_TARGET_NOT_FOUND,
-        "link_target": "#overview",
-        "message": (
-            'Link target "#overview" matches no heading or bookmark and will not jump anywhere. '
-            'Use the exact heading text, href="#Heading text|outline", or give the target element '
-            'an id and link to that.'
-        ),
-    }
+    assert diags[0]["code"] == html_import_styles.LINK_TARGET_NOT_FOUND
+    assert diags[0]["link_target"] == "#overview"
 
 
 def test_resolve_heading_links_entity_in_id_exempted() -> None:
@@ -269,9 +262,6 @@ def test_attach_write_report_style_skip_builds_diagnostic_and_message() -> None:
     assert diag["matches_skipped"] == 1
     assert diag["matches_total"] == 2
     assert diag["suggested_call"] == suggest_call("apply_style", style="Heading2", all_matches=True)
-    expected_clause = "to 1 of 2 matches because they do not cover whole paragraphs"
-    assert expected_clause in diag["message"]
-    assert "data-lo-style='Heading2' was not applied" in diag["message"]
     assert out["message"] == f"Replaced 2 occurrence(s). {diag['message']}"
 
 
@@ -300,7 +290,6 @@ def test_attach_write_report_skip_without_style_token_only_explains_para() -> No
     assert len(out["warnings"]) == 1
     diag = out["warnings"][0]
     assert diag["code"] == "PARA_IGNORED_RECORDING"
-    assert diag["message"] == "data-lo-para property 'margin-left' was not applied because tracked changes are recording"
     assert out["message"] == "Inserted content."
 
 

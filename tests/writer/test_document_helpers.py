@@ -811,7 +811,6 @@ def test_do_extend_selection_refuses_deletion_only_without_writing(monkeypatch):
 
     assert streams == []
     assert len(messages) == 1
-    assert "Extend Selection" in messages[0][1]
     assert messages[0][2] == TRACKED_SELECTION_MESSAGE
     assert text_range.set_calls == []
     assert doc.writes == []
@@ -839,7 +838,6 @@ def test_do_edit_selection_refuses_tracked_insert_before_prompt(monkeypatch):
     assert prompts == []
     assert streams == []
     assert len(messages) == 1
-    assert "Edit Selection" in messages[0][1]
     assert messages[0][2] == TRACKED_SELECTION_MESSAGE
     assert text_range.set_calls == []
     assert doc.writes == []

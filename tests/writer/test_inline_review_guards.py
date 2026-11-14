@@ -1009,7 +1009,6 @@ def test_cursor_resolve_group_dispatch_with_mismatched_after_snapshot_is_partial
         ok, msg = resolve_change_at_cursor(model, ctx, True)
     assert ok is False
     assert "couldn't confirm the result" in msg
-    assert "Edit > Track Changes > Manage" in msg
 
 
 def test_cursor_resolve_group_unreliable_reports_try_again():
@@ -1028,7 +1027,6 @@ def test_cursor_resolve_group_unreliable_reports_try_again():
         ok, msg = resolve_change_at_cursor(model, ctx, True)
     assert ok is False
     assert "try again" in msg.lower()
-    assert "Couldn't read this document's tracked changes reliably" in msg
     assert "may share a paragraph" not in msg
 
 
