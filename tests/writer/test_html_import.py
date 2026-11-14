@@ -1000,8 +1000,7 @@ def test_apply_block_lo_styles_background_color(para_decl, has_para_el, expected
     assert failed == expected_failed
 
     expected_calls = expected_para_calls_fn(solid_style, none_style)
-    if expected_calls:
-        para_el.setPropertyValue.assert_has_calls(expected_calls, any_order=True)
+    para_el.setPropertyValue.assert_has_calls(expected_calls, any_order=True)
     # Paragraph formatting and fill properties belong on the paragraph element, never on the cursor.
     cursor_set_props = {c.args[0] for c in para_cur.setPropertyValue.call_args_list}
     assert cursor_set_props.isdisjoint({"FillStyle", "ParaBackColor", "ParaAdjust"})

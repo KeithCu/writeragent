@@ -474,7 +474,6 @@ def test_single_reject_blocked_on_agent_redline():
 
 def test_single_accept_allowed_on_user_redline():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
-    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     redline = _fake_redline("user edit", text_mock=text_mock)
@@ -648,7 +647,6 @@ def test_single_accept_wrong_redline_is_undone():
 
 def test_single_accept_silent_when_nothing_changes():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
-    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     r0 = _fake_redline("user 0", text_mock=text_mock)
@@ -868,7 +866,6 @@ def test_track_changes_list_start_index_keeps_global_indexes():
 
 def test_single_accept_reread_failure_undoes_and_reports():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
-    # Return 1 so the two redlines do not overlap during the overlap check.
     text_mock = MagicMock()
     text_mock.compareRegionStarts.return_value = 1
     r = _fake_redline("user edit", text_mock=text_mock)
