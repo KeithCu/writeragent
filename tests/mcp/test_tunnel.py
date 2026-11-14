@@ -22,6 +22,58 @@ from plugin.mcp.tunnel import (
 )
 
 
+def _make_fake_async_process(
+    *,
+    procs: list | None = None,
+    cmds: list | None = None,
+    envs: list | None = None,
+    flags: list | None = None,
+    exits: list | None = None,
+    exit_cb: dict | None = None,
+    stdout_cb_ref: dict | None = None,
+    on_start=None,
+):
+    def _fake(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
+        proc = MagicMock()
+        proc.is_running = True
+        proc.cmd = list(cmd)
+        proc.terminate = MagicMock()
+        if procs is not None:
+            procs.append(proc)
+        if cmds is not None:
+            cmds.append(list(cmd))
+        if envs is not None:
+            envs.append(kwargs.get("env", {}))
+        if flags is not None:
+            flags.append(kwargs.get("die_with_parent"))
+        if exits is not None:
+            exits.append(on_exit_cb)
+        if exit_cb is not None:
+            exit_cb["fn"] = on_exit_cb
+        if stdout_cb_ref is not None:
+            stdout_cb_ref["fn"] = stdout_cb
+        if on_start is not None:
+            proc.start = lambda: on_start(cmd, stdout_cb, stderr_cb)
+        else:
+            proc.start = MagicMock()
+        return proc
+
+    return _fake
+
+
+def _record_subprocess_run(reset_cmds: list[list[str]] | None = None, *, timeouts: list | None = None, returncode: int = 0):
+    def _run(cmd, **kwargs):
+        if reset_cmds is not None:
+            reset_cmds.append(list(cmd))
+        if timeouts is not None:
+            timeouts.append(kwargs.get("timeout"))
+        completed = MagicMock()
+        completed.returncode = returncode
+        return completed
+
+    return _run
+
+
 def test_parse_bore_provider_config():
     assert parse_bore_provider_config("") == ("bore.pub", "")
     assert parse_bore_provider_config("  ") == ("bore.pub", "")
@@ -106,23 +158,18 @@ def test_tailscale_funnel_stdout_publishes_url(monkeypatch):
         "|-- proxy http://127.0.0.1:18765",
     ]
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-
-        def start():
-            if stdout_cb and cmd[0] == "tailscale":
-                for line in funnel_stdout:
-                    stdout_cb(line)
-
-        proc.start = start
-        proc.terminate = MagicMock()
-        return proc
+    def _on_start(cmd, stdout_cb, _stderr_cb):
+        if stdout_cb and cmd[0] == "tailscale":
+            for line in funnel_stdout:
+                stdout_cb(line)
 
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", return_value=MagicMock(returncode=0)),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(on_start=_on_start),
+        ),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -180,24 +227,18 @@ def test_start_parses_url_and_restarts_on_provider_change(monkeypatch):
     mgr = TunnelManager()
     started_cmds = []
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        started_cmds.append(list(cmd))
-
-        def start():
-            if stderr_cb and cmd[0] == "cloudflared":
-                stderr_cb("INF |  https://xyz.trycloudflare.com")
-            elif stdout_cb and cmd[0] == "bore":
-                stdout_cb("listening at bore.pub:9999")
-
-        proc.start = start
-        proc.terminate = MagicMock()
-        return proc
+    def _on_start(cmd, stdout_cb, stderr_cb):
+        if stderr_cb and cmd[0] == "cloudflared":
+            stderr_cb("INF |  https://xyz.trycloudflare.com")
+        elif stdout_cb and cmd[0] == "bore":
+            stdout_cb("listening at bore.pub:9999")
 
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(cmds=started_cmds, on_start=_on_start),
+        ),
     ):
         assert mgr.start(18765, "cloudflare") is True
         assert mgr.public_url == "https://xyz.trycloudflare.com"
@@ -225,19 +266,14 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
     started_flags = []
     background: list = []
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        started_cmds.append(list(cmd))
-        started_envs.append(kwargs.get("env", {}))
-        started_flags.append(kwargs.get("die_with_parent"))
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(
+                cmds=started_cmds, envs=started_envs, flags=started_flags
+            ),
+        ),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         assert mgr.start(18765, "ngrok", provider_token="tok-a") is True
@@ -322,22 +358,15 @@ def test_auth_line_and_exit_without_url_set_last_error(monkeypatch):
     mgr = TunnelManager()
     exit_cb = {"fn": None}
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        exit_cb["fn"] = on_exit_cb
-
-        def start():
-            if stdout_cb:
-                stdout_cb('{"err":"ERR_NGROK_105: authentication failed"}')
-
-        proc.start = start
-        proc.terminate = MagicMock()
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(
+                exit_cb=exit_cb,
+                on_start=lambda _c, out, _err: out and out('{"err":"ERR_NGROK_105: authentication failed"}'),
+            ),
+        ),
     ):
         assert mgr.start(18765, "ngrok") is False
         assert mgr.last_error == "ngrok authtoken required or invalid"
@@ -354,22 +383,15 @@ def test_successful_url_clears_last_error_exit_without_prior_sets_code(monkeypat
     mgr = TunnelManager()
     exit_cb = {"fn": None}
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        exit_cb["fn"] = on_exit_cb
-
-        def start():
-            if stderr_cb:
-                stderr_cb("INF |  https://ok.trycloudflare.com")
-
-        proc.start = start
-        proc.terminate = MagicMock()
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(
+                exit_cb=exit_cb,
+                on_start=lambda _c, _out, err: err and err("INF |  https://ok.trycloudflare.com"),
+            ),
+        ),
     ):
         assert mgr.start(18765, "cloudflare") is True
         assert mgr.public_url == "https://ok.trycloudflare.com"
@@ -404,23 +426,16 @@ def test_tunnel_manager_reconnect_and_url_recovery(monkeypatch):
     exit_cb = {"fn": None}
     stdout_cb_ref = {"fn": None}
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        exit_cb["fn"] = on_exit_cb
-        stdout_cb_ref["fn"] = stdout_cb
-
-        def start():
-            if stdout_cb:
-                stdout_cb("listening at bore.pub:1111")
-
-        proc.start = start
-        proc.terminate = MagicMock()
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(
+                exit_cb=exit_cb,
+                stdout_cb_ref=stdout_cb_ref,
+                on_start=lambda _c, out, _err: out and out("listening at bore.pub:1111"),
+            ),
+        ),
     ):
         # 1. Initial successful start
         assert mgr.start(18765, "bore") is True
@@ -518,18 +533,12 @@ def test_stale_retry_timer_does_not_spawn_second_process(monkeypatch):
     procs: list = []
     exits: list = []
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        procs.append(proc)
-        exits.append(on_exit_cb)
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(procs=procs, exits=exits),
+        ),
     ):
         assert mgr.start(18765, "cloudflare") is True
         exits[0](1)
@@ -574,19 +583,12 @@ def test_stale_exit_does_not_drop_replacement_process(monkeypatch):
     exits: list = []
     procs: list = []
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        proc.cmd = list(cmd)
-        exits.append(on_exit_cb)
-        procs.append(proc)
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(procs=procs, exits=exits),
+        ),
     ):
         assert mgr.start(18765, "cloudflare") is True
         assert mgr.start(18765, "bore", provider_token="relay.example sec") is True
@@ -652,25 +654,13 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
     exits: list = []
     background: list = []
 
-    def _run(cmd, **kwargs):
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        procs.append(proc)
-        exits.append(on_exit_cb)
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(procs=procs, exits=exits),
+        ),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -701,24 +691,13 @@ def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch
     procs: list = []
     background: list = []
 
-    def _run(cmd, **kwargs):
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        procs.append(proc)
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(procs=procs),
+        ),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -747,26 +726,15 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
     exits: list = []
     background: list = []
 
-    def _run(cmd, **kwargs):
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        exits.append(on_exit_cb)
-        return proc
-
     tailscale_reset = _tailscale_reset_cmds()
 
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(exits=exits),
+        ),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -842,20 +810,6 @@ def _capture_background(bucket: list):
     return _capture
 
 
-def _fake_running_process(spawned: list):
-    def _fake(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        del stdout_cb, stderr_cb, on_exit_cb, kwargs
-        proc = MagicMock()
-        proc.is_running = True
-        proc.cmd = cmd
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        spawned.append(proc)
-        return proc
-
-    return _fake
-
-
 def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch, tmp_path):
     """A reset scheduled by stop() must no-op after a newer Tailscale start."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -867,17 +821,10 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch, tm
     spawned: list = []
     tailscale_reset = _tailscale_reset_cmds()
 
-    def _run(cmd, **kwargs):
-        del kwargs
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -903,17 +850,10 @@ def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
     spawned: list = []
     tailscale_reset = _tailscale_reset_cmds()
 
-    def _run(cmd, **kwargs):
-        del kwargs
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -933,17 +873,10 @@ def test_tailscale_post_stop_still_runs_after_cloudflare_start(monkeypatch):
     spawned: list = []
     tailscale_reset = _tailscale_reset_cmds()
 
-    def _run(cmd, **kwargs):
-        del kwargs
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -966,15 +899,8 @@ def test_stopped_stop_resets_tailscale_when_crash_marker_exists(monkeypatch, tmp
     reset_cmds: list[list[str]] = []
     scheduled: list = []
 
-    def _run(cmd, **kwargs):
-        del kwargs
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
     with (
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         mgr.stop()
@@ -1084,17 +1010,10 @@ def test_stale_tailscale_reset_does_not_drop_a_newer_inflight_count(monkeypatch,
     spawned: list = []
     tailscale_reset = _tailscale_reset_cmds()
 
-    def _run(cmd, **kwargs):
-        del kwargs
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -1129,16 +1048,10 @@ def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, 
     scheduled: list = []
     spawned: list = []
 
-    def _run(cmd, **kwargs):
-        del cmd, kwargs
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run()),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -1202,7 +1115,7 @@ def test_tailscale_pre_start_does_not_hold_tunnel_lock(monkeypatch):
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         worker = threading.Thread(target=_start)
@@ -1527,17 +1440,12 @@ def test_start_absent_token_in_env_and_args(monkeypatch):
     started_envs = []
     started_cmds = []
 
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        started_cmds.append(list(cmd))
-        started_envs.append(kwargs.get("env", {}))
-        proc.start = MagicMock()
-        return proc
-
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(cmds=started_cmds, envs=started_envs),
+        ),
     ):
         assert mgr.start(18765, "cloudflare", provider_token="") is True
         assert "TUNNEL_TOKEN" not in started_envs[-1]
@@ -1660,38 +1568,19 @@ def test_post_stop_start_failure_decrements_in_flight(monkeypatch):
     assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
-def test_stop_for_quit_schedules_background_reset(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "mode",
+    [
+        # Idle manager with a stale arm file still schedules funnel off without blocking.
+        pytest.param("idle", id="idle"),
+        # Live CONNECTED session: quit terminates the CLI and triggers background reset.
+        pytest.param("connected", id="connected"),
+        # FAILED Tailscale (no live process, _process is None): quit still triggers background reset.
+        pytest.param("failed", id="failed"),
+    ],
+)
+def test_stop_for_quit_schedules_background_reset(mode, monkeypatch, tmp_path):
     """LibreOffice quit triggers funnel off in background without blocking."""
-    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    marker = tmp_path / "writeragent-tailscale-funnel-armed"
-    marker.write_text("armed\n", encoding="utf-8")
-    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
-
-    mgr = TunnelManager()
-    reset_cmds: list[list[str]] = []
-    timeouts: list[float] = []
-
-    def _run(cmd, **kwargs):
-        timeouts.append(kwargs.get("timeout"))
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
-    background: list = []
-    with (
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
-    ):
-        mgr.stop_for_quit()
-        _join_recorded_background(background)
-        assert reset_cmds == _tailscale_reset_cmds()
-        assert timeouts == [5]
-        assert not marker.exists()
-
-
-def test_stop_for_quit_connected_tailscale_schedules_background_reset(monkeypatch, tmp_path):
-    """Live CONNECTED session: quit terminates the CLI and triggers background reset."""
     from plugin.mcp.tunnel_state import TunnelStatus
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -1701,100 +1590,53 @@ def test_stop_for_quit_connected_tailscale_schedules_background_reset(monkeypatc
 
     mgr = TunnelManager()
     procs: list = []
+    exits: list = []
     reset_cmds: list[list[str]] = []
     timeouts: list[float] = []
+    background: list = []
     funnel_stdout = [
         "Available on the internet:",
         "",
         "https://node.tailnet-name.ts.net/",
     ]
 
-    def _run(cmd, **kwargs):
-        timeouts.append(kwargs.get("timeout"))
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-
-        def start():
-            if stdout_cb and cmd[0] == "tailscale":
-                for line in funnel_stdout:
-                    stdout_cb(line)
-
-        proc.start = start
-        proc.terminate = MagicMock()
-        procs.append(proc)
-        return proc
-
-    background: list = []
-    with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
-        patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
-    ):
-        assert mgr.start(18765, "tailscale") is True
-        assert mgr.status == TunnelStatus.CONNECTED
-        reset_cmds.clear()
-        timeouts.clear()
-        mgr.stop_for_quit()
-        procs[0].terminate.assert_called_once()
-        _join_recorded_background(background)
-        assert reset_cmds == _tailscale_reset_cmds()
-        assert timeouts == [5]
-        assert not marker.exists()
-
-
-def test_stop_for_quit_failed_tailscale_schedules_background_reset(monkeypatch, tmp_path):
-    """FAILED Tailscale (no live process): quit triggers background reset."""
-    from plugin.mcp.tunnel_state import TunnelStatus
-
-    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    marker = tmp_path / "writeragent-tailscale-funnel-armed"
-    marker.write_text("armed\n", encoding="utf-8")
-    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
-
-    mgr = TunnelManager()
-    exits: list = []
-    reset_cmds: list[list[str]] = []
-    timeouts: list[float] = []
-
-    def _run(cmd, **kwargs):
-        timeouts.append(kwargs.get("timeout"))
-        reset_cmds.append(list(cmd))
-        completed = MagicMock()
-        completed.returncode = 0
-        return completed
-
-    def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
-        proc = MagicMock()
-        proc.is_running = True
-        proc.start = MagicMock()
-        proc.terminate = MagicMock()
-        exits.append(on_exit_cb)
-        return proc
-
-    background: list = []
+    def _on_start(cmd, stdout_cb, _stderr_cb):
+        if mode == "connected" and stdout_cb and cmd[0] == "tailscale":
+            for line in funnel_stdout:
+                stdout_cb(line)
 
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
-        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
+        patch(
+            "plugin.mcp.tunnel.subprocess.run",
+            side_effect=_record_subprocess_run(reset_cmds, timeouts=timeouts),
+        ),
+        patch(
+            "plugin.framework.worker_pool.AsyncProcess",
+            side_effect=_make_fake_async_process(
+                procs=procs,
+                exits=exits,
+                on_start=_on_start if mode == "connected" else None,
+            ),
+        ),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
-        assert mgr.start(18765, "tailscale", max_retries=0) is True
-        exits[0](1)
-        assert mgr.status == TunnelStatus.FAILED
-        assert mgr._process is None
-        _join_recorded_background(background)
+        if mode == "connected":
+            assert mgr.start(18765, "tailscale") is True
+            assert mgr.status == TunnelStatus.CONNECTED
+        elif mode == "failed":
+            assert mgr.start(18765, "tailscale", max_retries=0) is True
+            exits[0](1)
+            assert mgr.status == TunnelStatus.FAILED
+            assert mgr._process is None
+            _join_recorded_background(background)
+            background.clear()
+
         reset_cmds.clear()
         timeouts.clear()
-        background.clear()
         mgr.stop_for_quit()
+        if mode == "connected":
+            procs[0].terminate.assert_called_once()
         _join_recorded_background(background)
         assert reset_cmds == _tailscale_reset_cmds()
         assert timeouts == [5]

@@ -64,6 +64,17 @@ def _app_bases():
     return {"Writer": ToolWriterSpecialBase, "Calc": ToolCalcSpecialBase, "Draw": ToolDrawSpecialBase}
 
 
+def _sidebar_only_domains():
+    from plugin.framework.prompts import (
+        IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
+        WRITER_SIDEBAR_ONLY_DOMAINS,
+    )
+
+    # Sidebar-only flows need session orchestration the direct modes do not provide,
+    # so they are absent from BOTH modes by design and are not a parity gap.
+    return WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
+
+
 def _direct_flat_tools(label):
     """``{name: specialized_domain}`` for one app's specialized tools that direct_flat lists.
 
@@ -71,17 +82,9 @@ def _direct_flat_tools(label):
     discovery at start-up, and this invariant is about what the code declares, not about what one
     session happened to load.
     """
-    from plugin.framework.prompts import (
-        IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
-        WRITER_SIDEBAR_ONLY_DOMAINS,
-    )
-
     bases = _app_bases()
     wanted = tuple(bases.values()) if label is None else (bases[label],)
-    # direct_flat drops the sidebar-only flows itself (sidebar_only_tool_names): they need session
-    # orchestration the direct modes do not provide, so they are absent from BOTH modes by design
-    # and are not a parity gap.
-    sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
+    sidebar_only = _sidebar_only_domains()
     return {cls.name: getattr(cls, "specialized_domain", None)
             for cls in _all_tool_classes()
             if issubclass(cls, wanted)
@@ -89,9 +92,38 @@ def _direct_flat_tools(label):
             and getattr(cls, "specialized_domain", None) not in sidebar_only}
 
 
-@pytest.mark.parametrize("label", ["Writer", "Calc", "Draw", None])
-def test_every_listed_specialized_tool_has_a_catalogued_domain(label):
-    listed = _direct_flat_tools(label)
+def _concrete_tools(label):
+    """``{name: specialized_domain}`` for all non-dummy concrete tools of one app."""
+    from plugin.framework.tool import ToolBaseDummy
+
+    base = _app_bases()[label]
+    sidebar_only = _sidebar_only_domains()
+    return {
+        t.name: getattr(t, "specialized_domain", None)
+        for t in _all_tool_classes()
+        if issubclass(t, base)
+        and not issubclass(t, ToolBaseDummy)
+        and getattr(t, "specialized_domain", None) not in sidebar_only
+    }
+
+
+@pytest.mark.parametrize(
+    "label, lister, needs_init",
+    [
+        pytest.param("Writer", _direct_flat_tools, False, id="Writer-direct_flat"),
+        pytest.param("Calc", _direct_flat_tools, False, id="Calc-direct_flat"),
+        pytest.param("Draw", _direct_flat_tools, False, id="Draw-direct_flat"),
+        pytest.param(None, _direct_flat_tools, False, id="all-direct_flat"),
+        pytest.param("Writer", _concrete_tools, True, id="Writer-concrete"),
+        pytest.param("Calc", _concrete_tools, True, id="Calc-concrete"),
+        pytest.param("Draw", _concrete_tools, True, id="Draw-concrete"),
+    ],
+)
+def test_every_listed_specialized_tool_has_a_catalogued_domain(label, lister, needs_init, request):
+    if needs_init:
+        request.getfixturevalue("_initialized_app_modules")
+    listed = lister(label)
+
     offered = {e["domain"] for e in get_specialized_domain_catalog(agent_label=label, ctx=None, for_discovery=True)}
 
     # Guard against the check passing because it found nothing to check.
@@ -103,7 +135,7 @@ def test_every_listed_specialized_tool_has_a_catalogued_domain(label):
     stranded = sorted(name for name, domain in listed.items() if domain and domain not in offered)
 
     assert not stranded, (
-        "%s: direct_flat lists these tools but no discovery domain mentions them, so a "
+        "%s: lists these tools but no discovery domain mentions them, so a "
         "direct_discovery client cannot find them: %s" % (label, stranded))
 
 
@@ -161,20 +193,20 @@ def test_an_unavailable_domains_tools_are_dropped_from_the_list(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3, value_4",
+    "venv_configured, tool_name, domain",
     [
-        pytest.param(True, "extract_structure_from_image", "vision", "extract_structure_from_image", id="test_a_configured_domain_stays_listed"),
+        pytest.param(True, "extract_structure_from_image", "vision", id="configured_domain_stays_listed"),
         # Core tools have no specialized domain and must pass through whatever the gate says.
-        pytest.param(False, "get_document_content", None, "get_document_content", id="test_tools_without_a_domain_are_never_dropped"),
+        pytest.param(False, "get_document_content", None, id="tools_without_domain_never_dropped"),
     ],
 )
-def test_a_configured_domain_stays_listed(monkeypatch, value, value_2, value_3, value_4):
+def test_a_configured_domain_stays_listed(monkeypatch, venv_configured, tool_name, domain):
     from plugin.mcp.mcp_protocol import drop_unavailable_domains
 
     monkeypatch.setattr("plugin.vision.vision_availability.vision_venv_configured",
-                        lambda _ctx: value)
-    registry = _FakeRegistry({value_2: value_3})
-    schemas = [{"name": value_4}]
+                        lambda _ctx: venv_configured)
+    registry = _FakeRegistry({tool_name: domain})
+    schemas = [{"name": tool_name}]
 
     assert drop_unavailable_domains(schemas, registry, object()) == schemas
 
@@ -208,17 +240,13 @@ _MARKER_ALLOWLIST = {
 }
 
 
-@pytest.mark.parametrize("label", ["Writer", "Calc", "Draw"])
-def test_concrete_specialized_tool_domains_in_catalog(label):
+@pytest.fixture(scope="module")
+def _initialized_app_modules():
     from unittest.mock import patch
     from plugin.calc import CalcModule
     from plugin.draw import DrawModule
-    from plugin.framework.prompts import (
-        IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
-        WRITER_SIDEBAR_ONLY_DOMAINS,
-    )
     from plugin.framework.service import ServiceRegistry
-    from plugin.framework.tool import ToolBaseDummy, ToolRegistry
+    from plugin.framework.tool import ToolRegistry
     from plugin.writer import WriterModule
 
     services = ServiceRegistry()
@@ -228,39 +256,10 @@ def test_concrete_specialized_tool_domains_in_catalog(label):
         CalcModule().initialize(services)
         DrawModule().initialize(services)
 
-    bases = _app_bases()
-    all_tools = _all_tool_classes()
-    cat_domains = {e["domain"] for e in get_specialized_domain_catalog(agent_label=label, ctx=None, for_discovery=True)}
-    sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
-
-    app_tools = [
-        t for t in all_tools
-        if issubclass(t, bases[label])
-        and not issubclass(t, ToolBaseDummy)
-        and getattr(t, "specialized_domain", None) not in sidebar_only
-    ]
-    for tool_cls in app_tools:
-        domain = getattr(tool_cls, "specialized_domain", None)
-        assert domain is None or domain in cat_domains, (
-            f"{label}: Tool {tool_cls.name} has specialized_domain {domain!r} not in catalog {cat_domains}"
-        )
-
 
 @pytest.mark.parametrize("label", ["Writer", "Calc", "Draw"])
-def test_catalog_domains_have_tools_or_marker_allowlist(label):
-    from unittest.mock import patch
-    from plugin.calc import CalcModule
-    from plugin.draw import DrawModule
-    from plugin.framework.service import ServiceRegistry
-    from plugin.framework.tool import ToolBaseDummy, ToolRegistry
-    from plugin.writer import WriterModule
-
-    services = ServiceRegistry()
-    services.register("tools", ToolRegistry(services))
-    with patch("plugin.framework.config._resolve_config_path_from_ctx", return_value="/tmp/writeragent.json"):
-        WriterModule().initialize(services)
-        CalcModule().initialize(services)
-        DrawModule().initialize(services)
+def test_catalog_domains_have_tools_or_marker_allowlist(label, _initialized_app_modules):
+    from plugin.framework.tool import ToolBaseDummy
 
     bases = _app_bases()
     all_tools = _all_tool_classes()

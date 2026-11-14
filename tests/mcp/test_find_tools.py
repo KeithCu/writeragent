@@ -372,17 +372,26 @@ def test_mode_sizing_real_registry():
     assert "find_tools" in discovery and not (spec & discovery)
 
 
-def test_execute_tolerates_malformed_schemas_in_domain_listing():
+@pytest.mark.parametrize(
+    "bad_schemas",
+    [
+        pytest.param(
+            [{"name": 123, "description": ["x"], "inputSchema": {}}, "not_a_dict"],
+            id="non_dict_and_non_str_fields",
+        ),
+        pytest.param(
+            [{"name": ["bad"], "description": "x", "inputSchema": {}}, {"name": "", "description": "y", "inputSchema": {}}],
+            id="unusable_names",
+        ),
+    ],
+)
+def test_execute_tolerates_malformed_schemas_in_domain_listing(bad_schemas):
     registry = MagicMock()
-    registry.get_schemas.return_value = [
-        {"name": 123, "description": ["x"], "inputSchema": {}},
-        "not_a_dict",
-        _schema("footnotes_insert", "add a note"),
-    ]
+    registry.get_schemas.return_value = [*bad_schemas, _schema("footnotes_insert", "add a note")]
     registry.get_tools.return_value = []
     result = FindTools().execute(_ctx(registry), domain="footnotes")
     assert result["status"] == "ok"
-    assert "footnotes_insert" in {t["name"] for t in result["tools"]}
+    assert [t.get("name") for t in result["tools"]] == ["footnotes_insert"]
 
 
 def test_non_string_domain_is_rejected_by_the_validator():
@@ -479,17 +488,19 @@ def test_no_document_domain_listing_uses_broad_catalog():
     assert "note" in result
 
 
-def test_explicit_sidebar_domain_returns_no_tools():
-    result = FindTools().execute(_ctx_real(_real_registry()), domain="brainstorming")
+@pytest.mark.parametrize(
+    "domain, expect_note",
+    [
+        pytest.param("brainstorming", False, id="brainstorming"),
+        pytest.param("ppt_master", True, id="ppt_master"),
+    ],
+)
+def test_explicit_sidebar_domain_returns_no_tools(domain, expect_note):
+    result = FindTools().execute(_ctx_real(_real_registry()), domain=domain)
     assert result["tools"] == []
-    assert result["domain"] == "brainstorming"
-
-
-def test_explicit_sidebar_domain_ppt_master_returns_no_tools_and_note():
-    result = FindTools().execute(_ctx_real(_real_registry()), domain="ppt_master")
-    assert result["tools"] == []
-    assert result["domain"] == "ppt_master"
-    assert "note" in result
+    assert result["domain"] == domain
+    if expect_note:
+        assert "note" in result
 
 
 def test_unknown_domain_returns_error_and_available_domains():
@@ -546,12 +557,6 @@ def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
         assert result["tools"] == []
 
 
-def test_get_domain_guidance_is_app_neutral_when_app_unknown():
-    g = get_domain_guidance("charts", agent_label=None)
-    assert isinstance(g, str) and g.strip()
-    assert g != get_domain_guidance("charts", agent_label="Calc")
-
-
 def test_no_document_chart_guidance_is_app_neutral():
     registry = MagicMock()
     registry.get_schemas.return_value = [_schema("create_chart")]
@@ -563,26 +568,15 @@ def test_no_document_chart_guidance_is_app_neutral():
     ctx.ctx = MagicMock()
     result = FindTools().execute(ctx, domain="charts")
     g = result["domain_guidance"]["charts"]
+    assert isinstance(g, str) and g.strip()
     assert g == get_domain_guidance("charts", agent_label=None)
+    assert g != get_domain_guidance("charts", agent_label="Calc")
 
 
 def test_run_venv_python_advertises_superset_when_doc_unknown():
     from plugin.calc.python.venv import RunVenvPythonScript
     params = RunVenvPythonScript().get_parameters(None)
     assert "data_range" in params["properties"]
-
-
-def test_execute_drops_schemas_with_unusable_names():
-    registry = MagicMock()
-    registry.get_schemas.return_value = [
-        {"name": ["bad"], "description": "x", "inputSchema": {}},
-        {"name": "", "description": "y", "inputSchema": {}},
-        _schema("footnotes_insert", "insert a footnote"),
-    ]
-    registry.get_tools.return_value = []
-    names = [t.get("name") for t in FindTools().execute(_ctx(registry), domain="footnotes")["tools"]]
-    assert ["bad"] not in names and "" not in names
-    assert "footnotes_insert" in names
 
 
 def test_direct_flat_lists_app_specific_tools_without_document():
