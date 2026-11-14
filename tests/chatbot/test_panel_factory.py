@@ -66,7 +66,14 @@ _IMPORT_BOUNDARY_CASES = [
 ]
 
 
-@pytest.mark.parametrize(("path", "forbidden", "check_call"), _IMPORT_BOUNDARY_CASES)
+@pytest.mark.parametrize(
+    ("path", "forbidden", "check_call"),
+    _IMPORT_BOUNDARY_CASES,
+    ids=[
+        f"{p.stem}-{'no_ctx_builder' if f is _NO_CTX_BUILDER else 'no_factory' if f is _NO_FACTORY else f[0]}"
+        for p, f, _c in _IMPORT_BOUNDARY_CASES
+    ],
+)
 def test_module_import_boundaries(path: Path, forbidden: tuple[str, ...], check_call: str | None) -> None:
     """Guard chatbot module layering boundaries (factory, views, send/tool_loop, compaction)."""
     imported = _imported_names(path)
