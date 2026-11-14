@@ -35,6 +35,7 @@ def test_importing_venv_modules_binds_callables():
     pytest.importorskip("pandas")
     pytest.importorskip("numpy")
 
+    # importing the venv module registers its helpers; run_domain needs them when this test runs alone
     import plugin.scripting.venv.analysis  # noqa: F401
     import plugin.scripting.venv.forecast  # noqa: F401
     import plugin.scripting.venv.optimize  # noqa: F401
@@ -53,6 +54,7 @@ def test_importing_venv_modules_binds_callables():
 
 def test_analysis_describe_data_none_and_extra_param():
     pytest.importorskip("pandas")
+    # importing the venv module registers its helpers; run_domain needs them when this test runs alone
     import plugin.scripting.venv.analysis  # noqa: F401
     from plugin.scripting.venv.trusted_dispatch import run_domain
 

@@ -36,6 +36,9 @@ def _reset_tts_catalog_caches():
     prev_memos = dict(cfg._catalog_memos)
     prev_voices = dict(cfg._tts_supported_voices)
     prev_formats = dict(cfg._tts_response_format)
+    cfg._catalog_memos.clear()
+    cfg._tts_supported_voices.clear()
+    cfg._tts_response_format.clear()
     try:
         yield
     finally:

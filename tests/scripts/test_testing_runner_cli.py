@@ -31,6 +31,7 @@ def _reset_office_test_state():
         office.options.filters = prev_filters
         office.options.exact_function_names = prev_exact
         office.urp_bridge_dead = prev_dead
+        office.reset_death_signals(clear_proc=True)
         office.reset_lifecycle_breadcrumb()
 
 
@@ -399,7 +400,6 @@ def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     err = capsys.readouterr().err
     assert "LIFECYCLE application error after TEST returned draw.salabort.test_ok" in err
     assert any("Unspecified Application Error" in line for line in suite_log)
-    tr.current_office().reset_death_signals(clear_proc=True)
 
 
 def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:

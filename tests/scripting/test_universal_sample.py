@@ -1,32 +1,16 @@
-import sys
 from unittest.mock import patch
 
 import pytest
 
 
 @pytest.fixture
-def wa_module():
+def wa_module(alias_import_state):
     from plugin.framework.uno_bootstrap import register_alias_importer
 
-    prev_meta_path = list(sys.meta_path)
-    prev_wa = {
-        key: mod
-        for key, mod in sys.modules.items()
-        if key == "writeragent" or key.startswith("writeragent.")
-    }
     register_alias_importer()
     import writeragent as wa
 
-    try:
-        yield wa
-    finally:
-        sys.meta_path[:] = prev_meta_path
-        for key in list(sys.modules):
-            if key == "writeragent" or key.startswith("writeragent."):
-                if key in prev_wa:
-                    sys.modules[key] = prev_wa[key]
-                else:
-                    del sys.modules[key]
+    return wa
 
 
 def test_get_active_document_type_writer(wa_module):

@@ -20,33 +20,14 @@ from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
 
 @pytest.fixture
-def clean_writeragent_modules():
-    prev_meta_path = list(sys.meta_path)
-    prev_wa = {
-        key: mod
-        for key, mod in sys.modules.items()
-        if key == "writeragent" or key.startswith("writeragent.")
-    }
-    api_mod = sys.modules.get("plugin.scripting.writeragent_api")
-    prev_api_vision = getattr(api_mod, "vision", None) if api_mod is not None else None
-    for key in list(prev_wa):
+def clean_writeragent_modules(alias_import_state, monkeypatch: pytest.MonkeyPatch):
+    import plugin.scripting.writeragent_api as api
+
+    # writeragent aliases writeragent_api, so importing writeragent.vision overwrites api.vision with the venv submodule.
+    monkeypatch.setattr(api, "vision", api.vision)
+    for key in list(alias_import_state):
         del sys.modules[key]
-    try:
-        yield
-    finally:
-        sys.meta_path[:] = prev_meta_path
-        for key in list(sys.modules):
-            if key == "writeragent" or key.startswith("writeragent."):
-                if key in prev_wa:
-                    sys.modules[key] = prev_wa[key]
-                else:
-                    del sys.modules[key]
-        api_mod = sys.modules.get("plugin.scripting.writeragent_api")
-        if api_mod is not None:
-            if prev_api_vision is not None:
-                api_mod.vision = prev_api_vision
-            elif hasattr(api_mod, "_VisionProxy"):
-                api_mod.vision = api_mod._VisionProxy()
+    yield
 
 
 _ORIGINAL_FIND_SPEC = importlib.util.find_spec
