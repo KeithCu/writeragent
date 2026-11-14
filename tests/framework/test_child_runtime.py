@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import ctypes
 
+import pytest
+
 import plugin.framework.child_runtime as child_runtime
 
 
@@ -137,3 +139,60 @@ def test_pdeathsig_preexec_parent_died_before_exec(monkeypatch) -> None:
     assert len(calls) == 1
     assert killed == [9]
 
+
+def test_die_with_parent() -> None:
+    import sys
+    from plugin.framework.child_runtime import die_with_parent
+
+    if sys.platform != "linux":
+        assert die_with_parent() is False
+    else:
+        assert die_with_parent() is True
+
+
+def test_error_dict_keeps_optional_id() -> None:
+    """``id`` is present when passed, including None. No ``message`` key."""
+    from plugin.framework.child_runtime import error_dict
+
+    bare = error_dict("PAYLOAD_TOO_LARGE", "too big")
+    assert bare == {"status": "error", "code": "PAYLOAD_TOO_LARGE", "error": "too big"}
+    with_id = error_dict("QUEUE_TIMEOUT", "expired", req_id=None)
+    assert with_id["id"] is None
+    assert "message" not in with_id
+
+
+@pytest.mark.parametrize(
+    ("budget", "remaining", "usable_sec", "left_sec"),
+    [
+        (0.0, 0.0, None, 0.0),
+        (0.5, 0.5, None, 0.5),
+        (1.0, 0.0, None, 0.0),
+        (1.0, 0.5, 0.5, 0.5),
+        (1.0, 1.0, 1.0, 1.0),
+        (2.0, 0.5, None, 0.5),
+        (2.0, 1.0, 1.0, 1.0),
+        (5.0, -0.25, None, -0.25),
+        (5.0, 0.5, None, 0.5),
+        (5.0, 2.5, 2.5, 2.5),
+    ],
+)
+def test_deadline_budget_table(
+    monkeypatch: pytest.MonkeyPatch,
+    budget: float,
+    remaining: float,
+    usable_sec: float | None,
+    left_sec: float,
+) -> None:
+    """usable() is the only start gate; left() is the true remainder.
+
+    A 1s budget may start with under a second left. A longer one may not;
+    the chained compare hid that. A 2s request with 0.5s left must refuse;
+    a 1s request with the same remainder must start.
+    """
+    from plugin.framework.child_runtime import Deadline
+
+    now = 1_000.0
+    monkeypatch.setattr("plugin.framework.child_runtime.time.monotonic", lambda: now)
+    clock = Deadline.from_absolute(budget, now + remaining)
+    assert clock.usable() == usable_sec
+    assert clock.left() == left_sec
