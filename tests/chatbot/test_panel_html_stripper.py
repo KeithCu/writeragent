@@ -13,6 +13,8 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response, assign_send_outcome
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper
@@ -40,55 +42,42 @@ def _turn(send):
 
 
 class TestPanelHTMLStripper:
-    @patch("plugin.chatbot.dialogs.get_control_text", return_value="Current: ")
-    @patch("plugin.chatbot.dialogs.set_control_text")
-    def test_append_response_plain_text_strips_streaming_tags(self, mock_set_text, mock_get_text):
+    @pytest.mark.parametrize(
+        "chunks, role, expected",
+        [
+            pytest.param(
+                ["Hello <st", "rong>World</str", "ong>!"],
+                "assistant",
+                "Current: Hello World!",
+                id="streaming_split_tags",
+            ),
+            pytest.param(
+                ["<p>Hello</p>"],
+                "user",
+                "Current: Hello",
+                id="direct_non_assistant_html",
+            ),
+            pytest.param(
+                ["<p>" + ("y" * (DEAL_MAX_HTML_CHUNK + 1)) + "</p>"],
+                "assistant",
+                "Current: " + ("y" * (DEAL_MAX_HTML_CHUNK + 1)),
+                id="long_assistant_chunk_over_deal_limit",
+            ),
+        ],
+    )
+    def test_append_response_plain_text_strips_tags(self, chunks, role, expected):
         send = _make_plain_send_listener()
-        
-        # Stream chunks with tags split
-        chunk1 = "Hello <st"
-        chunk2 = "rong>World</str"
-        chunk3 = "ong>!"
-        
-        # Chunk 1: `<st` is buffered, returns "Hello "
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
-            send._append_response(chunk1, role="assistant")
-            mock_set_text.assert_called_with(send.response_control, "Current: Hello ")
-            
-            # Reset mocks for chunk 2
-            mock_get_text.return_value = "Current: Hello "
-            send._append_response(chunk2, role="assistant")
-            # `<strong` is discarded, `World` is returned, `<str` is buffered.
-            mock_set_text.assert_called_with(send.response_control, "Current: Hello World")
-            
-            # Reset mocks for chunk 3
-            mock_get_text.return_value = "Current: Hello World"
-            send._append_response(chunk3, role="assistant")
-            # `ong>` closes and is discarded, `!` is returned
-            mock_set_text.assert_called_with(send.response_control, "Current: Hello World!")
+        text_buf = ["Current: "]
 
-    @patch("plugin.chatbot.dialogs.get_control_text", return_value="Current: ")
-    @patch("plugin.chatbot.dialogs.set_control_text")
-    def test_append_response_plain_text_direct_strips_html(self, mock_set_text, mock_get_text):
-        send = _make_plain_send_listener()
-        # Direct non-assistant messages (e.g. user message with HTML tags saved in history)
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
-            send._append_response("<p>Hello</p>", role="user")
-            mock_set_text.assert_called_with(send.response_control, "Current: Hello")
+        with (
+            patch("plugin.chatbot.dialogs.get_control_text", side_effect=lambda _ctrl: text_buf[0]),
+            patch("plugin.chatbot.dialogs.set_control_text", side_effect=lambda _ctrl, val: text_buf.__setitem__(0, val)),
+            patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()),
+        ):
+            for chunk in chunks:
+                send._append_response(chunk, role=role)
 
-    @patch("plugin.chatbot.dialogs.get_control_text", return_value="Current: ")
-    @patch("plugin.chatbot.dialogs.set_control_text")
-    def test_append_response_long_assistant_chunk_does_not_precontract(
-        self, mock_set_text, mock_get_text
-    ):
-        """One assistant chunk > DEAL_MAX_HTML_CHUNK must still append (debug deal)."""
-        send = _make_plain_send_listener()
-        long_text = "<p>" + ("y" * (DEAL_MAX_HTML_CHUNK + 1)) + "</p>"
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
-            send._append_response(long_text, role="assistant")
-        mock_set_text.assert_called_with(
-            send.response_control, "Current: " + ("y" * (DEAL_MAX_HTML_CHUNK + 1))
-        )
+        assert text_buf[0] == expected
 
     @patch("plugin.chatbot.dialogs.get_control_text", return_value="Current: ")
     @patch("plugin.chatbot.dialogs.set_control_text")
