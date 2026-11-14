@@ -443,6 +443,32 @@ class TestExecute:
         assert "nope" in result.get("message", "")
         assert result.get("details", {}).get("tool_name") == "nope"
 
+    def test_unknown_tool_suggests_close_offered_names(self):
+        class CalcOnlyTool(FakeTool):
+            name = "fake_tool_calc"
+            doc_types = ("calc",)
+            uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+
+        class SpecializedWriterTool(FakeTool):
+            name = "fake_tools"
+            tier = "specialized"
+
+        reg = _make_registry(FakeTool(), CalcOnlyTool(), SpecializedWriterTool())
+        ctx = _make_ctx("writer")
+        result = reg.execute("fake_tol", ctx)
+        assert result["status"] == "error"
+        assert result.get("code") == "UNKNOWN_TOOL"
+        assert result.get("details", {}).get("suggestions") == ["fake_tool"]
+        assert "fake_tool" in result.get("message", "")
+
+    def test_unknown_tool_without_close_name_has_empty_suggestions(self):
+        reg = _make_registry(FakeTool())
+        ctx = _make_ctx("writer")
+        result = reg.execute("zzz", ctx)
+        assert result["status"] == "error"
+        assert result.get("code") == "UNKNOWN_TOOL"
+        assert result.get("details", {}).get("suggestions") == []
+
 
     def test_incompatible_doc_type_returns_unsupported_document(self):
         reg = _make_registry(FakeTool())

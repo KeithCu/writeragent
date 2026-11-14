@@ -123,6 +123,18 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
     return f"Array has {n_vals} values but range {range_name} has {n_cells} cells ({rows}×{cols}). JSON array must match range size exactly, or pass a single string to fill the whole range.{hint}"
 
 
+def _grid_mismatch_message(range_name: str, values: Sequence[Any], rows: int, cols: int, start: tuple[int, int]) -> str:
+    """Explain a ragged or wrong-shaped 2-D write with the range name and the matching shape."""
+    r = len(values)
+    width = len(values[0])
+    for idx, row in enumerate(values):
+        if not isinstance(row, (list, tuple)):
+            return f"values row {idx + 1} is not a list (row 1 has {width} items); every row needs the same length. Range {range_name} is {rows}×{cols}."
+        if len(row) != width:
+            return f"values row {idx + 1} has {len(row)} items but row 1 has {width}; every row needs the same length. Range {range_name} is {rows}×{cols}."
+    return f"values is {r}×{width} (rows×columns) but range {range_name} is {rows}×{cols}. Send {rows} rows of {cols} values, or use a {r}×{width} range starting at {format_address(*start)}."
+
+
 def _write_summary(
     range_str: str,
     cell_metas: Sequence[_CellWrite],
@@ -600,7 +612,7 @@ class CellManipulator:
         direction = "ascending" if ascending else "descending"
         if key_column() == before:
             log.info("Range %s: key column %d unchanged by the sort; no rows moved.", range_str.upper(), sort_column)
-            return f"Range {range_str}: key column {sort_column} unchanged by the sort; no rows moved."
+            return f"Range {range_str}: key column {sort_column} unchanged by the sort; no rows moved. Calling it again changes nothing; if rows should move, check range, has_header and sort_column."
         log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
         return f"Range {range_str} sorted {direction} by column {sort_column}."
 
@@ -1038,7 +1050,7 @@ class CellManipulator:
                 r_cnt, c_cnt = len(values), len(values[0])
                 ragged = not all(isinstance(row, (list, tuple)) and len(row) == c_cnt for row in values)
                 if total > 1 and (ragged or (r_cnt, c_cnt) != (num_rows, num_cols)):
-                    raise CalcError(f"Array is {r_cnt}x{c_cnt} but range is {num_rows}x{num_cols}.")
+                    raise CalcError(_grid_mismatch_message(range_str, values, num_rows, num_cols, start))
             elif isinstance(values, (list, tuple)) and len(values) != total:
                 raise CalcError(_values_length_mismatch_message(range_str, len(values), total, num_rows, num_cols))
 
@@ -1051,7 +1063,7 @@ class CellManipulator:
             if rows_2d:
                 if total == 1:
                     if ragged:
-                        raise CalcError(f"Array is {r_cnt}x{max(len(r) for r in values)} but range is 1x1.")
+                        raise CalcError(_grid_mismatch_message(range_str, values, 1, 1, start))
                     end = (start[0] + c_cnt - 1, start[1] + r_cnt - 1)
                     _check_write_cap(r_cnt * c_cnt)
                     range_str = format_range(start[0], start[1], end[0], end[1])

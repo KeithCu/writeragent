@@ -1314,8 +1314,8 @@ def test_write_formula_range_rejects_2d_grid_shape_mismatch():
         )
 
     assert result["status"] == "error"
-    assert "2x2" in result["message"]
-    assert "2x3" in result["message"]
+    assert "2×2" in result["message"]
+    assert "2×3" in result["message"]
     commit.assert_not_called()
 
 

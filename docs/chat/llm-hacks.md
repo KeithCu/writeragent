@@ -221,4 +221,18 @@ Tests: [`tests/framework/client/test_openai_shim.py`](../../tests/framework/clie
 
 ---
 
+## 14. gpt-oss harmony tag on tool names; unknown-tool suggestions
+
+**Problem**:
+1. Models using the harmony chat format (such as `gpt-oss`) sometimes leak a trailing channel tag onto a tool call's function name (e.g. `read_cell_range<|channel|>commentary`), causing `UNKNOWN_TOOL` even though the base tool name and arguments are valid.
+2. When a model genuinely hallucinates a tool name (e.g. `write_formulas`), an error that only says the name is not registered gives no hint toward the real tool (`write_formula_range`).
+
+**Workarounds**:
+- **Name cleanup** ([`coalesce_split_tool_calls`](../../plugin/framework/stream_delta.py)): `_tool_name_without_template_suffix` drops everything from the first `<|` onward on non-empty function names (leaving tag-only names intact so they are not merged as split fragments). Because `LlmClient` routes both streaming and sync tool calls through `coalesce_split_tool_calls`, main chat, smol/specialized sub-agents, and the eval harness all receive clean tool names before execution and history storage.
+- **Unknown-tool suggestions** ([`ToolRegistry._unknown_tool_error`](../../plugin/framework/tool.py)): `UNKNOWN_TOOL` runs `difflib.get_close_matches` against the offered tools for the current `doc_type`, `uno_services_supported`, and `active_domain` (respecting default tier exclusions), returning up to 3 close names in the error message and in `details.suggestions`.
+
+Tests: [`tests/framework/test_stream_delta.py`](../../tests/framework/test_stream_delta.py), [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py).
+
+---
+
 *This document should be updated as new hacks are discovered or as improvements in models allow us to remove them.*
