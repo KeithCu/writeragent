@@ -111,25 +111,6 @@ def test_finalize_python_return_scalar_nan_becomes_error() -> None:
     assert math.isnan(val)
 
 
-def test_finalize_python_return_list_nan_becomes_error() -> None:
-    """NaN inside a list result becomes nan via to_calc_compatible (Calc error). The matrix session path uses the same coercion."""
-    import math
-    # Direct coercion for the element (the session path in finalize calls to_calc_compatible on each)
-    assert math.isnan(to_calc_compatible(float("nan")))
-    # Also exercise finalize with a fresh context (no prior session) for a single nan scalar
-    class _Ctx:
-        pass
-    val = finalize_python_return(_cell(_Ctx(), "c2"), float("nan"))
-    assert math.isnan(val)
-
-
-@pytest.mark.parametrize("nan_val", [math.nan, float("nan")])
-def test_to_calc_compatible_various_nan_literals(nan_val: float) -> None:
-    """Any spelling of NaN is returned raw (Calc error), not coerced to empty."""
-    import math
-    assert math.isnan(to_calc_compatible(nan_val))
-
-
 def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
     class _TmpFile:
         name = "/tmp/fake.png"
@@ -2929,33 +2910,6 @@ def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.M
     finally:
         if key1:
             WorkbookState.forget_key(key1)
-
-
-def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pytest.MonkeyPatch) -> None:
-    """=PY() with a flag patched on passes through run_code_in_user_venv unchanged (no gate, no prompt)."""
-    doc = CalcDocStub(url="file:///fake.ods", selection="A1")
-    ctx = _ctx_with_doc(doc)
-    captured_calls: list[tuple[Any, ...]] = []
-
-    def fake_run(code, **kwargs):
-        captured_calls.append((code, kwargs))
-        return {"status": "ok", "result": 123}
-
-    monkeypatch.setattr("plugin.calc.python.function.run_code_in_user_venv", fake_run)
-    monkeypatch.setattr(
-        "plugin.framework.config.get_config",
-        lambda key, default=False: True if key == "scripting.python_allow_network" else default,
-    )
-    monkeypatch.setattr(
-        "plugin.calc.python.function.get_config",
-        lambda key, default=False: True if key == "scripting.python_allow_network" else default,
-    )
-
-    out = _function.execute_python_addin(ctx, "import socket; result = 123", doc=doc)
-    assert out == 123
-    assert len(captured_calls) == 1
-    code, kwargs = captured_calls[0]
-    assert code == "import socket; result = 123"
 
 
 

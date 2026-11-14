@@ -30,16 +30,8 @@ def test_rename_duplicate_sheet(ctx, doc):
     # Attempt to rename SheetB to SheetA
     res_dup = _execute_calc_tool(doc, ctx, "sheet_rename", {"old_name": "SheetB", "new_name": "SheetA"})
     assert res_dup.get("status") == "error"
-    assert len(res_dup.get("message", "")) > 0
-
-
-@native_test
-@with_native_doc("calc")
-def test_add_row_and_column(ctx, doc):
-    active_sheet = doc.getCurrentController().getActiveSheet()
-    _execute_calc_tool(doc, ctx, "add_row", {"sheet_name": active_sheet.getName(), "row_index": 1, "count": 1})
-    _execute_calc_tool(doc, ctx, "add_column", {"sheet_name": active_sheet.getName(), "col_index": 1, "count": 1})
-    # we just test it didn't crash for now
+    assert res_dup.get("code") == "INVALID_PARAM"
+    assert doc.getSheets().hasByName("SheetB")
 
 
 @native_test

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 
 from plugin.framework.uno_context import get_desktop
@@ -20,8 +21,7 @@ def test_corpus_income_statement_verify(ctx):
 
     desktop = get_desktop(ctx)
     path = _CORPUS_DIR / "3 Statement Model.xlsx"
-    if not path.is_file():
-        return
+    assert path.is_file(), f"Missing corpus fixture: {path}"
 
     hidden_prop = uno.createUnoStruct(
         "com.sun.star.beans.PropertyValue",
@@ -30,15 +30,13 @@ def test_corpus_income_statement_verify(ctx):
     )
     file_url = uno.systemPathToFileUrl(str(path.resolve()))
     doc = desktop.loadComponentFromURL(file_url, "_blank", 0, (hidden_prop,))
-    if doc is None:
-        return
+    assert doc is not None, f"Failed to load corpus workbook: {path}"
 
     try:
         from plugin.calc.spreadsheet_import.pipeline import run_sheet_conversion
 
         sheets = doc.getSheets()
-        if not sheets.hasByName("Income Statement"):
-            return
+        assert sheets.hasByName("Income Statement"), f"Missing 'Income Statement' sheet in {path}"
         sheet = sheets.getByName("Income Statement")
         res = run_sheet_conversion(
             doc,
@@ -52,7 +50,7 @@ def test_corpus_income_statement_verify(ctx):
         converted = report.get("converted", [])
         failed = res.get("failed_verifications", [])
         if not converted:
-            return
+            raise unittest.SkipTest(f"No formulas converted in {path} (skipped={len(report.get('skipped', []))})")
         pass_rate = (len(converted) - len(failed)) / len(converted)
         assert pass_rate >= 0.90, f"verify pass rate {pass_rate:.1%}: {failed[:5]}"
     finally:

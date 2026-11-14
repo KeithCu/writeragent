@@ -196,7 +196,7 @@ def test_unwrap_cell_invariants(val) -> None:
         assert res is None
     elif isinstance(val, float) and math.isnan(val):
         assert isinstance(res, float) and math.isnan(res)
-    elif isinstance(val, (int, float, bool)) or val is None:
+    else:
         assert res == val
 
 

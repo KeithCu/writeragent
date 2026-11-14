@@ -90,8 +90,11 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
         "headers": ["Month", "Sales"],
         "rows": [["Jan", 100], ["Feb", 150]]
     })
+    # Schema strips the other doc type's fields before validation (docs/calc/charts.md).
     assert res.get("status") == "error"
-    assert "Unknown parameter" in res.get("message", "") or "not supported" in res.get("message", "").lower()
+    assert res.get("code") == "VALIDATION_ERROR"
+    assert "data_range" in res.get("message", "")
+    assert res["details"]["ignored_parameters"] == ["headers", "rows"]
 
     # Create chart without data_range should fail in Calc
     res = _execute_calc_tool(doc, ctx, "chart_upsert", {
@@ -111,8 +114,11 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
         # Create chart with data_range should fail in Writer due to missing headers/rows
         res_fail = get_tools().execute("chart_upsert", writer_ctx, chart_type="bar", data_range="A1:B6")
+        # Schema strips the other doc type's fields before validation (docs/calc/charts.md).
         assert res_fail.get("status") == "error"
-        assert "Both 'headers' and 'rows' are required" in res_fail.get("message", "") or "only supported in Calc" in res_fail.get("message", "")
+        assert res_fail.get("code") == "VALIDATION_ERROR"
+        assert "Both 'headers' and 'rows' are required" in res_fail.get("message", "")
+        assert res_fail["details"]["ignored_parameters"] == ["data_range"]
 
         # Create chart without headers/rows should fail in Writer
         res_fail2 = get_tools().execute("chart_upsert", writer_ctx, chart_type="bar")
@@ -163,18 +169,18 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
         # Read back series color
         diag = chart_doc.getFirstDiagram()
-        if diag:
-            coords = diag.getCoordinateSystems()
-            if coords:
-                ctypes = coords[0].getChartTypes()
-                if ctypes:
-                    series_list = ctypes[0].getDataSeries()
-                    if series_list:
-                        s0 = series_list[0]
-                        for prop in ["FillColor", "Color"]:
-                            if s0.getPropertySetInfo().hasPropertyByName(prop):
-                                assert s0.getPropertyValue(prop) == 0xFF0000
-                                break
+        assert diag is not None, "Expected diagram on Writer chart"
+        coords = diag.getCoordinateSystems()
+        assert coords, "Expected coordinate systems on Writer chart"
+        ctypes = coords[0].getChartTypes()
+        assert ctypes, "Expected chart types on Writer chart"
+        series_list = ctypes[0].getDataSeries()
+        assert series_list, "Expected data series on Writer chart"
+        s0 = series_list[0]
+        prop_info = s0.getPropertySetInfo()
+        color_prop = next((p for p in ("FillColor", "Color") if prop_info.hasPropertyByName(p)), None)
+        assert color_prop is not None, "Expected FillColor or Color property on data series"
+        assert s0.getPropertyValue(color_prop) == 0xFF0000
 
         # Test edit in Writer
         new_headers = ["Period", "Revenue"]

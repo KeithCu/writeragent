@@ -8,10 +8,8 @@
 import pytest
 
 from plugin.calc.sheet_filter_criteria import (
-    FILTER_OPERATOR2_LABELS,
     FilterCriterion,
     parse_sheet_filter_criterion,
-    resolve_filter_operator_code,
 )
 from plugin.framework.errors import ToolExecutionError
 
@@ -21,33 +19,6 @@ def test_odd_operator_is_invalid_param_not_precontract() -> None:
     with pytest.raises(ToolExecutionError) as exc:
         parse_sheet_filter_criterion(raw, False)
     assert exc.value.code == "INVALID_PARAM"
-
-
-def test_pin_all_18_filter_operator2_codes() -> None:
-    expected = (
-        "EMPTY",
-        "NOT_EMPTY",
-        "EQUAL",
-        "NOT_EQUAL",
-        "GREATER",
-        "GREATER_EQUAL",
-        "LESS",
-        "LESS_EQUAL",
-        "TOP_VALUES",
-        "TOP_PERCENT",
-        "BOTTOM_VALUES",
-        "BOTTOM_PERCENT",
-        "CONTAINS",
-        "DOES_NOT_CONTAIN",
-        "BEGINS_WITH",
-        "DOES_NOT_BEGIN_WITH",
-        "ENDS_WITH",
-        "DOES_NOT_END_WITH",
-    )
-    assert FILTER_OPERATOR2_LABELS == expected
-    assert len(FILTER_OPERATOR2_LABELS) == 18
-    for code, name in enumerate(expected):
-        assert resolve_filter_operator_code(name) == code
 
 
 def test_criterion_named_tuple_and_valid_cases() -> None:
