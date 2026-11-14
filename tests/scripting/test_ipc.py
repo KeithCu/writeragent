@@ -398,7 +398,7 @@ def test_header_consumed_timeout_is_partial_timeout_no_fd():
 
     try:
         with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
-            read_frame_payload(HeaderThenStall(), 0.05)
+            read_frame_payload(HeaderThenStall(), 0.2)
     finally:
         release.set()
 

@@ -75,8 +75,7 @@ def test_analysis_describe_data_none_and_extra_param(monkeypatch: pytest.MonkeyP
     res = run_domain("analysis", spec, data)
     assert res["status"] == "ok", res
     assert res["helper"] == "describe_data"
-    assert "extra_param_should_be_ignored" not in captured
-    assert captured.get("include_outliers") is None
+    assert captured == {"include_outliers": None}
 
 
 def test_optimize_extra_param_returns_invalid_param():
