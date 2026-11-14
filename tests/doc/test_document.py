@@ -18,5 +18,3 @@ def test_inject_markers_into_excerpt():
         # Excerpt covers 10-20, selection is 5-8 (outside excerpt)
         out = _inject_selection_markers(None, text, 10, 20, 5, 8, "PRE", "SUF")
         assert out == "PRE0123456789SUF"
-
-

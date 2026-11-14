@@ -2137,5 +2137,3 @@ def test_block_only_html_not_wrapped_in_p_or_br():
         assert "<p>" not in res
         assert "<br>" not in res
         assert tag_sample in res
-
-

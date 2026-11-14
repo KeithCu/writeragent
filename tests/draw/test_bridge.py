@@ -1294,4 +1294,3 @@ def test_notes_text_and_set_notes_text_functions():
     assert notes_text(slide_with_notes) == "initial"
     assert set_notes_text(slide_with_notes, "updated") is True
     assert notes_text(slide_with_notes) == "updated"
-

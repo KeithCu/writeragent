@@ -1006,4 +1006,3 @@ def test_stripping():
     expected = 'Upper Case'
     result = strip_html_boilerplate(inp)
     assert result == expected
-
