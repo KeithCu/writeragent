@@ -1377,10 +1377,15 @@ def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest
     sheet = doc.getSheets().getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula("=SUM(A2)")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
     _spill.perform_deferred_spill(
-        "Sheet1", 0, 0, [["x", "y"]], doc=doc, sheet=sheet, code="result = 1", key=WorkbookState.for_doc(doc).key
+        "Sheet1", 0, 0, [["x", "y"]], doc=doc, sheet=sheet, code="result = 1", key=state.key
     )
-    assert sheet.getCellByPosition(1, 0).getString() in ("", None) or not sheet.getCellByPosition(1, 0).getFormula()
+    b1 = sheet.getCellByPosition(1, 0)
+    assert b1.getString() == ""
+    assert b1.getValue() == 0
+    assert ("Sheet1", 0, 0) not in state.spills
 
 
 def test_scalar_for_list_result_no_share_without_unique_origin() -> None:

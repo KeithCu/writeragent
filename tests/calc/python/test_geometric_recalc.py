@@ -1420,9 +1420,19 @@ def test_ensure_strip_index_off_main_is_noop():
 
     _reset_geo()
     doc = CalcDocStub(url="file:///hydrate-off.ods")
-    with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
+    wk = calc_workbook_base_session_id(doc)
+    seeded_safe = frozenset({_key("np.mean(data)", 2, wk)})
+    replace_geometric_strip_safe(wk, seeded_safe)
+    seeded_records = {(wk, "Sheet1", "A1"): GeometricRecord(predecessor="")}
+    _RUNTIME.records.update(seeded_records)
+    with (
+        patch("plugin.calc.python.geometric_recalc.get_document_property") as mock_get_prop,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+    ):
         ensure_geometric_strip_index_for_eval(_eval_cell(doc, on_main=False))
-    assert _RUNTIME.strip_safe == frozenset()
+    assert _RUNTIME.strip_safe == seeded_safe
+    assert _RUNTIME.records == seeded_records
+    mock_get_prop.assert_not_called()
 
 
 def test_user_1x1_not_in_map_no_strip():

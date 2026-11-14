@@ -411,28 +411,11 @@ def test_resolve_piper_model_file_reports_os_speech_fallback_and_returns_none(tm
     assert messages[-1] == "Couldn't download Thorsten; using OS speech"
 
 
-def test_corrupt_download_does_not_leave_broken_file(tmp_path, monkeypatch):
-    _kokoro_cache(tmp_path, monkeypatch)
-
-    def mock_urlopen_fail(req, timeout=None):
-        raise urllib.error.URLError("offline")
-
-    with patch("os.makedirs"), \
-         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
-         patch("urllib.request.urlopen", side_effect=mock_urlopen_fail):
-        model_path, voices_path = resolve_kokoro_model_files(on_status=lambda x: None)
-
-    assert not os.path.exists(model_path)
-    assert not os.path.exists(voices_path)
-    assert model_path.endswith("kokoro-v1.0.onnx")
-
-
 def test_resolve_kokoro_model_files_reports_download_failure(tmp_path, monkeypatch):
     messages: list[str] = []
     _kokoro_cache(tmp_path, monkeypatch)
 
-    with patch("os.makedirs"), \
-         patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
+    with patch.dict("os.environ", {"KOKORO_MODEL_PATH": "", "KOKORO_VOICES_PATH": ""}), \
          patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline")):
         model_path, voices_path = resolve_kokoro_model_files(on_status=messages.append)
 

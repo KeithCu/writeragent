@@ -6,7 +6,7 @@ import hashlib
 import struct
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import uno  # noqa: F401
@@ -772,14 +772,14 @@ def test_png_aspect():
     assert shape.props.get("Size") == Size(10000, 5000)
 
 
-def test_read_image_bytes_reads_full_file():
-    m = mock_open(read_data=b"x" * 20000)
-    with (
-        patch("builtins.open", m),
-        patch("plugin.calc.python.image_egress.os.path.isfile", return_value=True),
-    ):
-        _read_image_bytes(None, "/tmp/x.png")
-    m().read.assert_called_once_with()
+def test_read_image_bytes_reads_full_file(tmp_path):
+    data = bytes(range(256)) * 80  # > 8 KB
+    img_path = tmp_path / "x.png"
+    img_path.write_bytes(data)
+    out = _read_image_bytes(None, str(img_path))
+    assert out is not None
+    assert len(out) == len(data)
+    assert hashlib.sha256(out).digest() == hashlib.sha256(data).digest()
 
 
 def test_intrinsic_aspect_handles_mixed_svg_units():
