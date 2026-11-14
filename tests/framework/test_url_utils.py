@@ -187,6 +187,10 @@ class TestPathToFileUrl:
         url = path_to_file_url("/home/user/Writing/Test.odt")
         assert url == "file:///home/user/Writing/Test.odt"
 
+    def test_posix_absolute_normalizes_dot_segments(self):
+        url = path_to_file_url("/home/user/../Writing/Test.odt")
+        assert url == "file:///home/Writing/Test.odt"
+
 
 class TestHostMatches:
     def test_exact_match(self):

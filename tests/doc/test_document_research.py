@@ -654,8 +654,9 @@ def test_resolve_listing_state_reads_active_path_open_docs_and_root():
         patch("plugin.doc.document_research.resolve_listing_directory", return_value="/docs"),
     ):
         state = resolve_listing_state(MagicMock(), MagicMock())
-    assert state == ListingState(exclude_path=os.path.normpath("/docs/Active.odt"), open_paths=open_paths, listing_root="/docs")
-    assert mock_collect.call_args.kwargs["exclude_path"] == os.path.normpath("/docs/Active.odt")
+    expected_exclude = os.path.normpath(os.path.abspath("/docs/Active.odt"))
+    assert state == ListingState(exclude_path=expected_exclude, open_paths=open_paths, listing_root="/docs")
+    assert mock_collect.call_args.kwargs["exclude_path"] == expected_exclude
 
 
 def test_scan_nearby_files_with_state_does_not_read_uno_again():
