@@ -1596,11 +1596,12 @@ def test_sentence_kokoro_without_venv_warns_once_and_uses_os_speech(caplog: pyte
         with patch.object(tts, "resolve_kokoro_python", return_value=None), \
              patch("plugin.audio.tts_service.resolve_kokoro_model_files") as resolve, \
              patch.object(tts, "_speak_system") as system:
-            with caplog.at_level("WARNING"):
+            with caplog.at_level("WARNING", logger="plugin.audio.tts_service"):
                 tts._run_sentence_pipeline(["One.", "Two."], "kokoro", "af_sky", 1.0, None, utt)
         resolve.assert_not_called()
         assert [c.args[0] for c in system.call_args_list] == ["One.", "Two."]
-        assert len(caplog.records) == 1
+        tts_warnings = [r for r in caplog.records if r.name == "plugin.audio.tts_service"]
+        assert len(tts_warnings) == 1
     finally:
         tts.stop_speech()
 
@@ -1660,10 +1661,10 @@ def test_spd_say_killed_by_stop_does_not_warn(caplog: pytest.LogCaptureFixture) 
         with patch("sys.platform", "linux"), \
              patch("shutil.which", side_effect=fake_which), \
              patch.object(tts, "_popen_for_speech", return_value=mock_proc) as mock_popen:
-            with caplog.at_level("WARNING"):
+            with caplog.at_level("WARNING", logger="plugin.audio.tts_service"):
                 tts._speak_system("a" * 4001, speed=1.0, cancel=scope)
         mock_popen.assert_called_once()
-        assert caplog.records == []
+        assert [r for r in caplog.records if r.name == "plugin.audio.tts_service"] == []
     finally:
         tts.stop_speech()
 

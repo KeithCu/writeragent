@@ -791,6 +791,20 @@ def test_calc_shapes_domain_tools():
     assert "shape_summary" in names
 
 
+def test_outer_turn_is_peer_work_probe_failure_returns_false():
+    """When _probe raises (e.g. CancelledError with empty str), fail closed to False."""
+    from plugin.doc.specialized_base import _outer_turn_is_peer_work
+
+    class EmptyMessageError(Exception):
+        def __str__(self):
+            return ""
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=EmptyMessageError):
+        res = _outer_turn_is_peer_work(MagicMock())
+
+    assert res is False
+
+
 def test_outer_turn_is_peer_work_active_query_text_returns_true():
     from plugin.doc.specialized_base import _outer_turn_is_peer_work
     from plugin.chatbot.tool_loop_actions import begin_send_turn

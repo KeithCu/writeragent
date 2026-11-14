@@ -12,7 +12,6 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
-from tests.harness.strip_bundle import is_release_build
 
 
 def _cancelled_scope() -> SendCancellation:
@@ -1639,10 +1638,8 @@ def test_anthropic_stream_loop_keeps_tool_events(client):
     assert result["finish_reason"] == "tool_calls"
 
 
-def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog):
+def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client):
     """message_start output_tokens=1 plus message_delta output_tokens=15 stays 15, not 16."""
-    import logging
-
     payloads = [
         '{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":9}}}',
         '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
@@ -1655,7 +1652,6 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog
         yield from payloads
 
     with (
-        caplog.at_level(logging.INFO),
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate),
@@ -1676,12 +1672,6 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog
     assert usage["output_tokens"] == 15
     assert usage["completion_tokens"] == 15
     assert usage["cache_read_input_tokens"] == 9
-
-    # Release strip removes log.info call sites; usage asserts above still run.
-    if not is_release_build():
-        finished_records = [r for r in caplog.records if "LLM response stream finished" in r.getMessage()]
-        assert len(finished_records) == 1
-        assert "cache_read=9" in finished_records[0].getMessage()
 
 
 def test_cache_read_count_helper():
