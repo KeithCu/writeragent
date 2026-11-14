@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+from tests.scripting.sandbox_support import sandbox_run
 from plugin.scripting.venv.worker_harness import _handle_request
 
 _INDEX_PARAMS = {
@@ -135,7 +135,7 @@ def test_user_code_still_uses_sandbox():
             return_value={"status": "ok", "result": 2},
         ) as mock_run:
             with patch("plugin.scripting.venv.venv_sandbox._new_executor", return_value=MagicMock()):
-                response = run_sandboxed_code("result = 1 + 1")
+                response = sandbox_run("result = 1 + 1")
 
     assert response["status"] == "ok"
     mock_trusted.assert_not_called()

@@ -70,7 +70,7 @@ from plugin.scripting.named_scripts import (
 )
 from plugin.scripting.venv.to_wire import figure_to_image_payload, to_wire
 from plugin.scripting.venv import optional_import
-from plugin.scripting.config_limits import python_exec_timeout_default
+from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
 from plugin.scripting.venv.results import error_result
@@ -1161,39 +1161,28 @@ def _restore_prior_result(executor: LocalPythonExecutor, prior_result: Any) -> N
 
 
 def run_sandboxed_code(
-    code: str,
-    data: Any | None = None,
+    req: SandboxRequest,
     *,
     force: ForceBinary = "auto",
-    bindings: dict[str, Any] | None = None,
-    timeout_sec: int | None = None,
-    session_id: str | None = None,
-    init_script: str | None = None,
-    init_session_id: str | None = None,
-    init_script_hash: str | None = None,
-    sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run *code* in LocalPythonExecutor.
+    """Run ``req.code`` in LocalPythonExecutor.
 
-    Without *session_id*, each call uses a new namespace. With *session_id*, reuse one
-    executor per id (shared kernel / workbook session).
+    Without ``req.session_id``, each call uses a new namespace. With ``req.session_id``,
+    reuse one executor per id (shared kernel / workbook session).
 
-    When *init_script* is set, it runs once in *init_session_id* (typically ``calc:…:init``).
-    Isolated cell runs seed a fresh executor from a copy of that snapshot; shared kernel
-    seeds the workbook session executor once, then reuses it for cell code.
-    A missing *init_script_hash* is filled from the stripped script text in this process.
+    When ``req.init_script`` is set, it runs once in ``req.init_session_id``
+    (typically ``calc:…:init``). Isolated cell runs seed a fresh executor from a
+    copy of that snapshot; shared kernel seeds the workbook session executor once,
+    then reuses it for cell code. A missing ``req.init_script_hash`` is filled from
+    the stripped script text in this process. ``req.timeout_sec`` is already bounded
+    by the sender; ``req.data``, ``req.bindings``, and ``req.sandbox_policy`` supply
+    the cell payload, extra bindings, and sandbox import/capability flags.
     """
-    if timeout_sec is None:
-        timeout_sec = python_exec_timeout_default()
-    try:
-        timeout_sec = int(timeout_sec)
-    except (TypeError, ValueError, OverflowError):
-        return error_result(message=f"Invalid timeout_sec: {timeout_sec!r}", stdout="")
-    deadline = time.monotonic() + float(timeout_sec)
+    deadline = time.monotonic() + float(req.timeout_sec)
 
-    if sandbox_policy is not None and not isinstance(sandbox_policy, dict):
+    if req.sandbox_policy is not None and not isinstance(req.sandbox_policy, dict):
         return error_result(message="sandbox_policy must be a dict", stdout="")
-    policy_dict = sandbox_policy or {}
+    policy_dict = req.sandbox_policy or {}
     try:
         raw_extra = policy_dict.get("extra_modules") or ""
         if not isinstance(raw_extra, str):
@@ -1218,11 +1207,11 @@ def run_sandboxed_code(
     # Only the cell / RPS session_id is persistable. Isolated cells still have
     # init_session_id (calc:…:init); binding that would share DuckDB across cells.
     active_token = _SANDBOX_EXECUTE.set(True)
-    token = _CURRENT_SANDBOX_SESSION.set(session_id)
+    token = _CURRENT_SANDBOX_SESSION.set(req.session_id)
     # session_duckdb().execute does not receive scoped_dir; the jail reads
     # this variable. It is set before _ensure_init_executed and _run_on_executor,
     # so the timeout fallback's copy_context() already carries it.
-    host_folder = _host_scoped_dir(bindings)
+    host_folder = _host_scoped_dir(req.bindings)
     dir_token = _CURRENT_SANDBOX_SCOPED_DIR.set(host_folder)
 
     relaxed_roots = policy_relaxed_roots(policy)
@@ -1232,17 +1221,17 @@ def run_sandboxed_code(
     extra_token = SANDBOX_EXTRA_MODULES.set(frozenset(policy_allowlist(policy)))
 
     try:
-        init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
-        init_digest = _resolve_init_digest(init_script, init_script_hash)
+        init_sid = req.init_session_id if isinstance(req.init_session_id, str) and req.init_session_id.strip() else None
+        init_digest = _resolve_init_digest(req.init_script, req.init_script_hash)
 
-        if session_id:
-            SESSIONS.drop_if_policy_mismatch(session_id, policy)
+        if req.session_id:
+            SESSIONS.drop_if_policy_mismatch(req.session_id, policy)
 
-        if init_sid and (init_script or "").strip():
+        if init_sid and (req.init_script or "").strip():
             init_err = _ensure_init_executed(
                 init_sid,
-                init_script or "",
-                timeout_sec=timeout_sec,
+                req.init_script or "",
+                timeout_sec=req.timeout_sec,
                 deadline=deadline,
                 init_script_hash=init_digest,
                 policy=policy,
@@ -1250,13 +1239,13 @@ def run_sandboxed_code(
             if init_err is not None:
                 return init_err
 
-        if session_id:
+        if req.session_id:
             executor, created = SESSIONS.get_or_create(
-                session_id, policy=policy
+                req.session_id, policy=policy
             )
             ns = CellNamespace(executor)
             if init_sid:
-                ns.seed_shared(session_id, init_sid, init_digest)
+                ns.seed_shared(req.session_id, init_sid, init_digest)
         else:
             ns = CellNamespace.fresh(policy)
             executor = ns.executor
@@ -1264,15 +1253,15 @@ def run_sandboxed_code(
             if init_sid:
                 ns.seed(init_sid, copy=True)
 
-        spent = _arm_alarm(executor, deadline, timeout_sec)
+        spent = _arm_alarm(executor, deadline, req.timeout_sec)
         if spent is not None:
-            if session_id:
+            if req.session_id:
                 spent["namespace_created"] = created
             return spent
 
-        ns.bind(code=code, data=data, bindings=bindings, scoped_dir=host_folder)
-        raw = _run_on_executor(executor, code, force=force)
-        if session_id:
+        ns.bind(code=req.code, data=req.data, bindings=req.bindings, scoped_dir=host_folder)
+        raw = _run_on_executor(executor, req.code, force=force)
+        if req.session_id:
             raw["namespace_created"] = created
         return raw
     finally:

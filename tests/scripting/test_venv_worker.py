@@ -19,7 +19,6 @@ from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, FRAME_RESULT, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame, unpack_pickle_frame
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.scripting.session_key import SessionKey
 from plugin.scripting.venv_worker import (
     ExecRequest,
     FailedAfterStart,
@@ -38,7 +37,8 @@ from plugin.scripting.venv_worker import (
 )
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
-from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
+from plugin.scripting.venv.venv_sandbox import serialize_result
+from tests.scripting.sandbox_support import sandbox_run
 
 def _mgr_proc(mgr: PythonWorkerManager) -> Any:
     """Test helper: Popen for the live warm child, if any."""
@@ -196,51 +196,51 @@ def test_serialize_numpy_scalar():
     assert serialize_result(np.int64(7)) == 7
 
 def test_execute_request_fresh_namespace():
-    r1 = run_sandboxed_code('x = 41\nresult = x + 1', None)
+    r1 = sandbox_run('x = 41\nresult = x + 1', None)
     assert r1['status'] == 'ok'
     assert r1['result'] == 42
-    r2 = run_sandboxed_code('result = x + 1', None)
+    r2 = sandbox_run('result = x + 1', None)
     assert r2['status'] == 'error'
 
 def test_execute_request_injects_data():
-    r = run_sandboxed_code('result = float(np.sum(data))', [[1, 2, 3, 4]])
+    r = sandbox_run('result = float(np.sum(data))', [[1, 2, 3, 4]])
     assert r['status'] == 'ok'
     assert r['result'] == 10.0
 
 def test_execute_request_1x1_data_arithmetic_dag():
-    r1 = run_sandboxed_code('result = data + 3', [[2]])
+    r1 = sandbox_run('result = data + 3', [[2]])
     assert r1['status'] == 'ok'
     assert r1['result'] == 5
-    r2 = run_sandboxed_code('result = data * 4', [[5.0]])
+    r2 = sandbox_run('result = data * 4', [[5.0]])
     assert r2['status'] == 'ok'
     assert r2['result'] == 20.0
 
 def test_execute_request_1x1_data_serialize_unwraps_to_scalar():
-    r = run_sandboxed_code('result = data', [[2]])
+    r = sandbox_run('result = data', [[2]])
     assert r['status'] == 'ok'
     assert r['result'] == 2
     assert not isinstance(r['result'], list)
 
 def test_execute_request_fan_out_dag_returns_scalars():
-    r1 = run_sandboxed_code('result = data', [[2]])
-    r2 = run_sandboxed_code('result = data', [[2]])
+    r1 = sandbox_run('result = data', [[2]])
+    r2 = sandbox_run('result = data', [[2]])
     assert r1['status'] == 'ok' and r1['result'] == 2
     assert r2['status'] == 'ok' and r2['result'] == 2
 
 def test_execute_request_injects_ranges_single_range():
-    r = run_sandboxed_code("result = (len(ranges), data is ranges[0], hasattr(data, 'to_pandas'))", [[1, 2, 3]])
+    r = sandbox_run("result = (len(ranges), data is ranges[0], hasattr(data, 'to_pandas'))", [[1, 2, 3]])
     assert r['status'] == 'ok'
     assert r['result'] == [1, True, True]
 
 def test_execute_request_injects_ranges_multi_polymorphic_data():
     from plugin.calc.calc_addin_data import pack_calc_multi_data_for_wire
     wire = pack_calc_multi_data_for_wire([[[1.0, 2.0, 3.0]], [[4.0, 5.0]]], force='never')
-    r = run_sandboxed_code('result = (len(ranges), data is ranges, data[1].values[0][0])', wire)
+    r = sandbox_run('result = (len(ranges), data is ranges, data[1].values[0][0])', wire)
     assert r['status'] == 'ok'
     assert r['result'] == [2, True, 4.0]
 
 def test_execute_request_does_not_inject_inputs():
-    r = run_sandboxed_code('result = inputs', [[1]])
+    r = sandbox_run('result = inputs', [[1]])
     assert r['status'] == 'error'
     assert 'inputs' in r.get('message', '').lower() and 'not defined' in r.get('message', '').lower()
 
@@ -265,13 +265,13 @@ def test_run_code_in_user_venv_passes_cancel():
         assert mock_mgr.execute.call_args.args[0].cancel is scope
 
 def test_blocked_import_os():
-    r = run_sandboxed_code('import subprocess\nresult = 1', None)
+    r = sandbox_run('import subprocess\nresult = 1', None)
     assert r['status'] == 'error'
     assert 'not allowed' in r.get('message', '').lower() or 'Import' in r.get('message', '')
 
 def test_blocked_import_not_on_allowlist():
     pytest.importorskip('requests')
-    r = run_sandboxed_code('import requests\nresult = 1', None)
+    r = sandbox_run('import requests\nresult = 1', None)
     assert r['status'] == 'error'
     assert 'not allowed' in r.get('message', '').lower() or 'Import' in r.get('message', '')
 
@@ -280,7 +280,7 @@ def test_sentence_transformers_import_not_deep_wrapped():
     st = pytest.importorskip('sentence_transformers')
     from plugin.contrib.smolagents.local_python_executor import get_safe_module
     assert get_safe_module(st, []) is st
-    r = run_sandboxed_code('from sentence_transformers import SentenceTransformer\nresult = str(SentenceTransformer)', None)
+    r = sandbox_run('from sentence_transformers import SentenceTransformer\nresult = str(SentenceTransformer)', None)
     assert r['status'] == 'ok'
     assert 'SentenceTransformer' in r['result']
 
@@ -289,7 +289,7 @@ def test_duckdb_import_not_deep_wrapped():
     duck = pytest.importorskip('duckdb')
     from plugin.contrib.smolagents.local_python_executor import get_safe_module
     assert get_safe_module(duck, []) is duck
-    r = run_sandboxed_code("import duckdb\ncon = duckdb.connect()\nresult = con.execute('SELECT 42 AS x').df().to_dict()", None)
+    r = sandbox_run("import duckdb\ncon = duckdb.connect()\nresult = con.execute('SELECT 42 AS x').df().to_dict()", None)
     assert r['status'] == 'ok'
     assert 'x' in str(r.get('result', '')) or 42 in str(r.get('result', ''))
 
@@ -297,7 +297,7 @@ def test_harness_main_loop_integration():
     """Harness reads and writes Pickle (subprocess smoke)."""
     harness = __import__('plugin.scripting.venv.worker_harness', fromlist=['main'])
     proc_pickle = subprocess.Popen([sys.executable, harness.__file__], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, bufsize=0)
-    req_dict = {'id': 't2', 'code': 'result = 2 ** 10'}
+    req_dict = {'id': 't2', 'code': 'result = 2 ** 10', 'timeout_sec': 10}
     proc_pickle.stdin.write(pack_pickle_frame(req_dict))
     proc_pickle.stdin.flush()
     ready = read_pickle_frame(proc_pickle.stdout, require_dict=True)
@@ -894,7 +894,7 @@ def test_split_grid_data_round_trip_execute_request():
     wire = pack_calc_data_for_wire(grid)
     assert is_calc_range_payload(wire)
     assert is_split_grid(wire['data'])
-    r = run_sandboxed_code('result = float(np.sum(data))', wire)
+    r = sandbox_run('result = float(np.sum(data))', wire)
     assert r['status'] == 'ok'
     assert r['result'] == pytest.approx(sequential_grid_sum(BINARY_MIN_CELLS))
 
@@ -913,14 +913,14 @@ def test_normalize_response_unpacks_split_grid():
 
 @pytest.mark.parametrize('value, expected', [pytest.param('result = math.sqrt(16)', 4.0, id='test_automatic_imports_math'), pytest.param('import math as my_math\nresult = my_math.sqrt(16)', 4.0, id='test_automatic_imports_already_imported'), pytest.param('import math\nresult = math.sqrt(25)', 5.0, id='test_automatic_imports_explicit')])
 def test_automatic_imports_math(value, expected):
-    r = run_sandboxed_code(value, None)
+    r = sandbox_run(value, None)
     assert r['status'] == 'ok'
     assert r['result'] == expected
 
 @pytest.mark.parametrize('value, value_2, expected', [pytest.param('numpy', 'result = float(np.sum([1, 2, 3]))', 6.0, id='test_automatic_imports_numpy'), pytest.param('sympy', "result = str(sp.Symbol('x'))", 'x', id='test_automatic_imports_sympy')])
 def test_automatic_imports_numpy(value, value_2, expected):
     pytest.importorskip(value)
-    r = run_sandboxed_code(value_2, None)
+    r = sandbox_run(value_2, None)
     assert r['status'] == 'ok'
     assert r['result'] == expected
 
@@ -936,7 +936,7 @@ def test_build_request_sets_heartbeat_on_trusted_action():
     assert request['timeout_sec'] == 1
     assert 'cancel' not in request
     assert 'script_session_id' not in request
-    empty = ExecRequest(session=None, allow_heartbeat=False, bindings={}, code=None, timeout_sec=1).wire()
+    empty = ExecRequest(allow_heartbeat=False, timeout_sec=1).wire()
     assert empty['code'] == ''
     assert 'session_id' not in empty
     assert 'allow_heartbeat' not in empty
@@ -1097,17 +1097,9 @@ def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
         run_code_in_user_venv('result = 1', script_session_id='doc:pin')
     req = mock_execute.call_args.args[0]
     assert req.pin == 'doc:pin'
-    assert req.session is None
+    assert req.session_id is None
     assert 'session_id' not in req.wire()
     assert 'script_session_id' not in req.wire()
-
-def test_host_script_session_id_prefers_pin():
-    from plugin.scripting.venv_worker import host_script_session_id
-    key = SessionKey.parse('rps:file:///a.odg')
-    assert host_script_session_id(key, 'doc:pin') == 'doc:pin'
-    assert host_script_session_id(key, None) == 'rps:file:///a.odg'
-    assert host_script_session_id(None, None) is None
-    assert host_script_session_id(None, 'doc:pin') == 'doc:pin'
 
 def _ipc_one_tool_call(*, session_id, script_session_id):
     """Drive one tool_call frame through the host without a real worker."""
@@ -1136,7 +1128,7 @@ def _ipc_one_tool_call(*, session_id, script_session_id):
     with patch('plugin.scripting.host_rpc.execute_tool', return_value={'status': 'ok'}) as mock_tool:
         result = _run_ipc_with_mock(
             mgr,
-            ExecRequest(code='result = 1', timeout_sec=1, session=SessionKey.from_host(session_id), pin=script_session_id),
+            ExecRequest(code='result = 1', timeout_sec=1, session_id=session_id, pin=script_session_id),
             proc,
         )
     return (captured['request'], mock_tool.call_args, result)
@@ -1529,15 +1521,15 @@ def test_shared_session_persists_after_soft_timeout():
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     sid = 'test-shared-timeout-session'
     try:
-        r1 = mgr.execute(ExecRequest(code='x = 12345\nresult = x', session=SessionKey.from_host(sid), timeout_sec=10))
+        r1 = mgr.execute(ExecRequest(code='x = 12345\nresult = x', session_id=sid, timeout_sec=10))
         assert r1['status'] == 'ok'
         assert r1['result'] == 12345
         slow_sec = 2.0 if sys.platform == 'win32' else 5.0
         with patch.object(vw, 'HOST_IPC_READ_GRACE_SEC', 8.0):
-            r2 = mgr.execute(ExecRequest(code=f'import time\ntime.sleep({slow_sec})', session=SessionKey.from_host(sid), timeout_sec=1))
+            r2 = mgr.execute(ExecRequest(code=f'import time\ntime.sleep({slow_sec})', session_id=sid, timeout_sec=1))
         assert r2['status'] == 'error'
         assert 'execution time' in r2.get('message', '').lower() or 'timed out' in r2.get('message', '').lower()
-        r3 = mgr.execute(ExecRequest(code='result = x + 1', session=SessionKey.from_host(sid), timeout_sec=10))
+        r3 = mgr.execute(ExecRequest(code='result = x + 1', session_id=sid, timeout_sec=10))
         assert r3['status'] == 'ok', r3
         assert r3['result'] == 12346
     finally:
@@ -1550,11 +1542,11 @@ def test_init_and_cell_share_one_timeout_without_killing_worker():
     sid = 'test-shared-budget-session'
     try:
         with patch.object(vw, 'HOST_IPC_READ_GRACE_SEC', 8.0):
-            slow = mgr.execute(ExecRequest(code='import time\ntime.sleep(2)\nresult = 1', session=SessionKey.from_host(sid), timeout_sec=3, init_script='import time\ntime.sleep(2)\n', init_session=SessionKey.from_host(sid + ':init'), init_script_hash='budget-v1'))
+            slow = mgr.execute(ExecRequest(code='import time\ntime.sleep(2)\nresult = 1', session_id=sid, timeout_sec=3, init_script='import time\ntime.sleep(2)\n', init_session_id=sid + ':init', init_script_hash='budget-v1'))
         assert slow['status'] == 'error'
         assert 'execution time' in slow.get('message', '').lower() or 'timed out' in slow.get('message', '').lower()
         assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).poll() is None
-        follow = mgr.execute(ExecRequest(code='result = 7', session=SessionKey.from_host(sid), timeout_sec=10))
+        follow = mgr.execute(ExecRequest(code='result = 7', session_id=sid, timeout_sec=10))
         assert follow['status'] == 'ok'
         assert follow['result'] == 7
     finally:

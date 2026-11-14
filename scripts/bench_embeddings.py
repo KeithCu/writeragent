@@ -27,7 +27,6 @@ from plugin.scripting.sandbox import (  # noqa: E402
     resolve_libreoffice_python,
     resolve_venv_python,
 )
-from plugin.scripting.session_key import SessionKey  # noqa: E402
 from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager, shutdown_venv_workers_for_tests  # noqa: E402
 
 TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
@@ -192,7 +191,6 @@ def bench_model(
     timeout_sec: int,
 ) -> dict:
     session_id = f"{SESSION_PREFIX}:{model_name.replace('/', '_')}"
-    session = SessionKey.from_host(session_id)
     print(f"Model {model_name!r}: encoding corpus (first run may download weights)...", flush=True)
     encode = _require_ok(
         mgr.execute(
@@ -200,7 +198,7 @@ def bench_model(
                 code=encode_corpus_code(model_name),
                 data=texts,
                 timeout_sec=timeout_sec,
-                session=session,
+                session_id=session_id,
             ),
         ),
         "encode",
@@ -210,7 +208,7 @@ def bench_model(
         ExecRequest(
             code=f"model_name = {model_name!r}",
             timeout_sec=timeout_sec,
-            session=session,
+            session_id=session_id,
         )
     )
 
@@ -220,7 +218,7 @@ def bench_model(
             ExecRequest(
                 code=search_corpus_code(query, k, search_iters),
                 timeout_sec=timeout_sec,
-                session=session,
+                session_id=session_id,
             ),
         ),
         "search",

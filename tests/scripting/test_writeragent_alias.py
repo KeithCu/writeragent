@@ -128,14 +128,14 @@ def test_alias_importer_redirects_writeragent():
 
 
 def test_sandboxed_code_resolves_writeragent_imports():
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = (
         "from writeragent.scripting.analysis import grid_to_dataframe\n"
         "result = callable(grid_to_dataframe)\n"
     )
     # The function itself cannot cross the pickle boundary. callable() proves the import bound.
-    response = run_sandboxed_code(code)
+    response = sandbox_run(code)
     assert response["status"] == "ok", response.get("message")
     assert response["result"] is True
 
@@ -225,7 +225,7 @@ def test_sandboxed_template_imports_run_vision(clean_writeragent_modules):
     the host RPC client, not this function.
     """
     from plugin.scripting.client import run_vision as client_run_vision
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
     from plugin.vision.venv.vision import run_vision as venv_run_vision
     from plugin.vision.vision_runner import run_vision as host_run_vision
     from plugin.vision.vision_templates import get_vision_script_templates
@@ -244,13 +244,13 @@ def test_sandboxed_template_imports_run_vision(clean_writeragent_modules):
             lines.append('result = run_vision("not_a_helper", b"x")["code"]')
         else:
             lines.append(line)
-    response = run_sandboxed_code("\n".join(lines) + "\n", bindings={"image": b"png"})
+    response = sandbox_run("\n".join(lines) + "\n", bindings={"image": b"png"})
     assert response["status"] == "ok", response.get("message")
     assert response["result"] == "UNKNOWN_HELPER"
 
 
 def test_sandboxed_code_writeragent_analysis_without_api(clean_writeragent_modules):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = (
         "from writeragent.scripting.analysis import grid_to_dataframe\n"
@@ -258,20 +258,20 @@ def test_sandboxed_code_writeragent_analysis_without_api(clean_writeragent_modul
     )
     with patch("importlib.util.find_spec", side_effect=_find_spec_without_writeragent_api):
         register_alias_importer()
-        response = run_sandboxed_code(code)
+        response = sandbox_run(code)
     assert response["status"] == "ok", response.get("message")
     assert response["result"] is True
 
 
 def test_sandboxed_code_writeragent_vision_as_module(clean_writeragent_modules):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     register_alias_importer()
     code = (
         "import writeragent.vision as v\n"
         "result = callable(v.run_vision)\n"
     )
-    response = run_sandboxed_code(code)
+    response = sandbox_run(code)
     assert response["status"] == "ok", response.get("message")
     assert response["result"] is True
 

@@ -110,6 +110,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         data = None if raw_data is None else json.loads(raw_data)
 
         # Lazy import to avoid loading the heavy sandbox graph at module load time.
+        from plugin.scripting.venv.sandbox_request import SandboxRequest
         from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
         eff_timeout = DEFAULT_SETTINGS.default_timeout_sec if timeout_sec is None else timeout_sec
@@ -117,7 +118,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         # The pool sends a session id only for a sticky call; isolated calls carry None.
         use_session: str | None = session_id if isinstance(session_id, str) and session_id else None
 
-        # Stable init_session_id so run_sandboxed_code runs init once per worker and
+        # Stable init_session_id so the sandbox runs init once per worker and
         # seeds later cells from that namespace (hash change replaces the snapshot).
         init_sid: str | None = None
         init_code = init_script if isinstance(init_script, str) and init_script.strip() else None
@@ -130,16 +131,16 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
                 init_sid = SessionKey.of(SessionKind.ISOLATED, init_hash).with_init_suffix().wire()
 
         # Output is JSON: force="never" keeps grids as native lists so large ints stay exact.
-        raw = run_sandboxed_code(
+        req_obj = SandboxRequest(
             code=code,
             data=data,
-            force="never",
             session_id=use_session,
             timeout_sec=eff_timeout,
             init_script=init_code,
             init_session_id=init_sid,
             init_script_hash=init_hash,
         )
+        raw = run_sandboxed_code(req_obj, force="never")
 
         created = bool(raw.pop("namespace_created", None))
         res = normalize_execute_response(raw)

@@ -42,6 +42,7 @@ from plugin.framework.ipc import (
     write_pickle_frame,
 )
 from plugin.framework.child_runtime import announce_ready, die_with_parent
+from plugin.scripting.venv.sandbox_request import SandboxRequest
 
 # claim_ipc_channel runs before other scripting imports when this file is the main entry so stdout is not dup'd onto the IPC pipe before the claim. Library imports (tests) skip this block.
 if __name__ == "__main__":
@@ -152,20 +153,7 @@ def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
     code = request.get("code")
     if not isinstance(code, str) or not code.strip():
         return error_result(message="No code provided.")
-    bindings = request.get("bindings")
-    bindings_dict = bindings if isinstance(bindings, dict) else None
-    init_script = request.get("init_script")
-    return run_sandboxed_code(
-        code,
-        request.get("data"),
-        bindings=bindings_dict,
-        session_id=_clean_str(request.get("session_id")),
-        init_script=init_script if isinstance(init_script, str) else None,
-        init_session_id=_clean_str(request.get("init_session_id")),
-        init_script_hash=_clean_str(request.get("init_script_hash")),
-        timeout_sec=request.get("timeout_sec"),
-        sandbox_policy=request.get("sandbox_policy"),
-    )
+    return run_sandboxed_code(SandboxRequest.from_wire(request))
 
 
 def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:

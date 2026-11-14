@@ -82,6 +82,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/scripting/venv/coerce.py",
     "plugin/scripting/venv/optional_import.py",
     "plugin/scripting/venv/results.py",
+    "plugin/scripting/venv/sandbox_request.py",
     # Domain facades import trusted_dispatch and sheet_layout at import time; calc_functions stays out.
     "plugin/scripting/_lazy_venv.py",
     "plugin/scripting/sheet_layout.py",
