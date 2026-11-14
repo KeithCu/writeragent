@@ -177,6 +177,7 @@ jobs:
           # (python_version=3.11) died on PEP 695 syntax before any UNO test
           # (GHA 34520496629 / 34520753637).
           uv sync --frozen --dev
+          uv pip install "duckdb<2.0"
 
       - name: Prepare build artifacts (manifest, vendor, translations)
         run: |
