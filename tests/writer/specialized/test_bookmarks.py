@@ -502,7 +502,7 @@ def test_bookmark_create_and_rename_reject_mcp(mock_ctx):
     assert "bookmark_cleanup" in res3["message"]
 
 
-def test_ensure_heading_bookmarks_collision_retries(monkeypatch):
+def test_ensure_heading_bookmarks_skips_when_name_collides():
     doc = _HeadingDoc(
         [_Para("Title", 1)],
         {},

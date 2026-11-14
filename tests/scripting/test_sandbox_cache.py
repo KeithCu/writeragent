@@ -361,3 +361,30 @@ def test_validate_sandbox_ast_forbidden_dunder_attributes(attr: str) -> None:
 def test_validate_sandbox_ast_allowed_attributes(attr: str) -> None:
     module = ast.parse(f"x = obj.{attr}")
     assert validate_sandbox_ast(module, ["math"]) is None
+
+
+def test_import_failure_messages_short_and_hide_blocklist():
+    """Import failure messages must not dump the whole blocklist or expose duckdb."""
+    from plugin.scripting.sandbox import SANDBOX_BLOCKED_MODULES
+
+    allowed = ["math", "duckdb", "duckdb.*"]
+
+    token = SANDBOX_BLOCKED_MODULES.set(frozenset({"os"}))
+    try:
+        err_import = validate_sandbox_ast(ast.parse("import os"), allowed)
+        assert err_import == "Import of os is not allowed."
+        assert "duckdb" not in err_import
+        assert "Authorized imports" not in err_import
+
+        err_from = validate_sandbox_ast(ast.parse("from os import path"), allowed)
+        assert err_from == "Import from os is not allowed."
+        assert "duckdb" not in err_from
+        assert "Authorized imports" not in err_from
+    finally:
+        SANDBOX_BLOCKED_MODULES.reset(token)
+
+    err_rel = validate_sandbox_ast(ast.parse("from . import helper"), allowed)
+    assert err_rel == "Relative imports are not allowed."
+
+    err_rel_dotted = validate_sandbox_ast(ast.parse("from .numpy import foo"), allowed)
+    assert err_rel_dotted == "Relative imports are not allowed."

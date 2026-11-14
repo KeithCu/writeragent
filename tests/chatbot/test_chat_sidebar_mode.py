@@ -222,3 +222,28 @@ def test_greeting_for_chat_mode_falls_back_to_document_greeting():
         assert res == "Default doc greeting"
         mock_fallback.assert_called_once_with(fake_model)
 
+
+def test_librarian_mode_finished_applies_chat_mode():
+    from types import SimpleNamespace
+
+    from plugin.chatbot.chat_sidebar_mode import (
+        CHAT_MODE_CHAT,
+        CHAT_MODE_LIBRARIAN,
+        SidebarModeController,
+        SidebarModeFlags,
+    )
+
+    listener = SimpleNamespace(
+        sidebar_mode_flags=SidebarModeFlags(include_brainstorming=True, include_writing_plan=True),
+        chat_mode_selector=MagicMock(),
+        _apply_sidebar_mode_fn=MagicMock(),
+        _active_mode="librarian",
+    )
+    with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
+        SidebarModeController(listener).on_mode_finished(CHAT_MODE_LIBRARIAN, {})
+
+    assert listener._active_mode == ""
+    mock_set.assert_called_once()
+    assert mock_set.call_args[0][1] == CHAT_MODE_CHAT
+    listener._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
+

@@ -1855,3 +1855,185 @@ def test_status_effect_stores_outcome_and_ignores_progress_text():
     for text in ("Ready", "Stopped", "Error", "Finishing..."):
         interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text=text, outcome=None))
     assert current_turn(host).outcome == "error"
+
+
+def test_aborted_turn_prevents_reply_save():
+    from plugin.chatbot.tool_loop_actions import TurnController, persist_assistant_on_turn
+
+    class FakeHost:
+        def __init__(self):
+            self._turn = None
+
+    class FakeSession:
+        def __init__(self):
+            self.messages = []
+
+        def add_assistant_message(self, **kwargs):
+            self.messages.append(kwargs)
+
+    session = FakeSession()
+    turn = TurnController(session)
+    host = FakeHost()
+    host._turn = turn
+
+    persist_assistant_on_turn(host, content="alive reply")
+    assert len(session.messages) == 1
+
+    # Aborting without closed_by_document still saves (e.g. Stop partial)
+    turn.abort()
+    persist_assistant_on_turn(host, content="stopped partial")
+    assert len(session.messages) == 2
+
+    # Closed by document prevents saving
+    turn.closed_by_document = True
+    persist_assistant_on_turn(host, content="aborted reply")
+    assert len(session.messages) == 2
+
+
+def test_format_delegate_result_includes_research_cache():
+    from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
+
+    line = format_delegate_result_chat_line(
+        {"domain": "web_research", "task": "pizza"},
+        {
+            "status": "ok",
+            "research_cache_event": "saved",
+            "research_cache_key": "execute",
+        },
+    )
+    assert "Research cache saved" in line
+    assert "execute" in line
+    assert "[delegate (web_research): done]" in line
+
+
+def test_format_delegate_result_shows_vision_message():
+    from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
+
+    line = format_delegate_result_chat_line(
+        {"domain": "vision", "task": "OCR image"},
+        {"status": "ok", "message": "OCR complete."},
+    )
+    assert line == "[delegate (vision): OCR complete.]\n"
+
+
+def test_tool_loop_formatting_helpers() -> None:
+    from plugin.chatbot.tool_loop_actions import (
+        format_delegate_running_chat_line,
+        format_empty_model_response_debug,
+    )
+
+    debug = format_empty_model_response_debug(1, {"finish_reason": "stop", "content": "hi"})
+    assert "round=1" in debug
+    assert "finish_reason='stop'" in debug
+
+    del_line = format_delegate_running_chat_line({"domain": "writer", "task": "format table"})
+    assert del_line.startswith("[Running delegate (writer):")
+    assert del_line.endswith("\n")
+
+
+def _make_plain_send_listener():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from tests.conftest import make_mock_send_button_listener
+
+    send = make_mock_send_button_listener()
+    send.rich_text_widget = None
+    send.response_control = MagicMock()
+    send.response_control.getModel.return_value = MagicMock()
+    send.session = MagicMock()
+    send.session.messages = []
+    send._scroll_response_to_bottom = MagicMock()
+    begin_send_turn(send)
+    return send
+
+
+class TestFinalizeSidebarAssistantResponse:
+    @patch("plugin.chatbot.dialogs.get_control_text", return_value="Current: ")
+    @patch("plugin.chatbot.dialogs.set_control_text")
+    def test_finalize_sidebar_assistant_response_flushes_stripper(self, mock_set_text, mock_get_text):
+        import threading
+
+        from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
+
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock()
+
+        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+            # "<b" is buffered as a potential tag until finalize flushes it
+            send._append_response("a <b", role="assistant")
+            mock_set_text.assert_called_with(send.response_control, "Current: a ")
+
+            mock_get_text.return_value = "Current: a "
+            finalize_sidebar_assistant_response(send)
+
+            mock_set_text.assert_called_with(send.response_control, "Current: a <b")
+
+    def test_finalize_skips_rerender_after_stop(self):
+        """Packet B1: Stop must keep streamed text + [Stopped by user], not paste No response."""
+        from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
+
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock()
+        current_turn(send).stripper = None
+        finalize_sidebar_assistant_response(send, allow_rerender=False)
+        send.rerender_rich_text_session.assert_not_called()
+        finalize_sidebar_assistant_response(send, allow_rerender=True)
+        send.rerender_rich_text_session.assert_called_once()
+
+    def test_finalize_skips_rerender_on_api_error(self):
+        """Packet F: HTTP 429/500 must not be replaced by the previous HTML reply."""
+        from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
+        from plugin.framework.html_stripper import StreamingHTMLStripper
+
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock()
+        assign_send_outcome(send, "error")
+        current_turn(send).stripper = StreamingHTMLStripper()
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_not_called()
+        assert current_turn(send).stripper is None
+
+    def test_finalize_appends_leftover_when_rerender_does_not_replace(self):
+        from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
+
+        send = _make_plain_send_listener()
+        send.rich_text_widget = MagicMock()
+        send.rerender_rich_text_session = MagicMock(return_value=False)
+        send._append_response = MagicMock()
+        current_turn(send).stripper.feed("a <b")
+        finalize_sidebar_assistant_response(send)
+        send._append_response.assert_called_once_with("<b", role="assistant")
+
+    def test_finalize_skips_leftover_when_rerender_replaces_tail(self):
+        from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
+
+        send = _make_plain_send_listener()
+        send.rich_text_widget = MagicMock()
+        send.rerender_rich_text_session = MagicMock(return_value=True)
+        send._append_response = MagicMock()
+        current_turn(send).stripper.feed("a <b")
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_called_once()
+        send._append_response.assert_not_called()
+
+    def test_finalize_on_error_flushes_leftover_without_rerender(self):
+        from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
+
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock(return_value=True)
+        assign_send_outcome(send, "error")
+        send._append_response = MagicMock()
+        current_turn(send).stripper.feed("tail <i")
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_not_called()
+        send._append_response.assert_called_once_with("<i", role="assistant")
+        assert current_turn(send).stripper is None
+
+    def test_finalize_rerenders_when_stopped_status(self):
+        from plugin.chatbot.tool_loop_actions import current_turn, finalize_sidebar_assistant_response
+
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock()
+        assign_send_outcome(send, "stopped")
+        current_turn(send).stripper = None
+        finalize_sidebar_assistant_response(send)
+        send.rerender_rich_text_session.assert_called_once()

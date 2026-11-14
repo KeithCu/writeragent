@@ -2242,3 +2242,47 @@ def test_settings_dialog_reinitializes_logging_after_apply_settings() -> None:
     # init_logging is called once at entry to show() and once after apply_settings_result succeeds
     assert mock_init_logging.call_count == 2
     mock_init_logging.assert_called_with(ctx)
+
+
+def test_provider_icon_filename(monkeypatch, tmp_path):
+    from plugin.chatbot.dialog_views import provider_icon_filename
+    from plugin.framework import menu_icon_dpi as m
+
+    m.reset_menu_icon_dpi_cache()
+    # Fallback when none found is _48.png
+    monkeypatch.setattr(
+        "plugin.framework.menu_icon_dpi.menu_icon_filesystem_paths",
+        lambda name: [str(tmp_path / name)],
+    )
+    assert provider_icon_filename("openrouter", px=16) == "openrouter_48.png"
+
+    # Candidates 16/32/48 and tie-break
+    (tmp_path / "openrouter_16.png").write_bytes(b"x")
+    (tmp_path / "openrouter_48.png").write_bytes(b"x")
+    assert provider_icon_filename("openrouter", px=16) == "openrouter_16.png"
+    assert provider_icon_filename("openrouter", px=48) == "openrouter_48.png"
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 2.0)
+    assert provider_icon_filename("openrouter") == "openrouter_48.png"
+
+
+def test_test_connection_uses_endpoint_listener_key():
+    """Test Connection sends the key the model fetch would send, not the raw field."""
+    from plugin.chatbot.dialog_views import TestConnectionListener
+
+    endpoint_ctrl = MagicMock()
+    endpoint_ctrl.getText.return_value = "http://127.0.0.1:8080"
+    key_ctrl = MagicMock()
+    key_ctrl.getText.return_value = "sk-or-previous-endpoint"
+    controls = {"endpoint": endpoint_ctrl, "api_key": key_ctrl}
+    sent = []
+
+    ep_listener = MagicMock()
+    ep_listener._api_key_override.return_value = ""
+    listener = TestConnectionListener(MagicMock(), MagicMock(), ep_listener)
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda dlg, name: controls.get(name)), \
+         patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c, *a, **k: c.getText()), \
+         patch("plugin.chatbot.quick_setup.check_endpoint_connection", side_effect=lambda ep, key: sent.append((ep, key)) or (True, "ok")), \
+         patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
+        listener.on_action_performed(None)
+    assert sent and sent[0][1] == ""

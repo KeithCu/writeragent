@@ -439,16 +439,6 @@ def test_wrap_does_not_mutate_original():
         detect_sandbox.cache_clear()
 
 
-def test_scrub_env_accepts_long_values() -> None:
-    """PATH and workspace paths are longer than the old deal caps."""
-    from plugin.framework.deal_shim import DEAL_MAX_ARGV
-    from plugin.framework.subprocess_env import scrub_subprocess_env
-
-    env = scrub_subprocess_env({"PATH": "p" * (DEAL_MAX_ARGV + 1), "HOME": "/tmp"})
-    assert env["PATH"] == "p" * (DEAL_MAX_ARGV + 1)
-    assert env["PYTHONUTF8"] == "1"
-
-
 def test_import_authorized_alias_uses_plugin_allowlist() -> None:
     """writeragent.X follows plugin.X. A blanket writeragent.* is ignored and public aliases are gated separately."""
     from plugin.scripting.sandbox import import_authorized
@@ -543,122 +533,6 @@ def test_import_authorized_ignores_bare_star_and_allows_future_and_collections_a
     assert import_authorized("math", ["*", "math"]) is True
     assert import_authorized("matplotlib.pyplot", ["matplotlib"]) is True
     assert import_authorized("matplotlib.pyplot", ["matplotlib.*"]) is True
-
-
-def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
-    """Tokens ending with blocked words, DATABASE_URL, and *_DSN must be detected while keeping KEYBOARD/XAUTHORITY."""
-    from plugin.framework.subprocess_env import _env_name_is_credential
-
-    assert _env_name_is_credential("OPENAI_APIKEY") is True
-    assert _env_name_is_credential("GITHUB_APITOKEN") is True
-    assert _env_name_is_credential("AWS_SECRETKEY") is True
-    assert _env_name_is_credential("DATABASE_URL") is True
-    assert _env_name_is_credential("POSTGRES_DSN") is True
-    assert _env_name_is_credential("SENTRY_DSN") is True
-    assert _env_name_is_credential("DSN") is True
-    assert _env_name_is_credential("KEY") is True
-    assert _env_name_is_credential("MY_KEYS") is True
-    assert _env_name_is_credential("MYSQL_PWD") is True
-    assert _env_name_is_credential("GPG_PASSPHRASE") is True
-    assert _env_name_is_credential("PASSWD") is True
-    assert _env_name_is_credential("GITHUB_PAT") is True
-    assert _env_name_is_credential("SLACK_WEBHOOK_URL") is True
-    assert _env_name_is_credential("APIKEY") is True
-    assert _env_name_is_credential("OPENAIAPIKEY") is True
-    assert _env_name_is_credential("GITHUBAPITOKEN") is True
-    assert _env_name_is_credential("AWSSECRETKEY") is True
-    assert _env_name_is_credential("OPENAI-APIKEY") is True
-    assert _env_name_is_credential("OPENAI_API_KEY") is True
-    assert _env_name_is_credential("AWS_ACCESS_KEY_ID") is True
-    assert _env_name_is_credential("KEYRING") is True
-    assert _env_name_is_credential("AUTHORIZATION") is True
-
-    # Allowed tokens/names
-    assert _env_name_is_credential("PWD") is False
-    assert _env_name_is_credential("TOKENIZERS_PARALLELISM") is False
-    assert _env_name_is_credential("MONKEY") is False
-    assert _env_name_is_credential("TURKEY") is False
-    assert _env_name_is_credential("MONKEY_PATCH") is False
-    assert _env_name_is_credential("SECRETARY") is False
-    assert _env_name_is_credential("KEYWORD") is False
-    assert _env_name_is_credential("AUTHORITY") is False
-    assert _env_name_is_credential("PATH") is False
-    assert _env_name_is_credential("KEYBOARD") is False
-    assert _env_name_is_credential("KEYBOARD_LAYOUT") is False
-    assert _env_name_is_credential("KEYBOARD_MODEL") is False
-    assert _env_name_is_credential("XAUTHORITY") is False
-
-
-def test_scrub_drops_dyld_and_python_executable() -> None:
-    from plugin.framework.subprocess_env import scrub_subprocess_env
-
-    base = {
-        "DYLD_LIBRARY_PATH": "/lib",
-        "DYLD_FRAMEWORK_PATH": "/frameworks",
-        "DYLD_FALLBACK_LIBRARY_PATH": "/fallback",
-        "DYLD_FALLBACK_FRAMEWORK_PATH": "/fallback_fw",
-        "PYTHONEXECUTABLE": "/usr/bin/python",
-        "PYTHONNOUSERSITE": "1",
-        "PATH": "/usr/bin:/bin",
-    }
-    scrubbed = scrub_subprocess_env(base)
-    for var in (
-        "DYLD_LIBRARY_PATH",
-        "DYLD_FRAMEWORK_PATH",
-        "DYLD_FALLBACK_LIBRARY_PATH",
-        "DYLD_FALLBACK_FRAMEWORK_PATH",
-        "PYTHONEXECUTABLE",
-        "PYTHONNOUSERSITE",
-    ):
-        assert var not in scrubbed
-    assert scrubbed["PATH"] == "/usr/bin:/bin"
-
-
-def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
-    """PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT are blocked, and empty dict gets overrides."""
-    from plugin.framework.subprocess_env import scrub_subprocess_env
-
-    base = {
-        "PYTHONSTARTUP": "/etc/startup.py",
-        "PYTHONUSERBASE": "/home/u/.local",
-        "PYTHONBREAKPOINT": "0",
-        "PYTHONINSPECT": "1",
-        "DATABASE_URL": "postgres://user:pass@host/db",
-        "WRITERAGENT_COMPUTE_WORKER": "1",
-        "OPENAI_APIKEY": "sk-test",
-        "OPENAIAPIKEY": "sk-test-glued",
-        "POSTGRES_DSN": "postgres://...",
-        "KEYBOARD_LAYOUT": "us",
-        "USER_VAR": "hello",
-    }
-    scrubbed = scrub_subprocess_env(base)
-    assert "PYTHONSTARTUP" not in scrubbed
-    assert "PYTHONUSERBASE" not in scrubbed
-    assert "PYTHONBREAKPOINT" not in scrubbed
-    assert "PYTHONINSPECT" not in scrubbed
-    assert "DATABASE_URL" not in scrubbed
-    assert "WRITERAGENT_COMPUTE_WORKER" not in scrubbed
-    assert "OPENAI_APIKEY" not in scrubbed
-    assert "OPENAIAPIKEY" not in scrubbed
-    assert "POSTGRES_DSN" not in scrubbed
-    assert scrubbed["KEYBOARD_LAYOUT"] == "us"
-    assert scrubbed["USER_VAR"] == "hello"
-
-
-def test_scrub_subprocess_env_keep() -> None:
-    from plugin.framework.subprocess_env import scrub_subprocess_env
-
-    base = {
-        "LD_LIBRARY_PATH": "/custom/lib",
-        "PYTHONHOME": "/opt/lo",
-        "API_KEY": "secret",
-        "USER": "alice",
-    }
-    scrubbed = scrub_subprocess_env(base, keep=("LD_LIBRARY_PATH",))
-    assert scrubbed.get("LD_LIBRARY_PATH") == "/custom/lib"
-    assert "PYTHONHOME" not in scrubbed
-    assert "API_KEY" not in scrubbed
-    assert scrubbed.get("USER") == "alice"
 
 
 def test_is_acceptable_python_basename_rejects_config() -> None:

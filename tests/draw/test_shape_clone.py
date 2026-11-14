@@ -5,16 +5,21 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.draw.shape_clone import (
+    SHAPE_CLONE_PROPS,
     clone_shape,
     copy_prop,
     reimport_graphic,
 )
+from tests.draw.shape_fakes import FakePage, FakeShape
 
 
 def test_clone_shape_sets_geometry_after_add():
@@ -283,3 +288,116 @@ def test_reimport_graphic_rejected_file_url_fallback(tmp_path):
     ok_fail = reimport_graphic(ctx, src_shape2, fail_dest)
     assert ok_fail is False
     assert getattr(fail_dest, "_g", None) is not src_obj
+
+
+# hidden-document pool items; assigning one and closing the source aborts soffice
+_POOL_ITEM_PROPS = ("Graphic", "GraphicURL", "FillBitmap", "Background")
+
+
+def test_copy_props_omit_hidden_pool_items():
+    for name in _POOL_ITEM_PROPS:
+        assert name not in SHAPE_CLONE_PROPS
+    assert "FillGradient" not in SHAPE_CLONE_PROPS
+    assert "FillHatch" not in SHAPE_CLONE_PROPS
+
+
+def test_graphic_clone_reimports_pixels_instead_of_aliasing_source_pool(monkeypatch):
+    live = object()
+    owned = object()
+    source = FakeShape(
+        "com.sun.star.drawing.GraphicObjectShape",
+        {"FillColor": 5, "Graphic": live, "GraphicURL": "vnd.sun.star.GraphicObject:hidden-pool"},
+        text="cap",
+    )
+    dest = FakeShape("com.sun.star.drawing.GraphicObjectShape")
+    doc = MagicMock()
+    doc.createInstance.return_value = dest
+    page = FakePage()
+    provider = MagicMock()
+    provider.queryGraphic.side_effect = [None, owned]
+    uno_ctx = MagicMock()
+    uno_ctx.ServiceManager.createInstanceWithContext.return_value = provider
+    created: list[str] = []
+    real_mkstemp = tempfile.mkstemp
+
+    def tracking_mkstemp(*args: Any, **kwargs: Any) -> tuple[int, str]:
+        fd, path = real_mkstemp(*args, **kwargs)
+        created.append(path)
+        return fd, path
+
+    monkeypatch.setattr(tempfile, "mkstemp", tracking_mkstemp)
+
+    result = clone_shape(doc, page, source, uno_ctx=uno_ctx)
+
+    assert result.shape is dest
+    assert result.reimported is True
+    assert result.graphic_shapes == 1
+    assert result.graphic_reimports == 1
+    graphic_values = [value for name, value in dest.sets if name == "Graphic"]
+    assert graphic_values == [owned]
+    assert live not in graphic_values
+    assert all(name != "GraphicURL" for name, value in dest.sets)
+    assert dest.props["FillColor"] == 5
+    assert created
+    assert all(not os.path.exists(path) for path in created)
+
+
+def test_rectangle_clone_does_not_touch_graphic_provider():
+    source = FakeShape("com.sun.star.drawing.RectangleShape", {"FillColor": 9}, text="hi")
+    dest = FakeShape("com.sun.star.drawing.RectangleShape")
+    doc = MagicMock()
+    doc.createInstance.return_value = dest
+    uno_ctx = MagicMock()
+
+    result = clone_shape(doc, FakePage(), source, uno_ctx=uno_ctx)
+
+    assert result.shape is dest
+    assert result.reimported is None
+    assert dest.props["FillColor"] == 9
+    assert "Graphic" not in dest.props
+    assert "GraphicURL" not in dest.props
+    uno_ctx.ServiceManager.createInstanceWithContext.assert_not_called()
+
+
+def test_graphic_clone_without_context_does_not_alias_live_graphic():
+    live = object()
+    source = FakeShape(
+        "com.sun.star.drawing.GraphicObjectShape",
+        {"Graphic": live, "GraphicURL": "vnd.sun.star.GraphicObject:hidden-pool"},
+    )
+    dest = FakeShape("com.sun.star.drawing.GraphicObjectShape")
+    doc = MagicMock()
+    doc.createInstance.return_value = dest
+
+    result = clone_shape(doc, FakePage(), source, uno_ctx=None)
+
+    assert result.shape is dest
+    assert result.reimported is False
+    assert "Graphic" not in dest.props
+    assert "GraphicURL" not in dest.props
+    assert all(name != "Graphic" or value is not live for name, value in dest.sets)
+
+
+@pytest.mark.parametrize(
+    ("fill_style", "prop_name"),
+    [
+        (SimpleNamespace(value="GRADIENT"), "FillGradient"),
+        (2, "FillGradient"),
+        (3, "FillHatch"),
+    ],
+    ids=["enum_gradient", "int_gradient", "int_hatch"],
+)
+def test_clone_shape_copies_fill_gradient_and_hatch(fill_style: Any, prop_name: str):
+    doc = MagicMock()
+    page = FakePage()
+    dest = FakeShape("com.sun.star.drawing.RectangleShape")
+    doc.createInstance.return_value = dest
+
+    fill_struct = MagicMock()
+    source = FakeShape(
+        "com.sun.star.drawing.RectangleShape",
+        {"FillStyle": fill_style, prop_name: fill_struct},
+    )
+    clone_shape(doc, page, source)
+    assert dest.props.get(prop_name) is fill_struct
+

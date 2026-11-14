@@ -28,10 +28,11 @@ def test_parse_grammar_json_repairs_trailing_comma() -> None:
     assert items[0]["correct"] == "they are"
 
 
-def test_parse_grammar_json_empty() -> None:
-    assert gj.parse_grammar_json("") == []
+@pytest.mark.parametrize("parser", [gj.parse_grammar_json, gj.parse_grammar_batch_json])
+def test_parse_grammar_json_empty(parser) -> None:
+    assert parser("") == []
     with pytest.raises(ValueError):
-        gj.parse_grammar_json("not json")
+        parser("not json")
 
 
 def test_parse_grammar_json_empty_object_is_clean() -> None:
@@ -39,10 +40,11 @@ def test_parse_grammar_json_empty_object_is_clean() -> None:
     assert gj.parse_grammar_batch_json("{}") == []
 
 
-def test_parse_grammar_json_unparseable_raises() -> None:
+@pytest.mark.parametrize("parser", [gj.parse_grammar_json, gj.parse_grammar_batch_json])
+def test_parse_grammar_json_unparseable_raises(parser) -> None:
     for invalid in ("I cannot check this.", '{"other": 1}', '{"errors": "not a list"}'):
         with pytest.raises(ValueError):
-            gj.parse_grammar_json(invalid)
+            parser(invalid)
 
 
 def test_parse_grammar_json_valid() -> None:
@@ -73,18 +75,6 @@ def test_parse_grammar_json_wire_field_validation() -> None:
     assert items[1] == {"wrong": "w2", "correct": "c2", "type": "grammar", "reason": ""}
     assert items[2] == {"wrong": "w3", "correct": "c3", "type": "grammar", "reason": ""}
     assert items[3] == {"wrong": "5", "correct": "five", "type": "grammar", "reason": ""}
-
-
-def test_parse_grammar_batch_json_empty() -> None:
-    assert gj.parse_grammar_batch_json("") == []
-    with pytest.raises(ValueError):
-        gj.parse_grammar_batch_json("not json")
-
-
-def test_parse_grammar_batch_json_unparseable_raises() -> None:
-    for invalid in ("I cannot check this.", '{"other": 1}', '{"errors": "not a list"}'):
-        with pytest.raises(ValueError):
-            gj.parse_grammar_batch_json(invalid)
 
 
 def test_parse_grammar_batch_json_valid() -> None:

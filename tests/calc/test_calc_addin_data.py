@@ -322,3 +322,39 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
             for row in grid:
                 assert isinstance(row, list)
                 assert len(row) == first_len
+
+
+def test_split_grid_logical_coercion_at_calc_ingress():
+    """Verify that logical strings like "TRUE" and "FALSE" are coerced to bools during unwrap."""
+    from plugin.calc.calc_addin_data import _unwrap_cell
+
+    # 1. Test unwrap cell directly
+    assert _unwrap_cell("TRUE") is True
+    assert _unwrap_cell("banana") == "banana"
+
+    # 2. Test grid ingestion coercion
+    raw_grid = [["TRUE", "FALSCH"], ["banana", 100.0]]
+    coerced = calc_addin_data_to_python(raw_grid)
+    assert coerced == [[True, "FALSCH"], ["banana", 100.0]]
+
+
+def test_unwrap_cell_comprehensive():
+    """Verify unwrap_cell correctly normalizes standard types, formulas, and mocked UNO Any objects."""
+    from plugin.calc.calc_addin_data import _unwrap_cell
+
+    # 1. Fast path exact types
+    assert _unwrap_cell(1.0) == 1.0
+    assert _unwrap_cell(42) == 42
+    assert _unwrap_cell(True) is True
+
+    # 2. Formula string conversions
+    assert _unwrap_cell("  TRUE  ") is True
+
+    # 3. UNO Mock Wrap types (e.g. uno.Any type emulation)
+    class MockUnoAny:
+        def __init__(self, value):
+            self.value = value
+
+    MockUnoAny.__name__ = "Any"
+    assert _unwrap_cell(MockUnoAny(10.5)) == 10.5
+    assert _unwrap_cell(MockUnoAny("TRUE")) is True

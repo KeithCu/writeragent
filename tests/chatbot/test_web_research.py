@@ -10,10 +10,6 @@ from plugin.chatbot.web_research import (
     WebResearchToolCallingAgent,
 )
 from plugin.contrib.smolagents.memory import ToolCall
-from plugin.chatbot.web_research_chat import (
-    web_research_cache_chat_text,
-    web_search_engine_step_chat_text,
-)
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.models import (
     ChatMessage,
@@ -39,36 +35,9 @@ def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50
     return side_effect
 
 
-# =============================================================================
-# Web research chat block formatting tests (from test_web_research_chat.py)
-# =============================================================================
-
-
-def test_web_search_engine_step_chat_text():
-    q = "best pizza test"
-    text = web_search_engine_step_chat_text(q)
-    assert "Tool: web_search" in text
-    assert "best pizza test" in text
-    assert "[Web search]" not in text
-    assert "[Additional web search]" not in text
-    assert "approval required" not in text.lower()
-
-
 def test_norm_research_query_collapses_whitespace_and_case():
     assert _norm_research_query("  Best  Pizza \n") == _norm_research_query("best pizza")
     assert _norm_research_query("") == ""
-
-
-def test_format_research_cache_result_chat_from_payload():
-    from plugin.chatbot.web_research_chat import web_research_cache_chat_text
-
-    assert web_research_cache_chat_text({}) == ""
-    block = web_research_cache_chat_text({
-        "research_cache_event": "hit",
-        "research_cache_key": "heights madison pizza",
-    })
-    assert "Research cache hit" in block
-    assert "heights madison pizza" in block
 
 
 def test_cache_hit_does_not_stream_chat_append_callback():
@@ -104,67 +73,6 @@ def test_cache_hit_does_not_stream_chat_append_callback():
             res = tool.execute(ctx, query="Search for caching test unique info")
             assert res.get("research_cache_event") == "hit"
             assert chat_lines == []
-
-
-def test_format_delegate_result_includes_research_cache():
-    from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
-
-    line = format_delegate_result_chat_line(
-        {"domain": "web_research", "task": "pizza"},
-        {
-            "status": "ok",
-            "research_cache_event": "saved",
-            "research_cache_key": "execute",
-        },
-    )
-    assert "Research cache saved" in line
-    assert "execute" in line
-    assert "[delegate (web_research): done]" in line
-
-
-def test_format_delegate_result_shows_vision_message():
-    from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
-
-    line = format_delegate_result_chat_line(
-        {"domain": "vision", "task": "OCR image"},
-        {"status": "ok", "message": "OCR complete."},
-    )
-    assert line == "[delegate (vision): OCR complete.]\n"
-
-
-def test_web_research_cache_chat_text_hit_and_saved():
-    hit = web_research_cache_chat_text({
-        "research_cache_event": "hit",
-        "research_cache_key": "heights madison pizza",
-    })
-    assert "Research cache hit" in hit
-    assert "heights madison pizza" in hit
-    saved = web_research_cache_chat_text({
-        "research_cache_event": "saved",
-        "research_cache_key": "execute",
-    })
-    assert "Research cache saved" in saved
-    assert "execute" in saved
-
-
-@pytest.mark.parametrize(
-    "value, value_2, value_3, value_4, value_5, value_6",
-    [
-        pytest.param("research_cache_jaccard", "hit_fuzzy", "english|elevator physics", 0.65, "fuzzy", "65%", id="test_web_research_cache_chat_text_fuzzy_hit"),
-        pytest.param("research_cache_similarity", "hit_embedding", "english|space elevator physics", 0.82, "embedding", "82%", id="test_web_research_cache_chat_text_embedding_hit"),
-    ],
-)
-def test_web_research_cache_chat_text_fuzzy_hit(value, value_2, value_3, value_4, value_5, value_6):
-    block = web_research_cache_chat_text({
-        "research_cache_event": value_2,
-        "research_cache_key": "elevator space",
-        "research_cache_matched_key": value_3,
-        "research_cache_lang": "english",
-        value: value_4,
-    })
-    assert value_5 in block.lower()
-    assert value_6 in block
-    assert "elevator space" in block
 
 # =============================================================================
 # Web research query override tests (from test_web_research_query_override.py)

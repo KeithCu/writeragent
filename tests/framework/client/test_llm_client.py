@@ -1,17 +1,9 @@
-import pytest
-# Tests for core/api.py streaming and edge cases.
-# Edge-case behavior and test ideas adapted from LiteLLM (BerriAI/litellm);
-# see inline comments and core/api.py LiteLLM references for source locations.
+# Edge cases adapted from LiteLLM (BerriAI/litellm) streaming_handler.py; class docstrings cite the source anchors.
 import json
-import os
-from plugin.framework.constants import get_plugin_dir
-import sys
 from unittest.mock import MagicMock
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(get_plugin_dir()))
+import pytest
 
-# Import; tests patch core.logging and init_logging per test
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.response_normalizers import normalize_message_content
 
@@ -78,7 +70,7 @@ class TestStreamingBasic:
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        assert (content_parts) == (["Hello", " world"])
+        assert content_parts == ["Hello", " world"]
 
     def test_sse_no_space_after_colon(self):
         """SSE line 'data:{...}' without space after colon is still parsed.
@@ -95,7 +87,7 @@ class TestStreamingBasic:
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        assert (content_parts) == (["ok"])
+        assert content_parts == ["ok"]
 
     def test_sse_comment_lines_skipped(self):
         """Lines starting with ':' are skipped (OpenRouter heartbeats)."""
@@ -112,7 +104,7 @@ class TestStreamingBasic:
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        assert (content_parts) == (["x"])
+        assert content_parts == ["x"]
 
     def test_malformed_json_skipped(self):
         """Garbled payload is skipped; subsequent chunks are processed."""
@@ -128,7 +120,7 @@ class TestStreamingBasic:
             "POST", "/v1/chat/completions", b"{}", {},
             content_parts.append,
         )
-        assert (content_parts) == (["fine"])
+        assert content_parts == ["fine"]
 
 
 class TestStreamingFinishReasonError:
@@ -151,7 +143,7 @@ class TestStreamingFinishReasonError:
                 lambda t: None,
             )
         # API re-raises with format_error_message(); user sees friendly text
-        assert ("finish_reason=error") in (str(ctx.value))
+        assert "finish_reason=error" in str(ctx.value)
 
 
 class TestStreamingRepeatedChunks:
@@ -174,7 +166,7 @@ class TestStreamingRepeatedChunks:
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
-        assert ("repeating") in (str(ctx.value).lower())
+        assert "repeating" in str(ctx.value).lower()
 
 
 class TestNormalizeDelta:
@@ -211,12 +203,12 @@ class TestNormalizeDelta:
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
         )
-        assert (result.get("tool_calls")) is not None
-        assert (len(result["tool_calls"])) == (1)
+        assert result.get("tool_calls") is not None
+        assert len(result["tool_calls"]) == 1
         fn = result["tool_calls"][0].get("function") or {}
         # Normalized from None to ""
-        assert ("arguments") in (fn)
-        assert (fn["arguments"]) == ("")
+        assert "arguments" in fn
+        assert fn["arguments"] == ""
 
     def test_tool_none_type_normalized(self):
         """Streamed tool_call with type=None becomes 'function' (Mistral)."""
@@ -242,9 +234,9 @@ class TestNormalizeDelta:
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "bar", "description": "y"}}],
         )
-        assert (result.get("tool_calls")) is not None
-        assert (len(result["tool_calls"])) == (1)
-        assert (result["tool_calls"][0].get("type")) == ("function")
+        assert result.get("tool_calls") is not None
+        assert len(result["tool_calls"]) == 1
+        assert result["tool_calls"][0].get("type") == "function"
 
     def test_role_none_normalized(self):
         """Delta with role=None is normalized to 'assistant' (Mistral)."""
@@ -265,7 +257,7 @@ class TestNormalizeDelta:
             max_tokens=100,
         )
         # Delta had role=None; normalize_delta sets role='assistant' before accumulate_delta.
-        assert (normalize_message_content(result.get("content"))) == ("ok")
+        assert normalize_message_content(result.get("content")) == "ok"
 
 
 class TestFinishReasonRemap:
@@ -299,8 +291,8 @@ class TestFinishReasonRemap:
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "f", "description": "d"}}],
         )
-        assert (result["finish_reason"]) == ("tool_calls")
-        assert (result.get("tool_calls")) is not None
+        assert result["finish_reason"] == "tool_calls"
+        assert result.get("tool_calls") is not None
 
 
 class TestStreamingComplexDeltas:
@@ -353,12 +345,12 @@ class TestStreamingComplexDeltas:
             tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
         )
 
-        assert (result["content"]) == ("I will use the tool now.")
-        assert (result["finish_reason"]) == ("tool_calls")
-        assert (result.get("tool_calls")) is not None
-        assert (len(result["tool_calls"])) == (1)
-        assert (result["tool_calls"][0]["function"]["name"]) == ("foo")
-        assert (result["tool_calls"][0]["function"]["arguments"]) == ('{"arg": "val"}')
+        assert result["content"] == "I will use the tool now."
+        assert result["finish_reason"] == "tool_calls"
+        assert result.get("tool_calls") is not None
+        assert len(result["tool_calls"]) == 1
+        assert result["tool_calls"][0]["function"]["name"] == "foo"
+        assert result["tool_calls"][0]["function"]["arguments"] == '{"arg": "val"}'
 
 
 def _mock_error_connection(status, reason, body):
@@ -396,7 +388,7 @@ class TestStreamingHttpErrors:
         # `format_error_message` operates on the string for generic Exception,
         # meaning it outputs what `format_http_error_response` built, which is
         # "HTTP Error <status>: <reason>. <detail>"
-        assert (str(ctx.value)) == ("HTTP Error 404 from AI Provider: Not Found. Model not found")
+        assert str(ctx.value) == "HTTP Error 404 from AI Provider: Not Found. Model not found"
 
         # Scenario 2: Non-JSON body (e.g., HTML or plain text)
         plain_error_body = b"Internal Server Error: Database Down"
@@ -407,6 +399,6 @@ class TestStreamingHttpErrors:
                 "POST", "/v1/chat/completions", b"{}", {},
                 lambda t: None,
             )
-        assert (str(ctx.value)) == ("HTTP Error 500 from AI Provider: Internal Server Error.\nProvider Response:\nInternal Server Error: Database Down")
+        assert str(ctx.value) == "HTTP Error 500 from AI Provider: Internal Server Error.\nProvider Response:\nInternal Server Error: Database Down"
 
 

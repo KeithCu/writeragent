@@ -590,3 +590,23 @@ def test_normalize_schema_non_list_required():
     assert normalized["properties"]["a"]["type"] == ["string", "null"]
     assert normalized["required"] == "ab"
 
+
+def test_to_mcp_schema_injects_document_url():
+    """Test that to_mcp_schema dynamically injects document_url parameter."""
+    class DummyTool(ToolBase):
+        name = "dummy_tool"
+        description = "A dummy tool for testing schema injection."
+        parameters = {
+            "type": "object",
+            "properties": {
+                "arg1": {"type": "string"}
+            },
+            "required": ["arg1"]
+        }
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    schema = to_mcp_schema(DummyTool())
+    input_schema = schema.get("inputSchema", {})
+    assert "document_url" in input_schema.get("properties", {})
+    assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]

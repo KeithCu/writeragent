@@ -182,28 +182,28 @@ class TestShouldLinkImagePath:
 
 
 class TestWriterImageCursorConversion:
-    def _make_writer_model(self, image_instance):
+    def _make_writer_model(self, create_result, *, cell_text=None, start="range-start"):
         doc_text = MagicMock()
         text_cursor = MagicMock(name="text_cursor")
         doc_text.createTextCursorByRange.return_value = text_cursor
         doc_text.insertTextContent = MagicMock()
 
         view_cursor = MagicMock(name="view_cursor")
-        view_cursor.getStart.return_value = "range-start"
-        view_cursor.getText.return_value = doc_text
+        view_cursor.getStart.return_value = start
+        view_cursor.getText.return_value = cell_text if cell_text is not None else doc_text
         view_cursor.jumpToStartOfPage = MagicMock()
 
         model = MagicMock()
         model.getText.return_value = doc_text
         model.CurrentController = MagicMock()
         model.CurrentController.ViewCursor = view_cursor
-        model.createInstance.return_value = image_instance
+        model.createInstance.return_value = create_result
         model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
         return model, doc_text, text_cursor, view_cursor
 
     def test_insert_image_to_writer_uses_text_cursor(self):
         image_instance = MagicMock(name="image_instance")
-        model, doc_text, text_cursor, _ = self._make_writer_model(image_instance)
+        model, doc_text, text_cursor, unused_vc = self._make_writer_model(image_instance)
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
@@ -224,27 +224,18 @@ class TestWriterImageCursorConversion:
 
     def test_insert_uses_cell_xtext_not_body_clone(self):
         """Cursor in a nested XText must not clone through the body."""
-        body = MagicMock()
-        body.createTextCursorByRange.side_effect = RuntimeError(
-            "End of content node doesn't have the proper start node"
-        )
         cell_text = MagicMock()
         text_cursor = MagicMock(name="cell_cursor")
         cell_text.createTextCursorByRange.return_value = text_cursor
         cell_text.insertTextContent = MagicMock()
 
-        view_cursor = MagicMock(name="view_cursor")
-        view_cursor.getStart.return_value = "cell-start"
-        view_cursor.getText.return_value = cell_text
-        view_cursor.jumpToStartOfPage = MagicMock()
-
         image_instance = MagicMock(name="image_instance")
-        model = MagicMock()
-        model.getText.return_value = body
-        model.CurrentController = MagicMock()
-        model.CurrentController.ViewCursor = view_cursor
-        model.createInstance.return_value = image_instance
-        model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+        model, body, unused_tc, view_cursor = self._make_writer_model(
+            image_instance, cell_text=cell_text, start="cell-start"
+        )
+        body.createTextCursorByRange.side_effect = RuntimeError(
+            "End of content node doesn't have the proper start node"
+        )
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
@@ -265,7 +256,6 @@ class TestWriterImageCursorConversion:
 
     def test_insert_nested_falls_back_to_clone_when_getstart_rejected(self):
         """#796: table/frame XText that rejects getStart() still clones on the host."""
-        body = MagicMock()
         cell_text = MagicMock()
         text_cursor = MagicMock(name="cell_clone")
         cell_text.createTextCursorByRange.side_effect = [
@@ -274,18 +264,10 @@ class TestWriterImageCursorConversion:
         ]
         cell_text.insertTextContent = MagicMock()
 
-        view_cursor = MagicMock(name="view_cursor")
-        view_cursor.getStart.return_value = "cell-start"
-        view_cursor.getText.return_value = cell_text
-        view_cursor.jumpToStartOfPage = MagicMock()
-
         image_instance = MagicMock(name="image_instance")
-        model = MagicMock()
-        model.getText.return_value = body
-        model.CurrentController = MagicMock()
-        model.CurrentController.ViewCursor = view_cursor
-        model.createInstance.return_value = image_instance
-        model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+        model, body, unused_tc, view_cursor = self._make_writer_model(
+            image_instance, cell_text=cell_text, start="cell-start"
+        )
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
@@ -300,8 +282,8 @@ class TestWriterImageCursorConversion:
             )
 
         body.createTextCursorByRange.assert_not_called()
-        assert (cell_text.createTextCursorByRange.call_args_list[0].args[0]) == ("cell-start")
-        assert (cell_text.createTextCursorByRange.call_args_list[1].args[0]) == (view_cursor)
+        assert cell_text.createTextCursorByRange.call_args_list[0].args[0] == "cell-start"
+        assert cell_text.createTextCursorByRange.call_args_list[1].args[0] == view_cursor
         cell_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
         view_cursor.jumpToStartOfPage.assert_not_called()
 
@@ -392,25 +374,12 @@ class TestWriterImageCursorConversion:
         assert result is None
 
     def test_insert_image_to_writer_fallback_rejumps_and_recreates_cursor(self):
-        doc_text = MagicMock()
-        doc_text.insertTextContent = MagicMock()
-        doc_text.insertTextContent.side_effect = [RuntimeError("no selection"), None]
-
-        view_cursor = MagicMock(name="view_cursor")
-        view_cursor.getStart.side_effect = ["range1", "range2"]
-        view_cursor.getText.return_value = doc_text
-        view_cursor.jumpToStartOfPage = MagicMock()
-
-        model = MagicMock()
-        model.getText.return_value = doc_text
-        model.CurrentController = MagicMock()
-        model.CurrentController.ViewCursor = view_cursor
         image_instance = MagicMock(name="image_instance")
-        model.createInstance.return_value = image_instance
-        model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
-        ctx = MagicMock()
-
+        model, doc_text, unused_tc, view_cursor = self._make_writer_model(image_instance)
+        doc_text.insertTextContent.side_effect = [RuntimeError("no selection"), None]
+        view_cursor.getStart.side_effect = ["range1", "range2"]
         doc_text.createTextCursorByRange.side_effect = ["tc1", "tc2"]
+        ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
             image_tools._insert_writer_graphic(
@@ -424,27 +393,12 @@ class TestWriterImageCursorConversion:
             )
 
         view_cursor.jumpToStartOfPage.assert_called_once()
-        assert (doc_text.insertTextContent.call_count) == (2)
+        assert doc_text.insertTextContent.call_count == 2
         doc_text.insertTextContent.assert_any_call("tc1", image_instance, False)
         doc_text.insertTextContent.assert_any_call("tc2", image_instance, False)
 
     def test_insert_frame_uses_text_cursor(self):
-        doc_text = MagicMock()
         frame_text_cursor = MagicMock(name="frame_cursor")
-        doc_text.createTextCursorByRange.return_value = "frame-text-cursor"
-        doc_text.insertTextContent = MagicMock()
-
-        view_cursor = MagicMock(name="view_cursor")
-        view_cursor.getStart.return_value = "range-start"
-        view_cursor.getText.return_value = doc_text
-        view_cursor.jumpToStartOfPage = MagicMock()
-
-        model = MagicMock()
-        model.getText.return_value = doc_text
-        model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
-        model.CurrentController = MagicMock()
-        model.CurrentController.ViewCursor = view_cursor
-
         text_frame_instance = MagicMock(name="text_frame")
         frame_text_obj = MagicMock(name="frame_text_obj")
         frame_text_obj.createTextCursor.return_value = frame_text_cursor
@@ -454,7 +408,9 @@ class TestWriterImageCursorConversion:
         text_frame_instance.getText.return_value = frame_text_obj
 
         image_instance = MagicMock(name="image_instance")
+        model, doc_text, unused_tc, unused_vc = self._make_writer_model(image_instance)
         model.createInstance.side_effect = [text_frame_instance, image_instance]
+        doc_text.createTextCursorByRange.return_value = "frame-text-cursor"
         ctx = MagicMock()
 
         with patch.object(image_tools, "_should_link_image_path", return_value=False):
@@ -1038,3 +994,25 @@ def test_insert_image_into_header_footer_reports_resolved_style_name():
     ):
         result = image_tools.insert_image_into_header_footer(MagicMock(), "/tmp/logo.png", "header", style_name="Default Page Style")
     assert result["style_name"] == "Standard"
+
+
+def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none():
+    from plugin.writer.images.image_tools import export_graphic_object_to_bytes
+
+    guarded_ctx = MagicMock(name="guarded_ctx")
+    sm = MagicMock()
+    gp = MagicMock()
+    guarded_ctx.ServiceManager = sm
+    sm.createInstanceWithContext.return_value = gp
+    with (
+        patch("plugin.writer.images.image_tools.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
+        patch(
+            "plugin.writer.images.image_tools.uno.getComponentContext",
+            side_effect=AssertionError("uno.getComponentContext must not be used; call get_ctx()"),
+        ),
+        patch("plugin.writer.images.image_tools.visual_helpers.graphic_from_object", return_value=MagicMock()),
+    ):
+        data = export_graphic_object_to_bytes(None, MagicMock())
+    mock_get_ctx.assert_called_once()
+    gp.storeGraphic.assert_called_once()
+    assert isinstance(data, bytes)

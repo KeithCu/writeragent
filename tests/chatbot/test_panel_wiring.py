@@ -240,3 +240,37 @@ def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
     host.frame_session.install.assert_called_once()
 
 
+def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
+    from plugin.chatbot.panel_wiring import _pin_button_width
+
+    class _Pos:
+        X = 10
+        Y = 20
+        Height = 30
+
+        def __init__(self, width: int) -> None:
+            self.Width = width
+
+    class _Model:
+        Label = "Stop"
+
+    model = _Model()
+
+    class _Ctrl:
+        pos_size_args = None
+
+        def getModel(self):
+            return model
+
+        def getPosSize(self):
+            return _Pos(len(model.Label))
+
+        def setPosSize(self, x, y, width, height, flags):
+            self.pos_size_args = (x, y, width, height, flags)
+
+    ctrl = _Ctrl()
+    monkeypatch.setattr("plugin.chatbot.panel_wiring._", lambda text: text + "XX")
+    _pin_button_width(ctrl, ["Stop", "Change"])
+    assert model.Label == "Stop"
+    assert ctrl.pos_size_args is not None
+    assert ctrl.pos_size_args[2] == len("ChangeXX")

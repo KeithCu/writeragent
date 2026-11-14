@@ -1436,4 +1436,179 @@ def test_sidebar_reasoning_effort_wires_and_refreshes() -> None:
         assert mock_pop_effort.call_count == 2
 
 
+def test_close_hook_prevents_double_release():
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.frame_session import FrameSession
+    from plugin.chatbot.panel_factory import ChatPanelElement, _bind_close_hook
 
+    with patch("plugin.chatbot.panel_factory.release_live_sidebar") as mock_release:
+        ctx = MagicMock()
+        frame = MagicMock()
+        parent = MagicMock()
+        session = FrameSession(frame)
+
+        panel = ChatPanelElement(ctx, frame, parent, "url", session)
+        session.bind_panel(panel)
+        listener = MagicMock()
+        query = MagicMock()
+
+        _bind_close_hook(session, panel, listener, query)
+
+        session.dispose()
+        mock_release.assert_called_once_with(panel, query)
+        assert session.panel is None
+
+        mock_release.reset_mock()
+        session.dispose()
+        mock_release.assert_not_called()
+
+
+def test_release_live_sidebar_called_twice_is_noop():
+    from unittest.mock import MagicMock
+    from plugin.chatbot.panel_factory import release_live_sidebar
+
+    panel = MagicMock()
+    panel._live_panel_uid = "doc1"
+    panel._released = False
+    panel.frame_session = MagicMock()
+    listener = MagicMock()
+    panel.send_listener = listener
+
+    release_live_sidebar(panel, None)
+    listener.disposing.assert_called_once_with(None)
+    panel.frame_session.release_panel.assert_called_once_with(panel, None)
+
+    release_live_sidebar(panel, None)
+    # A second release (frame close hook, then element dispose) must not raise.
+    # It now short-circuits due to the _released flag.
+    assert listener.disposing.call_count == 1
+    assert panel.frame_session.release_panel.call_count == 1
+
+
+def test_rebound_panel_does_not_accumulate_close_hooks():
+    from unittest.mock import MagicMock
+    from plugin.framework.frame_session import FrameSession
+    from plugin.chatbot.panel_factory import ChatPanelElement, _bind_close_hook, release_live_sidebar
+
+    ctx = MagicMock()
+    frame = MagicMock()
+    parent = MagicMock()
+    session = FrameSession(frame)
+
+    panel1 = ChatPanelElement(ctx, frame, parent, "url", session)
+    session.bind_panel(panel1)
+    _bind_close_hook(session, panel1, MagicMock(), MagicMock())
+    assert len(session._close_hooks) == 1
+
+    # Close panel 1 (sidebar closed / mode switched)
+    release_live_sidebar(panel1)
+    assert len(session._close_hooks) == 0
+
+    # Panel 2 created on reopened deck for same frame
+    panel2 = ChatPanelElement(ctx, frame, parent, "url", session)
+    session.bind_panel(panel2)
+    _bind_close_hook(session, panel2, MagicMock(), MagicMock())
+    assert len(session._close_hooks) == 1
+
+
+def test_session_id_stability():
+    import hashlib
+
+    from plugin.chatbot.panel_factory import ChatPanelElement
+    from plugin.framework.errors import WriterAgentException
+
+    class _MockPropertySet:
+        def __init__(self):
+            self.properties = {}
+
+        def getPropertySetInfo(self):
+            class _MockInfo:
+                def __init__(self, props):
+                    self.props = props
+
+                def hasPropertyByName(self, name):
+                    return name in self.props
+
+            return _MockInfo(self.properties)
+
+        def hasByName(self, name):
+            return name in self.properties
+
+        def getPropertyValue(self, name):
+            if name in self.properties:
+                return self.properties[name]
+            raise WriterAgentException("UnknownPropertyException")
+
+        def addProperty(self, name, attributes, default_value):
+            self.properties[name] = default_value
+
+        def setPropertyValue(self, name, value):
+            if name not in self.properties:
+                raise WriterAgentException("UnknownPropertyException")
+            self.properties[name] = value
+
+        def removeProperty(self, name):
+            if name in self.properties:
+                del self.properties[name]
+
+    class _MockDocumentModel:
+        def __init__(self, url="file:///mock/test.odt"):
+            self.url = url
+            self.props = _MockPropertySet()
+
+        def getURL(self):
+            return self.url
+
+        def getDocumentProperties(self):
+            class _MockDocProps:
+                def __init__(self, props):
+                    self.UserDefinedProperties = props
+
+            return _MockDocProps(self.props)
+
+        def getPropertySetInfo(self):
+            return self.props.getPropertySetInfo()
+
+        def supportsService(self, service_name):
+            return service_name == "com.sun.star.text.TextDocument"
+
+    class _MockCtx:
+        def getValueByName(self, name):
+            return None
+
+    panel = ChatPanelElement(_MockCtx(), None, None, "test_url")
+    model = _MockDocumentModel("file:///test/my_doc.odt")
+
+    # 1. First run: Should generate a stable ID based on URL (hash) since no property exists
+    panel._setup_sessions(model, "some instructions")
+    assert panel.session is not None
+    first_session_id = panel.session.session_id
+
+    assert first_session_id is not None
+    assert first_session_id == hashlib.sha256(b"file:///test/my_doc.odt").hexdigest()
+
+    # Verify the property was stored back onto the document model
+    stored_id = model.props.properties.get("WriterAgentSessionID")
+    assert stored_id == first_session_id
+
+    # 2. Simulate "save as" to a new URL, but keeping properties intact
+    model.url = "file:///test/renamed.odt"
+    panel._setup_sessions(model, "different instructions")
+
+    # It should regenerate the ID to isolate the copied document, but fork the history
+    assert panel.session is not None
+    second_session_id = panel.session.session_id
+    assert second_session_id != first_session_id
+    assert second_session_id == hashlib.sha256(b"file:///test/renamed.odt").hexdigest()
+
+    # 3. Simulate new unsaved document with no URL and no properties
+    unsaved_model = _MockDocumentModel("")
+    panel._setup_sessions(unsaved_model, "")
+
+    assert panel.session is not None
+    third_session_id = panel.session.session_id
+    assert third_session_id is not None
+    assert len(third_session_id) > 10
+
+    stored_id_3 = unsaved_model.props.properties.get("WriterAgentSessionID")
+    assert stored_id_3 == third_session_id

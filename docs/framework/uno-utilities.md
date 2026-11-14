@@ -537,7 +537,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | `normalize_doc_url` | `tests/doc/test_document.py` |
 | resolve by URL or RuntimeUID | `tests/doc/test_resolve_document_by_url.py` |
 | `file:///` + `file:/` repair, work directory | `tests/doc/test_document_research.py` |
-| `get_open_documents` untitled / Start Center | `tests/mcp/test_list_open_documents.py` |
+| `get_open_documents` untitled / Start Center | `tests/doc/test_list_open_documents.py` |
 | HTTP `url_utils` + `path_to_file_url` | `tests/framework/test_url_utils.py` |
 | `uno_context` getters | `tests/framework/test_uno_context.py` |
 | listeners | `tests/framework/test_uno_listeners.py` |
