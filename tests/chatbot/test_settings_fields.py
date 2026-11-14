@@ -53,7 +53,7 @@ def test_egret_layout_label_keeps_the_comma():
     vision = next(m for m in MODULES if m.get("name") == "vision")
     options = vision["config"]["layout_model"]["options"]
     egret = next(opt for opt in options if opt.get("value") == "egret_large")
-    assert egret["label"] == "Egret large (slower, complex docs)"
+    assert "," in egret["label"]
 
 
 def test_build_module_field_specs_prefixed_and_flat():

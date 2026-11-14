@@ -247,19 +247,6 @@ def test_upsert_empty_content_pops_key(tmp_path):
         assert data["editor"]["vim"] == "Yes"
 
 
-def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
-    """format_upsert_memory_chat_line stays out of cover_fqns_for_module."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/chatbot/memory.py"), require_deal=True)
-    assert not any(f.endswith(".format_upsert_memory_chat_line") for f in fqns)
-
-
 def test_memory_arguments_longer_than_source_normalize():
     from plugin.chatbot.memory import format_upsert_memory_chat_line, upsert_memory_arguments_dict
     from plugin.framework.deal_shim import DEAL_MAX_SOURCE

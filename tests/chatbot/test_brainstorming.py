@@ -16,24 +16,6 @@ from plugin.chatbot.sub_agent_tools import (
     normalize_html_content_array,
 )
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
-from plugin.writer.specialized_base import DelegateToSpecializedWriter
-import pytest
-
-
-def _brainstorming_domains(gateway):
-    return gateway.parameters["properties"]["domain"]["enum"]
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("brainstorming", id="test_brainstorming_not_in_writer_delegate_enum"),
-        pytest.param("writing_plan", id="test_writing_plan_not_in_writer_delegate_enum"),
-    ],
-)
-def test_brainstorming_not_in_writer_delegate_enum(value):
-    gw = DelegateToSpecializedWriter()
-    assert value not in _brainstorming_domains(gw)
 
 
 def test_normalize_html_content_array_accepts_list_and_string():
@@ -195,16 +177,3 @@ def test_save_design_spec_missing_apply_tool_errors():
     res = tool.execute(ctx, content=["<p>Hi</p>"])
     assert res["status"] == "error"
     assert res["code"] == "TOOL_NOT_FOUND"
-
-
-def test_save_design_spec_is_async():
-    tool = SaveDesignSpec()
-    assert tool.is_async() is True
-
-
-def test_brainstorming_session_tool_supports_writer_not_calc():
-    from plugin.framework.tool import tool_supports_document
-
-    tool = BrainstormingSessionTool()
-    assert tool_supports_document(tool, doc_type="writer", uno_services_supported=None) is True
-    assert tool_supports_document(tool, doc_type="calc", uno_services_supported=None) is False

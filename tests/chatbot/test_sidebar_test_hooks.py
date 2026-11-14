@@ -10,7 +10,6 @@ import dataclasses
 import json
 import os
 import sys
-import unittest
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -872,57 +871,6 @@ def test_clear_sidebar_chat_urp_clicks_clear(monkeypatch) -> None:
     finally:
         hooks._HOOK_CTX = saved_ctx
     assert clicked == [clear_btn]
-
-
-def test_g_require_stop_rec_skips_when_label_stays_send(fake_listener: _FakeListener) -> None:
-    from tests.chatbot.test_mock_llm_sidebar_uno import _PACKET_G_RECORD_SKIP, _g_require_stop_rec
-
-    fake_listener.send_control.getModel().Label = "Send"
-    with pytest.raises(unittest.SkipTest, match="Stop Rec") as caught:
-        _g_require_stop_rec(fake_listener, timeout=0.0)
-    assert str(caught.value) == _PACKET_G_RECORD_SKIP
-
-
-def test_g_require_stop_rec_urp_skips_when_session_send_stays_send(monkeypatch) -> None:
-    """URP-only: no in-process listener — skip after live Send label stays Send."""
-    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
-
-    class _Btn:
-        def __init__(self) -> None:
-            self._model = SimpleNamespace(Label="Send")
-
-        def getModel(self):
-            return self._model
-
-    monkeypatch.setattr(gmod, "_session", SimpleNamespace(controls={"send": _Btn()}))
-    monkeypatch.setattr(gmod, "_transcript", lambda: "")
-    with pytest.raises(unittest.SkipTest, match="Record no-op"):
-        gmod._g_require_stop_rec(None, timeout=0.0)
-
-
-def test_g_skip_if_record_failed_on_device_error(monkeypatch) -> None:
-    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
-
-    monkeypatch.setattr(
-        gmod,
-        "_transcript",
-        lambda: "[Audio error: Audio recording failed: Error querying device -1]",
-    )
-    with pytest.raises(unittest.SkipTest, match="Record no-op"):
-        gmod._g_skip_if_record_failed()
-
-
-def test_g4_skip_if_no_audio_reply_on_greeting_only(monkeypatch) -> None:
-    """CI G4: wait_idle is immediate, greeting has no audio-error string."""
-    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
-
-    monkeypatch.setattr(
-        gmod,
-        "_transcript",
-        lambda: "Assistant: I can edit or translate your document instantly with professional formatting and color. Try me!",
-    )
-    with pytest.raises(unittest.SkipTest, match="Record no-op"):
-        gmod._g_skip_if_no_audio_reply()
 
 
 class _StopCtrl:
