@@ -64,6 +64,17 @@ def _app_bases():
     return {"Writer": ToolWriterSpecialBase, "Calc": ToolCalcSpecialBase, "Draw": ToolDrawSpecialBase}
 
 
+def _sidebar_only_domains():
+    from plugin.framework.prompts import (
+        IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
+        WRITER_SIDEBAR_ONLY_DOMAINS,
+    )
+
+    # Sidebar-only flows need session orchestration the direct modes do not provide,
+    # so they are absent from BOTH modes by design and are not a parity gap.
+    return WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
+
+
 def _direct_flat_tools(label):
     """``{name: specialized_domain}`` for one app's specialized tools that direct_flat lists.
 
@@ -71,17 +82,9 @@ def _direct_flat_tools(label):
     discovery at start-up, and this invariant is about what the code declares, not about what one
     session happened to load.
     """
-    from plugin.framework.prompts import (
-        IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
-        WRITER_SIDEBAR_ONLY_DOMAINS,
-    )
-
     bases = _app_bases()
     wanted = tuple(bases.values()) if label is None else (bases[label],)
-    # direct_flat drops the sidebar-only flows itself (sidebar_only_tool_names): they need session
-    # orchestration the direct modes do not provide, so they are absent from BOTH modes by design
-    # and are not a parity gap.
-    sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
+    sidebar_only = _sidebar_only_domains()
     return {cls.name: getattr(cls, "specialized_domain", None)
             for cls in _all_tool_classes()
             if issubclass(cls, wanted)
@@ -89,39 +92,37 @@ def _direct_flat_tools(label):
             and getattr(cls, "specialized_domain", None) not in sidebar_only}
 
 
+def _concrete_tools(label):
+    """``{name: specialized_domain}`` for all non-dummy concrete tools of one app."""
+    from plugin.framework.tool import ToolBaseDummy
+
+    base = _app_bases()[label]
+    sidebar_only = _sidebar_only_domains()
+    return {
+        t.name: getattr(t, "specialized_domain", None)
+        for t in _all_tool_classes()
+        if issubclass(t, base)
+        and not issubclass(t, ToolBaseDummy)
+        and getattr(t, "specialized_domain", None) not in sidebar_only
+    }
+
+
 @pytest.mark.parametrize(
-    "label, include_excluded_tiers",
+    "label, lister, needs_init",
     [
-        pytest.param("Writer", False, id="Writer-direct_flat"),
-        pytest.param("Calc", False, id="Calc-direct_flat"),
-        pytest.param("Draw", False, id="Draw-direct_flat"),
-        pytest.param(None, False, id="all-direct_flat"),
-        pytest.param("Writer", True, id="Writer-all_concrete"),
-        pytest.param("Calc", True, id="Calc-all_concrete"),
-        pytest.param("Draw", True, id="Draw-all_concrete"),
+        pytest.param("Writer", _direct_flat_tools, False, id="Writer-direct_flat"),
+        pytest.param("Calc", _direct_flat_tools, False, id="Calc-direct_flat"),
+        pytest.param("Draw", _direct_flat_tools, False, id="Draw-direct_flat"),
+        pytest.param(None, _direct_flat_tools, False, id="all-direct_flat"),
+        pytest.param("Writer", _concrete_tools, True, id="Writer-concrete"),
+        pytest.param("Calc", _concrete_tools, True, id="Calc-concrete"),
+        pytest.param("Draw", _concrete_tools, True, id="Draw-concrete"),
     ],
 )
-def test_every_listed_specialized_tool_has_a_catalogued_domain(
-    label, include_excluded_tiers, _initialized_app_modules
-):
-    if include_excluded_tiers:
-        from plugin.framework.prompts import (
-            IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
-            WRITER_SIDEBAR_ONLY_DOMAINS,
-        )
-        from plugin.framework.tool import ToolBaseDummy
-
-        base = _app_bases()[label]
-        sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
-        listed = {
-            t.name: getattr(t, "specialized_domain", None)
-            for t in _all_tool_classes()
-            if issubclass(t, base)
-            and not issubclass(t, ToolBaseDummy)
-            and getattr(t, "specialized_domain", None) not in sidebar_only
-        }
-    else:
-        listed = _direct_flat_tools(label)
+def test_every_listed_specialized_tool_has_a_catalogued_domain(label, lister, needs_init, request):
+    if needs_init:
+        request.getfixturevalue("_initialized_app_modules")
+    listed = lister(label)
 
     offered = {e["domain"] for e in get_specialized_domain_catalog(agent_label=label, ctx=None, for_discovery=True)}
 

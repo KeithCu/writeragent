@@ -1,8 +1,6 @@
 import datetime
 import json
-import urllib.error
 import urllib.request
-
 
 from plugin.mcp.server import mcp_endpoint_url
 from plugin.mcp.mcp_protocol import format_mcp_clock_context, build_initialize_instructions

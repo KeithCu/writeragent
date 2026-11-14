@@ -48,59 +48,41 @@ def _patch_notebook_run(
     *,
     read_code: Any = "print(1)",
     patch_read_code: bool = True,
-    exec_result: Any = None,
-    exec_side_effect: Any = None,
-    clear_side_effect: Any = None,
-    apply_side_effect: Any = None,
-    flush_idle: Any = None,
-    flush_new: Any = None,
-    patch_flush_idle: bool = False,
-    patch_msgbox: bool = False,
+    execute: Any = None,
+    clear: Any = None,
+    apply: Any = None,
+    flush: Any = None,
 ):
     with ExitStack() as stack:
         stack.enter_context(patch("plugin.notebook.notebook_runner.load_registry", return_value=state))
         if patch_read_code:
             kw = {"side_effect": read_code} if callable(read_code) else {"return_value": read_code}
             stack.enter_context(patch("plugin.notebook.form_lookup.read_code_from_field", **kw))
-        if exec_side_effect is not None:
-            execute = stack.enter_context(
-                patch("plugin.notebook.notebook_runner.execute_code", side_effect=exec_side_effect)
-            )
-        elif exec_result is not None:
-            execute = stack.enter_context(
-                patch("plugin.notebook.notebook_runner.execute_code", return_value=exec_result)
-            )
-        else:
-            execute = stack.enter_context(patch("plugin.notebook.notebook_runner.execute_code"))
-        clear = stack.enter_context(
-            patch("plugin.notebook.notebook_runner.clear_cell_output", side_effect=clear_side_effect)
+        exec_kw = (
+            {"side_effect": execute}
+            if callable(execute)
+            else ({"return_value": execute} if execute is not None else {})
         )
-        apply = stack.enter_context(
-            patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=apply_side_effect)
+        exec_mock = stack.enter_context(patch("plugin.notebook.notebook_runner.execute_code", **exec_kw))
+        clear_mock = stack.enter_context(
+            patch("plugin.notebook.notebook_runner.clear_cell_output", side_effect=clear)
+        )
+        apply_mock = stack.enter_context(
+            patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=apply)
         )
         update_prompt = stack.enter_context(patch("plugin.notebook.notebook_runner.update_in_prompt"))
         save_reg = stack.enter_context(patch("plugin.notebook.notebook_runner.save_registry"))
-        flush = None
-        if flush_new is not None:
-            flush = stack.enter_context(patch("plugin.notebook.notebook_runner.flush_ui_idle", new=flush_new))
-        elif flush_idle is not None:
-            flush = stack.enter_context(
-                patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=flush_idle)
-            )
-        elif patch_flush_idle:
-            flush = stack.enter_context(patch("plugin.notebook.notebook_runner.flush_ui_idle"))
-        boxed = (
-            stack.enter_context(patch("plugin.notebook.notebook_runner.msgbox"))
-            if patch_msgbox
-            else None
+        flush_mock = stack.enter_context(
+            patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=flush)
         )
+        boxed = stack.enter_context(patch("plugin.notebook.notebook_runner.msgbox"))
         yield SimpleNamespace(
-            execute=execute,
-            clear=clear,
-            apply=apply,
+            execute=exec_mock,
+            clear=clear_mock,
+            apply=apply_mock,
             update_prompt=update_prompt,
             save_reg=save_reg,
-            flush_idle=flush,
+            flush_idle=flush_mock,
             msgbox=boxed,
         )
 
@@ -249,7 +231,7 @@ def test_run_cell_updates_registry_and_execution_count():
 
     with _patch_notebook_run(
         state,
-        exec_result={"status": "ok", "result": None, "stdout": "1\n"},
+        execute={"status": "ok", "result": None, "stdout": "1\n"},
     ) as mocks:
         result = run_cell(ctx, doc, cell.cell_id)
 
@@ -299,7 +281,7 @@ def test_run_cell_rejects_reentrant_call():
         nested.append(run_cell(ctx, doc, cell.cell_id))
         return {"status": "ok", "result": None, "stdout": "1\n"}
 
-    with _patch_notebook_run(state, exec_side_effect=_reenter) as mocks:
+    with _patch_notebook_run(state, execute=_reenter) as mocks:
         result = run_cell(ctx, doc, cell.cell_id)
 
     assert result.status == "ok"
@@ -359,7 +341,7 @@ def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
         nested.append(run_cell(ctx, doc2, cell.cell_id))
         return {"status": "ok", "result": None, "stdout": "1\n"}
 
-    with _patch_notebook_run(state, exec_side_effect=_reenter):
+    with _patch_notebook_run(state, execute=_reenter):
         result = run_cell(ctx, doc1, cell.cell_id)
 
     assert result.status == "ok"
@@ -598,9 +580,9 @@ def test_run_cell_rerun_clears_then_applies():
 
     with _patch_notebook_run(
         state,
-        exec_result={"status": "ok", "result": None, "stdout": "1\n"},
-        clear_side_effect=rec_clear,
-        apply_side_effect=rec_apply,
+        execute={"status": "ok", "result": None, "stdout": "1\n"},
+        clear=rec_clear,
+        apply=rec_apply,
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
@@ -809,7 +791,7 @@ def test_run_cell_error_still_increments_execution_count():
     with _patch_notebook_run(
         state,
         read_code="raise ValueError(1)",
-        exec_result={"status": "error", "message": "ValueError", "stdout": ""},
+        execute={"status": "error", "message": "ValueError", "stdout": ""},
     ):
         result = run_cell(ctx, doc, cell.cell_id)
 
@@ -875,14 +857,14 @@ def test_run_cell_for_doc_hex_execution_error_does_not_msgbox():
         _patch_notebook_run(
             state,
             read_code="car[:,:,:3].shape",
-            exec_result={
+            execute={
                 "status": "error",
                 "message": "InterpreterError: name 'car' is not defined",
                 "stdout": "",
                 "traceback": "InterpreterError: name 'car' is not defined",
             },
-            apply_side_effect=rec_apply,
-            patch_msgbox=True,
+            apply=rec_apply,
+            
         ) as mocks,
     ):
         run_cell_for_doc_hex(ctx, doc, hex_id)
@@ -901,7 +883,7 @@ def test_run_cell_for_doc_hex_setup_error_shows_msgbox():
 
     with (
         patch("plugin.notebook.notebook_runner.is_writer", return_value=True),
-        _patch_notebook_run(state, read_code="   ", patch_msgbox=True) as mocks,
+        _patch_notebook_run(state, read_code="   ") as mocks,
     ):
             run_cell_for_doc_hex(ctx, doc, hex_id)
             mocks.execute.assert_not_called()
@@ -934,7 +916,7 @@ def test_run_cells_sequence_in_registry_order():
         return {"status": "ok", "result": None, "stdout": code}
 
     with _patch_notebook_run(
-        state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
+        state, read_code=_code_for_field, execute=_exec
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -957,7 +939,7 @@ def test_run_from_here_start_index():
         return {"status": "ok", "result": None, "stdout": ""}
 
     with _patch_notebook_run(
-        state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
+        state, read_code=_code_for_field, execute=_exec
     ):
         result = run_cells(ctx, doc, start_index=1)
 
@@ -1014,7 +996,7 @@ def test_run_cells_stop_skips_remainder():
         return {"status": "ok", "result": None, "stdout": ""}
 
     with _patch_notebook_run(
-        state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
+        state, read_code=_code_for_field, execute=_exec
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1042,7 +1024,7 @@ def test_run_cells_stop_during_between_cell_drain_skips_next():
         request_stop()
 
     with _patch_notebook_run(
-        state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush
+        state, read_code=_code_for_field, execute=_exec, flush=_flush
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1072,7 +1054,7 @@ def test_run_cells_stop_from_menu_without_active_doc_skips_remainder():
             stop_from_menu(ctx, frame=None)
 
     with _patch_notebook_run(
-        state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush
+        state, read_code=_code_for_field, execute=_exec, flush=_flush
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1108,7 +1090,7 @@ def test_run_cells_stop_from_menu_distinct_wrapper_skips_remainder():
         stop_from_menu(ctx, frame=frame)
 
     with _patch_notebook_run(
-        state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush
+        state, read_code=_code_for_field, execute=_exec, flush=_flush
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1124,7 +1106,7 @@ def _patch_run_cells(state, exec_side_effect, flush, pump):
     def _ctx():
         with (
             _patch_notebook_run(
-                state, read_code=_code_for_field, exec_side_effect=exec_side_effect, flush_new=flush
+                state, read_code=_code_for_field, execute=exec_side_effect, flush=flush
             ),
             patch("plugin.framework.queue_executor.pump_ui_idle", new=pump),
             patch("plugin.framework.uno_context.get_toolkit", return_value=object()),
@@ -1207,7 +1189,7 @@ def test_run_cells_busy_guard_skips_play_but_stop_works():
         return {"status": "ok", "result": None, "stdout": "1\n"}
 
     with _patch_notebook_run(
-        state, read_code=_code_for_field, exec_side_effect=_reenter, patch_flush_idle=True
+        state, read_code=_code_for_field, execute=_reenter
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1237,7 +1219,7 @@ def test_run_cells_skips_empty_and_continues(cell_1_value):
         return {"status": "ok", "result": None, "stdout": ""}
 
     with _patch_notebook_run(
-        state, read_code=_read, exec_side_effect=_exec, patch_flush_idle=True
+        state, read_code=_read, execute=_exec
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1266,10 +1248,10 @@ def test_run_cells_error_continues_unless_stopped():
     with _patch_notebook_run(
         state,
         read_code=_code_for_field,
-        exec_side_effect=_exec,
-        apply_side_effect=_apply,
-        patch_flush_idle=True,
-        patch_msgbox=True,
+        execute=_exec,
+        apply=_apply,
+        
+        
     ) as mocks:
         result = run_cells(ctx, doc, start_index=0)
 
@@ -1295,10 +1277,10 @@ def _run_cells_with(exec_fn, apply_fn=None, doc=None):
     with _patch_notebook_run(
         state,
         read_code=_code_for_field,
-        exec_side_effect=exec_fn,
-        apply_side_effect=_apply,
-        patch_flush_idle=True,
-        patch_msgbox=True,
+        execute=exec_fn,
+        apply=_apply,
+        
+        
     ):
         result = run_cells(ctx, doc, start_index=0)
     return result, applied, state
@@ -1420,7 +1402,7 @@ def test_run_cells_does_not_pump_idle_during_execute():
 
     with (
         _patch_notebook_run(
-            state, read_code=_code_for_field, exec_side_effect=_exec, patch_flush_idle=True
+            state, read_code=_code_for_field, execute=_exec
         ) as mocks,
         patch("plugin.framework.queue_executor.pump_main_thread_work_queue", side_effect=_flush),
         patch("plugin.framework.queue_executor.pump_ui_idle"),
@@ -1484,7 +1466,7 @@ def test_run_cells_between_cell_pump_disposal_stops_execution():
 
     with (
         patch("plugin.framework.async_drain_guard.get_drain_owner", return_value=None),
-        _patch_notebook_run(state, read_code=_code_for_field, exec_side_effect=_exec, flush_idle=_flush),
+        _patch_notebook_run(state, read_code=_code_for_field, execute=_exec, flush=_flush),
         patch("plugin.notebook.notebook_runner.document_is_disposed", side_effect=[False, True]),
     ):
         result = run_cells(ctx, doc, start_index=0)
@@ -1556,9 +1538,9 @@ def test_run_cells_reuses_single_draw_page_walk_and_matches_unscoped():
     with _patch_notebook_run(
         state,
         patch_read_code=False,
-        exec_side_effect=_exec,
-        apply_side_effect=_apply_scoped,
-        patch_flush_idle=True,
+        execute=_exec,
+        apply=_apply_scoped,
+        
     ):
         result = run_cells(ctx, doc)
 
@@ -1597,7 +1579,7 @@ def test_run_cell_leaves_no_stop_state():
     doc.getURL.return_value = ""
     notebook_runner._stop_flags.clear()
     with _patch_notebook_run(
-        state, exec_result={"status": "ok", "result": None, "stdout": "1\n"}
+        state, execute={"status": "ok", "result": None, "stdout": "1\n"}
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
     assert notebook_runner._stop_flags == {}

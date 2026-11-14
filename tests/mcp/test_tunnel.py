@@ -810,10 +810,6 @@ def _capture_background(bucket: list):
     return _capture
 
 
-def _fake_running_process(spawned: list):
-    return _make_fake_async_process(procs=spawned)
-
-
 def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch, tmp_path):
     """A reset scheduled by stop() must no-op after a newer Tailscale start."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -828,7 +824,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch, tm
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -857,7 +853,7 @@ def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -880,7 +876,7 @@ def test_tailscale_post_stop_still_runs_after_cloudflare_start(monkeypatch):
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -1017,7 +1013,7 @@ def test_stale_tailscale_reset_does_not_drop_a_newer_inflight_count(monkeypatch,
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run(reset_cmds)),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -1055,7 +1051,7 @@ def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, 
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_record_subprocess_run()),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
@@ -1119,7 +1115,7 @@ def test_tailscale_pre_start_does_not_hold_tunnel_lock(monkeypatch):
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
-        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_make_fake_async_process(procs=spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         worker = threading.Thread(target=_start)
@@ -1572,9 +1568,19 @@ def test_post_stop_start_failure_decrements_in_flight(monkeypatch):
     assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
-@pytest.mark.parametrize("mode", ["idle", "connected", "failed"])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        # Idle manager with a stale arm file still schedules funnel off without blocking.
+        pytest.param("idle", id="idle"),
+        # Live CONNECTED session: quit terminates the CLI and triggers background reset.
+        pytest.param("connected", id="connected"),
+        # FAILED Tailscale (no live process, _process is None): quit still triggers background reset.
+        pytest.param("failed", id="failed"),
+    ],
+)
 def test_stop_for_quit_schedules_background_reset(mode, monkeypatch, tmp_path):
-    """LibreOffice quit triggers funnel off in background across idle, connected, and failed states."""
+    """LibreOffice quit triggers funnel off in background without blocking."""
     from plugin.mcp.tunnel_state import TunnelStatus
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
