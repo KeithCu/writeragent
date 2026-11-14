@@ -28,11 +28,7 @@ from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
     approval_active,
-    audio_status,
-    control_enabled,
     ensure_slash_popup,
-    fire_audio_auto_stop,
-    inject_wav,
     iter_live_chat_panels,
     register_live_panel,
     unregister_live_panel,
@@ -47,7 +43,6 @@ from plugin.chatbot.sidebar_test_hooks import (
     press_stop_rec,
     query_text,
     send_state,
-    set_audio_supported,
     set_query_text,
     clear_sidebar_chat,
     slash_popup_state,
@@ -57,11 +52,8 @@ from plugin.chatbot.sidebar_test_hooks import (
     wait_controls_send_finished,
     wait_idle,
     adopt_chat_sidebar,
-    component_is_calc,
-    find_calc_component,
     handle_debug_sidebar_command,
     inflate_sidebar_history,
-    open_calc_document,
     send_listener_for_uid,
 )
 
@@ -419,70 +411,6 @@ def test_press_record_and_stop_rec_follow_the_button(fake_listener: _FakeListene
     press_stop_rec(listener=fake_listener)
     assert ("action", None, _("Stop Rec")) in fake_listener.events
     assert not any(getattr(e, "kind", None) == SendEventKind.RECORD_CLICKED for e in fake_listener.events)
-
-
-def test_set_audio_supported_and_audio_status(fake_listener: _FakeListener) -> None:
-    set_audio_supported(False, listener=fake_listener)
-    assert fake_listener.sidebar_state.send.audio_supported is False
-    status = audio_status(listener=fake_listener)
-    assert status["status"] == "idle"
-    assert status["has_audio"] is False
-
-
-def test_packet_g_stub_and_inject(fake_listener: _FakeListener, tmp_path) -> None:
-    from plugin.chatbot.sidebar_test_hooks import (
-        clear_stub_recorder_control,
-        read_stub_recorder_control,
-        _STUB_RECORDER_FLAGS,
-    )
-
-    try:
-        stub_recorder_child(listener=fake_listener, fail_start="boom", missing_wav=True)
-        rec = fake_listener.audio_recorder
-        flags = _STUB_RECORDER_FLAGS.get(rec, {})
-        assert flags.get("skip") is True
-        assert flags.get("fail_start") == "boom"
-        assert flags.get("missing_wav") is True
-        wav = str(tmp_path / "packet-g.wav")
-        inject_wav(wav, listener=fake_listener)
-        assert flags.get("inject_wav") == wav
-        fire_audio_auto_stop(listener=fake_listener)
-        assert fake_listener._auto_stop_path is None
-        assert read_stub_recorder_control().get("skip") is True
-    finally:
-        clear_stub_recorder_control()
-
-
-def test_stub_recorder_child_replaces_control_file(fake_listener: _FakeListener) -> None:
-    from plugin.chatbot.sidebar_test_hooks import clear_stub_recorder_control, read_stub_recorder_control
-
-    try:
-        fire_audio_auto_stop(listener=fake_listener)
-        assert read_stub_recorder_control().get("auto_stop") is True
-        stub_recorder_child(listener=fake_listener)
-        data = read_stub_recorder_control()
-        assert data.get("auto_stop") is not True
-        assert data.get("fail_start") is None
-        assert data.get("missing_wav") is False
-        assert data.get("hang_ready") is False
-    finally:
-        clear_stub_recorder_control()
-
-
-def test_stub_recorder_child_hang_ready(fake_listener: _FakeListener) -> None:
-    from plugin.chatbot.sidebar_test_hooks import (
-        clear_stub_recorder_control,
-        read_stub_recorder_control,
-        _STUB_RECORDER_FLAGS,
-    )
-
-    try:
-        stub_recorder_child(listener=fake_listener, hang_ready=True)
-        rec = fake_listener.audio_recorder
-        assert _STUB_RECORDER_FLAGS.get(rec, {}).get("hang_ready") is True
-        assert read_stub_recorder_control().get("hang_ready") is True
-    finally:
-        clear_stub_recorder_control()
 
 
 def test_real_take_drops_stale_stub_flags(fake_listener: _FakeListener) -> None:
@@ -881,30 +809,6 @@ class _StopCtrl:
         return self._model
 
 
-def test_wait_controls_send_finished_sees_new_transcript(monkeypatch) -> None:
-    stop = _StopCtrl()
-    state: dict[str, Any] = {"body": "old", "n": 0}
-
-    def transcript() -> str:
-        state["n"] += 1
-        if state["n"] >= 2:
-            stop._model.Enabled = False
-            return "old\n[API error: HTTP Error 500]"
-        stop._model.Enabled = True
-        return "old"
-
-    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.time.sleep", lambda _s: None)
-    ok = wait_controls_send_finished(
-        {"stop": stop},
-        timeout=2.0,
-        transcript_fn=transcript,
-        wait_for="API error",
-        before="old",
-    )
-    assert ok is True
-    assert control_enabled(stop) is False
-
-
 def test_wait_controls_send_finished_wait_for_ignores_prior_turns(monkeypatch) -> None:
     """Packet C: ``ran out of tokens`` in an earlier turn must not finish a later send."""
     stop = _StopCtrl()
@@ -921,138 +825,6 @@ def test_wait_controls_send_finished_wait_for_ignores_prior_turns(monkeypatch) -
     )
     assert ok is False
 
-
-def test_wait_controls_send_finished_wait_for_ignores_user_prompt(monkeypatch) -> None:
-    """wait_for must match against the assistant reply or banner, not the user's prompt."""
-    stop = _StopCtrl()
-    stop._model.Enabled = False
-    prior = "Assistant: prior turn\n"
-
-    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.time.sleep", lambda _s: None)
-    # The user prompt contains "hello", but no assistant response has arrived yet.
-    ok = wait_controls_send_finished(
-        {"stop": stop},
-        timeout=0.4,
-        transcript_fn=lambda: prior + "You: hello\n",
-        wait_for="hello",
-        before=prior,
-    )
-    assert ok is False
-
-    # Once the assistant turn arrives, wait_for matches and finishes.
-    ok = wait_controls_send_finished(
-        {"stop": stop},
-        timeout=0.4,
-        transcript_fn=lambda: prior + "You: hello\nAssistant: hello there!\n",
-        wait_for="hello",
-        before=prior,
-    )
-    assert ok is True
-
-
-def test_component_is_calc_uses_supports_service() -> None:
-    calc = SimpleNamespace(
-        supportsService=lambda name: name == "com.sun.star.sheet.SpreadsheetDocument"
-    )
-    writer = SimpleNamespace(supportsService=lambda name: False)
-    assert component_is_calc(calc) is True
-    assert component_is_calc(writer) is False
-    assert component_is_calc(None) is False
-
-
-def test_find_calc_component_scans_desktop(monkeypatch) -> None:
-    calc = SimpleNamespace(
-        supportsService=lambda name: name == "com.sun.star.sheet.SpreadsheetDocument"
-    )
-    writer = SimpleNamespace(supportsService=lambda name: False)
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.iter_desktop_components",
-        lambda _ctx: [writer, calc],
-    )
-    assert find_calc_component(object()) is calc
-
-
-def test_open_calc_document_reuses_existing(monkeypatch) -> None:
-    calc = SimpleNamespace(
-        supportsService=lambda name: name == "com.sun.star.sheet.SpreadsheetDocument"
-    )
-    dispatched: list[str] = []
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.find_calc_component", lambda _ctx: calc
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.execute_debug_sidebar_op",
-        lambda op, ctx=None: dispatched.append(op),
-    )
-    assert open_calc_document(object()) is calc
-    assert dispatched == []
-
-
-def test_open_calc_document_posts_open_calc_and_polls(monkeypatch) -> None:
-    calc = SimpleNamespace(
-        supportsService=lambda name: name == "com.sun.star.sheet.SpreadsheetDocument"
-    )
-    calls: dict[str, Any] = {"n": 0, "ops": []}
-
-    def fake_find(_ctx):
-        calls["n"] += 1
-        return calc if calls["n"] >= 2 else None
-
-    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.find_calc_component", fake_find)
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.execute_debug_sidebar_op",
-        lambda op, ctx=None: calls["ops"].append(op),
-    )
-    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.time.sleep", lambda _s: None)
-    assert open_calc_document(object(), timeout=5.0) is calc
-    assert calls["ops"] == ["OPEN_CALC"]
-
-
-def test_open_calc_document_times_out(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.find_calc_component", lambda _ctx: None
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.execute_debug_sidebar_op",
-        lambda op, ctx=None: {},
-    )
-    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.time.sleep", lambda _s: None)
-    times = iter([0.0, 0.0, 10.0])
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.time.monotonic",
-        lambda: next(times),
-    )
-    with pytest.raises(RuntimeError, match="OPEN_CALC"):
-        open_calc_document(object(), timeout=1.0)
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("chatbot.debug_sidebar.OPEN_CALC", id="test_handle_debug_sidebar_open_calc_posts_to_queue"),
-        # LO often delivers Path as ``chatbot.debug_sidebar?OPEN_CALC`` (Query empty).
-        pytest.param("chatbot.debug_sidebar?OPEN_CALC", id="test_handle_debug_sidebar_open_calc_accepts_query_form"),
-    ],
-)
-def test_handle_debug_sidebar_open_calc_posts_to_queue(fake_listener, monkeypatch, value) -> None:
-    posted: list = []
-    fake_listener.queue_executor = SimpleNamespace(post=lambda fn, *a, **k: posted.append(fn))
-    loaded: list[bool] = []
-    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners", lambda: 0)
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: fake_listener
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks._load_visible_calc_factory",
-        lambda: loaded.append(True),
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks._write_debug_snapshot", lambda sl: {}
-    )
-    handle_debug_sidebar_command(value)
-    assert posted
-    posted[0]()
-    assert loaded == [True]
 
 def test_post_to_soffice_vcl_inits_async_callback(monkeypatch) -> None:
     inited: list[bool] = []

@@ -1,6 +1,6 @@
-"""Unit tests for tests/conftest.py: idle progress message names the test still running, not the last completed one."""
+"""Unit tests for tests/harness/pytest_progress.py."""
 
-from tests.conftest import format_idle_pytest_progress
+from tests.harness.pytest_progress import format_idle_pytest_progress
 
 
 def test_idle_progress_names_inflight_not_last_completed():

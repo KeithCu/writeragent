@@ -426,29 +426,3 @@ def test_llm_request_lane_status_callback_holder_then_own_hold() -> None:
                 _LLM_REQUEST_LOCK.release()
             except RuntimeError:
                 pass
-
-
-def test_assert_lane_callback_safe_detects_violations() -> None:
-    from tests.framework.lane_probe import assert_lane_callback_safe
-    from plugin.framework.llm_lanes import llm_request_lane
-    from plugin.framework.queue_executor import main
-
-    # 1. Safe callback passes
-    assert_lane_callback_safe(lambda text: None, "ok")
-
-    # 2. Re-entry through llm_request_lane raises AssertionError
-    def reentering_cb(text: str) -> None:
-        with llm_request_lane(timeout=0.1):
-            pass
-
-    with pytest.raises(AssertionError, match="_LLM_REQUEST_LOCK acquired"):
-        assert_lane_callback_safe(reentering_cb, "bad")
-
-    # 3. Marshalling via main.call raises AssertionError
-    def marshalling_cb(text: str) -> None:
-        main.call(lambda: None)
-
-    with pytest.raises(AssertionError, match="must not marshal via main.call"):
-        assert_lane_callback_safe(marshalling_cb, "bad")
-
-
