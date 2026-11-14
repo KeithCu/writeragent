@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from __future__ import annotations
 
-import threading
 from typing import Any
 from unittest.mock import MagicMock
 import pytest
@@ -299,23 +298,17 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     awt = types.ModuleType("com.sun.star.awt")
     awt.XMouseClickHandler = type("XMouseClickHandler", (), {})  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt)
-    monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.01)
+    monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.0)
     shown: list[tuple[int, int]] = []
-    posted = threading.Event()
-    shown_event = threading.Event()
+    deferred_calls: list[tuple[Any, tuple[Any, ...]]] = []
 
-    def _record_shown(_m: Any, _s: Any, x: int, y: int) -> None:
-        shown.append((x, y))
-        shown_event.set()
-
-    def _post(fn: Any, *a: Any) -> None:
-        try:
-            fn(*a)
-        finally:
-            posted.set()
-
-    monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", _record_shown)
-    monkeypatch.setattr("plugin.framework.queue_executor.main.post", _post)
+    monkeypatch.setattr(
+        review_click_popup,
+        "run_in_background",
+        lambda fn, *args, **kwargs: deferred_calls.append((fn, args)),
+    )
+    monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", lambda _m, _s, x, y: shown.append((x, y)))
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a: fn(*a))
     handler = review_click_popup.ClickReviewHandler(MagicMock(), detach=lambda handler: None)
 
     # Double-click: press/release/press/release inside the window -> no popup, nothing consumed.
@@ -323,11 +316,15 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     assert handler.mouseReleased(_click(10, 10, 1)) is False
     assert handler.mousePressed(_click(10, 10, 2)) is False
     assert handler.mouseReleased(_click(10, 10, 2)) is False
-    assert posted.wait(2.0)
+    assert len(deferred_calls) == 1
+    fn, args = deferred_calls.pop()
+    fn(*args)
     assert shown == []
 
     # Plain single click still pops after the window.
     handler.mousePressed(_click(20, 30, 1))
     handler.mouseReleased(_click(20, 30, 1))
-    assert shown_event.wait(2.0)
+    assert len(deferred_calls) == 1
+    fn, args = deferred_calls.pop()
+    fn(*args)
     assert shown == [(20, 30)]

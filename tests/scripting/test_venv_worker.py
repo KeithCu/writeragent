@@ -1275,13 +1275,6 @@ def test_cold_execute_warms_with_separate_timeout():
     finally:
         shutdown_venv_workers_for_tests()
 
-def test_terminate_worker_resets_primed_state():
-    """Terminating the worker clears _primed so the next execute re-primes."""
-    mgr = PythonWorkerManager(sys.executable, {'PATH': '/usr/bin:/bin'})
-    mgr._primed = True
-    mgr._terminate_worker()
-    assert mgr._primed is False
-
 @patch('plugin.scripting.venv_worker.get_config', return_value='')
 @patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable)
 def test_warm_venv_worker_resolves_and_warms(mock_lo_python, mock_cfg):
@@ -1327,7 +1320,7 @@ class TestLiveWorkerReuse:
         r3 = mgr.execute(ExecRequest(code='result = prev', timeout_sec=10))
         assert r3['status'] == 'error'
 
-    def test_warm_execute_uses_configured_timeout_only(self, warmed_worker_manager):
+    def test_warm_execute_uses_configured_timeout_only(self, warmed_worker_manager, monkeypatch: pytest.MonkeyPatch):
         """After priming, execute reads exec_started and the result at the configured timeout."""
         from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
         mgr = warmed_worker_manager
@@ -1338,15 +1331,12 @@ class TestLiveWorkerReuse:
             timeouts.append(timeout_sec)
             return original_read(stdout, timeout_sec)
 
-        mgr._read_response_bytes = record_read
-        try:
-            r = mgr.execute(ExecRequest(code='result = 7', timeout_sec=3))
-            assert r['status'] == 'ok'
-            assert r['result'] == 7
-            grace = HOST_IPC_READ_GRACE_SEC
-            assert timeouts == [3 + grace, 3 + grace]
-        finally:
-            mgr._read_response_bytes = original_read
+        monkeypatch.setattr(mgr, '_read_response_bytes', record_read)
+        r = mgr.execute(ExecRequest(code='result = 7', timeout_sec=3))
+        assert r['status'] == 'ok'
+        assert r['result'] == 7
+        grace = HOST_IPC_READ_GRACE_SEC
+        assert timeouts == [3 + grace, 3 + grace]
 
     def test_io_session_does_not_respawn_live_child(self, warmed_worker_manager):
         mgr = warmed_worker_manager

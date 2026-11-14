@@ -528,6 +528,7 @@ def test_prepare_does_not_mutate_caller_metadata():
 def test_known_nonseasonal_frequency_is_named():
     _require_statsmodels_installed()
 
+    # 8 rows is _MIN_FORECAST_POINTS (the forecast floor); length does not affect the frequency label.
     # Yearly
     yearly_frame = pd.DataFrame({
         "Date": pd.date_range("2000-01-01", periods=8, freq="YS"),

@@ -2596,8 +2596,8 @@ def test_start_docker_memory_default_and_override(tmp_path, env_extra: dict[str,
     """
     proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", **env_extra})
     assert proc.returncode == 0, proc.stderr
-    assert f"--memory={expected_mem}" in lines
-    assert f"--memory-swap={expected_mem}" in lines
+    assert [line for line in lines if line.startswith("--memory=")] == [f"--memory={expected_mem}"]
+    assert [line for line in lines if line.startswith("--memory-swap=")] == [f"--memory-swap={expected_mem}"]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -2609,8 +2609,8 @@ def test_start_docker_publishes_python_compute_port(tmp_path, env_extra: dict[st
     """PYTHON_COMPUTE_PORT is both the published port and the listener."""
     proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", **env_extra})
     assert proc.returncode == 0, proc.stderr
-    assert f"127.0.0.1:{expected_port}:{expected_port}" in lines
-    assert f"PYTHON_COMPUTE_PORT={expected_port}" in lines
+    assert [line for line in lines if line.startswith("127.0.0.1:")] == [f"127.0.0.1:{expected_port}:{expected_port}"]
+    assert [line for line in lines if line.startswith("PYTHON_COMPUTE_PORT=")] == [f"PYTHON_COMPUTE_PORT={expected_port}"]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -2633,7 +2633,6 @@ def test_dockerfile_copies_bundle_to_app() -> None:
     assert "COPY --from=bundle /out/ /app/" in dockerfile
 
 
-@pytest.mark.slow
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     """The compute bundle must import the server without the rest of plugin/.
 
