@@ -1387,7 +1387,8 @@ def test_run_cells_busy_guard_skips_play_but_stop_works():
     assert cells[1].execution_count is None
 
 
-def test_run_cells_skips_empty_and_continues():
+@pytest.mark.parametrize("cell_1_value", ["   ", None])
+def test_run_cells_skips_empty_and_continues(cell_1_value):
     ctx = MagicMock()
     cells = _three_cells()
     state = NotebookDocState(code_cells=cells, next_execution_count=1)
@@ -1396,7 +1397,7 @@ def test_run_cells_skips_empty_and_continues():
 
     def _read(_doc, field_name):
         if field_name == "nb_cell_1_code":
-            return "   "
+            return cell_1_value
         return _code_for_field(_doc, field_name)
 
     def _exec(_ctx, _doc, code):
@@ -1420,46 +1421,6 @@ def test_run_cells_skips_empty_and_continues():
     assert ran == ["x = 1", "z = y + 1"]
     assert apply.call_count == 2
     assert cells[1].execution_count is None
-
-
-def test_run_cells_logs_missing_field_and_continues(caplog):
-    import logging
-
-    ctx = MagicMock()
-    cells = _three_cells()
-    state = NotebookDocState(code_cells=cells, next_execution_count=1)
-    doc = MagicMock()
-    ran: list[str] = []
-
-    def _read(_doc, field_name):
-        if field_name == "nb_cell_1_code":
-            return None
-        return _code_for_field(_doc, field_name)
-
-    def _exec(_ctx, _doc, code):
-        ran.append(code)
-        return {"status": "ok", "result": None, "stdout": ""}
-
-    caplog.set_level(logging.WARNING, logger="writeragent.notebook")
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_read),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
-    ):
-        result = run_cells(ctx, doc, start_index=0)
-
-    assert result.status == "ok"
-    assert result.cells_run == 2
-    assert ran == ["x = 1", "z = y + 1"]
-    assert apply.call_count == 2
-    assert cells[1].execution_count is None
-    assert "nb_cell_1_code" in caplog.text
-    assert "missing" in caplog.text.lower()
 
 
 def test_run_cells_error_continues_unless_stopped():

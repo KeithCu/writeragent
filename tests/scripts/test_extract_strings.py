@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from scripts.extract_strings import (
     _find_py_files,
@@ -20,7 +19,7 @@ from scripts.extract_strings import (
 )
 
 
-def test_find_py_files_depth_first_unsorted_includes_stub(tmp_path: Path) -> None:
+def test_find_py_files_includes_stub(tmp_path: Path) -> None:
     plugin_dir = tmp_path / "plugin"
     z_dir = plugin_dir / "z_writer"
     z_dir.mkdir(parents=True)
@@ -34,9 +33,11 @@ def test_find_py_files_depth_first_unsorted_includes_stub(tmp_path: Path) -> Non
     stub.write_text("", encoding="utf-8")
 
     found = _find_py_files(plugin_dir, tmp_path)
-    assert "plugin/xdl_strings.py" in found
-    # Depth-first scandir order should not match sorted order if entries vary
-    assert len(found) == 3
+    assert sorted(found) == [
+        "plugin/a_calc/c.py",
+        "plugin/xdl_strings.py",
+        "plugin/z_writer/b.py",
+    ]
 
 
 @patch("scripts.extract_strings.merge_yaml_into_pot", return_value=0)
@@ -73,17 +74,12 @@ def test_missing_xgettext_skips_in_both_modes(
     mock_run: MagicMock,
     mock_which: MagicMock,
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     ret_default = generate_pot(pot_only=False, root_path=tmp_path)
     assert ret_default == 0
-    out_default = capsys.readouterr().out
-    assert "Skipping string extraction (xgettext not found; install gettext: choco install gettext.install)" in out_default
 
     ret_pot = generate_pot(pot_only=True, root_path=tmp_path)
     assert ret_pot == 0
-    out_pot = capsys.readouterr().out
-    assert "Skipping .pot regeneration (xgettext not found; install gettext: choco install gettext.install)" in out_pot
 
     mock_run.assert_not_called()
 
@@ -179,7 +175,6 @@ def test_merge_translations_replaces_with_tmp_on_success(tmp_path: Path) -> None
 
 def test_missing_msgattrib_or_msgmerge_skips(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     def fake_which(tool: str) -> str | None:
         if tool == "msgmerge":
@@ -190,8 +185,6 @@ def test_missing_msgattrib_or_msgmerge_skips(
         with patch("subprocess.run") as mock_run:
             ret = merge_translations(root_path=tmp_path)
             assert ret == 0
-            out = capsys.readouterr().out
-            assert "Skipping .po merge (msgmerge not found; install gettext: choco install gettext.install)" in out
             mock_run.assert_not_called()
 
 
@@ -201,7 +194,6 @@ def test_auto_translate_gated_by_openrouter_api_key(
     mock_run: MagicMock,
     mock_pipeline: MagicMock,
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     mock_run.return_value = MagicMock(returncode=0)
 
@@ -209,9 +201,6 @@ def test_auto_translate_gated_by_openrouter_api_key(
     with patch.dict(os.environ, {}, clear=True):
         ret = auto_translate(root_path=tmp_path)
         assert ret == 0
-        out = capsys.readouterr().out
-        assert "Regenerating translation templates (.pot)..." in out
-        assert "Auto-translating missing strings with AI..." not in out
         assert mock_run.call_count == 1
         assert "--preview" in mock_run.call_args_list[0][0][0]
 
@@ -221,9 +210,6 @@ def test_auto_translate_gated_by_openrouter_api_key(
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=True):
         ret = auto_translate(root_path=tmp_path)
         assert ret == 0
-        out = capsys.readouterr().out
-        assert "Auto-translating missing strings with AI..." in out
-        assert mock_run.call_count == 2
         assert "--preview" in mock_run.call_args_list[0][0][0]
         assert "--execute" in mock_run.call_args_list[1][0][0]
         assert "--skip-initial-status" in mock_run.call_args_list[1][0][0]

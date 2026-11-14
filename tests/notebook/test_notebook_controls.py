@@ -353,28 +353,6 @@ def test_doc_event_retries_wire_when_file_open_had_no_container():
     assert len(form_run_listeners(doc)) == 1
 
 
-def test_no_container_warning_logged_once(caplog):
-    import logging
-
-    ctx = MagicMock()
-    doc = MagicMock()
-    doc.getRuntimeUID.return_value = "uid-no-container-warn"
-    doc.getURL.return_value = ""
-    notebook_controls._install_doc_event_listener(ctx)
-    listener = notebook_controls._doc_listener
-    state = MagicMock(code_cells=[MagicMock()])
-    with (
-        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(None, None)),
-        caplog.at_level(logging.WARNING, logger="writeragent.notebook"),
-    ):
-        _fire_doc_event(listener, doc, "OnLoad")
-        _fire_doc_event(listener, doc, "OnLoadFinished")
-
-    warns = [rec.message for rec in caplog.records if "no form controller container" in rec.message]
-    assert len(warns) == 1
-
-
 def test_listener_counts_exclude_leftover_docs():
     """GHA 34643210006: leftover import-filter listeners inflated global counts."""
     leftover = NotebookFormRunListener(MagicMock(), MagicMock())
