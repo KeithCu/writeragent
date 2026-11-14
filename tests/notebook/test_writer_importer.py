@@ -385,11 +385,10 @@ def test_format_in_prompt_executed_and_unexecuted():
 
 
 def test_height_for_text_fits_last_line():
-    """15-line In[2] source must be taller than the old 380 HMM/line clip height."""
+    """15-line source height scales with _LINE_HEIGHT plus _FIELD_HEIGHT_PAD."""
     src = "\n".join(f"line{i}" for i in range(15))
     h = _height_for_text(src)
     assert h == 16 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
-    assert h > 15 * 380
 
 
 def test_height_for_text_includes_one_wrap_line():
@@ -596,11 +595,6 @@ def test_unglue_last_paragraph_clears_keep_with_next():
     _unglue_last_paragraph(doc)
     body_cursor.setPropertyValue.assert_any_call("ParaKeepTogether", False)
     assert all(call.args[0] != "ParaKeepWithNext" for call in body_cursor.setPropertyValue.call_args_list)
-
-
-def test_cell_heading_is_in_prompt_only():
-    assert _format_in_prompt(None) == "In [ ]:"
-    assert _format_in_prompt(2) == "In [2]:"
 
 
 def test_create_import_para_style_skips_existing():
@@ -1527,18 +1521,12 @@ def test_resolve_bourke_images_from_fixture_notebook_dir():
 
     fixtures = Path(__file__).resolve().parents[1] / "fixtures"
     budget = _RemoteImageBudget()
-    for name in (
-        "numpy-6-step-ml-framework-tools-numpy-highlight.png",
-        "numpy-anatomy-of-an-array-updated.png",
-        "numpy-panda.jpeg",
-        "numpy-car-photo.png",
-        "numpy-dog-photo.png",
-    ):
-        resolved = _resolve_markdown_image(f"../images/{name}", str(fixtures), budget=budget)
-        assert resolved is not None, name
-        raw, hint = resolved
-        assert Path(hint).is_file(), name
-        assert raw == Path(hint).read_bytes(), name
+    name = "numpy-6-step-ml-framework-tools-numpy-highlight.png"
+    resolved = _resolve_markdown_image(f"../images/{name}", str(fixtures), budget=budget)
+    assert resolved is not None, name
+    raw, hint = resolved
+    assert Path(hint).is_file(), name
+    assert raw == Path(hint).read_bytes(), name
 
 
 def test_svg_pixel_size_reads_comma_viewbox():

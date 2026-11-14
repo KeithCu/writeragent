@@ -713,8 +713,6 @@ def test_refresh_restores_mode_captured_before_populate():
         el._refresh_controls_from_config()
 
     assert order == ["read", "populate", "restore"]
-    read_mode.assert_called_once_with(selector, flags)
-    populate.assert_called_once_with(selector, flags)
     restore.assert_called_once_with(selector, CHAT_MODE_LIBRARIAN, flags)
 
 
@@ -1593,7 +1591,6 @@ def test_chat_panel_element_disposing_removes_both_listeners() -> None:
     tp.resize_listener = rl
     el._rich_control_listener = None
     el.disposing()
-    assert root.removeWindowListener.call_count == 1
     root.removeWindowListener.assert_called_once_with(rl)
 
 

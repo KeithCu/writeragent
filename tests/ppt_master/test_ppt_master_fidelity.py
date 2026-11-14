@@ -73,49 +73,6 @@ def test_write_agent_summary(tmp_path: Path):
     assert "01_cover.svg" in text
     assert "FAIL" in text
 
-def test_evaluate_slide_fidelity_closes_target_doc_after_read(monkeypatch, tmp_path: Path):
-    from plugin.ppt_master import fidelity
-
-    class DummyDoc:
-        def __init__(self):
-            self.closed = False
-        def close(self, deliver_ownership):
-            self.closed = True
-
-    class DummyPage:
-        def getCount(self):
-            return 1
-
-    doc = DummyDoc()
-    page = DummyPage()
-
-    def mock_import(ctx, pptx_path, slide_index, odp_path):
-        return doc, page
-
-    def mock_metrics(tgt_page, *args, **kwargs):
-        tgt_page.getCount()
-        from plugin.ppt_master.fidelity import StructuralMetrics
-        return StructuralMetrics()
-
-    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", mock_import)
-    monkeypatch.setattr(fidelity, "structural_metrics_pptx", mock_metrics)
-    monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
-
-    fidelity.evaluate_slide_fidelity(
-        None,
-        project_dir=tmp_path,
-        slide_label="test.svg",
-        slide_index=0,
-        pptx_path=tmp_path / "test.pptx",
-        reference_deck_pdf=tmp_path / "ref.pdf",
-        work_dir=tmp_path,
-        soffice="echo",
-        skip_visual=True,
-    )
-
-    assert doc.closed is True
-
-
 def _create_minimal_pptx(path: Path, slide_xml: str) -> Path:
     import zipfile
     pres_xml = """<?xml version="1.0" encoding="utf-8"?>
@@ -316,6 +273,27 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     )
     assert doc3.closed is True
     assert any("reference PNG rasterize failed" in err for err in res3.errors)
+
+    # Case 4: skip_visual=True after structural metrics read
+    doc4 = DummyDoc()
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc4, DummyPage()))
+    monkeypatch.setattr(
+        fidelity,
+        "structural_metrics_pptx",
+        lambda *args, **kwargs: fidelity.StructuralMetrics(),
+    )
+    fidelity.evaluate_slide_fidelity(
+        None,
+        project_dir=tmp_path,
+        slide_label="test.svg",
+        slide_index=0,
+        pptx_path=tmp_path / "nonexistent.pptx",
+        reference_deck_pdf=ref_pdf,
+        work_dir=tmp_path / "work4",
+        soffice="echo",
+        skip_visual=True,
+    )
+    assert doc4.closed is True
 
 
 def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path):

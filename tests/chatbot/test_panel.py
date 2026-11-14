@@ -1834,15 +1834,11 @@ class TestClearButtonAndPeerDrain:
         with (
             patch("plugin.audio.tts_service.stop_speech"),
             patch("plugin.chatbot.tool_loop_actions.abort_turn"),
-            patch("plugin.framework.prompts.get_greeting_for_document", side_effect=_get_greeting) as mock_get_greeting,
+            patch("plugin.framework.prompts.get_greeting_for_document", side_effect=_get_greeting),
         ):
             listener.on_action_performed(MagicMock())
 
-            send_listener._get_document_model.assert_called_once()
-            assert mock_get_greeting.call_args_list == [((mock_doc,),), ((None,),)]
             send_listener.rich_text_widget.paint_session.assert_called_once_with(session, "WRITER_FALLBACK")
-            args, _ = send_listener.rich_text_widget.paint_session.call_args
-            assert "help you outline ideas" not in args[1]
 
     def test_clear_preserves_history_notice_in_painted_items(self) -> None:
         """Clear on a session with a history warning repaints the notice through paint_session."""

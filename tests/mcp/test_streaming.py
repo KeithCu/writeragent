@@ -360,46 +360,6 @@ class TestStreamingComplexDeltas:
         assert (result["tool_calls"][0]["function"]["name"]) == ("foo")
         assert (result["tool_calls"][0]["function"]["arguments"]) == ('{"arg": "val"}')
 
-    def test_tool_call_arguments_split_across_chunks(self):
-        """Tool-call argument strings split mid-JSON across multiple SSE chunks concatenate correctly."""
-        chunks = [
-            {
-                "choices": [{
-                    "delta": {
-                        "role": "assistant",
-                        "tool_calls": [
-                            {"index": 0, "id": "call_1", "type": "function", "function": {"name": "foo", "arguments": "{\""}},
-                        ],
-                    },
-                }],
-            },
-            {
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "function": {"arguments": "arg\": \"val\"}"}},
-                        ],
-                    },
-                }],
-            },
-            _make_chat_chunk(content="", finish_reason="tool_calls"),
-        ]
-        lines = _make_sse_lines(*chunks)
-        client = LlmClient(self.config, self.ctx)
-        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
-
-        result = client.stream_request_with_tools(
-            [{"role": "user", "content": "do something"}],
-            max_tokens=100,
-            tools=[{"type": "function", "function": {"name": "foo", "description": "x"}}],
-        )
-
-        assert (result["finish_reason"]) == ("tool_calls")
-        assert (result.get("tool_calls")) is not None
-        assert (len(result["tool_calls"])) == (1)
-        assert (result["tool_calls"][0]["function"]["name"]) == ("foo")
-        assert (result["tool_calls"][0]["function"]["arguments"]) == ('{"arg": "val"}')
-
 
 def _mock_error_connection(status, reason, body):
     """Return a mock HTTPConnection that simulates a non-200 response with a body."""

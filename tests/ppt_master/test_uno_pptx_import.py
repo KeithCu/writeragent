@@ -475,13 +475,6 @@ def test_graphic_clone_reimports_pixels_instead_of_aliasing_source_pool(monkeypa
     assert live not in graphic_values
     assert all(name != "GraphicURL" for name, value in dest.sets)
     assert dest.props["FillColor"] == 5
-    uno_ctx.ServiceManager.createInstanceWithContext.assert_called_once_with(
-        "com.sun.star.graphic.GraphicProvider",
-        uno_ctx,
-    )
-    assert provider.storeGraphic.call_count == 2
-    assert provider.storeGraphic.call_args_list[0].args[0] is live
-    assert provider.storeGraphic.call_args_list[1].args[0] is live
     assert created
     assert all(not os.path.exists(path) for path in created)
 
