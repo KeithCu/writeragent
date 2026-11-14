@@ -3012,8 +3012,6 @@ def test_child_signal_kills_grandchild() -> None:
         managed.kill_tree()
 
 
-
-
 def _delay_worker(tmp_path):
     """Stdio worker that sleeps for ``delay`` seconds, then answers with its pid."""
     from pathlib import Path

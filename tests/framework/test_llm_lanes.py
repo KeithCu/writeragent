@@ -330,6 +330,7 @@ def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
     from plugin.framework.llm_lanes import _LLM_REQUEST_LOCK, llm_request_lane
 
     stop_event = threading.Event()
+    in_wait = threading.Event()
 
     class _FakeCancellation:
         def is_cancelled(self) -> bool:
@@ -340,7 +341,7 @@ def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
 
     def worker() -> None:
         try:
-            with llm_request_lane(timeout=5.0):
+            with llm_request_lane(timeout=5.0, status_callback=lambda _m: in_wait.set()):
                 pass
         except Exception as e:
             thread_exc.append(e)
@@ -358,7 +359,7 @@ def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
         with patch("plugin.framework.llm_lanes.get_current_send_cancellation", return_value=fake_cancel):
             worker_thread = threading.Thread(target=worker, daemon=True)
             worker_thread.start()
-            time.sleep(0.05)
+            assert in_wait.wait(2.0)
             stop_event.set()
             worker_thread.join(timeout=1.0)
             assert not worker_thread.is_alive()

@@ -297,14 +297,18 @@ class TestFormulaPoolSupervisor:
         finally:
             worker.kill()
 
-    def test_spawn_stdout_garbage_fails_fast(self, tmp_path) -> None:
+    def test_spawn_stdout_garbage_fails_fast(self, tmp_path, monkeypatch) -> None:
         """Text on stdout (Keith 2026-09-02: frame size 1165128303 == b'Erro') must not wait 15s."""
         from compute_service.worker_base import BaseProcessWorker
 
+        monkeypatch.setattr("plugin.framework.process_worker.SPAWN_READY_TIMEOUT_SEC", 60)
         script = tmp_path / "garbage_worker.py"
         script.write_text("\n".join(["import sys, time", "sys.stdout.write('Error: boom\\n')", "sys.stdout.flush()", "time.sleep(30)"]), encoding="utf-8")
+        t0 = time.monotonic()
         worker = BaseProcessWorker(1, str(script), worker_name="Garbage worker")
+        elapsed = time.monotonic() - t0
         try:
+            assert elapsed < 20.0, elapsed
             assert not worker.is_alive()
         finally:
             worker.kill()

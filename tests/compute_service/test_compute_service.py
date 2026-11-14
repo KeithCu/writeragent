@@ -41,6 +41,20 @@ def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None
     return _wsgi_post(app, body, path="/v1/vision", headers=hdrs, send_host=send_host)
 
 
+class _RecordingSemaphore(threading.Semaphore):
+    """Semaphore that records contended acquire timeouts without sleeping."""
+
+    def __init__(self, value: int = 1) -> None:
+        super().__init__(value)
+        self.recorded_timeouts: list[float | None] = []
+
+    def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
+        if super().acquire(blocking=False):
+            return True
+        self.recorded_timeouts.append(timeout)
+        return False
+
+
 def _wsgi_post(app, body: bytes | None, *, path: str = "/v1/session/reset", query: str = "", headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
     status_holder: list[str] = []
     header_holder: list[tuple[str, str]] = []
@@ -583,31 +597,19 @@ class TestComputeHttp:
     def test_pool_busy_until_deadline_returns_503(self) -> None:
         """503 only after the admission deadline, not on a brief busy.
 
-        Production default_timeout_sec is 30s. This case is that timeout,
-        shortened so the suite does not sleep 30s. It is not the brief queue
-        at 200-400 rps.
+        The admission wait is the request deadline (1 s here, 30 s in
+        production), recorded at the semaphore.
         """
         hold = threading.Event()
         started = threading.Event()
-        real_sem = threading.Semaphore(1)
-        recorded_timeouts: list[float | None] = []
-
-        class _SpySemaphore:
-            def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
-                if real_sem.acquire(blocking=False):
-                    return True
-                recorded_timeouts.append(timeout)
-                return False
-
-            def release(self) -> None:
-                real_sem.release()
+        sem = _RecordingSemaphore(1)
 
         def execute_fn(**_kwargs: Any) -> dict[str, Any]:
             started.set()
             assert hold.wait(timeout=5)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
-        app = create_wsgi_app(ComputeSettings(workers=1, default_timeout_sec=1), execute_fn=execute_fn, semaphore=_SpySemaphore())
+        app = create_wsgi_app(ComputeSettings(workers=1, default_timeout_sec=1), execute_fn=execute_fn, semaphore=sem)
         body = json.dumps({"code": "result = 1"}).encode("utf-8")
         first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
         first.start()
@@ -615,8 +617,8 @@ class TestComputeHttp:
         status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
         hold.set()
         first.join(timeout=5)
-        assert len(recorded_timeouts) == 1
-        assert recorded_timeouts[0] is not None and 0.7 <= recorded_timeouts[0] <= 1.1
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 0.7 <= sem.recorded_timeouts[0] <= 1.1
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
 
@@ -1775,64 +1777,40 @@ class TestSessionResetHttp:
         Otherwise the permit wait uses default_timeout_sec before the body is
         parsed, and a long request gets 503 prematurely.
         """
-        recorded_timeouts: list[float | None] = []
-
-        class _BusySpySemaphore:
-            def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
-                recorded_timeouts.append(timeout)
-                return False
-
-            def release(self) -> None:
-                pass
+        sem = _RecordingSemaphore(0)
 
         # ocr_timeout_sec defaults to 60 and must stay <= max_timeout_sec.
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=_BusySpySemaphore())
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=sem)
         body = json.dumps({"id": "slow", "code": "result = 1", "timeout_ms": 1500}).encode("utf-8")
         status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-        assert len(recorded_timeouts) == 1
+        assert len(sem.recorded_timeouts) == 1
         # Past the 1s default; 1500ms clamps to 2s.
-        assert recorded_timeouts[0] is not None and 1.7 <= recorded_timeouts[0] <= 2.1
+        assert sem.recorded_timeouts[0] is not None and 1.7 <= sem.recorded_timeouts[0] <= 2.1
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
         assert parsed.get("id") == "slow"
 
     def test_execute_admission_uses_default_when_timeout_omitted(self) -> None:
-        recorded_timeouts: list[float | None] = []
-
-        class _BusySpySemaphore:
-            def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
-                recorded_timeouts.append(timeout)
-                return False
-
-            def release(self) -> None:
-                pass
+        sem = _RecordingSemaphore(0)
 
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=_BusySpySemaphore())
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=sem)
         body = json.dumps({"id": "def", "code": "result = 1"}).encode("utf-8")
         status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
-        assert len(recorded_timeouts) == 1
-        assert recorded_timeouts[0] is not None and 0 < recorded_timeouts[0] <= 1.0
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 0 < sem.recorded_timeouts[0] <= 1.0
         assert status.startswith("503")
         assert parsed.get("code") == "WORKER_POOL_BUSY"
 
     def test_vision_admission_waits_for_request_timeout(self) -> None:
-        recorded_timeouts: list[float | None] = []
-
-        class _BusySpySemaphore:
-            def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
-                recorded_timeouts.append(timeout)
-                return False
-
-            def release(self) -> None:
-                pass
+        sem = _RecordingSemaphore(0)
 
         settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=1)
-        app = create_wsgi_app(settings, semaphore=_BusySpySemaphore())
+        app = create_wsgi_app(settings, semaphore=sem)
         status, _headers, parsed = _wsgi_vision_post(app, {"id": "vslow", "timeout_ms": 1500}, b"abcd")
-        assert len(recorded_timeouts) == 1
-        assert recorded_timeouts[0] is not None and 1.7 <= recorded_timeouts[0] <= 2.1
+        assert len(sem.recorded_timeouts) == 1
+        assert sem.recorded_timeouts[0] is not None and 1.7 <= sem.recorded_timeouts[0] <= 2.1
         assert status.startswith("503")
         assert parsed.get("code") == "VISION_POOL_BUSY"
         assert parsed.get("id") == "vslow"
@@ -3147,16 +3125,7 @@ def test_sticky_burst_fills_shared_permits() -> None:
             assert hold.wait(timeout=5)
         return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
-    real_sem = threading.Semaphore(2)
-
-    class _SpySemaphore:
-        def acquire(self, blocking: bool = True, timeout: float | None = None) -> bool:
-            return real_sem.acquire(blocking=False)
-
-        def release(self) -> None:
-            real_sem.release()
-
-    app = create_wsgi_app(ComputeSettings(workers=4, ocr_workers=0), execute_fn=execute_fn, semaphore=_SpySemaphore())
+    app = create_wsgi_app(ComputeSettings(workers=4, ocr_workers=0), execute_fn=execute_fn, semaphore=threading.Semaphore(2))
     body = json.dumps({"code": "result = 1", "mode": "shared"}).encode("utf-8")
     statuses: list[str] = []
     threads = [threading.Thread(target=lambda sid=sid: statuses.append(_wsgi_post(app, body, path="/v1/execute", query=f"session_id={sid}")[0])) for sid in ("a", "b")]

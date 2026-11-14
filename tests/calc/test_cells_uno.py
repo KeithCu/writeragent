@@ -177,8 +177,8 @@ def test_read_cell_sheet_qualified_address_format(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_read_range_format_info_performance(ctx, doc):
-    """Opt-in enrichment must stay cheap for plain numbers and scale with format groups.
+def test_read_range_format_info_categories_on_40x40(ctx, doc):
+    """Opt-in enrichment returns date format categories and omits them on plain numbers.
 
     Uses a 40x40 block (not 100x100) so the default native suite does not copy tens of
     10k-cell PyUNO arrays. That path has triggered intermittent soffice glibc double-frees.
