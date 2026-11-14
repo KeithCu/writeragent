@@ -839,15 +839,11 @@ def test_peer_in_chat_mode_returns_true_on_probe_failure():
 def test_execute_idle_without_add_user_message_does_not_mark_appended():
     tool = SendPeerWork()
     ctx = _ctx()
-    peer = MagicMock()
     listener = _Listener()
     listener.session = None
-    panel = MagicMock()
-    panel.send_listener = listener
-    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
-        with patch("plugin.doc.peer_message.get_runtime_uid", return_value="peer-uid"):
-            with patch("plugin.doc.peer_message.get_live_panel", return_value=panel):
-                result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
+    panel = MagicMock(send_listener=listener)
+    with _patch_peer_target(panel):
+        result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
     assert result["status"] == "ok"
     assert result["accepted"] is True
     assert len(listener.started) == 1

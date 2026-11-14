@@ -11,6 +11,7 @@ import pytest
 from plugin.calc.cells import SortRange
 from plugin.calc.sheets import ListSheets
 from plugin.contrib.smolagents.memory import FinalAnswerStep
+from plugin.doc.document_research_tools import ListNearbyFiles
 from plugin.doc.python_domain_specialized import (
     DelegateToolDomains,
     gather_domain_tools,
@@ -430,24 +431,22 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
 
 
 @pytest.mark.parametrize(
-    ("tool_cls_name", "domain", "call_tool_name", "answer", "expect_no_edit_note"),
+    ("tool_cls", "domain", "call_tool_name", "answer", "expect_no_edit_note"),
     [
-        ("FootnotesInsert", "footnotes", None, "No footnote added", True),
-        ("ListNearbyFiles", "document_research", None, "Research completed", False),
-        ("ListNearbyFiles", "document_research", "list_nearby_files", "Found files", False),
+        pytest.param(FootnotesInsert, "footnotes", None, "No footnote added", True, id="editing_finish_only_has_note"),
+        pytest.param(ListNearbyFiles, "document_research", None, "Research completed", False, id="readonly_finish_only_no_note"),
+        pytest.param(ListNearbyFiles, "document_research", "list_nearby_files", "Found files", False, id="readonly_with_call_no_note"),
     ],
 )
 def test_run_inner_domain_tool_agent_finish_only_and_read_only_note(
-    tool_cls_name,
+    tool_cls,
     domain,
     call_tool_name,
     answer,
     expect_no_edit_note,
 ):
     from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
-    from plugin.doc.document_research_tools import ListNearbyFiles
 
-    tool_cls = FootnotesInsert if tool_cls_name == "FootnotesInsert" else ListNearbyFiles
     registry = ToolRegistry(services={})
     registry.register(tool_cls())
     registry.register(SpecializedWorkflowFinished())

@@ -111,12 +111,10 @@ def smol_agent_mocks():
         yield SimpleNamespace(agent_class=mock_agent_class, agent_instance=mock_agent_instance)
 
 
-def _make_research_ctx(*extra_tools, service: str = "com.sun.star.text.TextDocument"):
+def _make_delegate_ctx(*tools, service: str = "com.sun.star.text.TextDocument"):
     r = ToolRegistry(services={})
-    r.register(ListNearbyFiles())
-    r.register(DelegateReadDocument())
     r.register(SpecializedWorkflowFinished())
-    for tool in extra_tools:
+    for tool in tools:
         r.register(tool)
 
     ctx = MagicMock()
@@ -129,7 +127,9 @@ def _make_research_ctx(*extra_tools, service: str = "com.sun.star.text.TextDocum
 
 
 def test_document_research_outer_delegation_gets_document_research_tools(smol_agent_mocks):
-    r, ctx = _make_research_ctx(GrepNearbyFiles(), DelegateToSpecializedWriter())
+    r, ctx = _make_delegate_ctx(
+        ListNearbyFiles(), GrepNearbyFiles(), DelegateReadDocument(), DelegateToSpecializedWriter()
+    )
 
     gw = r.get("delegate_to_specialized_writer_toolset")
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
@@ -147,7 +147,13 @@ def test_document_research_outer_delegation_gets_document_research_tools(smol_ag
 def test_document_research_outer_delegation_gets_peer_send_when_peers_open(smol_agent_mocks):
     from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 
-    r, ctx = _make_research_ctx(SendPeerWork(), SendPeerResult(), DelegateToSpecializedWriter())
+    r, ctx = _make_delegate_ctx(
+        ListNearbyFiles(),
+        DelegateReadDocument(),
+        SendPeerWork(),
+        SendPeerResult(),
+        DelegateToSpecializedWriter(),
+    )
     ctx.active_domain = None
     peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
     gw = r.get("delegate_to_specialized_writer_toolset")
@@ -182,7 +188,7 @@ def test_document_research_chat_append_on_delegate_read_document(mock_executor_c
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
 
-    r, ctx = _make_research_ctx(DelegateToSpecializedWriter())
+    r, ctx = _make_delegate_ctx(ListNearbyFiles(), DelegateReadDocument(), DelegateToSpecializedWriter())
     ctx.chat_append_callback = captured.append
 
     gw = r.get("delegate_to_specialized_writer_toolset")
@@ -238,7 +244,9 @@ def test_document_research_return_idles_outer_after_peer_send(mock_executor_cls,
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
 
-    r, ctx = _make_research_ctx(SendPeerWork(), DelegateToSpecializedWriter())
+    r, ctx = _make_delegate_ctx(
+        ListNearbyFiles(), DelegateReadDocument(), SendPeerWork(), DelegateToSpecializedWriter()
+    )
     gw = r.get("delegate_to_specialized_writer_toolset")
     peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
     with (
@@ -265,7 +273,7 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(_mock_peer_work
         "answer": "Range A2:B5 sorted descending",
     }
 
-    r, ctx = _make_research_ctx(
+    r, ctx = _make_delegate_ctx(
         SortRange(),
         DelegateToSpecializedCalc(),
         service="com.sun.star.sheet.SpreadsheetDocument",
@@ -312,7 +320,9 @@ def test_document_research_send_peer_result_skips_delivery_pending(
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
 
-    r, ctx = _make_research_ctx(
+    r, ctx = _make_delegate_ctx(
+        ListNearbyFiles(),
+        DelegateReadDocument(),
         SendPeerResult(),
         DelegateToSpecializedCalc(),
         service="com.sun.star.sheet.SpreadsheetDocument",
@@ -381,7 +391,9 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
 
     mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
 
-    r, ctx = _make_research_ctx(
+    r, ctx = _make_delegate_ctx(
+        ListNearbyFiles(),
+        DelegateReadDocument(),
         SendPeerResult(),
         DelegateToSpecializedCalc(),
         service="com.sun.star.sheet.SpreadsheetDocument",
@@ -603,7 +615,9 @@ def test_delegate_read_document_opens_file_url_from_listing(
 
 
 def test_document_research_delegation_includes_open_documents_context(smol_agent_mocks):
-    r, ctx = _make_research_ctx(GrepNearbyFiles(), DelegateToSpecializedWriter())
+    r, ctx = _make_delegate_ctx(
+        ListNearbyFiles(), GrepNearbyFiles(), DelegateReadDocument(), DelegateToSpecializedWriter()
+    )
 
     mock_docs = [
         {"name": "File1.odt", "url": "file:///tmp/File1.odt", "path": "/tmp/File1.odt", "doc_type": "writer", "is_active": True},

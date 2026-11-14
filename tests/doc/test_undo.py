@@ -168,17 +168,12 @@ def test_commit_or_rollback_mutation_exception_reports_error():
 
     tool = MagicMock()
     tool._tool_error.side_effect = make_tool_error
-    doc = MagicMock()
-    mgr = MagicMock()
-    mgr.isLocked.return_value = False
-    mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
-    doc.getUndoManager.return_value = mgr
 
     def mutate():
         raise RuntimeError("boom")
 
     res = commit_or_rollback_mutation(
-        tool, doc, "Title", mutate, "Undo unavail", "Rollback failed"
+        tool, _failing_undo_doc(), "Title", mutate, "Undo unavail", "Rollback failed"
     )
     assert res is not None
     assert res["status"] == "error"

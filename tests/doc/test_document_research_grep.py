@@ -222,7 +222,7 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
 
 
 @pytest.mark.parametrize(
-    ("candidates", "stopped_early", "check_close"),
+    ("candidates", "stopped_early"),
     [
         pytest.param(
             [
@@ -230,12 +230,10 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
                 {"path": "/tmp/b.ods", "name": "b.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
             ],
             False,
-            False,
             id="between_files",
         ),
         pytest.param(
             [{"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
-            True,
             True,
             id="during_last_file",
         ),
@@ -246,7 +244,7 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
 @patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_stop_checker(
-    mock_resolve, mock_search, mock_open, mock_close, candidates, stopped_early, check_close
+    mock_resolve, mock_search, mock_open, mock_close, candidates, stopped_early
 ):
     mock_resolve.return_value = (candidates, False, None)
     mock_open.return_value = (MagicMock(), "calc", None, True)
@@ -257,9 +255,8 @@ def test_grep_nearby_files_stop_checker(
 
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
-    if check_close:
-        assert "hits" not in result
-        mock_close.assert_called_once()
+    assert "hits" not in result
+    mock_close.assert_called_once()
 
 
 @patch("plugin.doc.document_research_grep.close_document_research_document")
