@@ -26,22 +26,28 @@ def test_agent_session_marks_active_with_nesting() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_main_state() -> None:
+def _reset_main_state() -> Any:
     orig_ctx = main._ctx
     orig_init = main._initialized
     orig_service = main._async_callback_service
     orig_cb = main._callback_instance
+    orig_logged = main._logged_callback_problem
+    main._ctx = None
+    main._initialized = False
+    main._async_callback_service = None
+    main._callback_instance = None
+    main._logged_callback_problem = False
+    with main._init_lock:
+        pass
+    _drain_default_work_queue()
     try:
-        main._ctx = None
-        main._initialized = False
-        main._async_callback_service = None
-        main._callback_instance = None
         yield
     finally:
         main._ctx = orig_ctx
         main._initialized = orig_init
         main._async_callback_service = orig_service
         main._callback_instance = orig_cb
+        main._logged_callback_problem = orig_logged
 
 
 def _drain_default_work_queue() -> None:
@@ -161,27 +167,6 @@ def test_post_fire_and_forget(mock_poke, mock_get_async):
     assert (item.fn is my_func)
     mock_poke.assert_called_once()
 
-
-@pytest.fixture(autouse=True)
-def reset_mt_globals():
-    main._ctx = None
-    main._initialized = False
-    main._async_callback_service = None
-    main._callback_instance = None
-    main._logged_callback_problem = False
-    with main._init_lock:
-        pass
-    while (not main._work_queue.empty()):
-        try:
-            main._work_queue.get_nowait()
-        except queue.Empty:
-            break
-    (yield)
-    main._ctx = None
-    main._initialized = False
-    main._async_callback_service = None
-    main._callback_instance = None
-    main._logged_callback_problem = False
 
 def test_async_callback_failure_is_not_sticky():
     """A failed createInstance must not latch marshaling off until the context changes."""
@@ -326,31 +311,28 @@ def test_get_async_callback_already_init():
     main._async_callback_service = mock_svc
     assert (main._get_async_callback() == mock_svc)
 
-def test_get_async_callback_failure(monkeypatch):
-    import sys
-    mock_uno = MagicMock()
-    mock_uno.getComponentContext.side_effect = Exception('No UNO')
-    monkeypatch.setitem(sys.modules, 'uno', mock_uno)
-    with patch('plugin.framework.queue_executor.log.warning') as mock_warn:
+@pytest.mark.parametrize("mode", ["ctx_raises", "service_none"])
+def test_get_async_callback_unavailable(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    if mode == "ctx_raises":
+        import sys
+        mock_uno = MagicMock()
+        mock_uno.getComponentContext.side_effect = Exception("No UNO")
+        monkeypatch.setitem(sys.modules, "uno", mock_uno)
+    else:
+        mock_ctx = MagicMock()
+        mock_smgr = MagicMock()
+        mock_ctx.ServiceManager = mock_smgr
+        mock_smgr.createInstanceWithContext.return_value = None
+        main._ctx = mock_ctx
+
+    with patch("plugin.framework.queue_executor.log.warning") as mock_warn:
         res = main._get_async_callback()
         again = main._get_async_callback()
-    assert (res is None)
-    assert (again is None)
-    # Missing context must not latch; the next marshal retries after set_context.
-    assert (main._initialized is False)
-    assert (main._async_callback_service is None)
-    mock_warn.assert_called_once()
-
-def test_get_async_callback_returns_none(monkeypatch):
-    mock_ctx = MagicMock()
-    mock_smgr = MagicMock()
-    mock_ctx.ServiceManager = mock_smgr
-    mock_smgr.createInstanceWithContext.return_value = None
-    main._ctx = mock_ctx
-    with patch('plugin.framework.queue_executor.log.warning') as mock_warn:
-        res = main._get_async_callback()
-    assert (res is None)
-    assert (main._initialized is False)
+    assert res is None
+    assert again is None
+    # Missing context or unavailable service must not latch; the next marshal retries.
+    assert main._initialized is False
+    assert main._async_callback_service is None
     mock_warn.assert_called_once()
 
 def test_make_callback_instance():
@@ -697,23 +679,35 @@ def test_execute_logical_main_without_py_main_enqueues():
     assert res_holder == ["ok"]
     assert poke_called
 
-def test_execute_refuses_fallback_during_agent_session():
-    main._async_callback_service = None
-    main._initialized = True
+@pytest.mark.parametrize("reason", ["agent_session", "background_task"])
+def test_execute_refuses_fallback_from_background(reason: str) -> None:
+    import contextlib
+
+    if reason == "agent_session":
+        main._async_callback_service = None
+        main._initialized = True
     res_holder: list[int] = []
+    worker_exc: list[BaseException] = []
 
     def run_on_worker() -> None:
-        with (
-            patch.object(main, "_get_async_callback", return_value=None),
-            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
-            sc.agent_session(),
-            pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
-        ):
-            main.call(lambda: res_holder.append(1))
+        try:
+            task_name = None if reason == "agent_session" else "worker-test"
+            session_ctx = sc.agent_session() if reason == "agent_session" else contextlib.nullcontext()
+            with (
+                patch.object(main, "_get_async_callback", return_value=None),
+                patch("plugin.framework.thread_guard.get_background_task_name", return_value=task_name),
+                session_ctx,
+                pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
+            ):
+                main.call(lambda: res_holder.append(1))
+        except BaseException as exc:
+            worker_exc.append(exc)
 
     t = threading.Thread(target=run_on_worker)
     t.start()
     t.join()
+    if worker_exc:
+        raise worker_exc[0]
     assert res_holder == []
 
 
@@ -734,23 +728,6 @@ def test_execute_refusal_log_has_no_synthetic_traceback(caplog: pytest.LogCaptur
         t.join()
     assert any(r.levelno == logging.ERROR for r in caplog.records)
     assert "Traceback" not in caplog.text
-
-
-def test_execute_refuses_fallback_when_background_task_tagged():
-    res_holder: list[int] = []
-
-    def run_on_worker() -> None:
-        with (
-            patch.object(main, "_get_async_callback", return_value=None),
-            patch("plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"),
-            pytest.raises(RuntimeError, match="AsyncCallback unavailable from background thread"),
-        ):
-            main.call(lambda: res_holder.append(1))
-
-    t = threading.Thread(target=run_on_worker)
-    t.start()
-    t.join()
-    assert res_holder == []
 
 
 def test_get_async_callback_already_init_with_lock():

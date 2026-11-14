@@ -83,7 +83,8 @@ def test_register_client_duplicate_after_cancel_stops_once():
     client.stop.assert_called_once()
 
 
-def test_register_on_cancel_dedupes_bound_method():
+@pytest.mark.parametrize("cancel_between", [False, True], ids=["before_cancel", "after_cancel"])
+def test_register_on_cancel_dedupes_bound_method(cancel_between: bool) -> None:
     class _Adapter:
         def __init__(self) -> None:
             self.calls = 0
@@ -94,25 +95,12 @@ def test_register_on_cancel_dedupes_bound_method():
     adapter = _Adapter()
     scope = SendCancellation()
     scope.register_on_cancel(adapter.stop)
+    if cancel_between:
+        scope.cancel()
+        assert adapter.calls == 1
     scope.register_on_cancel(adapter.stop)
-    scope.cancel()
-    assert adapter.calls == 1
-
-
-def test_register_on_cancel_duplicate_after_cancel_does_not_run_again():
-    class _Adapter:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def stop(self) -> None:
-            self.calls += 1
-
-    adapter = _Adapter()
-    scope = SendCancellation()
-    scope.register_on_cancel(adapter.stop)
-    scope.cancel()
-    assert adapter.calls == 1
-    scope.register_on_cancel(adapter.stop)
+    if not cancel_between:
+        scope.cancel()
     assert adapter.calls == 1
 
 
@@ -467,21 +455,16 @@ class TestSendCancellationHooksLocking:
     inconsistent with _clients.
     """
 
-    def test_registered_hook_is_called_on_cancel(self):
-        # Basic sanity: a registered hook must fire when cancel() is called.
+    @pytest.mark.parametrize("tags", [[1], ["a", "b"]], ids=["single", "multiple"])
+    def test_registered_hooks_called_on_cancel(self, tags: list[object]) -> None:
         scope = SendCancellation()
-        called = []
-        scope.register_on_cancel(lambda: called.append(1))
+        called: list[object] = []
+        for tag in tags:
+            scope.register_on_cancel(lambda t=tag: called.append(t))
         scope.cancel()
-        assert called == [1], f"Expected hook to be called once, got: {called}"
-
-    def test_multiple_hooks_all_called(self):
-        scope = SendCancellation()
-        called = []
-        scope.register_on_cancel(lambda: called.append("a"))
-        scope.register_on_cancel(lambda: called.append("b"))
-        scope.cancel()
-        assert set(called) == {"a", "b"}, f"Not all hooks were called: {called}"
+        assert set(called) == set(tags) and len(called) == len(tags), (
+            f"Expected hooks {tags} to be called once each, got: {called}"
+        )
 
     def test_concurrent_register_and_cancel_no_lost_hooks(self):
         # Registers hooks from a background thread while cancel() is called

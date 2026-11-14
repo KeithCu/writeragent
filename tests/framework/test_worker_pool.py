@@ -162,50 +162,10 @@ def test_async_process_start_error():
     assert "Failed to start process" in str(exc.value)
     assert isinstance(exc.value.__cause__, FileNotFoundError)
 
-def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytest.MonkeyPatch):
-    captured: list[subprocess.Popen[Any]] = []
-    orig_popen = subprocess.Popen
-
-    def capturing_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
-        proc = orig_popen(*args, **kwargs)
-        captured.append(proc)
-        return proc
-
-    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", capturing_popen)
-
-    on_exit_called = False
-
-    def on_exit(rc: int) -> None:
-        nonlocal on_exit_called
-        on_exit_called = True
-
-    def fail_run_in_background(*args: Any, **kwargs: Any) -> BackgroundHandle:
-        raise RuntimeError("failed to spawn reader thread")
-
-    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", fail_run_in_background)
-
-    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"], on_exit_cb=on_exit)
-    try:
-        with pytest.raises(RuntimeError, match="failed to spawn reader thread"):
-            ap.start()
-        assert ap.process is None
-        assert ap._stdout_thread is None
-        assert ap._stderr_thread is None
-        assert ap._wait_thread is None
-        assert not on_exit_called
-        child_procs = [p for p in captured if p.args and p.args[0] == sys.executable]
-        assert len(child_procs) == 1
-        assert child_procs[0].poll() is not None
-    finally:
-        for proc in captured:
-            if proc.poll() is None:
-                try:
-                    proc.kill()
-                    proc.wait(timeout=2)
-                except (subprocess.TimeoutExpired, OSError):
-                    pass
-
-def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("fail_on", ["reader", "wait"])
+def test_async_process_start_spawn_failure_kills_child(
+    monkeypatch: pytest.MonkeyPatch, fail_on: str
+) -> None:
     captured: list[subprocess.Popen[Any]] = []
     orig_popen = subprocess.Popen
 
@@ -223,18 +183,18 @@ def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(m
         on_exit_called = True
 
     real_rib = run_in_background
+    err_msg = f"failed to spawn {fail_on} thread"
 
-    def fail_wait_rib(*args: Any, **kwargs: Any) -> BackgroundHandle:
-        name = kwargs.get("name", "")
-        if name.startswith("asyncproc-wait-"):
-            raise RuntimeError("failed to spawn wait thread")
+    def fail_rib(*args: Any, **kwargs: Any) -> BackgroundHandle:
+        if fail_on == "reader" or kwargs.get("name", "").startswith("asyncproc-wait-"):
+            raise RuntimeError(err_msg)
         return real_rib(*args, **kwargs)
 
-    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", fail_wait_rib)
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", fail_rib)
 
     ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"], on_exit_cb=on_exit)
     try:
-        with pytest.raises(RuntimeError, match="failed to spawn wait thread"):
+        with pytest.raises(RuntimeError, match=err_msg):
             ap.start()
         assert ap.process is None
         assert ap._stdout_thread is None
@@ -638,48 +598,22 @@ class TestReadStreamStripsNewlines:
         import io
         return io.StringIO("".join(lines))
 
-    def test_strips_lf(self):
-        # Lines from a subprocess on Unix end with \n; the callback must not see it.
+    @pytest.mark.parametrize(
+        ("lines", "expected"),
+        [
+            pytest.param(["hello\n", "world\n"], ["hello", "world"], id="lf"),
+            pytest.param(["hello\r\n", "world\r\n"], ["hello", "world"], id="crlf"),
+            pytest.param(["\n"], [""], id="empty_line"),
+            pytest.param(["hello"], ["hello"], id="partial_at_eof"),
+            pytest.param(["a\vb\fc\u2028d\u2029e\n"], ["a\vb\fc\u2028d\u2029e"], id="non_newline_separators"),
+        ],
+    )
+    def test_strips_newlines(self, lines: list[str], expected: list[str]) -> None:
         ap = AsyncProcess(["dummy"])
-        received = []
-        stream = self._make_stream(["hello\n", "world\n"])
+        received: list[str] = []
+        stream = self._make_stream(lines)
         ap._read_stream(stream, received.append)
-        assert received == ["hello", "world"], (
-            f"Expected no trailing newlines but got: {received!r}"
-        )
-
-    def test_strips_crlf(self):
-        # Lines from a subprocess on Windows (or text=True on Windows) end with \r\n.
-        ap = AsyncProcess(["dummy"])
-        received = []
-        stream = self._make_stream(["hello\r\n", "world\r\n"])
-        ap._read_stream(stream, received.append)
-        assert received == ["hello", "world"], (
-            f"Expected no trailing CRLF but got: {received!r}"
-        )
-
-    def test_empty_line_not_dropped(self):
-        # An empty line (just "\n") should yield an empty string, not be skipped.
-        ap = AsyncProcess(["dummy"])
-        received = []
-        stream = self._make_stream(["\n"])
-        ap._read_stream(stream, received.append)
-        assert received == [""], f"Expected [\"\"] but got: {received!r}"
-
-    def test_partial_line_delivered_at_eof(self):
-        ap = AsyncProcess(["dummy"])
-        received = []
-        stream = self._make_stream(["hello"])
-        ap._read_stream(stream, received.append)
-        assert received == ["hello"]
-
-    def test_non_newline_separators_stay_in_the_line(self):
-        # splitlines() would break on these and leave the separator in the text.
-        ap = AsyncProcess(["dummy"])
-        received = []
-        stream = self._make_stream(["a\vb\fc\u2028d\u2029e\n"])
-        ap._read_stream(stream, received.append)
-        assert received == ["a\vb\fc\u2028d\u2029e"]
+        assert received == expected
 
     def test_crlf_split_across_chunks(self):
         class _Parts:
@@ -1311,7 +1245,8 @@ def test_in_pool_worker_is_false_on_a_dedicated_thread_named_wa_bg() -> None:
     assert dedicated_info["name"] == "wa-bg-0"
 
 
-def test_terminate_closes_captured_child_pipes_not_the_replacement() -> None:
+@pytest.mark.parametrize("has_readers", [True, False], ids=["with_readers", "no_readers"])
+def test_terminate_closes_captured_child_pipes_not_the_replacement(has_readers: bool) -> None:
     class _Pipe:
         def __init__(self) -> None:
             self.closed = False
@@ -1343,73 +1278,43 @@ def test_terminate_closes_captured_child_pipes_not_the_replacement() -> None:
         t.join()
         return BackgroundHandle(thread=t)
 
-    # Scenario 1: Readers present
-    ap1 = AsyncProcess(["dummy"])
-    old1: Any = _Proc()
-    replacement1: Any = _Proc()
+    ap = AsyncProcess(["dummy"])
+    old: Any = _Proc()
+    replacement: Any = _Proc()
 
-    def swap_proc_1() -> None:
-        ap1.process = replacement1
+    def swap_proc() -> None:
+        ap.process = replacement
 
-    old1.terminate = swap_proc_1
-    ap1.process = old1
-    ap1._stdout_thread = make_finished_handle()
-    ap1._stderr_thread = make_finished_handle()
-    ap1._wait_thread = make_finished_handle()
+    old.terminate = swap_proc
+    ap.process = old
+    if has_readers:
+        ap._stdout_thread = make_finished_handle()
+        ap._stderr_thread = make_finished_handle()
+        ap._wait_thread = make_finished_handle()
+    else:
+        ap._stdout_thread = None
+        ap._stderr_thread = None
+        ap._wait_thread = None
 
-    event1 = threading.Event()
-    real_reap1 = ap1._reap
+    event = threading.Event()
+    real_reap = ap._reap
 
-    def reap_wrapper_1(*args: Any, **kwargs: Any) -> None:
+    def reap_wrapper(*args: Any, **kwargs: Any) -> None:
         try:
-            real_reap1(*args, **kwargs)
+            real_reap(*args, **kwargs)
         finally:
-            event1.set()
+            event.set()
 
-    ap1._reap = reap_wrapper_1  # type: ignore[method-assign]
+    ap._reap = reap_wrapper  # type: ignore[method-assign]
 
-    ap1.terminate()
-    assert event1.wait(2)
-    assert old1.stdin.closed is True
-    assert old1.stdout.closed is False
-    assert old1.stderr.closed is False
-    assert replacement1.stdin.closed is False
-    assert replacement1.stdout.closed is False
-    assert replacement1.stderr.closed is False
-
-    # Scenario 2: No readers
-    ap2 = AsyncProcess(["dummy"])
-    old2: Any = _Proc()
-    replacement2: Any = _Proc()
-
-    def swap_proc_2() -> None:
-        ap2.process = replacement2
-
-    old2.terminate = swap_proc_2
-    ap2.process = old2
-    ap2._stdout_thread = None
-    ap2._stderr_thread = None
-    ap2._wait_thread = None
-
-    event2 = threading.Event()
-    real_reap2 = ap2._reap
-
-    def reap_wrapper_2(*args: Any, **kwargs: Any) -> None:
-        try:
-            real_reap2(*args, **kwargs)
-        finally:
-            event2.set()
-
-    ap2._reap = reap_wrapper_2  # type: ignore[method-assign]
-
-    ap2.terminate()
-    assert event2.wait(2)
-    assert old2.stdin.closed is True
-    assert old2.stdout.closed is True
-    assert old2.stderr.closed is True
-    assert replacement2.stdin.closed is False
-    assert replacement2.stdout.closed is False
-    assert replacement2.stderr.closed is False
+    ap.terminate()
+    assert event.wait(2)
+    assert old.stdin.closed is True
+    assert old.stdout.closed is (not has_readers)
+    assert old.stderr.closed is (not has_readers)
+    assert replacement.stdin.closed is False
+    assert replacement.stdout.closed is False
+    assert replacement.stderr.closed is False
 
 
 def test_async_process_registers_with_managed_subprocess() -> None:

@@ -4,9 +4,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 
+from collections.abc import Callable
+
 from plugin.framework.client import stream_normalizer as sn
 from plugin.framework.client.response_normalizers import normalize_message_content
-from plugin.framework.client.stream_normalizer import extract_thinking_from_delta, iterate_sse, normalize_delta
+from plugin.framework.client.stream_normalizer import extract_thinking_from_delta, iterate_sse
 from plugin.tests.testing_utils import create_mock_http_response
 import pytest
 
@@ -87,14 +89,6 @@ def test_normalize_message_content_shapes():
 def test_normalize_message_content_ignores_non_string_text():
     assert normalize_message_content([{"type": "text", "text": {"nested": 1}}, {"type": "text", "text": "ok"}]) == "ok"
     assert normalize_message_content([{"type": "text", "text": {"nested": 1}}]) == ""
-
-
-def test_normalize_delta_basic():
-    delta = {"role": None, "tool_calls": [{"id": "call_1", "function": {"arguments": None}}]}
-    normalize_delta(delta)
-    assert delta["role"] == "assistant"
-    assert delta["tool_calls"][0]["type"] == "function"
-    assert delta["tool_calls"][0]["function"]["arguments"] == ""
 
 
 def test_extract_reasoning_replay_reasoning_content_only():
@@ -347,35 +341,30 @@ def test_strip_think_tags_no_tags():
     assert clean == "Direct output without tags."
     assert thinking is None
 
-def test_streaming_replay_keeps_encrypted_fragments_past_shape_dim():
+@pytest.mark.parametrize(
+    ("same_index", "expected_fn"),
+    [
+        pytest.param(False, lambda n: [f"x{i}" for i in range(n)], id="distinct_indices"),
+        pytest.param(True, lambda n: ["x" * n], id="same_index_merged"),
+    ],
+)
+def test_streaming_replay_encrypted_fragments_past_shape_dim(
+    same_index: bool, expected_fn: Callable[[int], list[str]]
+) -> None:
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
 
     n = DEAL_MAX_SHAPE_DIM + 1
     meta = {
         "source": "reasoning_details",
-        "encrypted_fragments": [{"type": "reasoning.encrypted", "data": f"x{i}", "index": i} for i in range(n)],
+        "encrypted_fragments": [
+            {"type": "reasoning.encrypted", "data": "x" if same_index else f"x{i}", "index": 0 if same_index else i}
+            for i in range(n)
+        ],
     }
     replay = sn._streaming_replay("", meta)
     assert isinstance(replay, dict)
     details = replay.get("reasoning_details", [])
-    assert len(details) == n
-    for i in range(n):
-        assert details[i]["data"] == f"x{i}"
-
-
-def test_streaming_replay_merges_same_index_past_shape_dim():
-    from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
-
-    n = DEAL_MAX_SHAPE_DIM + 1
-    meta = {
-        "source": "reasoning_details",
-        "encrypted_fragments": [{"type": "reasoning.encrypted", "data": "x", "index": 0} for _ in range(n)],
-    }
-    replay = sn._streaming_replay("", meta)
-    assert isinstance(replay, dict)
-    details = replay.get("reasoning_details", [])
-    assert len(details) == 1
-    assert details[0]["data"] == "x" * n
+    assert [d["data"] for d in details] == expected_fn(n)
 
 
 def test_iterate_sse_skips_comments_blanks_and_keeps_data_and_raw_json():

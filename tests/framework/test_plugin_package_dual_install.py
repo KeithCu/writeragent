@@ -30,8 +30,6 @@ def _reset_audit_state() -> Iterator[None]:
 
 
 def test_one_versioned_root_ok(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    plugin._logged_audit_key = None
-    plugin._logged_audit_to_file = False
     root1 = _make_plugin_dir(tmp_path, "oxt1", "0.8.82")
     caplog.set_level(logging.WARNING, logger="plugin")
 
@@ -41,8 +39,6 @@ def test_one_versioned_root_ok(tmp_path: Path, caplog: pytest.LogCaptureFixture)
 
 
 def test_two_roots_same_version_warn(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    plugin._logged_audit_key = None
-    plugin._logged_audit_to_file = False
     root1 = _make_plugin_dir(tmp_path, "oxt1", "0.8.82")
     root2 = _make_plugin_dir(tmp_path, "oxt2", "0.8.82")
     caplog.set_level(logging.WARNING, logger="plugin")
@@ -63,8 +59,6 @@ def test_two_roots_same_version_warn(tmp_path: Path, caplog: pytest.LogCaptureFi
 
 
 def test_two_roots_different_versions_error(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    plugin._logged_audit_key = None
-    plugin._logged_audit_to_file = False
     root1 = _make_plugin_dir(tmp_path, "oxt1", "0.8.82")
     root2 = _make_plugin_dir(tmp_path, "oxt2", "0.8.1")
     caplog.set_level(logging.WARNING, logger="plugin")
@@ -87,8 +81,6 @@ def test_two_roots_different_versions_error(tmp_path: Path, caplog: pytest.LogCa
 
 
 def test_symlink_to_directory_ok(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    plugin._logged_audit_key = None
-    plugin._logged_audit_to_file = False
     root1 = _make_plugin_dir(tmp_path, "oxt1", "0.8.82")
     sym = tmp_path / "link_plugin"
     sym.symlink_to(root1)
@@ -100,8 +92,6 @@ def test_symlink_to_directory_ok(tmp_path: Path, caplog: pytest.LogCaptureFixtur
 
 
 def test_two_dirs_only_one_version_file_ok(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    plugin._logged_audit_key = None
-    plugin._logged_audit_to_file = False
     root1 = _make_plugin_dir(tmp_path, "oxt1", "0.8.82")
     root2 = _make_plugin_dir(tmp_path, "oxt2", version=None)
     caplog.set_level(logging.WARNING, logger="plugin")
