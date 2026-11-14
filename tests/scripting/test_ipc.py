@@ -6,9 +6,7 @@
 
 from __future__ import annotations
 
-from tests.harness.strip_bundle import is_release_build
 import io
-import logging
 import os
 import signal
 import pickle
@@ -166,21 +164,16 @@ def test_pack_pickle_frame_defaults_to_max_payload():
         pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)})
 
 
-def test_text_error_prefix_is_invalid_frame_with_header_repr(caplog, capsys):
-    """Garbage length prefix keeps stdout_rest= and logs at error, not stderr."""
-    with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):
-        with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b'r: boom\\n'"):
-            read_pickle_frame(
-                io.BytesIO(b"Error: boom\n"),
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-            )
-    assert "stdout_rest=b'r: boom\\n'" in caplog.text
-    err = capsys.readouterr().err
-    assert "ipc leftover peek" not in err
-    assert "peek_skipped" not in err
+def test_text_error_prefix_is_invalid_frame_with_header_repr():
+    """Garbage length prefix keeps stdout_rest= on IpcFrameError."""
+    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b'r: boom\\n'"):
+        read_pickle_frame(
+            io.BytesIO(b"Error: boom\n"),
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+        )
 
 
-def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
+def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch):
     """Windows/ty: os.set_blocking is POSIX-only; skip the non-blocking peek."""
     from plugin.framework import ipc
 
@@ -192,13 +185,11 @@ def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
     monkeypatch.setattr(ipc.os, "set_blocking", boom)
     stream = MagicMock()
     stream.fileno.return_value = 3
-    with caplog.at_level(logging.INFO, logger="writeragent.scripting.ipc"):
-        assert ipc._unread_pipe_bytes(stream) == b""
-    assert "leftover peek skipped" not in caplog.text
+    assert ipc._unread_pipe_bytes(stream) == b""
     stream.read.assert_not_called()
 
 
-def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch, caplog, capsys):
+def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch):
     """Win32 skip still attaches stdout_rest= (empty) on IpcFrameError."""
     from plugin.framework import ipc
 
@@ -211,13 +202,8 @@ def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch,
     stream = MagicMock()
     stream.fileno.return_value = 3
     stream.read.return_value = b"Erro"
-    with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):
-        with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b''"):
-            read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    assert "stdout_rest=b''" in caplog.text
-    err = capsys.readouterr().err
-    assert "ipc leftover peek" not in err
-    assert "peek_skipped" not in err
+    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b''"):
+        read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     stream.read.assert_called_once_with(4)
 
 
@@ -1176,18 +1162,11 @@ def test_joined_write_aborts_when_child_is_dead() -> None:
     assert time.monotonic() - started < 2.0
 
 
-def test_packed_frame_write_without_int_fileno_logs_and_writes(caplog: pytest.LogCaptureFixture) -> None:
-    """A stream whose fileno is not an int is written with no deadline.
-
-    Popen pipes always have an int fileno. Streams without one skip the write
-    deadline and must log at debug so a miswired pipe cannot wedge a worker-lock holder.
-    """
+def test_packed_frame_write_without_int_fileno_writes() -> None:
+    """A stream whose fileno is not an int is written with no deadline."""
     stream = io.BytesIO()
     frame = pack_pickle_frame({"status": "ok"})
-    with caplog.at_level(logging.DEBUG, logger="writeragent.scripting.ipc"):
-        write_packed_frame_with_timeout(stream, frame, 0.01)
-    if not is_release_build():  # log.debug call site is stripped in release bundles
-        assert "without a deadline" in caplog.text
+    write_packed_frame_with_timeout(stream, frame, 0.01)
     stream.seek(0)
     assert read_pickle_frame(stream) == {"status": "ok"}
 

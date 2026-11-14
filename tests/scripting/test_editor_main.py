@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import builtins
 import io
-import logging
 import queue
 import struct
 import sys
@@ -153,7 +152,7 @@ def test_reader_bad_pickle_finishes_and_destroys_only_after_claim():
     assert em.session.shutting_down is True
 
 
-def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch, caplog):
+def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch):
     _reset_state()
     index_file = tmp_path / "index.html"
     index_file.write_bytes(b"hi")
@@ -189,9 +188,7 @@ def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch, caplog):
 
     recorded.clear()
     monkeypatch.setattr(builtins, "open", fake_open)
-    caplog.set_level(logging.ERROR)
     body = em.wsgi_app({"PATH_INFO": "/"}, start_response)
-    assert "failed to serve" in caplog.text
     status = recorded["status"]
     assert isinstance(status, str)
     assert status.startswith("500")

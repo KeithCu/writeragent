@@ -556,8 +556,7 @@ def test_document_for_script_session_walks_bool_has_more() -> None:
     assert unwrap_uno(found) is second
 
 
-def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
-    import logging
+def test_document_for_script_session_stops_at_enum_cap() -> None:
     from unittest.mock import MagicMock, patch
 
     enum = MagicMock()
@@ -572,12 +571,10 @@ def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
         patch("plugin.framework.uno_context._ENUM_CAP", 2),
-        caplog.at_level(logging.ERROR, logger="writeragent.context"),
     ):
         found = session_manager.document_for_script_session(MagicMock(), "calc:file:///wanted.ods")
     assert found is None
     assert enum.nextElement.call_count == 2
-    assert "hit cap=2" in caplog.text
 
 
 

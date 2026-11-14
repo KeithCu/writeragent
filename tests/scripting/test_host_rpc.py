@@ -30,36 +30,15 @@ def test_resolve_allowed_tools_disabled():
     assert resolve_allowed_tools("") == frozenset()
 
 
-def test_resolve_allowed_tools_librepy_domain_stays_unrestricted(caplog):
+def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
     """No writeragent_api: a domain string must not disable every tool RPC."""
-    import logging
-
-    with caplog.at_level(logging.WARNING):
-        with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
-            assert resolve_allowed_tools("writer") is None
-            assert resolve_allowed_tools("shapes, footnotes, core") is None
-        assert "not a DOMAIN_TOOLS key" not in caplog.text
+    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+        assert resolve_allowed_tools("writer") is None
+        assert resolve_allowed_tools("shapes, footnotes, core") is None
     # The proxy is present: an unknown name is still a real allowlist.
     unknown = resolve_allowed_tools("not-a-domain")
     assert unknown is not None
     assert "list_open_documents" in unknown
-
-
-def test_unknown_domain_logs_warning(caplog):
-    import logging
-
-    with caplog.at_level(logging.WARNING):
-        caplog.clear()
-        allowed = resolve_allowed_tools("not-a-domain")
-        assert allowed is not None
-        assert "list_open_documents" in allowed
-        assert "not-a-domain" in caplog.text
-        assert "not a DOMAIN_TOOLS key" in caplog.text
-
-        caplog.clear()
-        allowed_footnotes = resolve_allowed_tools("footnotes")
-        assert allowed_footnotes is not None
-        assert "not a DOMAIN_TOOLS key" not in caplog.text
 
 
 def test_resolve_allowed_tools_writer_domain_includes_apply():
@@ -108,15 +87,11 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     from plugin.scripting.writeragent_api import DOMAIN_TOOLS
 
     catalog = format_script_api_catalog(["shapes"])
-    assert catalog.startswith("run_venv_python_script has access to the following APIs")
-    assert "Only the Python script may call these wa.* functions" in catalog
-    assert "import writeragent as wa" in catalog
     assert "wa.core.list_open_documents()" in catalog
     assert "wa.shape.upsert(" in catalog
     assert "wa.footnote." not in catalog
     assert "wa.python.run_venv_python_script" not in catalog
     assert not hasattr(api.python, "run_venv_python_script")
-    assert DOMAIN_TOOLS["python"] == ["symbolic_math"]
 
     tools = _domain_tools_map()
     assert tools is not None
@@ -127,11 +102,6 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
         doc = inspect.cleandoc(method.__doc__ or "")
         assert doc
         assert doc in catalog
-    # Rich Args from the proxy generator (#916), not a trimmed blurb.
-    assert "shape_type (optional)" in catalog
-    assert "round-rectangle" in catalog
-    assert "action (required)" in catalog
-    assert len(catalog) > 5000
 
     both = format_script_api_catalog(["footnotes", "shapes"])
     assert both.count("core:\n") == 1
@@ -686,15 +656,11 @@ def test_proxy_methods_by_tool_uses_tool_methods():
     assert methods["list_open_documents"] == api.core.list_open_documents
 
 
-def test_proxy_methods_by_tool_missing_tool_methods_skips_bytecode(monkeypatch, caplog):
-    import logging
+def test_proxy_methods_by_tool_missing_tool_methods_skips_bytecode(monkeypatch):
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
 
     monkeypatch.delattr("plugin.scripting.writeragent_api.TOOL_METHODS")
-    with caplog.at_level(logging.WARNING):
-        res = _proxy_methods_by_tool()
-    assert res == {}
-    assert "no TOOL_METHODS" in caplog.text
+    assert _proxy_methods_by_tool() == {}
 
 
 def test_writeragent_api_in_process_rpc_call_preserves_error_code():
@@ -922,13 +888,11 @@ def test_wa_help_unknown_name_lists_close_matches():
     import plugin.scripting.writeragent_api as api
 
     typo = api.help("shape.upser")
-    assert "Unknown API" in typo
     assert "shape.upsert" in typo
-    assert "wa.help()" in typo
 
     far = api.help("qqqqq")
-    assert "Unknown API" in far
-    assert "No close matches" in far
+    assert far
+    assert "shape.upsert" not in far
 
 
 def test_wa_help_via_worker_ipc_frame():

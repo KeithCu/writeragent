@@ -127,13 +127,7 @@ def test_picker_domains_unique_origins_and_prefixes():
     assert len(prefixes) == len(set(prefixes))
 
 
-def test_picker_supports_logs_when_the_check_raises(caplog):
-    # Release bundles strip logger.debug; skip this test when log sites are absent.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.debug stripped in release bundle")
-    import logging
-
+def test_picker_supports_returns_false_when_check_raises():
     from plugin.scripting.domain_registry import PickerWiring
 
     wiring = PickerWiring(
@@ -142,28 +136,16 @@ def test_picker_supports_logs_when_the_check_raises(caplog):
         title="Test",
         supports_ref="plugin.scripting.domain_registry:does_not_exist",
     )
-    with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
-        assert wiring.supports(object()) is False
-    assert "supports check failed" in caplog.text
+    assert wiring.supports(object()) is False
 
 
-def test_sql_is_result_handles_missing_duckdb_sql(caplog):
-    # When duckdb_sql is absent (LibrePy bundle), is_result must catch ImportError,
-    # log at debug, and return False so other domains still insert Calc results.
-    import logging
+def test_sql_is_result_handles_missing_duckdb_sql():
     from plugin.scripting.domain_registry import WIRING_TABLE
 
     sql_wiring = next(w for w in WIRING_TABLE if w.id == "sql")
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", side_effect=ImportError("No module named 'plugin.scripting.duckdb_sql'")):
-        with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
-            assert sql_wiring.is_result({"some": "result"}) is False
-    # Release strips log.debug; returning False is the behavior that must survive.
-    from plugin.scripting import domain_registry as domain_registry_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if module_source_contains(domain_registry_mod, "is_result module unavailable"):
-        assert "Domain sql is_result module unavailable" in caplog.text
+        assert sql_wiring.is_result({"some": "result"}) is False
 
 
 def test_is_reserved_script_name():

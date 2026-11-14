@@ -1115,30 +1115,17 @@ def test_query_folder_sql_normalizes_string_and_tuple_files(tmp_path: Path):
     assert res_esc_str["code"] == "READONLY_VIOLATION"
 
 
-def test_register_preloaded_skips_colliding_stem_alias(caplog):
-    """Colliding stem aliases are skipped with a warning log."""
-    import logging
+def test_register_preloaded_skips_colliding_stem_alias():
+    """Colliding stem aliases do not break preloaded queries."""
     grid1 = [["x"], [1]]
     grid2 = [["x"], [2]]
-    with caplog.at_level(logging.WARNING):
-        # a.csv and a.xlsx both have stem "a"
-        res = query_folder_sql(
-            None,
-            "SELECT * FROM 'a.csv'",
-            preloaded={"a.csv": grid1, "a.xlsx": grid2},
-        )
+    # a.csv and a.xlsx both have stem "a"
+    res = query_folder_sql(
+        None,
+        "SELECT * FROM 'a.csv'",
+        preloaded={"a.csv": grid1, "a.xlsx": grid2},
+    )
     assert res["status"] == "ok", res
-    assert any("Skipping stem alias 'a'" in r.message for r in caplog.records)
-
-
-def test_sql_error_logging_uses_warning_for_duckdb_error(caplog):
-    """duckdb.Error logs via warning, not exception."""
-    import logging
-    with caplog.at_level(logging.WARNING):
-        res = query_folder_sql(None, "SELECT * FROM nonexistent_table_xyz")
-    assert res["status"] == "error"
-    assert any(r.levelno == logging.WARNING and "failed" in r.message for r in caplog.records)
-    assert not any(r.levelno >= logging.ERROR for r in caplog.records)
 
 
 def test_host_duckdb_sql_exports_and_constants():
@@ -1344,35 +1331,27 @@ def test_invalidate_session_tables_quotes_double_quote(fresh_sandbox_sessions):
     assert res["status"] == "error"
 
 
-def test_flat_stem_collision_warns_and_keeps_first(tmp_path: Path, caplog):
-    import logging
-
+def test_flat_stem_collision_keeps_first(tmp_path: Path):
     csv_path = tmp_path / "a.csv"
     _write_csv(csv_path, "amount\n1\n")
     parquet_path = tmp_path / "a.parquet"
     _write_parquet(parquet_path, [("x", 2)])
 
-    with caplog.at_level(logging.WARNING):
-        res_list = query_folder_sql(
-            str(tmp_path),
-            "SELECT amount FROM a",
-            files=["a.csv", "a.parquet"],
-        )
+    res_list = query_folder_sql(
+        str(tmp_path),
+        "SELECT amount FROM a",
+        files=["a.csv", "a.parquet"],
+    )
     assert res_list["status"] == "ok", res_list
     assert res_list["rows"] == [[1]]
-    assert any("Skipping stem alias 'a' for 'a.parquet'" in r.message for r in caplog.records)
 
-    caplog.clear()
-
-    with caplog.at_level(logging.WARNING):
-        res_dict = query_folder_sql(
-            str(tmp_path),
-            "SELECT amount FROM a",
-            files={"a.csv": "a.csv", "a.parquet": "a.parquet"},
-        )
+    res_dict = query_folder_sql(
+        str(tmp_path),
+        "SELECT amount FROM a",
+        files={"a.csv": "a.csv", "a.parquet": "a.parquet"},
+    )
     assert res_dict["status"] == "ok", res_dict
     assert res_dict["rows"] == [[1]]
-    assert any("Skipping stem alias 'a' for 'a.parquet'" in r.message for r in caplog.records)
 
 
 

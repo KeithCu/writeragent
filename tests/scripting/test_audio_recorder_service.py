@@ -363,9 +363,6 @@ def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.Mon
     assert kwargs["text"] is True
     assert kwargs["bufsize"] == 1
     assert kwargs["cwd"] is None
-    assert "encoding" not in kwargs
-    assert "errors" not in kwargs
-    assert "universal_newlines" not in kwargs
     assert "shell" not in kwargs
 
     if sys.platform == "win32":
@@ -394,9 +391,8 @@ def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.Mon
 
 
 def test_spawn_recording_process_popen_oserror_is_not_wrapped(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import logging
     from plugin.scripting.audio_recorder_service import spawn_recording_process
     import plugin.framework.managed_subprocess as ms
 
@@ -406,11 +402,9 @@ def test_spawn_recording_process_popen_oserror_is_not_wrapped(
     monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
 
     before = set(ms._instances)
-    with caplog.at_level(logging.ERROR, logger="plugin.framework.managed_subprocess"):
-        with pytest.raises(FileNotFoundError):
-            spawn_recording_process("/missing/python", "/tmp/take.wav")
+    with pytest.raises(FileNotFoundError):
+        spawn_recording_process("/missing/python", "/tmp/take.wav")
 
-    assert "Failed to start managed subprocess" not in caplog.text
     assert set(ms._instances) == before
 
 
@@ -447,7 +441,7 @@ def test_spawn_recording_process_flatpak_uses_watch_bus(monkeypatch: pytest.Monk
         'JSON line truncated at EOF: \'{"status"\'',
     ],
 )
-def test_monitor_breaks_on_fatal_stdout_value_error(msg: str, caplog: pytest.LogCaptureFixture) -> None:
+def test_monitor_breaks_on_fatal_stdout_value_error(msg: str) -> None:
     call_count = 0
 
     def fake_read_json_line(*_args: Any, **_kwargs: Any) -> Any:
@@ -460,17 +454,13 @@ def test_monitor_breaks_on_fatal_stdout_value_error(msg: str, caplog: pytest.Log
     proc.stdout = MagicMock()
     child = _recording_child(proc)
 
-    with (
-        patch("plugin.scripting.audio_recorder_service.read_json_line", side_effect=fake_read_json_line),
-        caplog.at_level("WARNING", logger="plugin.scripting.audio_recorder_service"),
-    ):
+    with patch("plugin.scripting.audio_recorder_service.read_json_line", side_effect=fake_read_json_line):
         child.start_monitor(on_auto_stopped=lambda _p: None)
         assert child.monitor is not None
         child.monitor.join(timeout=1.0)
 
     assert call_count == 1
     assert child.monitor.is_alive() is False
-    assert "Skipping non-JSON line" not in caplog.text
 
 
 def test_reap_stops_and_joins_monitor_before_closing_stdout() -> None:

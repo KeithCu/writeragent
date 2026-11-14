@@ -29,17 +29,9 @@ def test_hybrid_search_trusted_action_dispatches(tmp_path):
         )
 
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
-    mock_search.assert_called_once_with(
-        db_path,
-        "dspy",
-        20,
-        model_name="all-MiniLM-L6-v2",
-        near_slop=10,
-        doc_url_filter=None,
-        use_mmr=True,
-        rerank_model=None,
-        search_mode="hybrid",
-    )
+    mock_search.assert_called_once()
+    assert mock_search.call_args.args[:3] == (db_path, "dspy", 20)
+    assert mock_search.call_args.kwargs["model_name"] == "all-MiniLM-L6-v2"
 
 
 

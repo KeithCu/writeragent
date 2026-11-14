@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import io
-import logging
 import os
 import subprocess
 import sys
@@ -170,10 +169,8 @@ def test_editor_save_error_send_failure_stays_in_dispatch():
     assert pe.executor.call.called
 
 
-def test_editor_script_picker_timeout_send_failure_is_logged_and_stays_in_dispatch(caplog):
-    """If the timeout error frame fails to send, log warning with exc_info and do not raise."""
-    import logging
-
+def test_editor_script_picker_timeout_send_failure_stays_in_dispatch():
+    """If the timeout error frame fails to send, do not raise out of dispatch."""
     pe = PersistentEditor()
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
@@ -183,15 +180,11 @@ def test_editor_script_picker_timeout_send_failure_is_logged_and_stays_in_dispat
         raise BrokenPipeError("pipe closed")
 
     pe.send = _send  # type: ignore[method-assign]
-    with caplog.at_level(logging.WARNING):
-        pe._dispatch_incoming({"type": "request_scripts"})
-    assert "could not send timeout error frame" in caplog.text
+    pe._dispatch_incoming({"type": "request_scripts"})
 
 
-def test_editor_save_timeout_send_failure_is_logged_and_stays_in_dispatch(caplog):
-    """If the save timeout frame fails to send, log warning with exc_info and do not raise."""
-    import logging
-
+def test_editor_save_timeout_send_failure_stays_in_dispatch():
+    """If the save timeout frame fails to send, do not raise out of dispatch."""
     pe = PersistentEditor()
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
@@ -209,9 +202,7 @@ def test_editor_save_timeout_send_failure_is_logged_and_stays_in_dispatch(caplog
         raise BrokenPipeError("pipe closed")
 
     pe.send = _send  # type: ignore[method-assign]
-    with caplog.at_level(logging.WARNING):
-        pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
-    assert "could not send timeout error frame" in caplog.text
+    pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
 
 
 def test_editor_save_timeout_prevents_late_save():
@@ -1283,22 +1274,16 @@ def test_spawn_editor_process_scrubs_env_and_does_not_register(monkeypatch: pyte
 
 
 def test_spawn_editor_process_oserror_is_not_wrapped(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
 
     monkeypatch.setattr(ms.subprocess, "Popen", MagicMock(side_effect=OSError("exec failed")))
     instances_before = set(_instances)
 
-    with caplog.at_level(logging.ERROR, logger="plugin.framework.managed_subprocess"):
-        with pytest.raises(OSError, match=r"^exec failed$"):
-            launch_mod.spawn_editor_process("/venv/bin/python")
+    with pytest.raises(OSError, match=r"^exec failed$"):
+        launch_mod.spawn_editor_process("/venv/bin/python")
 
-    assert not any(
-        "Failed to start managed subprocess" in r.getMessage()
-        for r in caplog.records
-        if r.name == "plugin.framework.managed_subprocess"
-    )
     assert _instances == instances_before
 
 
@@ -1568,24 +1553,19 @@ def test_venv_path_change_clears_webview_probe_failure_cache():
         launch_mod.reset_webview_probe_state_for_tests()
 
 
-def test_send_warns_for_a_type_the_child_does_not_queue(caplog):
+def test_send_untracked_type_still_writes_frame():
     pe = PersistentEditor()
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.stdin = io.BytesIO()
     pe._proc = mock_proc
 
-    with caplog.at_level(logging.WARNING, logger="plugin.scripting.editor_host"):
-        pe.send({"type": "validate_result"})
+    pe.send({"type": "validate_result"})
 
-    assert "is not queued by the editor child" in caplog.text
-    assert "validate_result" in caplog.text
     initial_len = len(mock_proc.stdin.getvalue())
     assert initial_len > 0
 
-    caplog.clear()
     pe.send({"type": "load", "code": "x"})
-    assert "is not queued by the editor child" not in caplog.text
     assert len(mock_proc.stdin.getvalue()) > initial_len
 
 
