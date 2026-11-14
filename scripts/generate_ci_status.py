@@ -38,7 +38,11 @@ API_VERSION = "2022-11-28"
 RUNS_PER_PAGE = 100
 MAX_RUN_PAGES = 50
 DEFAULT_MAX_AGE_DAYS = 60
-OS_LABELS = ("ubuntu-latest", "macos-latest", "windows-latest")
+# PR CI and Release Verify pin Ubuntu to ubuntu-26.04. Job names used
+# ubuntu-latest until that pin, so both labels map to the same OS row.
+# CrossHair jobs still say ubuntu-latest and have no OS needle.
+UBUNTU_OS_LABELS = frozenset({"ubuntu-26.04", "ubuntu-latest"})
+OS_LABELS = ("ubuntu-26.04", "ubuntu-latest", "macos-latest", "windows-latest")
 
 # Status Pages failed master on a single GitHub 502 ("Server Error") while
 # listing run jobs. github_get used to raise on the first HTTPError, so a
@@ -52,10 +56,10 @@ GITHUB_GET_MAX_SLEEP_SEC = 30.0
 # Each row is the newest job whose name contains every needle. CrossHair
 # jobs are ``CrossHair (check-all, ubuntu-latest)`` / ``cover-all`` (see
 # crosshair-deep.yml). PR CI jobs are ``Test & Typecheck (os)`` or
-# ``Mock LLM Sidebar (os)`` (see pr-ci.yml). Release Verify jobs are
-# ``Release Verify (os)`` (see release-verify.yml) and map to the same
-# Test & Typecheck dashboard rows. ``both`` CrossHair jobs do not contain
-# those needles and are ignored.
+# ``Mock LLM Sidebar (os)`` (see pr-ci.yml); Ubuntu is ``ubuntu-26.04``.
+# Release Verify jobs are ``Release Verify (os)`` (see release-verify.yml)
+# and map to the same Test & Typecheck dashboard rows. ``both`` CrossHair
+# jobs do not contain those needles and are ignored.
 WORKFLOW_SOURCE_LABELS: dict[str, str] = {
     "pr-ci.yml": "PR CI",
     "release-verify.yml": "Release Verify",
@@ -63,10 +67,10 @@ WORKFLOW_SOURCE_LABELS: dict[str, str] = {
 SUITE_SPECS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     ("CrossHair check-all", "", "crosshair-deep.yml", ("check-all",)),
     ("CrossHair cover-all", "", "crosshair-deep.yml", ("cover-all",)),
-    ("Test & Typecheck", "ubuntu-latest", "pr-ci.yml", ("Test & Typecheck", "ubuntu-latest")),
+    ("Test & Typecheck", "ubuntu-26.04", "pr-ci.yml", ("Test & Typecheck", "ubuntu-26.04")),
     ("Test & Typecheck", "macos-latest", "pr-ci.yml", ("Test & Typecheck", "macos-latest")),
     ("Test & Typecheck", "windows-latest", "pr-ci.yml", ("Test & Typecheck", "windows-latest")),
-    ("Mock LLM Sidebar", "ubuntu-latest", "pr-ci.yml", ("Mock LLM Sidebar", "ubuntu-latest")),
+    ("Mock LLM Sidebar", "ubuntu-26.04", "pr-ci.yml", ("Mock LLM Sidebar", "ubuntu-26.04")),
     ("Mock LLM Sidebar", "macos-latest", "pr-ci.yml", ("Mock LLM Sidebar", "macos-latest")),
     ("Mock LLM Sidebar", "windows-latest", "pr-ci.yml", ("Mock LLM Sidebar", "windows-latest")),
 )
@@ -154,13 +158,24 @@ def is_expired(
     return (now - dt) > timedelta(days=max_age_days)
 
 
+def _needle_in_job_name(needle: str, job_name: str) -> bool:
+    """True when this needle appears in the Actions job name.
+
+    ``ubuntu-26.04`` and ``ubuntu-latest`` are treated as the same OS so
+    a runner pin does not freeze the Ubuntu dashboard rows.
+    """
+    if needle in UBUNTU_OS_LABELS:
+        return any(label in job_name for label in UBUNTU_OS_LABELS)
+    return needle in job_name
+
+
 def job_matches(job_name: str, spec: SuiteSpec) -> bool:
     """True when the Actions job name is this dashboard row.
 
-    Needles are AND-matched so ``Test & Typecheck (ubuntu-latest)`` does
+    Needles are AND-matched so ``Test & Typecheck (ubuntu-26.04)`` does
     not fill the macos row or a Mock LLM Sidebar row.
     """
-    return all(needle in job_name for needle in spec.name_contains)
+    return all(_needle_in_job_name(needle, job_name) for needle in spec.name_contains)
 
 
 def extract_os(job_name: str, fallback: str = "") -> str:
@@ -512,12 +527,13 @@ def collect_status(
             if not pending:
                 break
 
-            # Optimization for pr-ci.yml: pull_request events ONLY matrix ubuntu-latest
-            # and test_mock_sidebar=false. If Test & Typecheck (ubuntu-latest) is not
-            # pending, no job in this pull_request run can match any pending spec.
+            # Optimization for pr-ci.yml: pull_request events ONLY matrix
+            # ubuntu-26.04 and test_mock_sidebar=false. If Test & Typecheck
+            # (ubuntu) is not pending, no job in this pull_request run can
+            # match any pending spec.
             if workflow == "pr-ci.yml" and run.get("event") == "pull_request":
                 ubuntu_pending = any(
-                    specs[i].suite == "Test & Typecheck" and specs[i].os == "ubuntu-latest"
+                    specs[i].suite == "Test & Typecheck" and specs[i].os in UBUNTU_OS_LABELS
                     for i in pending
                 )
                 if not ubuntu_pending:
