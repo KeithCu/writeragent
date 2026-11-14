@@ -530,8 +530,8 @@ def test_known_nonseasonal_frequency_is_named():
 
     # Yearly
     yearly_frame = pd.DataFrame({
-        "Date": pd.date_range("2000-01-01", periods=12, freq="YS"),
-        "Value": [float(i) for i in range(12)],
+        "Date": pd.date_range("2000-01-01", periods=8, freq="YS"),
+        "Value": [float(i) for i in range(8)],
     })
     res_yearly = forecast_time_series(yearly_frame, periods=2, model="auto")
     assert res_yearly["status"] == "ok"
@@ -541,8 +541,8 @@ def test_known_nonseasonal_frequency_is_named():
 
     # Minutes
     min_frame = pd.DataFrame({
-        "Date": pd.date_range("2024-01-01", periods=30, freq="min"),
-        "Value": [float(i) for i in range(30)],
+        "Date": pd.date_range("2024-01-01", periods=8, freq="min"),
+        "Value": [float(i) for i in range(8)],
     })
     res_min = forecast_time_series(min_frame, periods=2, model="auto")
     assert res_min["status"] == "ok"

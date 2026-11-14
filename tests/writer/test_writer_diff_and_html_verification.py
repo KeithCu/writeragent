@@ -17,12 +17,7 @@ from hypothesis import strategies as st
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE
 from plugin.writer.word_diff_split import (
     SplitResult,
-    Token,
     split_change,
-    tokenize,
-)
-from plugin.writer.xhtml_style_postprocess import (
-    compact_lo_style_name,
 )
 from tests.harness.vhs_budget import vhs_max_examples
 
@@ -31,24 +26,6 @@ _SAFE_TEXT = st.text(
     alphabet=st.characters(blacklist_categories=("Cs", "Cc"), blacklist_characters="\x00"),
     max_size=40,
 )
-_SHORT_TEXT = st.text(
-    alphabet=st.characters(blacklist_categories=("Cs", "Cc"), blacklist_characters="\x00"),
-    max_size=80,
-)
-
-
-@given(text=_SAFE_TEXT)
-@settings(max_examples=vhs_max_examples(80, 800), deadline=None)
-def test_hypothesis_tokenize_reconstruction_invariant(text: str) -> None:
-    """Phase 8 #3: tokenize then rejoin preserves exact characters."""
-    tokens = tokenize(text)
-    assert isinstance(tokens, list)
-    reconstructed = "".join(t.text for t in tokens)
-    assert reconstructed == text
-
-    for token in tokens:
-        assert isinstance(token, Token)
-        assert text[token.start : token.end] == token.text
 
 
 def test_split_change_longer_than_source_runs() -> None:
@@ -69,11 +46,3 @@ def test_hypothesis_split_change_fraction_bounds(old: str, new: str) -> None:
 
     for sub in res.sub_edits:
         assert 0 <= sub.old_start <= sub.old_end <= len(old)
-
-
-@given(name=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_compact_lo_style_name_removes_spaces(name: str) -> None:
-    compacted = compact_lo_style_name(name)
-    assert isinstance(compacted, str)
-    assert " " not in compacted

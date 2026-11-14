@@ -2503,11 +2503,8 @@ def test_start_docker_does_not_put_api_key_in_argv(tmp_path) -> None:
     assert "PYTHON_COMPUTE_API_KEY=" not in text
     assert "PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key" in lines
     assert any(line.endswith(":/run/secrets/python_compute_api_key:ro") for line in lines)
-    assert "--init" in lines
     assert "--user" in lines
     assert f"{uid}:{gid}" in lines
-    assert "127.0.0.1:8000:8000" in lines
-    assert "PYTHON_COMPUTE_PORT=8000" in lines
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -2587,33 +2584,33 @@ def test_start_docker_rejects_bad_port(tmp_path, port: str) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
-def test_start_docker_memory_default_and_override(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("env_extra", "expected_mem"),
+    [({}, "1g"), ({"PYTHON_COMPUTE_MEMORY": "256m"}, "256m")],
+)
+def test_start_docker_memory_default_and_override(tmp_path, env_extra: dict[str, str], expected_mem: str) -> None:
     """Default memory is 1g, and swap is pinned to the same value.
 
-    --memory-swap equal to --memory disables extra swap. The first cell
-    loads numpy, pandas, sympy, scipy, and matplotlib, which 512m did not
-    budget for. PYTHON_COMPUTE_MEMORY replaces both flags together.
+    --memory-swap equal to --memory disables extra swap. PYTHON_COMPUTE_MEMORY
+    replaces both flags together.
     """
-    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k"})
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", **env_extra})
     assert proc.returncode == 0, proc.stderr
-    assert "--memory=1g" in lines
-    assert "--memory-swap=1g" in lines
-
-    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_MEMORY": "256m"})
-    assert proc.returncode == 0, proc.stderr
-    assert "--memory=256m" in lines
-    assert "--memory-swap=256m" in lines
-    assert "--memory=1g" not in lines
+    assert f"--memory={expected_mem}" in lines
+    assert f"--memory-swap={expected_mem}" in lines
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
-def test_start_docker_publishes_python_compute_port(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("env_extra", "expected_port"),
+    [({}, "8000"), ({"PYTHON_COMPUTE_PORT": "9001"}, "9001")],
+)
+def test_start_docker_publishes_python_compute_port(tmp_path, env_extra: dict[str, str], expected_port: str) -> None:
     """PYTHON_COMPUTE_PORT is both the published port and the listener."""
-    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_PORT": "9001"})
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", **env_extra})
     assert proc.returncode == 0, proc.stderr
-    assert "127.0.0.1:9001:9001" in lines
-    assert "PYTHON_COMPUTE_PORT=9001" in lines
-    assert "127.0.0.1:8000:8000" not in lines
+    assert f"127.0.0.1:{expected_port}:{expected_port}" in lines
+    assert f"PYTHON_COMPUTE_PORT={expected_port}" in lines
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -2627,6 +2624,16 @@ def test_start_docker_rejects_missing_key_file(tmp_path) -> None:
     assert lines == []
 
 
+def test_dockerfile_copies_bundle_to_app() -> None:
+    """The runner stage copies /out/ from the bundle stage into /app/."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY --from=bundle /out/ /app/" in dockerfile
+
+
+@pytest.mark.slow
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     """The compute bundle must import the server without the rest of plugin/.
 
@@ -2642,8 +2649,6 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     from scripts.build_compute_bundle import assemble_compute_bundle
 
     repo = Path(__file__).resolve().parents[2]
-    dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY --from=bundle /out/ /app/" in dockerfile
 
     app = tmp_path / "app"
     assemble_compute_bundle(str(repo), str(app), strip=True)

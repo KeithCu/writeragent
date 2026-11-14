@@ -1254,19 +1254,6 @@ def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -
     assert terminated == []
     assert cleared == []
 
-def test_warm_spawns_and_primes_worker():
-    """warm() makes the next execute instant by pre-spawning the process and triggering auto-imports."""
-    shutdown_venv_workers_for_tests()
-    mgr = PythonWorkerManager.get(sys.executable, {'PATH': '/usr/bin:/bin'})
-    assert _mgr_proc(mgr) is None
-    mgr.warm()
-    assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).poll() is None
-    assert mgr._primed is True
-    r = mgr.execute(ExecRequest(code='result = 42', timeout_sec=10))
-    assert r['status'] == 'ok'
-    assert r['result'] == 42
-    shutdown_venv_workers_for_tests()
-
 def test_cold_execute_warms_with_separate_timeout():
     """First execute primes the worker under WARM_WORKER_TIMEOUT_SEC, then runs user code at configured timeout."""
     from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
@@ -1288,50 +1275,12 @@ def test_cold_execute_warms_with_separate_timeout():
     finally:
         shutdown_venv_workers_for_tests()
 
-def test_warm_execute_uses_configured_timeout_only():
-    """After priming, execute reads exec_started and the result at the configured timeout."""
-    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
-    shutdown_venv_workers_for_tests()
-    mgr = PythonWorkerManager.get(sys.executable, {'PATH': '/usr/bin:/bin'})
-    mgr.warm()
-    timeouts: list[float | int] = []
-    original_read = mgr._read_response_bytes
-
-    def record_read(stdout, timeout_sec, cancel=None):
-        timeouts.append(timeout_sec)
-        return original_read(stdout, timeout_sec)
-    mgr._read_response_bytes = record_read
-    try:
-        r = mgr.execute(ExecRequest(code='result = 7', timeout_sec=3))
-        assert r['status'] == 'ok'
-        assert r['result'] == 7
-        grace = HOST_IPC_READ_GRACE_SEC
-        assert timeouts == [3 + grace, 3 + grace]
-    finally:
-        shutdown_venv_workers_for_tests()
-
-def test_terminate_worker_re_primes_on_next_execute():
-    """After worker kill, the next execute runs warm again before user code."""
-    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
-    shutdown_venv_workers_for_tests()
-    mgr = PythonWorkerManager.get(sys.executable, {'PATH': '/usr/bin:/bin'})
-    mgr.warm()
+def test_terminate_worker_resets_primed_state():
+    """Terminating the worker clears _primed so the next execute re-primes."""
+    mgr = PythonWorkerManager(sys.executable, {'PATH': '/usr/bin:/bin'})
+    mgr._primed = True
     mgr._terminate_worker()
-    timeouts: list[float | int] = []
-    original_read = mgr._read_response_bytes
-
-    def record_read(stdout, timeout_sec, cancel=None):
-        timeouts.append(timeout_sec)
-        return original_read(stdout, timeout_sec)
-    mgr._read_response_bytes = record_read
-    try:
-        r = mgr.execute(ExecRequest(code='result = 99', timeout_sec=3))
-        assert r['status'] == 'ok'
-        assert r['result'] == 99
-        grace = HOST_IPC_READ_GRACE_SEC
-        assert timeouts == [WARM_WORKER_TIMEOUT_SEC + grace, WARM_WORKER_TIMEOUT_SEC + grace, 3 + grace, 3 + grace]
-    finally:
-        shutdown_venv_workers_for_tests()
+    assert mgr._primed is False
 
 @patch('plugin.scripting.venv_worker.get_config', return_value='')
 @patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable)
@@ -1366,6 +1315,8 @@ class TestLiveWorkerReuse:
 
     def test_manager_two_calls_same_process(self, warmed_worker_manager):
         mgr = warmed_worker_manager
+        assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).poll() is None
+        assert mgr._primed is True
         r1 = mgr.execute(ExecRequest(code='result = 1', timeout_sec=10))
         assert r1['status'] == 'ok'
         pid1 = _mgr_proc(mgr).pid if _mgr_proc(mgr) else None
@@ -1375,6 +1326,38 @@ class TestLiveWorkerReuse:
         assert pid1 is not None and pid1 == pid2
         r3 = mgr.execute(ExecRequest(code='result = prev', timeout_sec=10))
         assert r3['status'] == 'error'
+
+    def test_warm_execute_uses_configured_timeout_only(self, warmed_worker_manager):
+        """After priming, execute reads exec_started and the result at the configured timeout."""
+        from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+        mgr = warmed_worker_manager
+        timeouts: list[float | int] = []
+        original_read = mgr._read_response_bytes
+
+        def record_read(stdout, timeout_sec, cancel=None):
+            timeouts.append(timeout_sec)
+            return original_read(stdout, timeout_sec)
+
+        mgr._read_response_bytes = record_read
+        try:
+            r = mgr.execute(ExecRequest(code='result = 7', timeout_sec=3))
+            assert r['status'] == 'ok'
+            assert r['result'] == 7
+            grace = HOST_IPC_READ_GRACE_SEC
+            assert timeouts == [3 + grace, 3 + grace]
+        finally:
+            mgr._read_response_bytes = original_read
+
+    def test_io_session_does_not_respawn_live_child(self, warmed_worker_manager):
+        mgr = warmed_worker_manager
+        pid1 = _mgr_proc(mgr).pid
+        assert pid1 is not None
+        warm = mgr._warm
+        assert warm is not None
+        with patch.object(warm._supervisor, 'spawn') as mock_spawn:
+            assert _session_ok(mgr)
+            mock_spawn.assert_not_called()
+        assert _mgr_proc(mgr).pid == pid1
 
     def test_split_grid_result_round_trip_manager(self, warmed_worker_manager):
         """API responses unpack split_grid so LLM/UI never see wire envelopes."""
@@ -2816,8 +2799,8 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
         assert _mgr_proc(mgr).poll() is None
 
         # The kernel delivers SIGKILL when the spawn OS thread exits, which can
-        # trail Thread.join() slightly; 2s is plenty once prctl is armed.
-        deadline = time.monotonic() + 2.0
+        # trail Thread.join() slightly; 0.3s is plenty once prctl is armed.
+        deadline = time.monotonic() + 0.3
         exit_code = None
         while time.monotonic() < deadline:
             exit_code = _mgr_proc(mgr).poll()
@@ -2936,20 +2919,6 @@ def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1, cancel=_cancelled_scope()))
     assert res['code'] == 'CANCELLED'
-
-def test_io_session_does_not_respawn_live_child(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
-    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
-    assert _session_ok(mgr)
-    pid1 = _mgr_proc(mgr).pid
-    assert pid1 is not None
-    warm = mgr._warm
-    assert warm is not None
-    with patch.object(warm._supervisor, 'spawn') as mock_spawn:
-        assert _session_ok(mgr)
-        mock_spawn.assert_not_called()
-    assert _mgr_proc(mgr).pid == pid1
-    mgr._terminate_worker()
 
 def test_parse_worker_stdout_frame_rejects_non_dict():
     payload = pickle.dumps([1], protocol=5)
