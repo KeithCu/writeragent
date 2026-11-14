@@ -106,7 +106,6 @@ class _HarnessState:
         "keeper_uid",
         "keeper_doc",
         "leftover_open",
-        "writer_pool_reused",
         "hidden_open_bitmap",
         "notebook_host",
         "factory_seq",
@@ -117,7 +116,6 @@ class _HarnessState:
         self.keeper_uid = ""
         self.keeper_doc = None
         self.leftover_open = 0
-        self.writer_pool_reused = False
         self.hidden_open_bitmap = False
         self.notebook_host = False
         self.factory_seq = 0
@@ -131,7 +129,6 @@ _STATE_MODULE_ATTRS = {
     "_HARNESS_KEEPER_UID": "keeper_uid",
     "_HARNESS_KEEPER_DOC": "keeper_doc",
     "_WINDOWS_LEFTOVER_OPEN": "leftover_open",
-    "_WINDOWS_WRITER_POOL_REUSED": "writer_pool_reused",
     "_WINDOWS_HIDDEN_OPEN_BITMAP": "hidden_open_bitmap",
     "_WINDOWS_NOTEBOOK_HOST": "notebook_host",
     "_WINDOWS_FACTORY_SEQ": "factory_seq",
@@ -301,44 +298,6 @@ def _set_windows_leftover_open(n: int) -> None:
 
 def _windows_leftover_open() -> int:
     return int(_STATE.leftover_open or 0)
-
-
-def _set_windows_writer_pool_reused(on: bool) -> None:
-    _STATE.writer_pool_reused = bool(on)
-
-
-def _windows_writer_pool_reused() -> bool:
-    return bool(_STATE.writer_pool_reused)
-
-
-def _windows_should_reuse_writer(ctx) -> bool:
-    """True when a later Windows Writer factory would hang.
-
-    GHA 34601787293 / 34602219973: unique ``_wa_factory_N`` loaded three
-    leftover Calc factories and the first leftover swriter (uid=34).
-    ``close_doc`` of that Writer returned; the next unique swriter hung
-    30s. Reuse the first leftover Writer instead of close + factory.
-
-    GHA 34652644656 (paste suites deferred): leftover_open=0,
-    ``document_research_uno`` 3/3 and slash OK, then first text_helpers
-    Hidden ``_blank`` + ``close_doc`` uid=29 returned; the next Hidden
-    ``_blank`` hung 30s. Consecutive Hidden ``_blank`` swriter is unsafe
-    even without paste leftovers (34597506651 with leftovers). Reuse
-    the first Windows Writer.
-
-    GHA 34661915875 (master ``aa6bf058``, tip of #737): leftover
-    ``_wa_simpress`` at leftover_open=15 hung 30s. Notebook / importer
-    suites isolated on ``_wa_notebook_host`` *and* disabled leftover
-    Writer reuse, so each leftover factory stacked a Writer
-    (leftover_open 1→15) because close is skipped. Reuse the leftover
-    ``_wa_notebook_host`` pool — still not leftover HTML-paste
-    ``_wa_factory`` (GHA 34643210006). Wipe leftover notebook host
-    between leftover notebook tests; leftover form listeners stay
-    per-document.
-    """
-    if ctx is None or sys.platform != "win32":
-        return False
-    return True
 
 
 def _windows_should_reuse_calc(ctx) -> bool:
@@ -523,76 +482,6 @@ def skip_windows_cross_app_factory(factory_url: str, leftover_open: int) -> None
     )
 
 
-def skip_windows_leftover_hidden_load(reason: str) -> None:
-    """Skip leftover-poisoned Hidden loads on Windows.
-
-    GHA 34646877587: first leftover Hidden ``_wa_notebook`` + close
-    returned; the next Hidden ``_wa_notebook`` hung 30s. Unique leftover
-    names (``_wa_notebook_2``, ``_wa_factory_N``) are the same stacking
-    family as leftover ``_wa_scalc`` / ``_wa_factory_5``. Import-filter
-    detect uses this; do **not** skip ``document_research_uno`` Hidden
-    ``Budget_read.ods`` (34643210006 was 3/3). GHA 34675151298: leftover
-    writer reuse then ``convert_mathml_to_starmath`` Hidden ``_blank``
-    ``.mml`` hung 30s — latex / MathML UNO uses this + a reason string
-    (XDL is patched; not AWT TOP). GHA 34678020608: that skip fired;
-    next suite ``test_convert_mathml_to_starmath_fraction`` hung the
-    same load. GHA 34679494812: leftover_open=3 (uids 40/39/29) then
-    leftover swriter ``create_native_doc`` uid=41 returned;
-    ``test_document_scripts_survive_save_reopen`` hung 30s in
-    attach / storeAsURL / raw close / Hidden ``_blank`` reopen.
-    GHA 34681661844: first ``html_to_plain_text`` Hidden ``_default``
-    swriter returned; the next hung 30s. GHA 34683742049: those apply
-    skips fired; next ``test_write_compact_heading1_resolves_to_spaced_uno``
-    hung the same leftover Hidden ``_default`` load. Apply and MathML
-    share this helper; do not add alias wrappers. Not AWT TOP (see
-    ``skip_windows_awt_top_dialog``). Cached leftover count only — do
-    not enum. Do not close leftover paste Writers (34556185752).
-    """
-    if not windows_leftover_hidden_load_unsafe():
-        return
-    leftovers = _windows_leftover_open()
-    _raise_windows_skip(
-        "windows leftover skip: %s leftovers=%s" % (reason, leftovers),
-        "Windows leftover Hidden/AWT skip (%s, leftovers=%s)" % (reason, leftovers),
-    )
-
-
-def windows_leftover_hidden_load_unsafe() -> bool:
-    """True when a leftover Hidden load or AWT ``createPeer`` would hang."""
-    return sys.platform == "win32" and _windows_leftover_open() > 0
-
-
-def windows_pooled_writer_reuse() -> bool:
-    """True when this test's Writer came from the Windows reuse pool.
-
-    GHA 35470191616 (master ``c4fdbee``, #809): leftover_open=0 after
-    impress recycle still printed ``native_doc: leftover writer reuse``.
-    ``skip_windows_leftover_hidden_load`` only fires leftover_open>0, so
-    the cross-paragraph color test ran and failed a bare AssertionError.
-    Sibling ``test_same_length_replacement_preserves_colors`` passed on
-    the same reuse path. Not a product ``replace_preserving_format``
-    change. Factory-fresh Windows Writer still runs this class of test.
-    """
-    return sys.platform == "win32" and _windows_writer_pool_reused()
-
-
-def skip_windows_pooled_writer_reuse(reason: str) -> None:
-    """Skip when Windows yielded a pooled Writer, including leftover_open=0.
-
-    Do not use ``skip_windows_leftover_hidden_load`` alone for this —
-    that helper only fires leftover_open>0 (GHA 35470191616). Cached
-    pool-reuse flag only; do not enum. Do not factory-load a second
-    Hidden ``_blank`` (34652644656 hung 30s at leftover_open=0).
-    """
-    if not windows_pooled_writer_reuse():
-        return
-    leftovers = _windows_leftover_open()
-    _raise_windows_skip(
-        "windows pool skip: %s leftovers=%s" % (reason, leftovers),
-        "Windows pooled Writer reuse skip (%s, leftovers=%s)" % (reason, leftovers),
-    )
-
-
 # GHA 34655847157 (master f88b8749, leftovers=0, paste deferred): first
 # Hidden Budget_read.ods raised ``Could not create system bitmap!`` in
 # ~20ms; the next sibling Hidden open hung 30s. 34652644656 was 3/3 on
@@ -652,11 +541,9 @@ def skip_windows_awt_top_dialog(reason: str) -> None:
     later killed the same soffice PIDs). Worker threads were
     ``worker_pool._loop`` / ``_drain_soffice_stderr``.
 
-    ``skip_windows_leftover_hidden_load`` does not cover this — that
-    helper is leftover_open>0. Overlay ``createWindow`` TOP + later
-    ``setVisible`` is the same VCL map. Overlay tests still map on Linux UNO.
-    Linux UNO still maps the overlay. Do not map a TOP dialog on win32
-    CI.
+    Overlay ``createWindow`` TOP + later ``setVisible`` is the same VCL map.
+    Overlay tests still map on Linux UNO. Do not map a TOP dialog on win32
+    CI, even when ``leftover_open`` is 0.
     """
     if not windows_awt_top_dialog_unsafe():
         return
@@ -678,14 +565,22 @@ def note_windows_hidden_open_bitmap(err: str | None) -> None:
     )
 
 
-# Notebook-runner host while leftover HTML-paste Writers stay open.
-# Not leftover ``_wa_factory`` (reuses paste leftovers) and not
-# import-filter ``_wa_notebook`` (GHA 34643210006 leftover listeners).
+# Win32 factory target for the separate notebook pool, distinct from
+# _wa_factory (would find leftover HTML-paste Writers) and _wa_notebook
+# (import-filter leftover listeners, GHA 34643210006).
 _WINDOWS_NOTEBOOK_HOST_TARGET = "_wa_notebook_host"
 
 
 def set_windows_notebook_host(on: bool) -> None:
-    """Leftover factory uses ``_wa_notebook_host`` (not leftover ``_wa_factory``)."""
+    """Use a separate pooled Writer for test_notebook_runner_uno and
+    test_writer_importer_uno on every platform.
+
+    Without it, the shared Writer pool keeps WriterAgentNotebookJson and a
+    form-run listener because _reset_writer_doc does not clear them, so
+    later suites would see a notebook document
+    (session_manager.has_notebook_registry). Only the win32 factory target
+    _wa_notebook_host is Windows-specific.
+    """
     _STATE.notebook_host = bool(on)
 
 
@@ -707,9 +602,10 @@ def windows_notebook_load_args() -> tuple[str, int]:
     leftover uid=41 returned; the next Hidden ``_wa_notebook`` hung 30s
     (paste leftovers still open=3). Unique leftover ``_wa_notebook_2``
     is the same stacking family as leftover ``_wa_factory_N``. Do not
-    close leftover notebook docs (same skip as paste Writers). The
-    first leftover Hidden .ipynb load may run; the detect reload
-    ``skip_windows_leftover_hidden_load``s instead of a second load.
+    close leftover notebook docs (same skip as paste Writers). On Windows,
+    use the dedicated ``_wa_notebook`` target; POSIX keeps ``_blank``.
+    (The detect-reload skip was removed in TSLOP-WIN stage 2, pending
+    round-1 Windows UNO verification.)
     """
     if sys.platform != "win32":
         return "_blank", 0
@@ -1718,14 +1614,6 @@ class TestingFactory:
         """Yield a native LO document. Writer and Calc default to wipe-and-reuse pool (pass reuse=False for fresh doc)."""
         if reuse is None:
             reuse = _default_native_doc_reuse(doc_type)
-            if doc_type == "writer" and _windows_should_reuse_writer(ctx):
-                from plugin.testing_runner import _progress_verbose as _progress
-
-                reuse = True
-                if _windows_notebook_host():
-                    _progress("native_doc: leftover notebook host reuse")
-                else:
-                    _progress("native_doc: leftover writer reuse")
         # reuse=False still calls create_native_doc. Leftover _wa_scalc
         # hung 30s (34643210006). Wipe-and-reuse the pooled Calc instead.
         if doc_type == "calc" and not reuse and _windows_should_reuse_calc(ctx):
@@ -1736,11 +1624,8 @@ class TestingFactory:
         use_pool = bool(reuse) and doc_type in ("writer", "calc")
         doc = None
         pooled = False
-        writer_reused = False
         if use_pool:
-            # Leftover notebook host must not reuse leftover _wa_factory
-            # (GHA 34643210006 leftover HTML-paste leftover). Same leftover
-            # Writer type, separate leftover pool.
+            # Separate notebook pool on all platforms; see set_windows_notebook_host.
             pool_kind = "notebook_host" if (
                 doc_type == "writer" and _windows_notebook_host()
             ) else doc_type
@@ -1764,14 +1649,12 @@ class TestingFactory:
                                 _NATIVE_DOC_POOL.mark_clean(candidate, True)
                             doc = candidate
                             pooled = True
-                            writer_reused = True
                         else:
                             TestingFactory.close_doc(candidate)
                             doc = None
                     else:
                         doc = candidate
                         pooled = True
-                        writer_reused = doc_type == "writer"
                 except Exception:
                     if sys.platform == "win32" and _windows_leftover_open() > 0:
                         from plugin.testing_runner import _progress_verbose as _progress
@@ -1779,7 +1662,6 @@ class TestingFactory:
                         _progress("native_doc: leftover writer reset failed; keep")
                         doc = candidate
                         pooled = True
-                        writer_reused = doc_type == "writer"
                     else:
                         TestingFactory.close_doc(candidate)
                         doc = None
@@ -1789,15 +1671,8 @@ class TestingFactory:
                 if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
                     _NATIVE_DOC_POOL.mark_clean(doc, True)
                 pooled = True
-                writer_reused = False
         else:
             doc = TestingFactory.create_native_doc(ctx, doc_type=doc_type, hidden=hidden)
-            writer_reused = False
-        if doc_type == "writer":
-            # GHA 35470191616: leftover_open=0 still reuses. Tests that
-            # fail only on the pooled Writer (cross-para colors) read
-            # this flag — not leftover_open.
-            _set_windows_writer_pool_reused(writer_reused)
         if doc_type == "calc" and doc is not None:
             try:
                 from plugin.scripting.session_manager import calc_workbook_base_session_id
@@ -1992,26 +1867,21 @@ def execute_calc_tool(doc, ctx, name, args):
     return TestingFactory.execute_tool(doc, ctx, name, args, doc_type="calc")
 
 
-def native_writer_tool_context(doc, ctx, *, skip_reason: str | None = None):
+def native_writer_tool_context(doc, ctx):
     """Native Writer ToolContext via ``TestingFactory.create_context``.
 
-    ``skip_reason`` is the Windows leftover-Hidden skip string. The GHA comment
-    stays at the call site. ``doc_type`` stays the create_context default
-    (``writer``).
+    ``doc_type`` stays the create_context default (``writer``).
     """
-    if skip_reason:
-        skip_windows_leftover_hidden_load(skip_reason)
     return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
 
-def writer_services_tool_context(doc, ctx, *, skip_reason: str):
+def writer_services_tool_context(doc, ctx):
     """Writer ToolContext using live ``get_services()``.
 
     Page header/footer tools need the plugin registry. A partial bootstrap
     where ``get_services`` cannot be imported must still build a context
     (``services=None``) so the suite fails in the tool, not at import.
     """
-    skip_windows_leftover_hidden_load(skip_reason)
     from plugin.framework.tool import ToolContext
 
     services = None

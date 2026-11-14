@@ -11,7 +11,7 @@ from typing import Any
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
+from plugin.tests.testing_utils import with_native_doc
 
 
 def _ruby_portions(doc: Any) -> list[tuple[str, str, str | None]]:
@@ -36,7 +36,6 @@ def _ruby_portions(doc: Any) -> list[tuple[str, str, str | None]]:
 @with_native_doc("writer")
 def test_apply_ruby_html_creates_portions_and_round_trips_uno(ctx: Any, doc: Any) -> None:
     """StarWriter concatenates <rt>; apply must paint RubyText and get must emit <rt>."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
@@ -64,7 +63,6 @@ def test_apply_ruby_html_creates_portions_and_round_trips_uno(ctx: Any, doc: Any
 @with_native_doc("writer")
 def test_preserve_format_replace_keeps_existing_ruby_uno(ctx: Any, doc: Any) -> None:
     """Plain-text (format-preserving) replace of the base must not drop Ruby marks."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
@@ -93,7 +91,6 @@ def test_preserve_format_replace_keeps_existing_ruby_uno(ctx: Any, doc: Any) -> 
 @with_native_doc("writer")
 def test_apply_ruby_with_math_creates_ruby_on_both_bases_uno(ctx: Any, doc: Any) -> None:
     """A paragraph with a ruby, an inline formula, and a second ruby gets RubyText on both bases."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -113,7 +110,6 @@ def test_apply_ruby_with_math_creates_ruby_on_both_bases_uno(ctx: Any, doc: Any)
 @with_native_doc("writer")
 def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
     """Compare scratch getString() with html_to_search_text after ruby strip."""
-    skip_windows_leftover_hidden_load("html_to_search_text oracle swriter")
     from plugin.framework.html_stripper import html_to_search_text
     from plugin.writer.html_import import insert_html_fragment_at_cursor
     from plugin.writer.html_ruby import extract_and_strip_ruby
@@ -139,7 +135,6 @@ def test_html_to_search_text_oracle_uno(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_styled_insert_at_end_cursor_walk_uno(ctx: Any, doc: Any) -> None:
     """Twenty leading paragraphs, a one-paragraph data-lo-style insert at the end."""
-    skip_windows_leftover_hidden_load("styled_insert_at_end_cursor_walk_uno swriter")
     from plugin.writer.html_import import _insert_mixed_or_plain_html
 
     text = doc.getText()
@@ -489,7 +484,6 @@ def _assert_hanging_paragraph(para: Any) -> None:
 @with_native_doc("writer")
 def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: Any) -> None:
     """Paragraph direct formatting (alignment, margins, background) survives named style application."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
@@ -565,7 +559,6 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 @with_native_doc("writer")
 def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, doc: Any) -> None:
     """data-lo-para background-color is applied to the newly inserted paragraph at 'end' of non-empty doc."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     import uno
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -606,7 +599,6 @@ def test_apply_data_lo_para_insert_at_beginning_with_margin_uno(ctx: Any, doc: A
     the path where an off-by-one in the cursor walk would put the margin on the paragraph
     that was already in the document.
     """
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -708,7 +700,6 @@ def _seed_direct_margins(doc: Any) -> tuple[Any, int, int, tuple[int, int], Any,
 @with_native_doc("writer")
 def test_full_document_drops_old_first_paragraph_direct_margins_uno(ctx: Any, doc: Any) -> None:
     """full_document must clear absorb paragraph direct formatting before HTML import."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -754,7 +745,6 @@ def test_full_document_drops_old_first_paragraph_direct_margins_uno(ctx: Any, do
 @with_native_doc("writer")
 def test_full_document_review_margins_follow_new_style_and_reject_keeps_old_uno(ctx: Any, doc: Any) -> None:
     """In review mode, imported paragraphs drop absorb formatting and reject restores old formatting."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.writer.html_import import replace_full_document
 
     (

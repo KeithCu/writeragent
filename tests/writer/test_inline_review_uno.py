@@ -9,7 +9,7 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import agent_changes, skip_windows_leftover_hidden_load, with_native_doc
+from plugin.tests.testing_utils import agent_changes, with_native_doc
 from plugin.writer.edit_review import EditReviewSession
 from plugin.writer.inline_review import (
     _build_bounds_from_view,
@@ -35,11 +35,6 @@ def _find(doc, needle):
 
 def _body(doc, ctx, *paragraphs):
     """Reset the document body to the given paragraphs (no tracking)."""
-    # GHA 34687044125: leftover writer reuse then
-    # getViewCursor().gotoRange hung 30s in _caret_in
-    # (test_resolve_accept_keeps_new_and_clears_pair_uno). Hidden leftover
-    # Writers have no working view. Skip before caret / dispatch / resolve.
-    skip_windows_leftover_hidden_load("inline_review view cursor leftover reuse")
     text = doc.getText()
     doc.setPropertyValue("RecordChanges", False)
     cur = text.createTextCursor()

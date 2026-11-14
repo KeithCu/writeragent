@@ -17,7 +17,6 @@ from plugin.testing_runner import native_test
 from plugin.writer.styles import ApplyStyle, StyleUpdate
 from plugin.tests.testing_utils import (
     TestingFactory,
-    skip_windows_leftover_hidden_load,
     with_native_doc,
 )
 
@@ -111,20 +110,13 @@ def test_apply_style_known_limitation_direct_equals_old_default_uno(ctx, doc):
     DIRECTLY; apply Heading 1 (default bold=150). The ideal would be to stay 100, but
     today it becomes 150. This test PINS the current behavior; if we ever improve the
     origin detection, it fails and reminds us to update."""
-    # GHA 34683742049: leftover writer reuse (after Quotations apply) flipped
-    # this canary. Product still compares value vs old style default
-    # (format.apply_paragraph_style_preserving_direct_char); Linux still
-    # pins CharWeight=150. Not origin detection improved — leftover style
-    # table / para state is not a clean Standard→Heading 1 fixture.
-    skip_windows_leftover_hidden_load("apply_style origin canary leftover reuse")
     text = doc.getText()
     insert_cur = text.createTextCursor()
     text.insertString(insert_cur, "Directly-normal text.", False)
 
-    # Force Standard first. Leftover Heading 1 / Quotations (Windows pool
-    # reuse, leftover_open=0 so the skip above does not fire) makes
-    # re-applying Heading 1 a no-op for Char*, which looks like "origin
-    # detection improved" (GHA 35466498641). Read the real style defaults
+    # Force Standard first so the canary stays independent of a reused pooled
+    # Writer whose paragraph already has Heading 1 or Quotations; otherwise
+    # re-applying Heading 1 is a no-op for Char*. Read the real style defaults
     # instead of assuming Standard=100 / Heading 1=150.
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     standard = para_styles.getByName("Standard")

@@ -51,7 +51,7 @@ non-empty and equal (or unequal) across items — never pin a literal id.
 
 [`tests/writer/test_numbering_lists_uno.py`](../../tests/writer/test_numbering_lists_uno.py)
 builds the fixture in-process (`target='full_document'` HTML). It uses the
-same `@with_native_doc` / `skip_windows_leftover_hidden_load` pattern as other
+same `@with_native_doc` pattern as other
 `apply_document_content` Writer UNO suites.
 
 Notebook leftover-list leak checks stay in

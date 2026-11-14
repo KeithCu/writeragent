@@ -9,7 +9,7 @@ from typing import Any
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
+from tests.testing_utils import with_native_doc
 
 
 @native_test
@@ -17,11 +17,6 @@ from tests.testing_utils import skip_windows_leftover_hidden_load, with_native_d
 def test_range_export_keeps_bold_inside_odd_para_uno(ctx: Any, doc: Any) -> None:
     """Range export must still show emphasis when the source paragraph carries
     unusual Para* values. A refused Para* used to skip Char* paint entirely."""
-    # GHA 34690797019: leftover writer reuse then
-    # html_export._range_to_content_via_temp_doc Hidden `_default`
-    # hung 30s on temp_doc.close(True) after XHTML. SkipTest still
-    # runs finally — skip before the factory load.
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()
@@ -56,7 +51,6 @@ def test_range_export_keeps_bold_inside_odd_para_uno(ctx: Any, doc: Any) -> None
 @with_native_doc("writer")
 def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
     """_copy_cell_xtext used to skip in-cell TextTables; dest must keep the nest."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     text = doc.getText()
     outer = doc.createInstance("com.sun.star.text.TextTable")
     outer.initialize(2, 2)
@@ -108,7 +102,6 @@ def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
     """HTML copy used range(cols); after A1:D1 merge that dropped D2."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     text = doc.getText()
     table = doc.createInstance("com.sun.star.text.TextTable")
     table.initialize(5, 4)
@@ -167,7 +160,6 @@ def test_selection_export_returns_the_outline_entry_uno(ctx: Any, doc: Any) -> N
     the second paragraph, so an offset walk that lands early would export the
     body sentence instead.
     """
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
@@ -221,7 +213,6 @@ def test_split_outline_run_does_not_shift_the_next_href_uno(ctx: Any, doc: Any) 
 
     Writing one URL per portion used to put the first target on the second anchor.
     """
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
@@ -265,7 +256,6 @@ def test_split_outline_run_does_not_shift_the_next_href_uno(ctx: Any, doc: Any) 
 @with_native_doc("writer")
 def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> None:
     """A selection inside a real content index exports that entry, not the body sentence."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
     from tests.testing_utils import TestingFactory
@@ -340,7 +330,6 @@ def _assert_semantic_ruby(html: str) -> None:
 @with_native_doc("writer")
 def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -> None:
     """Full XHTML used to concatenate 漢字+かんじ; the agent must see <ruby>/<rt>."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
 
@@ -357,7 +346,6 @@ def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -
 @with_native_doc("writer")
 def test_range_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
     """Range copy used to drop RubyText; reading must still appear in <rt>."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
 
@@ -377,7 +365,6 @@ def test_range_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: An
 @native_test
 @with_native_doc("writer")
 def test_selection_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
@@ -416,7 +403,6 @@ def test_search_sees_ruby_base_not_reading_uno(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_export_table_cell_selection_uno(ctx: Any, doc: Any) -> None:
     """A selection inside a table cell must export correctly instead of returning empty."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
@@ -449,8 +435,6 @@ def test_export_table_cell_selection_uno(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_selection_and_range_export_includes_math_tex_uno(ctx: Any, doc: Any) -> None:
     """Selection and range export must preserve inline ($) and display ($$) formulas."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
-    skip_windows_leftover_hidden_load("math export Hidden _blank smath")
     from plugin.framework.tool import ToolContext
     from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
@@ -500,8 +484,6 @@ def test_selection_and_range_export_includes_math_tex_uno(ctx: Any, doc: Any) ->
 @with_native_doc("writer")
 def test_header_math_xtext_to_content_uno(ctx: Any, doc: Any) -> None:
     """A formula in a header must export its TeX through xtext_to_content."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
-    skip_windows_leftover_hidden_load("math export Hidden _blank smath")
     from plugin.writer.html_export import xtext_to_content
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
 
@@ -526,7 +508,6 @@ def test_range_and_header_reads_report_line_height_uno(ctx: Any, doc: Any) -> No
     """Range and header reads must report hand-set line height in data-lo-para."""
     import re
 
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.writer import html_export
 
     text = doc.getText()
@@ -563,7 +544,6 @@ def test_range_and_header_reads_report_line_height_uno(ctx: Any, doc: Any) -> No
 @with_native_doc("writer")
 def test_range_export_custom_para_style_keeps_name_uno(ctx: Any, doc: Any) -> None:
     """A custom paragraph style cloned into scratch keeps its name and avoids direct CSS."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     standard = para_styles.getByName("Standard")
     custom = doc.createInstance("com.sun.star.style.ParagraphStyle")
@@ -596,7 +576,6 @@ def test_range_export_custom_para_style_keeps_name_uno(ctx: Any, doc: Any) -> No
 @with_native_doc("writer")
 def test_range_export_parent_chain_names_the_child_uno(ctx: Any, doc: Any) -> None:
     """Cloning a child style copies missing parent styles first, preserving inheritance."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     parent_style = doc.createInstance("com.sun.star.style.ParagraphStyle")
     para_styles.insertByName("LetterParent", parent_style)
@@ -658,7 +637,6 @@ def test_range_export_parent_chain_names_the_child_uno(ctx: Any, doc: Any) -> No
 @with_native_doc("writer")
 def test_range_export_missing_follow_style_keeps_name_uno(ctx: Any, doc: Any) -> None:
     """A custom style whose FollowStyle is missing still exports its data-lo-style token."""
-    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
     style = doc.createInstance("com.sun.star.style.ParagraphStyle")
     para_styles.insertByName("FollowedHead", style)

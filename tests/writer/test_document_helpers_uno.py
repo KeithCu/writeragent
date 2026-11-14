@@ -7,7 +7,7 @@ from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_
 from plugin.doc.text_helpers import get_document_length
 from plugin.writer.edit_review import WriterStreamedRewriteSession
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, skip_windows_leftover_hidden_load, with_native_doc
+from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 
 def _populate_doc_helpers(doc):
@@ -142,8 +142,6 @@ def test_writer_streamed_rewrite_session_collapses_chunked_edit(ctx):
 def test_get_document_context_for_chat_hints_math_ole(ctx):
     from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
 
-    # GHA 34678020608: leftover Hidden _blank .mml hung after latex skip.
-    skip_windows_leftover_hidden_load("document helpers Hidden _blank .mml")
     with TestingFactory.native_doc(ctx, "writer") as doc:
         text = doc.getText()
         cursor = text.createTextCursor()

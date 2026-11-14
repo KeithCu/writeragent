@@ -60,9 +60,6 @@ def _get_document_content(doc, ctx, params):
 
 def _apply_document_content(doc, ctx, params):
     """Call real apply_document_content tool; returns dict."""
-    # GHA 34683742049: leftover Hidden _default apply hung after the
-    # first apply-suite skips. Later apply UNO files skip the same load.
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.app import get_tools
     content = params.get("content", "")
     if isinstance(content, list):
@@ -92,11 +89,7 @@ def _find_text(doc, params):
 
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import (
-    skip_windows_leftover_hidden_load,
-    skip_windows_pooled_writer_reuse,
-    with_native_doc,
-)
+from plugin.tests.testing_utils import with_native_doc
 
 
 def _read_doc_text(d):
@@ -369,18 +362,6 @@ def _letter_colors_from_range(doc, range_cursor):
 @with_native_doc("writer")
 def test_cross_paragraph_same_length_replacement_preserves_colors(ctx, doc):
     """replace_preserving_format across a paragraph break keeps per-char background colors."""
-    # GHA 34685648395: leftover_open>0 reuse failed a bare color assert
-    # (empty AssertionError). Same leftover-pollution class as the
-    # apply-style origin canary — not a product color regression.
-    skip_windows_leftover_hidden_load("format_uno cross-paragraph color leftover reuse")
-    # GHA 35470191616 (master c4fdbee, #809): leftover_open=0 after
-    # impress recycle still printed native_doc leftover writer reuse.
-    # skip_windows_leftover_hidden_load did not fire. Sibling
-    # test_same_length_replacement_preserves_colors passed on that
-    # reuse path — leftover body/findFirst pollution, not html_import.py.
-    # #809's \r\n color filter was not enough. Do not factory-load a
-    # second Hidden _blank (34652644656 hung 30s at leftover_open=0).
-    skip_windows_pooled_writer_reuse("format_uno cross-paragraph color pooled reuse")
     text = doc.getText()
     sep = text.createTextCursor()
     sep.gotoEnd(False)
@@ -640,11 +621,6 @@ def test_apply_document_content_target_range_preserves_colors(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_target_full_preserves_colors(ctx, doc):
-    # GHA 34685648395: apply skip inside _apply_document_content fired,
-    # then finally small_doc.close(True) hung 30s. Leftover Hidden
-    # `_blank` + raw close (same family as document-scripts reopen).
-    # Skip before the factory load so finally never runs.
-    skip_windows_leftover_hidden_load("format_uno Hidden _blank small_doc")
     desktop = get_desktop(ctx)
     import uno
     hidden_prop = uno.createUnoStruct(

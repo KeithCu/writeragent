@@ -12,10 +12,7 @@ from plugin.writer.apply_document_content import ApplyDocumentContent
 
 
 def _tool_ctx(doc, ctx):
-    # GHA 34681661844: avoid windows leftover hidden apply hangs.
-    return native_writer_tool_context(
-        doc, ctx, skip_reason="apply_document_content Hidden _default swriter"
-    )
+    return native_writer_tool_context(doc, ctx)
 
 
 @native_test

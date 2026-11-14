@@ -18,7 +18,6 @@ from plugin.testing_runner import native_test
 from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.tests.testing_utils import (
     TestingFactory,
-    skip_windows_leftover_hidden_load,
     with_native_doc,
 )
 
@@ -28,7 +27,6 @@ from plugin.tests.testing_utils import (
 def test_apply_document_content_edits_table_cell_uno(ctx, doc):
     """Editing a cell's text via target='search' should work; it used to raise a
     cursor RuntimeException (body XText vs the cell's XText)."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     text = doc.getText()
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(3, 2)
@@ -48,7 +46,6 @@ def test_apply_document_content_edits_table_cell_uno(ctx, doc):
 @with_native_doc("writer")
 def test_apply_document_content_refuses_host_cell_with_nested_table_uno(ctx, doc):
     """Rewriting a host cell via apply_document_content would wipe the nested table."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     text = doc.getText()
     outer = doc.createInstance("com.sun.star.text.TextTable")
     outer.initialize(2, 2)
@@ -97,7 +94,6 @@ def _reject_all(doc, ctx):
 @with_native_doc("writer")
 def test_empty_one_cell_leaves_the_table_uno(ctx, doc):
     """Clearing one cell while a sibling still has text is a text edit, not a table delete."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     table = _insert_table(doc, "Fee", 2, 2, {"A1": "Custas", "B1": "Honorarios"})
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
@@ -115,7 +111,6 @@ def test_empty_one_cell_leaves_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_empty_replacement_of_the_last_text_deletes_the_table_uno(ctx, doc):
     """The office failure: blanking the table's only text used to leave the shell and report success."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     text = doc.getText()
     _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     text.insertString(text.getEnd(), "KEEP_OUTSIDE", False)
@@ -134,7 +129,6 @@ def test_empty_replacement_of_the_last_text_deletes_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_substring_clear_inside_a_cell_keeps_the_table_uno(ctx, doc):
     """Deleting part of a cell is not deleting the table, even when the other cells are empty."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     table = _insert_table(doc, "Fee", 1, 1, {"A1": "Custas processuais"})
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(
@@ -152,7 +146,6 @@ def test_substring_clear_inside_a_cell_keeps_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_emptying_an_inner_table_deletes_only_the_inner_table_uno(ctx, doc):
     """The inner table's last text deletes that table. The outer table and its other cell stay."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     outer = _insert_table(doc, "Outer", 2, 2, {"A1": "KEEP_HOST"})
     host = outer.getCellByName("B2")
     inner = doc.createInstance("com.sun.star.text.TextTable")
@@ -177,7 +170,6 @@ def test_emptied_table_stays_until_review_accept_uno(ctx, doc):
     """Under review the delete is a tracked change. removeTextContent would drop the table with no redline."""
     from plugin.framework.config import get_config, save
 
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     before = doc.getRedlines().getCount()
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
@@ -205,7 +197,6 @@ def test_rejecting_the_emptied_table_restores_it_uno(ctx, doc):
     """Rejecting the tracked delete puts the table and its text back."""
     from plugin.framework.config import get_config, save
 
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "Fee", 2, 2, {"A1": "ONLY_FEE"})
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     flag = "doc.agent_edit_review_mode"
@@ -238,7 +229,6 @@ def test_all_matches_of_every_remaining_cell_deletes_the_table_uno(ctx, doc):
     Those matches must not also be cleared as text: that would be a second redline on a
     table the delete already removes.
     """
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE", all_matches=True)
     assert res.get("status") == "ok", res
@@ -251,7 +241,6 @@ def test_all_matches_of_every_remaining_cell_deletes_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_all_matches_clears_body_text_and_deletes_the_table_uno(ctx, doc):
     """A body hit of the same string is a text edit. The table whose only text is that string is deleted."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     text = doc.getText()
     text.insertString(text.getEnd(), "FEE", False)
     _insert_table(doc, "Fee", 1, 1, {"A1": "FEE"})
@@ -269,7 +258,6 @@ def test_all_matches_clears_body_text_and_deletes_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_all_matches_deletes_every_table_whose_only_text_is_that_string_uno(ctx, doc):
     """Two tables, each with only that string, both go. table_deleted is the list of names."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
     _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE", all_matches=True)
@@ -283,7 +271,6 @@ def test_all_matches_deletes_every_table_whose_only_text_is_that_string_uno(ctx,
 @with_native_doc("writer")
 def test_all_matches_keeps_the_table_when_one_cell_has_more_text_uno(ctx, doc):
     """One fully covered cell must not condemn a sibling that still has other text."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     table = _insert_table(doc, "Fee", 1, 2, {"A1": "FEE", "B1": "FEE extra"})
     res = _apply_clear(ctx, doc, "FEE", all_matches=True)
     assert res.get("status") == "ok", res
@@ -299,7 +286,6 @@ def test_all_matches_keeps_the_table_when_one_cell_has_more_text_uno(ctx, doc):
 @with_native_doc("writer")
 def test_first_match_deletes_only_the_first_table_uno(ctx, doc):
     """The same last-text string in two tables: the default search deletes only the first."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
     _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE")
@@ -314,7 +300,6 @@ def test_first_match_deletes_only_the_first_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_occurrence_deletes_only_the_second_table_uno(ctx, doc):
     """occurrence=1 is the second table, not both."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     _insert_table(doc, "FeeA", 1, 1, {"A1": "FEE"})
     _insert_table(doc, "FeeB", 1, 1, {"A1": "FEE"})
     res = _apply_clear(ctx, doc, "FEE", occurrence=1)
@@ -333,7 +318,6 @@ def test_empty_host_caption_refuses_and_keeps_the_nested_table_uno(ctx, doc):
     The outer table must not be auto-deleted, and the text replace must still refuse:
     setString on the host cell would wipe the inner table.
     """
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     outer = _insert_table(doc, "Outer", 1, 1, {"A1": "HOST_CAPTION"})
     host = outer.getCellByName("A1")
     inner = doc.createInstance("com.sun.star.text.TextTable")
@@ -355,7 +339,6 @@ def test_empty_host_caption_refuses_and_keeps_the_nested_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_empty_replacement_of_a_merged_banner_deletes_the_table_uno(ctx, doc):
     """A merged A1:B1 is one cell. Covered names are absent from getCellNames; the banner is the last text."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     table = _insert_table(doc, "Fee", 2, 2, {"A1": "BANNER"})
     cursor = table.createCursorByCellName("A1")
     cursor.gotoCellByName("B1", True)
@@ -379,7 +362,6 @@ def _cell_with_two_paragraphs(cell, first, second):
 @with_native_doc("writer")
 def test_clearing_the_first_paragraph_of_a_cell_keeps_the_table_uno(ctx, doc):
     """A match of one paragraph is not the cell's whole text, so the table stays."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     table = _insert_table(doc, "Fee", 1, 1, {})
     cell = table.getCellByName("A1")
     _cell_with_two_paragraphs(cell, "Line1", "Line2")
@@ -396,7 +378,6 @@ def test_clearing_the_first_paragraph_of_a_cell_keeps_the_table_uno(ctx, doc):
 @with_native_doc("writer")
 def test_empty_replacement_of_a_two_paragraph_cell_deletes_the_table_uno(ctx, doc):
     """The cell's own getString is the last text. Search must agree with that string or the shell stays."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     table = _insert_table(doc, "Fee", 1, 1, {})
     cell = table.getCellByName("A1")
     _cell_with_two_paragraphs(cell, "Line1", "Line2")
@@ -412,7 +393,6 @@ def test_empty_replacement_of_a_two_paragraph_cell_deletes_the_table_uno(ctx, do
 @with_native_doc("writer")
 def test_apply_document_content_table_position_after_uno(ctx, doc):
     """Tip: inserting a table with position='after' must preserve the table, not delete it."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     text = doc.getText()
     cur = text.createTextCursor()
     text.insertString(cur, "Header paragraph", False)
@@ -440,7 +420,6 @@ def test_apply_document_content_table_position_after_uno(ctx, doc):
 @with_native_doc("writer")
 def test_apply_document_content_table_failure_reported_uno(ctx, doc):
     """Tip: tool must report failure honestly if a table insert produces no table."""
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from unittest.mock import patch
     from plugin.writer import html_import
 
