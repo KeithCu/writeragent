@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from plugin.calc.python.editor import (
     apply_cell_save,
     _resolve_code_ref_cell,
@@ -366,48 +368,25 @@ def test_follow_preserves_relative_and_mixed_abs_tokens_on_data_change():
         assert code_cell.getString() == "result = 1"
 
 
-def test_follow_sheet_qualified_ref_resolves_other_sheet():
-    sheet1 = CalcSheetStub("Sheet1")
-    sheet2 = CalcSheetStub("Sheet2")
-    doc = CalcDocStub(sheets=[sheet1, sheet2])
-    code_cell = sheet2.getCellByPosition(0, 0)
-    code_cell.setString("result = 7")
-    formula_cell = sheet1.getCellByPosition(1, 0)
-    formula_cell.setFormula("=PY(Sheet2.A1; C1:C10)")
-    parts = PyFormula.parse(formula_cell.getFormula())
-    assert parts is not None
-    assert parts.code == "Sheet2.A1"
-    resolved = _resolve_code_ref_cell(doc, parts.code)
-    assert resolved is code_cell
-
-    result = apply_cell_save(
-        doc,
-        formula_cell,
-        parsed_parts=parts,
-        new_code="result = 8",
-        save_as_plain=False,
-        data_binding_text="D1:D2",
-        code_cell=code_cell,
-        code_ref=parts.code,
-    )
-    assert result["ok"] is True
-    assert code_cell.getString() == "result = 8"
-    formula = formula_cell.getFormula()
-    assert "Sheet2.A1" in formula
-    assert "D1:D2" in formula
-    assert formula.count(")") == 1
-
-
-def test_follow_quoted_sheet_name_resolves():
-    data_sheet = CalcSheetStub("My Sheet")
+@pytest.mark.parametrize(
+    ("data_sheet_name", "code_pos", "formula_pos", "code_ref"),
+    [
+        pytest.param("Sheet2", (0, 0), (1, 0), "Sheet2.A1", id="unquoted-sheet"),
+        pytest.param("My Sheet", (1, 1), (0, 0), "'My Sheet'.$B$2", id="quoted-sheet"),
+        pytest.param("O'Brien", (1, 1), (0, 0), "'O''Brien'.$B$2", id="apostrophe-sheet"),
+    ],
+)
+def test_follow_sheet_qualified_ref_resolves(data_sheet_name, code_pos, formula_pos, code_ref):
     formula_sheet = CalcSheetStub("Sheet1")
+    data_sheet = CalcSheetStub(data_sheet_name)
     doc = CalcDocStub(sheets=[formula_sheet, data_sheet])
-    code_cell = data_sheet.getCellByPosition(1, 1)
+    code_cell = data_sheet.getCellByPosition(*code_pos)
     code_cell.setString("result = 3")
-    formula_cell = formula_sheet.getCellByPosition(0, 0)
-    formula_cell.setFormula("=PY('My Sheet'.$B$2; C1:C10)")
+    formula_cell = formula_sheet.getCellByPosition(*formula_pos)
+    formula_cell.setFormula(f"=PY({code_ref}; C1:C10)")
     parts = PyFormula.parse(formula_cell.getFormula())
     assert parts is not None
+    assert parts.code == code_ref
     resolved = _resolve_code_ref_cell(doc, parts.code)
     assert resolved is code_cell
 
@@ -424,38 +403,7 @@ def test_follow_quoted_sheet_name_resolves():
     assert result["ok"] is True
     assert code_cell.getString() == "result = 4"
     formula = formula_cell.getFormula()
-    assert "'My Sheet'.$B$2" in formula
-    assert "D1:D2" in formula
-    assert formula.count(")") == 1
-
-
-def test_follow_apostrophe_sheet_name_resolves():
-    data_sheet = CalcSheetStub("O'Brien")
-    formula_sheet = CalcSheetStub("Sheet1")
-    doc = CalcDocStub(sheets=[formula_sheet, data_sheet])
-    code_cell = data_sheet.getCellByPosition(1, 1)
-    code_cell.setString("result = 3")
-    formula_cell = formula_sheet.getCellByPosition(0, 0)
-    formula_cell.setFormula("=PY('O''Brien'.$B$2; C1:C10)")
-    parts = PyFormula.parse(formula_cell.getFormula())
-    assert parts is not None
-    resolved = _resolve_code_ref_cell(doc, parts.code)
-    assert resolved is code_cell
-
-    result = apply_cell_save(
-        doc,
-        formula_cell,
-        parsed_parts=parts,
-        new_code="result = 4",
-        save_as_plain=False,
-        data_binding_text="D1:D2",
-        code_cell=code_cell,
-        code_ref=parts.code,
-    )
-    assert result["ok"] is True
-    assert code_cell.getString() == "result = 4"
-    formula = formula_cell.getFormula()
-    assert "'O''Brien'.$B$2" in formula
+    assert code_ref in formula
     assert "D1:D2" in formula
     assert formula.count(")") == 1
 

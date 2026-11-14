@@ -111,7 +111,12 @@ def test_finalize_python_return_scalar_nan_becomes_error() -> None:
     assert math.isnan(val)
 
 
-def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.fixture
+def _image_egress_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub tempfile, uno, and com.sun.star.awt for image-egress unit tests."""
+    import sys
+    import plugin.scripting.payload_codec as payload_codec
+
     class _TmpFile:
         name = "/tmp/fake.png"
 
@@ -124,21 +129,23 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
         def write(self, _data):
             return None
 
-    import plugin.scripting.payload_codec as payload_codec
-
-    monkeypatch.setattr(payload_codec.tempfile, "NamedTemporaryFile", lambda **kwargs: _TmpFile())
-
     class _UnoModule:
         @staticmethod
         def systemPathToFileUrl(path: str) -> str:
             return f"file://{path}"
 
-    import sys
-
+    monkeypatch.setattr(payload_codec.tempfile, "NamedTemporaryFile", lambda **kwargs: _TmpFile())
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
+    awt_mod = SimpleNamespace(
+        Size=lambda w, h: SimpleNamespace(Width=w, Height=h),
+        Point=lambda x, y: SimpleNamespace(X=x, Y=y),
+    )
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
+
+def test_insert_image_result_uses_merged_safe_geometry(
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
+) -> None:
     doc = CalcDocStub(selection="C4")
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
@@ -158,35 +165,10 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
     shape.setPropertyValue.assert_any_call("ResizeWithCell", True)
 
 
-def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_insert_image_result_thin_merged_cell_preserves_default_size(
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
+) -> None:
     """A 1-row thin merged block (e.g. A1:H1 banner) uses DEFAULT_CHART_SIZE and ResizeWithCell=False."""
-    class _TmpFile:
-        name = "/tmp/fake.png"
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return None
-
-        def write(self, _data):
-            return None
-
-    import plugin.scripting.payload_codec as payload_codec
-
-    monkeypatch.setattr(payload_codec.tempfile, "NamedTemporaryFile", lambda **kwargs: _TmpFile())
-
-    class _UnoModule:
-        @staticmethod
-        def systemPathToFileUrl(path: str) -> str:
-            return f"file://{path}"
-
-    import sys
-
-    monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
-    monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
-
     doc = CalcDocStub(selection="A1")
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
@@ -208,37 +190,10 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
 
 
 def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_active(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
 ) -> None:
     """Issue #385: When Overview is active, plots for formulas on Viz_Gallery land on Viz_Gallery."""
     from plugin.tests.testing_utils import CalcSheetStub
-
-    class _TmpFile:
-        name = "/tmp/fake.png"
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return None
-
-        def write(self, _data):
-            return None
-
-    import plugin.scripting.payload_codec as payload_codec
-
-    monkeypatch.setattr(payload_codec.tempfile, "NamedTemporaryFile", lambda **kwargs: _TmpFile())
-
-    class _UnoModule:
-        @staticmethod
-        def systemPathToFileUrl(path: str) -> str:
-            return f"file://{path}"
-
-    import sys
-
-    monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
-    monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     sheet_overview = CalcSheetStub("Overview")
     sheet_viz = CalcSheetStub("Viz_Gallery")
@@ -256,7 +211,6 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
     code_str = "plt.figure(); plt.plot([1, 2, 3]); plt.title('Sales Trend')"
     viz_cell.setFormula(f'=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("{code_str}")')
     viz_cell.IsMerged = True
-
 
     pos = SimpleNamespace(X=5000, Y=3000)
     size = SimpleNamespace(Width=9000, Height=6000)
@@ -292,34 +246,9 @@ def test_locate_formula_cell_in_doc_finds_on_secondary_sheet() -> None:
     assert coords == (6, 3)
 
 
-def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _TmpFile:
-        name = "/tmp/fake.png"
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return None
-
-        def write(self, _data):
-            return None
-
-    import plugin.scripting.payload_codec as payload_codec
-
-    monkeypatch.setattr(payload_codec.tempfile, "NamedTemporaryFile", lambda **kwargs: _TmpFile())
-
-    class _UnoModule:
-        @staticmethod
-        def systemPathToFileUrl(path: str) -> str:
-            return f"file://{path}"
-
-    import sys
-
-    monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: SimpleNamespace(Width=w, Height=h), Point=lambda x, y: SimpleNamespace(X=x, Y=y))
-    monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
-
+def test_insert_image_result_unmerged_single_cell_default_size(
+    monkeypatch: pytest.MonkeyPatch, _image_egress_env: None
+) -> None:
     doc = CalcDocStub(selection="C4")
     shape = MagicMock()
     doc._created["com.sun.star.drawing.GraphicObjectShape"] = shape
@@ -733,18 +662,22 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         reset_calc_workbook_states()
 
 
-def test_build_cell_context_off_main_skips_uno_for_origin_and_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.framework.queue_executor import Policy, main
-
-    main.install(Policy.test_inline)
-
-    # Off main thread, build_cell_context must not touch UNO (Issue #402).
+def test_build_cell_context_off_main_skips_uno_and_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #402: off main, build_cell_context must not touch UNO; the caller doc is only passed through because its init script is UNO."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
-    ctx = MagicMock()
-    cell = _cell(ctx, "print('hello')")
-    assert cell.origin is None and cell.session_id is None and cell.is_matrix is False
-    assert cell.init_kwargs == {}
+    def boom(_doc: object) -> dict[str, Any]:
+        raise AssertionError("must not read document scripts off-main")
+
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", boom)
+
+    doc = MagicMock()
+    doc.getURL.side_effect = AssertionError("getURL off main")
+    for target_doc in (None, doc):
+        cell = _cell(MagicMock(), "print('hello')", target_doc, on_main=False)
+        assert cell.origin is None and cell.session_id is None and cell.is_matrix is False
+        assert cell.init_kwargs == {}
+    doc.getURL.assert_not_called()
 
 
 def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1135,15 +1068,6 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
         assert "code:b" in state_b.debounce.pending_for_tests()
     finally:
         _clear_spill_timer_registry()
-
-
-def test_build_cell_context_off_main_skips_locate_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    doc = MagicMock()
-    doc.getURL.side_effect = AssertionError("getURL off main")
-    cell = _cell(MagicMock(), "print('hello')", doc, on_main=False)
-    assert cell.origin is None and cell.session_id is None and cell.is_matrix is False
-    doc.getURL.assert_not_called()
 
 
 def test_finalize_python_return_off_main_skips_session_key_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1686,18 +1610,6 @@ def test_ragged_results_handling() -> None:
     assert _addin_values.result_as_spill_grid([1, 2, 3]) == [[1], [2], [3]]
     assert _addin_values.result_as_spill_grid([]) == []
 
-
-
-def test_build_cell_context_off_main_returns_empty_init_kwargs_without_touching_doc(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Off-main the caller doc is only passed through: its init script is UNO."""
-
-    def boom(_doc: object) -> dict[str, Any]:
-        raise AssertionError("must not read document scripts off-main")
-
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", boom)
-    cell = _cell(MagicMock(), "", CalcDocStub(), on_main=False)
-    assert cell.init_kwargs == {}
 
 
 def test_build_cell_context_without_doc_does_not_guess_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:

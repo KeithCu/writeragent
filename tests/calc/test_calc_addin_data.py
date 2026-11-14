@@ -23,6 +23,7 @@ from plugin.calc.calc_addin_data import (
     values_from_inspector_range,
 )
 from plugin.framework.errors import DocumentDisposedError
+from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
 from plugin.scripting.config_limits import _schema_int
 from plugin.scripting.payload_codec import is_multi_data, is_split_grid, wire_cell_count
@@ -89,23 +90,18 @@ def test_finalize_python_data_already_flat_becomes_row():
     assert finalize_python_data([1, 2]) == [[1, 2]]
 
 
-def test_finalize_python_data_namedtuple_is_scalar_wrap():
+@pytest.mark.parametrize(
+    "fn",
+    [finalize_python_data, ensure_rectangular_2d, calc_addin_data_to_python],
+    ids=["finalize_python_data", "ensure_rectangular_2d", "calc_addin_data_to_python"],
+)
+def test_namedtuple_is_scalar_wrap(fn):
     """Namedtuple subclasses tuple but is not a Calc grid (CrossHair SplitResultBytes case)."""
     from collections import namedtuple
 
     SplitResultBytes = namedtuple("SplitResultBytes", "a b c d e")
     raw = SplitResultBytes([], "", "", 0, 0)
-    assert finalize_python_data(raw) == [[raw]]
-
-
-def test_ensure_rectangular_2d_namedtuple_is_scalar_wrap():
-    from collections import namedtuple
-
-    from plugin.scripting.calc_range import ensure_rectangular_2d
-
-    Row = namedtuple("Row", "x y")
-    raw = Row(1, 2)
-    assert ensure_rectangular_2d(raw) == [[raw]]
+    assert fn(raw) == [[raw]]
 
 
 def test_pack_calc_data_for_wire_uses_split_grid_at_threshold():
@@ -254,14 +250,6 @@ def test_dict_is_one_cell_not_rows():
 
 def test_set_is_one_cell_not_rows():
     assert calc_addin_data_to_python({1, 2}) == [[{1, 2}]]
-
-
-def test_namedtuple_is_one_cell_not_rows():
-    from collections import namedtuple
-
-    Row = namedtuple("Row", "x y")
-    raw = Row(1, 2)
-    assert calc_addin_data_to_python(raw) == [[raw]]
 
 
 def test_normalize_data_range_addresses_skips_non_strings():
