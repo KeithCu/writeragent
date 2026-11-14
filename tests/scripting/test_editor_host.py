@@ -1861,30 +1861,22 @@ def test_queue_save_then_load_true_when_request_sent():
         _reset_persistent_editor()
 
 
-def test_force_internal_change_terminates_without_clearing_probe_cache():
+@pytest.mark.parametrize(
+    ("kwargs", "expect_terminate"),
+    [
+        ({"key": "scripting.force_internal_script_editor"}, True),
+        ({"key": "", "keys": ("scripting.force_internal_script_editor",)}, True),
+        ({"key": "audio.tts_enabled"}, False),
+    ],
+    ids=["force_internal_key", "force_internal_keys", "unrelated_key"],
+)
+def test_on_config_changed_force_internal_and_unrelated_preserve_probe_cache(kwargs, expect_terminate):
     exe = "/tmp/writeragent-probe-force-internal"
     launch_mod._PROBE_CACHE[exe] = (True, "ok")
     try:
         with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-            launch_mod._on_config_changed(key="scripting.force_internal_script_editor")
-            mock_term.assert_called_once()
-            assert exe in launch_mod._PROBE_CACHE
-
-        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-            launch_mod._on_config_changed(key="", keys=("scripting.force_internal_script_editor",))
-            mock_term.assert_called_once()
-            assert exe in launch_mod._PROBE_CACHE
-    finally:
-        launch_mod._PROBE_CACHE.pop(exe, None)
-
-
-def test_unrelated_config_key_does_not_terminate_editor():
-    exe = "/tmp/writeragent-probe-unrelated"
-    launch_mod._PROBE_CACHE[exe] = (True, "ok")
-    try:
-        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-            launch_mod._on_config_changed(key="audio.tts_enabled")
-            mock_term.assert_not_called()
+            launch_mod._on_config_changed(**kwargs)
+            assert mock_term.call_count == (1 if expect_terminate else 0)
             assert exe in launch_mod._PROBE_CACHE
     finally:
         launch_mod._PROBE_CACHE.pop(exe, None)
@@ -2196,42 +2188,37 @@ def test_probe_webview_missing_returns_false_for_both_backends():
         launch_mod.reset_webview_probe_state_for_tests()
 
 
-def test_config_change_python_editor_terminates_editor_and_clears_probe_caches():
-    exe = "/tmp/writeragent-probe-python-editor"
+@pytest.fixture
+def reset_probe_state():
     launch_mod.reset_webview_probe_state_for_tests()
+    try:
+        yield
+    finally:
+        launch_mod.reset_webview_probe_state_for_tests()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expect_clear_and_terminate"),
+    [
+        ({"key": "scripting.python_editor"}, True),
+        ({"key": "", "keys": ("scripting.python_editor",)}, True),
+        ({"key": "", "keys": ("scripting.python_session_mode",)}, False),
+    ],
+    ids=["python_editor_key", "python_editor_keys", "unrelated_session_mode"],
+)
+def test_config_change_probe_cache_and_editor_termination(reset_probe_state, kwargs, expect_clear_and_terminate):
+    exe = "/tmp/writeragent-probe-python-editor"
     launch_mod._PROBE_CACHE[exe] = (True, "ok")
     launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
-    try:
-        with patch.object(launch_mod, "resolve_editor_python", return_value=(None, "")):
-            with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-                launch_mod._on_config_changed(key="scripting.python_editor")
-                mock_term.assert_called_once()
-                assert exe not in launch_mod._PROBE_CACHE
-                assert exe not in launch_mod._PROBE_FAILURE_CACHE
-
-            launch_mod._PROBE_CACHE[exe] = (True, "ok")
-            launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
-
-            with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-                launch_mod._on_config_changed(key="", keys=("scripting.python_editor",))
-                mock_term.assert_called_once()
-                assert exe not in launch_mod._PROBE_CACHE
-                assert exe not in launch_mod._PROBE_FAILURE_CACHE
-    finally:
-        launch_mod.reset_webview_probe_state_for_tests()
-
-
-def test_config_change_unrelated_key_keeps_editor_and_probe_cache():
-    exe = "/tmp/writeragent-probe-unrelated-key"
-    launch_mod.reset_webview_probe_state_for_tests()
-    launch_mod._PROBE_CACHE[exe] = (True, "ok")
-    try:
+    with patch.object(launch_mod, "resolve_editor_python", return_value=(None, "")):
         with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-            launch_mod._on_config_changed(key="", keys=("scripting.python_session_mode",))
-            mock_term.assert_not_called()
-            assert launch_mod._PROBE_CACHE[exe] == (True, "ok")
-    finally:
-        launch_mod.reset_webview_probe_state_for_tests()
+            launch_mod._on_config_changed(**kwargs)
+            assert mock_term.call_count == (1 if expect_clear_and_terminate else 0)
+            if expect_clear_and_terminate:
+                assert exe not in launch_mod._PROBE_CACHE
+                assert exe not in launch_mod._PROBE_FAILURE_CACHE
+            else:
+                assert launch_mod._PROBE_CACHE[exe] == (True, "ok")
 
 
 def test_monaco_editor_available_pending_does_not_run_subprocess():
@@ -2254,48 +2241,32 @@ def test_monaco_editor_available_pending_does_not_run_subprocess():
         launch_mod.reset_webview_probe_state_for_tests()
 
 
-def test_venv_path_change_schedules_one_webview_probe():
+@pytest.mark.parametrize(
+    ("kwargs", "send_twice"),
+    [
+        ({"key": "scripting.python_venv_path"}, True),
+        ({"key": "", "keys": ("scripting.python_venv_path",)}, False),
+        ({"key": "scripting.python_editor"}, False),
+    ],
+    ids=["venv_path_key_dedupes", "venv_path_keys", "python_editor_key"],
+)
+def test_venv_path_change_schedules_one_webview_probe(reset_probe_state, kwargs, send_twice):
     exe = "/venv/bin/python"
-    try:
-        launch_mod.reset_webview_probe_state_for_tests()
-        with (
-            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
-            patch.object(launch_mod, "run_in_background") as mock_bg,
-            patch.object(launch_mod, "terminate_persistent_editor"),
-        ):
-            launch_mod._on_config_changed(key="scripting.python_venv_path")
-            assert mock_bg.call_count == 1
-            assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
-            assert mock_bg.call_args[1].get("name") == "webview-probe"
-            assert mock_bg.call_args[1].get("dedicated") is False
-            assert launch_mod._probe_running is True
+    with (
+        patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
+        patch.object(launch_mod, "run_in_background") as mock_bg,
+        patch.object(launch_mod, "terminate_persistent_editor"),
+    ):
+        launch_mod._on_config_changed(**kwargs)
+        assert mock_bg.call_count == 1
+        assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
+        assert mock_bg.call_args[1].get("name") == "webview-probe"
+        assert mock_bg.call_args[1].get("dedicated") is False
+        assert launch_mod._probe_running is True
 
-            launch_mod._on_config_changed(key="scripting.python_venv_path")
+        if send_twice:
+            launch_mod._on_config_changed(**kwargs)
             assert mock_bg.call_count == 1
-
-        launch_mod.reset_webview_probe_state_for_tests()
-        with (
-            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
-            patch.object(launch_mod, "run_in_background") as mock_bg,
-            patch.object(launch_mod, "terminate_persistent_editor"),
-        ):
-            launch_mod._on_config_changed(key="", keys=("scripting.python_venv_path",))
-            assert mock_bg.call_count == 1
-            assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
-            assert mock_bg.call_args[1].get("name") == "webview-probe"
-
-        launch_mod.reset_webview_probe_state_for_tests()
-        with (
-            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
-            patch.object(launch_mod, "run_in_background") as mock_bg,
-            patch.object(launch_mod, "terminate_persistent_editor"),
-        ):
-            launch_mod._on_config_changed(key="scripting.python_editor")
-            assert mock_bg.call_count == 1
-            assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
-            assert mock_bg.call_args[1].get("name") == "webview-probe"
-    finally:
-        launch_mod.reset_webview_probe_state_for_tests()
 
 
 def test_venv_path_change_with_force_internal_does_not_probe():

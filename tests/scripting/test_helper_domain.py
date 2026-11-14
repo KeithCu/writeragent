@@ -85,98 +85,94 @@ def test_writeragent_import_call_is_a_helper_spec():
     assert ScriptFacts.from_source(code).calls("run_text_analytics") is False
 
 
-def test_direct_call_units_positional_prefix_and_keywords():
-    code1 = (
-        "from writeragent.scripting.units import convert_quantity\n"
-        'convert_quantity(data, from_unit="m/s", to_unit="km/h")\n'
-    )
-    assert ScriptFacts.from_source(code1).first_run_spec("run_units") == {
-        "helper": "convert_quantity",
-        "params": {"value": "data", "from_unit": "m/s", "to_unit": "km/h"},
-    }
-
-    code2 = (
-        "from writeragent.scripting.units import convert_quantity\n"
-        'convert_quantity(1, "m", "km", value=5)\n'
-    )
-    assert ScriptFacts.from_source(code2).first_run_spec("run_units") == {
-        "helper": "convert_quantity",
-        "params": {"value": 5, "from": "m", "to": "km"},
-    }
-
-    code3 = (
-        "from writeragent.scripting.units import convert_quantity\n"
-        'convert_quantity(data, "m")\n'
-    )
-    assert ScriptFacts.from_source(code3).first_run_spec("run_units") == {
-        "helper": "convert_quantity",
-        "params": {"value": "data", "from": "m"},
-    }
-
-    code4 = (
-        "from writeragent.scripting.units import format_quantity\n"
-        'format_quantity(50, "m", ".2f")\n'
-    )
-    assert ScriptFacts.from_source(code4).first_run_spec("run_units") == {
-        "helper": "format_quantity",
-        "params": {"magnitude": 50, "units": "m", "format_spec": ".2f"},
-    }
-
-    code5 = (
-        "from writeragent.scripting.units import format_quantity\n"
-        "format_quantity(50)\n"
-    )
-    spec5 = ScriptFacts.from_source(code5).first_run_spec("run_units")
-    assert spec5 is not None
-    assert spec5["params"] == {"magnitude": 50}
-    assert "quantity" not in spec5["params"]
-
-    code6 = (
-        "from writeragent.scripting.units import parse_quantity\n"
-        'parse_quantity("10 m/s")\n'
-    )
-    assert ScriptFacts.from_source(code6).first_run_spec("run_units") == {
-        "helper": "parse_quantity",
-        "params": {"quantity": "10 m/s"},
-    }
-
-    code7 = (
-        "from writeragent.scripting.units import check_dimensionality\n"
-        'check_dimensionality("10 m", "10 ft")\n'
-    )
-    assert ScriptFacts.from_source(code7).first_run_spec("run_units") == {
-        "helper": "check_dimensionality",
-        "params": {"quantity_a": "10 m", "quantity_b": "10 ft"},
-    }
-
-    code8 = (
-        "from writeragent.scripting.units import check_dimensionality\n"
-        'check_dimensionality("10 m")\n'
-    )
-    assert ScriptFacts.from_source(code8).first_run_spec("run_units") == {
-        "helper": "check_dimensionality",
-        "params": {"quantity_a": "10 m"},
-    }
-
-    code9 = (
-        "from writeragent.scripting.analysis import describe_data\n"
-        "describe_data(data)\n"
-    )
-    assert ScriptFacts.from_source(code9).first_run_spec("run_analysis") == {
-        "helper": "describe_data",
-        "params": {},
-    }
+@pytest.mark.parametrize(
+    ("code", "run_name", "expected"),
+    [
+        (
+            "from writeragent.scripting.units import convert_quantity\n"
+            'convert_quantity(data, from_unit="m/s", to_unit="km/h")\n',
+            "run_units",
+            {"helper": "convert_quantity", "params": {"value": "data", "from_unit": "m/s", "to_unit": "km/h"}},
+        ),
+        (
+            "from writeragent.scripting.units import convert_quantity\n"
+            'convert_quantity(1, "m", "km", value=5)\n',
+            "run_units",
+            {"helper": "convert_quantity", "params": {"value": 5, "from": "m", "to": "km"}},
+        ),
+        (
+            "from writeragent.scripting.units import convert_quantity\n"
+            'convert_quantity(data, "m")\n',
+            "run_units",
+            {"helper": "convert_quantity", "params": {"value": "data", "from": "m"}},
+        ),
+        (
+            "from writeragent.scripting.units import format_quantity\n"
+            'format_quantity(50, "m", ".2f")\n',
+            "run_units",
+            {"helper": "format_quantity", "params": {"magnitude": 50, "units": "m", "format_spec": ".2f"}},
+        ),
+        (
+            "from writeragent.scripting.units import format_quantity\n"
+            "format_quantity(50)\n",
+            "run_units",
+            {"helper": "format_quantity", "params": {"magnitude": 50}},
+        ),
+        (
+            "from writeragent.scripting.units import parse_quantity\n"
+            'parse_quantity("10 m/s")\n',
+            "run_units",
+            {"helper": "parse_quantity", "params": {"quantity": "10 m/s"}},
+        ),
+        (
+            "from writeragent.scripting.units import check_dimensionality\n"
+            'check_dimensionality("10 m", "10 ft")\n',
+            "run_units",
+            {"helper": "check_dimensionality", "params": {"quantity_a": "10 m", "quantity_b": "10 ft"}},
+        ),
+        (
+            "from writeragent.scripting.units import check_dimensionality\n"
+            'check_dimensionality("10 m")\n',
+            "run_units",
+            {"helper": "check_dimensionality", "params": {"quantity_a": "10 m"}},
+        ),
+        (
+            "from writeragent.scripting.analysis import describe_data\n"
+            "describe_data(data)\n",
+            "run_analysis",
+            {"helper": "describe_data", "params": {}},
+        ),
+    ],
+    ids=[
+        "convert_kwargs",
+        "convert_pos_and_kw_override",
+        "convert_pos_prefix",
+        "format_pos_all",
+        "format_pos_one",
+        "parse_pos",
+        "dim_two_args",
+        "dim_one_arg",
+        "analysis_describe_data",
+    ],
+)
+def test_direct_call_units_positional_prefix_and_keywords(code, run_name, expected):
+    assert ScriptFacts.from_source(code).first_run_spec(run_name) == expected
 
 
 def test_parse_run_import_call_null_byte_returns_none():
     assert ScriptFacts.from_source("\x00").first_run_spec("\x00") is None
 
 
-def test_format_elapsed_time_buckets():
+def test_format_elapsed_time_buckets_and_rounding():
     assert format_elapsed_time(0.0005) == "<1 ms"
     assert format_elapsed_time(0.05).endswith("ms")
+    assert format_elapsed_time(0.999) == "999 ms"
     assert format_elapsed_time(2.5) == "2.50s"
     assert "m" in format_elapsed_time(65)
+    # format_elapsed_time rounds to two decimals before choosing minutes vs seconds.
+    # Values like 59.999s must show as 1m 0s, and sub-second times stay in milliseconds.
+    assert format_elapsed_time(59.999) == "1m 0s"
+    assert format_elapsed_time(59.994) == "59.99s"
 
 
 def test_parse_run_import_call_params_nested_unary():
@@ -273,14 +269,6 @@ def test_unresolved_list_and_dict_value_are_omitted():
     spec = ScriptFacts.from_source(code).first_run_spec("run_units")
     assert spec is not None
     assert spec["params"] == {"to": "km"}
-
-
-def test_format_elapsed_time_boundary_rounding():
-    # format_elapsed_time rounds to two decimals before choosing minutes vs seconds.
-    # Values like 59.999s must show as 1m 0s, and sub-second times stay in milliseconds.
-    assert format_elapsed_time(59.999) == "1m 0s"
-    assert format_elapsed_time(59.994) == "59.99s"
-    assert format_elapsed_time(0.999) == "999 ms"
 
 
 def test_run_trusted_calc_data_helper_sheet_disposal_propagates():
