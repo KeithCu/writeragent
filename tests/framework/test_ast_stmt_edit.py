@@ -100,27 +100,6 @@ def test_remove_assert_statements_and_pass() -> None:
     assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
 
 
-def test_remove_assert_with_siblings_drops_line() -> None:
-    src = "def f(x):\n    assert x > 0, 'must be positive'\n    return x * 2\n"
-    out, n = remove_statements(src, lambda s: isinstance(s, ast.Assert))
-    assert n == 1
-    assert "assert" not in out
-    assert "pass" not in out
-    assert "return x * 2" in out
-    ast.parse(out)
-
-
-def test_iter_matching_statements_assert() -> None:
-    src = "assert a\nx = 1\nassert b\n"
-    found = iter_matching_statements(src, lambda s: isinstance(s, ast.Assert))
-    assert len(found) == 2
-    out, n = remove_statements(src, lambda s: isinstance(s, ast.Assert))
-    assert n == 2
-    assert "assert" not in out
-    assert "x = 1" in out
-    ast.parse(out)
-
-
 def test_is_name_call_expr_expr_without_value() -> None:
     """Missing .value must not AttributeError (CrossHair-style incomplete Expr)."""
     node = ast.Expr(value=ast.Constant(1))

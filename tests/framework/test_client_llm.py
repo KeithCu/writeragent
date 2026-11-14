@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import json
 import re
 import socket
@@ -22,6 +23,25 @@ def _cancelled_scope() -> SendCancellation:
     scope = SendCancellation()
     scope.cancel()
     return scope
+
+
+@contextmanager
+def _mock_https(*steps: Any):
+    """Patch ``http.client.HTTPSConnection`` with response mocks or request exceptions."""
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conns = []
+        for step in steps:
+            conn = MagicMock()
+            if isinstance(step, BaseException):
+                conn.request.side_effect = step
+            else:
+                conn.getresponse.return_value = step
+            conns.append(conn)
+        if len(conns) == 1:
+            mock_https.return_value = conns[0]
+        else:
+            mock_https.side_effect = conns
+        yield mock_https, conns
 
 
 @pytest.fixture
@@ -170,13 +190,6 @@ def test_hosted_empty_api_key_raises_before_http():
             assert "No API key configured" in msg
 
 
-def test_custom_empty_api_key_omits_auth_headers():
-    client = LlmClient({"endpoint": "http://127.0.0.1:8080/v1", "api_key": ""}, MockContext())
-    assert client._get_provider() == "custom"
-    assert "Authorization" not in client._headers()
-    assert "x-api-key" not in client._headers()
-
-
 def test_headers_none_api_key_matches_empty_string():
     """A null api_key must not crash _headers. It matches an empty string."""
     none_key = LlmClient({"endpoint": "http://127.0.0.1:8080/v1", "api_key": None}, MockContext())
@@ -321,16 +334,7 @@ def test_stream_request_with_tools_text_and_tool(client):
         b"data: [DONE]\n\n",
     ]
 
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-
-        mock_response = MagicMock()
-        mock_response.status = 200
-        # Mocking the iterator behavior of the response object
-        mock_response.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_response
-
+    with _mock_https(create_mock_http_response(sse_lines=mock_responses)):
         messages = [{"role": "user", "content": "What is the weather?"}]
         tools = [{"type": "function", "function": {"name": "get_weather"}}]
 
@@ -373,15 +377,7 @@ def test_stream_delta_normalized_once(client, monkeypatch):
         b"data: [DONE]\n\n",
     ]
 
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_response
-
+    with _mock_https(create_mock_http_response(sse_lines=mock_responses)):
         result = client.stream_request_with_tools([{"role": "user", "content": "hi"}], max_tokens=100)
 
         assert len(seen) == 1
@@ -401,14 +397,7 @@ def test_stream_request_with_tools_coalesces_split_tool_call(client):
         b"data: [DONE]\n\n",
     ]
 
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_response
-
+    with _mock_https(create_mock_http_response(sse_lines=mock_responses)):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Look it up"}],
             max_tokens=100,
@@ -433,14 +422,7 @@ def test_stream_request_with_tools_preserves_reasoning_replay(client):
         b"data: [DONE]\n\n",
     ]
 
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_response
-
+    with _mock_https(create_mock_http_response(sse_lines=mock_responses)):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Weather?"}],
             max_tokens=100,
@@ -462,14 +444,7 @@ def test_stream_request_with_tools_reasoning_replay_single_block(client):
         b"data: [DONE]\n\n",
     ]
 
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_response
-
+    with _mock_https(create_mock_http_response(sse_lines=mock_responses)):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Think?"}],
             max_tokens=100,
@@ -485,16 +460,12 @@ def test_stream_request_with_tools_reasoning_replay_single_block(client):
 
 
 def test_stream_request_with_tools_http_error(client):
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-
-        mock_response = MagicMock()
-        mock_response.status = 401
-        mock_response.reason = "Unauthorized"
-        mock_response.read.return_value = b'{"error": {"message": "Invalid API key"}}'
-        mock_conn.getresponse.return_value = mock_response
-
+    err_resp = create_mock_http_response(
+        401,
+        json_data={"error": {"message": "Invalid API key"}},
+        reason="Unauthorized",
+    )
+    with _mock_https(err_resp):
         with pytest.raises(
             Exception, match="HTTP Error 401 from AI Provider: Unauthorized. Invalid API key"
         ):
@@ -504,13 +475,7 @@ def test_stream_request_with_tools_http_error(client):
 
 
 def test_stream_request_with_tools_connection_error(client):
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-
-        # Simulate socket.timeout
-        mock_conn.request.side_effect = socket.timeout("timed out")
-
+    with _mock_https(socket.timeout("timed out")):
         with pytest.raises(Exception, match="Request Timed Out"):
             client.stream_request_with_tools(
                 messages=[{"role": "user", "content": "Hi"}], max_tokens=100
@@ -525,18 +490,11 @@ def test_stream_request_with_tools_fallback_parser(client):
     ]
 
     with (
-        patch("http.client.HTTPSConnection") as mock_https,
+        _mock_https(create_mock_http_response(sse_lines=mock_responses)),
         patch(
             "plugin.contrib.tool_call_parsers.get_parser_for_model"
         ) as mock_get_parser,
     ):
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_response
 
         # Mock the tool call parser
         mock_parser = MagicMock()
@@ -681,16 +639,10 @@ def test_stream_connection_error_after_content_does_not_retry():
         raise ConnectionResetError("reset after tokens")
 
     with (
-        patch("http.client.HTTPSConnection") as mock_https,
+        _mock_https(create_mock_http_response()) as (mock_https, _conns),
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate_then_drop),
         patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
     ):
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_conn.getresponse.return_value = mock_response
-
         with pytest.raises(NetworkError) as err:
             client.stream_chat_response(
                 [{"role": "user", "content": "Hi"}],
@@ -752,15 +704,7 @@ def test_stream_request_with_tools_malformed_tool_arguments():
         b"data: [DONE]\n\n",
     ]
 
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_response
-
+    with _mock_https(create_mock_http_response(sse_lines=mock_responses)):
         messages = [{"role": "user", "content": "What is the weather?"}]
         tools = [{"type": "function", "function": {"name": "get_weather"}}]
 
@@ -907,17 +851,10 @@ def test_request_with_tools_sync_paces_consecutive_requests(client):
         sleeps.append(dt)
 
     with (
-        patch("http.client.HTTPSConnection") as mock_https,
+        _mock_https(create_mock_http_response(json_data=json.loads(ok_json))),
         patch("time.sleep", side_effect=track_sleep),
         patch("time.monotonic", return_value=1000.0),
     ):
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.read.return_value = ok_json
-        mock_conn.getresponse.return_value = mock_resp
-
         client.request_with_tools([{"role": "user", "content": "x"}], max_tokens=10)
         client.request_with_tools([{"role": "user", "content": "y"}], max_tokens=10)
 
@@ -960,11 +897,7 @@ def test_stream_request_with_tools_paces_consecutive_requests(client):
 
 def test_stream_request_with_tools_stop_checker_suppresses_connection_retry(client):
     """Stop already true before connect: do not open a socket (B13)."""
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-        mock_conn.request.side_effect = socket.timeout("timed out")
-
+    with _mock_https(socket.timeout("timed out")) as (mock_https, _conns):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
@@ -997,14 +930,7 @@ def test_reused_client_sends_after_stop_when_checker_clear(client):
         b'data: {"choices": [{"finish_reason": "stop", "delta": {}}]}\n\n',
         b"data: [DONE]\n\n",
     ]
-    with patch("http.client.HTTPSConnection") as mock_https:
-        mock_conn = MagicMock()
-        mock_https.return_value = mock_conn
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.__iter__.return_value = iter(mock_responses)
-        mock_conn.getresponse.return_value = mock_resp
-
+    with _mock_https(create_mock_http_response(sse_lines=mock_responses)) as (mock_https, _conns):
         client.stop()
         assert client.stopped() is True
         client.clear_stop()
@@ -2401,15 +2327,17 @@ def test_buffered_sse_honors_stop_latch_without_stop_checker(client):
     assert result["finish_reason"] == "stop"
 
 
-def test_stream_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits):
-    """stop() during a 429 backoff must end the stream even with no stop_checker."""
+@pytest.mark.parametrize("stream", [True, False], ids=["stream", "sync"])
+def test_request_with_tools_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits, stream):
+    """stop() during a 429 backoff must end the request even with no stop_checker."""
     _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
-        result = client.stream_request_with_tools(
+        result = client.request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
+            stream=stream,
             cancel=None,
         )
     assert result["finish_reason"] == "stop"
@@ -2423,21 +2351,6 @@ def test_stream_connection_retry_aborts_when_client_stopped(client, _fast_retry_
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            cancel=None,
-        )
-    assert result["finish_reason"] == "stop"
-    assert mock_https.call_count == 1
-
-
-def test_sync_request_with_tools_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits):
-    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
-    busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
-    with patch("http.client.HTTPSConnection") as mock_https:
-        _https_steps(mock_https, busy)
-        result = client.request_with_tools(
-            messages=[{"role": "user", "content": "Hi"}],
-            max_tokens=100,
-            stream=False,
             cancel=None,
         )
     assert result["finish_reason"] == "stop"
@@ -2705,10 +2618,26 @@ def _pre_emit_snapshot_lines(tail: bytes | None) -> list[bytes]:
     return lines
 
 
-def test_stream_pre_emit_snapshot_not_doubled_on_overload_retry(client, _fast_retry_waits):
-    """Usage, role, and a buffered think prefix are dropped when overload retries before any visible token."""
+@pytest.mark.parametrize(
+    ("tail", "iter_side_effect"),
+    [
+        pytest.param(
+            b'data: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}',
+            None,
+            id="overload-retry",
+        ),
+        pytest.param(
+            None,
+            ConnectionResetError("reset before visible text"),
+            id="connection-retry",
+        ),
+    ],
+)
+def test_stream_pre_emit_snapshot_not_doubled_on_retry(client, _fast_retry_waits, tail, iter_side_effect):
+    """Usage, role, and a buffered think prefix are dropped when a retry happens before any visible token."""
     bad = create_mock_http_response(
-        sse_lines=_pre_emit_snapshot_lines(b'data: {"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}'),
+        sse_lines=_pre_emit_snapshot_lines(tail),
+        iter_side_effect=iter_side_effect,
     )
     ok = create_mock_http_response(
         sse_lines=[
@@ -2718,38 +2647,7 @@ def test_stream_pre_emit_snapshot_not_doubled_on_overload_retry(client, _fast_re
         ]
     )
     shown: list[str] = []
-    with patch("http.client.HTTPSConnection") as mock_https:
-        _https_steps(mock_https, bad, ok)
-        result = client.stream_request_with_tools(
-            messages=[{"role": "user", "content": "Hi"}],
-            max_tokens=10,
-            append_callback=shown.append,
-        )
-    assert result["content"] == "Hello"
-    assert result["usage"]["prompt_tokens"] == 7
-    assert result["usage"]["completion_tokens"] == 2
-    assert result["model"] == "gpt-test"
-    assert "reasoning_details" not in result
-    assert shown == ["Hello"]
-    assert mock_https.call_count == 2
-
-
-def test_stream_pre_emit_snapshot_not_doubled_on_connection_retry(client, _fast_retry_waits):
-    """A reset before any visible token retries once and does not concatenate the buffered prefix."""
-    reset_resp = create_mock_http_response(
-        sse_lines=_pre_emit_snapshot_lines(None),
-        iter_side_effect=ConnectionResetError("reset before visible text"),
-    )
-    ok = create_mock_http_response(
-        sse_lines=[
-            f'data: {json.dumps({"model": "gpt-test", "choices": [{"delta": {"role": "assistant", "content": "Hello"}}]})}'.encode(),
-            b'data: {"choices": [], "usage": {"prompt_tokens": 7, "completion_tokens": 2}}',
-            b"data: [DONE]",
-        ]
-    )
-    shown: list[str] = []
-    with patch("http.client.HTTPSConnection") as mock_https:
-        _https_steps(mock_https, reset_resp, ok)
+    with _mock_https(bad, ok) as (mock_https, _conns):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=10,
@@ -2895,27 +2793,31 @@ def test_stream_reset_after_content_is_connection_lost(client):
     assert mock_https.call_count == 1
 
 
-def test_stream_reset_after_thinking_or_tool_delta_does_not_repeat_bytes(client):
+@pytest.mark.parametrize("has_thinking", [True, False], ids=["thinking-and-tool", "tool-only"])
+def test_stream_reset_after_thinking_or_tool_delta_does_not_repeat_bytes(client, has_thinking):
     """A retry after any thinking or tool-call byte would append that byte twice."""
+    first_lines = []
+    if has_thinking:
+        first_lines.append(b'data: {"choices": [{"delta": {"reasoning_content": "because "}}]}')
+    first_lines.append(
+        b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}'
+    )
     first = create_mock_http_response(
-        sse_lines=[
-            b'data: {"choices": [{"delta": {"reasoning_content": "because "}}]}',
-            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}',
-        ],
+        sse_lines=first_lines,
         iter_side_effect=ConnectionResetError("reset after bytes"),
     )
     # A retry would concatenate these fragments onto the callbacks and snapshot.
-    second = create_mock_http_response(
-        sse_lines=[
-            b'data: {"choices": [{"delta": {"reasoning_content": "because "}}]}',
-            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}',
-            b'data: {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}',
-            b"data: [DONE]",
-        ]
-    )
+    second_lines = []
+    if has_thinking:
+        second_lines.append(b'data: {"choices": [{"delta": {"reasoning_content": "because "}}]}')
+    second_lines.extend([
+        b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}',
+        b'data: {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}',
+        b"data: [DONE]",
+    ])
+    second = create_mock_http_response(sse_lines=second_lines)
     thinking: list[str] = []
-    with patch("http.client.HTTPSConnection") as mock_https:
-        _https_steps(mock_https, first, second)
+    with _mock_https(first, second) as (mock_https, _conns):
         with pytest.raises(NetworkError) as err:
             client.stream_request_with_tools(
                 messages=[{"role": "user", "content": "Weather?"}],
@@ -2924,35 +2826,7 @@ def test_stream_reset_after_thinking_or_tool_delta_does_not_repeat_bytes(client)
                 append_thinking_callback=thinking.append,
             )
     assert err.value.code == "CONNECTION_LOST"
-    assert thinking == ["because "]
-    assert mock_https.call_count == 1
-
-
-def test_stream_reset_after_tool_call_delta_is_connection_lost(client):
-    """Tool-call bytes already reached on_delta. A reset must not retry and merge the call."""
-    first = create_mock_http_response(
-        sse_lines=[
-            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}',
-        ],
-        iter_side_effect=ConnectionResetError("reset after tool"),
-    )
-    # A retry would concatenate this fragment onto the same snapshot.
-    second = create_mock_http_response(
-        sse_lines=[
-            b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}',
-            b'data: {"choices": [{"finish_reason": "tool_calls", "delta": {}}]}',
-            b"data: [DONE]",
-        ]
-    )
-    with patch("http.client.HTTPSConnection") as mock_https:
-        _https_steps(mock_https, first, second)
-        with pytest.raises(NetworkError) as err:
-            client.stream_request_with_tools(
-                messages=[{"role": "user", "content": "Weather?"}],
-                max_tokens=100,
-                tools=[{"type": "function", "function": {"name": "get_weather"}}],
-            )
-    assert err.value.code == "CONNECTION_LOST"
+    assert thinking == (["because "] if has_thinking else [])
     assert mock_https.call_count == 1
 
 
@@ -3272,32 +3146,27 @@ def test_request_json_200_resets_free_gap_to_floor(client):
     assert _reserve_host_send_slot("openrouter.ai:443:free", monotonic=lambda: 100.0)[0] == OPENROUTER_FREE_MIN_GAP_SEC
 
 
-def test_stream_503_tokens_limit_is_not_an_overload_retry(client, _fast_retry_waits):
-    """An error message 'limit is 503 tokens' without structured 503 code is not retried."""
-    payload = json.dumps({"error": {"message": "limit is 503 tokens"}}).encode()
+@pytest.mark.parametrize(
+    ("error_body", "expected_substr"),
+    [
+        pytest.param({"message": "limit is 503 tokens"}, "503", id="503-in-message"),
+        pytest.param(
+            {"message": "Requested 4290 tokens", "code": "context_length_exceeded"},
+            "4290",
+            id="4290-tokens",
+        ),
+    ],
+)
+def test_stream_numeric_message_is_not_an_overload_retry(client, _fast_retry_waits, error_body, expected_substr):
+    """Numeric substrings in error messages without a matching status/code are not retried."""
+    payload = json.dumps({"error": error_body}).encode()
     bad = create_mock_http_response(sse_lines=[b"data: " + payload])
     ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
-    with patch("http.client.HTTPSConnection") as mock_https:
-        _https_steps(mock_https, bad, ok)
+    with _mock_https(bad, ok) as (mock_https, _conns):
         with pytest.raises(NetworkError) as err:
             client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
     assert err.value.code == "STREAM_ERROR"
-    assert "503" in str(err.value)
-    assert mock_https.call_count == 1
-    _fast_retry_waits["transport"].assert_not_called()
-    bad.read.assert_not_called()
-
-
-def test_stream_4290_tokens_is_not_an_overload_retry(client, _fast_retry_waits):
-    payload = json.dumps({"error": {"message": "Requested 4290 tokens", "code": "context_length_exceeded"}}).encode()
-    bad = create_mock_http_response(sse_lines=[b"data: " + payload])
-    ok = create_mock_http_response(sse_lines=_sse_content_lines("Recovered"))
-    with patch("http.client.HTTPSConnection") as mock_https:
-        _https_steps(mock_https, bad, ok)
-        with pytest.raises(NetworkError) as err:
-            client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
-    assert err.value.code == "STREAM_ERROR"
-    assert "4290" in str(err.value)
+    assert expected_substr in str(err.value)
     assert mock_https.call_count == 1
     _fast_retry_waits["transport"].assert_not_called()
     bad.read.assert_not_called()

@@ -15,12 +15,10 @@ import pytest
 from plugin.framework.errors import ConfigValidationError
 from plugin.framework.config_schema import (
     WriterAgentConfig,
-    as_bool,
     get_config_schema,
     is_default_value,
     is_known_config_key,
     parse_float_robust,
-    parse_int_robust,
     set_endpoint_normalizer,
     set_manifest_modules,
     validate,
@@ -110,17 +108,6 @@ def test_parse_float_robust_huge_int_is_value_error() -> None:
     assert is_default_value("temperature", huge) is False
     with pytest.raises(ConfigValidationError):
         validate({"temperature": huge})
-
-
-def test_as_bool_and_numeric_parsers() -> None:
-    assert as_bool("true") is True
-    assert as_bool("off") is False
-    assert parse_int_robust("8765,0") == 8765
-    assert parse_int_robust("1,234") == 1234
-    assert parse_int_robust("-1,234") == -1234
-    assert parse_float_robust("1,234") == pytest.approx(1234.0)
-    assert parse_float_robust("1,5") == pytest.approx(1.5)
-    assert parse_float_robust("1,5") == pytest.approx(1.5)
 
 
 def test_coerce_and_clamp_use_manifest_schema(restore_manifest) -> None:

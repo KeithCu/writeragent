@@ -19,6 +19,7 @@ def test_as_bool_truth_table() -> None:
     assert as_bool(False) is False
     assert as_bool("true") is True
     assert as_bool("ON") is True
+    assert as_bool("off") is False
     assert as_bool("no") is False
     assert as_bool(1) is True
     assert as_bool(0) is False
@@ -32,21 +33,15 @@ def test_hypothesis_parse_int_round_trip_str(n: int) -> None:
     assert parse_int_robust(n) == n
 
 
-def test_parse_int_robust_raises() -> None:
-    with pytest.raises(ValueError):
-        parse_int_robust(None)
-    with pytest.raises(ValueError):
-        parse_int_robust("")
-    with pytest.raises(ValueError):
-        parse_int_robust("not-a-number")
-    with pytest.raises(ValueError):
-        parse_int_robust(float("inf"))
-    with pytest.raises(ValueError):
-        parse_int_robust(float("-inf"))
-    with pytest.raises(ValueError):
-        parse_int_robust(float("nan"))
-    with pytest.raises(ValueError):
-        parse_int_robust("inf")
+def test_parse_int_robust_formats_and_raises() -> None:
+    assert parse_int_robust("8765.7") == 8765
+    assert parse_int_robust("8765,0") == 8765
+    assert parse_int_robust("8765,5") == 8765
+    assert parse_int_robust("1,234") == 1234
+    assert parse_int_robust("-1,234") == -1234
+    for bad in (None, "", "   ", "not-a-number", float("inf"), float("-inf"), float("nan"), "inf"):
+        with pytest.raises(ValueError):
+            parse_int_robust(bad)
 
 
 @given(n=st.floats(allow_nan=False, allow_infinity=False, width=32, min_value=-1e6, max_value=1e6))
@@ -58,14 +53,14 @@ def test_hypothesis_parse_float_round_trip_str(n: float) -> None:
 
 def test_parse_float_robust_locale_and_int() -> None:
     assert parse_float_robust("1,5") == pytest.approx(1.5)
+    assert parse_float_robust("0,25") == pytest.approx(0.25)
+    assert parse_float_robust("1,234") == pytest.approx(1234.0)
+    assert parse_float_robust(" 7.5 ") == pytest.approx(7.5)
     assert parse_float_robust(3) == 3.0
     assert parse_float_robust(2.5) == 2.5
 
 
 def test_parse_float_robust_raises() -> None:
-    with pytest.raises(ValueError):
-        parse_float_robust(None)
-    with pytest.raises(ValueError):
-        parse_float_robust("")
-    with pytest.raises(ValueError):
-        parse_float_robust("not-a-number")
+    for bad in (None, "", "   ", "not-a-number"):
+        with pytest.raises(ValueError):
+            parse_float_robust(bad)

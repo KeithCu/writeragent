@@ -608,27 +608,23 @@ class TestConfigSyncFileIO:
         assert data.get("text_model") == "keep-me"
         assert data.get("temperature") == 1.0
 
-    def test_set_config_omitted_key_old_value_is_schema_default(self):
+    @pytest.mark.parametrize(
+        ("initial_json", "expected_old_value"),
+        [
+            pytest.param({"text_model": "test-model"}, 120, id="omitted-key-uses-schema-default"),
+            pytest.param({"request_timeout": 30}, 30, id="stored-key-uses-stored"),
+        ],
+    )
+    def test_set_config_old_value(self, initial_json, expected_old_value):
         with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"text_model": "test-model"}, f)
+            json.dump(initial_json, f)
         reset_config_for_tests()
         with patch.object(get_event_bus(), "emit") as emit:
             save({"request_timeout": 45})
             assert emit.call_count == 1
             assert emit.call_args.kwargs["key"] == "request_timeout"
             assert emit.call_args.kwargs["value"] == 45
-            assert emit.call_args.kwargs["old_value"] == 120
-
-    def test_set_config_stored_key_old_value_is_stored(self):
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"request_timeout": 30}, f)
-        reset_config_for_tests()
-        with patch.object(get_event_bus(), "emit") as emit:
-            save({"request_timeout": 45})
-            assert emit.call_count == 1
-            assert emit.call_args.kwargs["key"] == "request_timeout"
-            assert emit.call_args.kwargs["value"] == 45
-            assert emit.call_args.kwargs["old_value"] == 30
+            assert emit.call_args.kwargs["old_value"] == expected_old_value
 
     def test_get_config_default_resolution(self):
         if os.path.exists(self.config_path):
@@ -748,6 +744,26 @@ class TestConfigSyncFileIO:
         assert mock_emit.call_args.kwargs["value"] == "https://api.example.com"
         assert self._load_written().get("endpoint") == "https://api.example.com"
 
+    @staticmethod
+    def _run_barrier_pair(fn_a, fn_b) -> None:
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def _wrap(fn) -> None:
+            try:
+                barrier.wait(timeout=5)
+                fn()
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_wrap, args=(fn_a,)), threading.Thread(target=_wrap, args=(fn_b,))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        assert errors == []
+        assert not any(thread.is_alive() for thread in threads)
+
     def test_save_api_key_patch_keeps_other_slots(self):
         """A one-slot save merges under the lock. It does not replace the map.
 
@@ -757,61 +773,15 @@ class TestConfigSyncFileIO:
         """
         reset_config_for_tests()
         set_api_key_for_endpoint("https://api.together.xyz", "sk-keep")
-        barrier = threading.Barrier(2)
-        errors: list[BaseException] = []
-
-        def _batch() -> None:
-            try:
-                barrier.wait(timeout=5)
-                save({"api_keys_by_endpoint": {"https://api.openai.com": "sk-a"}})
-            except BaseException as exc:
-                errors.append(exc)
-
-        def _one() -> None:
-            try:
-                barrier.wait(timeout=5)
-                set_api_key_for_endpoint("http://localhost:11434", "sk-b")
-            except BaseException as exc:
-                errors.append(exc)
-
-        threads = [threading.Thread(target=_batch), threading.Thread(target=_one)]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=5)
-        assert errors == []
+        self._run_barrier_pair(
+            lambda: save({"api_keys_by_endpoint": {"https://api.openai.com": "sk-a"}}),
+            lambda: set_api_key_for_endpoint("http://localhost:11434", "sk-b"),
+        )
         reset_config_for_tests()
         keys = get_config("api_keys_by_endpoint")
         assert keys.get("https://api.openai.com") == "sk-a"
         assert keys.get("http://localhost:11434") == "sk-b"
         assert keys.get("https://api.together.xyz") == "sk-keep"
-
-    def test_api_key_updates_do_not_drop_a_concurrent_endpoint(self):
-        """Two writers must keep both keys. The lock covers the read and the write."""
-        reset_config_for_tests()
-        barrier = threading.Barrier(2)
-        errors: list[BaseException] = []
-
-        def _write(endpoint: str, key: str) -> None:
-            try:
-                barrier.wait(timeout=5)
-                set_api_key_for_endpoint(endpoint, key)
-            except BaseException as exc:
-                errors.append(exc)
-
-        threads = [
-            threading.Thread(target=_write, args=("https://api.openai.com", "sk-a")),
-            threading.Thread(target=_write, args=("http://localhost:11434", "sk-b")),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=5)
-        assert errors == []
-        reset_config_for_tests()
-        keys = get_config("api_keys_by_endpoint")
-        assert keys.get("https://api.openai.com") == "sk-a"
-        assert keys.get("http://localhost:11434") == "sk-b"
 
     def test_set_config_skips_identical_value(self):
         reset_config_for_tests()
@@ -874,26 +844,10 @@ class TestConfigSyncFileIO:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'custom_unrecognized_key': 'from-earlier-writer'}, f)
         reset_config_for_tests()
-        barrier = threading.Barrier(2)
-        errors: list[BaseException] = []
-
-        def _write(key: str, value: object) -> None:
-            try:
-                barrier.wait(timeout=5)
-                save({key: value})
-            except BaseException as exc:
-                errors.append(exc)
-
-        threads = [
-            threading.Thread(target=_write, args=('text_model', 'from-writer-a')),
-            threading.Thread(target=_write, args=('image_model', 'from-writer-b')),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=5)
-        assert errors == []
-        assert not any(thread.is_alive() for thread in threads)
+        self._run_barrier_pair(
+            lambda: save({'text_model': 'from-writer-a'}),
+            lambda: save({'image_model': 'from-writer-b'}),
+        )
         reset_config_for_tests()
         data = self._load_written()
         assert (data.get('text_model')) == ('from-writer-a')
@@ -903,30 +857,18 @@ class TestConfigSyncFileIO:
     def test_update_config_keeps_both_map_keys(self):
         """update_config_mapping applies fn to the value just read, under one lock."""
         reset_config_for_tests()
-        barrier = threading.Barrier(2)
-        errors: list[BaseException] = []
 
-        def _add(url: str, secret: str) -> None:
+        def _add(url: str, secret: str):
             def _put(current: object) -> dict[str, str]:
                 data = dict(current) if isinstance(current, dict) else {}
                 data[url] = secret
                 return data
+            return lambda: update_config_mapping('api_keys_by_endpoint', _put)
 
-            try:
-                barrier.wait(timeout=5)
-                update_config_mapping('api_keys_by_endpoint', _put)
-            except BaseException as exc:
-                errors.append(exc)
-
-        threads = [
-            threading.Thread(target=_add, args=('https://api.openai.com', 'sk-a')),
-            threading.Thread(target=_add, args=('http://localhost:11434', 'sk-b')),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=5)
-        assert errors == []
+        self._run_barrier_pair(
+            _add('https://api.openai.com', 'sk-a'),
+            _add('http://localhost:11434', 'sk-b'),
+        )
         reset_config_for_tests()
         keys = get_config('api_keys_by_endpoint')
         assert keys.get('https://api.openai.com') == 'sk-a'
@@ -1172,79 +1114,6 @@ class TestConfigSyncFileIO:
 
 
 class TestRobustNumericParsing:
-
-    def test_parse_int_robust(self):
-        from plugin.framework.config_schema import parse_int_robust
-
-        # Test standard integers
-        assert (parse_int_robust(8765)) == (8765)
-        assert (parse_int_robust(0)) == (0)
-        assert (parse_int_robust(-42)) == (-42)
-
-        # Test standard floats
-        assert (parse_int_robust(8765.0)) == (8765)
-        assert (parse_int_robust(8765.99)) == (8765)
-
-        # Test string integers
-        assert (parse_int_robust("8765")) == (8765)
-        assert (parse_int_robust(" 8765 ")) == (8765)
-
-        # Test string floats
-        assert (parse_int_robust("8765.0")) == (8765)
-        assert (parse_int_robust("8765.00")) == (8765)
-        assert (parse_int_robust("8765.7")) == (8765)
-
-        # Test European decimal commas (like German locale)
-        assert (parse_int_robust("8765,0")) == (8765)
-        assert (parse_int_robust("8765,00")) == (8765)
-        assert (parse_int_robust("8765,5")) == (8765)
-
-        # Test invalid inputs raise ValueError
-        with pytest.raises(ValueError):
-            parse_int_robust(None)
-        with pytest.raises(ValueError):
-            parse_int_robust("")
-        with pytest.raises(ValueError):
-            parse_int_robust("   ")
-        with pytest.raises(ValueError):
-            parse_int_robust("invalid")
-        # Non-finite floats must be ValueError (not OverflowError) for @deal.raises
-        with pytest.raises(ValueError):
-            parse_int_robust(float("inf"))
-        with pytest.raises(ValueError):
-            parse_int_robust(float("-inf"))
-        with pytest.raises(ValueError):
-            parse_int_robust(float("nan"))
-        with pytest.raises(ValueError):
-            parse_int_robust("inf")
-
-    def test_parse_float_robust(self):
-        from plugin.framework.config_schema import parse_float_robust
-
-        # Test standard floats
-        assert (parse_float_robust(7.5)) == (7.5)
-        assert (parse_float_robust(0.0)) == (0.0)
-
-        # Test standard integers
-        assert (parse_float_robust(7)) == (7.0)
-
-        # Test string floats
-        assert (parse_float_robust("7.5")) == (7.5)
-        assert (parse_float_robust(" 7.5 ")) == (7.5)
-
-        # Test European decimal commas
-        assert (parse_float_robust("7,5")) == (7.5)
-        assert (parse_float_robust("0,25")) == (0.25)
-
-        # Test invalid inputs raise ValueError
-        with pytest.raises(ValueError):
-            parse_float_robust(None)
-        with pytest.raises(ValueError):
-            parse_float_robust("")
-        with pytest.raises(ValueError):
-            parse_float_robust("   ")
-        with pytest.raises(ValueError):
-            parse_float_robust("invalid")
 
     def test_config_validate_type_casting(self):
         from plugin.framework.config_schema import validate

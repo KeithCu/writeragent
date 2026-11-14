@@ -72,3 +72,50 @@ def _start_event_drain(
         on_error=lambda _e: None,
         rearm=rearm,
     )
+
+
+def _drain(
+    items: list[Any],
+    *,
+    toolkit: Any = None,
+    on_error: Any = None,
+    on_stopped: Any = None,
+    on_stream_done: Any = None,
+    cancel: Any = None,
+    flush_pending: Any = None,
+) -> tuple[Any, list[tuple[str, bool]], list[object], list[bool], list[object]]:
+    """Run ``run_stream_drain_loop`` over pre-populated ``items`` and return collected outcomes."""
+    from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
+
+    q: queue.Queue[Any] = queue.Queue()
+    for item in items:
+        q.put(item)
+    applied: list[tuple[str, bool]] = []
+    errors: list[object] = []
+    stopped: list[bool] = []
+    done: list[object] = []
+    outcome = DrainOutcome()
+
+    def _default_error(e: object) -> Any:
+        errors.append(e)
+        return None
+
+    def _default_stopped() -> None:
+        stopped.append(True)
+
+    def _default_done(item: object) -> bool:
+        done.append(item)
+        return True
+
+    run_stream_drain_loop(
+        q,
+        toolkit,
+        outcome,
+        lambda text, is_thinking: applied.append((text, is_thinking)),
+        on_stream_done=on_stream_done or _default_done,
+        on_stopped=on_stopped or _default_stopped,
+        on_error=on_error or _default_error,
+        cancel=cancel,
+        flush_pending=flush_pending,
+    )
+    return outcome, applied, errors, stopped, done
