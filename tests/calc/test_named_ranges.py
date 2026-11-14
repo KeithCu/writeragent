@@ -412,6 +412,7 @@ def test_edit_renames_before_other_fields():
     ],
 )
 def test_edit_undoes_earlier_setters_when_a_later_setter_fails(fail_setter, extra_kwargs, expected_prior):
+    """The undo bracket rolls back every earlier setter in a single undo."""
     nr = _nr("TaxRate", "$Sheet1.$A$1")
     ctx = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr})
     fake = ctx.doc.getUndoManager.return_value

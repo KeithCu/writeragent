@@ -27,6 +27,7 @@ def _cell_has_bold_text(cell, needle: str) -> bool:
         try:
             inner = block.createEnumeration()
         except Exception:
+            # Calc cells may not advertise Paragraph; mirror document.get_string_without_... logic.
             portions = [block]
         else:
             portions = []
@@ -38,9 +39,10 @@ def _cell_has_bold_text(cell, needle: str) -> bool:
             try:
                 wv = portion.getPropertyValue("CharWeight")
                 ptxt = portion.getString()
-            except Exception:
+                # UNO may use float/enum; BOLD is 150, NORMAL 100 in awt.FontWeight.
+                is_bold = wv == FontWeight.BOLD or (wv is not None and float(wv) >= 135.0)
+            except (TypeError, ValueError, Exception):
                 continue
-            is_bold = wv == FontWeight.BOLD or (wv is not None and float(wv) >= 135.0)
             if is_bold and needle in ptxt:
                 return True
     return False

@@ -87,19 +87,19 @@ def test_translate_cross_sheet_references():
 
 
 @pytest.mark.parametrize(
-    ("formula", "expected_ranges"),
+    ("formula", "expected_ranges", "expected_code"),
     [
-        ("=Sheet2.A1+SHEET2.A1", ["Sheet2.A1"]),
-        ("=SHEET2.A1+Sheet2.A1", ["SHEET2.A1"]),
-        ("='My Sheet'.A1+'my sheet'.A1+'MY SHEET'.A1", ["'My Sheet'.A1"]),
-        ("='my sheet'.A1+'My Sheet'.A1", ["'my sheet'.A1"]),
+        ("=Sheet2.A1+SHEET2.A1", ["Sheet2.A1"], "(data + data)"),
+        ("=SHEET2.A1+Sheet2.A1", ["SHEET2.A1"], "(data + data)"),
+        ("='My Sheet'.A1+'my sheet'.A1+'MY SHEET'.A1", ["'My Sheet'.A1"], "((data + data) + data)"),
+        ("='my sheet'.A1+'My Sheet'.A1", ["'my sheet'.A1"], "(data + data)"),
     ],
 )
-def test_translate_cross_sheet_case_insensitive_dedupe(formula, expected_ranges):
+def test_translate_cross_sheet_case_insensitive_dedupe(formula, expected_ranges, expected_code):
     res = translate_formula(formula, "A1")
     assert res.ok
     assert res.data_ranges == expected_ranges
-    assert res.code.count("data") == formula.count("A1")
+    assert res.code == expected_code
 
 
 def test_translate_and_exec_new_functions():

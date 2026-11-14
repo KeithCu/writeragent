@@ -199,7 +199,9 @@ def test_create_sheet_validations():
 
     res = tool.execute_safe(ctx, sheet="ValidName", position=4)
     assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
     assert "out of range" in res["message"]
+    sheets.insertNewByName.assert_not_called()
 
 
 def test_create_sheet_success_payload_and_no_activation():

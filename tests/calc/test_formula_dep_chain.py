@@ -33,25 +33,10 @@ def test_fetch_formula_dep_chain_uses_command_values(nav_side_effect):
     assert chain.get("cell") == "B2"
 
 
-@pytest.mark.parametrize(
-    ("nav_side_effect", "fallback", "expected_key", "expected_val"),
-    [
-        (
-            None,
-            {"source": "formula_query", "precedents": [{"address": "A1", "type": "value"}]},
-            "precedents",
-            [{"address": "A1", "type": "value"}],
-        ),
-        (
-            RuntimeError("headless"),
-            {"source": "formula_query", "precedents": [{"address": "A1"}], "truncated": False},
-            "truncated",
-            False,
-        ),
-    ],
-)
-def test_fetch_formula_dep_chain_falls_back_to_formula_query(nav_side_effect, fallback, expected_key, expected_val):
+@pytest.mark.parametrize("nav_side_effect", [None, RuntimeError("headless")])
+def test_fetch_formula_dep_chain_falls_back_to_formula_query(nav_side_effect):
     doc = CalcDocStub()
+    fallback = {"source": "formula_query", "precedents": [{"address": "A1"}], "truncated": False}
 
     with patch("plugin.calc.formula_dep_chain.navigate_to_cell", side_effect=nav_side_effect), patch(
         "plugin.calc.formula_dep_chain._precedents_via_formula_query",
@@ -59,9 +44,7 @@ def test_fetch_formula_dep_chain_falls_back_to_formula_query(nav_side_effect, fa
     ):
         chain = fetch_formula_dep_chain(doc, MagicMock(), "A1")
 
-    assert chain is not None
-    assert chain.get("source") == "formula_query"
-    assert chain.get(expected_key) == expected_val
+    assert chain == fallback
 
 
 @pytest.fixture
@@ -98,7 +81,7 @@ def uno_calc_stubs(monkeypatch):
 
 
 def _sheet_with_precedent_ranges(monkeypatch, range_addresses, calls: list[tuple[int, int]]):
-    """Sheet whose ``XFormulaQuery`` reports *range_addresses*.
+    """Sheet whose ``XFormulaQuery`` reports *range_addresses* (requires ``uno_calc_stubs``).
 
     Snapshots are counted directly — the cap must stop calling them, not merely drop the results.
     """
