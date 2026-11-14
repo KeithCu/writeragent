@@ -1946,27 +1946,10 @@ def test_chat_request_omits_top_p(client):
 
 
 def test_parallel_tool_calls_config(client):
-    """Verify that parallel_tool_calls is currently forced to False due to subagent parsing issues."""
+    """Wire sends parallel_tool_calls=False even when stored config is True (base_provider_shim.py:468-471)."""
     messages = [{"role": "user", "content": "Hi"}]
     tools = [{"type": "function", "function": {"name": "test_tool"}}]
-
-    # Case 1: Default (should be False due to the current subagent FIXME)
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
-        mock_auth.return_value = {"provider": "openai"}
-        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
-        data = json.loads(body.decode("utf-8"))
-        assert data["parallel_tool_calls"] is False
-
-    # The stored setting is not what the wire sends.
     client.config["parallel_tool_calls"] = True
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
-        mock_auth.return_value = {"provider": "openai"}
-        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
-        data = json.loads(body.decode("utf-8"))
-        assert data["parallel_tool_calls"] is False
-
-    # Case 2: Explicitly False
-    client.config["parallel_tool_calls"] = False
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)

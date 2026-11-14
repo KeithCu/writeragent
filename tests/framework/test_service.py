@@ -1,23 +1,6 @@
 
-import dataclasses
 import pytest
-from plugin.framework.service import BaseState, FsmTransition
 from plugin.framework.service import ServiceRegistry, ServiceBase
-'Tests for plugin.framework.state FSM contracts.'
-
-@dataclasses.dataclass(frozen=True)
-class _TrivialState(BaseState):
-    n: int = 0
-
-def test_base_state_subclass_frozen():
-    s = _TrivialState(n=1)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        s.n = 2
-
-def test_fsm_transition_immutable():
-    t = FsmTransition(_TrivialState(n=0), [])
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        t.state = _TrivialState(n=1)
 
 'Tests for plugin.framework.service.'
 

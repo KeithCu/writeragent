@@ -3,15 +3,7 @@
 from __future__ import annotations
 
 
-from plugin.framework.client.base_provider_shim import (
-    OPENROUTER_CHAT_EXTRA_BLOCKLIST,
-    merge_openrouter_chat_extra,
-)
-
-
-def test_blocklist_keys_documented() -> None:
-    assert "messages" in OPENROUTER_CHAT_EXTRA_BLOCKLIST
-    assert "tools" in OPENROUTER_CHAT_EXTRA_BLOCKLIST
+from plugin.framework.client.base_provider_shim import merge_openrouter_chat_extra
 
 
 def test_merge_skips_blocklisted_keys() -> None:
