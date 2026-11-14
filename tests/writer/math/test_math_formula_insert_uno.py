@@ -155,59 +155,33 @@ def test_replace_full_document_mixed_mathml_and_tex(ctx: Any, doc: Any) -> None:
 
 @native_test
 @with_native_doc("writer")
-def test_insert_formula_display_block_centered(ctx: Any, doc: Any) -> None:
-    text = doc.getText()
-    text.setString("")
-    cur = text.createTextCursor()
-    cur.gotoEnd(False)
+def test_insert_formula_display_block_centered_and_keeps_alignment(ctx: Any, doc: Any) -> None:
+    for initial_adjust in (None, 1):
+        text = doc.getText()
+        text.setString("")
+        cur = text.createTextCursor()
+        cur.gotoEnd(False)
 
-    text.insertString(cur, "Before", False)
-    insert_writer_math_formula(
-        doc, cur, "x = y", display_block=True
-    )
-    text.insertString(cur, "After", False)
+        text.insertString(cur, "Before", False)
+        if initial_adjust is not None:
+            cur.setPropertyValue("ParaAdjust", initial_adjust)
+        insert_writer_math_formula(doc, cur, "x = y", display_block=True)
+        text.insertString(cur, "After", False)
 
-    paragraphs = []
-    enum = text.createEnumeration()
-    while enum_has_more(enum):
-        p = enum.nextElement()
-        if p.supportsService("com.sun.star.text.Paragraph"):
-            paragraphs.append(p)
+        paragraphs = []
+        enum = text.createEnumeration()
+        while enum_has_more(enum):
+            p = enum.nextElement()
+            if p.supportsService("com.sun.star.text.Paragraph"):
+                paragraphs.append(p)
 
-    assert len(paragraphs) == 3, f"Expected 3 paragraphs, got {len(paragraphs)}"
-    assert paragraphs[0].getString() == "Before"
-    assert paragraphs[2].getString() == "After"
-    assert paragraphs[1].getPropertyValue("ParaAdjust") == 3  # Center
-    # Trailing paragraph keeps the alignment it had before the formula.
-    assert paragraphs[2].getPropertyValue("ParaAdjust") == paragraphs[0].getPropertyValue("ParaAdjust")
-
-
-@native_test
-@with_native_doc("writer")
-def test_display_math_keeps_trailing_paragraph_alignment(ctx: Any, doc: Any) -> None:
-    text = doc.getText()
-    text.setString("")
-    cur = text.createTextCursor()
-    cur.gotoEnd(False)
-
-    text.insertString(cur, "Before", False)
-    cur.setPropertyValue("ParaAdjust", 1)
-    insert_writer_math_formula(
-        doc, cur, "x = y", display_block=True
-    )
-    text.insertString(cur, "After", False)
-
-    paragraphs = []
-    enum = text.createEnumeration()
-    while enum_has_more(enum):
-        p = enum.nextElement()
-        if p.supportsService("com.sun.star.text.Paragraph"):
-            paragraphs.append(p)
-
-    assert len(paragraphs) == 3, f"Expected 3 paragraphs, got {len(paragraphs)}"
-    assert paragraphs[0].getString() == "Before"
-    assert paragraphs[2].getString() == "After"
-    assert paragraphs[0].getPropertyValue("ParaAdjust") == 1  # Right
-    assert paragraphs[1].getPropertyValue("ParaAdjust") == 3  # Center
-    assert paragraphs[2].getPropertyValue("ParaAdjust") == 1  # Right (not 0)
+        assert len(paragraphs) == 3, f"Expected 3 paragraphs, got {len(paragraphs)}"
+        assert paragraphs[0].getString() == "Before"
+        assert paragraphs[2].getString() == "After"
+        assert paragraphs[1].getPropertyValue("ParaAdjust") == 3  # Center
+        # Trailing paragraph keeps the alignment it had before the formula.
+        assert paragraphs[2].getPropertyValue("ParaAdjust") == paragraphs[0].getPropertyValue("ParaAdjust")
+        if initial_adjust is not None:
+            assert paragraphs[0].getPropertyValue("ParaAdjust") == initial_adjust
+            assert paragraphs[2].getPropertyValue("ParaAdjust") == initial_adjust
 

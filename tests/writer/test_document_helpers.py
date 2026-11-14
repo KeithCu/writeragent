@@ -889,7 +889,14 @@ def test_do_edit_selection_clean_range_still_clears_and_streams(monkeypatch):
 
 
 
-def test_do_extend_selection_observes_stop_checker(monkeypatch):
+@pytest.mark.parametrize(
+    ("entry_name", "expected_text"),
+    [
+        pytest.param("do_extend_selection", "Hellomore", id="extend_selection"),
+        pytest.param("do_edit_selection", "more", id="edit_selection"),
+    ],
+)
+def test_selection_edit_entry_observes_stop_checker(monkeypatch, entry_name, expected_text):
     from plugin.writer import editselection
 
     text_range = _MutableTextRange()
@@ -898,44 +905,11 @@ def test_do_extend_selection_observes_stop_checker(monkeypatch):
     messages = []
     streams = []
     monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
-    monkeypatch.setattr(editselection, "get_config", lambda key: "")
+    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "get_current_endpoint", lambda: "ep")
     monkeypatch.setattr(editselection, "update_lru_history", lambda *args, **kwargs: None)
-    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "get_text_model", lambda: "model")
-    monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
-    monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
-
-    class _Ctx:
-        def stop_checker(self) -> bool:
-            return True
-
-    def stream_completion_mock(*args, **kwargs):
-        streams.append(args)
-        assert "stop_checker" not in kwargs
-        apply_chunk = args[5]
-        # Stop does not drop a chunk already in hand (#1273).
-        apply_chunk("more")
-
-    monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
-
-    editselection.do_extend_selection(_Ctx(), doc)
-
-    assert len(streams) == 1
-    assert text_range.getString() == "Hellomore"
-
-
-def test_do_edit_selection_observes_stop_checker(monkeypatch):
-    from plugin.writer import editselection
-
-    text_range = _MutableTextRange()
-    text_range.text = "Hello"
-    doc = _MenuDoc(text_range, recording=False)
-    messages = []
-    streams = []
-    monkeypatch.setattr(editselection, "msgbox", lambda *args, **kwargs: messages.append(args))
     monkeypatch.setattr(editselection, "prompt_for_edit_instructions", lambda *args, **kwargs: ("shorter", ""))
-    monkeypatch.setattr(editselection, "get_config", lambda key: 20)
     monkeypatch.setattr(editselection, "create_validated_client", lambda *args, **kwargs: object())
     monkeypatch.setattr(editselection, "review_recording_enabled", lambda: False)
 
@@ -952,10 +926,10 @@ def test_do_edit_selection_observes_stop_checker(monkeypatch):
 
     monkeypatch.setattr(editselection, "stream_completion", stream_completion_mock)
 
-    editselection.do_edit_selection(_Ctx(), doc)
+    getattr(editselection, entry_name)(_Ctx(), doc)
 
     assert len(streams) == 1
-    assert text_range.getString() == "more"
+    assert text_range.getString() == expected_text
 
 
 def test_do_extend_selection_failure_visible(monkeypatch):

@@ -587,17 +587,53 @@ def test_get_harper_binary_skips_download_when_up_to_date(
 
 
 
+@pytest.mark.parametrize(
+    ("asset_name", "download_url", "processor_attr", "extract_suffix", "dest_name", "payload", "check_archive_removed"),
+    [
+        pytest.param(
+            "harper-ls-x86_64-unknown-linux-gnu.tar.gz",
+            "https://example.com/harper.tar.gz",
+            "Untar",
+            ".untar",
+            "harper-ls",
+            b"fake-binary",
+            True,
+            id="tar_gz",
+        ),
+        pytest.param(
+            "harper-ls-x86_64-pc-windows-msvc.zip",
+            "https://example.com/harper.zip",
+            "Unzip",
+            ".unzip",
+            "harper-ls.exe",
+            b"fake-windows-binary",
+            False,
+            id="windows_zip",
+        ),
+    ],
+)
 @patch("plugin.writer.locale.harper_binary.retrieve")
-def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_path: Path) -> None:
+def test_download_harper_binary_installs_and_cleans_up(
+    mock_retrieve: MagicMock,
+    tmp_path: Path,
+    asset_name: str,
+    download_url: str,
+    processor_attr: str,
+    extract_suffix: str,
+    dest_name: str,
+    payload: bytes,
+    check_archive_removed: bool,
+) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
-        asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
-        download_url="https://example.com/harper.tar.gz",
+        asset_name=asset_name,
+        download_url=download_url,
         sha256="abc123",
     )
     harper_dir = tmp_path / "harper"
-    dest = harper_dir / "harper-ls"
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    harper_dir.mkdir(parents=True, exist_ok=True)
+    # Dest name matches platform install layout; avoid patching os.name (WindowsPath).
+    dest = harper_dir / dest_name
     captured: dict[str, Path] = {}
 
     def fake_retrieve(*, path: str, fname: str, processor=None, **kwargs) -> str:
@@ -606,52 +642,9 @@ def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_pa
         download_dir = Path(path)
         archive_path = download_dir / fname
         archive_path.write_bytes(b"fake-archive")
-        extracted = download_dir / f"{fname}.untar" / "harper-ls"
+        extracted = download_dir / f"{fname}{extract_suffix}" / dest_name
         extracted.parent.mkdir(parents=True)
-        extracted.write_bytes(b"fake-binary")
-        captured["download_dir"] = download_dir
-        captured["extracted"] = extracted
-        return str(archive_path)
-
-    mock_retrieve.side_effect = fake_retrieve
-
-    def fake_processor(fname: str, action: str, pup) -> list[str]:
-        del fname, action, pup
-        return [str(captured["extracted"])]
-
-    with patch("plugin.writer.locale.harper_binary.Untar", return_value=fake_processor):
-        harper_binary_module._download_harper_binary(dest, release)
-
-    mock_retrieve.assert_called_once()
-    assert dest.read_bytes() == b"fake-binary"
-    assert (dest.parent / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
-    # Temp extract tree must not persist under harper/
-    assert not (harper_dir / f"{release.asset_name}.untar").exists()
-    assert not captured["download_dir"].exists()
-
-
-@patch("plugin.writer.locale.harper_binary.retrieve")
-def test_download_harper_binary_removes_archive_after_success(mock_retrieve: MagicMock, tmp_path: Path) -> None:
-    release = HarperReleaseAsset(
-        version="2.6.0",
-        asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
-        download_url="https://example.com/harper.tar.gz",
-        sha256="abc123",
-    )
-    harper_dir = tmp_path / "harper"
-    harper_dir.mkdir(parents=True)
-    dest = harper_dir / "harper-ls"
-    captured: dict[str, Path] = {}
-
-    def fake_retrieve(*, path: str, fname: str, processor=None, **kwargs) -> str:
-        del kwargs
-        assert processor is None
-        download_dir = Path(path)
-        archive_path = download_dir / fname
-        archive_path.write_bytes(b"fake-archive")
-        extracted = download_dir / f"{fname}.untar" / "harper-ls"
-        extracted.parent.mkdir(parents=True)
-        extracted.write_bytes(b"fake-binary")
+        extracted.write_bytes(payload)
         captured["download_dir"] = download_dir
         captured["archive_path"] = archive_path
         captured["extracted"] = extracted
@@ -663,60 +656,19 @@ def test_download_harper_binary_removes_archive_after_success(mock_retrieve: Mag
         del fname, action, pup
         return [str(captured["extracted"])]
 
-    with patch("plugin.writer.locale.harper_binary.Untar", return_value=fake_processor):
+    with patch(f"plugin.writer.locale.harper_binary.{processor_attr}", return_value=fake_processor):
         harper_binary_module._download_harper_binary(dest, release)
 
-    assert dest.read_bytes() == b"fake-binary"
+    mock_retrieve.assert_called_once()
+    assert dest.read_bytes() == payload
     assert (harper_dir / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
-    assert captured["download_dir"] != harper_dir
-    assert not captured["archive_path"].exists()
-    assert not (harper_dir / release.asset_name).exists()
-    assert not (harper_dir / f"{release.asset_name}.untar").exists()
+    assert not (harper_dir / f"{release.asset_name}{extract_suffix}").exists()
     assert not captured["download_dir"].exists()
-
-
-@patch("plugin.writer.locale.harper_binary.retrieve")
-def test_download_harper_binary_windows_zip_leaves_single_binary(mock_retrieve: MagicMock, tmp_path: Path) -> None:
-    release = HarperReleaseAsset(
-        version="2.6.0",
-        asset_name="harper-ls-x86_64-pc-windows-msvc.zip",
-        download_url="https://example.com/harper.zip",
-        sha256="abc123",
-    )
-    harper_dir = tmp_path / "harper"
-    # Dest name matches Windows install layout; avoid patching os.name (WindowsPath).
-    dest = harper_dir / "harper-ls.exe"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    captured: dict[str, Path] = {}
-
-    def fake_retrieve(*, path: str, fname: str, processor=None, **kwargs) -> str:
-        del kwargs
-        assert processor is None
-        download_dir = Path(path)
-        archive_path = download_dir / fname
-        archive_path.write_bytes(b"fake-archive")
-        extracted = download_dir / f"{fname}.unzip" / "harper-ls.exe"
-        extracted.parent.mkdir(parents=True)
-        extracted.write_bytes(b"fake-windows-binary")
-        captured["download_dir"] = download_dir
-        captured["extracted"] = extracted
-        return str(archive_path)
-
-    mock_retrieve.side_effect = fake_retrieve
-
-    def fake_processor(fname: str, action: str, pup) -> list[str]:
-        del fname, action, pup
-        return [str(captured["extracted"])]
-
-    with patch("plugin.writer.locale.harper_binary.Unzip", return_value=fake_processor):
-        harper_binary_module._download_harper_binary(dest, release)
-
-    assert dest.read_bytes() == b"fake-windows-binary"
-    assert (harper_dir / "harper-ls.version").read_text(encoding="utf-8") == "2.6.0"
-    assert not (harper_dir / f"{release.asset_name}.unzip").exists()
-    assert not captured["download_dir"].exists()
-    leftover_names = {p.name for p in harper_dir.iterdir()}
-    assert leftover_names == {"harper-ls.exe", "harper-ls.version"}
+    if check_archive_removed:
+        assert captured["download_dir"] != harper_dir
+        assert not captured["archive_path"].exists()
+        assert not (harper_dir / release.asset_name).exists()
+    assert {p.name for p in harper_dir.iterdir()} == {dest_name, "harper-ls.version"}
 
 
 @patch("plugin.writer.locale.harper_binary.retrieve")

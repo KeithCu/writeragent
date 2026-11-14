@@ -20,7 +20,6 @@ def test_templates_are_executable_run_import():
     assert call_spec is not None
     assert call_spec.get("helper") == "extract_text"
     params = call_spec.get("params")
-    assert isinstance(params, dict)
     assert params == {}
 
 
@@ -31,6 +30,5 @@ def test_extract_structure_template_is_executable():
     assert call_spec is not None
     assert call_spec.get("helper") == "extract_structure"
     params = call_spec.get("params")
-    assert isinstance(params, dict)
     assert params == {}
 

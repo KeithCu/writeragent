@@ -414,22 +414,30 @@ def test_write_search_does_not_restyle_surrounding_text_uno(ctx, doc):
     assert any("tail" in t for _, t in pairs), pairs
 
 
-@native_test
-@with_native_doc("writer")
-def test_write_search_whole_paragraph_applies_heading2_uno(ctx, doc):
-    """Whole-paragraph search replace: Heading 2 applies; neighbor paragraphs stay Standard."""
+def _setup_three_paragraphs(doc, *, select_middle: bool = False):
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()
     cur.gotoStart(False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep before", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Replace me", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep after", False)
+    for idx, label in enumerate(("Keep before", "Replace me", "Keep after")):
+        if idx > 0:
+            text.insertControlCharacter(cur, 0, False)
+        cur.setPropertyValue("ParaStyleName", "Standard")
+        text.insertString(cur, label, False)
+    if select_middle:
+        # Select the middle paragraph without including the following break
+        cur.gotoStart(False)
+        cur.gotoNextParagraph(False)
+        cur.gotoStartOfParagraph(False)
+        cur.gotoEndOfParagraph(True)
+        doc.getCurrentController().select(cur)
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_search_whole_paragraph_applies_heading2_uno(ctx, doc):
+    """Whole-paragraph search replace: Heading 2 applies; neighbor paragraphs stay Standard."""
+    _setup_three_paragraphs(doc)
 
     res = ApplyDocumentContent().execute(
         _tool_ctx(doc, ctx), target="search", old_content="Replace me",
@@ -449,18 +457,7 @@ def test_write_search_whole_paragraph_applies_heading2_uno(ctx, doc):
 @with_native_doc("writer")
 def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
     """Whole-paragraph search replace applies data-lo-para properties to the inserted paragraph."""
-    text = doc.getText()
-    text.setString("")
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep before", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Replace me", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep after", False)
+    _setup_three_paragraphs(doc)
 
     content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
     res = ApplyDocumentContent().execute(
@@ -495,25 +492,7 @@ def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
 @with_native_doc("writer")
 def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
     """Whole-paragraph selection replace: Heading 2 applies; neighbor paragraphs stay Standard."""
-    text = doc.getText()
-    text.setString("")
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep before", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Replace me", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep after", False)
-
-    # Select the middle paragraph without including the following break
-    cur.gotoStart(False)
-    cur.gotoNextParagraph(False)
-    cur.gotoStartOfParagraph(False)
-    cur.gotoEndOfParagraph(True)
-    doc.getCurrentController().select(cur)
+    _setup_three_paragraphs(doc, select_middle=True)
 
     res = ApplyDocumentContent().execute(
         _tool_ctx(doc, ctx), target="selection",
@@ -533,24 +512,7 @@ def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
 @with_native_doc("writer")
 def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
     """Whole-paragraph selection replace applies data-lo-para properties to the inserted paragraph."""
-    text = doc.getText()
-    text.setString("")
-    cur = text.createTextCursor()
-    cur.gotoStart(False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep before", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Replace me", False)
-    text.insertControlCharacter(cur, 0, False)
-    cur.setPropertyValue("ParaStyleName", "Standard")
-    text.insertString(cur, "Keep after", False)
-
-    cur.gotoStart(False)
-    cur.gotoNextParagraph(False)
-    cur.gotoStartOfParagraph(False)
-    cur.gotoEndOfParagraph(True)
-    doc.getCurrentController().select(cur)
+    _setup_three_paragraphs(doc, select_middle=True)
 
     content = '<p data-lo-para="margin-left:2cm; text-align:center; background-color:#ffe4c4; font-size:12pt">New para</p>'
     res = ApplyDocumentContent().execute(

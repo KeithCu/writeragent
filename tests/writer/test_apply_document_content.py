@@ -286,7 +286,8 @@ def test_position_after_table_preserves_table():
     cursor.setString.assert_not_called()
 
 
-def test_table_insert_reports_failure_when_no_table_produced():
+@pytest.mark.parametrize("position", ["after", "before"])
+def test_table_insert_reports_failure_when_no_table_produced(position):
     """Tip: table insert must honestly report failure if table count did not increase."""
     from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
@@ -302,7 +303,7 @@ def test_table_insert_reports_failure_when_no_table_produced():
          patch.object(html_import, "insert_html_at_cursor"):
         res = ApplyDocumentContent().execute(
             ctx, content=["<table><tr><td>Cell 1</td></tr></table>"],
-            target="search", old_content="world", position="after")
+            target="search", old_content="world", position=position)
 
     assert res["status"] == "error"
     assert res.get("code") == "TABLE_INSERT_FAILED"
@@ -1654,48 +1655,27 @@ def test_all_matches_disposed_undo_manager_reraises():
             ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
 
 
-def test_selection_table_insert_fails_when_the_doc_already_has_a_table():
+@pytest.mark.parametrize(
+    ("target", "extra_kwargs"),
+    [
+        pytest.param("selection", {}, id="selection"),
+        pytest.param("search", {"old_content": "old"}, id="search"),
+    ],
+)
+def test_table_insert_fails_when_the_doc_already_has_a_table(target, extra_kwargs):
     ctx = _edit_ctx()
     ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch("plugin.writer.html_import.insert_content_at_position", return_value=html_import_styles.WriteReport()):
-        res = ApplyDocumentContent().execute(
-            ctx, content="<table><tr><td>X</td></tr></table>", target="selection")
-    assert res["status"] == "error"
-    assert res["code"] == "TABLE_INSERT_FAILED"
-    assert res["message"] == "Table insert produced no table in document."
-
-
-def test_search_replace_table_insert_fails_when_the_doc_already_has_a_table():
-    ctx = _edit_ctx()
-    ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
-    with patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
+         patch("plugin.writer.html_import.insert_content_at_position", return_value=html_import_styles.WriteReport()), \
+         patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", return_value=[]):
         res = ApplyDocumentContent().execute(
-            ctx, content="<table><tr><td>X</td></tr></table>", target="search", old_content="old")
+            ctx, content="<table><tr><td>X</td></tr></table>", target=target, **extra_kwargs)
     assert res["status"] == "error"
     assert res["code"] == "TABLE_INSERT_FAILED"
     assert res["message"] == "Table insert produced no table in document."
-
-
-def test_position_before_table_insert_reports_failure():
-    from plugin.writer import html_import
-
-    found, _cursor = _next_to_match_found(at_paragraph_edge=False)
-    ctx = _edit_ctx()
-    ctx.doc.getTextTables.return_value.getCount.return_value = 0
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
-         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
-         patch.object(html_import, "insert_html_at_cursor"):
-        res = ApplyDocumentContent().execute(
-            ctx, content="<table><tr><td>Cell 1</td></tr></table>",
-            target="search", old_content="world", position="before")
-    assert res["status"] == "error"
-    assert res.get("code") == "TABLE_INSERT_FAILED"
-    assert "Table insert produced no table in document." in res.get("message", "")
 
 
 def test_table_count_read_reraises_disposed():

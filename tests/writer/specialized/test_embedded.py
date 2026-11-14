@@ -89,6 +89,38 @@ def _fake_config(clsid: str, *, factory: str, doc_service: str):
     return smgr
 
 
+def _commit_mutate(_tool, _doc, _title, mutate, *_args, **_kwargs):
+    return mutate()
+
+
+def _make_embed_ctx(
+    clsid="abc",
+    *,
+    has_by_name=False,
+    element_names=None,
+    emb=None,
+):
+    doc = MagicMock()
+    if emb is not None:
+        doc.createInstance.return_value = emb
+    container = MagicMock()
+    container.hasByName.return_value = has_by_name
+    if element_names is not None:
+        container.getElementNames.side_effect = element_names
+    doc.getEmbeddedObjects.return_value = container
+    ctx = MagicMock(
+        doc=doc,
+        ctx=MagicMock(
+            getServiceManager=lambda: _fake_config(
+                clsid,
+                factory=embedded_mod._EMBED_FACTORY,
+                doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
+            )
+        ),
+    )
+    return ctx, doc, emb
+
+
 def test_spreadsheet_clsid_from_registry():
     ctx = MagicMock()
     ctx.getServiceManager.return_value = _fake_config(
@@ -173,7 +205,7 @@ def test_embedded_insert_sequence_and_cell_writes():
     expected_size = embedded_mod._embed_size_for_used_range(len(data), max(len(row) for row in data))
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit_mutate),
     ):
         res = EmbeddedInsert().execute(
             ctx,
@@ -221,13 +253,9 @@ def test_embedded_insert_explicit_size_reported():
         doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
     )))
 
-    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
-        mutate()
-        return None
-
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit_mutate),
     ):
         res = EmbeddedInsert().execute(
             ctx,
@@ -246,28 +274,14 @@ def test_embedded_insert_explicit_size_reported():
 
 
 def test_embedded_insert_name_unchanged_skips_get_embedded_object():
-    doc = MagicMock()
     cursor = MagicMock()
     cursor.getText.return_value = MagicMock()
     emb = MagicMock()
-    doc.createInstance.return_value = emb
-    container = MagicMock()
-    container.getElementNames.side_effect = [(), ()]
-    container.hasByName.return_value = False
-    doc.getEmbeddedObjects.return_value = container
-    ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
-        "abc",
-        factory=embedded_mod._EMBED_FACTORY,
-        doc_service=embedded_mod._SPREADSHEET_DOC_SERVICE,
-    )))
-
-    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
-        err = mutate()
-        return err
+    ctx, unused_doc, unused_emb = _make_embed_ctx("abc", element_names=[(), ()], emb=emb)
 
     with (
         patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
-        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit_mutate),
     ):
         res = EmbeddedInsert().execute(ctx, object_type="spreadsheet", target="end")
 

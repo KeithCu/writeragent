@@ -100,94 +100,45 @@ def _search_doc(items, *, key="doc-a", char_count=1, doc_locale=None):
     doc.getText.return_value.createEnumeration.side_effect = make_enum
     return doc
 
-def test_index_service_search_boolean_near_integration(mock_services):
-    # Mock stemmer to return tokens as is for simplicity
+@pytest.fixture
+def identity_stemmer():
     mock_stemmer = MagicMock()
     mock_stemmer.stemWord.side_effect = lambda x: x
+    with patch("plugin.writer.locale.linguistic_index.IndexService._get_stemmer", return_value=mock_stemmer):
+        yield mock_stemmer
 
-    with patch('plugin.writer.locale.linguistic_index.IndexService._get_stemmer', return_value=mock_stemmer):
 
-        svc = IndexService(mock_services)
+def test_index_service_search_boolean_near_integration(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    mock_services.document.doc_key.return_value = "test_doc"
+    doc = _search_doc([
+        ("The apple is here.", "en"),
+        ("Some filler text.", ""),
+        ("The pie is delicious.", ""),
+    ])
 
-        # Mock document
-        doc = MagicMock()
-        mock_services.document.doc_key.return_value = "test_doc"
+    # First call builds index
+    # apple is in para 0, pie is in para 2. Distance is 2.
+    res = svc.search_boolean(doc, "apple NEAR/2 pie")
 
-        # Mock paragraphs
-        para0 = MagicMock()
-        para0.supportsService.return_value = True
-        para0.getString.return_value = "The apple is here."
-        para0.getPropertyValue.return_value = MagicMock(Language="en")
+    assert res["total_found"] == 2
+    assert res["mode"] == "near"
+    # apple(0) and pie(2) are within distance 2.
+    indices = [m["paragraph_index"] for m in res["matches"]]
+    assert 0 in indices
+    assert 2 in indices
 
-        para1 = MagicMock()
-        para1.supportsService.return_value = True
-        para1.getString.return_value = "Some filler text."
 
-        para2 = MagicMock()
-        para2.supportsService.return_value = True
-        para2.getString.return_value = "The pie is delicious."
+def test_index_service_search_boolean_near_too_far(mock_services, identity_stemmer):
+    svc = IndexService(mock_services)
+    mock_services.document.doc_key.return_value = "test_doc_far"
+    doc = _search_doc(
+        [("apple", "en")] + [("filler", "")] * 3 + [("pie", "")]
+    )
 
-        for p in (para0, para1, para2):
-            p.createEnumeration.side_effect = RuntimeError("no enum")
-
-        def make_enum():
-            e = MagicMock()
-            e.hasMoreElements.side_effect = [True, True, True, False]
-            e.nextElement.side_effect = [para0, para1, para2]
-            return e
-        doc.getText().createEnumeration.side_effect = make_enum
-
-        # First call builds index
-        # apple is in para 0, pie is in para 2. Distance is 2.
-        res = svc.search_boolean(doc, "apple NEAR/2 pie")
-
-        assert res["total_found"] == 2
-        assert res["mode"] == "near"
-        # apple(0) and pie(2) are within distance 2.
-        indices = [m["paragraph_index"] for m in res["matches"]]
-        assert 0 in indices
-        assert 2 in indices
-
-def test_index_service_search_boolean_near_too_far(mock_services):
-    mock_stemmer = MagicMock()
-    mock_stemmer.stemWord.side_effect = lambda x: x
-
-    with patch('plugin.writer.locale.linguistic_index.IndexService._get_stemmer', return_value=mock_stemmer):
-        svc = IndexService(mock_services)
-        doc = MagicMock()
-        mock_services.document.doc_key.return_value = "test_doc_far"
-
-        para0 = MagicMock()
-        para0.supportsService.return_value = True
-        para0.getString.return_value = "apple"
-        para0.getPropertyValue.return_value = MagicMock(Language="en")
-
-        # 3 paragraphs in between
-        paras = [para0]
-        for i in range(3):
-            p = MagicMock()
-            p.supportsService.return_value = True
-            p.getString.return_value = "filler"
-            paras.append(p)
-
-        para4 = MagicMock()
-        para4.supportsService.return_value = True
-        para4.getString.return_value = "pie"
-        paras.append(para4)
-
-        for p in paras:
-            p.createEnumeration.side_effect = RuntimeError("no enum")
-
-        def make_enum_far():
-            e = MagicMock()
-            e.hasMoreElements.side_effect = [True] * 5 + [False]
-            e.nextElement.side_effect = paras
-            return e
-        doc.getText().createEnumeration.side_effect = make_enum_far
-
-        # apple(0) NEAR/2 pie(4) -> 4-0 = 4 > 2. Should find nothing.
-        res = svc.search_boolean(doc, "apple NEAR/2 pie")
-        assert res["total_found"] == 0
+    # apple(0) NEAR/2 pie(4) -> 4-0 = 4 > 2. Should find nothing.
+    res = svc.search_boolean(doc, "apple NEAR/2 pie")
+    assert res["total_found"] == 0
 
 
 def test_index_cache_hit_reports_cached(mock_services):

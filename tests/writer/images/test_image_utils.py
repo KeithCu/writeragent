@@ -390,27 +390,18 @@ class TestEndpointImageProvider:
         assert "response_format" not in data
         assert (data["model"]) == ("gpt-image-2")
 
-    def test_openai_dalle3_rejects_edit(self):
-        """dall-e-3 is generations-only; refuse rather than replace the selected graphic."""
-        config = {"endpoint": "https://api.openai.com", "model": "dall-e-3", "api_key": "sk-test"}
+    @pytest.mark.parametrize("model", ["dall-e-3", "dall-e-2"])
+    def test_openai_dalle_rejects_edit(self, model):
+        """dall-e-3 cannot edit; dall-e-2 edits were multipart and this client sends JSON."""
+        config = {"endpoint": "https://api.openai.com", "model": model, "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
         with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
             with pytest.raises(ValueError) as raised:
-                client._get_shim().build_image_request("make it dusk", "dall-e-3", 1024, 1024, source_image="b64data")
-        assert ("dall-e-3") in (str(raised.value).lower())
-        assert ("cannot edit") in (str(raised.value).lower())
-        assert ("or dall-e-2") not in (str(raised.value).lower())
-
-    def test_openai_dalle2_rejects_edit(self):
-        """dall-e-2 edits were multipart. This client sends JSON, so refuse."""
-        config = {"endpoint": "https://api.openai.com", "model": "dall-e-2", "api_key": "sk-test"}
-        client = LlmClient(config, MockContext())
-        with patch.object(client, "_resolve_auth", return_value={"provider": "openai"}):
-            with pytest.raises(ValueError) as raised:
-                client._get_shim().build_image_request("make it dusk", "dall-e-2", 1024, 1024, source_image="b64data")
-        assert ("dall-e-2") in (str(raised.value).lower())
-        assert ("cannot edit") in (str(raised.value).lower())
-        assert ("or dall-e-2") not in (str(raised.value).lower())
+                client._get_shim().build_image_request("make it dusk", model, 1024, 1024, source_image="b64data")
+        msg = str(raised.value).lower()
+        assert model in msg
+        assert "cannot edit" in msg
+        assert "or dall-e-2" not in msg
 
     def test_together_image_request_uses_reference_images_for_edit(self):
         """Together default image models (Flash Image / FLUX.2) want reference_images, not image_url."""
