@@ -477,7 +477,8 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     ],
 )
 def test_resolve_crop_edges(kwargs, current, expected):
-    # Pin mm -> 1/100mm edge math and preserve-unspecified-edges behavior.
+    # set_image_properties applies this via GraphicCrop; the struct write itself is UNO-only,
+    # so only the mm -> 1/100mm edge math and preserve-unspecified-edges behavior are pinned here.
     assert _resolve_crop_edges(kwargs, current) == expected
 
 

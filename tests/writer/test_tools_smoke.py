@@ -1,4 +1,4 @@
-"""Smoke tests for writer tools: registry has expected tools and schemas are valid."""
+"""Smoke tests for writer tools: default-list exclusion of specialized tools, structural vs tables routing, unregistered bibliography mocks, page-domain style reuse, and schema shape."""
 
 from unittest.mock import patch
 
@@ -26,7 +26,7 @@ class TestWriterToolsSmoke:
         self._rva_desktop_patch.stop()
         self._desktop_patch.stop()
 
-    def test_registration(self):
+    def test_default_list_excludes_specialized_tools(self):
         registry = get_tools()
         doc = WriterDocStub()
         writer_tools = {t.name for t in registry.get_tools(doc=doc)}

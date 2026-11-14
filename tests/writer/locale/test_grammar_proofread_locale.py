@@ -195,6 +195,20 @@ def test_grammar_batch_sentences_defaults_and_clamping() -> None:
         assert gl.grammar_batch_sentences() == 1
 
 
+def test_clamped_int_config_keys_exist_in_doc_module_yaml() -> None:
+    """Every key read by _clamped_int_config must be a real doc-module config key.
+
+    _clamped_int_config swallows unknown-key errors, so a key drift silently means 1.
+    """
+    import yaml
+    from pathlib import Path
+
+    doc_yaml = Path(__file__).resolve().parents[3] / "plugin" / "doc" / "module.yaml"
+    config = yaml.safe_load(doc_yaml.read_text(encoding="utf-8"))["config"]
+    for key in ("doc.grammar_proofreader_max_in_flight", "doc.grammar_proofreader_batch_sentences"):
+        assert key.split(".", 1)[1] in config, key
+
+
 def test_normalize_detected_bcp47_registry_and_shorthand() -> None:
     assert normalize_detected_bcp47("ja-JP") == "ja-JP"
     assert normalize_detected_bcp47("ja") == "ja-JP"
