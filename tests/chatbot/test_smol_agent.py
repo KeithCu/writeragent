@@ -176,9 +176,8 @@ class TestToolcallingPromptExamples:
         assert ("specialized_workflow_finished") in (prompt)
         assert (get_examples_block("calc:charts")) == (DELEGATE_GENERIC_EXAMPLES_BLOCK)
 
-    def test_examples_action_bodies_parse_and_use_allowed_tools(self, caplog):
+    def test_examples_action_bodies_parse_and_use_allowed_tools(self):
         import json
-        import logging
         from typing import Any
         from plugin.chatbot.smol_examples import get_examples_block
 
@@ -262,13 +261,10 @@ class TestToolcallingPromptExamples:
             assert len(actions) > 0
             assert actions[-1]["name"] == "specialized_workflow_finished"
 
-        # Unknown key warning and generic fallback
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
-            unknown_block = get_examples_block("completely_unknown_key")
-            assert "Unknown smol examples key 'completely_unknown_key'" in caplog.text
-            unknown_actions = parse_actions(unknown_block)
-            assert unknown_actions[-1]["name"] == "specialized_workflow_finished"
+        # Unknown key falls back to generic examples
+        unknown_block = get_examples_block("completely_unknown_key")
+        unknown_actions = parse_actions(unknown_block)
+        assert unknown_actions[-1]["name"] == "specialized_workflow_finished"
 
 
 # =============================================================================

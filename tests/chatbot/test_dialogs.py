@@ -438,11 +438,9 @@ def test_msgbox_with_report_long_message_does_not_raise():
     with patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=dlg):
         # We also need to mock build_github_issue_url because we aren't testing that.
         with patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="url"):
-            # 2000 > DEAL_MAX_MSGID (which is probably 1000 or so)
+            # Exceeds DEAL_MAX_MSGID so calling `_(long_msg)` would raise deal.PreContractError.
             long_msg = "x" * 2000
-            # If `_(long_msg)` is called, it will raise deal.PreContractError
             msgbox_with_report(ctx, "Test Title", long_msg, reportable=True)
-            # The label should be assigned the long message (or translated prefix + long message)
             assert long_msg in msg_model.Label
 
 def test_msgbox_long_message_does_not_raise():

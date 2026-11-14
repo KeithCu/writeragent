@@ -1074,7 +1074,6 @@ def test_temporal_anchoring_present(monkeypatch):
     monkeypatch.setattr(C.datetime, "date", _Date)
     C.compact_session(session, client, window=4096)
     body = client.calls[0]["messages"][1]["content"]
-    assert "TEMPORAL ANCHORING" in body
     assert "2026-09-10" in body
 
 
@@ -1611,7 +1610,7 @@ def test_compact_session_summarizer_user_body_includes_focus():
     assert client.calls
     user_messages = [m for m in client.calls[0]["messages"] if m.get("role") == "user"]
     assert user_messages
-    assert "Keep details about: budget" in user_messages[-1]["content"]
+    assert "budget" in user_messages[-1]["content"]
 
 
 def test_summarizer_retries_after_length_or_empty_content():

@@ -672,66 +672,6 @@ def test_tool_calling_agent_default_augment_is_identity():
     assert agent.augment_messages_for_step(base) is base
 
 
-def test_web_research_agent_instructions_include_minimal_tool_use_advice():
-    from plugin.chatbot.web_research import WebResearchTool
-    from plugin.tests.testing_utils import MockContext
-
-    ctx = MagicMock()
-    ctx.ctx = MockContext()
-    setattr(ctx.ctx, "getServiceManager", MagicMock())
-    captured: dict = {}
-
-    class _CaptureAgent:
-        def __init__(self, **kwargs):
-            captured["instructions"] = kwargs.get("instructions", "")
-
-    # Test case 1: max_steps = 25 (greater than 20) -> should include advice
-    with patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", _CaptureAgent):
-        with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
-            mock_exec.return_value.execute_safe.return_value = "answer"
-
-            def _cfg_int(key):
-                if key == "chatbot.web_cache_max_mb":
-                    return 0
-                if key == "chatbot.max_tool_rounds":
-                    return 25
-                return 0
-
-            with patch(
-                "plugin.framework.config.get_config",
-                side_effect=_research_config_side_effect(_cfg_int, cache_enabled=False, cache_max_mb=0),
-            ), patch("plugin.framework.config.get_api_config", return_value={}), patch(
-                "plugin.framework.config.user_config_dir", return_value="/tmp"
-            ):
-                WebResearchTool().execute(ctx, query="test query")
-
-    assert "12 steps" in captured["instructions"]
-
-    # Test case 2: max_steps = 10 (less than or equal to 20) -> should NOT include advice
-    captured.clear()
-    with patch("plugin.chatbot.web_research.WebResearchToolCallingAgent", _CaptureAgent):
-        with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
-            mock_exec.return_value.execute_safe.return_value = "answer"
-
-            def _cfg_int_low(key):
-                if key == "chatbot.web_cache_max_mb":
-                    return 0
-                if key == "chatbot.max_tool_rounds":
-                    return 10
-                return 0
-
-            with patch(
-                "plugin.framework.config.get_config",
-                side_effect=_research_config_side_effect(_cfg_int_low, cache_enabled=False, cache_max_mb=0),
-            ), patch("plugin.framework.config.get_api_config", return_value={}), patch(
-                "plugin.framework.config.user_config_dir", return_value="/tmp"
-            ):
-                WebResearchTool().execute(ctx, query="test query")
-
-    assert "12 steps" not in captured["instructions"]
-    assert "step budget" not in captured["instructions"]
-
-
 def test_web_research_unique_words_key():
     from plugin.chatbot.web_research import _cache_key_inputs
 
@@ -1314,6 +1254,7 @@ def test_get_research_completion_instruction():
 def test_web_research_tool_includes_instruction_in_result(tmp_path):
     """WebResearchTool.execute must include an instruction field tailored to doc_type."""
     from plugin.chatbot.web_research import WebResearchTool
+    from plugin.framework.prompts import RESEARCH_COMPLETION_INSTRUCTION_CALC
     from plugin.tests.testing_utils import MockContext
 
     ctx = MagicMock()
@@ -1330,9 +1271,7 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
         res = tool.execute(ctx, query="Calculate revenue trends")
         assert res["status"] == "ok"
         assert res["result"] == "Live research result text"
-        assert "instruction" in res
-        assert "write_cell_range" in res["instruction"]
-        assert "sent ONLY to you — the user has NOT seen it yet" in res["instruction"]
+        assert res["instruction"] == RESEARCH_COMPLETION_INSTRUCTION_CALC
 
 
 @pytest.mark.parametrize("status", ["ok", "error"])

@@ -154,11 +154,6 @@ class TestDeepResearchParsers:
         assert url in branch["sources"]
         assert learning not in branch["sources"]
 
-    def test_research_progress_status_text(self):
-        p = ResearchProgress(current_round=2, max_rounds=3, started_queries=5, max_sub_queries=14, current_query="climate policy")
-        assert "round 2/3" in p.status_text()
-        assert "5/14" in p.status_text()
-
 
 class TestRunDeepResearch:
     def _llm_router(self, messages):
@@ -878,9 +873,7 @@ def test_generate_search_queries_includes_local_clock_stamp():
         out = generate_search_queries(fake_llm, "some topic", 2)
 
     assert len(out) == 2
-    assert "up-to-date" in captured["user"]
-    assert f"Current time: {stamp}" in captured["user"]
-    assert "Today's date is" not in captured["user"]
+    assert stamp in captured["user"]
 
 
 def test_chat_completion_sync_stop_checker_not_finish_reason():

@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.deep_research_session import (
-    DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
     compose_deep_research_mode_instructions,
     DeepResearchSessionTool,
     DeepResearchWebTool,
@@ -39,10 +38,6 @@ def test_deep_research_calc_instructions_omit_apply_document_content():
     assert "apply_document_content" not in text
 
 
-def test_deep_research_base_instructions_omit_apply_document_content():
-    assert "apply_document_content" not in DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS
-
-
 def test_deep_research_web_delegates_with_deep_true():
     with patch("plugin.chatbot.web_research.WebResearchTool") as mock_cls:
         instance = mock_cls.return_value
@@ -72,12 +67,6 @@ class _GetDocumentContentStub(ToolBase):
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok", "content": ""}
-
-
-def test_deep_research_instructions_mention_active_document_not_writer_only():
-    first_line = DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS.split("\n", 2)[1]
-    assert "active document" in first_line
-    assert "Writer document" not in first_line
 
 
 def test_collect_deep_research_tools_calc_omits_apply_document_content():

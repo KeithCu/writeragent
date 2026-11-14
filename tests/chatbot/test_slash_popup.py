@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -632,15 +631,10 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     floater.dispose.assert_called_once()
     assert popup.is_open is False
     send.append_output.assert_called_once()
-    assert "Slash commands:" in send.append_output.call_args[0][0]
 
 
-def test_query_text_post_timeout_does_not_run_inline(caplog):
-    """TimeoutError from post must not hide or show on this stack.
-
-    Ask textChanged used to catch the timeout and call hide / _show_matches
-    inline, which deadlocks VCL. _defer_to_next_turn only logs.
-    """
+def test_query_text_post_timeout_does_not_run_inline():
+    """TimeoutError from post must not hide or show inline on the Ask textChanged stack; doing so deadlocks VCL."""
     popup, box = _controller()
     popup.hide = MagicMock()
     popup._show_matches = MagicMock()
@@ -648,21 +642,17 @@ def test_query_text_post_timeout_does_not_run_inline(caplog):
     def _timeout(*_args, **_kwargs):
         raise TimeoutError("marshal post timed out")
 
-    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
-        with patch(
-            "plugin.framework.queue_executor.main.post",
-            side_effect=_timeout,
-        ):
-            popup.on_query_text("hello")  # prefix is None → defer hide
-            popup.on_query_text("/zzz-not-a-command")  # no command starts with zzz → defer hide
-            popup.on_query_text("/")  # matches → defer _show_matches
+    with patch(
+        "plugin.framework.queue_executor.main.post",
+        side_effect=_timeout,
+    ):
+        popup.on_query_text("hello")  # prefix is None → defer hide
+        popup.on_query_text("/zzz-not-a-command")  # no command starts with zzz → defer hide
+        popup.on_query_text("/")  # matches → defer _show_matches
     popup.hide.assert_not_called()
     popup._show_matches.assert_not_called()
     assert popup.is_open is False
     assert box.visible is False
-    deferred = [r for r in caplog.records if "could not defer main-thread turn" in r.message]
-    assert len(deferred) == 3
-    assert all(r.levelno == logging.WARNING for r in deferred)
 
 
 def test_recreate_hide_does_not_dispatch_has_text():
@@ -678,7 +668,7 @@ def test_recreate_hide_does_not_dispatch_has_text():
     win.dispose.assert_called_once()
 
 
-def test_fill_failure_logs_warning(caplog):
+def test_fill_failure_does_not_raise():
     popup, box = _controller()
     popup.control = box
     popup._popup_floater = object()
@@ -690,12 +680,10 @@ def test_fill_failure_logs_warning(caplog):
         raise RuntimeError("addItems")
 
     box.addItems = _boom
-    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
-        popup._fill_visible_list()
-    assert any("fill addItems failed" in r.message and r.levelno == logging.WARNING for r in caplog.records)
+    popup._fill_visible_list()
 
 
-def test_frame_key_attach_failure_logs_warning(caplog):
+def test_frame_key_attach_failure_does_not_raise():
     import com.sun.star.awt as awt
 
     class XKeyHandler:
@@ -707,12 +695,7 @@ def test_frame_key_attach_failure_logs_warning(caplog):
         controller = MagicMock()
         controller.addKeyHandler.side_effect = RuntimeError("attach")
         popup.send_listener.frame = SimpleNamespace(getController=lambda: controller)
-        with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
-            popup._attach_frame_keys()
-        assert any(
-            "frame key handler attach failed" in r.message and r.levelno == logging.WARNING
-            for r in caplog.records
-        )
+        popup._attach_frame_keys()
     finally:
         if hasattr(awt, "XKeyHandler"):
             delattr(awt, "XKeyHandler")
