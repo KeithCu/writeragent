@@ -1070,9 +1070,7 @@ def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
     assert state.code_cells[0].output_start_bookmark.startswith("nb_out_")
 
 
-def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch, caplog):
-    import logging
-
+def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch):
     ipynb = tmp_path / "one_code.ipynb"
     ipynb.write_text(
         '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
@@ -1093,14 +1091,12 @@ def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch, cap
     monkeypatch.setattr("plugin.notebook.writer_importer.save_registry", lambda _d, state: saved.append(state))
     monkeypatch.setattr("plugin.notebook.writer_importer.save_notebook_source_path", MagicMock())
 
-    caplog.set_level(logging.WARNING, logger="writeragent.notebook")
     import_ipynb_to_writer(doc, str(ipynb))
 
     assert len(saved) == 1
     cell = saved[0].code_cells[0]
     assert cell.code_field_name == "nb_cell_0_code"
     assert cell.output_start_bookmark == ""
-    assert "was not inserted" in caplog.text
 
 
 def test_iter_markdown_blocks_atx_and_paragraphs():

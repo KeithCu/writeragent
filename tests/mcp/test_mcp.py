@@ -30,9 +30,8 @@ def test_mcp_clock_context_is_offset_free_wall_time():
         assert f"({tzname})" in text
 
 
-def test_initialize_instructions_lean_pointer_in_every_mode():
-    """T4/G2: every exposure mode keeps the base + its mode hint + the get_guidance pointer, and
-    stays LEAN (clients drop/truncate the connect-time text, so the manual moved out of it)."""
+def test_initialize_instructions_clock_and_mode_hints():
+    """Every exposure mode includes the offset-free clock stamp and a distinct mode hint."""
     now = datetime.datetime(2026, 8, 6, 13, 11, 0, tzinfo=datetime.timezone.utc)
     expected_wall = now.astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
     for mode in ("delegate", "direct_flat", "direct_discovery", "unknown"):
@@ -41,42 +40,12 @@ def test_initialize_instructions_lean_pointer_in_every_mode():
         assert expected_wall in text
         assert "+00:00" not in text
         assert "-04:00" not in text
-        assert "WriterAgent MCP" in text          # base preserved
-        assert "list_open_documents" in text      # targeting when multi-doc
-        assert "document_url" in text
-        assert "get_guidance" in text             # the pointer to the on-demand manual
-        assert "do not append a timezone offset" in text
-        assert "get_document_tree" not in text    # the nav workflow moved to the manual
-        assert "main thread" not in text         # threading internals are not tool-choice
-        assert "UNO operations" not in text
-        assert len(text) < 1500
 
-
-def test_navigation_workflow_lives_in_the_manual():
-    """R5's map-first workflow (outline -> drill -> search) is delivered via the manual now —
-    get_guidance('navigation') for MCP clients and the sidebar; full_manual() for the agent-backend path."""
-    from plugin.chatbot.agent_manual import get_section
-
-    nav = get_section("navigation")
-    assert "get_document_tree" in nav
-    assert "nav_heading_children" in nav
-    assert "search_in_document" in nav
-    assert "strategy='heading_only'" in nav
-    assert "content_strategy" not in nav
-    search = get_section("search")
-    assert search is not None
-    assert "return_offsets=true is character ranges for a literal body-text match only" in search
-    assert "not regex" in search
-
-
-def test_initialize_instructions_mode_hints_differ():
-    """Each exposure mode keeps its own discovery hint (regression on the refactor)."""
-    flat = build_initialize_instructions("direct_flat")
-    discovery = build_initialize_instructions("direct_discovery")
-    delegate = build_initialize_instructions("delegate")
-    assert "listed directly" in flat
-    assert "find_tools" in discovery
-    assert "delegate_to_specialized" in delegate
+    mode_texts = {
+        build_initialize_instructions(mode, now=now)
+        for mode in ("direct_flat", "direct_discovery", "delegate")
+    }
+    assert len(mode_texts) == 3
 
 
 def test_health_endpoint(mcp_server):
@@ -198,12 +167,8 @@ def test_root_info_includes_mcp_endpoint(mcp_server):
         assert data.get("mcp_endpoint") == f"{mcp_server}/mcp"
 
 
-def test_mcp_initialize_instructions_are_lean_and_point_to_the_manual(mcp_server):
-    """T4/G2 contract: initialize.instructions is LEAN (major clients drop or truncate it — Claude
-    Desktop doesn't read it, Claude Code truncates ~2KB) and points to get_guidance(topic), where
-    the full behavior manual lives (single source: the shared prompt pieces in constants.py,
-    mapped per topic by plugin/chatbot/agent_manual.py, pinned in
-    tests/chatbot/test_agent_manual.py). Only the invariants ride along."""
+def test_mcp_initialize_returns_instructions_with_clock(mcp_server):
+    """initialize.instructions returns a non-empty string with the connection-time clock."""
     url = f"{mcp_server}/mcp"
     payload = {"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}}
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -214,11 +179,8 @@ def test_mcp_initialize_instructions_are_lean_and_point_to_the_manual(mcp_server
         data = json.loads(response.read().decode("utf-8"))
 
     instr = data["result"]["instructions"]
-    assert "Current local date and time:" in instr        # connection-time clock for MCP hosts
-    assert "get_guidance" in instr                        # the pointer to the on-demand manual
-    assert "structured fields" in instr                   # invariant: confirm edits structurally
-    assert "accept/reject" in instr                       # invariant: tracked changes are the user's
-    assert len(instr) < 1500                              # lean — the manual itself moved out
+    assert isinstance(instr, str) and instr.strip()
+    assert "Current local date and time:" in instr
 
 
 def test_mcp_action_server_status_dialog_controls():

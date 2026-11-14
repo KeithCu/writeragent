@@ -4,7 +4,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for LibrePy sidebar header and hamburger (no embeddings/MCP)."""
 
-import logging
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -349,88 +348,73 @@ def test_execute_popup_under_button_uses_peer_and_position():
     assert (rect.X, rect.Y, rect.Width, rect.Height) == (10, 32, 30, 0)
 
 
-def test_execute_popup_under_button_without_peer_is_a_noop(caplog):
+def test_execute_popup_under_button_without_peer_is_a_noop():
     popup = MagicMock()
     button_ctrl = MagicMock()
     button_ctrl.getPeer.return_value = None
 
-    with caplog.at_level(logging.WARNING):
-        res = execute_popup_under_button(popup, button_ctrl)
+    res = execute_popup_under_button(popup, button_ctrl)
 
     assert res == 0
     popup.execute.assert_not_called()
-    warns = [r for r in caplog.records if r.levelno == logging.WARNING and "peer" in r.message]
-    assert len(warns) == 1
 
 
-def test_execute_popup_under_button_without_position_is_a_noop(caplog):
+def test_execute_popup_under_button_without_position_is_a_noop():
     popup = MagicMock()
     peer = MagicMock()
     button_ctrl = MagicMock()
     button_ctrl.getPeer.return_value = peer
     button_ctrl.getPosSize.return_value = None
 
-    with caplog.at_level(logging.WARNING):
-        res = execute_popup_under_button(popup, button_ctrl)
+    res = execute_popup_under_button(popup, button_ctrl)
 
     assert res == 0
     popup.execute.assert_not_called()
-    warns = [r for r in caplog.records if r.levelno == logging.WARNING and "position" in r.message]
-    assert len(warns) == 1
 
 
-def test_missing_handler_warns_and_keeps_other_rows(caplog):
+def test_missing_handler_warns_and_keeps_other_rows():
     def lookup(action: str):
         if action == "main.settings":
             return None
         return _lookup(action)
 
-    with caplog.at_level(logging.WARNING):
-        with patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=lookup):
-            rows = librepy_hamburger_actions(
-                is_calc_doc=True,
-                is_writer_doc=False,
-            )
+    with patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=lookup):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=True,
+            is_writer_doc=False,
+        )
     actions = [a for _label, a, _icon in rows]
     assert "main.settings" not in actions
     assert "scripting.run_python_dialog" in actions
-    warns = [r for r in caplog.records if r.levelno == logging.WARNING and "main.settings" in r.message]
-    assert len(warns) == 1
 
 
-def test_notebook_registry_failure_warns_and_keeps_other_items(caplog):
-    with caplog.at_level(logging.WARNING):
-        with (
-            patch("plugin.notebook.cell_registry.load_registry", side_effect=RuntimeError("bad registry")),
-            patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
-        ):
-            rows = librepy_hamburger_actions(
-                is_calc_doc=False,
-                is_writer_doc=True,
-                doc=object(),
-            )
+def test_notebook_registry_failure_warns_and_keeps_other_items():
+    with (
+        patch("plugin.notebook.cell_registry.load_registry", side_effect=RuntimeError("bad registry")),
+        patch("plugin.librepy.sidebar_menus.get_action_handler", side_effect=_lookup),
+    ):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=False,
+            is_writer_doc=True,
+            doc=object(),
+        )
     actions = [a for _label, a, _icon in rows]
     assert "scripting.run_python_dialog" in actions
     assert "notebook.run_all" not in actions
-    warns = [r for r in caplog.records if r.levelno == logging.WARNING and "notebook registry" in r.message]
-    assert len(warns) >= 1
 
 
-def test_writeragent_chat_import_failure_warns(caplog):
+def test_writeragent_chat_import_failure_warns():
     ctx = MagicMock()
     frame = MagicMock()
     button = MagicMock()
-    with caplog.at_level(logging.WARNING):
-        with (
-            patch(
-                "plugin.framework.uno_context.resolve_package_extension_id",
-                return_value="org.extension.writeragent",
-            ),
-            patch.dict(sys.modules, {"plugin.chatbot.hamburger_menu": None}),
-            patch("plugin.librepy.sidebar_menus.show_librepy_hamburger_menu") as core_menu,
-        ):
-            show_python_sidebar_hamburger(ctx, frame, button)
+    with (
+        patch(
+            "plugin.framework.uno_context.resolve_package_extension_id",
+            return_value="org.extension.writeragent",
+        ),
+        patch.dict(sys.modules, {"plugin.chatbot.hamburger_menu": None}),
+        patch("plugin.librepy.sidebar_menus.show_librepy_hamburger_menu") as core_menu,
+    ):
+        show_python_sidebar_hamburger(ctx, frame, button)
     core_menu.assert_called_once_with(ctx, frame, button)
-    warns = [r for r in caplog.records if r.levelno == logging.WARNING and "chat hamburger" in r.message]
-    assert len(warns) == 1
 

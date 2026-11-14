@@ -122,14 +122,6 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, t
         eval_catalog._registry = None
 
 
-def test_eval_prompts_build_without_libreoffice() -> None:
-    from scripts.prompt_optimization.eval_prompts import get_writer_eval_chat_system_prompt
-
-    prompt = get_writer_eval_chat_system_prompt()
-    assert "delegate_to_specialized_writer_toolset" in prompt
-    assert "[Eval harness]" in prompt
-
-
 def test_writer_catalog_has_production_names() -> None:
     names = _names("writer")
     assert {

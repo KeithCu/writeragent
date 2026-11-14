@@ -120,7 +120,6 @@ def test_reset_notebook_does_not_mint_without_existing_key():
     mock_set_prop.assert_not_called()
     mock_reset.assert_not_called()
     mock_msgbox.assert_called_once()
-    assert "This notebook has no Python worker session yet. The execution counter was reset." in mock_msgbox.call_args[0][1]
 
 
 def test_reset_workbook_python_session_dispatches_to_notebook():

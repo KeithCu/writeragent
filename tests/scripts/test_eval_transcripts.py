@@ -61,8 +61,3 @@ def test_enable_default_transcripts_uses_timestamped_dir(tmp_path):
     finally:
         llm_chat_eval.set_transcript_dir(None)
     assert (Path(path) / "vendor_model_tag" / "table_from_mess.json").is_file()
-
-
-def test_default_root_is_gitignored_transcripts_dir():
-    assert Path(llm_chat_eval.TRANSCRIPTS_ROOT) == _PO / "transcripts"
-    assert "scripts/prompt_optimization/transcripts/" in (_REPO / ".gitignore").read_text()

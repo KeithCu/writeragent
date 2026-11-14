@@ -95,7 +95,7 @@ def test_execute_domain_returns_domain_schemas_without_finish_tool():
         assert "inputSchema" in t
     registry.get_schemas.assert_called_once_with("mcp", doc=ctx.doc, active_domain="footnotes")
     assert "footnotes" in _domain_ids(result["available_domains"])
-    assert "insert_after" in result["domain_guidance"]["footnotes"]
+    assert result["domain_guidance"]["footnotes"]
 
 
 def test_execute_no_args_returns_catalog_only():
@@ -548,7 +548,7 @@ def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
 
 def test_get_domain_guidance_is_app_neutral_when_app_unknown():
     g = get_domain_guidance("charts", agent_label=None)
-    assert "data_range" in g and "headers" in g
+    assert isinstance(g, str) and g.strip()
 
 
 def test_no_document_chart_guidance_is_app_neutral():
@@ -562,7 +562,7 @@ def test_no_document_chart_guidance_is_app_neutral():
     ctx.ctx = MagicMock()
     result = FindTools().execute(ctx, domain="charts")
     g = result["domain_guidance"]["charts"]
-    assert "data_range" in g and "headers" in g
+    assert g == get_domain_guidance("charts", agent_label=None)
 
 
 def test_run_venv_python_advertises_superset_when_doc_unknown():

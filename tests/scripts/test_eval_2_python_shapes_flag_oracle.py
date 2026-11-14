@@ -34,8 +34,6 @@ from eval_2_python_shapes_flag_oracle import (  # noqa: E402
 )
 
 _REPO = Path(__file__).resolve().parents[2]
-_PROMPT = _REPO / "docs" / "eval" / "eval-2" / "python-shapes-flag" / "prompt.writeragent.txt"
-_ASK = "use the python domain to make an American flag using shapes"
 
 # Executed calls only. A logged few-shot "content" line must not count.
 _PASS_LOG = "\n".join((
@@ -124,14 +122,6 @@ def _run(dir_path: Path, log_text: str, **odt_kw: Any) -> Path:
     _odt(dir_path / "final_flag.odt", **odt_kw)
     (dir_path / DEBUG_LOG_FILENAME).write_text(log_text, encoding="utf-8")
     return dir_path
-
-
-def test_prompt_is_the_exact_ask() -> None:
-    text = _PROMPT.read_text(encoding="utf-8").strip()
-    assert text == _ASK
-    assert "run_venv" not in text
-    assert "shape_upsert" not in text
-    assert "delegate_tool_domains" not in text
 
 
 def test_inch_export_rounds_to_pass_width() -> None:

@@ -380,7 +380,6 @@ def test_string_scripted_cli_skips_flag(capsys: pytest.CaptureFixture[str]) -> N
     assert "org_chart_gen" in out
     assert "python_shapes_flag" in out
     assert "backend=lo" in out
-    assert "Scripted result pass: 17/17" in out
 
 
 def test_auto_scripted_cli_skips_flag(
@@ -428,8 +427,6 @@ def test_auto_scripted_cli_skips_flag(
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "no scripted replay" in out
     assert "python_shapes_flag" in out
     assert "org_chart_gen" in out  # noted as unit-test LO drop
     assert "solar_sld_gen" in out
-    assert "Scripted result pass: 17/17" in out

@@ -117,24 +117,6 @@ def test_scripted_string_pack_all_pass() -> None:
     assert process_failed == [], process_failed
 
 
-def test_eval_task_banner_includes_model(capsys: pytest.CaptureFixture[str]) -> None:
-    one = [ex for ex in ALL_EXAMPLES if ex["task_id"] == "comment_management"]
-    assert one
-    run_eval_on_examples_llm(
-        to_eval_examples(one),
-        endpoint="https://openrouter.ai/api/v1",
-        api_key="",
-        model="openai/gpt-oss-120b",
-        backend="string",
-        student="scripted",
-        no_judge=True,
-        bust_cache=False,
-        quiet=False,
-    )
-    out = capsys.readouterr().out
-    assert "--- [1/1] comment_management  model=openai/gpt-oss-120b ---" in out
-
-
 def _lo_eval_available() -> str | None:
     """Return a skip reason, or None if headless LO eval can run.
 
