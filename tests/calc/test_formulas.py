@@ -349,6 +349,11 @@ def test_evaluate_formula_set_formula_raising():
         EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1")
 
 
+def test_evaluate_formula_holds_doc_lock_despite_read_only():
+    """EvaluateFormula inserts and removes a temporary sheet, so it must hold the document lock."""
+    assert EvaluateFormula().requires_document_lock() is True
+
+
 def test_evaluate_formula_flags_array_results():
     res = EvaluateFormula().execute(_eval_ctx(_EvalDoc()), formula="=SORT(A1:A5)")
     assert res["status"] == "ok"

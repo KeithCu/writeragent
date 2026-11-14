@@ -291,6 +291,13 @@ def test_piper_and_kokoro_voice_list_shows_parenthetical_only():
     assert any(row["value"] == "alloy" for row in openai)
 
 
+def test_voice_short_name_strips_label_suffix():
+    from plugin.audio.voice_catalog import voice_short_name
+
+    sample_id = next(iter(_PIPER_VOICE_MODELS))
+    assert voice_short_name(f"{sample_id} (x)") == voice_short_name(sample_id) != sample_id
+
+
 def test_settings_voice_options_match_catalog_for_provider():
     def _cfg(key, default=None):
         values = {

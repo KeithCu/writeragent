@@ -469,7 +469,10 @@ def test_resolve_kokoro_model_files_supersedes_english_only_cache(tmp_path, monk
 
     assert model_path == str(cache_dir / "kokoro-v1.0.onnx")
     assert voices_path == str(cache_dir / "voices-v1.0.bin")
-    assert len(downloaded) == 2
+    assert downloaded == [
+        f"{_KOKORO_RELEASE_BASE}/{KOKORO_VOICES_FILENAME}",
+        f"{_KOKORO_RELEASE_BASE}/{KOKORO_MODEL_FILENAME}",
+    ]
     assert (cache_dir / "kokoro-v0_19.onnx").read_bytes() == b"old-model"
     assert (cache_dir / "voices.bin").read_bytes() == b"old-voices"
 
