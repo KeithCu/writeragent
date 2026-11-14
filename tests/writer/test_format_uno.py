@@ -21,7 +21,6 @@ from plugin.writer.html_import import (
     replace_preserving_format as _replace_text_preserving_format,
 )
 from plugin.writer.search import find_text_ranges
-from plugin.framework.uno_context import get_desktop
 
 def _move_cursor_by_offset(cursor, offset, expand=False):
     """Move cursor by offset in chunks to handle UNO's short (16-bit) limitation."""
@@ -570,97 +569,18 @@ def _check_colors_at_search(doc, search_str, expected_colors):
 
 @native_test
 @with_native_doc("writer")
-def test_apply_document_content_target_search_preserves_colors(ctx, doc):
+def test_apply_document_content_old_content_preserves_colors(ctx, doc):
     word = "zBertPicklez"   # unique sentinel around the name
-    start_off, end_off = _insert_colored_word(doc, word)
+    _insert_colored_word(doc, word)
     expected_colors = [COLORS[i % len(COLORS)] for i in range(len(word))]
 
     result = _apply_document_content(doc, ctx, {
         "content": "zBertTicklez",
         "old_content": "zBertPicklez",
     })
-    assert result.get("status") == "ok", f"tool target=search failed: {result}"
+    assert result.get("status") == "ok", f"tool old_content failed: {result}"
     ok_flag, detail = _check_colors_at_search(doc, "zBertTicklez", expected_colors)
     assert ok_flag, f"colors not preserved: {detail}"
-
-
-@native_test
-@with_native_doc("writer")
-def test_apply_document_content_target_range_preserves_colors(ctx, doc):
-    word = "zNormaFlintez"
-    start_off, end_off = _insert_colored_word(doc, word)
-    expected_colors = [COLORS[i % len(COLORS)] for i in range(len(word))]
-
-    result = _apply_document_content(doc, ctx, {
-        "content": "zNormaGlintez",
-        "old_content": "zNormaFlintez",
-    })
-    assert result.get("status") == "ok", f"tool target=range failed: {result}"
-    ok_flag, detail = _check_colors_at_search(doc, "zNormaGlintez", expected_colors)
-    assert ok_flag, f"colors not preserved: {detail}"
-
-
-@native_test
-@with_native_doc("writer")
-def test_apply_document_content_target_full_preserves_colors(ctx, doc):
-    desktop = get_desktop(ctx)
-    import uno
-    hidden_prop = uno.createUnoStruct(
-        "com.sun.star.beans.PropertyValue",
-        Name="Hidden",
-        Value=True,
-    )
-    small_doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
-    assert small_doc and hasattr(small_doc, "getText"), "Could not create small doc"
-
-    try:
-        small_text = small_doc.getText()
-        word = "zGordonCrumpz"
-        new_word = "zGordonStumpz"
-        for i, ch in enumerate(word):
-            ins = small_text.createTextCursor()
-            ins.gotoEnd(False)
-            small_text.insertString(ins, ch, False)
-            cc = small_text.createTextCursor()
-            cc.gotoEnd(False)
-            cc.goLeft(1, True)
-            cc.setPropertyValue("CharBackColor", COLORS[i % len(COLORS)])
-        expected_colors = [COLORS[i % len(COLORS)] for i in range(len(word))]
-
-        result = _apply_document_content(small_doc, ctx, {
-            "content": new_word,
-            "old_content": word,
-        })
-        assert result.get("status") == "ok", f"tool target=full failed: {result}"
-
-        sd = small_doc.createSearchDescriptor()
-        sd.SearchString = new_word
-        found = small_doc.findFirst(sd)
-        assert found, f"'{new_word}' not found after replace"
-
-        small_txt = small_doc.getText()
-        tmp = small_txt.createTextCursorByRange(found.getStart())
-        tmp.gotoStart(True)
-        start_off2 = len(_normalize(tmp.getString()))
-        actual_colors = []
-        pos_c = small_txt.createTextCursor()
-        pos_c.gotoStart(False)
-        _move_cursor_by_offset(pos_c, start_off2)
-        for _ in range(len(new_word)):
-            cc2 = small_txt.createTextCursorByRange(pos_c)
-            cc2.goRight(1, True)
-            try:
-                actual_colors.append(cc2.getPropertyValue("CharBackColor"))
-            except Exception:
-                actual_colors.append(-1)
-            pos_c = small_txt.createTextCursorByRange(cc2.getEnd())
-
-        assert actual_colors == expected_colors, f"colors expected {expected_colors} got {actual_colors}"
-    finally:
-        try:
-            small_doc.close(True)
-        except Exception:
-            pass
 
 
 # Frozen post-process fixture (same shape as prepare_html_for_lo_import output).

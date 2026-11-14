@@ -20,6 +20,16 @@ def _empty_named_collection():
     return coll
 
 
+def _make_doc(draw=None, graphics=None, tables=None, frames=None):
+    doc = MagicMock()
+    doc.getGraphicObjects.return_value = graphics if graphics is not None else _empty_named_collection()
+    doc.getTextTables.return_value = tables if tables is not None else _empty_named_collection()
+    doc.getTextFrames.return_value = frames if frames is not None else _empty_named_collection()
+    if draw is not None:
+        doc.getDrawPage.return_value = draw
+    return doc
+
+
 def test_scan_page_does_not_clone_via_body_text():
     """Shapes use the view-cursor page, not body createTextCursorByRange at page end."""
     tool = GetPageObjects()
@@ -57,10 +67,7 @@ def test_scan_page_includes_paragraph_anchored_shape_on_page(monkeypatch):
     monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
 
     tool = GetPageObjects()
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
+    doc = _make_doc()
 
     def _shape_props(name: str):
         if name == "AnchorType":
@@ -186,10 +193,7 @@ def test_scan_page_skips_paragraph_shape_getpage_zero_without_unlock(monkeypatch
     monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
 
     tool = GetPageObjects()
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
+    doc = _make_doc()
     doc.hasControllersLocked.return_value = True
 
     shape = MagicMock()
@@ -223,10 +227,7 @@ def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatc
     monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
 
     tool = GetPageObjects()
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
+    doc = _make_doc()
 
     def _page_shape_props(name: str):
         if name == "AnchorType":
@@ -256,65 +257,15 @@ def test_scan_page_at_page_shape_uses_anchor_page_no_without_view_hop(monkeypatc
     vc.gotoRange.assert_not_called()
 
 
-def test_scan_page_keeps_shape_when_geometry_raises(monkeypatch):
-    """One shape whose position cannot be read must not abort the page (#2028)."""
-    from types import SimpleNamespace
-
-    import com.sun.star.text.TextContentAnchorType as anchor_types
-
-    at_page = object()
-    monkeypatch.setattr(anchor_types, "AT_PAGE", at_page)
-    monkeypatch.setattr(anchor_types, "AT_PARAGRAPH", object())
-    monkeypatch.setattr(anchor_types, "AT_CHARACTER", object())
-    monkeypatch.setattr(anchor_types, "AS_CHARACTER", object())
-
-    def anchor_props(name, extra):
-        if name == "AnchorType":
-            return at_page
-        if name == "AnchorPageNo":
-            return 2
-        if name in extra:
-            return extra[name]
-        raise RuntimeError("no %s" % name)
-
-    bad = MagicMock()
-    bad.getPropertyValue.side_effect = lambda name: anchor_props(name, {})
-    bad.getShapeType.return_value = "FrameShape"
-    bad.Name = "Fly"
-    bad.getString.return_value = ""
-    bad.getPosition.side_effect = RuntimeError("position cannot be determined with this method")
-
-    pos = SimpleNamespace(X=10, Y=20)
-    size = SimpleNamespace(Width=30, Height=40)
-    good = MagicMock()
-    good.getPropertyValue.side_effect = lambda name: anchor_props(name, {"HoriOrientPosition": pos.X, "VertOrientPosition": pos.Y})
-    good.getSize.return_value = size
-    good.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
-    good.Name = "Box"
-    good.getString.return_value = ""
-
-    draw = MagicMock()
-    draw.getCount.return_value = 2
-    draw.getByIndex.side_effect = [bad, good]
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
-    doc.getDrawPage.return_value = draw
-
-    result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
-
-    assert [s["name"] for s in result["shapes"]] == ["Fly", "Box"]
-    assert result["shapes"][0]["geometry"] is None
-    geom = result["shapes"][1]["geometry"]
-    assert {k: geom[k] for k in ("x", "y", "width", "height", "position_relative_to")} == {"x": 10, "y": 20, "width": 30, "height": 40, "position_relative_to": "anchor"}
-    assert "anchor_type" in geom
-    bad.getPosition.assert_called_once()
-    good.getPosition.assert_not_called()
-
-
-def test_scan_page_reraises_disposal_during_geometry(monkeypatch):
-    """Disposal during geometry read must abort scan and propagate DocumentDisposedError."""
+@pytest.mark.parametrize(
+    "exc, expect_disposed",
+    [
+        pytest.param(RuntimeError("position cannot be determined with this method"), False, id="keeps_shape_on_runtime_error"),
+        pytest.param("disposed", True, id="reraises_disposal"),
+    ],
+)
+def test_scan_page_geometry_exception(monkeypatch, exc, expect_disposed):
+    """One shape whose position cannot be read must not abort the page (#2028), unless disposed."""
     from types import SimpleNamespace
 
     import com.sun.star.text.TextContentAnchorType as anchor_types
@@ -340,7 +291,7 @@ def test_scan_page_reraises_disposal_during_geometry(monkeypatch):
     bad.getShapeType.return_value = "FrameShape"
     bad.Name = "Fly"
     bad.getString.return_value = ""
-    bad.getPosition.side_effect = DocumentDisposedError("Document was closed")
+    bad.getPosition.side_effect = DocumentDisposedError("Document was closed") if exc == "disposed" else exc
 
     pos = SimpleNamespace(X=10, Y=20)
     size = SimpleNamespace(Width=30, Height=40)
@@ -354,14 +305,20 @@ def test_scan_page_reraises_disposal_during_geometry(monkeypatch):
     draw = MagicMock()
     draw.getCount.return_value = 2
     draw.getByIndex.side_effect = [bad, good]
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
-    doc.getDrawPage.return_value = draw
+    doc = _make_doc(draw=draw)
 
-    with pytest.raises(DocumentDisposedError):
-        GetPageObjects()._scan_page(doc, MagicMock(), 2)
+    if expect_disposed:
+        with pytest.raises(DocumentDisposedError):
+            GetPageObjects()._scan_page(doc, MagicMock(), 2)
+    else:
+        result = GetPageObjects()._scan_page(doc, MagicMock(), 2)
+        assert [s["name"] for s in result["shapes"]] == ["Fly", "Box"]
+        assert result["shapes"][0]["geometry"] is None
+        geom = result["shapes"][1]["geometry"]
+        assert {k: geom[k] for k in ("x", "y", "width", "height", "position_relative_to")} == {
+            "x": 10, "y": 20, "width": 30, "height": 40, "position_relative_to": "anchor",
+        }
+        assert "anchor_type" in geom
 
     bad.getPosition.assert_called_once()
     good.getPosition.assert_not_called()
@@ -610,10 +567,7 @@ def test_scan_page_geometry_as_char_baseline_offset(monkeypatch):
     draw = MagicMock()
     draw.getCount.return_value = 1
     draw.getByIndex.return_value = shape
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
+    doc = _make_doc()
     doc.getDrawPage.return_value = draw
     tool = GetPageObjects()
     monkeypatch.setattr(tool, "_page_at_range", lambda *a, **k: 1)
@@ -652,10 +606,7 @@ def test_scan_page_geometry_falls_back_to_get_position(monkeypatch):
     draw = MagicMock()
     draw.getCount.return_value = 1
     draw.getByIndex.return_value = shape
-    doc = MagicMock()
-    doc.getGraphicObjects.return_value = _empty_named_collection()
-    doc.getTextTables.return_value = _empty_named_collection()
-    doc.getTextFrames.return_value = _empty_named_collection()
+    doc = _make_doc()
     doc.getDrawPage.return_value = draw
 
     result = GetPageObjects()._scan_page(doc, MagicMock(), 1)

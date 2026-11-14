@@ -10,6 +10,17 @@ from plugin.writer.field_restore import (
 )
 
 
+class _Enum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
 def test_rewrite_exported_field_spans_matches_body_xhtml():
     """Body/header XHTML emits titled spans; import must see a token, not a dropped tag."""
     html = (
@@ -146,16 +157,29 @@ def test_restore_field_placeholders_scopes_region_with_uno_same():
         insert.assert_not_called()
 
 
-def test_restore_fields_by_cursor_single_walk_last_token_first():
-    """Three tokens across two portions: one createEnumeration walk, no findFirst, inserted in reverse."""
+@pytest.mark.parametrize(
+    "portions_fn, expected_titles",
+    [
+        pytest.param(
+            lambda n: [
+                f"Page [[WA-FIELD:{n}:page-number]] and at [[WA-FIELD:{n}:time]] ",
+                f"on [[WA-FIELD:{n}:date]] end",
+            ],
+            ["date", "time", "page-number"],
+            id="two_portions_three_tokens",
+        ),
+        pytest.param(
+            lambda n: [f"Start [[WA-FIELD:{n}:page-number]] middle [[WA-FIELD:{n}:date]] end"],
+            ["date", "page-number"],
+            id="one_portion_two_tokens",
+        ),
+    ],
+)
+def test_restore_fields_by_cursor_single_walk_last_token_first(portions_fn, expected_titles):
+    """Tokens across one or multiple portions: one createEnumeration walk, no findFirst, inserted in reverse."""
     nonce = "test1234"
-    tok1 = f"[[WA-FIELD:{nonce}:page-number]]"
-    tok2 = f"[[WA-FIELD:{nonce}:time]]"
-    tok3 = f"[[WA-FIELD:{nonce}:date]]"
-
-    portion1_str = f"Page {tok1} and at {tok2} "
-    portion2_str = f"on {tok3} end"
-    full_str = portion1_str + portion2_str
+    portion_strs = portions_fn(nonce)
+    full_str = "".join(portion_strs)
 
     class _Portion:
         def __init__(self, s, start_val):
@@ -172,19 +196,9 @@ def test_restore_fields_by_cursor_single_walk_last_token_first():
         def getStart(self):
             return self._start
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Para:
         def createEnumeration(self):
-            return _Enum([_Portion(portion1_str, "p1"), _Portion(portion2_str, "p2")])
+            return _Enum([_Portion(s, f"p{idx}") for idx, s in enumerate(portion_strs)])
 
     class _Text:
         def __init__(self):
@@ -200,14 +214,16 @@ def test_restore_fields_by_cursor_single_walk_last_token_first():
 
     text = _Text()
 
-    cursor_for_tok1 = MagicMock()
-    cursor_for_tok1.getString.return_value = tok1
-    cursor_for_tok2 = MagicMock()
-    cursor_for_tok2.getString.return_value = tok2
-    cursor_for_tok3 = MagicMock()
-    cursor_for_tok3.getString.return_value = tok3
+    token_matches = [
+        f"[[WA-FIELD:{nonce}:{title}]]"
+        for title in reversed(expected_titles)
+    ]
+    text_cursors = []
+    for tok in token_matches:
+        c = MagicMock()
+        c.getString.return_value = tok
+        text_cursors.append(c)
 
-    text_cursors = [cursor_for_tok1, cursor_for_tok2, cursor_for_tok3]
     text.createTextCursorByRange = lambda start: text_cursors.pop(0)
 
     model = MagicMock()
@@ -223,9 +239,9 @@ def test_restore_fields_by_cursor_single_walk_last_token_first():
     with patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted):
         restored = restore_field_placeholders(model, text, nonce=nonce)
 
-    assert restored == 3
+    assert restored == len(expected_titles)
     model.findFirst.assert_not_called()
-    assert inserted_titles == ["date", "time", "page-number"]
+    assert inserted_titles == expected_titles
 
 
 def test_restore_fields_in_region_without_document_search():
@@ -243,16 +259,6 @@ def test_restore_fields_in_region_without_document_search():
 
         def getStart(self):
             return "start_sentinel"
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
 
     class _Para:
         def createEnumeration(self):
@@ -316,16 +322,6 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
         def getStart(self):
             return "portion_start"
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Para:
         def __init__(self, s):
             self.s = s
@@ -372,71 +368,6 @@ def test_restore_fields_in_region_two_paragraphs_advances_past_break():
     assert go_right_calls[1] == (len(needle), True)
 
 
-def test_restore_fields_by_cursor_two_tokens_one_portion_reverse_order():
-    """Two tokens in a single portion are inserted last-first."""
-    from plugin.writer.field_restore import _restore_fields_by_cursor
-
-    nonce = "test1234"
-    tok1 = f"[[WA-FIELD:{nonce}:page-number]]"
-    tok2 = f"[[WA-FIELD:{nonce}:date]]"
-    chunk = f"Start {tok1} middle {tok2} end"
-
-    class _Portion:
-        def getPropertyValue(self, name):
-            assert name == "TextPortionType"
-            return "Text"
-
-        def getString(self):
-            return chunk
-
-        def getStart(self):
-            return "pstart"
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
-    class _Para:
-        def createEnumeration(self):
-            return _Enum([_Portion()])
-
-    cursor1 = MagicMock()
-    cursor1.getString.return_value = tok1
-    cursor2 = MagicMock()
-    cursor2.getString.return_value = tok2
-    cursors = [cursor1, cursor2]
-
-    class _Text:
-        def getString(self):
-            return chunk
-
-        def createEnumeration(self):
-            return _Enum([_Para()])
-
-        def createTextCursorByRange(self, start):
-            return cursors.pop(0)
-
-    text = _Text()
-    model = MagicMock()
-    inserted = []
-
-    def fake_insert(unused_model, cur, title, props=None):
-        inserted.append(title)
-        return True
-
-    with patch("plugin.writer.field_restore._insert_restored_field", side_effect=fake_insert):
-        restored = _restore_fields_by_cursor(model, text, nonce=nonce)
-
-    assert restored == 2
-    assert inserted == ["date", "page-number"]
-
-
 def test_restore_fields_by_cursor_skips_unreadable_reads():
     from plugin.writer.field_restore import _restore_fields_by_cursor
 
@@ -464,16 +395,6 @@ def test_restore_fields_by_cursor_skips_unreadable_reads():
 
         def getStart(self):
             return self
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
 
     class _Para1:
         def createEnumeration(self):
@@ -535,16 +456,6 @@ def test_restore_fields_by_cursor_portion_disposal_raises():
 
         def getString(self):
             return tok
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
 
     class _Para:
         def createEnumeration(self):
@@ -736,79 +647,6 @@ def test_restore_field_placeholders_ignores_token_with_different_or_missing_nonc
     mock_insert.assert_not_called()
 
 
-def test_restore_fields_by_cursor_single_walk_reverse_order():
-    """Restore multiple field tokens in a single portion enumeration walk in reverse order."""
-    from plugin.writer.field_restore import _restore_fields_by_cursor
-
-    nonce = "test1234"
-    tok1 = f"[[WA-FIELD:{nonce}:page-number]]"
-    tok2 = f"[[WA-FIELD:{nonce}:date]]"
-    full_str = f"Page {tok1} on {tok2}"
-
-    class _Portion:
-        def __init__(self, s):
-            self.s = s
-
-        def getPropertyValue(self, name):
-            assert name == "TextPortionType"
-            return "Text"
-
-        def getString(self):
-            return self.s
-
-        def getStart(self):
-            return "portion_start"
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
-    class _Para:
-        def createEnumeration(self):
-            return _Enum([_Portion(f"Page {tok1} "), _Portion(f"on {tok2}")])
-
-    cursor1 = MagicMock()
-    cursor1.getString.return_value = tok1
-    cursor2 = MagicMock()
-    cursor2.getString.return_value = tok2
-    cursors = [cursor1, cursor2]
-
-    class _Text:
-        def __init__(self):
-            self.plain = full_str
-            self.enum_calls = 0
-
-        def getString(self):
-            return self.plain
-
-        def createEnumeration(self):
-            self.enum_calls += 1
-            return _Enum([_Para()])
-
-        def createTextCursorByRange(self, start):
-            return cursors.pop(0)
-
-    text = _Text()
-    model = MagicMock()
-    inserted_titles = []
-
-    def _inserted(unused_model, cursor, title, *args):
-        inserted_titles.append(title)
-        return True
-
-    with patch("plugin.writer.field_restore._insert_restored_field", side_effect=_inserted):
-        restored = _restore_fields_by_cursor(model, text, nonce=nonce)
-
-    assert restored == 2
-    assert inserted_titles == ["date", "page-number"]
-
-
 def test_restore_field_placeholders_skips_when_prefix_absent():
     """When the field token prefix is absent from plain text, return 0 without document search."""
     from plugin.writer.field_restore import restore_field_placeholders
@@ -856,16 +694,6 @@ def test_restore_field_placeholders_in_table_cell_walk():
         def getStart(self):
             return "cell_start"
 
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
-
     class _Para:
         def createEnumeration(self):
             return _Enum([_Portion()])
@@ -906,16 +734,6 @@ def test_restore_field_placeholders_find_first_fallback_accepts_cell_hit_in_body
     cell = MagicMock()
     cell.getString.return_value = tok
     table.getCellByName.return_value = cell
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
 
     body.createEnumeration.side_effect = lambda: _Enum([table])
 
@@ -959,16 +777,6 @@ def test_restore_field_placeholders_remaining_cell_token_raises_tool_execution_e
     cell = MagicMock()
     cell.getString.return_value = f"Cell with {tok}"
     table.getCellByName.return_value = cell
-
-    class _Enum:
-        def __init__(self, items):
-            self._items = list(items)
-
-        def hasMoreElements(self):
-            return bool(self._items)
-
-        def nextElement(self):
-            return self._items.pop(0)
 
     body.createEnumeration.side_effect = lambda: _Enum([table])
 
