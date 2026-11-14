@@ -215,8 +215,8 @@ def test_move_slide_keeps_group_notes_and_layout(ctx, doc):
 
 @native_test
 @with_native_doc("impress")
-def test_impress_read_slide_text_group_and_table(ctx, doc):
-    """Grouped shape text and table TSV appear in read_slide_text (not run in CI by default)."""
+def test_impress_read_slide_text_and_search_group(ctx, doc):
+    """Grouped shape text appears in read_slide_text and is found by search_slides."""
     from plugin.draw.shapes import GroupShapes, UpsertShape
     from plugin.framework.tool import ToolContext
 
@@ -244,33 +244,6 @@ def test_impress_read_slide_text_group_and_table(ctx, doc):
     assert read.get("status") == "ok", read
     blob = json.dumps(read.get("texts") or [])
     assert "g-left" in blob and "g-right" in blob, blob
-
-
-@native_test
-@with_native_doc("impress")
-def test_impress_search_slides_finds_group_text(ctx, doc):
-    from plugin.draw.shapes import GroupShapes, UpsertShape
-    from plugin.framework.tool import ToolContext
-
-    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
-    page = doc.getDrawPages().getByIndex(0)
-    base = page.getCount()
-    upsert = UpsertShape()
-    for label, x in (("g-left", 1000), ("g-right", 5000)):
-        created = upsert.execute(
-            tctx,
-            action="create",
-            shape_type="text",
-            page=0,
-            x=x,
-            y=1000,
-            width=3000,
-            height=1500,
-            text=label,
-        )
-        assert created.get("status") == "ok", created
-    grouped = GroupShapes().execute(tctx, indices=[base, base + 1], page=0)
-    assert grouped.get("status") == "ok", grouped
 
     hits = json.loads(_exec_tool(doc, ctx, "search_slides", {"pattern": "g-left"}))
     assert hits.get("status") == "ok", hits

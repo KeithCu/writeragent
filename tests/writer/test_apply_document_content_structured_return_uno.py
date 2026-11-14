@@ -82,6 +82,7 @@ def test_insert_branch_succeeds_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content="more")
     assert res.get("status") == "ok", res
+    assert doc.getText().getString() == "seed\nmore\n"
 
 
 @native_test
@@ -93,6 +94,9 @@ def test_empty_old_content_is_a_parameter_error_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="   ", content="BAR")
     assert res.get("status") == "error", res
+    assert res.get("code") == "INVALID_PARAM", res
+    assert "replaced_count" not in res, res
+    assert doc.getText().getString() == "some content here"
 
 
 @native_test

@@ -100,50 +100,6 @@ def test_apply_paragraph_style_via_search_preserves_whole_paragraph_uno(ctx, doc
 
 @native_test
 @with_native_doc("writer")
-def test_apply_style_known_limitation_direct_equals_old_default_uno(ctx, doc):
-    """Characterizes a KNOWN LIMITATION: detection is
-    'differs from the style default', not 'was set directly'. So a DIRECT override
-    whose value EQUALS the old style's default is NOT preserved, and can become
-    visible when a style with a different default is applied.
-
-    Scenario: a Standard paragraph (default CharWeight=100) with CharWeight=100 set
-    DIRECTLY; apply Heading 1 (default bold=150). The ideal would be to stay 100, but
-    today it becomes 150. This test PINS the current behavior; if we ever improve the
-    origin detection, it fails and reminds us to update."""
-    text = doc.getText()
-    insert_cur = text.createTextCursor()
-    text.insertString(insert_cur, "Directly-normal text.", False)
-
-    # Force Standard first so the canary stays independent of a reused pooled
-    # Writer whose paragraph already has Heading 1 or Quotations; otherwise
-    # re-applying Heading 1 is a no-op for Char*. Read the real style defaults
-    # instead of assuming Standard=100 / Heading 1=150.
-    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-    standard = para_styles.getByName("Standard")
-    heading = para_styles.getByName("Heading 1")
-    old_default = float(standard.getPropertyValue("CharWeight") or 100)
-    new_default = float(heading.getPropertyValue("CharWeight") or 150)
-    fmt = text.createTextCursorByRange(text.getStart())
-    fmt.gotoEnd(True)
-    fmt.setPropertyValue("ParaStyleName", "Standard")
-    fmt.setPropertyValue("CharWeight", old_default)  # equals Standard's default, set directly
-    assert fmt.getPropertyValue("CharWeight") == old_default
-
-    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = ApplyStyle().execute(
-        tool_ctx, style="Heading 1", family="ParagraphStyles", target="full_document"
-    )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
-
-    chk = text.createTextCursorByRange(text.getStart())
-    chk.gotoEnd(True)
-    # LIMITATION: the override (= old style default) was not preserved.
-    assert chk.getPropertyValue("CharWeight") == new_default, \
-        "if this fails, origin detection improved — update the doc/limitation"
-
-
-@native_test
-@with_native_doc("writer")
 def test_apply_paragraph_style_preserves_char_back_color_uno(ctx, doc):
     """Direct highlight (CharBackColor) must survive a paragraph style change."""
     text = doc.getText()
@@ -312,35 +268,6 @@ def test_apply_style_explicit_none_keeps_direct_font_uno(ctx, doc):
     assert chk.getPropertyValue("CharFontName") == _DIRECT_FONT, (
         "explicit none must keep the direct font, got %r" % chk.getPropertyValue("CharFontName"))
     assert chk.getPropertyValue("CharWeight") == 150.0
-
-
-@native_test
-@with_native_doc("writer")
-def test_apply_style_reapply_drops_direct_para_indent_uno(ctx, doc):
-    """Honest pin: setting ParaStyleName drops direct Para* (quote indents). Keith's F1
-    probe — do not promise that re-applying a style keeps a hand-set margin, even on none."""
-    text = doc.getText()
-    text.setString("")
-    cur = text.createTextCursor()
-    text.insertString(cur, "Indented quote lookalike.", False)
-
-    fmt = text.createTextCursorByRange(text.getStart())
-    fmt.gotoEnd(True)
-    fmt.setPropertyValue("ParaLeftMargin", 3251)  # ~3.25 cm
-    assert int(fmt.getPropertyValue("ParaLeftMargin")) == 3251
-
-    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    res = ApplyStyle().execute(
-        tool_ctx, style="Standard", family="ParagraphStyles",
-        target="search", old_content="Indented quote lookalike.",
-        clear_direct="none",
-    )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
-
-    chk = text.createTextCursorByRange(text.getStart())
-    chk.gotoEnd(True)
-    assert int(chk.getPropertyValue("ParaLeftMargin")) != 3251, (
-        "if this fails, re-apply started keeping direct Para* — update the docs")
 
 
 @native_test

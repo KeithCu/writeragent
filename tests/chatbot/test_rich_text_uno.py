@@ -177,8 +177,20 @@ def test_list_and_quote_paragraph_properties(ctx):
                     "ParaStyleName": para.getPropertyValue("ParaStyleName"),
                     "ParaLeftMargin": para.getPropertyValue("ParaLeftMargin"),
                 })
-        assert any(p["text"] == "alpha" for p in props)
-        assert any(p["text"] == "quoted" for p in props)
-        assert any(p["text"] == "code" for p in props)
+        by_text = {p["text"]: p for p in props}
+        assert "alpha" in by_text, props
+        assert by_text["alpha"]["NumberingIsNumber"] is True, by_text["alpha"]
+        assert by_text["alpha"]["ListLabelString"] == "", by_text["alpha"]
+        assert by_text["alpha"]["ParaLeftMargin"] == 0, by_text["alpha"]
+
+        assert "quoted" in by_text, props
+        assert by_text["quoted"]["NumberingIsNumber"] is False, by_text["quoted"]
+        assert by_text["quoted"]["ParaStyleName"] == "Quotations", by_text["quoted"]
+        assert by_text["quoted"]["ParaLeftMargin"] == 1000, by_text["quoted"]
+
+        assert "code" in by_text, props
+        assert by_text["code"]["NumberingIsNumber"] is False, by_text["code"]
+        assert by_text["code"]["ParaStyleName"] == "Preformatted Text", by_text["code"]
+        assert by_text["code"]["ParaLeftMargin"] == 0, by_text["code"]
     finally:
         doc.close(True)

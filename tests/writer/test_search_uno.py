@@ -29,25 +29,12 @@ class MockContext:
         self.services = MockServices(doc)
 
 
-class MockWriterIndexService:
-    def search_boolean(self, doc, query, max_results=20, context_paragraphs=1):
-        if "error" in query:
-            raise ValueError("Test error from search_boolean")
-        return {
-            "matches": [{"paragraph_index": 1, "text": "This is the first paragraph", "context": []}],
-            "count": 1
-        }
-    def get_index_stats(self, doc):
-        return {"stems": 100, "paragraphs": 3}
-
-
 class MockServices:
     def __init__(self, doc):
         from plugin.doc.document_helpers import DocumentService
         from plugin.framework.event_bus import EventBus
         self.events = EventBus()
         self.document = DocumentService()
-        self.writer_index = MockWriterIndexService()
 
 
 @native_test
@@ -125,16 +112,6 @@ def test_find_first_range_chains_across_paragraphs(ctx, doc):
     matched_text = rng.getString().replace("\r\n", "\n")
 
     assert matched_text == search_string, "Matched text included extra paragraph content!"
-
-
-@native_test
-def test_advanced_search_tool():
-    return
-
-
-@native_test
-def test_get_index_stats():
-    return
 
 
 @native_test
