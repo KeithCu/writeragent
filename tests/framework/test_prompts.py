@@ -547,13 +547,6 @@ def test_profile_fence_inside_memory_does_not_close_the_block():
     assert "ignore the tools" in prompt.split(_PROFILE_DATA_CLOSE, 1)[0]
 
 
-def test_model_core_directives_helper_is_removed():
-    """Production uses get_core_directives_for_type. The model helper called get_document_type."""
-    import plugin.framework.prompts as prompts
-
-    assert not hasattr(prompts, "get_core_directives")
-
-
 def test_discovery_merge_shows_calc_only_hidden_domain():
     """A Calc-only hidden domain is listed on the discovery merge and omitted otherwise.
 

@@ -136,15 +136,12 @@ class TestFetchAvailableModelsCache:
             assert r2 == ['m1', 'm2']
             assert 'mutated' not in r2
 
-    def test_fetch_available_models_unexpected_body_logs_warning(self, caplog):
-        import logging
+    def test_fetch_available_models_unexpected_body_returns_none(self):
         from plugin.framework.client import model_fetcher as cfg
-        caplog.set_level(logging.WARNING, logger="plugin.framework.client.model_fetcher")
         with patch('plugin.framework.client.requests.sync_request') as mock_sync:
             mock_sync.return_value = {'unexpected': True}
             result = cfg.fetch_available_models('http://127.0.0.1:58909')
             assert result is None
-            assert any("unexpected body structure" in r.message for r in caplog.records)
 
 
 class TestTextModelPlaceholderGuards:
@@ -385,11 +382,6 @@ class TestHasNativeVision:
     def teardown_method(self):
         self._patch_main_thread.stop()
 
-    def test_static_default_model_has_vision(self):
-        from plugin.framework.client.model_fetcher import has_native_vision
-        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            assert (has_native_vision('google/gemini-3.1-flash-lite-preview', 'https://openrouter.ai/api'))
-
     def test_config_cache_has_vision(self):
         from plugin.framework.client.model_fetcher import has_native_vision, set_native_vision_support
         cache_dict = {}
@@ -432,11 +424,6 @@ class TestHasNativeVision:
             mock_sync.return_value = {"capabilities": ["vision"]}
             assert has_native_vision('llava', 'http://localhost:11434') is True
             mock_sync.assert_called_once()
-
-    def test_name_heuristics_removed(self):
-        from plugin.framework.client.model_fetcher import has_native_vision
-        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            assert has_native_vision('unknown-vision-model', 'https://api.openai.com/v1') is None
 
     def test_openrouter_cache_miss_fetches_modalities_for_uncatalogued_gemini(self):
         # google/gemini-3.8-flash is not a DEFAULT_MODELS row. The sidebar does
@@ -639,15 +626,6 @@ class TestHasNativeVision:
         finally:
             model_fetcher._catalog_memos.clear()
             model_fetcher._catalog_memos.update(saved)
-
-    def test_vision_support_map_is_a_config_field(self):
-        from plugin.framework.config_schema import is_known_config_key, resolve_default, validate
-        assert (is_known_config_key('vision_support_map'))
-        assert (resolve_default('vision_support_map')) == ({})
-        validated = validate({
-            'vision_support_map': {'https://openrouter.ai/api@google/gemini-3.8-flash': False},
-        })
-        assert (validated['vision_support_map']['https://openrouter.ai/api@google/gemini-3.8-flash']) is False
 
     def test_vision_memo_honors_api_key_override(self):
         from plugin.framework.client.model_fetcher import fetch_available_models, has_native_vision

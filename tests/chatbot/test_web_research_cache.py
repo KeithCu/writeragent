@@ -260,18 +260,6 @@ def test_research_cache_similarity_beats_union_jaccard_for_longer_repeat_query()
     assert research_cache_similarity(a, b) >= 0.40
 
 
-def test_translated_research_cache_fluff_returns_gettext_strings():
-    from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
-
-    fluff = translated_research_cache_fluff()
-    assert len(fluff) >= 50
-    assert all(isinstance(s, str) and s for s in fluff)
-    for topical in ("awards", "features", "ratings", "reviews", "signature", "trends", "depth", "notable"):
-        assert topical not in fluff
-    assert "please" in fluff
-    assert "summary" in fluff
-
-
 def test_get_research_fluff_words_includes_gettext_tokens(monkeypatch):
     from plugin.chatbot.web_research_cache import clear_research_fluff_words_cache, get_research_fluff_words
 

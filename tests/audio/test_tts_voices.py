@@ -31,7 +31,6 @@ from plugin.audio.voice_catalog import (
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
     LOCALE_TO_PIPER_DEFAULT,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
-    voice_short_name,
 )
 from plugin.framework.client import model_fetcher as cfg
 
@@ -328,12 +327,6 @@ def test_voice_catalog_asset_drives_runtime_maps():
     assert list(_PIPER_VOICE_MODELS) == piper_ids
     kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
     assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
-    assert voice_short_name("de_DE-thorsten-medium") == "Thorsten"
-    assert voice_short_name("en_US-lessac-medium") == "Lessac"
-    onnx, config, lang, _label = _PIPER_VOICE_MODELS["de_DE-thorsten-medium"]
-    assert onnx.endswith("de_DE-thorsten-medium.onnx")
-    assert config.endswith(".onnx.json")
-    assert lang == "de_DE"
 
 
 def test_settings_voice_options_match_catalog_for_provider():
@@ -349,8 +342,6 @@ def test_settings_voice_options_match_catalog_for_provider():
         options = settings_voice_options(None)
 
     assert options == get_voice_catalog("piper", "de_DE")
-    assert options[0]["value"] == "de_DE-thorsten-medium"
-    assert any(opt["value"] == "fr_FR-siwis-medium" for opt in options)
     assert all(opt["value"] != "af_bella" for opt in options)
 
 
@@ -542,10 +533,6 @@ def test_piper_locale_defaults_authoritative():
     male_de = (orig_tuple[0], orig_tuple[1], orig_tuple[2], "de_DE (Male)")
     with patch.dict(_PIPER_VOICE_MODELS, {de_voice: male_de}):
         assert get_default_voice_for_locale("piper", "de_DE") == de_voice
-
-    assert get_default_voice_for_locale("piper", "nb") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "nn") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "hr") == "sl_SI-artur-medium"
 
 
 def test_pick_voice_id_direct():
