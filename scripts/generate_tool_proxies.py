@@ -529,6 +529,11 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '    return "unknown"',
         '',
         '',
+        'def help(name: str | None = None) -> str:',
+        '    """Return signature and docstring help for a wa.<namespace>.<method> API, or list namespaces."""',
+        '    return str(call_host_tool("writeragent_help", name=name))',
+        '',
+        '',
     ]
 
     # Domain tools whitelist for host-side enforcement

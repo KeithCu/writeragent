@@ -947,3 +947,69 @@ def test_format_script_api_catalog_prints_identifier_safe_calls():
     assert "wa.python/sql." not in catalog
 
 
+def test_wa_help_known_name_matches_prompt_catalog():
+    """wa.help('shape.upsert') returns the exact signature/docstring text from the prompt catalog."""
+    import plugin.scripting.writeragent_api as api
+    from plugin.scripting.host_rpc import (
+        _format_script_api_catalog_cached,
+        format_script_api_catalog,
+    )
+
+    _format_script_api_catalog_cached.cache_clear()
+    catalog = format_script_api_catalog(["shapes"])
+    assert "wa.help(" in catalog
+
+    help_text = api.help("shape.upsert")
+    assert help_text.startswith("wa.shape.upsert(")
+    assert help_text in catalog
+    assert api.help("wa.shape.upsert") == help_text
+
+
+def test_wa_help_no_arg_lists_namespaces_and_methods():
+    from plugin.scripting.host_rpc import format_script_api_help
+    import plugin.scripting.writeragent_api as api
+
+    listing = api.help()
+    assert listing == format_script_api_help()
+    assert "shape:" in listing
+    assert "upsert" in listing
+    assert "core:" in listing
+    assert "list_open_documents" in listing
+    assert "run_venv_python_script" not in listing
+
+
+def test_wa_help_unknown_name_lists_close_matches():
+    import plugin.scripting.writeragent_api as api
+
+    typo = api.help("shape.upser")
+    assert "Unknown API" in typo
+    assert "shape.upsert" in typo
+    assert "wa.help()" in typo
+
+    far = api.help("qqqqq")
+    assert "Unknown API" in far
+    assert "No close matches" in far
+
+
+def test_wa_help_via_worker_ipc_frame():
+    """wa.help() goes through the same Pickle5 tool_call host RPC path as other proxy calls."""
+    from plugin.scripting.host_rpc import format_script_api_help
+
+    written = io.BytesIO()
+    keep_going = handle_tool_call_frame(
+        {"type": "tool_call", "id": "h1", "tool": "writeragent_help", "args": {"name": "shape.upsert"}},
+        stdin_write=written.write,
+    )
+    assert keep_going is True
+    written.seek(0)
+    reply = read_pickle_frame(written)
+    assert reply["status"] == "ok"
+    assert reply["id"] == "h1"
+    assert reply["result"] == format_script_api_help("shape.upsert")
+
+
+def test_wa_help_refused_during_py_recalc():
+    with pytest.raises(RuntimeError, match="=PY\\(\\) recalculation"):
+        execute_tool("writeragent_help", {}, allowed_tools=frozenset())
+
+

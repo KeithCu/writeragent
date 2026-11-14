@@ -31,6 +31,11 @@ def get_active_document_type() -> str:
     return "unknown"
 
 
+def help(name: str | None = None) -> str:
+    """Return signature and docstring help for a wa.<namespace>.<method> API, or list namespaces."""
+    return str(call_host_tool("writeragent_help", name=name))
+
+
 DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                     'bookmark_create',
                     'bookmark_delete',

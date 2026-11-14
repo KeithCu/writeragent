@@ -26,6 +26,7 @@ protocol is added here.
 
 from __future__ import annotations
 
+import difflib
 import functools
 import inspect
 import logging
@@ -56,6 +57,9 @@ _ALWAYS_ALLOWED = frozenset({"list_open_documents"})
 # RPC is unrestricted or the allowlist is a non-empty domain: these names are
 # not in DOMAIN_TOOLS, so a domain list would otherwise hide wa.scripts / wa.doc.
 _NAMED_SCRIPT_TOOLS = frozenset({"get_named_python_script", "list_named_python_scripts"})
+
+# Read-only API help lookup for wa.help() in sandboxed scripts.
+WRITERAGENT_HELP_TOOL = "writeragent_help"
 
 
 def _domain_tools_map() -> dict[str, list[str]] | None:
@@ -222,6 +226,13 @@ def _format_proxy_call(namespace: str, method: Any) -> str:
     return f"wa.{safe_ns}.{method.__name__}{sig}"
 
 
+def _format_proxy_entry(namespace: str, method: Any) -> str:
+    """Format one ``wa.<namespace>.<method>(...)`` signature plus docstring."""
+    doc = inspect.cleandoc(getattr(method, "__doc__", None) or "")
+    call = _format_proxy_call(namespace, method)
+    return f"{call}\n{doc}" if doc else call
+
+
 def _catalog_lead(namespaces: list[str]) -> str:
     examples: list[str] = []
     if "core" in namespaces:
@@ -236,6 +247,7 @@ def _catalog_lead(namespaces: list[str]) -> str:
         "Only the Python script may call these wa.* functions; they are not additional LLM tool names. "
         "Inside the script, import writeragent as wa and call the listed APIs."
         f"{example} "
+        "Call wa.help() to list namespaces or wa.help('namespace.method') for signatures and arguments. "
         "When the work is bulk or scripted, do that domain work in one run_venv_python_script."
     )
 
@@ -267,9 +279,7 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
             if method is None:
                 log.warning("script API catalog: no proxy method for %s", tool_name)
                 continue
-            doc = inspect.cleandoc(getattr(method, "__doc__", None) or "")
-            call = _format_proxy_call(namespace, method)
-            entries.append(f"{call}\n{doc}" if doc else call)
+            entries.append(_format_proxy_entry(namespace, method))
         if entries:
             blocks.append(f"{namespace}:")
             blocks.append("\n\n".join(entries))
@@ -278,6 +288,69 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
         return ""
     blocks = [_catalog_lead(namespaces), "", *blocks]
     return "\n".join(blocks).rstrip() + "\n"
+
+
+def format_script_api_help(
+    name: str | None = None,
+    *,
+    allowed_tools: frozenset[str] | None = None,
+) -> str:
+    """Return generated signature/docstring help for ``wa.help()``.
+
+    Shares ``_format_proxy_entry`` with ``format_script_api_catalog`` so the
+    runtime help output cannot drift from the prompt catalog.
+    """
+    tools = _domain_tools_map()
+    methods = _proxy_methods_by_tool()
+    if tools is None or not methods:
+        return "writeragent API proxies are not available in this build."
+
+    by_qualified: dict[str, tuple[str, Any]] = {}
+    by_tool: dict[str, tuple[str, Any]] = {}
+    ns_methods: dict[str, list[str]] = {}
+    for namespace, tool_names in tools.items():
+        safe_ns = re.sub(r"\W", "_", namespace)
+        for tool_name in tool_names:
+            if tool_name in _BLOCKED_FROM_VENV:
+                continue
+            if allowed_tools is not None and tool_name not in allowed_tools:
+                continue
+            method = methods.get(tool_name)
+            if method is None:
+                continue
+            by_qualified[f"{safe_ns}.{method.__name__}"] = (namespace, method)
+            by_tool[tool_name] = (namespace, method)
+            ns_methods.setdefault(safe_ns, []).append(method.__name__)
+
+    if name is None or not name.strip():
+        if not ns_methods:
+            return "No writeragent APIs are available in this Python tool domain."
+        lines = ["Available wa.<namespace>.<method> APIs (call wa.help('namespace.method') for details):"]
+        for safe_ns in sorted(ns_methods):
+            lines.append(f"{safe_ns}: {', '.join(sorted(ns_methods[safe_ns]))}")
+        return "\n".join(lines)
+
+    target = name.strip()
+    if target.startswith("wa."):
+        target = target[3:]
+    elif target.startswith("writeragent."):
+        target = target[12:]
+
+    if target in by_qualified:
+        ns, method = by_qualified[target]
+        return _format_proxy_entry(ns, method)
+    if target in by_tool:
+        ns, method = by_tool[target]
+        return _format_proxy_entry(ns, method)
+    if target in ns_methods:
+        method_list = ", ".join(sorted(ns_methods[target]))
+        return f"{target}: {method_list}\nCall wa.help('{target}.<method>') for signature and arguments."
+
+    candidates = sorted(set(by_qualified) | set(ns_methods))
+    close = difflib.get_close_matches(target, candidates, n=5, cutoff=0.4)
+    if close:
+        return f"Unknown API {name!r}. Close matches: {', '.join(close)}. Call wa.help() to list all namespaces."
+    return f"Unknown API {name!r}. No close matches found. Call wa.help() to list all namespaces."
 
 def format_script_api_catalog(domains: list[str]) -> str:
     """Script-callable API catalog: ``core`` plus each delegated domain.
@@ -334,6 +407,12 @@ def execute_tool(
             "Use Run Python Script… to call writeragent tools."
         )
     payload = args if isinstance(args, dict) else {}
+    if tool_name == WRITERAGENT_HELP_TOOL:
+        raw_name = payload.get("name")
+        return format_script_api_help(
+            raw_name if isinstance(raw_name, str) else None,
+            allowed_tools=allowed_tools,
+        )
     if tool_name in _NAMED_SCRIPT_TOOLS:
         # Inside a synchronous host dispatch off the main thread, the main thread
         # is waiting on this one, so main.call would deadlock (thread_guard.sync_host_dispatch).
