@@ -387,6 +387,7 @@ def test_fstype_is_network():
 
 
 def test_longest_mount_partition_remote_prefix(monkeypatch):
+    monkeypatch.setattr(embeddings_sqlite.sys, "platform", "linux")
     parts = [
         _fake_partition("", "/", "ext4", "rw"),
         _fake_partition("", "/tmp", "tmpfs", "rw"),
@@ -399,6 +400,38 @@ def test_longest_mount_partition_remote_prefix(monkeypatch):
 
     _mock_disk_partitions(monkeypatch, [_fake_partition("", "/mnt/share", "nfs", "rw")])
     assert embeddings_sqlite.path_is_local_disk("/var/log") is True
+
+
+def test_longest_mount_partition_normalizes_win32_mounts(monkeypatch):
+    monkeypatch.setattr(embeddings_sqlite.sys, "platform", "win32")
+    parts = [
+        _fake_partition("", "/", "NTFS", "rw,fixed"),
+        _fake_partition("", "/mnt/share", "NTFS", "rw,remote"),
+        _fake_partition("", "C:\\", "NTFS", "rw,fixed"),
+        _fake_partition("", "C:\\RemoteMount", "NTFS", "rw,remote"),
+    ]
+    _mock_disk_partitions(monkeypatch, parts)
+    assert embeddings_sqlite.path_is_local_disk("/mnt/share/sub/file.txt") is False
+    assert embeddings_sqlite.path_is_local_disk("c:\\remotemount\\file.txt") is False
+    assert embeddings_sqlite.path_is_local_disk("c:\\data") is True
+
+
+def test_longest_mount_partition_normalizes_darwin_symlinked_mounts(monkeypatch):
+    monkeypatch.setattr(embeddings_sqlite.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        embeddings_sqlite.os.path,
+        "realpath",
+        lambda p: p.replace("/tmp", "/private/tmp", 1) if p == "/tmp" or p.startswith("/tmp/") else p,
+    )
+    parts = [
+        _fake_partition("", "/", "apfs", "rw,local"),
+        _fake_partition("", "/tmp", "tmpfs", "rw,local"),
+        _fake_partition("", "/tmp/net", "nfs", "rw"),
+    ]
+    _mock_disk_partitions(monkeypatch, parts)
+    assert embeddings_sqlite.path_is_local_disk("/tmp/scratch") is True
+    assert embeddings_sqlite.path_is_local_disk("/private/tmp/scratch") is True
+    assert embeddings_sqlite.path_is_local_disk("/tmp/net/file.txt") is False
 
 
 def test_windows_unc_and_remote_opts(monkeypatch):
