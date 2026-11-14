@@ -1555,3 +1555,33 @@ def test_run_sandboxed_code_timeout_carries_execution_timeout_code(fresh_sandbox
     assert follow["status"] == "ok"
     assert follow["result"] == 7
 
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import writeragent as wa\nresult = dir(wa)",
+        "import writeragent as wa\nresult = dir(wa.shape)",
+        "import writeragent as wa\nresult = wa.__doc__",
+        "import writeragent as wa\nresult = wa.shape.upsert.__doc__",
+        "import writeragent as wa\nresult = getattr(wa, '__doc__')",
+    ],
+)
+def test_blocked_introspection_suggests_wa_help(fresh_sandbox_sessions, code: str) -> None:
+    """dir() and __doc__ remain blocked in the sandbox and point the model to wa.help(name)."""
+    res = run_sandboxed_code(code, session_id="calc:help-hint-test", timeout_sec=5)
+    assert res["status"] == "error", res
+    assert "wa.help(name)" in res["message"]
+
+
+def test_sandbox_wa_help_executes_and_returns_signature(fresh_sandbox_sessions) -> None:
+    """Inside the sandbox, import writeragent as wa; wa.help('shape.upsert') returns the API signature."""
+    res = run_sandboxed_code(
+        "import writeragent as wa\nresult = wa.help('shape.upsert')",
+        session_id="calc:wa-help-exec-test",
+        timeout_sec=5,
+    )
+    assert res["status"] == "ok", res
+    assert isinstance(res["result"], str)
+    assert res["result"].startswith("wa.shape.upsert(")
+    assert "Args:" in res["result"]
+

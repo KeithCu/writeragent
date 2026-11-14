@@ -993,6 +993,19 @@ def _serialize_cell_result(
     return serialized, extra_stdout
 
 
+def _with_help_hint(message: str) -> str:
+    """Append a wa.help(name) hint when the sandbox blocks dir() or __doc__."""
+    if "wa.help(" in message:
+        return message
+    if (
+        "Forbidden access to dunder attribute: __doc__" in message
+        or "Forbidden function evaluation: 'dir' " in message
+        or "name 'dir' is not defined" in message
+    ):
+        return f"{message.rstrip('.')} — use wa.help(name) instead (or wa.help() to list namespaces)."
+    return message
+
+
 def _fail_cell(
     executor: LocalPythonExecutor,
     prior_result: Any,
@@ -1103,7 +1116,7 @@ def _run_on_executor(
         return _fail_cell(
             executor,
             prior_result,
-            str(e),
+            _with_help_hint(str(e)),
             stdout=print_outputs_from_state(executor.state),
         )
     except Exception as e:

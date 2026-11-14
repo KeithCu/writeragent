@@ -54,6 +54,15 @@ _DEFAULT_MAX_ENTRIES = 256
 _MAX_CACHED_SOURCE_CHARS = 65536
 
 
+def _forbidden_dunder_message(attr: str) -> str:
+    if attr == "__doc__":
+        return (
+            "Forbidden access to dunder attribute: __doc__. "
+            "Use wa.help(name) instead (or wa.help() to list namespaces)."
+        )
+    return f"Forbidden access to dunder attribute: {attr}"
+
+
 @deal.pre(lambda module, authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
 @deal.post(lambda result: result is None or isinstance(result, str))
 def validate_sandbox_ast(
@@ -90,10 +99,10 @@ def validate_sandbox_ast(
                 return f"Import from {module_name} is not allowed."
             for alias in node.names:
                 if alias.name != "*" and is_forbidden_dunder_attribute(alias.name):
-                    return f"Forbidden access to dunder attribute: {alias.name}"
+                    return _forbidden_dunder_message(alias.name)
         elif isinstance(node, ast.Attribute):
             if is_forbidden_dunder_attribute(node.attr):
-                return f"Forbidden access to dunder attribute: {node.attr}"
+                return _forbidden_dunder_message(node.attr)
     return None
 
 
