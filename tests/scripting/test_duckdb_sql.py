@@ -634,10 +634,10 @@ def test_cross_session_duckdb_isolation(fresh_sandbox_sessions):
 
 
 def test_shared_kernel_cell_reuses_injected_session_duckdb(fresh_sandbox_sessions):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     sid = "calc:duckdb-injected"
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "import pandas as pd\n"
         "con = session_duckdb()\n"
         "con.register('sales', pd.DataFrame({'x': [8]}))\n"
@@ -647,7 +647,7 @@ def test_shared_kernel_cell_reuses_injected_session_duckdb(fresh_sandbox_session
     )
     assert first["status"] == "ok", first
     assert first["result"] is True
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "con = session_duckdb()\n"
         "result = int(con.execute('SELECT x FROM sales').fetchone()[0])",
         None,
@@ -658,9 +658,9 @@ def test_shared_kernel_cell_reuses_injected_session_duckdb(fresh_sandbox_session
 
 
 def test_isolated_cell_session_duckdb_does_not_persist(fresh_sandbox_sessions):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "import pandas as pd\n"
         "con = session_duckdb()\n"
         "con.register('sales', pd.DataFrame({'x': [1]}))\n"
@@ -668,7 +668,7 @@ def test_isolated_cell_session_duckdb_does_not_persist(fresh_sandbox_sessions):
         None,
     )
     assert first["status"] == "ok", first
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "result = session_duckdb().execute('SELECT x FROM sales').fetchone()[0]",
         None,
     )
@@ -677,11 +677,11 @@ def test_isolated_cell_session_duckdb_does_not_persist(fresh_sandbox_sessions):
 
 def test_injected_query_folder_df_joins_preloaded_to_sibling_csv(fresh_sandbox_sessions, tmp_path: Path):
     """=PY() injects query_folder_df + scoped_dir; the join payload must not NameError."""
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     income = tmp_path / "zip_income.csv"
     _write_csv(income, "zip,median_household_income\n02116,99000\n")
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "df = query_folder_df("
         "'SELECT z.median_household_income AS inc FROM sales s JOIN zip_income z ON s.zip = z.zip',"
         "files={'zip_income': 'zip_income.csv'},"
@@ -719,10 +719,10 @@ def test_injected_query_folder_df_ignores_caller_scoped_dir(tmp_path, monkeypatc
 def test_sandboxed_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions):
     """A cell must not open another workbook's catalog by passing its session id."""
     from plugin.scripting.venv.duckdb_sql import session_duckdb
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     other = "calc:file:///other-workbook"
-    seed = run_sandboxed_code(
+    seed = sandbox_run(
         "import pandas as pd\n"
         "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
         "result = 1",
@@ -730,14 +730,14 @@ def test_sandboxed_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions)
         session_id=other,
     )
     assert seed["status"] == "ok", seed
-    stolen = run_sandboxed_code(
+    stolen = sandbox_run(
         "result = session_duckdb('calc:file:///other-workbook').execute("
         "'SELECT x FROM secret').fetchone()[0]",
         None,
         session_id="calc:file:///this-workbook",
     )
     assert stolen["status"] == "error", stolen
-    direct = run_sandboxed_code(
+    direct = sandbox_run(
         "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
         "result = raw('calc:file:///other-workbook').execute('SELECT x FROM secret').fetchone()[0]",
         None,
@@ -753,10 +753,10 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(fresh_sandbox_se
     """SIGALRM fallback thread must not open another workbook's catalog."""
     import signal
 
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     other = "calc:file:///other-workbook-timeout"
-    seed = run_sandboxed_code(
+    seed = sandbox_run(
         "import pandas as pd\n"
         "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
         "result = 1",
@@ -773,7 +773,7 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(fresh_sandbox_se
         return real_signal(signum, handler)
 
     monkeypatch.setattr(signal, "signal", _refuse_alarm)
-    stolen = run_sandboxed_code(
+    stolen = sandbox_run(
         "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
         "result = raw('calc:file:///other-workbook-timeout').execute("
         "'SELECT x FROM secret').fetchone()[0]",
@@ -787,10 +787,10 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(fresh_sandbox_se
 
 
 def test_query_folder_sql_uses_current_sandbox_session(fresh_sandbox_sessions):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     sid = "calc:duckdb-sandbox-current"
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
         "result = query_folder_sql(None, 'SELECT x FROM sales', preloaded={'sales': [['x'], [13]]})['status']",
         None,
@@ -798,7 +798,7 @@ def test_query_folder_sql_uses_current_sandbox_session(fresh_sandbox_sessions):
     )
     assert first["status"] == "ok", first
     assert first["result"] == "ok"
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
         "result = query_folder_sql(None, 'SELECT x FROM sales')['rows'][0][0]",
         None,
@@ -1151,7 +1151,7 @@ def test_run_sql_scoped_dir_alone_is_honesty_dict():
 
 
 def test_injected_run_sql_uses_con_on_saved_doc(fresh_sandbox_sessions, tmp_path: Path):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = """
 con = session_duckdb()
@@ -1159,7 +1159,7 @@ con.execute("CREATE VIEW v AS SELECT 9 AS n")
 out = run_sql("SELECT n FROM v", con)
 result = [out["status"], out["rows"][0][0]]
 """
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id=None,
         bindings={"scoped_dir": str(tmp_path)},
@@ -1169,13 +1169,13 @@ result = [out["status"], out["rows"][0][0]]
 
 
 def test_injected_run_sql_copy_is_error_dict(fresh_sandbox_sessions, tmp_path: Path):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = """
 out = run_sql("COPY (SELECT 1) TO 'out.csv'")
 result = [out["status"], out["code"], out["helper"]]
 """
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id="calc:test-copy",
         bindings={"scoped_dir": str(tmp_path)},
@@ -1191,7 +1191,7 @@ def test_folder_mode_ignores_caller_connection(tmp_path: Path):
 
 
 def test_saved_doc_jails_then_reads_sibling_csv(fresh_sandbox_sessions, tmp_path: Path):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     _write_csv(tmp_path / "sales.csv", "val\n10\n")
     code = """
@@ -1204,7 +1204,7 @@ except Exception:
 df = query_folder_df("SELECT val FROM sales", files=["sales.csv"])
 result = [leaked, int(df.iloc[0, 0])]
 """
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id="calc:jail-then-read",
         bindings={"scoped_dir": str(tmp_path)},
@@ -1226,11 +1226,11 @@ def test_persist_without_folder_still_reads_files_later(fresh_sandbox_sessions, 
 
 
 def test_old_duckdb_persist_skips_jail(fresh_sandbox_sessions, tmp_path: Path, monkeypatch):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     monkeypatch.setattr("plugin.scripting.venv.duckdb_sql._duckdb_version_tuple", lambda: (1, 2))
     code = "result = session_duckdb().execute(\"SELECT current_setting('enable_external_access')\").fetchone()[0]"
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id="calc:old-duckdb",
         bindings={"scoped_dir": str(tmp_path)},

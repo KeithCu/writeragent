@@ -197,7 +197,7 @@ def test_run_venv_python_script_still_blocked():
 
 
 def test_sandbox_library_second_attr_does_not_refetch():
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = (
         "def add(a, b):\n"
@@ -223,7 +223,7 @@ def test_sandbox_library_second_attr_does_not_refetch():
         raise AssertionError(tool)
 
     with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
-        res = run_sandboxed_code(
+        res = sandbox_run(
             "import writeragent as wa\n"
             "result = wa.scripts.Helpers.add(1, 2) + wa.scripts.Helpers.mul(3, 4)\n"
         )
@@ -234,7 +234,7 @@ def test_sandbox_library_second_attr_does_not_refetch():
 
 
 def test_getitem_uses_stored_title():
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = "def ping():\n    return 'ok'\n"
 
@@ -253,7 +253,7 @@ def test_getitem_uses_stored_title():
         raise AssertionError(tool)
 
     with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
-        res = run_sandboxed_code(
+        res = sandbox_run(
             "import writeragent as wa\n"
             "result = wa.scripts['odd name'].ping()\n"
         )
@@ -286,20 +286,21 @@ def _helpers_rpc(bodies: dict[str, str], calls: list[tuple[str, dict]] | None = 
 
 
 def test_shared_session_picks_up_script_edit():
-    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+    from tests.scripting.sandbox_support import sandbox_run
 
     bodies = {"Helpers": "def n():\n    return 1\n"}
     sid = "test-named-scripts-edit"
     try:
         with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies)):
-            r1 = run_sandboxed_code(
+            r1 = sandbox_run(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
             )
             assert r1.get("status") == "ok", r1
             assert r1.get("result") == 1
             bodies["Helpers"] = "def n():\n    return 2\n"
-            r2 = run_sandboxed_code(
+            r2 = sandbox_run(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
             )
@@ -310,19 +311,20 @@ def test_shared_session_picks_up_script_edit():
 
 
 def test_shared_session_unchanged_sends_hash_not_body():
-    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+    from tests.scripting.sandbox_support import sandbox_run
 
     bodies = {"Helpers": "def n():\n    return 1\n"}
     calls: list[tuple[str, dict]] = []
     sid = "test-named-scripts-hash"
     try:
         with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies, calls)):
-            run_sandboxed_code(
+            sandbox_run(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
             )
             calls.clear()
-            res = run_sandboxed_code(
+            res = sandbox_run(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
             )
@@ -335,7 +337,7 @@ def test_shared_session_unchanged_sends_hash_not_body():
 
 
 def test_doc_hello_function_call():
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = "def hello():\n    return 'Hello, Keith'\n"
 
@@ -353,7 +355,7 @@ def test_doc_hello_function_call():
         raise AssertionError(tool)
 
     with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
-        res = run_sandboxed_code(
+        res = sandbox_run(
             "import writeragent as wa\n"
             "result = wa.doc.hello_writeragent.hello()\n"
         )
@@ -497,7 +499,7 @@ def test_sandbox_import_writeragent_without_api_has_doc():
     import sys
 
     from plugin.framework.uno_bootstrap import _WRITERAGENT_API, register_alias_importer
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     orig_find = importlib.util.find_spec
 
@@ -512,7 +514,7 @@ def test_sandbox_import_writeragent_without_api_has_doc():
     try:
         register_alias_importer()
         with patch("importlib.util.find_spec", side_effect=find_spec_no_api):
-            res = run_sandboxed_code(
+            res = sandbox_run(
                 "import writeragent as wa\n"
                 "result = bool(getattr(wa, 'doc', None) and getattr(wa, 'scripts', None))\n"
             )
@@ -881,19 +883,20 @@ def test_eval_library_rejects_class_target_call():
 
 
 def test_shared_session_namespace_mutation_persists():
-    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+    from tests.scripting.sandbox_support import sandbox_run
 
     bodies = {"Helpers": "def n():\n    return 1\n"}
     sid = "test-named-scripts-mutation"
     try:
         with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies)):
-            r1 = run_sandboxed_code(
+            r1 = sandbox_run(
                 "import writeragent as wa\nwa.scripts.Helpers.n = lambda: 9\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
             )
             assert r1.get("status") == "ok", r1
             assert r1.get("result") == 9
-            r2 = run_sandboxed_code(
+            r2 = sandbox_run(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
             )

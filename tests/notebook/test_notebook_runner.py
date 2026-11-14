@@ -341,12 +341,12 @@ def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
 
 
 def test_shared_notebook_session_via_sandbox(fresh_sandbox_sessions):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     sid = "notebook:test-runner"
-    r1 = run_sandboxed_code("x = 41\nresult = x + 1", None, session_id=sid)
+    r1 = sandbox_run("x = 41\nresult = x + 1", None, session_id=sid)
     assert r1["status"] == "ok"
-    r2 = run_sandboxed_code("result = x + 1", None, session_id=sid)
+    r2 = sandbox_run("result = x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 42
 

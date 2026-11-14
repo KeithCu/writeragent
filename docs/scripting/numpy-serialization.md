@@ -58,7 +58,8 @@ LibreOffice's embedded Python and the user's venv are **different interpreters**
 | Layer | Behavior |
 |-------|----------|
 | `PythonWorkerManager` | One subprocess per resolved venv `python`; respawns on crash/timeout; auto-warms before first timed execute |
-| `worker_harness.py` | Read loop; delegates to `venv_sandbox.run_sandboxed_code` |
+| `sandbox_request.py` | `SandboxRequest` holds one execute's child fields; `ExecRequest` subclasses it with host-only fields; `wire()` is a plain dict; timeout is bounded by the sender (`python_exec_timeout` on the LibreOffice host, the pool deadline in compute) |
+| `worker_harness.py` | Read loop; rebuilds `SandboxRequest.from_wire` → `run_sandboxed_code(req)` |
 | `venv_sandbox.py` | **Isolated (default):** new `LocalPythonExecutor` per request. **Shared kernel:** one executor per `calc:…` session id; inject `data`; serialize `result` |
 | **Code hot cache** | [`sandbox_cache.py`](../../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 256 entries; sources longer than 65536 characters are parsed and validated but not stored) caches **parsed AST** + **static** sandbox policy per unchanged source + import allowlist. A RecursionError from ast.parse or validate_sandbox_ast, a SyntaxError, and a ValueError for a null byte are cached parse errors, not an internal traceback. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-result-session-ipc-reduction). |
 

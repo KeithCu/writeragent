@@ -17,7 +17,8 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.scripting.named_scripts import script_body_hash
 from plugin.scripting.venv import venv_sandbox as vs
-from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code
+from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+from tests.scripting.sandbox_support import sandbox_run
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
 pytestmark = pytest.mark.usefixtures("fresh_sandbox_sessions")
@@ -53,7 +54,7 @@ def test_init_script_runs_once_in_isolated_mode():
     h = script_body_hash(init_code)
 
     with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-        r1 = run_sandboxed_code(
+        r1 = sandbox_run(
             "result = HELPER + 1",
             session_id=None,
             init_script=init_code,
@@ -63,7 +64,7 @@ def test_init_script_runs_once_in_isolated_mode():
         assert r1["status"] == "ok", r1.get("message")
         assert r1["result"] == 42
 
-        r2 = run_sandboxed_code(
+        r2 = sandbox_run(
             "result = HELPER + 1",
             session_id=None,
             init_script=init_code,
@@ -83,12 +84,12 @@ def test_init_script_runs_once_in_isolated_mode():
 
 def test_numpy_load_allow_pickle_and_ctypeslib_rejected():
     pytest.importorskip("numpy")
-    loaded = run_sandboxed_code(
+    loaded = sandbox_run(
         "import numpy as np\nresult = np.load('/no/such.npy', allow_pickle=True)"
     )
     assert loaded["status"] == "error"
     assert "allow_pickle" in loaded.get("message", "")
-    ctypes_call = run_sandboxed_code(
+    ctypes_call = sandbox_run(
         "import numpy as np\nresult = np.ctypeslib.load_library('nope', '.')"
     )
     assert ctypes_call["status"] == "error"
@@ -97,13 +98,13 @@ def test_numpy_load_allow_pickle_and_ctypeslib_rejected():
 
 def test_pandas_pickle_and_module_setattr_rejected():
     pytest.importorskip("pandas")
-    pickled = run_sandboxed_code("import pandas as pd\nresult = pd.read_pickle('/no/such.pkl')")
+    pickled = sandbox_run("import pandas as pd\nresult = pd.read_pickle('/no/such.pkl')")
     assert pickled["status"] == "error"
     assert "Forbidden call" in pickled.get("message", "")
-    mutated = run_sandboxed_code("import numpy as np\nsetattr(np, 'array', None)\nresult = 1")
+    mutated = sandbox_run("import numpy as np\nsetattr(np, 'array', None)\nresult = 1")
     assert mutated["status"] == "error"
     assert "module or a type" in mutated.get("message", "")
-    instance_ok = run_sandboxed_code("class Box:\n    pass\nbox = Box()\nbox.n = 3\nresult = box.n")
+    instance_ok = sandbox_run("class Box:\n    pass\nbox = Box()\nbox.n = 3\nresult = box.n")
     assert instance_ok["status"] == "ok"
     assert instance_ok["result"] == 3
 
@@ -114,7 +115,7 @@ def test_shared_kernel_keeps_cell_override_of_init_name():
     cell_sid = "calc:wb-override"
     init_code = "FACTOR = 10"
     h = script_body_hash(init_code)
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "FACTOR = 99\nresult = FACTOR",
         session_id=cell_sid,
         init_script=init_code,
@@ -123,7 +124,7 @@ def test_shared_kernel_keeps_cell_override_of_init_name():
     )
     assert first["status"] == "ok", first.get("message")
     assert first["result"] == 99
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "result = FACTOR",
         session_id=cell_sid,
         init_script=init_code,
@@ -138,14 +139,14 @@ def test_isolated_cell_reseeds_init_name_every_run():
     init_sid = "calc:wb-iso-override:init"
     init_code = "FACTOR = 10"
     h = script_body_hash(init_code)
-    run_sandboxed_code(
+    sandbox_run(
         "FACTOR = 99\nresult = FACTOR",
         session_id=None,
         init_script=init_code,
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "result = FACTOR",
         session_id=None,
         init_script=init_code,
@@ -161,14 +162,14 @@ def test_init_visible_in_shared_kernel():
     cell_sid = "calc:wb-shared"
     init_code = "BASE = 10"
     h = script_body_hash(init_code)
-    run_sandboxed_code(
+    sandbox_run(
         "result = BASE + 1",
         session_id=cell_sid,
         init_script=init_code,
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    r = run_sandboxed_code(
+    r = sandbox_run(
         "result = BASE + 5",
         session_id=cell_sid,
         init_script=init_code,
@@ -196,14 +197,14 @@ def test_isolated_init_function_shares_the_seed():
         "init_session_id": init_sid,
         "init_script_hash": h,
     }
-    first = run_sandboxed_code("add(1)", **kwargs)
+    first = sandbox_run("add(1)", **kwargs)
     assert first["status"] == "ok", first.get("message")
-    second = run_sandboxed_code("result = list(items)", **kwargs)
+    second = sandbox_run("result = list(items)", **kwargs)
     assert second["status"] == "ok", second.get("message")
     assert second["result"] == [1]
-    third = run_sandboxed_code("add(2)", **kwargs)
+    third = sandbox_run("add(2)", **kwargs)
     assert third["status"] == "ok", third.get("message")
-    fourth = run_sandboxed_code("result = list(items)", **kwargs)
+    fourth = sandbox_run("result = list(items)", **kwargs)
     assert fourth["status"] == "ok", fourth.get("message")
     assert fourth["result"] == [1, 2]
 
@@ -214,10 +215,10 @@ def test_isolated_init_mutation_does_not_leak():
     init_code = "items = []"
     h = script_body_hash(init_code)
     kwargs = {"session_id": None, "init_script": init_code, "init_session_id": init_sid, "init_script_hash": h}
-    first = run_sandboxed_code("items.append(1)\nresult = len(items)", **kwargs)
+    first = sandbox_run("items.append(1)\nresult = len(items)", **kwargs)
     assert first["status"] == "ok", first.get("message")
     assert first["result"] == 1
-    second = run_sandboxed_code("items.append(1)\nresult = len(items)", **kwargs)
+    second = sandbox_run("items.append(1)\nresult = len(items)", **kwargs)
     assert second["status"] == "ok", second.get("message")
     assert second["result"] == 1
 
@@ -225,7 +226,7 @@ def test_isolated_init_mutation_does_not_leak():
 def test_reset_non_calc_session_drops_init_companion():
 
     init_sid = "online-wb:init"
-    run_sandboxed_code(
+    sandbox_run(
         "result = MAGIC",
         session_id="online-wb",
         init_script="MAGIC = 1",
@@ -242,14 +243,14 @@ def test_isolated_cells_do_not_share_cell_assignments():
     init_sid = "calc:wb-iso-vars:init"
     init_code = "BASE = 0"
     h = script_body_hash(init_code)
-    run_sandboxed_code(
+    sandbox_run(
         "x = 7\nresult = x",
         session_id=None,
         init_script=init_code,
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    r = run_sandboxed_code(
+    r = sandbox_run(
         "result = x",
         session_id=None,
         init_script=init_code,
@@ -265,7 +266,7 @@ def test_reset_clears_init_session():
     cell_sid = "calc:wb-reset"
     init_code = "INIT_RUNS = 1\nMAGIC = 3"
     h = script_body_hash(init_code)
-    run_sandboxed_code(
+    sandbox_run(
         "result = MAGIC",
         session_id=None,
         init_script=init_code,
@@ -275,7 +276,7 @@ def test_reset_clears_init_session():
     assert vs.SESSIONS.executor(init_sid) is not None
     assert reset_sandbox_session(cell_sid)["status"] == "ok"
     assert vs.SESSIONS.executor(init_sid) is None
-    run_sandboxed_code(
+    sandbox_run(
         "result = MAGIC",
         session_id=None,
         init_script=init_code,
@@ -293,7 +294,7 @@ def test_reset_clears_from_init_session_id():
     cell_sid = "calc:wb-reset-init"
     init_code = "INIT_RUNS = 1\nMAGIC = 7"
     h = script_body_hash(init_code)
-    run_sandboxed_code(
+    sandbox_run(
         "result = MAGIC",
         session_id=cell_sid,
         init_script=init_code,
@@ -320,7 +321,6 @@ def test_build_python_eval_init_kwargs():
 
 
 def test_run_code_forwards_init_kwargs():
-    from plugin.scripting.session_key import SessionKey
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
     props = _UserDefinedProperties()
@@ -336,7 +336,7 @@ def test_run_code_forwards_init_kwargs():
         run_code_in_user_venv("result = 1", init_script="x = 1", init_session_id="calc:k:init", init_script_hash="abc")
         req = manager.execute.call_args.args[0]
         assert req.init_script == "x = 1"
-        assert req.init_session == SessionKey.from_host("calc:k:init")
+        assert req.init_session_id == "calc:k:init"
         assert req.init_script_hash == "abc"
 
 
@@ -364,7 +364,7 @@ def test_init_helper_function_in_shared_kernel():
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
     h = script_body_hash(init_code)
 
-    r1 = run_sandboxed_code(
+    r1 = sandbox_run(
         "result = double(21)",
         session_id=cell_sid,
         init_script=init_code,
@@ -374,7 +374,7 @@ def test_init_helper_function_in_shared_kernel():
     assert r1["status"] == "ok", r1.get("message")
     assert r1["result"] == 42
 
-    r2 = run_sandboxed_code(
+    r2 = sandbox_run(
         "result = 3 * FACTOR",
         session_id=cell_sid,
         init_script=init_code,
@@ -391,7 +391,7 @@ def test_init_helper_function_in_isolated_mode():
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
     h = script_body_hash(init_code)
 
-    r1 = run_sandboxed_code(
+    r1 = sandbox_run(
         "result = double(21)",
         session_id=None,
         init_script=init_code,
@@ -409,7 +409,7 @@ def test_reset_re_seeds_init_helper_function():
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
     h = script_body_hash(init_code)
 
-    r1 = run_sandboxed_code(
+    r1 = sandbox_run(
         "result = double(21)",
         session_id=cell_sid,
         init_script=init_code,
@@ -421,7 +421,7 @@ def test_reset_re_seeds_init_helper_function():
 
     reset_sandbox_session(cell_sid)
 
-    r2 = run_sandboxed_code(
+    r2 = sandbox_run(
         "result = double(3)",
         session_id=cell_sid,
         init_script=init_code,
@@ -439,7 +439,7 @@ def test_init_helper_chained_and_imports():
     init_code = "import math\n\ndef add(a, b):\n    return a + b\n\ndef circle_area(r):\n    return math.pi * r * r\n\ndef double_add(x):\n    return add(x, x)"
     h = script_body_hash(init_code)
 
-    r1 = run_sandboxed_code(
+    r1 = sandbox_run(
         "result = double_add(7)",
         session_id=cell_sid,
         init_script=init_code,
@@ -449,7 +449,7 @@ def test_init_helper_chained_and_imports():
     assert r1["status"] == "ok", r1.get("message")
     assert r1["result"] == 14
 
-    r2 = run_sandboxed_code(
+    r2 = sandbox_run(
         "result = round(circle_area(2), 2)",
         session_id=cell_sid,
         init_script=init_code,
@@ -494,7 +494,7 @@ def test_missing_init_hash_reruns_when_script_changes():
     init_sid = "calc:wb-nohash:init"
     cell_sid = "calc:wb-nohash"
     with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-        first = run_sandboxed_code(
+        first = sandbox_run(
             "FACTOR = 99\nresult = FACTOR",
             session_id=cell_sid,
             init_script="FACTOR = 10",
@@ -502,7 +502,7 @@ def test_missing_init_hash_reruns_when_script_changes():
         )
         assert first["status"] == "ok", first.get("message")
         assert first["result"] == 99
-        second = run_sandboxed_code(
+        second = sandbox_run(
             "result = FACTOR",
             session_id=cell_sid,
             init_script="FACTOR = 10",
@@ -513,7 +513,7 @@ def test_missing_init_hash_reruns_when_script_changes():
         # One init execution plus two cells. The same script must not re-run.
         assert mock_run.call_count == 3
 
-    edited = run_sandboxed_code(
+    edited = sandbox_run(
         "result = FACTOR",
         session_id=cell_sid,
         init_script="FACTOR = 7",
@@ -525,7 +525,7 @@ def test_missing_init_hash_reruns_when_script_changes():
 
 def test_missing_init_hash_isolated_sees_edited_script():
     init_sid = "calc:wb-nohash-iso:init"
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "result = FACTOR",
         session_id=None,
         init_script="FACTOR = 10",
@@ -533,7 +533,7 @@ def test_missing_init_hash_isolated_sees_edited_script():
     )
     assert first["status"] == "ok", first.get("message")
     assert first["result"] == 10
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "result = FACTOR",
         session_id=None,
         init_script="FACTOR = 4",
@@ -552,7 +552,7 @@ def test_init_class_instance_is_seeded():
     )
     h_digest = script_body_hash(init_code)
 
-    shared = run_sandboxed_code(
+    shared = sandbox_run(
         "result = h.scale(3)",
         session_id="calc:init-class",
         init_script=init_code,
@@ -563,7 +563,7 @@ def test_init_class_instance_is_seeded():
     assert shared["status"] == "ok", shared.get("message")
     assert shared["result"] == 6
 
-    isolated = run_sandboxed_code(
+    isolated = sandbox_run(
         "result = h.scale(4)",
         session_id=None,
         init_script=init_code,

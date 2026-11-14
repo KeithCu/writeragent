@@ -1872,9 +1872,9 @@ def test_executor_default_static_tools_has_sum():
 
 def test_except_handler_as_result_egress():
     # Tip: except Exception as result does not leave the exception object as the cell result.
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
-    r = run_sandboxed_code(
+    r = sandbox_run(
         """
 try:
     1 / 0

@@ -52,8 +52,8 @@ from plugin.framework.ipc import (
     write_packed_frame_with_timeout,
 )
 from plugin.scripting.host_rpc import handle_tool_call_frame, resolve_allowed_tools
-from plugin.scripting.session_key import SessionKey
 from plugin.scripting.payload_codec import HOST_UNPACK_ERRORS, host_unpack_data
+from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import (
     detect_sandbox,
@@ -152,18 +152,6 @@ def _worker_error_message(exc: BaseException) -> str:
     if text.startswith("Command ") and _TIMEOUT_AFTER in text:
         return f"Python worker failed:{text[text.index(_TIMEOUT_AFTER):]}"
     return f"Python worker failed: {text}"
-
-
-def host_script_session_id(session: SessionKey | None, pin: str | None) -> str | None:
-    """Document id for host tool RPC.
-
-    Pin (chat ctx.doc) wins; else the worker namespace id; else None.
-    The child does not choose this value, and a pin is not written into the
-    request, so Isolated mode still gets a fresh namespace.
-    """
-    if pin:
-        return pin
-    return session.wire() if session is not None else None
 
 
 def _maybe_dispatch_intermediate_response(
@@ -298,22 +286,17 @@ def _classify_read_failure(exc: BaseException, state: _TurnState) -> NotStarted 
     raise exc
 
 
+_ACTION_WIRE_KEYS = ("timeout_sec", "session_id", "data")
+
+
 @dataclass(frozen=True, kw_only=True)
-class ExecRequest:
+class ExecRequest(SandboxRequest):
     """One host execute. ``wire()`` is the child pickle; host-only fields stay off it.
 
     ``request_id`` is minted once so a pre-start retry writes the same ``id``.
     """
 
-    code: str | None = None
-    data: Any = None
-    bindings: dict[str, Any] | None = None
-    timeout_sec: int
-    session: SessionKey | None = None
     action: str | None = None
-    init_script: str | None = None
-    init_session: SessionKey | None = None
-    init_script_hash: str | None = None
     allow_heartbeat: bool = False
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None
     on_worker_event: Callable[[dict[str, Any]], None] | None = None
@@ -321,36 +304,21 @@ class ExecRequest:
     python_tool_domain: str | None = None
     caller: str = "script"
     pin: str | None = None
-    sandbox_policy: dict[str, Any] | None = None
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def wire(self) -> dict[str, Any]:
-        # Key insertion order is the pickle order. Do not sort, do not
-        # dataclasses.asdict (it would copy host fields and deepcopy ``data``).
-        request: dict[str, Any] = {"id": self.request_id, "timeout_sec": self.timeout_sec}
-        if self.session is not None:
-            request["session_id"] = self.session.wire()
-        if self.data is not None:
-            request["data"] = self.data
+        body = super().wire()
+        if self.action:
+            # Actions carry only these; code-only fields never ride an action frame.
+            body = {k: body[k] for k in _ACTION_WIRE_KEYS if k in body}
+        request: dict[str, Any] = {"id": self.request_id, **body}
+        if self.action:
+            request["action"] = self.action
         # allow_heartbeat belongs on every long job, not only the code branch.
         # Without it a run_trusted_action job (embeddings, folder index) sends no
         # heartbeat and the host kills it at the read timeout.
         if self.allow_heartbeat:
             request["allow_heartbeat"] = True
-        if self.action:
-            request["action"] = self.action
-        else:
-            request["code"] = self.code if self.code is not None else ""
-            if self.bindings:
-                request["bindings"] = self.bindings
-            if self.init_script:
-                request["init_script"] = self.init_script
-            if self.init_session is not None:
-                request["init_session_id"] = self.init_session.wire()
-            if self.init_script_hash:
-                request["init_script_hash"] = self.init_script_hash
-            if self.sandbox_policy is not None:
-                request["sandbox_policy"] = self.sandbox_policy
         return request
 
 
@@ -755,10 +723,10 @@ class PythonWorkerManager:
         # handlers below: no request byte has been written yet.
         try:
             allowed_tools = resolve_allowed_tools(req.python_tool_domain)
-            # Pin wins over the kernel session id. Chat passes doc:… and
-            # leaves request session_id unset. RPS / =PY() / PPT-Master
-            # omit the pin and keep the request id.
-            resolved_script_session_id = host_script_session_id(req.session, req.pin)
+            # Pin (chat ctx.doc) wins; else the worker namespace id; else None.
+            # The child does not choose this value, and a pin is not written into
+            # the request, so Isolated mode still gets a fresh namespace.
+            resolved_script_session_id = req.pin or req.session_id
         except Exception as exc:
             log.warning("Python worker request preparation failed: %s", exc)
             return self._err("WORKER_IPC_ERROR", f"Failed to prepare request: {exc}")
@@ -904,7 +872,7 @@ class PythonWorkerManager:
             data=payload,
             timeout_sec=timeout_sec,
             action="ppt_master_turn",
-            session=SessionKey.from_host(session_id),
+            session_id=session_id or None,
             on_worker_event=on_worker_event,
             cancel=cancel,
             caller="ppt_master_venv",
@@ -1241,14 +1209,14 @@ def run_code_in_user_venv(
 
     return manager.execute(
         ExecRequest(
-            code=code,
+            code=code or "",
             data=data,
             bindings=bindings,
             timeout_sec=timeout,
-            session=SessionKey.from_host(session_id),
+            session_id=session_id or None,
             action=action,
             init_script=init_script,
-            init_session=SessionKey.from_host(init_session_id),
+            init_session_id=init_session_id or None,
             init_script_hash=init_script_hash,
             allow_heartbeat=allow_heartbeat,
             on_heartbeat=on_heartbeat,
@@ -1285,7 +1253,7 @@ def reset_python_session(
     return manager.execute(
         ExecRequest(
             timeout_sec=python_exec_timeout(timeout_sec),
-            session=SessionKey.from_host(session_id),
+            session_id=session_id,
             action="reset_session",
         ),
         lease_wait_sec=lease_wait_sec,
