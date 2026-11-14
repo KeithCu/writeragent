@@ -157,7 +157,7 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test pytest test-uno test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full _typecheck-full-run check-ext check-setup deploy ensure-uno _check-lo-python \
+        log log-tail lo-log test test-bot test-full pytest test-uno test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full _typecheck-full-run check-ext check-setup deploy ensure-uno _check-lo-python \
         verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
         crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-incr opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
@@ -226,7 +226,9 @@ help:
 	@echo "                              Set WRITERAGENT_ARCH=x86-64-v[1-4] to override."
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
-	@echo "  make test                   Run typecheck (typecheck-full in CI), pytest + LO tests + excel-py-roundtrip"
+	@echo "  make test                   Run incremental typecheck + incremental pytest + LO tests"
+	@echo "  make test-bot               Run incremental pytest only on changed files/modules"
+	@echo "  make test-full              Run typecheck (typecheck-full in CI), full pytest + LO tests + excel-py-roundtrip"
 	@echo "  make pytest                 Unit pytest only (xdist -n auto; PYTEST_WORKERS=0 for serial)"
 	@echo "  WRITERAGENT_CI_DEBUG=1      Opt-in hang diagnostics (nodeid trail, faulthandler, --max-worker-restart=0)"
 	@echo "  make mock-llm               Fake OpenAI chat server on :18766 (sidebar soak: scroll, tools, Stop, errors)"
@@ -696,11 +698,17 @@ endif
 # sessionstart, or the xdist controller wait, and it cannot abort a native or
 # subprocess block (33447705893: 261s gap, no Failed: Timeout). Not in
 # pyproject addopts — vhs/slowtests need longer.
-PYTEST_UNIT = PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST) $(PYTEST_CI_DEBUG_FLAGS)
+PYTEST_UNIT_FLAGS = -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST) $(PYTEST_CI_DEBUG_FLAGS)
+PYTEST_UNIT = PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests $(PYTEST_UNIT_FLAGS)
 
 pytest:
 	@echo "=== pytest ==="
 	$(PYTEST_UNIT)
+
+test-bot:
+	@echo "=== test-bot (incremental pytest) ==="
+	@PYTHONUNBUFFERED=1 "$(PYTHON)" $(SCRIPTS)/test_incremental.py -- "$(PYTHON)" -u -m pytest $(PYTEST_UNIT_FLAGS); \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pytest; else exit $$rc; fi
 
 # Dev-only OpenAI-compatible stub (not MCP: 18766, not 8765/18765). See docs/chat/rich-text-control-sidebar.md
 mock-llm:
@@ -845,11 +853,21 @@ excel-py-roundtrip:
 		"$(PYTHON)" scripts/roundtrip_excel_py_samples.py --samples PythonExcelSamples --out build/excel_py_roundtrip; \
 	fi
 
-# SKIP_UNO=1: typecheck + pytest + excel-py-roundtrip only (PR CI unit job).
+# Incremental typecheck + incremental pytest + UNO tests (for humans and single users).
 test:
 	@echo "=== make test: typecheck ==="
 	@$(MAKE) typecheck
-	@echo "=== make test: pytest + LibreOffice ==="
+	@echo "=== make test: incremental pytest + LibreOffice ==="
+	@$(MAKE) test-bot PYTEST_WORKERS=6
+ifneq ($(SKIP_UNO),1)
+	@$(MAKE) test-uno
+endif
+
+# SKIP_UNO=1: typecheck + pytest + excel-py-roundtrip only (PR CI unit job).
+test-full:
+	@echo "=== make test-full: typecheck ==="
+	@$(MAKE) typecheck
+	@echo "=== make test-full: pytest + LibreOffice ==="
 	@$(MAKE) pytest PYTEST_WORKERS=6
 ifneq ($(SKIP_UNO),1)
 	@$(MAKE) test-uno
