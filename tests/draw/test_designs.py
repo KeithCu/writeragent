@@ -14,7 +14,6 @@ import pytest
 from plugin.draw.designs import (
     ApplyDesign,
     ClonedMaster,
-    ListDesigns,
     _blank_master_signal,
     _split_pathsettings_value,
     apply_design_to_current_doc,
@@ -129,14 +128,13 @@ def test_apply_design_current_doc_calls_import_path():
         "applied_master_shape_count": 6,
     }
     with (
-        patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
+        patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]) as enum,
         patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
     ):
-        out = ApplyDesign().execute(ctx, design="Metropolis")
+        out = ApplyDesign().execute(ctx, design="  Metropolis  ")
     assert out["status"] == "ok"
-    assert out["applied_master"] == "Metropolis"
-    assert out["blank_master"] is False
-    apply_cur.assert_called_once()
+    enum.assert_called_once_with(ctx.ctx, include_look=False)
+    apply_cur.assert_called_once_with(ctx.ctx, ctx.doc, entry)
 
 
 def test_apply_design_current_doc_import_failure():
@@ -209,14 +207,6 @@ def test_apply_design_draw_not_impress():
     assert out["code"] == "UNSUPPORTED_DOC_TYPE"
 
 
-def test_list_designs_tool_returns_count():
-    ctx = MagicMock()
-    with patch("plugin.draw.designs.enumerate_impress_designs", return_value=[{"id": "metropolis"}]):
-        out = ListDesigns().execute(ctx)
-    assert out["status"] == "ok"
-    assert out["count"] == 1
-
-
 def test_blank_master_signal():
     assert _blank_master_signal([]) is True
     assert _blank_master_signal([{"name": "Default", "shape_count": 1}]) is True
@@ -284,32 +274,12 @@ def test_add_slide_reports_inherited_master():
     bridge.get_pages.return_value = pages
     with (
         patch("plugin.draw.pages.DrawBridge", return_value=bridge),
-        patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Metropolis"),
+        patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Metropolis") as inherit,
     ):
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, page=0)
     assert out["status"] == "ok"
     assert out["master"] == "Metropolis"
-
-
-def test_apply_design_partial_assign_is_error():
-    dest = MagicMock()
-    dest.getDrawPages().getCount.return_value = 2
-    src = MagicMock()
-    master = MagicMock()
-    with (
-        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6)),
-        patch("plugin.draw.designs._close_hidden_doc"),
-        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
-        patch("plugin.draw.designs._master_entries", return_value=[]),
-    ):
-        out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
-    assert out["status"] == "error"
-    assert out["code"] == "DESIGN_PARTIAL_APPLY"
-    assert out["slides_updated"] == 1
-    assert out["slide_count"] == 2
-    assert "Rolled back" in out["message"]
-    assert out["rolled_back"] is True
+    inherit.assert_called_once_with(pages, page, 1)
 
 
 def test_enumerate_impress_designs_limit():

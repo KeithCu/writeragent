@@ -2,33 +2,60 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from plugin.writer.images import image_tools
 
 
+class _FakePropertySetInfo:
+    def __init__(self, supported: set[str]) -> None:
+        self._supported = supported
+
+    def hasPropertyByName(self, name: str) -> bool:
+        return name in self._supported
+
+
+class _FakeUnoGraphic:
+    """Fake UNO graphic where hasattr() disagrees with PropertySetInfo."""
+
+    # hasattr(obj, "GraphicURL") is True even though GraphicURL is not a UNO property.
+    GraphicURL = "trap"
+
+    def __init__(self, supported: set[str]) -> None:
+        self._psi = _FakePropertySetInfo(supported)
+        self.set_calls: list[tuple[str, object]] = []
+
+    def getPropertySetInfo(self) -> _FakePropertySetInfo:
+        return self._psi
+
+    def setPropertyValue(self, name: str, value: object) -> None:
+        self.set_calls.append((name, value))
+
+
 def test_has_uno_property_uses_property_set_info():
-    psi = MagicMock()
-    psi.hasPropertyByName.return_value = True
-    obj = MagicMock()
-    obj.getPropertySetInfo.return_value = psi
-    assert image_tools.visual_helpers.has_uno_property(obj, "GraphicURL") is True
-    psi.hasPropertyByName.assert_called_once_with("GraphicURL")
+    # "Graphic" is in PropertySetInfo (hasattr False); "GraphicURL" is on the class (hasattr True).
+    obj = _FakeUnoGraphic({"Graphic"})
+    assert hasattr(obj, "Graphic") is False
+    assert hasattr(obj, "GraphicURL") is True
+    assert image_tools.visual_helpers.has_uno_property(obj, "Graphic") is True
+    assert image_tools.visual_helpers.has_uno_property(obj, "GraphicURL") is False
 
 
 def test_create_embedded_graphic_uses_safe_set_not_hasattr(monkeypatch):
-    graphic = MagicMock()
-    graphic.getPropertySetInfo.return_value = MagicMock()
-    graphic.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
+    graphic = _FakeUnoGraphic({"Graphic"})
+    xgraphic = SimpleNamespace(tag="loaded-xgraphic")
 
     doc = MagicMock()
     doc.createInstance.return_value = graphic
 
-    monkeypatch.setattr(image_tools.visual_helpers, "safe_set_property", lambda obj, name, value: name == "GraphicURL")
-    monkeypatch.setattr(image_tools, "_graphic_from_provider", lambda ctx, url: None)
+    monkeypatch.setattr(image_tools, "_graphic_from_provider", lambda ctx, url: xgraphic)
 
     result = image_tools._create_embedded_graphic(doc, "writer", "file:///tmp/x.png", ctx=MagicMock())
     assert result is graphic
+    # Must fall back to Graphic via PropertySetInfo rather than writing the hasattr GraphicURL trap.
+    assert graphic.GraphicURL == "trap"
+    assert graphic.set_calls == [("Graphic", xgraphic)]
 
 
 def test_apply_graphic_properties_skips_missing_title(monkeypatch):
