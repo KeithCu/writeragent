@@ -52,13 +52,24 @@ def test_job_matches_crosshair_needles() -> None:
 
 
 def test_job_matches_pr_ci_suite_and_os() -> None:
-    ubuntu_typecheck = _spec("Test & Typecheck", "ubuntu-latest")
+    ubuntu_typecheck = _spec("Test & Typecheck", "ubuntu-26.04")
     mac_sidebar = _spec("Mock LLM Sidebar", "macos-latest")
+    assert job_matches("Test & Typecheck (ubuntu-26.04)", ubuntu_typecheck)
+    # Job names used ubuntu-latest until the runner pin; same dashboard row.
     assert job_matches("Test & Typecheck (ubuntu-latest)", ubuntu_typecheck)
     assert not job_matches("Test & Typecheck (windows-latest)", ubuntu_typecheck)
+    assert not job_matches("Mock LLM Sidebar (ubuntu-26.04)", ubuntu_typecheck)
     assert not job_matches("Mock LLM Sidebar (ubuntu-latest)", ubuntu_typecheck)
     assert job_matches("Mock LLM Sidebar (macos-latest)", mac_sidebar)
     assert not job_matches("Test & Typecheck (macos-latest)", mac_sidebar)
+
+
+def test_suite_specs_pin_pr_ci_ubuntu_to_26_04() -> None:
+    by_key = {(spec.suite, spec.os): spec for spec in suite_specs()}
+    assert ("Test & Typecheck", "ubuntu-26.04") in by_key
+    assert ("Mock LLM Sidebar", "ubuntu-26.04") in by_key
+    assert ("Test & Typecheck", "ubuntu-latest") not in by_key
+    assert ("Mock LLM Sidebar", "ubuntu-latest") not in by_key
 
 
 def test_short_sha_is_seven_chars_from_real_oid() -> None:
@@ -177,11 +188,11 @@ def test_collect_status_picks_newest_matching_jobs() -> None:
     # Cancelled job in 33689813185 is ignored; the previous green run (33677574062) is picked.
     assert by_key[("CrossHair cover-all", "ubuntu-latest")].conclusion == "success"
     assert by_key[("CrossHair cover-all", "ubuntu-latest")].sha == "ce0da96"
-    assert by_key[("Test & Typecheck", "ubuntu-latest")].conclusion == "in_progress"
-    assert by_key[("Test & Typecheck", "ubuntu-latest")].sha == "a595724"
+    assert by_key[("Test & Typecheck", "ubuntu-26.04")].conclusion == "in_progress"
+    assert by_key[("Test & Typecheck", "ubuntu-26.04")].sha == "a595724"
     assert by_key[("Test & Typecheck", "windows-latest")].sha == "96912c4"
     assert by_key[("Test & Typecheck", "macos-latest")].sha == "589df34"
-    assert by_key[("Mock LLM Sidebar", "ubuntu-latest")].sha == "85f7a76"
+    assert by_key[("Mock LLM Sidebar", "ubuntu-26.04")].sha == "85f7a76"
     assert by_key[("Mock LLM Sidebar", "windows-latest")].run_url.endswith("/33772067046")
     assert all(row.sha != "deadbee" and row.sha != "0000000" for row in rows)
 
@@ -206,10 +217,10 @@ def _sample_rows() -> list[StatusRow]:
     return [
         StatusRow("CrossHair check-all", "ubuntu-latest", "failure", "ce0da96", "2026-09-02T21:21:27Z", ""),
         StatusRow("CrossHair cover-all", "ubuntu-latest", "cancelled", "6045c1b", "2026-09-03T04:19:58Z", ""),
-        StatusRow("Test & Typecheck", "ubuntu-latest", "success", "12a7676", "2026-09-03T19:01:28Z", ""),
+        StatusRow("Test & Typecheck", "ubuntu-26.04", "success", "12a7676", "2026-09-03T19:01:28Z", ""),
         StatusRow("Test & Typecheck", "macos-latest", "success", "589df34", "2026-09-03T16:54:58Z", ""),
         StatusRow("Test & Typecheck", "windows-latest", "success", "96912c4", "2026-09-03T18:15:33Z", ""),
-        StatusRow("Mock LLM Sidebar", "ubuntu-latest", "success", "85f7a76", "2026-09-03T15:32:33Z", ""),
+        StatusRow("Mock LLM Sidebar", "ubuntu-26.04", "success", "85f7a76", "2026-09-03T15:32:33Z", ""),
         StatusRow("Mock LLM Sidebar", "macos-latest", "success", "85f7a76", "2026-09-03T15:41:00Z", ""),
         StatusRow("Mock LLM Sidebar", "windows-latest", "success", "85f7a76", "2026-09-03T15:25:02Z", ""),
     ]
@@ -344,7 +355,7 @@ def test_parse_cached_rows_filters_expired_and_no_run() -> None:
             },
             {
                 "suite": "Mock LLM Sidebar",
-                "os": "ubuntu-latest",
+                "os": "ubuntu-26.04",
                 "conclusion": "no run",  # Empty
                 "sha": "",
                 "when": "",
@@ -359,7 +370,7 @@ def test_parse_cached_rows_filters_expired_and_no_run() -> None:
     # windows-latest was expired, so not retained
     assert not any(r.suite == "Test & Typecheck" and r.os == "windows-latest" for r in rows.values())
     # no run was not retained
-    assert not any(r.suite == "Mock LLM Sidebar" and r.os == "ubuntu-latest" for r in rows.values())
+    assert not any(r.suite == "Mock LLM Sidebar" and r.os == "ubuntu-26.04" for r in rows.values())
 
 
 def test_parse_cached_rows_filters_non_terminal_conclusions() -> None:
@@ -387,7 +398,7 @@ def test_parse_cached_rows_filters_non_terminal_conclusions() -> None:
             },
             {
                 "suite": "Test & Typecheck",
-                "os": "ubuntu-latest",
+                "os": "ubuntu-26.04",
                 "conclusion": "success",
                 "sha": "9ebaad2",
                 "when": "2026-09-08T12:00:00Z",
@@ -397,7 +408,7 @@ def test_parse_cached_rows_filters_non_terminal_conclusions() -> None:
             },
             {
                 "suite": "Mock LLM Sidebar",
-                "os": "ubuntu-latest",
+                "os": "ubuntu-26.04",
                 "conclusion": "unknown",
                 "sha": "1234567",
                 "when": "2026-09-08T12:00:00Z",
@@ -419,10 +430,10 @@ def test_parse_cached_rows_filters_non_terminal_conclusions() -> None:
     # in_progress, queued, unknown, and cancelled MUST NOT be accepted as cached hints
     assert not any(r.suite == "Test & Typecheck" and r.os == "macos-latest" for r in rows.values())
     assert not any(r.suite == "Test & Typecheck" and r.os == "windows-latest" for r in rows.values())
-    assert not any(r.suite == "Mock LLM Sidebar" and r.os == "ubuntu-latest" for r in rows.values())
+    assert not any(r.suite == "Mock LLM Sidebar" and r.os == "ubuntu-26.04" for r in rows.values())
     assert not any(r.suite == "CrossHair cover-all" for r in rows.values())
     # success is terminal and is retained with its run_attempt
-    ubuntu_row = [r for r in rows.values() if r.suite == "Test & Typecheck" and r.os == "ubuntu-latest"][0]
+    ubuntu_row = [r for r in rows.values() if r.suite == "Test & Typecheck" and r.os == "ubuntu-26.04"][0]
     assert ubuntu_row.conclusion == "success"
     assert ubuntu_row.run_attempt == 2
 
@@ -451,7 +462,7 @@ def test_collect_status_uses_cached_hints_and_stops_early() -> None:
             },
             {
                 "suite": "Mock LLM Sidebar",
-                "os": "ubuntu-latest",
+                "os": "ubuntu-26.04",
                 "conclusion": "success",
                 "sha": "85f7a76",
                 "when": "2026-09-03T15:28:00Z",
@@ -508,8 +519,8 @@ def test_collect_status_uses_cached_hints_and_stops_early() -> None:
     rows = collect_status(fetch, "KeithCu/writeragent", cached_data=cached_data, max_age_days=60, now=now)
     by_key = {(r.suite, r.os): r for r in rows}
     # Ubuntu got the new run
-    assert by_key[("Test & Typecheck", "ubuntu-latest")].sha == "new_sha"
-    assert by_key[("Test & Typecheck", "ubuntu-latest")].conclusion == "success"
+    assert by_key[("Test & Typecheck", "ubuntu-26.04")].sha == "new_sha"
+    assert by_key[("Test & Typecheck", "ubuntu-26.04")].conclusion == "success"
     # MacOS retained the cached run
     assert by_key[("Test & Typecheck", "macos-latest")].sha == "589df34"
     assert by_key[("Test & Typecheck", "macos-latest")].run_id == 33780513241
@@ -593,7 +604,7 @@ def test_collect_status_skips_pr_runs_when_ubuntu_typecheck_resolved() -> None:
     rows = collect_status(fetch, "KeithCu/writeragent", max_age_days=60, now=now)
     assert job_calls == [500]  # Only run 500 called jobs; 499 and 498 were skipped!
     by_key = {(r.suite, r.os): r for r in rows}
-    assert by_key[("Test & Typecheck", "ubuntu-latest")].conclusion == "success"
+    assert by_key[("Test & Typecheck", "ubuntu-26.04")].conclusion == "success"
 
 
 def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> None:
@@ -636,7 +647,7 @@ def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> 
 
     rows = collect_status(fetch, "KeithCu/writeragent", max_age_days=60, now=now)
     by_key = {(r.suite, r.os): r for r in rows}
-    ubuntu_row = by_key[("Test & Typecheck", "ubuntu-latest")]
+    ubuntu_row = by_key[("Test & Typecheck", "ubuntu-26.04")]
     assert ubuntu_row.conclusion == "success"
     assert ubuntu_row.sha == "sha_gre"
     assert ubuntu_row.run_id == 100
@@ -646,7 +657,7 @@ def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> 
         "rows": [
             {
                 "suite": "Test & Typecheck",
-                "os": "ubuntu-latest",
+                "os": "ubuntu-26.04",
                 "conclusion": "success",
                 "sha": "sha_gre",
                 "when": "2026-09-19T10:05:00Z",
@@ -657,7 +668,7 @@ def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> 
     }
     rows_cached = collect_status(fetch, "KeithCu/writeragent", cached_data=cached_data, max_age_days=60, now=now)
     by_key_cached = {(r.suite, r.os): r for r in rows_cached}
-    ubuntu_cached_row = by_key_cached[("Test & Typecheck", "ubuntu-latest")]
+    ubuntu_cached_row = by_key_cached[("Test & Typecheck", "ubuntu-26.04")]
     assert ubuntu_cached_row.conclusion == "success"
     assert ubuntu_cached_row.sha == "sha_gre"
     assert ubuntu_cached_row.run_id == 100
@@ -689,7 +700,7 @@ def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> 
 
     rows_cancelled = collect_status(fetch_all_cancelled, "KeithCu/writeragent", max_age_days=60, now=now)
     by_key_cancelled = {(r.suite, r.os): r for r in rows_cancelled}
-    assert by_key_cancelled[("Test & Typecheck", "ubuntu-latest")].conclusion == "no run"
+    assert by_key_cancelled[("Test & Typecheck", "ubuntu-26.04")].conclusion == "no run"
 
 
 def test_render_json_includes_run_ids() -> None:
