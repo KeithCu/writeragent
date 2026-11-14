@@ -3014,3 +3014,55 @@ def test_child_signal_kills_grandchild() -> None:
 
 
 
+def _delay_worker(tmp_path):
+    """Stdio worker that sleeps for ``delay`` seconds, then answers with its pid."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    script = tmp_path / "delay_worker.py"
+    script.write_text(
+        "\n".join(
+            [
+                "import os, sys, time",
+                f"sys.path.insert(0, {str(repo)!r})",
+                "from compute_service.worker_stdio import run_worker_stdio_loop",
+                "def handle(req):",
+                "    time.sleep(float(req.get('delay') or 0))",
+                "    return {'status': 'ok', 'pid': os.getpid()}",
+                "if __name__ == '__main__':",
+                "    raise SystemExit(run_worker_stdio_loop(handle))",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return script
+
+
+def test_read_timeout_kills_and_next_execute_respawns(tmp_path) -> None:
+    """A clean read timeout kills the child. The next execute gets a new pid.
+
+    The timed-out client already has EXECUTION_TIMEOUT. Keeping the process
+    to finish that frame is what the late-drain state machine existed for.
+    """
+    from compute_service.worker_base import BaseProcessPool
+
+    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Worker")
+    try:
+        worker = pool.lease_any(2)
+        assert worker is not None
+        assert worker.process is not None
+        pid = worker.process.pid
+        res = worker.execute({"delay": 30}, timeout_sec=1.0)
+        assert res.get("code") == "EXECUTION_TIMEOUT"
+        assert not worker.is_alive()
+        pool.release_worker(worker)
+
+        again = pool.lease_any(2)
+        assert again is worker
+        nxt = again.execute({"delay": 0}, timeout_sec=2)
+        assert nxt.get("status") == "ok"
+        assert nxt.get("pid") != pid
+        pool.release_worker(again)
+    finally:
+        pool.shutdown()

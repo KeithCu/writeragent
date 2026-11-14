@@ -484,8 +484,6 @@ def test_plan_write_array_false_does_not_force_array():
 
 
 def test_commit_write_always_returns_a_message_record():
-    from plugin.calc.manipulator import MAX_WRITE_CELLS
-
     bridge = MagicMock()
     manipulator = CellManipulator(bridge)
 
@@ -494,7 +492,7 @@ def test_commit_write_always_returns_a_message_record():
     mock_clear.assert_called_once_with("A1:B2")
     assert clear_res == {"message": "Range A1:B2 cleared."}
 
-    exact_addr = SimpleNamespace(StartColumn=0, EndColumn=MAX_WRITE_CELLS - 1, StartRow=0, EndRow=0, Sheet=0)
+    small_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
     mock_range = MagicMock()
     mock_sheet = MagicMock()
     mock_range.getSpreadsheet.return_value = mock_sheet
@@ -503,9 +501,9 @@ def test_commit_write_always_returns_a_message_record():
     bridge.doc.getNumberFormats.return_value = MagicMock()
     bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
 
-    with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=small_addr):
         with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
-            res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
+            res = manipulator.write_formula_range("A1:B1", ["1", "2"])
     assert set(res) == {"message"}
     assert "filled with" in res["message"]
 

@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 import re
 
@@ -27,15 +26,13 @@ def test_sync_host_entrypoints_have_definitions_in_plugin() -> None:
     # after helpers are inlined or renamed. Verify each declared root against plugin/ sources
     # instead of duplicating a frozen name list in this test.
     plugin_dir = _REPO_ROOT / "plugin"
+    def_re = re.compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", re.MULTILINE)
     defined_names: set[str] = set()
     for py_file in plugin_dir.rglob("*.py"):
         parts = set(py_file.parts)
         if "contrib" in parts or "lib" in parts:
             continue
-        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                defined_names.add(node.name)
+        defined_names.update(def_re.findall(py_file.read_text(encoding="utf-8")))
 
     assert SYNC_HOST_ENTRYPOINTS
     missing = SYNC_HOST_ENTRYPOINTS - defined_names

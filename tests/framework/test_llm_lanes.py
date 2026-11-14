@@ -124,18 +124,19 @@ def test_grammar_llm_request_gate_limit_2_allows_parallel() -> None:
 def test_llm_request_lane_restores_status_after_waiting():
     from plugin.framework.llm_lanes import llm_request_lane, _LLM_REQUEST_LOCK
     import threading
-    import time
 
     # Block the lane
     _LLM_REQUEST_LOCK.acquire()
 
     status_calls = []
+    waiting_notified = threading.Event()
     def status_callback(msg: str):
         status_calls.append(msg)
+        if len(status_calls) == 1:
+            waiting_notified.set()
 
     def worker():
-        # wait a little then release so lane can be acquired
-        time.sleep(0.4)
+        waiting_notified.wait(timeout=2.0)
         _LLM_REQUEST_LOCK.release()
 
     t = threading.Thread(target=worker)
@@ -202,8 +203,10 @@ def test_llm_request_lane_resume_callback_raise_releases_lock() -> None:
         assert _LLM_REQUEST_LOCK.acquire(timeout=1.0)
         lock_held = True
 
+        waiting_notified = threading.Event()
+
         def releaser_target() -> None:
-            time.sleep(0.4)
+            waiting_notified.wait(timeout=2.0)
             _LLM_REQUEST_LOCK.release()
 
         releaser = threading.Thread(target=releaser_target, daemon=True)
@@ -214,7 +217,9 @@ def test_llm_request_lane_resume_callback_raise_releases_lock() -> None:
 
         def cb(msg: str) -> None:
             status_calls.append(msg)
-            if len(status_calls) == 2:
+            if len(status_calls) == 1:
+                waiting_notified.set()
+            elif len(status_calls) == 2:
                 raise RuntimeError("status failed")
 
         inside_body = False
@@ -280,18 +285,18 @@ def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
         assert timeout is not None
         recorded_timeouts.append(timeout)
         if len(recorded_timeouts) == 1:
-            time.sleep(0.25)
+            time.sleep(0.06)
             return True
         return orig_wait(timeout)
 
     try:
         with patch.object(_GRAMMAR_INFLIGHT_CV, "wait", side_effect=fake_wait):
-            with pytest.raises(TimeoutError, match=r"after 0\.5s"):
-                with grammar_llm_request_gate(2, timeout=0.5):
+            with pytest.raises(TimeoutError, match=r"after 0\.15s"):
+                with grammar_llm_request_gate(2, timeout=0.15):
                     pass
         assert len(recorded_timeouts) == 2
-        assert recorded_timeouts[0] > 0.45
-        assert recorded_timeouts[1] < 0.40
+        assert recorded_timeouts[0] > 0.12
+        assert recorded_timeouts[1] < 0.12
     finally:
         with _GRAMMAR_INFLIGHT_CV:
             lc._GRAMMAR_INFLIGHT_COUNT = 0
@@ -313,11 +318,11 @@ def test_llm_request_lane_acquire_is_capped_by_remaining() -> None:
 
     with patch("plugin.framework.llm_lanes._LLM_REQUEST_LOCK", mock_lock):
         with pytest.raises(TimeoutError):
-            with llm_request_lane(timeout=0.40):
+            with llm_request_lane(timeout=0.30):
                 pass
 
     assert all(t <= 0.25 for t in recorded)
-    assert sum(recorded) <= 0.42
+    assert sum(recorded) <= 0.32
     assert recorded[-1] < 0.25
 
 
@@ -353,7 +358,7 @@ def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
         with patch("plugin.framework.llm_lanes.get_current_send_cancellation", return_value=fake_cancel):
             worker_thread = threading.Thread(target=worker, daemon=True)
             worker_thread.start()
-            time.sleep(0.3)
+            time.sleep(0.05)
             stop_event.set()
             worker_thread.join(timeout=1.0)
             assert not worker_thread.is_alive()

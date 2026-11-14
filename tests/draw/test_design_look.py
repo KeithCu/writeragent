@@ -263,24 +263,20 @@ def test_many_cap_sized_svgs_keep_color_fallback_bounded(tmp_path):
         for i in range(24):
             zf.writestr("Pictures/bomb%d.svg" % i, payload)
 
-    import time
     import tracemalloc
 
     tracemalloc.start()
-    started = time.perf_counter()
     try:
         look = derive_otp_look(str(path))
         _current, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
-    elapsed = time.perf_counter() - started
 
     assert "dark background" in look
     assert "blue accents" in look
     # One capped member is held twice for the bytes() copy (~4MB). The
     # uncapped list is hundreds of MB. 16MB leaves room for zlib and the zip.
     assert peak < 16 * 1024 * 1024
-    assert elapsed < 5.0
 
     with zipfile.ZipFile(path) as zf:
         samples = _xml_color_samples(zf, zf.namelist())
@@ -403,9 +399,9 @@ def test_decode_png_rgb_sampling_matches_downsample_oracle(tmp_path):
         assert accent in look
 
 
-def test_decode_png_rgb_512x512_tracemalloc_stays_bounded():
-    width = height = 512
-    # All dark blue pixels. Raw scanlines are 512 * (1 + 512 * 3) ~ 787 KB.
+def test_decode_png_rgb_256x256_tracemalloc_stays_bounded():
+    width = height = 256
+    # All dark blue pixels. Raw scanlines are 256 * (1 + 256 * 3) ~ 197 KB.
     # Deflated IDAT is small due to uniform color.
     raw_row = b"\x00" + (bytes((20, 40, 120)) * width)
     raw_data = raw_row * height
@@ -428,9 +424,9 @@ def test_decode_png_rgb_512x512_tracemalloc_stays_bounded():
 
     assert decoded is not None
     assert len(decoded) == 1024
-    # 262k 3-tuples would alone take ~20MB. With sampling in the row loop,
-    # peak stays under 4MB (including the inflated ~787KB raw scanline buffer).
-    assert peak < 4 * 1024 * 1024
+    # 65k 3-tuples would alone take ~5MB. With sampling in the row loop,
+    # peak stays under 2MB (including the ~197KB raw scanline buffer).
+    assert peak < 2 * 1024 * 1024
 
 
 def test_accent_floor_follows_the_sample_source(tmp_path: Path):

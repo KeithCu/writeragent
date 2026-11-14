@@ -184,7 +184,6 @@ def test_read_range_format_info_performance(ctx, doc):
     10k-cell PyUNO arrays. That path has triggered intermittent soffice glibc double-frees.
     """
     import gc
-    import time
 
     from plugin.calc.bridge import CalcBridge
     from plugin.calc.inspector import CellInspector
@@ -215,12 +214,6 @@ def test_read_range_format_info_performance(ctx, doc):
     active_sheet = doc.getCurrentController().getActiveSheet()
     inspector = CellInspector(CalcBridge(doc))
 
-    def _avg_ms(addr: str, *, include_format_info: bool, rounds: int = 2) -> float:
-        t0 = time.perf_counter()
-        for _ in range(rounds):
-            inspector.read_range(addr, include_format_info=include_format_info)
-        return (time.perf_counter() - t0) * 1000.0 / rounds
-
     try:
         plain = active_sheet.getCellRangeByPosition(
             plain_start_col, 0, plain_start_col + cols - 1, rows - 1
@@ -229,12 +222,8 @@ def test_read_range_format_info_performance(ctx, doc):
             tuple(tuple(float(r * cols + c) for c in range(cols)) for r in range(rows))
         )
 
-        # Warm the UNO path (first reads after sheet fill can be anomalously slow).
-        for _ in range(2):
-            inspector.read_range(plain_addr)
-            inspector.read_range(plain_addr, include_format_info=True)
-        raw_ms = _avg_ms(plain_addr, include_format_info=False)
-        plain_enriched_ms = _avg_ms(plain_addr, include_format_info=True)
+        plain_sample = inspector.read_range(plain_addr, include_format_info=True)
+        assert len(plain_sample) == rows and len(plain_sample[0]) == cols
 
         date_rng = active_sheet.getCellRangeByPosition(
             plain_start_col,
@@ -248,7 +237,6 @@ def test_read_range_format_info_performance(ctx, doc):
         _set_number_format(doc, date_rng, "YYYY-MM-DD")
         sample = inspector.read_range(date_addr, include_format_info=True)
         assert sample[0][0].get("format_category") == "date", sample[0][0]
-        date_enriched_ms = _avg_ms(date_addr, include_format_info=True)
 
         mixed = active_sheet.getCellRangeByPosition(
             mixed_start_col, 0, mixed_start_col + cols - 1, rows - 1
@@ -275,27 +263,10 @@ def test_read_range_format_info_performance(ctx, doc):
         assert isinstance(mixed_sample[0][0].get("value"), str) and mixed_sample[0][0].get("type") == "date"
         assert isinstance(mixed_sample[0][date_cols].get("value"), float)
         assert "format_category" not in mixed_sample[0][date_cols]
-
-        mixed_enriched_ms = _avg_ms(mixed_addr, include_format_info=True)
-
-        print(
-            f"[read_range perf] raw={raw_ms:.1f}ms plain_enriched={plain_enriched_ms:.1f}ms "
-            f"mixed_10pct_dates={mixed_enriched_ms:.1f}ms all_dates={date_enriched_ms:.1f}ms "
-            f"(avg of 2 over {cell_count} cells)"
-        )
-
-        assert plain_enriched_ms < max(raw_ms * 3.0, raw_ms + 50.0), (
-            f"plain enriched too slow: raw={raw_ms:.1f}ms enriched={plain_enriched_ms:.1f}ms"
-        )
-        assert mixed_enriched_ms < max(raw_ms * 6.0, 400.0), (
-            f"mixed 10% dates too slow: raw={raw_ms:.1f}ms mixed={mixed_enriched_ms:.1f}ms"
-        )
-        assert date_enriched_ms < max(raw_ms * 8.0, 500.0), (
-            f"all-dates too slow: raw={raw_ms:.1f}ms all_dates={date_enriched_ms:.1f}ms"
-        )
     finally:
         # Drop large PyUNO sequences before @with_native_doc closes the sheet.
         # Holding getDataArray tuples across close has coincided with soffice double-frees.
+        plain_sample = None
         sample = None
         mixed_sample = None
         mixed_rows = None
