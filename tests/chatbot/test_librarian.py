@@ -3,18 +3,14 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 import pytest
 
-from plugin.tests.testing_utils import setup_uno_mocks
-
-
 class MockNamedValue:
     Name: str = ""
     Value: Any = None
 
 
 @pytest.fixture(autouse=True)
-def _uno_mocks():
-    setup_uno_mocks()
-    setattr(sys.modules["com.sun.star.beans"], "NamedValue", MockNamedValue)
+def _uno_mocks(monkeypatch):
+    monkeypatch.setattr(sys.modules["com.sun.star.beans"], "NamedValue", MockNamedValue, raising=False)
 
 
 from plugin.chatbot.librarian import (

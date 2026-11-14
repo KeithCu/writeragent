@@ -1,21 +1,11 @@
 import pytest
 import os
-import sys
 import tempfile
 import types
 from unittest.mock import MagicMock, patch
 
-
-# image_tools imports TextContentAnchorType at load time; conftest usually provides it.
-_anchor_key = "com.sun.star.text.TextContentAnchorType"
-if _anchor_key not in sys.modules:
-    anchor_mod = types.ModuleType(_anchor_key)
-    setattr(anchor_mod, "AS_CHARACTER", 1)
-    setattr(anchor_mod, "AT_FRAME", 3)
-    sys.modules[_anchor_key] = anchor_mod
-
-from plugin.writer.images import image_tools  # noqa: E402
-from plugin.doc import visual_helpers  # noqa: E402
+from plugin.writer.images import image_tools
+from plugin.doc import visual_helpers
 
 
 @pytest.fixture(autouse=True)
@@ -151,16 +141,13 @@ class TestShouldLinkImagePath:
         with tempfile.NamedTemporaryFile(suffix=".png", dir=tempfile.gettempdir()) as f:
             assert not (image_tools._should_link_image_path(f.name))
 
-    def test_cache_path_is_embedded(self):
-        cache_dir = image_tools.image_cache_dir()
-        os.makedirs(cache_dir, exist_ok=True)
-        path = os.path.join(cache_dir, "cached.png")
-        with open(path, "wb") as f:
-            f.write(b"x")
-        try:
-            assert not (image_tools._should_link_image_path(path))
-        finally:
-            os.unlink(path)
+    def test_cache_path_is_embedded(self, tmp_path, monkeypatch):
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        monkeypatch.setattr(image_tools, "image_cache_dir", lambda: str(cache_dir))
+        path = cache_dir / "cached.png"
+        path.write_bytes(b"x")
+        assert not (image_tools._should_link_image_path(str(path)))
 
     def test_symlink_into_temp_is_embedded(self, tmp_path):
         temp_dir = tmp_path / "temp"

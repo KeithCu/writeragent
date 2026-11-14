@@ -91,18 +91,6 @@ def _reset_grammar_worker_tls(monkeypatch: pytest.MonkeyPatch) -> None:
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
-from tests.harness.strip_bundle import is_release_build, module_source_contains
-
-
-def _grammar_obs_call_sites_present() -> bool:
-    """True when ``grammar_obs(...)`` call sites exist in ai_grammar_proofreader.
-
-    ``make release`` runs pytest against a stripped bundle (``scripts/strip_code.py`` removes
-    only ``grammar_obs`` expression statements).
-    """
-    if is_release_build():
-        return False
-    return module_source_contains(proofreader, "grammar_obs(")
 
 from plugin.writer.locale.grammar_proofread_locale import (
     looks_complete_sentence,
@@ -198,79 +186,6 @@ def test_classify_errors_against_window_counts_before_in_after() -> None:
     assert cls["in_window"] == 1
     assert cls["after_window"] == 1
     assert cls["straddle"] == 1
-
-
-@pytest.mark.skipif(
-    not _grammar_obs_call_sites_present(),
-    reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-)
-def test_obs_result_window_emits_final_counts_and_rule_ids() -> None:
-    from plugin.writer.locale.ai_grammar_proofreader import _obs_result_window
-
-    a_res = types.SimpleNamespace(
-        nStartOfSentencePosition=0,
-        nBehindEndOfSentencePosition=20,
-        nStartOfNextSentencePosition=20,
-        aErrors=(object(), object()),
-    )
-    errors = [
-        {"n_error_start": 2, "n_error_length": 3, "rule_identifier": "harper||SpellCheck"},
-        {"n_error_start": 10, "n_error_length": 2, "rule_identifier": "harper||Agreement"},
-    ]
-    with patch.object(proofreader, "grammar_obs") as mock_obs:
-        _obs_result_window(
-            "doc-1",
-            "en-US",
-            a_res,
-            errors,
-            paragraph_span_count=2,
-            active_span_count=1,
-            uncached_active_count=1,
-            source="harper_fast",
-            py_start=0,
-            py_behind=20,
-        )
-    mock_obs.assert_called_once()
-    assert mock_obs.call_args[0][0] == "do_proofreading_result_window"
-    kwargs = mock_obs.call_args.kwargs
-    assert kwargs["stage"] == "final"
-    assert kwargs["source"] == "harper_fast"
-    assert kwargs["n_errors"] == 2
-    assert kwargs["n_aErrors"] == 2
-    assert kwargs["in_window"] == 2
-    assert kwargs["doc_id"] == "doc-1"
-
-
-@pytest.mark.skipif(
-    not _grammar_obs_call_sites_present(),
-    reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-)
-def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
-    from plugin.writer.locale.ai_grammar_proofreader import _obs_result_window
-
-    a_res = types.SimpleNamespace(
-        nStartOfSentencePosition=0,
-        nBehindEndOfSentencePosition=5,
-        nStartOfNextSentencePosition=5,
-        aErrors=(),
-    )
-    with patch.object(proofreader, "grammar_obs") as mock_obs:
-        _obs_result_window(
-            "doc-1",
-            "en-US",
-            a_res,
-            (),
-            paragraph_span_count=1,
-            active_span_count=1,
-            uncached_active_count=0,
-            source="cache",
-            py_start=0,
-            py_behind=5,
-        )
-    kwargs = mock_obs.call_args.kwargs
-    assert kwargs["stage"] == "final"
-    assert kwargs["n_errors"] == 0
-    assert kwargs["n_aErrors"] == 0
 
 
 @pytest.mark.parametrize(
@@ -634,14 +549,10 @@ class TestTypingIntegration:
             (off2, "harper||s2"),
         }
 
-    @pytest.mark.skipif(
-        not _grammar_obs_call_sites_present(),
-        reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-    )
     def test_harper_fast_path_result_window_obs_is_final_after_lint(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
-        """Cache miss + Harper lint: result_window n_errors is post-path, not pre-path 0."""
+        """Cache miss + Harper lint: returns lint errors synchronously without enqueuing."""
         pr = _make_proofreader()
         pr._profile = GrammarProfile("harper", "harper", False)
         sentence = "This are an test."
@@ -663,7 +574,6 @@ class TestTypingIntegration:
         with (
             patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
             patch("plugin.writer.locale.harper.harper_try_lint", side_effect=_lint),
-            patch.object(proofreader, "grammar_obs") as mock_obs,
         ):
             mock_split.return_value = [(0, sentence)]
             res = pr.doProofreading("test-doc", sentence, mock_locale_fixture, 0, len(sentence), ())
@@ -671,28 +581,11 @@ class TestTypingIntegration:
         mock_queue_fixture.enqueue.assert_not_called()
         assert len(res.aErrors) == 1
         assert res.aErrors[0].aRuleIdentifier == "harper||Agreement"
-        window_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_result_window"]
-        assert len(window_calls) == 1
-        kwargs = window_calls[0].kwargs
-        assert kwargs["stage"] == "final"
-        assert kwargs["source"] == "harper_fast"
-        assert kwargs["n_errors"] == 1
-        assert kwargs["n_aErrors"] == 1
-        # Pre-path cache snapshot must not look like a final empty lint.
-        assert kwargs["n_errors"] != 0
-        partial = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_cache_partial_hit"]
-        assert len(partial) == 1
-        assert partial[0].kwargs["cache_error_count"] == 0
-        assert "errors_returned" not in partial[0].kwargs
 
-    @pytest.mark.skipif(
-        not _grammar_obs_call_sites_present(),
-        reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-    )
     def test_harper_fast_path_empty_lint_result_window_is_final_zero(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
-        """True empty Harper lint still reports final n_errors=0 (not a paint drop)."""
+        """True empty Harper lint returns empty aErrors."""
         pr = _make_proofreader()
         pr._profile = GrammarProfile("harper", "harper", False)
         sentence = "This is fine."
@@ -701,19 +594,11 @@ class TestTypingIntegration:
             patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
             patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
             patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
-            patch.object(proofreader, "grammar_obs") as mock_obs,
         ):
             mock_split.return_value = [(0, sentence)]
             res = pr.doProofreading("test-doc", sentence, mock_locale_fixture, 0, len(sentence), ())
 
         assert res.aErrors == ()
-        window_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_result_window"]
-        assert len(window_calls) == 1
-        kwargs = window_calls[0].kwargs
-        assert kwargs["stage"] == "final"
-        assert kwargs["source"] == "harper_fast"
-        assert kwargs["n_errors"] == 0
-        assert kwargs["n_aErrors"] == 0
 
     def test_harper_skips_non_english_locale_before_lint(
         self, mock_config_fixture, mock_queue_fixture

@@ -8,10 +8,8 @@ import plugin.writer.specialized.embedded as embedded_mod
 from plugin.app import get_tools
 from plugin.framework.service import iter_named_concrete_subclasses
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
+from plugin.tests.testing_utils import WriterDocStub
 from plugin.writer.specialized.embedded import EmbeddedEdit, EmbeddedInsert
-
-setup_uno_mocks()
 
 
 def test_embedded_edit_stays_dummy_not_discovered():

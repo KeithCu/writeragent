@@ -1771,11 +1771,11 @@ def test_image_set_properties_tiny_width_mm_clamps_to_one_unit():
         assert recorded_sizes[0].Width == 1
 
 
-def test_image_generate_temp_files_cleaned_up_after_insert():
+def test_image_generate_temp_files_cleaned_up_after_insert(tmp_path, monkeypatch):
     ctx = TestingFactory.create_context(doc_type="writer")
-    temp_dir = tempfile.gettempdir()
-    p1 = os.path.join(temp_dir, "wa-img-test1.png")
-    p2 = os.path.join(temp_dir, "wa-img-test2.png")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    p1 = str(tmp_path / "wa-img-test1.png")
+    p2 = str(tmp_path / "wa-img-test2.png")
     with open(p1, "wb") as f:
         f.write(b"data1")
     with open(p2, "wb") as f:
@@ -1801,10 +1801,10 @@ def test_image_generate_temp_files_cleaned_up_after_insert():
     assert not os.path.exists(p2)
 
 
-def test_image_generate_temp_files_cleaned_up_on_insert_exception():
+def test_image_generate_temp_files_cleaned_up_on_insert_exception(tmp_path, monkeypatch):
     ctx = TestingFactory.create_context(doc_type="writer")
-    temp_dir = tempfile.gettempdir()
-    p1 = os.path.join(temp_dir, "wa-img-test-exc.png")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    p1 = str(tmp_path / "wa-img-test-exc.png")
     with open(p1, "wb") as f:
         f.write(b"data")
 

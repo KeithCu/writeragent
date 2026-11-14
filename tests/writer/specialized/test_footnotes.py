@@ -1,27 +1,5 @@
-import sys
-import types
 from unittest.mock import MagicMock
 
-# Mock UNO modules before any plugin imports
-sys.modules.setdefault("uno", MagicMock())
-if "unohelper" not in sys.modules or not hasattr(sys.modules["unohelper"], "Base") or isinstance(sys.modules["unohelper"].Base, MagicMock):
-    uh = types.ModuleType("unohelper")
-    uh.Base = type("MockUnohelperBase", (object,), {})
-    sys.modules["unohelper"] = uh
-
-# Mock com.sun.star hierarchy
-star = types.ModuleType("com.sun.star")
-setattr(star, "text", types.ModuleType("com.sun.star.text"))
-
-class MockBase: pass
-setattr(getattr(star, "text"), "Footnote", MockBase)
-setattr(getattr(star, "text"), "Endnote", MockBase)
-
-sys.modules["com"] = types.ModuleType("com")
-setattr(sys.modules["com"], "sun", types.ModuleType("com.sun"))
-setattr(sys.modules["com"].sun, "star", star)
-
-# Now we can safely import our module
 from plugin.writer.search import escape_for_lo_regex
 from plugin.writer.specialized.footnotes import (
     FootnotesInsert, FootnotesList, FootnotesEdit, FootnotesDelete,

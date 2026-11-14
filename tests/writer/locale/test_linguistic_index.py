@@ -1,30 +1,8 @@
 import pytest
-import sys
 import types
 from unittest.mock import MagicMock, patch
 
-# Mock UNO and related modules before importing the plugin modules
-if "uno" not in sys.modules:
-    sys.modules["uno"] = MagicMock()
-if "unohelper" not in sys.modules:
-    sys.modules["unohelper"] = MagicMock()
-sys.modules.setdefault("snowballstemmer", MagicMock())
-
-# Create mock for com.sun.star and its submodules if not already present
-com_mock = sys.modules.get("com") or types.ModuleType("com")
-sys.modules["com"] = com_mock
-css = sys.modules.get("com.sun.star") or types.ModuleType("com.sun.star")
-if not hasattr(com_mock, "sun"):
-    setattr(com_mock, "sun", types.ModuleType("sun"))
-setattr(com_mock.sun, "star", css)
-sys.modules["com.sun.star"] = css
-
-# Add submodules as needed
-for sub in ["text", "beans", "container", "lang"]:
-    full_name = f"com.sun.star.{sub}"
-    mod = sys.modules.get(full_name) or types.ModuleType(sub)
-    setattr(css, sub, mod)
-    sys.modules[full_name] = mod
+pytest.importorskip("snowballstemmer")
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.writer.locale.linguistic_index import (
