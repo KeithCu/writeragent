@@ -102,7 +102,7 @@ def test_writer_page_style_uses_view_cursor_text():
             "com.sun.star.drawing.DrawingDocument",
             28_000,
             20_000,
-            2,
+            2,  # 1-based slide number -> index 1
             5,
             ["Document canvas (Draw):", "280.0", "200.0", "index 1", "5 page"],
             id="draw",

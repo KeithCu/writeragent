@@ -313,9 +313,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.main.call")
 def test_writer_delegate_marshals_get_tools_to_main_thread(
-    mock_execute_on_main,
     _mock_llm,
     _mock_smol_model,
     mock_agent_class,
@@ -330,21 +328,42 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
     registry.register(_DummyFootnotesList())
     registry.register(DelegateToSpecializedWriter())
 
-    mock_doc = MagicMock()
-    mock_doc.supportsService.return_value = True
-    mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    session = start_uno_thread_safety_session()
+    was_guard = tg.GUARD_ON
+    tg.GUARD_ON = True
+    err: BaseException | None = None
+    result: dict | None = None
+    try:
+        raw_doc = MagicMock()
+        raw_doc.supportsService.return_value = True
+        proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
 
-    ctx = MagicMock()
-    ctx.services = {"tools": registry}
-    ctx.doc = mock_doc
-    ctx.ctx = MagicMock()
-    ctx.doc_type = "writer"
-    ctx.stop_checker = lambda: False
+        ctx = MagicMock()
+        ctx.services = {"tools": registry}
+        ctx.doc = proxied_doc
+        ctx.ctx = MagicMock()
+        ctx.doc_type = "writer"
+        ctx.stop_checker = lambda: False
+        ctx.active_domain = None
 
-    gateway = registry.get("delegate_to_specialized_writer_toolset")
-    result = gateway.execute_safe(ctx, domain="footnotes", task="List footnotes")
+        gateway = registry.get("delegate_to_specialized_writer_toolset")
 
-    assert result["status"] == "incomplete"
+        def worker():
+            nonlocal err, result
+            try:
+                result = gateway.execute_safe(ctx, domain="footnotes", task="List footnotes")
+            except BaseException as exc:
+                err = exc
+
+        with patch.object(tg, "_notify_thread_violation"):
+            t = run_in_background(worker, name="spec-get-tools", daemon=False)
+            t.join(timeout=5.0)
+    finally:
+        tg.GUARD_ON = was_guard
+        session.close()
+
+    assert err is None, f"UNO touch from worker: {err}"
+    assert result is not None and result["status"] == "incomplete"
 
 
 @patch(

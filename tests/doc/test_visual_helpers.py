@@ -814,6 +814,32 @@ def test_position_on_draw_page():
     assert pos_x_only.Y == 0
 
 
+@pytest.mark.parametrize(
+    ("obj", "expected"),
+    [
+        pytest.param(None, False, id="none"),
+        pytest.param(FakePropertyObject({}, {visual_helpers.WRITER_GRAPHIC_SERVICE}), True, id="writer-graphic-service"),
+        pytest.param(FakePropertyObject({}, {visual_helpers._TEXT_GRAPHIC_SERVICE}), True, id="text-graphic-service"),
+        pytest.param(FakePropertyObject({}, {visual_helpers.DRAW_GRAPHIC_SERVICE}), True, id="draw-graphic-service"),
+        pytest.param(FakePropertyObject({"Graphic": object()}), True, id="graphic-property"),
+        pytest.param(FakePropertyObject({}), False, id="neither"),
+    ],
+)
+def test_is_graphic_object(obj, expected):
+    assert visual_helpers.is_graphic_object(obj) is expected
+
+
+def test_is_graphic_object_service_succeeds_when_graphic_property_raises():
+    class _ServiceOnlyGraphic(FakePropertyObject):
+        def getPropertyValue(self, name: str):
+            if name == "Graphic":
+                raise RuntimeError("property read failed")
+            return super().getPropertyValue(name)
+
+    obj = _ServiceOnlyGraphic({}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
+    assert visual_helpers.is_graphic_object(obj) is True
+
+
 def test_safe_property_helpers_reraise_disposed():
     from unittest.mock import MagicMock
 

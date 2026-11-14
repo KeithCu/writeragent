@@ -820,4 +820,3 @@ def test_starts_at_or_after():
     text.compareRegionStarts.side_effect = RuntimeError("UNO error")
     assert starts_at_or_after(text, left, right) is False
 
-
