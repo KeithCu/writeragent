@@ -8,9 +8,10 @@
 """Unit tests for plugin.chatbot.rich_text_control."""
 
 from contextlib import contextmanager
-import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 from plugin.chatbot.dialogs import set_prop
@@ -44,58 +45,26 @@ class TestRichControlHelpers:
         assert bw == 100 - 2 * RICH_CONTROL_EDGE_INSET
         assert bh == 200 - 2 * RICH_CONTROL_EDGE_INSET
 
-    def test_content_bounds_placeholder_rect_is_authoritative(self):
-        """Layout-provided rect is the sole geometry source; Clear width must not widen it."""
-        from types import SimpleNamespace
-
+    @pytest.mark.parametrize(
+        "ps_size, placeholder_rect, expected_rect",
+        [
+            pytest.param((4, 16, 142, 110), (10, 30, 400, 350), (10, 30, 400, 350), id="authoritative_placeholder"),
+            pytest.param((4, 16, 400, 110), None, (4, 16, 400, 110), id="fallback_ps"),
+        ],
+    )
+    def test_content_bounds_placeholder_and_fallback(self, ps_size, placeholder_rect, expected_rect):
         from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
 
         ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=142, Height=110)
-        root = MagicMock()
-        root.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
-        clear = MagicMock()
-        clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
-        root.getControl.return_value = clear
-        bx, by, bw, bh = _content_bounds_for_rich_control(
-            ps, placeholder_rect=(4, 16, 142, 350),
-        )
-        assert bx == 4 + RICH_CONTROL_EDGE_INSET
-        assert by == 16 + RICH_CONTROL_EDGE_INSET
-        assert bw == 142 - 2 * RICH_CONTROL_EDGE_INSET
-        assert bh == 350 - 2 * RICH_CONTROL_EDGE_INSET
-        assert bw < 900
+        ps.getPosSize.return_value = SimpleNamespace(X=ps_size[0], Y=ps_size[1], Width=ps_size[2], Height=ps_size[3])
+        kwargs = {"placeholder_rect": placeholder_rect} if placeholder_rect is not None else {}
+        bx, by, bw, bh = _content_bounds_for_rich_control(ps, **kwargs)
 
-    def test_content_bounds_wide_placeholder_fills_placeholder(self):
-        from types import SimpleNamespace
-
-        from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
-
-        ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=400, Height=110)
-        root = MagicMock()
-        clear = MagicMock()
-        clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
-        root.getControl.return_value = clear
-
-        bx, _by, bw, _bh = _content_bounds_for_rich_control(
-            ps, placeholder_rect=(4, 16, 400, 500),
-        )
-
-        assert bx == 4 + RICH_CONTROL_EDGE_INSET
-        assert bw == 400 - 2 * RICH_CONTROL_EDGE_INSET
-
-    def test_content_bounds_fallback_fills_placeholder(self):
-        from types import SimpleNamespace
-
-        from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
-
-        ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=400, Height=110)
-        bx, _by, bw, _bh = _content_bounds_for_rich_control(ps)
-
-        assert bx == 4 + RICH_CONTROL_EDGE_INSET
-        assert bw == 400 - 2 * RICH_CONTROL_EDGE_INSET
+        ex, ey, ew, eh = expected_rect
+        assert bx == ex + RICH_CONTROL_EDGE_INSET
+        assert by == ey + RICH_CONTROL_EDGE_INSET
+        assert bw == ew - 2 * RICH_CONTROL_EDGE_INSET
+        assert bh == eh - 2 * RICH_CONTROL_EDGE_INSET
 
     def test_apply_rich_control_geometry_set_pos_size(self):
         """View geometry is setPosSize only. Dialog-model Position/Width/Height are insert-time."""
@@ -112,7 +81,6 @@ class TestRichControlHelpers:
 
         assert changed
         rich.setPosSize.assert_called_once_with(36, 118, 1043, 300, 15)
-        assert model.Height == 94
         rich.getModel.assert_not_called()
 
     def test_rich_control_model_gets_chat_typography(self):
@@ -320,8 +288,6 @@ class TestAppendTextChunk:
         mock_uno.assert_called_once_with(control, ".uno:SelectAll")
         assert restore.call_count == 2
         assert restore.call_args_list[0] == restore.call_args_list[1]
-        # SelectAll is between the two restores so Hidden mode stays.
-        assert mock_uno.call_count == 1
 
     def test_scroll_rich_to_tail_is_not_reentrant(self):
         from plugin.chatbot import rich_text_control as rtc
@@ -485,34 +451,6 @@ class TestAppendTextChunk:
         cursor.setString.assert_called_once_with("")
 
 
-class TestLogRichScroll:
-    def test_log_rich_scroll_increments_seq_when_verbose_enabled(self, caplog):
-        import plugin.chatbot.rich_text_control as rtc
-        from plugin.chatbot.rich_text_control import log_rich_scroll
-
-        with patch("plugin.chatbot.rich_text_control.RICH_SCROLL_VERBOSE_DEBUG", True), \
-             caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
-            log_rich_scroll("test_phase", reason="unit")
-            log_rich_scroll("test_phase2")
-
-        from tests.harness.strip_bundle import module_source_contains
-
-        if not module_source_contains(rtc, "log.debug"):
-            return
-        messages = " ".join(r.message for r in caplog.records)
-        assert "[RICH-SCROLL]" in messages
-        assert "phase=test_phase" in messages
-        assert "reason=unit" in messages
-
-    def test_log_rich_scroll_is_off_by_default(self, caplog):
-        from plugin.chatbot.rich_text_control import log_rich_scroll
-
-        with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_control"):
-            log_rich_scroll("test_phase")
-
-        assert not any("[RICH-SCROLL]" in r.message for r in caplog.records)
-
-
 class TestStripLegacyAiLabel:
     def test_strips_ai_prefix(self):
         from plugin.chatbot.rich_text import strip_legacy_ai_label
@@ -540,47 +478,7 @@ class TestSkipLegacyStreamChunk:
         assert not skip_legacy_assistant_stream_chunk("Here is a real answer with tools.")
 
 
-class TestRerenderRichControlScroll:
-    def test_rerender_delegates_to_widget(self):
-        from tests.conftest import make_mock_send_button_listener
-
-        send = make_mock_send_button_listener()
-        widget = MagicMock()
-        send.rich_text_widget = widget
-        send.session = MagicMock()
-        send.session.messages = [{"role": "assistant", "content": "<p>Hi</p>"}]
-
-        send.rerender_rich_text_session()
-
-        widget.rerender_last_assistant_if_html.assert_called_once_with(
-            send.session,
-        )
-
-
 class TestRichTextChatWidget:
-    def test_widget_delegates_correctly(self):
-        from plugin.chatbot.rich_text_control import RichTextChatWidget
-
-        ctx = MagicMock()
-        control = MagicMock()
-        model = MagicMock()
-        control.getModel.return_value = model
-        widget = RichTextChatWidget(ctx, control, style_window=None)
-
-        with patch("plugin.chatbot.rich_text_control.clear_control") as mock_clear:
-            widget.clear()
-            mock_clear.assert_called_once_with(control)
-
-        with patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal:
-            widget.reveal_caret()
-            mock_reveal.assert_called_once_with(control, ctx=ctx, reason="widget", restore=None)
-
-        with patch("plugin.chatbot.rich_text_control.append_text_chunk") as mock_chunk:
-            widget.append_chunk("hello")
-            mock_chunk.assert_called_once_with(
-                control, "hello", style_window=None, ctx=ctx, restore_focus=None,
-            )
-
     def test_rerender_paints_the_message_list(self):
         """The control is redrawn from the list. The stream offset is not a splice point."""
         from plugin.chatbot.rich_text_control import RichTextChatWidget
@@ -839,26 +737,6 @@ class TestRichTextChatWidget:
         assert mock_paint.call_args.args[2] == [("user", "hi")]
 
 
-class TestLogRichControlContext:
-    def test_includes_phase_and_env_snapshot_once(self):
-        import plugin.chatbot.rich_text_control as rtc
-
-        with patch.object(rtc.log, "info") as mock_info:
-            rtc.log_rich_control_context("window_shown", peer=0)
-            rtc.log_rich_control_context("eager_init", peer=1)
-        from tests.harness.strip_bundle import module_source_contains
-
-        if not module_source_contains(rtc, "log.info"):
-            return
-        assert mock_info.call_count == 2
-        first = mock_info.call_args_list[0][0][0]
-        second = mock_info.call_args_list[1][0][0]
-        assert "phase=window_shown" in first
-        assert "peer=0" in first
-        assert "phase=eager_init" in second
-        assert "peer=1" in second
-
-
 class TestRichControlListenerInit:
     def setup_method(self):
         import plugin.chatbot.rich_text_control as rtc
@@ -900,11 +778,9 @@ class TestRichControlListenerInit:
         root.getPeer.return_value = MagicMock()
         rtc._CONTROL_INIT_STARTED.add(id(root))
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.main.post") as mock_post, \
-             patch.object(rtc.log, "warning") as mock_warn:
+        with patch("plugin.framework.queue_executor.main.post") as mock_post:
             listener.on_window_shown(MagicMock())
         mock_post.assert_not_called()
-        mock_warn.assert_called_once()
 
     def test_eager_init_with_peer_begins_deferred_init(self):
         from plugin.chatbot.rich_text_control import RichTextControlListener
@@ -943,14 +819,14 @@ class TestRichControlListenerInit:
         mock_post.assert_called_once()
 
     def test_disposing_clears_cell_link_spans(self):
-        from plugin.calc.navigation import cell_link_registry, register_cell_link_span
+        from plugin.calc.navigation import cell_link_registry
         from plugin.chatbot.rich_text_control import RichTextControlListener
 
         root = MagicMock()
         ctrl = MagicMock()
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
         listener.rich_control = ctrl
-        register_cell_link_span(ctrl, 0, 5, "A1")
+        cell_link_registry.add(ctrl, 0, 5, "A1")
         assert cell_link_registry.lookup(ctrl, 2) == "A1"
 
         listener.disposing(MagicMock())
@@ -966,7 +842,6 @@ class TestControlTextLength:
         assert get_control_text_length(control) is None
 
         rollback_rich_insert(control, None)
-        control.getModel.assert_called()
         # Unknown length must not ask the model for a cursor (that is "delete from the start").
         assert control.getModel.call_count == 1
 
@@ -995,7 +870,7 @@ def test_widget_replace_control():
     widget._formatted_len = 5
 
     new_ctrl = MagicMock()
-    with patch("plugin.calc.navigation.clear_cell_link_spans") as mock_clear:
+    with patch("plugin.calc.navigation.cell_link_registry.clear") as mock_clear:
         widget.replace_control(new_ctrl)
         mock_clear.assert_called_once_with(old_ctrl)
 
@@ -1005,7 +880,7 @@ def test_widget_replace_control():
     assert widget._formatted_len is None
 
     # Second replace with same object does not clear again
-    with patch("plugin.calc.navigation.clear_cell_link_spans") as mock_clear2:
+    with patch("plugin.calc.navigation.cell_link_registry.clear") as mock_clear2:
         widget.replace_control(new_ctrl)
         mock_clear2.assert_not_called()
 

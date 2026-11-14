@@ -17,15 +17,17 @@ from dataclasses import replace
 import json
 import logging
 import threading
-from typing import Any, Mapping, final
+from typing import TYPE_CHECKING, Any, Mapping, final
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.python.cell_discovery import (
-    _MAX_PYTHON_CELLS_FOUND,
+    MAX_PYTHON_CELLS_FOUND,
     discover_python_cells_on_sheet,
+    sheet_name_of,
 )
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.address_utils import local_a1, parse_local
+from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, reset_sheet_modify_runtime_for_tests
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.geometric_recalc_core import (
     CONFIG_KEY,
@@ -38,9 +40,17 @@ from plugin.calc.python.geometric_recalc_core import (
     compute_eval_index,
     compute_sheet_repair,
 )
+from plugin.doc.udprops import get_document_property, set_document_property
+from plugin.framework.config import get_config
 from plugin.framework.errors import best_effort, is_disposal, uno_read
+from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
+from plugin.framework.uno_context import get_ctx
+from plugin.scripting.session_manager import calc_workbook_base_session_id, focused_calc_document
+
+if TYPE_CHECKING:
+    from plugin.calc.python.function import CellContext  # function.py imports this module at its top
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +61,13 @@ class GeometricRuntime:
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
+        # Keyed by (calc_workbook_base_session_id(doc), sheet_name, local_a1).
+        # Both load_geometric_registry_for_doc and build_cell_context (function.py)
+        # compute this id from the document so attach and eval agree, and it
+        # exists in Isolated mode where workbook_session_id returns None. It
+        # changes on the first Save of an unsaved file: the unload listener
+        # clears every id the workbook had (workbook_lifecycle.py), and
+        # ensure_geometric_strip_index_for_eval reloads the UDProp under the new id.
         self.records: dict[tuple[str, str, str], GeometricRecord] = {}
         self.cap_hit_notified: set[tuple[str, str]] = set()
         self.strip_safe: frozenset[EvalIndexKey]
@@ -78,23 +95,12 @@ def is_geometric_repairing() -> bool:
 def reset_geometric_runtime_for_tests() -> None:
     """Drop in-memory maps. Tests only."""
     _RUNTIME.reset()
-    from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
-
     best_effort(reset_sheet_modify_runtime_for_tests, "reset_sheet_modify_runtime_for_tests")
 
 
 def geometric_flag_enabled() -> bool:
     """Settings flag. Default false; missing schema is off, not an exception."""
-    from plugin.framework.config import get_config
-
     return bool(get_config(CONFIG_KEY))
-
-
-def geometric_workbook_key(doc: Any) -> str:
-    """``calc:`` session wire id from ``calc_workbook_base_session_id``."""
-    from plugin.scripting.session_manager import calc_workbook_base_session_id
-
-    return calc_workbook_base_session_id(doc)
 
 
 def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey]) -> None:
@@ -124,10 +130,8 @@ def replace_records_for_sheet(workbook_key: str, sheet_name: str, records: Mappi
 
 def load_geometric_registry_for_doc(doc: Any) -> str:
     """Load UDProp into the in-memory map. Returns the live workbook_key."""
-    workbook_key = geometric_workbook_key(doc)
+    workbook_key = calc_workbook_base_session_id(doc)
     try:
-        from plugin.doc.udprops import get_document_property
-
         raw = get_document_property(doc, GEOMETRIC_REGISTRY_PROP, None)
         if not isinstance(raw, str) or not raw.strip():
             return workbook_key
@@ -155,8 +159,6 @@ def load_geometric_registry_for_doc(doc: Any) -> str:
 def save_geometric_registry_for_doc(doc: Any, workbook_key: str) -> None:
     """Persist this workbook's attach records. Sibling of save_spill_registry_for_doc."""
     try:
-        from plugin.doc.udprops import get_document_property, set_document_property
-
         sheets: dict[str, dict[str, str]] = {}
         with _RUNTIME.lock:
             for (wk, sheet, addr), rec in _RUNTIME.records.items():
@@ -195,7 +197,7 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
 
     message = _(
         "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more Python cells (discovery cap). The sheet was left unchained so a partial list is not treated as complete."
-    ) % {"sheet": sheet_name, "cap": _MAX_PYTHON_CELLS_FOUND}
+    ) % {"sheet": sheet_name, "cap": MAX_PYTHON_CELLS_FOUND}
     log.error("Geometric Recalc Order: %s", message)
 
     if not main.is_current():
@@ -203,6 +205,7 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
         # must still be able to show the first box.
         return False
 
+    # Lazy: function.py imports this module at its top, and the first =PY() must not load the chat dialog stack.
     from plugin.chatbot.dialogs import msgbox
 
     msgbox(ctx, _(FEATURE_TITLE), message, box_type=3)
@@ -214,33 +217,19 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
 def maybe_strip_geometric_eval_args(
     resolved_code: str,
     args: list[Any],
-    *,
-    doc: Any = None,
-    cell_ctx: Any = None,
+    cell: CellContext,
 ) -> list[Any]:
     """Drop the last split arg when the triple is strip-safe.
 
     Must run after ``split_python_addin_data_args`` and before
     ``calc_addin_args_from_split`` / the matrix-index heuristic.
-    No caller doc, or not on the UI thread: return ``args`` unchanged and
-    do not read a workbook key (that read is UNO).
+    Off the UI thread, or with no caller document, args come back unchanged;
+    ``build_cell_context`` reads the key only on the UI thread because that
+    read is UNO.
     """
-    if not args:
+    if not args or not cell.on_main or cell.doc is None:
         return args
-    if cell_ctx is not None:
-        if not cell_ctx.on_main:
-            return args
-        target_doc = cell_ctx.doc
-        if target_doc is None:
-            return args
-        workbook_key = cell_ctx.workbook_key
-    else:
-        if doc is None:
-            return args
-        if not main.is_current():
-            return args
-        workbook_key = geometric_workbook_key(doc)
-    key = EvalIndexKey(workbook_key, resolved_code, len(args))
+    key = EvalIndexKey(cell.workbook_key, resolved_code, len(args))
     if key not in _RUNTIME.strip_safe:
         return args
     return args[:-1]
@@ -280,18 +269,14 @@ def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
     return parts.code
 
 
-def _sheet_name(sheet: Any) -> str:
-    return uno_read(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
-
-
 def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell], str, bool]:
     """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map).
 
-    Third value is discovery ``truncated`` — cap-hit skip uses this, not
-    ``len >= 100``.
+    The third value is discovery's ``truncated`` flag; callers skip a capped
+    sheet on that flag (a completed scan of exactly 100 cells is not capped).
     """
     discovery = discover_python_cells_on_sheet(sheet)
-    name = _sheet_name(sheet)
+    name = sheet_name_of(sheet)
     cells = [
         GeometricCell(
             address=local_a1(info.address),
@@ -374,7 +359,9 @@ def _rebuild_strip_safe_from_doc(
     all_records: dict[str, GeometricRecord] = {}
     known = known_sheets or {}
     for sheet in _iter_sheets(doc):
-        sheet_name = _sheet_name(sheet)
+        sheet_name = sheet_name_of(sheet)
+        if not sheet_name:
+            continue
         if sheet_name in known:
             cells = known[sheet_name]
         else:
@@ -398,6 +385,9 @@ def _repair_one_sheet(
     workbook_key: str,
 ) -> list[GeometricCell] | None:
     cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
+    if not name:
+        # A closed document's sheets have no name and are skipped, not filed under an invented one.
+        return None
     if truncated:
         notify_geometric_cap_hit(ctx, name, workbook_key=workbook_key)
         return None
@@ -412,8 +402,9 @@ def _repair_one_sheet(
         # the incoming record when there was one, otherwise leave the key
         # absent. _apply_patches_to_sheet can fail (a protected sheet throws
         # in setFormula, or the cell formula changed concurrently). Saving
-        # result.records directly records those failed appends and removes,
-        # so a stale record marks a group strip-safe and strips real data.
+        # ``compute_sheet_repair``'s records unchanged would keep those failed
+        # appends and removes, and a stale record marks a group strip-safe and
+        # strips real data.
         unapplied_patches = [p for p in patches if local_a1(p.address) not in applied_addrs]
         for patch in unapplied_patches:
             key = local_a1(patch.address)
@@ -448,15 +439,13 @@ def reconcile(
     _RUNTIME.repairing = True
     repaired_sheets: dict[str, list[GeometricCell]] = {}
     try:
-        from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
-
         with undo_lock(doc):
             sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
             for sheet in sheet_list:
                 ensure_sheet_modify_listener(ctx, doc, sheet)
                 live_cells = _repair_one_sheet(ctx, doc, sheet, workbook_key)
                 if live_cells is not None:
-                    repaired_sheets[_sheet_name(sheet)] = live_cells
+                    repaired_sheets[sheet_name_of(sheet)] = live_cells
             save_geometric_registry_for_doc(doc, workbook_key)
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key, known_sheets=repaired_sheets)
     finally:
@@ -468,15 +457,11 @@ def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
     reconcile(ctx, doc, sheet=sheet)
 
 
-def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
+def after_py_cell_save(doc: Any, cell: Any) -> None:
     """Primary attach path: Monaco / native Save is already outside recalc."""
     if not geometric_flag_enabled() or doc is None:
         return
-    if ctx is None:
-        from plugin.framework.uno_context import get_ctx
-
-        if main.is_current():
-            ctx = uno_read(get_ctx, None)
+    ctx = uno_read(get_ctx, None) if main.is_current() else None
     sheet = _sheet_of_cell(cell, doc)
     if sheet is None:
         return
@@ -484,7 +469,7 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
 
 
 def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
-    """Load UDProp; reconcile when the flag is on. Always record Isolated session."""
+    """Load the geometric UDProp on open. With the flag on, reconcile every sheet; with it off, still rebuild the strip-safe index so the eval strip works for cells that are already attached."""
     if doc is None or not uno_read(lambda: doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False):
         return
     if geometric_flag_enabled():
@@ -494,36 +479,20 @@ def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
 
 
-def ensure_geometric_strip_index_for_eval(
-    doc: Any = None,
-    ctx: Any = None,
-    *,
-    cell_ctx: Any = None,
-) -> None:
-    """UI-thread only: rebuild ``_STRIP_SAFE`` from UDProp before packing ``data``."""
-    if cell_ctx is not None:
-        if not cell_ctx.on_main:
-            return
-        target_doc = cell_ctx.doc
-        if target_doc is None:
-            return
-        workbook_key = cell_ctx.workbook_key
-    else:
-        if doc is None:
-            return
-        if not main.is_current():
-            return
-        target_doc = doc
-        workbook_key = geometric_workbook_key(target_doc)
+def ensure_geometric_strip_index_for_eval(cell: CellContext) -> None:
+    """UI-thread only: rebuild the strip-safe index (``_RUNTIME.strip_safe``) from UDProp before packing ``data``."""
+    if not cell.on_main or cell.doc is None:
+        return
+    workbook_key = cell.workbook_key
     if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in _RUNTIME.strip_safe):
         return
-    load_geometric_registry_for_doc(target_doc)
+    load_geometric_registry_for_doc(cell.doc)
     with _RUNTIME.lock:
         has_records = any(key[0] == workbook_key for key in _RUNTIME.records)
     if not has_records:
         replace_geometric_strip_safe(workbook_key, frozenset())
         return
-    _rebuild_strip_safe_from_doc(ctx, target_doc, workbook_key)
+    _rebuild_strip_safe_from_doc(cell.ctx, cell.doc, workbook_key)
 
 
 def _on_geometric_config_changed(**kwargs: Any) -> None:
@@ -537,9 +506,7 @@ def _on_geometric_config_changed(**kwargs: Any) -> None:
     ctx = kwargs.get("ctx")
     if ctx is None:
         return
-    from plugin.scripting.session_manager import _calc_document
-
-    doc = _calc_document(ctx)
+    doc = focused_calc_document(ctx)
     if doc is None:
         return
     reconcile(ctx, doc)
@@ -553,6 +520,4 @@ def install_geometric_recalc() -> None:
         if _RUNTIME.last_flag is not None:
             return
         _RUNTIME.last_flag = geometric_flag_enabled()
-    from plugin.framework.event_bus import get_event_bus
-
     get_event_bus().subscribe("config:changed", _on_geometric_config_changed)

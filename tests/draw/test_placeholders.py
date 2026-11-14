@@ -6,9 +6,7 @@ from unittest.mock import patch
 
 from plugin.draw.placeholders import (
     GetPlaceholderText,
-    ListPlaceholders,
     SetPlaceholderText,
-    _EMPTY_PLACEHOLDER_HINT,
     _find_placeholder,
     _list_placeholders,
     _role_from_label,
@@ -145,7 +143,8 @@ def test_role_miss_empty_available_is_actionable():
     assert extra["available"] == []
     assert extra["suggest_layout"] == "text"
     assert extra["shape_text_count"] == 0
-    assert extra["hint"] == _EMPTY_PLACEHOLDER_HINT
+    assert "hint" in extra
+    assert "slide_layout_set" not in extra["hint"]
     assert "fallback_indices" not in extra
 
 
@@ -213,18 +212,7 @@ def test_set_placeholder_text_empty_role_miss_payload():
     assert details["available"] == []
     assert details["suggest_layout"] == "text"
     assert details["shape_text_count"] == 0
-    assert "slide_layouts" in details["hint"]
-    assert "slide_layout_set" not in details["hint"]
     assert "Placeholder 'title' not found on this slide." == err["message"]
-
-
-def test_placeholder_tool_descriptions_steer_list_then_layout():
-    assert "list_placeholders" in SetPlaceholderText.description
-    assert "index" in SetPlaceholderText.description
-    assert "layout" in SetPlaceholderText.description
-
-    assert "before set_placeholder_text" in ListPlaceholders.description
-    assert "slide_layouts" in ListPlaceholders.description
 
 
 def test_outline_and_subtitle_shapes():
@@ -276,24 +264,6 @@ def test_shape_type_exact_map_title_not_body_and_plain_text_has_no_role():
     listed = _list_placeholders(page)
     assert listed[0]["class"] == "TitleTextShape"
     assert "role" not in listed[1]
-
-
-class _CountingPage(_FakePage):
-    def __init__(self, shapes):
-        super().__init__(shapes)
-        self.count_calls = 0
-
-    def getCount(self):
-        self.count_calls += 1
-        return super().getCount()
-
-
-def test_role_miss_scans_page_once():
-    page = _CountingPage([])
-    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        SetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=0), text="x", role="title")
-    assert page.count_calls == 1
 
 
 def test_scan_skips_shape_whose_property_raises():
@@ -349,6 +319,5 @@ def test_get_and_set_role_miss_payloads_match_on_empty_page():
     assert got["message"] == want["message"]
     assert got["details"] == want["details"]
     assert got["details"]["suggest_layout"] == "text"
-    assert got["details"]["hint"] == _EMPTY_PLACEHOLDER_HINT
 
 

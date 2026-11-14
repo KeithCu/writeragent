@@ -14,6 +14,9 @@ Conditional formatting tools live in the **specialized** tier (`conditional_form
 | `conditional_formatting_remove` | Remove one rule by **0-based** index, or **clear all** rules on the range if `rule_index` is omitted. |
 
 Implementation: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py). The conditional sub-agent also receives core **`style_list`** (`family=CellStyles`) to discover valid cell style names.
+
+An unknown style returns `INVALID_STYLE` with `details.hint` (calls `style_list` with `family='CellStyles'`) and an optional `details.similar`. `range` must name one block (`INVALID_PARAM`, `"Pass exactly one range."`), and an out-of-range `rule_index` on remove also returns `INVALID_PARAM`; for `conditional_formatting_list`, an omitted or empty `range` scans the used area. There is no catch-all code for conditional formatting errors; unexpected UNO failures reach `execute_safe`.
+
 ---
 
 ## 2. LibreOffice UNO — two different models (critical)
@@ -112,7 +115,7 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
 ## 6. Debugging tips
 
-- **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `_query_interface` in [`conditional.py`](../../plugin/calc/conditional.py) and [`pivot.py`](../../plugin/calc/pivot.py).  
+- **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `query_interface` in [`calc_utils.py`](../../plugin/calc/calc_utils.py).  
 - **First rule fails with no container:** Check **`_ensure_table_conditional_format`** and LO version; verify **`TableConditionalFormat`** service name.  
 - **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`conditional_formatting_list`** against `_OPS` in [`conditional.py`](../../plugin/calc/conditional.py) (unknown codes become `str(code)`).  
 - **Rules from UI missing in list:** User may have created **modern** CF — see §2.2; implement merged listing (§5.2).

@@ -10,7 +10,16 @@ import base64
 import math
 from typing import Any
 
-from plugin.scripting.payload_codec import PAYLOAD_DATAFRAME, find_image_payloads, host_unpack_data, is_dataframe_payload, is_image_payload, is_multi_data, is_split_grid
+from plugin.scripting.payload_codec import (
+    PAYLOAD_IMAGE,
+    find_image_payloads,
+    host_unpack_data,
+    is_dataframe_payload,
+    is_image_payload,
+    is_multi_data,
+    is_split_grid,
+    pack_dataframe_envelope,
+)
 
 
 def _is_ndarray(obj: object) -> bool:
@@ -36,6 +45,7 @@ def sanitize_for_strict_json(obj: Any) -> Any:
 
 def _ndarray_to_lists(arr: Any) -> Any:
     """Convert ndarray to nested Python lists with NaN/Inf → null."""
+    # numpy is already loaded when an ndarray or numpy scalar reaches here; the module imports without it
     import numpy as np
 
     if arr.ndim == 0:
@@ -65,7 +75,7 @@ def _image_to_json(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _image_tag_has_data(obj: dict[str, Any]) -> bool:
     """Image tag with inline data that failed ``is_image_payload``."""
-    if obj.get("__wa_payload__") != "image":
+    if obj.get("__wa_payload__") != PAYLOAD_IMAGE:
         return False
     data = obj.get("data")
     if isinstance(data, str):
@@ -94,7 +104,7 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
             return None
         return _image_to_json(obj)
     if is_split_grid(obj):
-        return sanitize_for_strict_json(host_unpack_data(obj, as_nested_list=True))
+        return sanitize_for_strict_json(host_unpack_data(obj))
     if is_multi_data(obj):
         items = obj.get("items") or []
         return [to_dumb_json_value(x, drop_image_ids=drop_image_ids) for x in items]
@@ -103,7 +113,7 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
         cols = obj.get("columns") or []
         data = to_dumb_json_value(obj.get("data"), drop_image_ids=drop_image_ids)
         if cols:
-            return {"__wa_payload__": PAYLOAD_DATAFRAME, "columns": list(cols), "data": data}
+            return pack_dataframe_envelope(list(cols), data)
         return data
     if isinstance(obj, dict):
         # Desktop may still leave nested envelopes. is_image_payload
@@ -119,6 +129,7 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
     mod = getattr(type(obj), "__module__", "")
     if mod == "numpy":
         try:
+            # numpy is already loaded when an ndarray or numpy scalar reaches here; the module imports without it
             import numpy as np
 
             if isinstance(obj, (np.integer,)):

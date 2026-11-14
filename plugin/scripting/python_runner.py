@@ -11,29 +11,50 @@ LibrePy and WriterAgent both register this menu. Writer inserts HTML at the
 selection; Calc writes values from the active selection; Draw/Impress shows a
 message only.
 
+Execution preparation returns an EarlyOutcome, PreparedVision, or PreparedScript record,
+and downstream steps switch on type rather than inspect dictionary keys.
+
 Concurrency: _monaco_run_in_flight is a process-wide set of document keys.
 Monaco on_save checks and updates it on the UI thread only. It is not locked.
 """
 
-import html as html_mod
+from dataclasses import dataclass
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import msgbox
-from plugin.scripting.editor_errors import editor_error_markers, exception_traceback
+from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+from plugin.scripting.editor_errors import (
+    editor_error_markers,
+    exception_traceback,
+    failure_message,
+)
 from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_editor_available
 from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.framework.worker_pool import run_in_background
+from plugin.framework.queue_executor import main
 from plugin.scripting.python_runner_ui import show_python_input_dialog
-from plugin.writer.html_import import insert_content_at_position
+from plugin.writer.html_import import insert_content_at_position, run_writer_mutation_with_optional_review
 from plugin.framework.doc_type import is_calc, is_writer, is_draw
-from plugin.calc.address_utils import index_to_column
+from plugin.calc.address_utils import format_address
+from plugin.calc.bridge import calc_selection_to_a1
+from plugin.calc.calc_addin_data import resolve_python_data
+from plugin.calc.python.formula_edit import parse_data_binding_text
+from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
+from plugin.calc.rich_html import insert_cell_html_rich
+from plugin.scripting.domain_registry import DomainWiring, get_post_venv_domains
 from plugin.scripting.payload_codec import is_dataframe_payload
+from plugin.scripting.session_manager import (
+    pin_script_document,
+    release_script_document,
+    rps_session_id,
+)
+from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
+from plugin.scripting.viz import try_insert_plot_result
 from plugin.scripting.document_scripts import (
     build_xdl_script_picker_state,
     document_scripts_identity,
@@ -44,6 +65,7 @@ from plugin.scripting.document_scripts import (
 )
 from plugin.scripting.helper_domain import (
     ScriptFacts,
+    escape_for_html_insert,
     format_elapsed_time,
     plot_insert_ok_outcome,
     rps_error_outcome,
@@ -51,12 +73,44 @@ from plugin.scripting.helper_domain import (
     rps_ok_outcome,
 )
 
-if TYPE_CHECKING:
-    from plugin.scripting.domain_registry import DomainWiring
-
 log = logging.getLogger("writeragent.scripting")
 
 _monaco_run_in_flight: set[str] = set()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EarlyOutcome:
+    """Prepare refused the run on the main thread. ``outcome`` is the finished run outcome."""
+
+    outcome: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PreparedVision:
+    """A run_vision script: the OCR wait runs off-thread, the insert on the main thread."""
+
+    ctx: Any
+    doc: Any
+    t0: float
+    helper_name: str
+    params: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PreparedScript:
+    """A general script for the venv worker, with the document reads already done."""
+
+    ctx: Any
+    doc: Any
+    code: str
+    t0: float
+    bindings: dict[str, Any] | None
+    py_data: Any
+    session_id: str | None
+    script_session_id: str | None
+
+
+PreparedRun = PreparedVision | PreparedScript
 
 
 def _monaco_run_document_key(doc: Any) -> str:
@@ -65,20 +119,9 @@ def _monaco_run_document_key(doc: Any) -> str:
     return ("uid:" + uid) if uid else f"id:{id(doc)}"
 
 
-def _html_insert_text(value: Any) -> str:
-    """Escape a script result so it stays text after Writer/Calc HTML insert.
-
-    ``insert_content_at_position`` and ``insert_cell_html_rich`` call
-    ``html.unescape`` before the StarWriter HTML filter, so a single
-    ``html.escape`` is undone and ``<`` becomes markup again. Double-escape
-    so a literal ``<`` survives as text (``&amp;lt;`` → ``&lt;`` → ``<``).
-    """
-    return html_mod.escape(html_mod.escape(str(value)))
-
-
 def _html_row(cells: list[Any] | tuple[Any, ...], tag: str = "td") -> str:
     """One ``<tr>`` of ``th`` or ``td`` cells. Same bytes as the old per-cell appends."""
-    inner = "".join(f"<{tag}>{_html_insert_text(cell)}</{tag}>" for cell in cells)
+    inner = "".join(f"<{tag}>{escape_for_html_insert(cell)}</{tag}>" for cell in cells)
     return "<tr>" + inner + "</tr>"
 
 
@@ -144,7 +187,7 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
         return _html_table(body)
 
     # Fallback: list of primitives
-    return "<br>".join(_html_insert_text(x) for x in data)
+    return "<br>".join(escape_for_html_insert(x) for x in data)
 
 
 def is_shape_tool_status_result(result: Any) -> bool:
@@ -191,27 +234,27 @@ def format_result_for_writer(result: Any) -> str:
             if isinstance(val, list) and val:
                 table = _format_list_to_table(val)
                 if table:
-                    html_parts.append(f"<h3>{_html_insert_text(key)}</h3>")
+                    html_parts.append(f"<h3>{escape_for_html_insert(key)}</h3>")
                     html_parts.append(table)
             else:
-                escaped = _html_insert_text(val).replace("\n", "<br>")
+                escaped = escape_for_html_insert(val).replace("\n", "<br>")
                 lower_key = str(key).lower()
                 if lower_key in priority_keys:
                     html_parts.append(f"<p><b>{escaped}</b></p>")
                 else:
-                    html_parts.append(f"<p><b>{_html_insert_text(key)}:</b> {escaped}</p>")
+                    html_parts.append(f"<p><b>{escape_for_html_insert(key)}:</b> {escaped}</p>")
 
         return "\n".join(html_parts)
 
-    return _html_insert_text(result).replace("\n", "<br>")
+    return escape_for_html_insert(result).replace("\n", "<br>")
 
 
 def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
     """Insert the result of a Python script into a Calc document.
 
-    Formats structured and tabular data via HTML and inserts via controller
-    transferable paste (insert_cell_html_rich). This registers a native C++
-    ScUndo action in LibreOffice Calc, allowing single-step Ctrl+Z undo.
+    Formats structured and tabular data via HTML and inserts via
+    ``insert_cell_html_rich``, whose ``UndoStepOrRollback`` bracket groups
+    the cell clear and transferable paste into a single Ctrl+Z step.
     """
     if result is None:
         return
@@ -230,60 +273,56 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
         start_col = addr.StartColumn
         start_row = addr.StartRow
 
-    anchor_addr = f"{index_to_column(start_col)}{start_row + 1}"
+    anchor_addr = format_address(start_col, start_row)
     formatted = format_result_for_writer(result)
     if formatted:
-        from plugin.calc.rich_html import insert_cell_html_rich
-
         insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)
 
 
-def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float, *, facts: ScriptFacts | None = None) -> dict[str, Any] | None:
-    """Return prepared vision execution dict, early error dict, or None if not a vision script."""
-    if facts is None:
-        facts = ScriptFacts.from_source(code)
-    if "run_vision" not in code or not facts.calls("run_vision"):
+def _prepare_vision(ctx: Any, doc: Any, facts: ScriptFacts, t0: float) -> PreparedVision | EarlyOutcome | None:
+    """Return prepared vision execution record, EarlyOutcome on error, or None if not a vision script."""
+    if "run_vision" not in facts.code or not facts.calls("run_vision"):
         return None
 
+    # Weight: plugin.vision brings the vision client, trusted RPC and graphic export; only a run_vision script needs them.
     from plugin.vision.vision_common import merge_vision_params
     from plugin.vision.vision_runner import supports_vision_manual
 
     if not supports_vision_manual(doc):
-        return {"early_outcome": {"ok": False, "message": _("Vision helpers require a Writer, Calc, Draw, or Impress document.")}}
+        return EarlyOutcome(
+            outcome=rps_error_outcome(_("Vision helpers require a Writer, Calc, Draw, or Impress document."), t0=None)
+        )
     call_spec = facts.first_run_spec("run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
     params = merge_vision_params(ctx, raw_params)
     helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
 
-    return {
-        "ctx": ctx,
-        "doc": doc,
-        "code": code,
-        "t0": t0,
-        "helper_name": helper_name,
-        "params": params,
-    }
+    return PreparedVision(
+        ctx=ctx,
+        doc=doc,
+        t0=t0,
+        helper_name=helper_name,
+        params=params,
+    )
 
 
-def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | None = None, pin_token: str | None = None) -> dict[str, Any]:
+def _prepare_rps_execution(
+    ctx: Any, doc: Any, code: str, *, data_range: str | None = None, pin_token: str | None = None
+) -> PreparedRun | EarlyOutcome:
     """Main-thread document reads before the venv wait.
 
-    Returns ``early_outcome`` when the script should not start. Otherwise the
-    dict is the input for :func:`_run_prepared_rps` and :func:`_finish_rps_execution`.
+    Returns ``EarlyOutcome`` when the script should not start. Otherwise the
+    record is the input for :func:`_run_prepared_rps` and :func:`_finish_rps_execution`.
     The native dialog runs only :func:`_run_prepared_rps` off the UNO thread.
     """
-    from plugin.calc.bridge import calc_selection_to_a1
-    from plugin.calc.python.formula_edit import parse_data_binding_text
-    from plugin.calc.calc_addin_data import _resolve_python_data
-
     t0 = time.perf_counter()
 
     facts = ScriptFacts.from_source(code)
 
     # Vision does not use py_data, so the vision branch runs before
-    # _resolve_python_data. Resolving Calc data first failed when a graphic
+    # resolve_python_data. Resolving Calc data first failed when a graphic
     # was selected and returned an early error for a vision helper.
-    vis = _prepare_vision(ctx, doc, code, t0, facts=facts)
+    vis = _prepare_vision(ctx, doc, facts, t0)
     if vis is not None:
         return vis
 
@@ -298,9 +337,9 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
             drs = [sel] if sel else None
         if drs:
             # Pass the full address list so multi Data: bindings become data / ranges.
-            py_data, err = _resolve_python_data(doc, data_range=drs, data=None)
+            py_data, err = resolve_python_data(doc, data_range=drs, data=None)
             if err:
-                return {"early_outcome": {"ok": False, "message": err}}
+                return EarlyOutcome(outcome=rps_error_outcome(err, t0=None))
 
     # A substring search matches comments and docstrings. Check the import
     # with ScriptFacts (AST), or document bindings get prepended
@@ -309,8 +348,6 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         facts.calls("run_text_analytics")
         or facts.imports_module("writeragent.scripting.text_analytics")
     ):
-        from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
-
         call_spec = facts.first_run_spec("run_text_analytics") or {}
         helper = str(call_spec.get("helper") or "full")
         text, document_context = resolve_text_analytics_document_inputs(doc, helper)
@@ -319,83 +356,81 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         assert isinstance(document_context, dict)
         bindings = {"text": text, "document_context": document_context}
 
-    from plugin.scripting.session_manager import rps_session_id
-    from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
-
     try:
-        rps_sid = rps_session_id(ctx, doc)
-        ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
+        rps_sid = rps_session_id(doc)
+        ensure_python_session_cleared_on_unload(doc, rps_sid)
     except Exception as e:
         log.exception("prepare Run Python Script failed")
-        return {"early_outcome": rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e))}
+        return EarlyOutcome(outcome=rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
 
-    return {
-        "ctx": ctx,
-        "doc": doc,
-        "code": code,
-        "t0": t0,
-        "bindings": bindings,
-        "py_data": py_data,
-        "session_id": rps_sid,
-        "script_session_id": pin_token,
-    }
+    return PreparedScript(
+        ctx=ctx,
+        doc=doc,
+        code=code,
+        t0=t0,
+        bindings=bindings,
+        py_data=py_data,
+        session_id=rps_sid,
+        script_session_id=pin_token,
+    )
 
 
-def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
+def _run_prepared_rps(prepared: PreparedRun) -> dict[str, Any]:
     """Blocking venv IPC. Callers must not touch the document model here."""
-    if "helper_name" in prepared:
+    if isinstance(prepared, PreparedVision):
+        # Weight: only vision runs load plugin.vision (see _prepare_vision).
         from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
         # run_and_insert_vision_for_selection safely marshals document operations to the main thread
         # while keeping the 120s OCR wait on this background thread.
         result = run_and_insert_vision_for_selection(
-            prepared["ctx"],
-            prepared["doc"],
-            helper=prepared["helper_name"],
-            params=prepared["params"],
+            prepared.ctx,
+            prepared.doc,
+            helper=prepared.helper_name,
+            params=prepared.params,
             insert_into_document=False,
         )
 
         return {"status": "ok", "vision_selection_result": result}
 
     return run_code_in_user_venv(
-        prepared["code"],
-        data=prepared["py_data"],
-        bindings=prepared.get("bindings"),
-        session_id=prepared["session_id"],
-        script_session_id=prepared.get("script_session_id"),
+        prepared.code,
+        data=prepared.py_data,
+        bindings=prepared.bindings,
+        session_id=prepared.session_id,
+        script_session_id=prepared.script_session_id,
     )
 
 
-def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+def _finish_vision_execution(prepared: PreparedVision, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for vision helpers."""
-    from plugin.framework.doc_type import is_draw
+    # Weight: only vision runs load plugin.vision (see _prepare_vision).
     from plugin.vision.vision_egress import insert_vision_result
 
-    t0 = prepared["t0"]
+    t0 = prepared.t0
     result = response.get("vision_selection_result") or {}
 
-    if not is_draw(prepared["doc"]):
+    if not is_draw(prepared.doc):
         # Perform UNO document mutations on main thread
         indiv_results = result.get("individual_results", [])
         for indiv_res in indiv_results:
             # insert_vision_result requires the image_name to be set in params for correct insertion
             # The background thread set it in the response context or we pass it
             img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
-            insert_params = dict(prepared.get("params") or {})
+            insert_params = dict(prepared.params)
             if img_name:
                 insert_params["image_name"] = img_name
-            insert_vision_result(prepared["ctx"], prepared["doc"], indiv_res, params=insert_params)
+            insert_vision_result(prepared.ctx, prepared.doc, indiv_res, params=insert_params)
 
     # A multi-image vision run that fails on image N must still insert
     # results 1..N-1. Returning only the error dict dropped them.
     if result.get("status") == "error":
         return rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0)
 
-    helper_name = prepared["helper_name"]
+    helper_name = prepared.helper_name
     formatted_time = format_elapsed_time(time.perf_counter() - t0)
     count = int(result.get("images_processed") or 0)
-    inserted = not is_draw(prepared["doc"])
+    inserted = not is_draw(prepared.doc)
     if count > 1:
         if inserted:
             status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(
@@ -443,15 +478,12 @@ def try_rps_post_venv(
     return spec.format_ok(result=result_data, t0=t0, row_count=row_count, stdout=stdout)
 
 
-def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+def _finish_script_execution(prepared: PreparedScript, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for general Python scripts."""
-    from plugin.scripting.domain_registry import get_post_venv_domains
-    from plugin.scripting.viz import try_insert_plot_result
-
-    ctx = prepared["ctx"]
-    doc = prepared["doc"]
-    code = prepared["code"]
-    t0 = prepared["t0"]
+    ctx = prepared.ctx
+    doc = prepared.doc
+    code = prepared.code
+    t0 = prepared.t0
     elapsed = time.perf_counter() - t0
     formatted_time = format_elapsed_time(elapsed)
 
@@ -464,13 +496,12 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
     stdout = response.get("stdout")
 
     if result_data is None and not stdout:
-        return {
-            "ok": True,
-            "status_ok_text": _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time),
-            "stdout": stdout,
-            "result": result_data,
-            "no_output": True,
-        }
+        return rps_ok_outcome(
+            _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time),
+            result=result_data,
+            stdout=stdout,
+            no_output=True,
+        )
 
     if doc:
         try:
@@ -490,13 +521,11 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
             elif is_writer(doc):
                 formatted = format_result_for_writer(result_data)
                 if formatted:
-                    from plugin.writer.html_import import run_writer_mutation_with_optional_review
-
                     run_writer_mutation_with_optional_review(doc, ctx, lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
             elif is_draw(doc):
                 msgbox(ctx, _("Info"), _("Result insertion into Draw/Impress is not yet supported. PRs welcome!"))
             else:
-                return {"ok": False, "message": _("Unsupported document type for result insertion. (took {time})").format(time=formatted_time)}
+                return rps_error_outcome(_("Unsupported document type for result insertion."), t0=t0)
         except Exception as e:
             reraise_if_disposed(e)
             # rps_insert_failed_outcome logs failure detail for the debug log as well as the dialog message.
@@ -505,12 +534,16 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
     if stdout:
         log.info("Python script stdout: %s", stdout)
 
-    return {"ok": True, "status_ok_text": _("Script executed successfully. (took {time})").format(time=formatted_time), "stdout": stdout, "result": result_data}
+    return rps_ok_outcome(
+        _("Script executed successfully. (took {time})").format(time=formatted_time),
+        result=result_data,
+        stdout=stdout,
+    )
 
 
-def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+def _finish_rps_execution(prepared: PreparedRun, response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert. *response* is the venv worker payload."""
-    if "helper_name" in prepared:
+    if isinstance(prepared, PreparedVision):
         return _finish_vision_execution(prepared, response)
     return _finish_script_execution(prepared, response)
 
@@ -525,10 +558,10 @@ def start_native_script_run(
 ) -> None:
     """Run a script without blocking the UNO event thread.
 
-    The Run button must not call ``execute_and_insert_result`` on the dialog
-    dispatch thread. Subprocess spawn and the venv wait froze the native XDL
-    dialog until the script finished. Monaco Run did the same inside the
-    editor save handler. The native listener and Monaco Run both call this.
+    The native Run button and Monaco Run both call this. The venv wait
+    (``_run_prepared_rps``: worker spawn and the IPC round trip) must not run
+    on the dialog dispatch thread or inside the editor save handler, or the
+    native XDL dialog and LibreOffice freeze until the script finishes.
     ``data_range`` is the Monaco data-binding text; the native dialog leaves
     it empty and uses the current selection. Document prep and result insert
     stay on the main thread (``main.call``). Only the venv IPC
@@ -536,34 +569,29 @@ def start_native_script_run(
     thread. After the worker is scheduled, ``on_complete`` is called exactly
     once on the main thread.
     """
-    from plugin.framework.queue_executor import main
-
     def _native_script_run_worker() -> None:
-        from plugin.scripting.session_manager import pin_script_document, release_script_document
-
         pin_token = pin_script_document(doc)
         try:
             try:
                 prepared = main.call(
                     _prepare_rps_execution, ctx, doc, code, data_range=data_range, pin_token=pin_token
                 )
-                early = prepared.get("early_outcome")
-                if early is not None:
-                    main.post(on_complete, early)
+                if isinstance(prepared, EarlyOutcome):
+                    main.post(on_complete, prepared.outcome)
                     return
                 try:
                     response = _run_prepared_rps(prepared)
                 except Exception as exc:
                     log.exception("native script run failed")
                     main.post(
-                        on_complete, rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc))
+                        on_complete, rps_error_outcome(str(exc), t0=prepared.t0, traceback=exception_traceback(exc))
                     )
                     return
                 outcome = main.call(_finish_rps_execution, prepared, response)
                 main.post(on_complete, outcome)
             except Exception as exc:
                 log.exception("native script run failed")
-                main.post(on_complete, {"ok": False, "message": str(exc)})
+                main.post(on_complete, rps_error_outcome(str(exc), t0=None, traceback=exception_traceback(exc)))
         finally:
             release_script_document(pin_token)
 
@@ -596,8 +624,6 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
     save_ok_text = _("Script saved.")
     initial_binding = ""
     if is_calc(doc):
-        from plugin.calc.bridge import calc_selection_to_a1
-
         initial_binding = calc_selection_to_a1(doc) or ""
     show_binding = ScriptFacts.from_source(initial_code).needs_data_binding(doc=doc)
 
@@ -624,12 +650,11 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
                 return {"type": "error", "message": err}
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
-        # Run must not call execute_and_insert_result on the UI thread inside
-        # the editor save handler. The pipe reader marshals on_save onto the
-        # UI thread and blocks until it returns, so the venv wait froze
-        # LibreOffice. The library write above stays on the UI thread. The
-        # venv wait uses the same prepare/finish split as the native Run
-        # button. The Monaco frame is delivered when that run finishes.
+        # The pipe reader marshals on_save onto the UI thread and blocks until
+        # it returns, so waiting on the venv here would freeze LibreOffice.
+        # The library write above stays on the UI thread; the run goes through
+        # start_native_script_run (the native Run button's prepare/finish split),
+        # and the Monaco frame is delivered when that run finishes.
         _monaco_run_in_flight.add(run_key)
 
         def _start(deliver: Callable[[dict[str, Any]], None]) -> None:
@@ -670,9 +695,6 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
 
 
 def _report_run_python_open_failed(ctx: Any, reason: str, *, detail: str | None = None, exc: BaseException | None = None) -> None:
-    from plugin.chatbot.dialogs import msgbox_with_report
-    from plugin.scripting.editor_errors import failure_message
-
     message = failure_message(reason, detail=detail, exc=exc)
     msgbox_with_report(ctx, _("Error"), message, reportable=True, report_title="Run Python Script failed to open", report_extra=message if exc is None else exception_traceback(exc))
 
@@ -682,7 +704,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
     if uno_ctx is None:
         uno_ctx = get_ctx()
 
-    exe, monaco_expected = monaco_editor_available(uno_ctx)
+    exe, monaco_expected = monaco_editor_available()
 
     try:
         desktop = get_desktop(uno_ctx)

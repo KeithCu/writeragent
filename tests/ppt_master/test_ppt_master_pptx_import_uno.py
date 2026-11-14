@@ -6,8 +6,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import unittest
 
-from plugin.framework.logging import log
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_to_doc
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
@@ -20,8 +20,7 @@ MINIMAL_PPTX = FIXTURE / "minimal.pptx"
 @with_native_doc("impress")
 def test_lo_import_minimal_pptx_multi_slide(ctx, doc):
     if not MINIMAL_PPTX.is_file():
-        log.warning("[PptMasterPptxImportTests] skip — minimal.pptx fixture missing")
-        return
+        raise unittest.SkipTest(f"missing fixture: {MINIMAL_PPTX}")
     result = import_pptx_to_doc(ctx, doc, MINIMAL_PPTX, clear_existing=True)
     assert result.get("status") == "ok", result
     assert result.get("slides") == 3
@@ -32,5 +31,5 @@ def test_lo_import_minimal_pptx_multi_slide(ctx, doc):
         page = pages.getByIndex(i)
         assert page.getCount() >= 1
     page0 = pages.getByIndex(0)
-    has_text = any("TextShape" in page0.getByIndex(j).getShapeType() for j in range(page0.getCount()))
-    assert has_text or page0.getCount() >= 2
+    shape_types = [page0.getByIndex(j).getShapeType() for j in range(page0.getCount())]
+    assert any("TextShape" in st for st in shape_types), shape_types

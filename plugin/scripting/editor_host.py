@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Monaco editor host: spawn child process, pipe bridge, and session launch.
 
+The open editor buffer is the focused `EditorSessionState` in `PersistentEditor.sessions`; nothing else holds it.
+
 Concurrency:
 _PROBE_LOCK guards the webview probe caches (_PROBE_CACHE, _PROBE_FAILURE_CACHE),
 _probe_generation, _probe_wanted, and _probe_running. UI thread code only reads
@@ -35,12 +37,17 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import IO, Any, Callable, cast
-from plugin.framework.thread_guard import background, main_thread_only
+
+from plugin.chatbot.dialogs import msgbox_with_report
+from plugin.framework.appearance import get_monaco_theme_info
+from plugin.framework.config import get_config
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import MainThread, main
+from plugin.framework.thread_guard import background, main_thread_only
+from plugin.framework.uno_context import get_desktop, product_display_name, wait_while_pumping
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
-from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC
+from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC, python_exec_timeout
 from plugin.scripting.editor_errors import (
     exception_traceback,
     failure_detail,
@@ -55,7 +62,12 @@ from plugin.scripting.editor_ipc import (
     target_from_load,
     target_identity_key,
 )
-from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
+from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
+from plugin.scripting.document_scripts import (
+    SCRIPT_PICKER_MESSAGE_TYPES,
+    document_scripts_identity,
+    handle_editor_script_message,
+)
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     read_pickle_frame,
@@ -73,7 +85,6 @@ log = logging.getLogger(__name__)
 # Toolkit createMessageBox constants
 _BOX_QUERYBOX = 4
 _BOX_BUTTONS_YES_NO_CANCEL = 4
-_BOX_RESULT_CANCEL = 0
 _BOX_RESULT_YES = 2
 _BOX_RESULT_NO = 3
 
@@ -105,16 +116,14 @@ EDITOR_BACKENDS = ("monaco", "codemirror")
 
 def selected_editor_backend() -> str:
     """Return the configured web editor (scripting.python_editor): "monaco" or "codemirror"."""
-    from plugin.framework.config import get_config
-
     value = str(get_config("scripting.python_editor") or "").strip().lower()
     return value if value in EDITOR_BACKENDS else "monaco"
 
 
-def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
+def build_editor_child_env() -> dict[str, str]:
     """Environment for editor subprocess (venv python + GUI session variables)."""
     env = scrub_subprocess_env(dict(os.environ), keep=("LD_LIBRARY_PATH",))
-    env["WRITERAGENT_EDITOR_ASSETS"] = assets_dir or _ASSETS_DIR
+    env["WRITERAGENT_EDITOR_ASSETS"] = _ASSETS_DIR
     env["WRITERAGENT_EDITOR_BACKEND"] = selected_editor_backend()
     for key in (
         "DISPLAY",
@@ -128,10 +137,8 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
     return env
 
 
-def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
+def resolve_editor_python() -> tuple[str | None, str]:
     """Return (venv python executable, error message). Monaco requires a user venv."""
-    from plugin.framework.config import get_config
-
     venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return (
@@ -181,8 +188,8 @@ def _cached_probe_locked(exe: str) -> tuple[bool, str] | None:
     return None
 
 
-def reset_webview_probe_state() -> None:
-    """Reset webview probe caches and worker state (testing only)."""
+def reset_webview_probe_state_for_tests() -> None:
+    """Clear the webview probe caches and worker flags. Tests only; there is no production caller. The probe state is five module globals shared with the `webview-probe` worker under `_PROBE_LOCK`, not fields of an object a test could build fresh, so tests call this between cases."""
     global _probe_generation, _probe_wanted, _probe_running
     with _PROBE_LOCK:
         _PROBE_CACHE.clear()
@@ -309,7 +316,7 @@ def _webview_probe_worker() -> None:
             log.exception("Unexpected error in webview-probe worker for %s", exe)
 
 
-def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subprocess.Popen[bytes]:
+def spawn_editor_process(exe: str) -> subprocess.Popen[bytes]:
     """Start editor_main.py through ManagedSubprocess.start and return that Popen; the host stderr thread is the drain; terminate owns shutdown."""
     # base_env is the full child environment from build_editor_child_env.
     # env= would overlay that onto os.environ and put scrubbed secrets back.
@@ -317,7 +324,7 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
     # drain_stderr stays false: _stderr_drain_loop is already the stderr reader.
     # register stays false: shutdown_all must not kill_tree this child.
     # log_start_failure stays false: launch_monaco_editor catches the original OSError.
-    env = build_editor_child_env(assets_dir=assets_dir)
+    env = build_editor_child_env()
     managed = ManagedSubprocess(
         [exe, _EDITOR_MAIN],
         base_env=env,
@@ -333,11 +340,6 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
 
 # --- Pipe bridge ---
 
-# RLock is required: set_active_session() holds _SESSION_LOCK while invoking
-# _finish() or session transition callbacks, which re-enter _SESSION_LOCK on
-# the same thread to clear or check _ACTIVE_SESSION.
-_SESSION_LOCK = threading.RLock()
-_ACTIVE_SESSION: EditorSession | None = None
 # Set on a dirty session after the user picks Don't save. _register_load_session
 # refuses to overwrite a live dirty buffer unless this is present.
 _REPLACE_CONFIRMED = "replace_confirmed"
@@ -386,7 +388,6 @@ class EditorSessionState:
     pending_load: dict[str, Any] | None = None
     pending_on_save: EditorSaveCallback | None = None
     pending_on_closed: Callable[[], None] | None = None
-    save_token: object | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def _clear_pending(self) -> None:
@@ -477,6 +478,14 @@ class PersistentEditor:
                 state.on_closed()
             except Exception:
                 log.exception("Editor on_closed failed while ending session %s", session_id)
+
+    def end_all_sessions(self) -> None:
+        """End every registered session and run each on_closed.
+
+        Used when the child is gone (terminate, or a launch that finds it dead)
+        so no buffer of a dead process stays registered."""
+        for state in list(self.sessions.values()):
+            self.end_session(state.session_id, call_closed=True)
 
     def resolve_incoming(self, msg: dict[str, Any]) -> EditorSessionState | None:
         sid = session_id_of(msg)
@@ -599,14 +608,13 @@ class PersistentEditor:
             text = "\n".join(self._stderr_tail)
         return text.strip()
 
-    def _append_stderr_line(self, line: str, generation: int | None = None) -> None:
+    def _append_stderr_line(self, line: str, generation: int) -> None:
         if not line:
             return
         with self._stderr_tail_lock:
-            # A drain started by an older start still runs after the tail is cleared;
-            # its captured generation is stale, so those lines must not enter the new tail.
-            # None means the caller is the current owner (tests and direct appends).
-            if generation is not None and generation != self._stderr_generation:
+            # A drain started by an older start() still runs after the tail is cleared;
+            # its generation is stale, so its lines must not enter the new tail.
+            if generation != self._stderr_generation:
                 return
             self._stderr_tail.append(line)
             # +1 matches the old sum(len(s) + 1) budget (one join newline per line).
@@ -655,8 +663,6 @@ class PersistentEditor:
 
     def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
         """Wait for ``ready`` while pumping LibreOffice UI events."""
-        from plugin.framework.uno_context import wait_while_pumping
-
         deadline = time.monotonic() + timeout_sec
         proc = self._proc
         while True:
@@ -734,10 +740,8 @@ class PersistentEditor:
                 log.warning("editor_host: ignored incoming message from old process")
 
     def _marshal_timeout(self) -> float:
-        """UI wait for a save/close. Matches configured_python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
-        from plugin.scripting.config_limits import configured_python_exec_timeout
-
-        return float(configured_python_exec_timeout()) + 5.0
+        """UI wait for a save/close. Matches python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
+        return float(python_exec_timeout()) + 5.0
 
     def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
         """Queue *fn* on the UI thread. Return the marshal failure, else None."""
@@ -758,8 +762,6 @@ class PersistentEditor:
             log.warning("Editor %s could not send timeout error frame" if timed_out else "Editor %s could not send marshal-failure error frame", who, exc_info=True)
 
     def set_run_script_document(self, doc: Any | None) -> None:
-        from plugin.scripting.document_scripts import document_scripts_identity
-
         self.run_script_doc = doc
         self.run_script_doc_url = document_scripts_identity(doc) if doc is not None else None
 
@@ -778,7 +780,8 @@ class PersistentEditor:
         # post, not execute: the modal box waits on the user, not a timeout.
         self.executor.post(_ask, bound_scope=None)
 
-    def _on_picker(self, kind: str, msg: dict[str, Any]) -> None:
+    def _on_picker(self, msg: dict[str, Any]) -> None:
+        kind = message_type(msg)
         target_session = self.resolve_incoming(msg)
         if session_id_of(msg) and target_session is None:
             return
@@ -812,6 +815,10 @@ class PersistentEditor:
         if state is not None:
             state.dirty = bool(msg.get("dirty"))
 
+    def _save_superseded(self, token: object) -> bool:
+        """True when a newer save replaced *token* or its handler timed out. Call with _save_lock held."""
+        return self._save_token is not token
+
     def _on_save(self, msg: dict[str, Any]) -> None:
         state = self.resolve_incoming(msg)
         if state is None:
@@ -831,13 +838,12 @@ class PersistentEditor:
         token = object()
         with self._save_lock:
             self._save_token = token
-            captured.save_token = token
 
         def _send_save(payload: dict[str, Any]) -> None:
             with self._save_lock:
                 # A deferred Run delivers on a later UI turn. A newer save
                 # replaces this token, so a late result must not clear dirty.
-                if self._save_token is not token or captured.save_token is not token:
+                if self._save_superseded(token):
                     return
                 if payload.get("type") == "saved" or payload.get("ok"):
                     captured.dirty = False
@@ -846,7 +852,7 @@ class PersistentEditor:
 
         def _handle_save() -> None:
             with self._save_lock:
-                if self._save_token is not token or captured.save_token is not token:
+                if self._save_superseded(token):
                     # executor.execute(..., timeout) raising TimeoutError does not
                     # cancel the queued _handle_save. Check the save token before
                     # on_save, or the save runs after the user was told it timed out.
@@ -901,12 +907,11 @@ class PersistentEditor:
         if exc is not None:
             with self._save_lock:
                 self._save_token = None
-                captured.save_token = None
             captured._clear_pending()
             self._report_marshal_failure(lambda payload: self.send(payload, session=captured), isinstance(exc, TimeoutError), (_("Saving the script timed out."), _("Saving the script failed.")), "save handler")
 
-    def _on_close(self, kind: str, msg: dict[str, Any]) -> None:
-        log.info("editor_host _dispatch_incoming: received close/cancel kind=%r", kind)
+    def _on_close(self, msg: dict[str, Any]) -> None:
+        log.info("editor_host: received closed")
         state = self.resolve_incoming(msg)
         captured_id = state.session_id if state is not None else ""
         captured_on_closed = state.on_closed if state is not None else None
@@ -920,33 +925,36 @@ class PersistentEditor:
             finally:
                 if captured_id:
                     self.end_session(captured_id, call_closed=False)
-                if not self.sessions:
-                    set_active_session(None)
 
         self._run_on_main(_handle_close, "Editor close handler")
+
+    def _on_ready(self, msg: dict[str, Any]) -> None:
+        # The child's GUI loop is up; wait_for_ready may now send the first load.
+        self._ready_event.set()
+
+    def _incoming_handlers(self) -> dict[str, _EditorDeliver]:
+        """Handler for each child-to-parent type (editor_ipc.CHILD_TO_PARENT_TYPES).
+
+        Built per message from bound methods, so a test that patches one method
+        on an instance is the method that runs.
+        """
+        return {
+            "ready": self._on_ready,
+            "closed": self._on_close,
+            "dirty": self._on_dirty,
+            "save": self._on_save,
+            "ask_unsaved": self._on_ask_unsaved,
+            **dict.fromkeys(SCRIPT_PICKER_MESSAGE_TYPES, self._on_picker),
+        }
 
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
         try:
             kind = message_type(msg)
-            if kind in SCRIPT_PICKER_MESSAGE_TYPES:
-                self._on_picker(kind, msg)
+            handler = self._incoming_handlers().get(kind)
+            if handler is None:
+                log.debug("Editor child message: %s", kind)
                 return
-            if kind == "ask_unsaved":
-                self._on_ask_unsaved(msg)
-                return
-            if kind == "dirty":
-                self._on_dirty(msg)
-                return
-            if kind == "save":
-                self._on_save(msg)
-                return
-            if kind in ("closed", "cancel"):
-                self._on_close(kind, msg)
-                return
-            if kind == "ready":
-                self._ready_event.set()
-                return
-            log.debug("Editor child message: %s", kind)
+            handler(msg)
         except Exception:
             log.exception("Editor incoming message dispatch failed type=%s", message_type(msg))
 
@@ -965,8 +973,6 @@ class PersistentEditor:
             finally:
                 for state in snapshot:
                     self.end_session(state.session_id, call_closed=False)
-                if not self.sessions:
-                    set_active_session(None)
 
         self._run_on_main(_handle_close, "Editor disconnect handler")
 
@@ -974,92 +980,9 @@ class PersistentEditor:
 _PERSISTENT_EDITOR = PersistentEditor()
 
 
-class EditorSession:
-    """One editor session wrapper, delegating to the PersistentEditor singleton."""
-
-    _proc: subprocess.Popen[bytes]
-    _on_save: EditorSaveCallback
-    _on_closed: Callable[[], None]
-    session_id: str
-
-    def __init__(
-        self,
-        proc: subprocess.Popen[bytes],
-        *,
-        on_save: EditorSaveCallback,
-        on_closed: Callable[[], None],
-        session_id: str = "",
-    ) -> None:
-        self._proc = proc
-        self._on_save = on_save
-        self._on_closed = on_closed
-        self.session_id = session_id
-
-    @property
-    def is_running(self) -> bool:
-        return _PERSISTENT_EDITOR.is_running
-
-    def start_reader(self) -> None:
-        if _PERSISTENT_EDITOR.proc is not self._proc:
-            _PERSISTENT_EDITOR.start(self._proc)
-
-    def _finish(self, *, clearing: bool = False) -> None:
-        if self.session_id:
-            live = _PERSISTENT_EDITOR.lookup(self.session_id)
-            # This identity is the wrapper's ownership of the state. _register_load_session
-            # replaces on_save when the same target is reused. A wrapper whose callback
-            # is no longer the state's must not end_session it.
-            if live is not None and live.on_save is self._on_save:
-                # On a target switch (clearing=False), _finish does not end the session; _register_load_session ends the prior one with call_closed=True so on_closed still runs. Session end here happens only when clearing or the subprocess died.
-                if clearing or not _PERSISTENT_EDITOR.is_running:
-                    _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=True)
-
-        global _ACTIVE_SESSION
-        with _SESSION_LOCK:
-            if _ACTIVE_SESSION is self:
-                _ACTIVE_SESSION = None
-
-
-def get_active_session() -> EditorSession | None:
-    with _SESSION_LOCK:
-        return _ACTIVE_SESSION
-
-
-def set_active_session(session: EditorSession | None) -> None:
-    global _ACTIVE_SESSION
-    with _SESSION_LOCK:
-        if session is None and _ACTIVE_SESSION is not None:
-            old = _ACTIVE_SESSION
-            _ACTIVE_SESSION = None
-            old._finish(clearing=True)
-            return
-        if session is not None and _ACTIVE_SESSION is not None and _ACTIVE_SESSION is not session:
-            old = _ACTIVE_SESSION
-            old._finish(clearing=False)
-        _ACTIVE_SESSION = session
-
-
 def terminate_persistent_editor() -> None:
-    """Force terminate the background Monaco editor process."""
-    # terminate_persistent_editor must call on_closed and clear _ACTIVE_SESSION.
-    # Leaving the session stale made the next set_active_session call _finish
-    # on a dead session. Snapshot sessions, call on_closed on each, reset
-    # _ACTIVE_SESSION to None under _SESSION_LOCK, and terminate the subprocess
-    # (closing all standard streams).
-    global _ACTIVE_SESSION
-    with _SESSION_LOCK:
-        snapshot = list(_PERSISTENT_EDITOR.sessions.values())
-        _PERSISTENT_EDITOR.sessions.clear()
-        _PERSISTENT_EDITOR.focused_id = None
-        _PERSISTENT_EDITOR.run_script_doc = None
-        _PERSISTENT_EDITOR.run_script_doc_url = None
-        _ACTIVE_SESSION = None
-    for state in snapshot:
-        if state.on_closed is not None:
-            try:
-                state.on_closed()
-            except Exception:
-                log.exception("Editor on_closed failed during terminate")
+    """End every session (on_closed runs) and force terminate the editor process."""
+    _PERSISTENT_EDITOR.end_all_sessions()
     _PERSISTENT_EDITOR.terminate()
 
 
@@ -1080,7 +1003,7 @@ def _on_config_changed(**kwargs: Any) -> None:
     if venv_changed or editor_changed:
         # The probe checks different packages per editor (rocher only for Monaco).
         log.info("editor_host: venv path or python_editor changed, terminating background editor process")
-        exe = resolve_probeable_editor_python(None)
+        exe = resolve_probeable_editor_python()
         try:
             _invalidate_webview_probe(exe)
         except Exception:
@@ -1095,23 +1018,21 @@ def _on_config_changed(**kwargs: Any) -> None:
 get_event_bus().subscribe("config:changed", _on_config_changed)
 
 
-def resolve_probeable_editor_python(ctx: Any = None) -> str | None:
+def resolve_probeable_editor_python() -> str | None:
     """Return configured venv Python executable if Monaco is enabled and configured, else None."""
-    from plugin.framework.config import get_config
-
     if get_config("scripting.force_internal_script_editor"):
         log.debug("monaco editor bypassed by scripting.force_internal_script_editor")
         return None
-    exe, err = resolve_editor_python(ctx)
+    exe, err = resolve_editor_python()
     if not exe:
         log.debug("monaco editor venv python unavailable (%s)", err)
         return None
     return exe
 
 
-def arm_webview_probe_at_startup(ctx: Any = None) -> None:
+def arm_webview_probe_at_startup() -> None:
     """Arm the webview probe on the background pool at startup if configured."""
-    exe = resolve_probeable_editor_python(ctx)
+    exe = resolve_probeable_editor_python()
     if exe is not None:
         _ensure_webview_probe(exe)
 
@@ -1119,9 +1040,9 @@ def arm_webview_probe_at_startup(ctx: Any = None) -> None:
 # --- Session launch ---
 
 
-def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
+def monaco_editor_available() -> tuple[str | None, bool]:
     """Return (venv python exe, True) when Monaco can launch, else (exe or None, False)."""
-    exe = resolve_probeable_editor_python(ctx)
+    exe = resolve_probeable_editor_python()
     if not exe:
         return None, False
     if _PERSISTENT_EDITOR.is_running:
@@ -1144,9 +1065,7 @@ def monaco_session_needs_flush() -> bool:
     focused = editor.focused()
     if focused is None:
         return False
-    # ``is True`` so a MagicMock stand-in for the editor does not look dirty.
-    return focused.dirty is True
-
+    return focused.dirty
 
 
 def focused_monaco_buffer_label() -> str:
@@ -1171,7 +1090,7 @@ def focused_monaco_buffer_label() -> str:
 
 def _dirty_blocks_replace(state: EditorSessionState) -> bool:
     """True when *state* is a live unsaved buffer the user has not discarded."""
-    if state.dirty is not True:
+    if not state.dirty:
         return False
     if state.extra.get(_REPLACE_CONFIRMED) is True:
         return False
@@ -1184,8 +1103,6 @@ class DirtyBufferError(RuntimeError):
 
 def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    from plugin.framework.uno_context import get_desktop
-
     try:
         desktop = get_desktop(ctx)
         frame = desktop.getCurrentFrame() if desktop is not None else None
@@ -1200,6 +1117,7 @@ def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: st
             return "save"
         if result == _BOX_RESULT_NO:
             return "discard"
+        # Cancel (MessageBoxResults CANCEL = 0), closing the box, or any other result keeps the buffer as it is.
         return "cancel"
     except Exception:
         log.exception("%s failed", log_label)
@@ -1209,8 +1127,6 @@ def ask_save_discard_cancel(ctx: Any, *, title: str, message: str, log_label: st
 @main_thread_only
 def confirm_unsaved_monaco_edit(ctx: Any, label: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    from plugin.framework.uno_context import product_display_name
-
     title = product_display_name(ctx)
     where = label.strip() if label and label.strip() else _("this editor")
     message = _(
@@ -1334,8 +1250,6 @@ def queue_save_then_load(
     on_closed: Callable[[], None],
 ) -> bool:
     """Ask Monaco to save the current buffer, then load *load_message*."""
-    from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
-
     focused = _PERSISTENT_EDITOR.focused()
     if focused is None:
         return False
@@ -1367,10 +1281,6 @@ def launch_monaco_editor(
     user kept the current buffer, or a save-then-load was queued. Returns False
     only when the child failed to start or the load could not be sent.
     """
-    from plugin.chatbot.dialogs import msgbox_with_report
-    from plugin.framework.uno_context import product_display_name
-    from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
-
     title = product_display_name(ctx)
 
     def _launch_fail(msg_text: str, report_title: str) -> bool:
@@ -1390,8 +1300,6 @@ def launch_monaco_editor(
     # We always recompute on send so that switching cells or reopening picks
     # up a theme change. See plugin/framework/appearance.py.
     if "theme" not in ipc_message:
-        from plugin.framework.appearance import get_monaco_theme_info
-
         # Prefer any doc we had for the run_script case or if caller left it in msg.
         # Leave run_script_doc on the message until after the unsaved-changes
         # question. Cancel must not retarget the script picker document.
@@ -1402,11 +1310,19 @@ def launch_monaco_editor(
     # One gate covers cell, Run Script, init script, and LaTeX. Replacing the
     # focused buffer before asking dropped the other buffer: the cell editor
     # only asked for mode calc_cell, and Run Python Script never asked.
-    # Cancel and queued save return before set_active_session. Discard is
-    # marked on the session so _register_load_session may replace it.
+    # Cancel and queued save return before the dead-session purge and the
+    # load. Discard is marked on the session so _register_load_session may
+    # replace it.
     decision = prepare_monaco_buffer_replace(ctx, ipc_message, on_save, closed_handler)
     if decision != "proceed":
         return True
+
+    if not _PERSISTENT_EDITOR.is_running:
+        # The reader thread reports a child exit through _handle_disconnect, but
+        # this launch can run on the UI thread first. Ending the dead child's
+        # buffers here keeps the same target from reusing their session id, which
+        # the late disconnect handler would then end under the new child.
+        _PERSISTENT_EDITOR.end_all_sessions()
 
     if ipc_message.get("mode") == "run_script":
         run_script_doc = ipc_message.pop("run_script_doc", None)
@@ -1416,10 +1332,6 @@ def launch_monaco_editor(
 
     if _PERSISTENT_EDITOR.is_running:
         log.info("editor_host: reusing running editor background process")
-        proc = _PERSISTENT_EDITOR.proc
-        assert proc is not None
-        session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
-        set_active_session(session)
     else:
         log.info("editor_host: spawning new editor background process")
         try:
@@ -1429,14 +1341,12 @@ def launch_monaco_editor(
             msg = failure_message(_("Could not start the Python editor."), exc=e)
             return _launch_fail(msg, "Python editor spawn failed")
 
-        session = EditorSession(proc, on_save=on_save, on_closed=closed_handler)
-        set_active_session(session)
-        session.start_reader()
+        _PERSISTENT_EDITOR.start(proc)
 
         if not _PERSISTENT_EDITOR.wait_for_ready(ctx, timeout_sec=45.0):
             detail = _PERSISTENT_EDITOR.read_stderr_tail()
-            # set_active_session(None) does not kill the child. The next open
-            # saw is_running and skipped wait_for_ready.
+            # terminate_persistent_editor ends the sessions and kills the child;
+            # a live child with no session would make the next open skip wait_for_ready.
             terminate_persistent_editor()
             msg = failure_message(_("The Python editor window did not start."), detail=detail)
             return _launch_fail(msg, "Python editor did not start")
@@ -1446,16 +1356,14 @@ def launch_monaco_editor(
         # thread joins.
         run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
 
-    if not session.is_running:
+    if not _PERSISTENT_EDITOR.is_running:
         detail = _PERSISTENT_EDITOR.read_stderr_tail()
-        set_active_session(None)
         msg = failure_message(_("The Python editor exited before it could load your code."), detail=detail)
         return _launch_fail(msg, "Python editor exited early")
 
     try:
         ipc_message = enrich_monaco_load_message(ipc_message)
-        state, stamped = _register_load_session(ipc_message, on_save, closed_handler)
-        session.session_id = state.session_id
+        stamped = _register_load_session(ipc_message, on_save, closed_handler)[1]
         _PERSISTENT_EDITOR.send(stamped)
     except DirtyBufferError:
         # The confirm gate should have queued, cancelled, or marked discard.

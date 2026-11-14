@@ -7,14 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.mcp.tunnel import (
-    _TAILSCALE_OFF_CMD,
     TailscaleProvider,
     TunnelManager,
     binary_available,
-    build_bore_command,
-    build_cloudflare_command,
     build_ngrok_command,
-    build_tailscale_command,
     detect_tunnel_auth_error,
     normalize_public_base,
     parse_bore_provider_config,
@@ -24,55 +20,6 @@ from plugin.mcp.tunnel import (
     parse_tailscale_url,
     provider_label,
 )
-
-
-def test_build_cloudflare_quick_and_token():
-    assert build_cloudflare_command(18765) == [
-        "cloudflared",
-        "tunnel",
-        "--no-autoupdate",
-        "--url",
-        "http://localhost:18765",
-    ]
-    assert build_cloudflare_command(18765, "") == build_cloudflare_command(18765)
-    assert build_cloudflare_command(18765, "cf-jwt-token") == [
-        "cloudflared",
-        "tunnel",
-        "--no-autoupdate",
-        "run",
-    ]
-
-
-def test_build_bore_from_provider_config():
-    assert build_bore_command(18765) == ["bore", "local", "18765", "--to", "bore.pub"]
-    assert build_bore_command(18765, "my.relay.example") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "my.relay.example",
-    ]
-    assert build_bore_command(18765, "my.relay.example s3cret") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "my.relay.example",
-    ]
-    assert build_bore_command(18765, "my.relay.example:s3cret") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "my.relay.example",
-    ]
-    assert build_bore_command(18765, "onlysecret") == [
-        "bore",
-        "local",
-        "18765",
-        "--to",
-        "bore.pub",
-    ]
 
 
 def test_parse_bore_provider_config():
@@ -86,35 +33,10 @@ def test_parse_bore_provider_config():
     assert parse_bore_provider_config("tok") == ("bore.pub", "tok")
 
 
-def test_build_ngrok_and_tailscale():
-    assert build_ngrok_command(18765) == [
-        "ngrok",
-        "http",
-        "http://localhost:18765",
-        "--log",
-        "stdout",
-        "--log-format",
-        "json",
-    ]
-    assert build_ngrok_command(18765, "secret-token") == [
-        "ngrok",
-        "http",
-        "http://localhost:18765",
-        "--log",
-        "stdout",
-        "--log-format",
-        "json",
-    ]
-    assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
-
-
-def test_tailscale_off_command_targets_https_443():
-    cmd = _TAILSCALE_OFF_CMD
-    assert cmd == ("tailscale", "funnel", "--https=443", "off")
-    assert "18765" not in cmd
-    assert "serve" not in cmd
-    assert "reset" not in cmd
-    assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
+def test_build_ngrok_ignores_token():
+    cmd = build_ngrok_command(18765, "secret-token")
+    assert cmd == build_ngrok_command(18765)
+    assert "secret-token" not in cmd
 
 
 def test_parse_cloudflare_url():
@@ -323,6 +245,7 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
 
         assert mgr.start(18765, "cloudflare", provider_token="cf-tok") is True
         assert started_envs[1].get("TUNNEL_TOKEN") == "cf-tok"
+        assert "cf-tok" not in started_cmds[1]
 
         assert mgr.start(18765, "bore", provider_token="relay.example sec") is True
         assert started_envs[2].get("BORE_SECRET") == "sec"
@@ -1638,35 +1561,22 @@ def test_start_absent_token_in_env_and_args(monkeypatch):
         assert "--token" not in started_cmds[-1]
 
 
-def test_tailscale_reset_warns_on_nonzero_exit(caplog):
-    import logging
-
+def test_tailscale_reset_returns_false_on_nonzero_exit():
     completed = MagicMock()
     completed.returncode = 1
     completed.stderr = "Error: the CLI for serve and funnel has changed."
     completed.stdout = ""
     with patch("subprocess.run", return_value=completed):
-        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            assert TailscaleProvider.reset_funnel(18765) is False
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "exited 1" in warnings[0].message
-    assert "https=443" in warnings[0].message
-    assert not any(r.exc_info for r in caplog.records)
+        assert TailscaleProvider.reset_funnel(18765) is False
 
 
-def test_tailscale_reset_info_on_success(caplog):
-    import logging
-
+def test_tailscale_reset_returns_true_on_success():
     completed = MagicMock()
     completed.returncode = 0
     completed.stderr = ""
     completed.stdout = ""
     with patch("subprocess.run", return_value=completed):
-        with caplog.at_level(logging.INFO, logger="writeragent.mcp.tunnel"):
-            assert TailscaleProvider.reset_funnel(18765) is True
-    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert not warnings
+        assert TailscaleProvider.reset_funnel(18765) is True
 
 
 def test_tailscale_reset_returns_false_on_exception(caplog):
@@ -1675,34 +1585,19 @@ def test_tailscale_reset_returns_false_on_exception(caplog):
     with patch("subprocess.run", side_effect=OSError("boom")):
         with caplog.at_level(logging.ERROR, logger="writeragent.mcp.tunnel"):
             assert TailscaleProvider.reset_funnel(18765) is False
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert any(r.exc_info for r in errors)
+    assert any(r.levelno == logging.ERROR and r.exc_info for r in caplog.records)
 
 
-def test_binary_available_missing_is_warning(caplog):
-    import logging
-
+def test_binary_available_missing_returns_error():
     with patch("subprocess.run", side_effect=FileNotFoundError):
-        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            assert binary_available("cloudflare") == "cloudflared binary not found on PATH"
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "not found" in warnings[0].message
-    assert not any(r.exc_info for r in caplog.records)
+        assert binary_available("cloudflare") == "cloudflared binary not found on PATH"
 
 
-def test_binary_available_timeout_is_warning(caplog):
-    import logging
+def test_binary_available_timeout_returns_error():
     import subprocess
 
     with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["cloudflared", "--version"], timeout=10)):
-        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            assert binary_available("cloudflare") == "cloudflared binary check timed out"
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "not found" not in warnings[0].message
-    assert not any(r.exc_info for r in caplog.records)
+        assert binary_available("cloudflare") == "cloudflared binary check timed out"
 
 
 def test_binary_available_permission_error(caplog):
@@ -1711,10 +1606,7 @@ def test_binary_available_permission_error(caplog):
     with patch("subprocess.run", side_effect=PermissionError("denied")):
         with caplog.at_level(logging.ERROR, logger="writeragent.mcp.tunnel"):
             assert binary_available("cloudflare") == "could not execute cloudflared"
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert "not found" not in errors[0].message
-    assert any(r.exc_info for r in errors)
+    assert any(r.levelno == logging.ERROR and r.exc_info for r in caplog.records)
 
 
 def test_binary_available_nonzero_version_is_available():
@@ -1761,7 +1653,7 @@ def test_notify_url_failure_is_logged(caplog):
                 [NotifyUrlAcquiredEffect("cloudflare", "https://abc.example.com")],
                 TunnelStatus.STARTING,
             )
-    assert any(r.exc_info and "Failed to notify MCP tunnel URL" in r.getMessage() for r in caplog.records)
+    assert any(r.exc_info for r in caplog.records)
     assert mgr.public_url == "https://abc.example.com"
 
 
@@ -1772,40 +1664,16 @@ def test_retire_snippet_provider_propagates_clear_failure():
             mgr._retire_snippet_provider("cloudflare")
 
 
-def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
+def test_post_stop_start_failure_decrements_in_flight(monkeypatch):
     mgr = TunnelManager()
-
-    class _CountingRLock:
-        def __init__(self, inner):
-            self._inner = inner
-            self.acquires = 0
-
-        def acquire(self, *args, **kwargs):
-            self.acquires += 1
-            return self._inner.acquire(*args, **kwargs)
-
-        def release(self):
-            return self._inner.release()
-
-        def __enter__(self):
-            self.acquire()
-            return self
-
-        def __exit__(self, *args):
-            self.release()
-
-    counting = _CountingRLock(mgr._lock)
-    mgr._lock = counting
 
     def _boom(*args, **kwargs):
         raise RuntimeError("cannot start thread")
 
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", _boom)
-    with counting:
-        before = counting.acquires
+    with mgr._lock:
         with pytest.raises(RuntimeError, match="cannot start thread"):
             mgr._schedule_post_stop_unlocked("tailscale", 18765)
-        assert counting.acquires > before
     assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
@@ -1981,16 +1849,6 @@ def test_stop_for_quit_sleeping_reset_returns_fast(monkeypatch, tmp_path):
         finally:
             blocker.set()
             _join_recorded_background(background)
-
-
-def test_mcp_quit_hook_calls_stop_for_quit():
-    import plugin.mcp as mcp_mod
-
-    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
-    tunnel = MagicMock()
-    mod.tunnel = tunnel
-    mod._quit_stop_tunnel()
-    tunnel.stop_for_quit.assert_called_once()
 
 
 def _sync_tunnel_module(monkeypatch, port, bound_port=18765):

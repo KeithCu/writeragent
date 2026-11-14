@@ -82,18 +82,18 @@ def test_calc_chart_colors(ctx, doc):
     chart_obj = sheet.getCharts().getByName(chart_name)
     chart_doc = chart_obj.getEmbeddedObject()
     diag = chart_doc.getFirstDiagram()
-    if diag:
-        coords = diag.getCoordinateSystems()
-        if coords:
-            ctypes = coords[0].getChartTypes()
-            if ctypes:
-                series_list = ctypes[0].getDataSeries()
-                if series_list:
-                    s0 = series_list[0]
-                    for prop in ["FillColor", "Color"]:
-                        if s0.getPropertySetInfo().hasPropertyByName(prop):
-                            assert s0.getPropertyValue(prop) == 0x00FF00
-                            break
+    assert diag is not None, "Expected diagram on chart"
+    coords = diag.getCoordinateSystems()
+    assert coords, "Expected coordinate systems on diagram"
+    ctypes = coords[0].getChartTypes()
+    assert ctypes, "Expected chart types on coordinate system"
+    series_list = ctypes[0].getDataSeries()
+    assert series_list, "Expected data series on chart type"
+    s0 = series_list[0]
+    prop_info = s0.getPropertySetInfo()
+    color_prop = next((p for p in ("FillColor", "Color") if prop_info.hasPropertyByName(p)), None)
+    assert color_prop is not None, "Expected FillColor or Color property on data series"
+    assert s0.getPropertyValue(color_prop) == 0x00FF00
 
     # 3. Edit chart with another color (e.g. shorthand hex and CSS name)
     edit_res = _execute(doc, ctx, "chart_upsert", {
@@ -102,39 +102,6 @@ def test_calc_chart_colors(ctx, doc):
         "colors": ["#0f0"]
     })
     assert edit_res.get("status") == "ok", f"Edit with colors failed: {edit_res}"
-
-
-@unittest.skip("Disabled as per user request: internal test causing problems")
-@native_test
-@with_native_doc("writer", hidden=not current_office().options.show_window)
-def test_writer_chart_polymorphic(ctx, doc):
-    # 1. Create in Writer
-    res = _execute(doc, ctx, "chart_upsert", {
-        "chart_type": "pie",
-        "title": "Writer Pie"
-    }, domain="writer")
-    assert res.get("status") == "ok", f"Writer create failed: {res}"
-    name = res.get("name")
-
-    probe = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="writer")
-    if probe.get("status") != "ok":
-        raise unittest.SkipTest(
-            "Writer chart embed not available in this LibreOffice runtime "
-            f"(chart tools get_info: {probe!r}). OLE insert may be disabled in headless/pyuno."
-        )
-
-    # 2. List in Writer
-    list_res = _execute(doc, ctx, "chart_list", {}, domain="writer")
-    assert list_res.get("status") == "ok", f"chart tools list failed: {list_res}"
-    names = [c["name"] for c in list_res.get("charts", [])]
-    assert name in names, (
-        f"chart name {name!r} not in chart tools list names {names!r}; full list_res={list_res!r}"
-    )
-    
-    # 3. Info
-    info = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="writer")
-    assert info.get("title") == "Writer Pie"
-    assert "PieDiagram" in info.get("diagram_type", "")
 
 
 @unittest.skipIf(not current_office().options.show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")

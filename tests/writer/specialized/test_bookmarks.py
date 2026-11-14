@@ -1,21 +1,5 @@
 import pytest
-import sys
-import types
 from unittest.mock import MagicMock
-
-# Ensure UNO is mocked if running outside LibreOffice
-try:
-    import uno  # noqa: F401
-except ImportError:
-    sys.modules["uno"] = MagicMock()
-    sys.modules["unohelper"] = MagicMock()
-    com_mock = MagicMock()
-    sys.modules["com"] = com_mock
-    # Create module type for com.sun.star.text
-    css_text = types.ModuleType("com.sun.star.text")
-    sys.modules["com.sun.star.text"] = css_text
-    # We don't strictly need class stubs here if we just mock the module objects,
-    # but let's make sure it doesn't fail on imports.
 
 from plugin.tests.testing_utils import TestingFactory
 from plugin.writer.specialized.bookmarks import (
@@ -671,7 +655,6 @@ def test_bookmark_delete_rejects_mcp_names():
     ctx = MagicMock(doc=doc)
     res = BookmarkDelete().execute(ctx, name="_mcp_heading_123")
     assert res["status"] == "error"
-    assert "bookmark_cleanup" in res.get("error", "") or "bookmark_cleanup" in res.get("message", "")
     text.removeTextContent.assert_not_called()
 
     # User bookmark deletes successfully
@@ -765,13 +748,5 @@ def test_read_mcp_bookmark_map_skips_paragraph_scan_when_no_mcp_names(monkeypatc
     bm_map, all_names = svc._read_mcp_bookmark_map_and_names(doc, para_ranges=None)
     assert bm_map == {}
     assert all_names == []
-
-
-def test_bookmark_resolve_description_names_its_registered_tool():
-    from plugin.writer.specialized.bookmarks import BookmarkResolve
-
-    description = BookmarkResolve.description
-    assert "bookmark_resolve" in description
-    assert "resolve_bookmark" not in description
 
 

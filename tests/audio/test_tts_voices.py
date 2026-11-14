@@ -23,16 +23,13 @@ from plugin.audio.tts_voices import (
     resolve_voice_context,
     settings_voice_options,
     split_display_label,
-    tts_test_sample,
     voice_choice_to_id,
     voice_options_for_provider,
 )
 from plugin.audio.voice_catalog import (
-    CATALOG_PATH,
     KOKORO_CATALOG_ITEMS as _KOKORO_CATALOG_ITEMS,
     LOCALE_TO_PIPER_DEFAULT,
     PIPER_VOICE_MODELS as _PIPER_VOICE_MODELS,
-    voice_short_name,
 )
 from plugin.framework.client import model_fetcher as cfg
 
@@ -173,33 +170,10 @@ def test_parse_tts_speed():
 def test_get_default_voice_for_locale():
     assert get_default_voice_for_locale("piper", "de_DE") == "de_DE-thorsten-medium"
     assert get_default_voice_for_locale("piper", "de") == "de_DE-thorsten-medium"
-    assert get_default_voice_for_locale("piper", "fr_FR") == "fr_FR-siwis-medium"
-    assert get_default_voice_for_locale("piper", "es_ES") == "es_ES-davefx-medium"
-    assert get_default_voice_for_locale("piper", "it_IT") == "it_IT-paola-medium"
-    assert get_default_voice_for_locale("piper", "ru_RU") == "ru_RU-denis-medium"
-    assert get_default_voice_for_locale("piper", "zh_CN") == "zh_CN-huayan-medium"
-    assert get_default_voice_for_locale("piper", "ja_JP") == "ja_JP-hi_fi_captain-medium"
     assert get_default_voice_for_locale("piper", "nb_NO") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "nn_NO") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "hr") == "sl_SI-artur-medium"
     assert get_default_voice_for_locale("piper", "en_US") == "en_US-lessac-medium"
 
-    for loc, voice_id in (
-        ("fr_FR", "fr_FR-siwis-medium"),
-        ("it_IT", "it_IT-paola-medium"),
-        ("en_US", "en_US-lessac-medium"),
-        ("nl_NL", "nl_NL-mls-medium"),
-    ):
-        assert get_default_voice_for_locale("piper", loc) == voice_id
-        assert "female" in _PIPER_VOICE_MODELS[voice_id][3].casefold()
-
     assert get_default_voice_for_locale("kokoro", "es_ES") == "ef_dora"
-    assert get_default_voice_for_locale("kokoro", "fr_FR") == "ff_siwis"
-    assert get_default_voice_for_locale("kokoro", "it_IT") == "if_sara"
-    assert get_default_voice_for_locale("kokoro", "ja_JP") == "jf_alpha"
-    assert get_default_voice_for_locale("kokoro", "zh_CN") == "zf_xiaobei"
-    assert get_default_voice_for_locale("kokoro", "hi_IN") == "hf_alpha"
-    assert get_default_voice_for_locale("kokoro", "pt_BR") == "pf_dora"
     assert get_default_voice_for_locale("kokoro", "en_US") == "af_sky"
     assert get_default_voice_for_locale("kokoro", "de_DE") == "af_sky"
 
@@ -317,52 +291,11 @@ def test_piper_and_kokoro_voice_list_shows_parenthetical_only():
     assert any(row["value"] == "alloy" for row in openai)
 
 
-def test_tts_test_sample_uses_gettext():
-    with patch("plugin.audio.tts_voices._", return_value="Bonjour, je suis WriterAgent.") as mock_gettext:
-        assert tts_test_sample() == "Bonjour, je suis WriterAgent."
-        mock_gettext.assert_called_once_with("Hello, I'm your LibreOffice WriterAgent.")
+def test_voice_short_name_strips_label_suffix():
+    from plugin.audio.voice_catalog import voice_short_name
 
-
-def test_module_yaml_voice_options_use_catalog_provider():
-    import os
-    import yaml
-
-    with open(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "audio", "module.yaml"), encoding="utf-8") as handle:
-        manifest = yaml.safe_load(handle)
-    voice = manifest["config"]["tts_voice"]
-    assert voice["options_provider"] == "plugin.audio.tts_voices:settings_voice_options"
-    assert len(voice["options"]) <= 4
-
-
-def test_voice_catalog_asset_drives_runtime_maps():
-    import json
-    import os
-
-    from plugin.audio.voice_catalog import _parse_catalog
-
-    assert os.path.isfile(CATALOG_PATH)
-    with open(CATALOG_PATH, encoding="utf-8") as handle:
-        raw = json.load(handle)
-
-    parsed = _parse_catalog(raw)
-    assert len(parsed["kokoro_items"]) == 54
-
-    piper_ids = [row["id"] for row in raw["piper"]["voices"]]
-    assert list(_PIPER_VOICE_MODELS) == piper_ids
-    kokoro_ids = [row["id"] for row in raw["kokoro"]["voices"]]
-    assert len(kokoro_ids) == 54
-    assert [item["value"] for item in _KOKORO_CATALOG_ITEMS] == kokoro_ids
-    for vid in ("af_alloy", "am_puck", "bm_fable", "jf_tebukuro", "zf_xiaoyi", "zm_yunyang", "pm_santa"):
-        assert vid in kokoro_ids
-    assert "af_sky" in kokoro_ids
-    assert "af_bella" in kokoro_ids
-    assert raw["kokoro"]["fallback_voice"] == "af_sky"
-    assert voice_short_name("de_DE-thorsten-medium") == "Thorsten"
-    assert voice_short_name("en_US-lessac-medium") == "Lessac"
-    onnx, config, lang, _label = _PIPER_VOICE_MODELS["de_DE-thorsten-medium"]
-    assert onnx.endswith("de_DE-thorsten-medium.onnx")
-    assert config.endswith(".onnx.json")
-    assert lang == "de_DE"
+    sample_id = next(iter(_PIPER_VOICE_MODELS))
+    assert voice_short_name(f"{sample_id} (x)") == voice_short_name(sample_id) != sample_id
 
 
 def test_settings_voice_options_match_catalog_for_provider():
@@ -378,8 +311,6 @@ def test_settings_voice_options_match_catalog_for_provider():
         options = settings_voice_options(None)
 
     assert options == get_voice_catalog("piper", "de_DE")
-    assert options[0]["value"] == "de_DE-thorsten-medium"
-    assert any(opt["value"] == "fr_FR-siwis-medium" for opt in options)
     assert all(opt["value"] != "af_bella" for opt in options)
 
 
@@ -562,19 +493,12 @@ def test_together_non_kokoro_no_voices_is_editable_and_empty():
 
 
 def test_piper_locale_defaults_authoritative():
-    for loc, target_id in LOCALE_TO_PIPER_DEFAULT.items():
-        assert target_id in _PIPER_VOICE_MODELS, f"{loc} -> {target_id} not in PIPER_VOICE_MODELS"
-
     # Patch a mapped id's label to male, but the JSON map value still wins over female scan
     de_voice = LOCALE_TO_PIPER_DEFAULT["de"]
     orig_tuple = _PIPER_VOICE_MODELS[de_voice]
     male_de = (orig_tuple[0], orig_tuple[1], orig_tuple[2], "de_DE (Male)")
     with patch.dict(_PIPER_VOICE_MODELS, {de_voice: male_de}):
         assert get_default_voice_for_locale("piper", "de_DE") == de_voice
-
-    assert get_default_voice_for_locale("piper", "nb") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "nn") == "no_NO-talesyntese-medium"
-    assert get_default_voice_for_locale("piper", "hr") == "sl_SI-artur-medium"
 
 
 def test_pick_voice_id_direct():

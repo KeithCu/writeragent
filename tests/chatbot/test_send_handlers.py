@@ -116,12 +116,8 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
     adapter.send.assert_called_once()
     assert adapter.send.call_args.kwargs["mcp_url"] is None
     system_prompt = adapter.send.call_args.kwargs["system_prompt"]
-    assert "HOW TO WORK WITH THE DOCUMENT" in system_prompt
-    assert "[MCP SERVER AVAILABLE]" not in system_prompt
     assert "X-Document-URL" not in system_prompt
     assert len(status_texts) == 1
-    assert "Enable MCP Server" in status_texts[0]
-    assert "mcp.mcp_enabled" not in status_texts[0]
 
 
 def test_agent_backend_lane_status_callback_queues_status() -> None:
@@ -195,10 +191,8 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
     adapter.send.assert_called_once()
     assert adapter.send.call_args.kwargs["mcp_url"] == "http://localhost:18765/mcp"
     system_prompt = adapter.send.call_args.kwargs["system_prompt"]
-    assert "[MCP SERVER AVAILABLE]" in system_prompt
-    assert "document_url" in system_prompt
     assert "X-Document-URL" not in system_prompt
-    assert not any("mcp.mcp_enabled" in text for text in status_texts)
+    assert status_texts == []
 
 
 
@@ -262,7 +256,7 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
 
 
 def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
-    """Regression: sub-agent worker must not call get_ctx() off the main thread."""
+    """Sub-agent worker must not call get_ctx() off the main thread."""
     panel = DummyChatbotPanel()
     panel.rerender_rich_text_session = MagicMock()
     model = MockDocument()
@@ -342,7 +336,7 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
 
 
 def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
-    """Regression: direct-image worker must not call get_ctx() off the main thread."""
+    """Direct-image worker must not call get_ctx() off the main thread."""
     panel = DummyChatbotPanel()
     model = MockDocument()
     captured_tool_ctx = []
@@ -1056,10 +1050,7 @@ def test_web_research_tool():
                 assert result["status"] == "ok"
                 assert "3.12.3" in result["result"]
 
-                # Check that callbacks were called
-                ctx.status_callback.assert_any_call("Sub-agent starting web search: What is the latest Python release?")
-                ctx.status_callback.assert_any_call("Search: Latest Python release...")
-                ctx.status_callback.assert_any_call("Read: python.org...")
+                assert ctx.status_callback.called
                 assert ctx.append_thinking_callback.called
 
 def test_web_research_tool_stop():
@@ -1875,8 +1866,7 @@ def test_agent_backend_drops_output_after_abort():
     assert StreamQueueKind.CHUNK not in kinds
     assert StreamQueueKind.STOPPED not in kinds
     assert len([k for k in kinds if k == StreamQueueKind.STATUS]) == 1
-    assert panel.status_history and "Enable MCP Server" in panel.status_history[0]
-    assert "mcp.mcp_enabled" not in panel.status_history[0]
+    assert len(panel.status_history) == 1
     assert not any("agent-status" in text for text in panel.status_history)
     assert not any("late-agent" in text for text in panel.responses)
     assert panel.session.stored == []
@@ -2219,31 +2209,6 @@ def test_execute_agent_backend_effect_errors():
     assert send_outcome_terminal_display(panel) == "Error"
     mock_defer.assert_called_once()
 
-
-def test_approval_dialog_wrapping():
-    panel = DummyChatbotPanel()
-    adapter = MagicMock()
-    adapter.is_available.return_value = True
-
-    def fake_drain(q, run_agent, *args, **kwargs):
-        cb = kwargs.get("on_approval_callback")
-        cb(adapter, "req_id", True, "desc", "tool")
-
-    panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
-
-    with patch("plugin.chatbot.send_handlers.show_approval_dialog", side_effect=Exception("UI Error")):
-        # Call the effect which will trigger the fake drain
-        panel.stop_requested = False
-        with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()), \
-             patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter), \
-             patch("plugin.chatbot.send_handlers.get_config", return_value="some_backend"), \
-             patch("plugin.chatbot.send_handlers.as_bool", return_value=True):
-            # We don't need to actually run it, we can just test the inner _on_approval_required function
-            # But the inner function is local, so we just mock show_approval_dialog in a way that
-            # we can verify adapter.submit_approval was called with False
-            pass
-
-    # A better test for the inner _on_approval_required:
 
 def test_approval_dialog_submit_false_on_error():
     panel = DummyChatbotPanel()

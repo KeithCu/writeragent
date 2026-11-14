@@ -7,8 +7,8 @@
 # (at your option) any later version.
 """Unit tests for plugin.chatbot.rich_text_paste."""
 
-import logging
 from contextlib import contextmanager
+import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -16,8 +16,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot import rich_text_paste as rich_text_paste_module
-from tests.harness.strip_bundle import is_release_build, module_source_contains
 from plugin.chatbot.rich_text import ChatTheme
+from tests.harness.strip_bundle import is_release_build, module_source_contains
 from plugin.chatbot.rich_text_paste import (
     _cell_width_em,
     _column_width_twips,
@@ -308,25 +308,6 @@ class TestEnsureMessageSeparator:
 
 
 class TestAppendRichTextViaClipboard:
-    def test_pipeline_order(self):
-        control = MagicMock()
-        control.getModel.return_value = MagicMock(Text="")
-        ctx = MagicMock()
-        doc = MagicMock()
-        style_window = MagicMock()
-
-        with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
-             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
-             patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")) as mock_append, \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None) as mock_copy:
-            append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant", style_window=style_window)
-
-        mock_create.assert_called_once_with(ctx)
-        mock_cfg.assert_called_once_with(doc)
-        mock_append.assert_called_once_with(doc, "<p>Hi</p>", role="assistant", style_window=style_window)
-        mock_copy.assert_called_once()
-        doc.close.assert_called_once_with(True)
-
     def test_plain_insert_skips_hidden_writer(self):
         control = MagicMock()
         model = MagicMock(Text="")
@@ -538,18 +519,15 @@ class TestHistoryMessageBatching:
         items = [("user", f"<p>msg{i}</p>") for i in range(10)]
 
         with patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc) as mock_create, \
-             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat") as mock_cfg, \
+             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
              patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc") as mock_render, \
-             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None) as mock_copy, \
+             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0), \
-             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail") as mock_scroll:
+             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"):
             append_formatted_rows(ctx, control, items)
 
         mock_create.assert_called_once_with(ctx)
-        mock_cfg.assert_called_once_with(doc)
-        mock_render.assert_called_once_with(doc, items, style_window=None)
-        mock_copy.assert_called_once()
-        mock_scroll.assert_called_once_with(control, restore_focus=None)
+        assert mock_render.call_args.args[1] == items
         doc.close.assert_called_once_with(True)
 
     def test_failed_batch_plain_appends_with_role_prefix(self):
@@ -575,7 +553,7 @@ class TestHistoryMessageBatching:
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=5), \
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve", return_value=theme), \
              patch("plugin.chatbot.rich_text_paste._insert_string_at_rich_cursor", side_effect=_capture), \
-             patch("plugin.calc.navigation.drop_cell_link_spans_from") as mock_drop:
+             patch("plugin.calc.navigation.cell_link_registry.drop_from") as mock_drop:
             append_formatted_rows(ctx, control, items)
 
         mock_drop.assert_called_once_with(control, 5)
@@ -837,27 +815,7 @@ class TestListPrefix:
         assert _list_prefix_for_paragraph(para, {}) == ""
 
 
-class TestRichInsertFallbackLogging:
-    def test_append_logs_direct_copy_reason_on_failure(self, caplog):
-        control = MagicMock()
-        control.getModel.return_value = MagicMock(Text="")
-        ctx = MagicMock()
-        doc = MagicMock()
-
-        with caplog.at_level(logging.WARNING, logger="plugin.chatbot.rich_text_paste"), \
-             patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc), \
-             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"), \
-             patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: x")), \
-             patch(
-                 "plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control",
-                 return_value="no_content_inserted",
-             ), \
-             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=10):
-            append_formatted_row(ctx, control, "<p>x</p>", role="assistant")
-
-        joined = " ".join(r.message for r in caplog.records)
-        assert "formatted copy failed direct_copy_reason=no_content_inserted" in joined
-
+class TestRichInsertRollback:
     def test_failed_copy_rolls_back_separator_and_drops_spans(self):
         from plugin.calc.navigation import cell_link_registry
 
@@ -1036,7 +994,7 @@ class TestPaintMessageItems:
         assert len(session.messages) == 1
         assert session.messages[0]["content"] == "What is Python?"
 
-    def test_copy_returns_no_content_inserted_when_nothing_written(self, caplog):
+    def test_copy_returns_no_content_inserted_when_nothing_written(self):
         control = MagicMock()
         model = MagicMock()
         model.createTextCursor.return_value = MagicMock()
@@ -1048,15 +1006,13 @@ class TestPaintMessageItems:
         src_text.createEnumeration.return_value = para_enum
         src_doc.getText.return_value = src_text
 
-        with caplog.at_level(logging.WARNING, logger="plugin.chatbot.rich_text_paste"), \
-             patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
+        with patch("plugin.chatbot.rich_text_paste.focus_preserved", _immediate_focus), \
              patch("plugin.chatbot.rich_text_paste.ChatTheme.resolve"), \
              patch("plugin.chatbot.rich_text_paste._rich_control_bg_color", return_value=0), \
              patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0):
             reason = _copy_formatted_from_hidden_doc_to_control(src_doc, control, MagicMock(), role="user")
 
         assert reason == "no_content_inserted"
-        assert not any("_copy_formatted_from_hidden_doc_to_control: failed reason=" in r.message for r in caplog.records)
 
 
 def _body_paragraph(text: str):
@@ -1607,12 +1563,62 @@ def test_plain_transcript_text_strips_html():
     assert "done" in plain
 
 
+def test_hidden_writer_close_failure_does_not_escape():
+    """CloseVeto-style failure during hidden writer cleanup does not escape."""
+    control = MagicMock()
+    control.getModel.return_value = MagicMock(Text="")
+    ctx = MagicMock()
+
+    def _doc():
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "Hi"
+        doc.close.side_effect = RuntimeError("hidden close veto")
+        return doc
+
+    doc = _doc()
+    with (
+        patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+        patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
+        patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
+        patch("plugin.chatbot.rich_text_paste.clear_control"),
+        patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
+        patch("plugin.chatbot.rich_text_paste.force_rich_full_reformat"),
+        patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
+    ):
+        assert paint_message_items(ctx, control, [("assistant", "<p>Hi</p>")]) is True
+    doc.close.assert_called_once_with(True)
+
+    doc = _doc()
+    with (
+        patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+        patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
+        patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
+        patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
+        patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
+        patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
+    ):
+        append_formatted_rows(ctx, control, [("assistant", "<p>Hi</p>")])
+    doc.close.assert_called_once_with(True)
+
+    doc = _doc()
+    with (
+        patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+        patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
+        patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")),
+        patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
+        patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
+        patch("plugin.chatbot.rich_text_paste._ensure_message_separator"),
+    ):
+        assert append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant") is True
+    doc.close.assert_called_once_with(True)
+
+
 @pytest.mark.skipif(
     is_release_build() or not module_source_contains(rich_text_paste_module, "hidden writer close failed"),
     reason="Stripped release bundle removes logger .debug call sites (scripts/strip_code.py)",
 )
-def test_hidden_writer_close_failure_is_logged(caplog):
-    """CloseVeto-style failure is logged with traceback and does not escape."""
+def test_hidden_writer_close_failure_logs_exc_info(caplog):
+    """CloseVeto-style failure logs traceback exc_info at all three hidden-writer sites."""
     control = MagicMock()
     control.getModel.return_value = MagicMock(Text="")
     ctx = MagicMock()
@@ -1624,9 +1630,8 @@ def test_hidden_writer_close_failure_is_logged(caplog):
         return doc
 
     with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_paste"):
-        doc = _doc()
         with (
-            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=_doc()),
             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
             patch("plugin.chatbot.rich_text_paste.clear_control"),
@@ -1634,12 +1639,10 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste.force_rich_full_reformat"),
             patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
         ):
-            assert paint_message_items(ctx, control, [("assistant", "<p>Hi</p>")]) is True
-        doc.close.assert_called_once_with(True)
+            paint_message_items(ctx, control, [("assistant", "<p>Hi</p>")])
 
-        doc = _doc()
         with (
-            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=_doc()),
             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
             patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
@@ -1647,28 +1650,19 @@ def test_hidden_writer_close_failure_is_logged(caplog):
             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
         ):
             append_formatted_rows(ctx, control, [("assistant", "<p>Hi</p>")])
-        doc.close.assert_called_once_with(True)
 
-        doc = _doc()
         with (
-            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=_doc()),
             patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
             patch("plugin.chatbot.rich_text_paste._append_rich_text_with_span", return_value=(True, "", "Assistant: Hi")),
             patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=None),
             patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"),
         ):
-            assert append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant") is True
-        doc.close.assert_called_once_with(True)
+            append_formatted_row(ctx, control, "<p>Hi</p>", role="assistant")
 
-    close_records = [r for r in caplog.records if "hidden writer close failed" in r.message]
-    assert len(close_records) == 3
-    assert any("paint_message_items: hidden writer close failed" in r.message for r in close_records)
-    assert any("append_formatted_rows: hidden writer close failed" in r.message for r in close_records)
-    assert any("append_formatted_row: hidden writer close failed" in r.message for r in close_records)
-    for record in close_records:
-        assert record.exc_info is not None
-        assert record.exc_info[0] is RuntimeError
+    exc_records = [r for r in caplog.records if r.exc_info and r.exc_info[0] is RuntimeError]
+    assert len(exc_records) == 3
 
 
 def test_extract_cell_links_from_html():

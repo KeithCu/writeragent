@@ -68,8 +68,8 @@ from plugin.chatbot.rich_text_control import (
     log_rich_scroll,
 )
 from plugin.calc.navigation import (
+    cell_link_registry,
     normalize_cell_address,
-    register_cell_link_span,
 )
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags
@@ -814,7 +814,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             elif not addr and looks_like_cell_link:
                                 addr = normalize_cell_address(txt.strip())
                             if addr:
-                                register_cell_link_span(control, before_len, before_len + txt_units, addr)
+                                cell_link_registry.add(control, before_len, before_len + txt_units, addr)
                         dest_cursor.gotoEnd(False)
                         inserted = True
                     if line_prefix and not prefix_inserted:

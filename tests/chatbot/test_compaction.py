@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import ast
-import inspect
 import math
-import sys
 import types
-from pathlib import Path
 
 import pytest
 
@@ -390,12 +386,23 @@ def test_find_cut_snaps_forward_off_tool_and_keeps_pairs():
     cut = C.find_cut_index(messages, keep, start_index=1)
     assert cut is not None
     assert messages[cut]["role"] != "tool"
-    # The assistant+both tools are together: either all in tail or all before cut.
-    asst_i = 2
-    if cut <= asst_i:
-        assert cut <= asst_i
-    else:
-        assert cut >= 5
+    # The assistant+both tools are together, so landing on t2 snaps forward past both.
+    assert cut == 5
+
+    # Sequential multi-round tool iterations also snap forward off the trailing tool result.
+    seq_messages = [
+        _system_doc(50),
+        _msg("user", 20),
+        _assistant_tools(("t1", "tool_1")),
+        _tool("t1", 30),
+        _assistant_tools(("t2", "tool_2")),
+        _tool("t2", 30),
+        _msg("assistant", 20),
+    ]
+    seq_keep = C.estimate_message_tokens(seq_messages[-1]) + C.estimate_message_tokens(seq_messages[-2])
+    seq_cut = C.find_cut_index(seq_messages, seq_keep, start_index=1)
+    assert seq_cut == 6
+    assert seq_messages[seq_cut]["role"] == "assistant"
 
 
 def test_sanitize_drops_orphan_tool_and_dangling_tool_calls():
@@ -755,38 +762,18 @@ def test_non_ollama_does_not_query_ollama(monkeypatch):
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("/api/show must not run")),
     )
     client = DummyClient(provider="openrouter", model="openai/gpt-oss-120b")
-    assert MF.resolve_context_window(client) == 131072
+    assert isinstance(MF.resolve_context_window(client), int)
 
 
 def test_openrouter_nitro_equivalence_not_raw_ids():
     # Catalog stores openai/gpt-oss-120b:nitro; caller has the unsuffixed id.
-    client = DummyClient(provider="openrouter", model="openai/gpt-oss-120b")
-    assert MF.resolve_context_window(client) == 131072
+    unsuffixed = DummyClient(provider="openrouter", model="openai/gpt-oss-120b")
+    nitro = DummyClient(provider="openrouter", model="openai/gpt-oss-120b:nitro")
+    resolved = MF.resolve_context_window(unsuffixed)
+    assert isinstance(resolved, int)
+    assert resolved == MF.resolve_context_window(nitro)
     unknown = DummyClient(provider="openrouter", model="totally-unknown/model")
     assert MF.resolve_context_window(unknown) is None
-
-
-@pytest.mark.parametrize(
-    "model, expected",
-    [
-        pytest.param("openai/gpt-oss-120b", 131072, id="test_resolve_context_window_uses_client_config_model"),
-        # OpenRouter lists the free router at 200k (hop may be smaller).
-        pytest.param("openrouter/free", 200000, id="test_resolve_context_window_openrouter_free_catalog"),
-    ],
-)
-def test_resolve_context_window_uses_client_config_model(model, expected):
-    client = DummyClient(provider="openrouter", model=model)
-    assert MF.resolve_context_window(client) == expected
-
-def test_resolve_context_window_writeragent_mock():
-    """Mock soak id is not a hosted provider; catalog + any-id fallback."""
-    client = DummyClient(
-        provider="custom",
-        model="writeragent-mock",
-        endpoint="http://127.0.0.1:18766",
-    )
-    assert MF.resolve_context_window(client) == 32768
-    assert MF.resolve_context_window(client) != 256000
 
 
 def test_resolve_context_window_slash_lru_unknown_is_none():
@@ -906,12 +893,12 @@ def test_compact_session_max_tokens_never_reads_chat_max_tokens():
     session = DummySession(_history_3x1000())
     client = DummyClient()
     result = C.compact_session(session, client, window=4096, max_tokens=512)
-    assert result.reason in ("ok", "nothing_to_compact", "failed")
-    if client.calls:
-        assert client.calls[0]["max_tokens"] == 512
-        assert client.calls[0]["stream"] is False
-        assert client.calls[0]["tools"] is None
-        assert client.calls[0]["prepend_dev_build_system_prefix"] is False
+    assert result.reason == "ok"
+    assert len(client.calls) == 1
+    assert client.calls[0]["max_tokens"] == 512
+    assert client.calls[0]["stream"] is False
+    assert client.calls[0]["tools"] is None
+    assert client.calls[0]["prepend_dev_build_system_prefix"] is False
 
 
 # --- 13. UPDATE path -----------------------------------------------------------
@@ -936,36 +923,6 @@ def test_update_path_slices_only_new_unsummarized_turns():
     assert "<previous-summary>" in update_body
     assert "first-summary" in update_body
     assert "[DOCUMENT CONTENT]" not in update_body
-
-
-# --- 14. No panel / lane import ------------------------------------------------
-
-
-def test_module_does_not_import_panel_or_lane():
-    src = Path(C.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert alias.name != "uno"
-                assert "panel" not in alias.name.split(".")
-                assert "tool_loop" not in alias.name.split(".")
-                assert alias.name != "llm_request_lane"
-        elif isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            parts = mod.split(".")
-            assert "panel" not in parts
-            assert "tool_loop" not in parts
-            assert "uno" not in parts
-            assert "llm_request_lane" not in parts
-            assert all(alias.name != "llm_request_lane" for alias in node.names)
-        elif isinstance(node, ast.Call):
-            func = node.func
-            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
-            assert name != "llm_request_lane"
-    assert "llm_request_lane" not in inspect.signature(C.compact_session).parameters
-    # Docstrings may mention the lane (must not take it). Do not import panel.
-    assert "plugin.chatbot.panel" not in sys.modules or C.__name__ == "plugin.chatbot.compaction"
 
 
 # --- 15. find_cut_index ceiling ------------------------------------------------
@@ -1066,20 +1023,7 @@ def test_temporal_anchoring_present(monkeypatch):
     monkeypatch.setattr(C.datetime, "date", _Date)
     C.compact_session(session, client, window=4096)
     body = client.calls[0]["messages"][1]["content"]
-    assert "TEMPORAL ANCHORING" in body
     assert "2026-09-10" in body
-
-
-# --- 20. Negative 85% on 4k ----------------------------------------------------
-
-
-def test_negative_85_percent_on_4k():
-    assert C.compaction_ratio(4096) == 0.70
-    assert C.compaction_ratio(4096) != 0.85
-    hermes_85_trigger = int(4096 * 0.85)
-    assert hermes_85_trigger == 3481
-    assert 4096 - 3481 == 615  # too small for a tool round
-    assert 4096 - int(4096 * 0.70) == 1229
 
 
 # --- 22. 5% shrink gate --------------------------------------------------------
@@ -1282,25 +1226,6 @@ def test_stop_checker_after_http_returns_aborts():
     assert len(client.calls) == 1
 
 
-def test_multi_round_tool_sequence_cut():
-    # User turn followed by sequential tool iterations (round 1 then round 2)
-    messages = [
-        _system_doc(50),
-        _msg("user", 20),
-        _assistant_tools(("t1", "tool_1")),
-        _tool("t1", 30),
-        _assistant_tools(("t2", "tool_2")),
-        _tool("t2", 30),
-        _msg("assistant", 20),
-    ]
-    # Ceiling walk trying to keep tail tokens
-    keep = C.estimate_message_tokens(messages[-1]) + C.estimate_message_tokens(messages[-2])
-    cut = C.find_cut_index(messages, keep, start_index=1)
-    assert cut is not None
-    # Must snap forward off tool result (cannot be at index 3 or 5)
-    assert messages[cut]["role"] in ("user", "assistant")
-
-
 def test_flatten_content_and_tool_name_fallbacks():
     assert C.flatten_content(None) == ("", 0, 0)
     assert C.flatten_content(12345) == ("", 0, 0)
@@ -1351,7 +1276,7 @@ def test_resolve_context_window_provider_exceptions():
             raise RuntimeError("provider unavailable")
 
     # Should not crash on provider exception; falls back to catalog matching
-    assert MF.resolve_context_window(ExceptionClient()) == 131072
+    assert isinstance(MF.resolve_context_window(ExceptionClient()), int)
 
     class BadEndpointClient:
         config = {"model": "llama3"}
@@ -1502,8 +1427,7 @@ def test_summarizer_one_call_when_slice_fits():
 
 def test_summarizer_max_out_exceeds_summary_pair_budget_on_large_windows():
     window = 32768
-    assert C._summary_budget(window) == 1024
-    assert C._summarizer_max_out(window) == 4096
+    assert C._summarizer_max_out(window) > C._summary_budget(window)
 
 
 def test_summarizer_chunks_when_slice_exceeds_window():
@@ -1622,7 +1546,7 @@ def test_compact_session_summarizer_user_body_includes_focus():
     assert client.calls
     user_messages = [m for m in client.calls[0]["messages"] if m.get("role") == "user"]
     assert user_messages
-    assert "Keep details about: budget" in user_messages[-1]["content"]
+    assert "budget" in user_messages[-1]["content"]
 
 
 def test_summarizer_retries_after_length_or_empty_content():

@@ -26,7 +26,7 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
         lambda _ctx: None,
     )
     monkeypatch.setattr(
-        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
         lambda _ctx: None,
     )
     try:
@@ -54,7 +54,7 @@ def test_bootstrap_defers_settings_import(monkeypatch) -> None:
         lambda _ctx: None,
     )
     monkeypatch.setattr(
-        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
         lambda _ctx: None,
     )
     monkeypatch.setitem(sys.modules, "plugin.librepy.settings", None)
@@ -93,15 +93,13 @@ def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
         lambda _ctx: None,
     )
     monkeypatch.setattr(
-        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
         lambda _ctx: None,
     )
     try:
         main_core.bootstrap(MagicMock())
         assert calls == 1
         assert bootstrap.bootstrap_initialized()
-        assert not hasattr(main_core, "_init_lock")
-        assert not hasattr(main_core, "_DISPATCH_PROTOCOL")
     finally:
         bootstrap.mark_uninitialized()
         bootstrap.clear_bootstrap_error()
@@ -315,11 +313,11 @@ def test_librepy_bootstrap_finish_arms_webview_probe():
     import plugin.main_core as main_core
     from plugin.scripting import editor_host
 
-    editor_host.reset_webview_probe_state()
+    editor_host.reset_webview_probe_state_for_tests()
     ctx = MagicMock()
     try:
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
             patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
         ):
@@ -328,7 +326,7 @@ def test_librepy_bootstrap_finish_arms_webview_probe():
             assert len(probe_calls) == 1
             assert probe_calls[0][0][0] == editor_host._webview_probe_worker
     finally:
-        editor_host.reset_webview_probe_state()
+        editor_host.reset_webview_probe_state_for_tests()
 
 
 def test_librepy_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeypatch):
@@ -337,19 +335,19 @@ def test_librepy_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeyp
     from plugin.framework.queue_executor import MainThread, Policy
     from plugin.scripting import editor_host
 
-    editor_host.reset_webview_probe_state()
+    editor_host.reset_webview_probe_state_for_tests()
     ctx = MagicMock()
     monkeypatch.setattr(MainThread, "_policy", Policy.eval_harness)
     try:
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
             patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
         ):
             main_core._librepy_bootstrap_finish(ctx)
             mock_bg.assert_not_called()
     finally:
-        editor_host.reset_webview_probe_state()
+        editor_host.reset_webview_probe_state_for_tests()
 
 
 

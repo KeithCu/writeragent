@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 import tempfile
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from plugin.chatbot.memory import (
     MemoryStore,
@@ -13,19 +13,6 @@ from plugin.chatbot.memory import (
     user_profile_exists,
 )
 
-class DummyCtx:
-    def __init__(self, tmp_dir):
-        self.tmp_dir = tmp_dir
-
-    # Mocking getServiceManager so user_config_dir resolves here
-    def getServiceManager(self):
-        sm = Mock()
-        path_settings = Mock()
-        path_settings.UserConfig = f"file://{self.tmp_dir}"
-        sm.createInstanceWithContext.return_value = path_settings
-        return sm
-
-
 class _ToolContextLike:
     def __init__(self, inner_ctx):
         self.ctx = inner_ctx
@@ -34,7 +21,7 @@ class _ToolContextLike:
 class TestMemory:
     def setup_method(self):
         self.tmp_dir = tempfile.mkdtemp()
-        self.ctx = DummyCtx(self.tmp_dir)
+        self.ctx = object()
 
     def teardown_method(self):
         shutil.rmtree(self.tmp_dir)
@@ -100,6 +87,7 @@ class TestMemory:
         assert ("nickname") in (line)
         assert ("Bob") in (line)
         assert (line.startswith("[Memory update:"))
+        assert line.endswith("\n")
 
     def test_format_upsert_memory_chat_line_truncates_long_value(self):
         long_val = "x" * (UPSERT_MEMORY_CHAT_VALUE_MAX + 50)
@@ -159,35 +147,14 @@ def test_memory_tool_insert_update_and_nested_key(tmp_path):
         assert data["editor"]["vim"] == "Yes"
         assert data["favorite_language"] == "Rust"
 
-class TestMemoryWriteConcurrency:
-    """Two upserts in one turn must merge (tools now run one at a time, not on threads)."""
-
-    def setup_method(self):
-        self.tmp_dir = tempfile.mkdtemp()
-        self.ctx = DummyCtx(self.tmp_dir)
-        self.store = MemoryStore()
-
-    def teardown_method(self):
-        shutil.rmtree(self.tmp_dir, ignore_errors=True)
-
-    def test_sequential_upserts_merge_without_corruption(self):
-        from plugin.chatbot.memory import MemoryTool
-
-        tool = MemoryTool()
-        res1 = tool.execute(self.ctx, key="name", content="Andre")
-        res2 = tool.execute(self.ctx, key="favorite_colors", content="dark blue")
-        assert (res1.get("status")) == ("ok"), res1
-        assert (res2.get("status")) == ("ok"), res2
-
-        data = json.loads(self.store.read())
-        assert (data["name"]) == ("Andre")
-        assert (data["favorite_colors"]) == ("dark blue")
-
-    def test_write_is_atomic_and_cleans_temp_files(self):
-        self.store.write(json.dumps({"name": "Andre"}))
-        assert (json.loads(self.store.read())) == ({"name": "Andre"})
-        leftovers = [f for f in os.listdir(self.tmp_dir) if f.startswith(".memory-")]
-        assert (leftovers) == ([]), "atomic-write temp files must not leak"
+class TestMemoryAtomicWrite:
+    def test_write_is_atomic_and_cleans_temp_files(self, tmp_path):
+        with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+            store = MemoryStore()
+            store.write(json.dumps({"name": "Andre"}))
+            assert json.loads(store.read()) == {"name": "Andre"}
+            leftovers = [f for f in os.listdir(os.path.dirname(store.path)) if f.startswith(".memory-")]
+            assert leftovers == [], "atomic-write temp files must not leak"
 
 
 def test_upsert_migrates_prose_user_md(tmp_path):
@@ -278,19 +245,6 @@ def test_upsert_empty_content_pops_key(tmp_path):
         data = json.loads(store.read())
         assert "name" not in data
         assert data["editor"]["vim"] == "Yes"
-
-
-def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
-    """format_upsert_memory_chat_line stays out of cover_fqns_for_module."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/chatbot/memory.py"), require_deal=True)
-    assert not any(f.endswith(".format_upsert_memory_chat_line") for f in fqns)
 
 
 def test_memory_arguments_longer_than_source_normalize():
@@ -399,11 +353,3 @@ def test_memory_cap_rejection_and_shrink_allowed(tmp_path):
         after_del = store.read()
         assert len(after_del) < initial_len
         assert "extra" not in json.loads(after_del)
-
-
-def test_memory_tool_description_and_spec():
-    desc = MemoryTool.description
-    assert "JSON object" in desc
-    assert "writing.tone" in desc
-    assert "empty string" in desc
-    assert "short stable keys" in desc

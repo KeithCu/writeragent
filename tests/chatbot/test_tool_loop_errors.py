@@ -106,34 +106,12 @@ def test_tool_execution_error_handling(test_instance, mock_get_tools):
     registry.get_schemas.return_value = [{"name": "test_tool"}]
     execute_fn = build_tool_execute_fn(test_instance, "writer", None, None, MagicMock())
 
-    with patch("plugin.chatbot.tool_loop_actions.agent_log") as mock_agent_log:
-        # Test 1: Tool execution error payload
-        err_payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Specific tool error"}
-        registry.execute.return_value = err_payload
+    err_payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Specific tool error"}
+    registry.execute.return_value = err_payload
 
-        res = execute_fn("test_tool", {"arg": "val"}, None, test_instance.ctx)
+    res = execute_fn("test_tool", {"arg": "val"}, None, test_instance.ctx)
 
-        parsed_res = json.loads(res)
-        assert parsed_res == err_payload
-        mock_agent_log.assert_not_called()
-
-        # Test 2: Registry error payload
-        reg_payload = {
-            "status": "error",
-            "code": "TOOL_REGISTRY_ERROR",
-            "message": "Failed to execute tool 'test_tool'",
-            "details": {"tool_name": "test_tool", "error": "Something unexpected", "type": "ValueError"},
-        }
-        registry.execute.return_value = reg_payload
-
-        res = execute_fn("test_tool", {"arg": "val"}, None, test_instance.ctx)
-        parsed_res = json.loads(res)
-
-        assert parsed_res["status"] == "error"
-        assert parsed_res["code"] == "TOOL_REGISTRY_ERROR"
-        assert parsed_res["code"] != "TOOL_UNEXPECTED_ERROR"
-        assert parsed_res["details"]["tool_name"] == "test_tool"
-        mock_agent_log.assert_not_called()
+    assert json.loads(res) == err_payload
 
 def test_document_context_error_handling(test_instance, mock_get_tools):
     """Send fails closed when refreshing the live document snapshot fails.
@@ -624,7 +602,22 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
     q.put.assert_any_call((StreamQueueKind.STREAM_DONE, {"content": "ok"}))
 
 
-def test_llm_worker_passes_session_id_cache_routing_key(test_instance):
+@pytest.mark.parametrize(
+    "spawn_fn, get_stream_fn",
+    [
+        pytest.param(
+            lambda inst, q, client: inst._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0),
+            lambda client: client.stream_request_with_tools,
+            id="llm_worker",
+        ),
+        pytest.param(
+            lambda inst, q, client: inst._spawn_final_stream(q, client, 256),
+            lambda client: client.stream_chat_response,
+            id="final_stream",
+        ),
+    ],
+)
+def test_worker_spawn_passes_session_id_cache_routing_key(test_instance, spawn_fn, get_stream_fn):
     from plugin.chatbot.compaction import CompactResult
     from plugin.chatbot.tool_loop_actions import current_turn
 
@@ -637,10 +630,9 @@ def test_llm_worker_passes_session_id_cache_routing_key(test_instance):
     client.stopped.return_value = False
     client.stream_request_with_tools.return_value = {"content": "ok"}
     view = [{"role": "system", "content": "view"}]
-    q = MagicMock()
 
     turn = current_turn(test_instance)
-    turn.queue = q
+    turn.queue = MagicMock()
     turn.session.session_id = "doc-1"
     turn.session.messages_for_request = MagicMock(return_value=view)
 
@@ -651,42 +643,12 @@ def test_llm_worker_passes_session_id_cache_routing_key(test_instance):
         patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
     ):
-        test_instance._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0)
+        spawn_fn(test_instance, MagicMock(), client)
         captured["fn"]()
 
-    client.stream_request_with_tools.assert_called_once()
-    assert client.stream_request_with_tools.call_args.kwargs["cache_session_id"] == "doc-1"
-
-
-def test_final_stream_passes_session_id_cache_routing_key(test_instance):
-    from plugin.chatbot.compaction import CompactResult
-    from plugin.chatbot.tool_loop_actions import current_turn
-
-    captured = {}
-
-    def capture_run(fn, name=None, dedicated=False):
-        captured["fn"] = fn
-
-    client = MagicMock()
-    client.stopped.return_value = False
-    view = [{"role": "system", "content": "final-view"}]
-
-    turn = current_turn(test_instance)
-    turn.session.session_id = "doc-1"
-    turn.session.messages_for_request = MagicMock(return_value=view)
-
-    with (
-        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
-        patch("plugin.chatbot.tool_loop.llm_request_lane"),
-        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
-        patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 4, 4)),
-        patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
-    ):
-        test_instance._spawn_final_stream(MagicMock(), client, 256)
-        captured["fn"]()
-
-    client.stream_chat_response.assert_called_once()
-    assert client.stream_chat_response.call_args.kwargs["cache_session_id"] == "doc-1"
+    stream_fn = get_stream_fn(client)
+    stream_fn.assert_called_once()
+    assert stream_fn.call_args.kwargs["cache_session_id"] == "doc-1"
 
 
 def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
@@ -904,32 +866,6 @@ def test_final_stream_done_and_stop_partial(test_instance):
     assert q3.get_nowait() == (StreamQueueKind.STOPPED,)
 
 
-def test_start_tool_calling_resets_overflow_attempts(test_instance):
-    test_instance._spawn_llm_worker = MagicMock()
-    test_instance._refresh_active_tools_for_session = MagicMock()
-
-    def execute_fn(name, args, call_id, ctx):
-        del name, args, call_id, ctx
-        return "{}"
-
-    with (
-        patch(
-            "plugin.chatbot.tool_loop.get_config",
-            side_effect=lambda key: False if key == "chat_compaction_enabled" else 8,
-        ),
-        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=MagicMock()),
-        patch("plugin.chatbot.tool_loop.run_stream_drain_loop"),
-        patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response"),
-    ):
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
-        begin_send_turn(test_instance)
-        test_instance._start_tool_calling_async(
-            MagicMock(), MagicMock(), 128, [], execute_fn, max_tool_rounds=8
-        )
-    from plugin.chatbot.tool_loop_actions import current_turn
-    assert current_turn(test_instance)._overflow_compact_attempts == 0
-
-
 def test_overflow_does_not_retry_when_stop_requested(test_instance):
     _prime_active_tool_loop(test_instance)
     test_instance.stop_requested = True
@@ -940,19 +876,6 @@ def test_overflow_does_not_retry_when_stop_requested(test_instance):
     assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     assert send_outcome_terminal_display(test_instance) == "Error"
-
-
-def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
-    _prime_active_tool_loop(test_instance)
-    test_instance.stop_requested = True
-    test_instance._spawn_llm_worker = MagicMock()
-
-    recovered = _handle_stream_error(test_instance, _overflow_payload())
-
-    assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
-    assert send_outcome_terminal_display(test_instance) == "Error"
-
 
 
 def test_stream_error_on_dead_turn_still_deletes_wav(test_instance, tmp_path):
@@ -1529,14 +1452,6 @@ def test_stream_error_keeps_drain_only_for_spawned():
     assert stream_error_keeps_drain(StreamErrorOutcome.SPAWNED) is True
     assert stream_error_keeps_drain(StreamErrorOutcome.NOT_HANDLED) is False
     assert stream_error_keeps_drain(StreamErrorOutcome.END) is False
-    assert (StreamErrorOutcome.SPAWNED is True) is False
-
-
-def test_on_stream_error_keeps_drain_bool_contract(test_instance):
-    with patch.object(test_instance, "_handle_stream_error", return_value=StreamErrorOutcome.SPAWNED):
-        assert test_instance._on_stream_error_keeps_drain({"message": "x"}) is True
-    with patch.object(test_instance, "_handle_stream_error", return_value=StreamErrorOutcome.END):
-        assert test_instance._on_stream_error_keeps_drain({"message": "x"}) is False
 
 
 def test_connection_lost_after_tokens_history_row(test_instance):

@@ -8,30 +8,16 @@
 from __future__ import annotations
 
 import copy
-import re
-import shutil
-import subprocess
-from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from plugin.framework.tool import to_openai_schema, to_mcp_schema, ToolBase
 from plugin.framework.tool_schema import _normalize_schema_for_strict_providers
+from tests.harness.crosshair import assert_crosshair_clean
 
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.framework.tool_schema._normalize_schema_for_strict_providers"
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
 
 
 _scalar = st.sampled_from(["string", "integer", "number", "boolean"])
@@ -87,7 +73,7 @@ def test_optional_scalar_nullable() -> None:
 
 
 @given(schema=_schema)
-@settings(max_examples=60)
+@settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 def test_hypothesis_normalize_idempotent(schema: dict) -> None:
     # Compare against independent copies: if normalize mutated its input,
     # ``twice == once`` would compare one object with itself and always pass.
@@ -105,18 +91,4 @@ def test_hypothesis_normalize_idempotent(schema: dict) -> None:
 
 @pytest.mark.slow
 def test_crosshair_normalize_schema_fqn_if_available() -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", _CROSSHAIR_TARGET],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output:\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(_CROSSHAIR_TARGET)

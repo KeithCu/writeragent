@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Child stdio loop and the compute restricted unpickler.
 
-The parent pool lives in ``worker_base``, which re-exports the names here.
-Formula and vision children call ``run_compute_worker`` from ``worker_base``.
+The parent pool lives in ``worker_base``. Formula and vision children call
+``run_compute_worker`` from here.
 """
 
 from __future__ import annotations
@@ -20,11 +20,21 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from compute_service import error_codes as ec
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
-from plugin.framework.child_runtime import error_dict
+from plugin.framework.child_runtime import announce_ready, die_with_parent, error_dict
 
 log = logging.getLogger("compute_service.worker")
+
+# The repo root in a checkout, /app in the runner image.
+_SERVICE_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+
+def install_image_pkgs(project_root: str) -> None:
+    """Put the runner image's ``<root>/pkgs`` on sys.path by path; the scrubbed child env never carries ``PYTHONPATH``."""
+    pkgs = os.path.join(project_root, "pkgs")
+    if os.path.isdir(pkgs) and pkgs not in sys.path:
+        sys.path.insert(0, pkgs)
 
 # Allowed builtins for child->host and child stdin compute frames (strictly primitives/scalars/containers).
 _RESTRICTED_PICKLE_BUILTINS = frozenset({"dict", "list", "tuple", "set", "frozenset", "bytes", "bytearray", "str", "int", "float", "complex", "bool"})
@@ -84,7 +94,14 @@ def configure_compute_worker_env() -> None:
 
 
 def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> int:
-    """Stdio loop for a formula or vision child: marked as a compute worker (no office, no tool pipe), framed at the pool's payload cap."""
+    """Stdio loop for a formula or vision child: marked as a compute worker (no office, no tool pipe), framed at the pool's payload cap.
+
+    The child's path setup lives here: the pool scrubs PYTHONPATH from the
+    child env (plugin/framework/subprocess_env.py), so the image's pkgs
+    (numpy, pandas, ...) is added by path. It is added before the loop because
+    the handlers import those packages lazily, per request.
+    """
+    install_image_pkgs(_SERVICE_ROOT)
     os.environ["WRITERAGENT_IS_WORKER"] = "1"
     os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
     configure_compute_worker_env()
@@ -93,8 +110,6 @@ def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> i
 
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
-    from plugin.framework.child_runtime import die_with_parent
-
     die_with_parent()
 
     stdin_bin = sys.stdin.buffer
@@ -104,8 +119,6 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     stdout_bin = claim_ipc_channel()
 
     # Signal readiness to supervisor
-    from plugin.framework.child_runtime import announce_ready
-
     announce_ready(stdout_bin)
 
     _shutdown_requested = False
@@ -124,6 +137,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         pass
 
     try:
+        # optional vendored executor; the loop runs without it
         import plugin.contrib.smolagents.local_python_executor as _lpe
     except ImportError:
         _lpe = None  # type: ignore[assignment]

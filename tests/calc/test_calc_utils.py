@@ -12,13 +12,18 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.calc.calc_utils import (
+    NumberFormatCategories,
     cell_value_and_type,
+    classify_array_cell,
+    elapsed_format_key,
     get_cell_geometry,
     query_interface,
-    resolve_sheet,
+    resolve_document_locale,
     resolve_sheet_and_cell,
+    standard_temporal_format_keys,
 )
-from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+from plugin.framework.errors import DocumentDisposedError
+from plugin.tests.testing_utils import CalcDocStub
 
 
 class TestGetCellGeometry:
@@ -64,7 +69,7 @@ class TestGetCellGeometry:
 
 
 class TestSheetAndCellResolution:
-    """Tests for resolve_sheet, query_interface, and resolve_sheet_and_cell."""
+    """Tests for query_interface and resolve_sheet_and_cell."""
 
     def test_query_interface_none_object(self):
         assert query_interface(None, "com.sun.star.sheet.XSheetCondition") is None
@@ -73,28 +78,19 @@ class TestSheetAndCellResolution:
         obj = object()
         assert query_interface(obj, "com.sun.star.sheet.XSheetCondition") is None
 
-    def test_resolve_sheet_by_name_success(self):
-        mock_sheet = MagicMock()
-        mock_sheets = MagicMock()
-        mock_sheets.hasByName.return_value = True
-        mock_sheets.getByName.return_value = mock_sheet
+    def test_resolve_sheet_and_cell_with_sheet_prefix(self):
+        doc = CalcDocStub()
+        sheet = doc.getSheets().getByName("Sheet1")
+        # No active controller path for prefixed addresses — still resolves via getSheets.
+        doc.CurrentController = None
+        doc._controller = None
 
-        doc = MagicMock()
-        doc.getSheets.return_value = mock_sheets
-
-        assert resolve_sheet(doc, "Sheet2") is mock_sheet
-        mock_sheets.getByName.assert_called_once_with("Sheet2")
-
-    def test_resolve_sheet_by_name_not_found(self):
-        mock_sheets = MagicMock()
-        mock_sheets.hasByName.return_value = False
-        mock_sheets.getElementNames.return_value = ("Sheet1", "Sheet2")
-
-        doc = MagicMock()
-        doc.getSheets.return_value = mock_sheets
-
-        with pytest.raises(UnoObjectError, match="No sheet named 'NonExistent'"):
-            resolve_sheet(doc, "NonExistent")
+        resolved = resolve_sheet_and_cell(doc, "Sheet1.B2")
+        assert resolved is not None
+        got_sheet, col, row = resolved
+        assert got_sheet is sheet
+        assert col == 1
+        assert row == 1
 
     def test_resolve_sheet_and_cell_valid(self):
         mock_sheet = MagicMock()
@@ -204,5 +200,95 @@ class TestCellValueAndType:
         val, type_name = cell_value_and_type(cell)
         assert val == 99.0
         assert type_name == "value"
+
+
+def test_classify_array_cell():
+    assert classify_array_cell(None, "=1/0", True) == (None, "formula", "=1/0")
+    assert classify_array_cell("=abc", "=abc", False) == ("=abc", "text", None)
+    assert classify_array_cell(5.0, "{=A1:A2}", True) == (5.0, "formula", "{=A1:A2}")
+    assert classify_array_cell("", "", False) == (None, "empty", None)
+    assert classify_array_cell(0.0, "0", False) == (0.0, "value", None)
+
+
+def test_resolve_document_locale(monkeypatch):
+    monkeypatch.setattr(
+        "plugin.calc.calc_utils.uno.createUnoStruct",
+        lambda _name, **kw: SimpleNamespace(**kw),
+    )
+    de_locale = SimpleNamespace(Language="de", Country="DE", Variant="")
+    doc = MagicMock()
+    doc.getPropertyValue.return_value = de_locale
+    assert resolve_document_locale(doc) is de_locale
+
+    doc.getPropertyValue.return_value = SimpleNamespace(Language="", Country="", Variant="")
+    fallback = resolve_document_locale(doc)
+    assert fallback.Language == "en"
+    assert fallback.Country == "US"
+
+    doc.getPropertyValue.side_effect = KeyError("CharLocale")
+    fallback_err = resolve_document_locale(doc)
+    assert fallback_err.Language == "en"
+    assert fallback_err.Country == "US"
+
+    class DisposedException(Exception):
+        pass
+
+    doc.getPropertyValue.side_effect = DisposedException("disposed")
+    with pytest.raises(DisposedException):
+        resolve_document_locale(doc)
+
+
+def test_elapsed_format_key_falls_back_to_query_key():
+    locale = SimpleNamespace(Language="en", Country="US", Variant="")
+    formats = MagicMock()
+    formats.getFormatIndex.return_value = 64
+    assert elapsed_format_key(formats, locale) == 64
+
+    formats.getFormatIndex.side_effect = RuntimeError("no index")
+    formats.queryKey.return_value = -1
+    formats.addNew.return_value = 123
+    assert elapsed_format_key(formats, locale) == 123
+    formats.queryKey.assert_called_once_with("[HH]:MM:SS", locale, False)
+    formats.addNew.assert_called_once_with("[HH]:MM:SS", locale)
+
+
+def test_standard_temporal_format_keys():
+    locale = SimpleNamespace(Language="en", Country="US", Variant="")
+    formats = MagicMock()
+    formats.getStandardFormat.side_effect = lambda fmt_type, _loc: {2: 37, 4: 63, 6: 70}[fmt_type]
+    formats.getFormatIndex.return_value = 64
+    assert standard_temporal_format_keys(formats, locale) == {
+        "date": 37,
+        "time": 63,
+        "datetime": 70,
+        "duration": 64,
+    }
+
+
+def test_number_format_categories_reads_each_key_once():
+    props = MagicMock()
+    props.getPropertyValue.side_effect = lambda name: 3 if name == "Type" else "YYYY-MM-DD"
+    formats = MagicMock()
+    formats.getByKey.return_value = props
+
+    categories = NumberFormatCategories(formats)
+    assert categories.lookup(40) == ("date", "YYYY-MM-DD")
+    assert categories.lookup(40) == ("date", "YYYY-MM-DD")
+    assert categories.category(40) == "date"
+    formats.getByKey.assert_called_once_with(40)
+
+
+def test_number_format_categories_does_not_remember_a_failed_read():
+    props = MagicMock()
+    props.getPropertyValue.side_effect = lambda name: 3 if name == "Type" else "YYYY-MM-DD"
+    formats = MagicMock()
+    formats.getByKey.side_effect = [RuntimeError("transient"), props]
+
+    categories = NumberFormatCategories(formats)
+    with pytest.raises(RuntimeError, match="transient"):
+        categories.lookup(40)
+
+    assert categories.category(40) == "date"
+    assert formats.getByKey.call_count == 2
 
 

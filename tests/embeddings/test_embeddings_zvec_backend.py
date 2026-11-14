@@ -28,11 +28,6 @@ from plugin.embeddings.venv.embeddings_zvec import (
 )
 
 
-def test_has_zvec_is_boolean():
-    """The guard flag must always be a bool (True only when import succeeded)."""
-    assert isinstance(zv.HAS_ZVEC, bool)
-
-
 def test_stable_doc_id_shape():
     """_stable_doc_id (internal) produces a non-empty str for a typical row dict."""
     # The helper is not exported in __all__, but is present for the implementation.
@@ -40,17 +35,6 @@ def test_stable_doc_id_shape():
     doc_id = zv._stable_doc_id(row)  # type: ignore[attr-defined]
     assert isinstance(doc_id, str) and len(doc_id) == 64
     assert re.match(r"^[a-f0-9]{64}$", doc_id) is not None
-
-
-@pytest.mark.skipif(not zv.HAS_ZVEC, reason="zvec package not installed in this test python; user opt-in via their embeddings venv")
-def test_zvec_import_and_symbols_when_present():
-    """When zvec *is* present, the public surface we dispatch to must exist."""
-    assert hasattr(zv, "zvec_knn_search")
-    assert hasattr(zv, "zvec_hybrid_search")
-    assert hasattr(zv, "zvec_ingest_rows")
-    assert hasattr(zv, "zvec_delete_keys")
-    assert hasattr(zv, "maintain_folder_zvec")
-    # Basic schema construction would exercise the real zvec here (left as integration smoke in manual test on ~/Desktop/Writing).
 
 
 def test_hit_shape_helper_does_not_crash_on_minimal_doc():

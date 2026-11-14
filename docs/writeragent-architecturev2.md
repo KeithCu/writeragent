@@ -172,7 +172,7 @@ The quality of a product is hidden in the details. WriterAgent includes:
 
 #### Static Analysis & Type Checking
 
-`make typecheck` runs **seven tools in parallel**: `ty` (Astral, primary checker), `basedpyright` (strict), `mypy` (second opinion), `bandit` (security SAST), `opengrep` (Semgrep-style rules including UNO thread-safety taint), `pyspector` (AI/taint SAST), and a custom **thread-safety linter** (AST + call-graph deadlock analysis). The configured include set (`plugin/`, `compute_service/`) is green; a documented cleanup fixed ~141 issues across 40+ files from an initial 1000+ diagnostics (mostly vendored/test code).
+`make typecheck-full` (and `make typecheck` when `CI=true` or `TYPECHECK_FULL=1`) runs **seven tools in parallel**: `ty` (Astral, primary checker), `basedpyright` (strict, library-source walk), `mypy` (second opinion), `bandit` (security SAST), `opengrep` (Semgrep-style rules including UNO thread-safety taint), `pyspector` (AI/taint SAST), and a custom **thread-safety linter** (AST + call-graph deadlock analysis). Default local `make typecheck` runs `ty` full plus `basedpyright`, `mypy`, `bandit`, `opengrep`, and `pyspector` incrementally on staged, unstaged, and untracked Python files (run `make typecheck` before each commit; skips the thread-safety linter). The configured include set (`plugin/`, `compute_service/`) is green; a documented cleanup fixed ~141 issues across 40+ files from an initial 1000+ diagnostics (mostly vendored/test code).
 
 #### A Disciplined Exception Policy
 

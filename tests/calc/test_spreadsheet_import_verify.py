@@ -38,7 +38,7 @@ def _build_sample() -> tuple[SheetModel, OutputSheetModel, ConversionReport]:
         data_array=data,
         formula_array=formulas,
     )
-    output, report = build_converted_output_model(model)
+    output, report = build_converted_output_model(model, vectorize=False)
     return model, output, report
 
 

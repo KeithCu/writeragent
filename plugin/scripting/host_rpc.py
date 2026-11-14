@@ -26,6 +26,7 @@ protocol is added here.
 
 from __future__ import annotations
 
+import difflib
 import functools
 import inspect
 import logging
@@ -34,7 +35,10 @@ from typing import Any, Callable
 
 from plugin.framework.errors import resolve_exception_message
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.thread_guard import in_sync_host_dispatch
+from plugin.framework.uno_context import get_active_document, get_ctx
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +57,9 @@ _ALWAYS_ALLOWED = frozenset({"list_open_documents"})
 # RPC is unrestricted or the allowlist is a non-empty domain: these names are
 # not in DOMAIN_TOOLS, so a domain list would otherwise hide wa.scripts / wa.doc.
 _NAMED_SCRIPT_TOOLS = frozenset({"get_named_python_script", "list_named_python_scripts"})
+
+# Read-only API help lookup for wa.help() in sandboxed scripts.
+WRITERAGENT_HELP_TOOL = "writeragent_help"
 
 
 def _domain_tools_map() -> dict[str, list[str]] | None:
@@ -167,10 +174,10 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
         names = domain_proxy_tool_names(part)
         if names is None:
             # LibrePy's domain_proxy_tool_names returns None when writeragent_api
-            # is not installed. Treating that None as an empty allowlist refused
-            # every document tool with the =PY() disabled message. None means
-            # unrestricted, matching python_tool_domain is None. A real unknown
-            # domain name is an empty set, not None.
+            # is not installed. None means unrestricted, matching python_tool_domain
+            # None; treating it as an empty allowlist would refuse every document tool
+            # with the =PY() disabled message. A real unknown domain name is an empty
+            # set, not None.
             return None
         allowed |= names
     # Blocked even when a domain entry lists it (``DOMAIN_TOOLS['python']``).
@@ -204,7 +211,6 @@ def _proxy_methods_by_tool() -> dict[str, Any] | None:
     return found
 
 
-
 def _format_proxy_call(namespace: str, method: Any) -> str:
     """``wa.shape.upsert(action, *, ...)`` without the return annotation.
 
@@ -218,6 +224,13 @@ def _format_proxy_call(namespace: str, method: Any) -> str:
         sig = sig.replace(return_annotation=inspect.Signature.empty)
     safe_ns = re.sub(r"\W", "_", namespace)
     return f"wa.{safe_ns}.{method.__name__}{sig}"
+
+
+def _format_proxy_entry(namespace: str, method: Any) -> str:
+    """Format one ``wa.<namespace>.<method>(...)`` signature plus docstring."""
+    doc = inspect.cleandoc(getattr(method, "__doc__", None) or "")
+    call = _format_proxy_call(namespace, method)
+    return f"{call}\n{doc}" if doc else call
 
 
 def _catalog_lead(namespaces: list[str]) -> str:
@@ -234,6 +247,7 @@ def _catalog_lead(namespaces: list[str]) -> str:
         "Only the Python script may call these wa.* functions; they are not additional LLM tool names. "
         "Inside the script, import writeragent as wa and call the listed APIs."
         f"{example} "
+        "Call wa.help() to list namespaces or wa.help('namespace.method') for signatures and arguments. "
         "When the work is bulk or scripted, do that domain work in one run_venv_python_script."
     )
 
@@ -265,9 +279,7 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
             if method is None:
                 log.warning("script API catalog: no proxy method for %s", tool_name)
                 continue
-            doc = inspect.cleandoc(getattr(method, "__doc__", None) or "")
-            call = _format_proxy_call(namespace, method)
-            entries.append(f"{call}\n{doc}" if doc else call)
+            entries.append(_format_proxy_entry(namespace, method))
         if entries:
             blocks.append(f"{namespace}:")
             blocks.append("\n\n".join(entries))
@@ -276,6 +288,69 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
         return ""
     blocks = [_catalog_lead(namespaces), "", *blocks]
     return "\n".join(blocks).rstrip() + "\n"
+
+
+def format_script_api_help(
+    name: str | None = None,
+    *,
+    allowed_tools: frozenset[str] | None = None,
+) -> str:
+    """Return generated signature/docstring help for ``wa.help()``.
+
+    Shares ``_format_proxy_entry`` with ``format_script_api_catalog`` so the
+    runtime help output cannot drift from the prompt catalog.
+    """
+    tools = _domain_tools_map()
+    methods = _proxy_methods_by_tool()
+    if tools is None or not methods:
+        return "writeragent API proxies are not available in this build."
+
+    by_qualified: dict[str, tuple[str, Any]] = {}
+    by_tool: dict[str, tuple[str, Any]] = {}
+    ns_methods: dict[str, list[str]] = {}
+    for namespace, tool_names in tools.items():
+        safe_ns = re.sub(r"\W", "_", namespace)
+        for tool_name in tool_names:
+            if tool_name in _BLOCKED_FROM_VENV:
+                continue
+            if allowed_tools is not None and tool_name not in allowed_tools:
+                continue
+            method = methods.get(tool_name)
+            if method is None:
+                continue
+            by_qualified[f"{safe_ns}.{method.__name__}"] = (namespace, method)
+            by_tool[tool_name] = (namespace, method)
+            ns_methods.setdefault(safe_ns, []).append(method.__name__)
+
+    if name is None or not name.strip():
+        if not ns_methods:
+            return "No writeragent APIs are available in this Python tool domain."
+        lines = ["Available wa.<namespace>.<method> APIs (call wa.help('namespace.method') for details):"]
+        for safe_ns in sorted(ns_methods):
+            lines.append(f"{safe_ns}: {', '.join(sorted(ns_methods[safe_ns]))}")
+        return "\n".join(lines)
+
+    target = name.strip()
+    if target.startswith("wa."):
+        target = target[3:]
+    elif target.startswith("writeragent."):
+        target = target[12:]
+
+    if target in by_qualified:
+        ns, method = by_qualified[target]
+        return _format_proxy_entry(ns, method)
+    if target in by_tool:
+        ns, method = by_tool[target]
+        return _format_proxy_entry(ns, method)
+    if target in ns_methods:
+        method_list = ", ".join(sorted(ns_methods[target]))
+        return f"{target}: {method_list}\nCall wa.help('{target}.<method>') for signature and arguments."
+
+    candidates = sorted(set(by_qualified) | set(ns_methods))
+    close = difflib.get_close_matches(target, candidates, n=5, cutoff=0.4)
+    if close:
+        return f"Unknown API {name!r}. Close matches: {', '.join(close)}. Call wa.help() to list all namespaces."
+    return f"Unknown API {name!r}. No close matches found. Call wa.help() to list all namespaces."
 
 def format_script_api_catalog(domains: list[str]) -> str:
     """Script-callable API catalog: ``core`` plus each delegated domain.
@@ -291,18 +366,14 @@ def format_script_api_catalog(domains: list[str]) -> str:
 
 
 def _script_target_doc(uno_ctx: Any, script_session_id: str | None) -> Any:
-    # A venv tool must not always use the focused document. A PPT-Master
-    # turn started on deck A exported into B after the user switched
-    # windows, because the frame URL lived only inside the child payload
-    # and this RPC had no session id. Named scripts already resolve
-    # document_for_script_session before get_active_document. The IPC
-    # request carries ppt_master:{url}, and that lookup matches the open
-    # component's URL. Chat run_venv_python_script passes a doc: pin of
-    # ctx.doc the same way. That pin is host-only and is not the worker
-    # namespace id.
-    # Passed from the worker turn. A process-global was overwritten by the
-    # embeddings pool, so wa.doc followed the focused window.
-    from plugin.framework.uno_context import get_active_document
+    # A venv tool targets the document of its worker turn, not the focused
+    # window. The request carries ppt_master:{url} (PPT-Master) or a host-only
+    # doc: pin of ctx.doc (chat run_venv_python_script), and
+    # document_for_script_session matches it to the open component, so a turn
+    # started on deck A still exports into A after the user switches windows.
+    # The id comes from the turn, not from a process-global that another pool
+    # (embeddings) would overwrite. The pin is not the worker namespace id.
+    # Only when nothing matches does the focused document win.
     from plugin.scripting.session_manager import document_for_script_session
 
     doc = document_for_script_session(uno_ctx, script_session_id)
@@ -325,11 +396,10 @@ def execute_tool(
         raise RuntimeError(
             f"Tool {tool_name!r} cannot run from a venv script (it would re-enter the worker)."
         )
-    # Named-script tools must hit this gate. Dispatching them first let =PY()
-    # recalc, which passes an empty allowlist, return every user script's
-    # source from get_named_python_script and list_named_python_scripts. An
-    # empty allowlist is recalc-only and refuses those tools with the same
-    # error as every other tool. A non-empty domain allowlist still reaches
+    # Named-script tools must hit this gate first. An empty allowlist means
+    # =PY() recalc; dispatching them before it would let recalc return every
+    # user script's source from get_named_python_script and
+    # list_named_python_scripts. A non-empty domain allowlist still reaches
     # the named-script branch below.
     if allowed_tools is not None and not allowed_tools:
         raise RuntimeError(
@@ -337,11 +407,15 @@ def execute_tool(
             "Use Run Python Script… to call writeragent tools."
         )
     payload = args if isinstance(args, dict) else {}
+    if tool_name == WRITERAGENT_HELP_TOOL:
+        raw_name = payload.get("name")
+        return format_script_api_help(
+            raw_name if isinstance(raw_name, str) else None,
+            allowed_tools=allowed_tools,
+        )
     if tool_name in _NAMED_SCRIPT_TOOLS:
-        from plugin.framework.queue_executor import main
-        from plugin.framework.thread_guard import in_sync_host_dispatch
-
-        # Off-main callers cannot wait on main.call (deadlock #402).
+        # Inside a synchronous host dispatch off the main thread, the main thread
+        # is waiting on this one, so main.call would deadlock (thread_guard.sync_host_dispatch).
         # =PY() recalc never reaches here: its allowlist is empty and refused above.
         # User scripts are a config dict. Document scripts need UNO.
         if in_sync_host_dispatch() and not main.is_current():
@@ -357,7 +431,6 @@ def execute_tool(
         try:
             from plugin.framework.doc_type import is_calc, is_draw, is_writer
             from plugin.framework.tool import ToolContext
-            from plugin.framework.uno_context import get_ctx
             from plugin.app import get_tools
         except ImportError as exc:
             raise RuntimeError(
@@ -391,8 +464,6 @@ def execute_tool(
         is_async = tool is not None and tool.is_async()
         return registry, tctx, is_async
 
-    from plugin.framework.queue_executor import main
-
     # We keep two hops; collapsing resolve+execute into one hop changes queue semantics/races.
     # Known window: the doc in tctx is resolved in the first hop and used in the second,
     # so it can be closed in between and the tool then sees a dead UNO proxy
@@ -406,7 +477,6 @@ def execute_tool(
 
 
 def _document_script_store(script_session_id: str | None) -> dict[str, str]:
-    from plugin.framework.uno_context import get_ctx
     from plugin.scripting.document_scripts import get_document_scripts
 
     uno_ctx = get_ctx()
@@ -501,11 +571,10 @@ def handle_tool_call_frame(
                 _error_frame(f"Result not serializable: {exc}"), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
             )
 
-        # A broken worker pipe raises from stdin_write (e.g. ValueError when
-        # writing to a closed file in Python, or OSError). Letting that escape
-        # aborted the stop path, so the child never received USER_STOPPED and
-        # kept calling tools after the sidebar went idle (or the host replayed
-        # Pipe write failures are logged without aborting the worker loop so Stop and further frames can still be processed.
+        # A broken worker pipe makes stdin_write raise (ValueError when writing to
+        # a closed file, or OSError). Log it and do not let it escape: an escaping
+        # error would abort the Stop path, so the child would never get
+        # USER_STOPPED and could keep calling tools after the sidebar went idle.
         try:
             stdin_write(frame)
         except (OSError, ValueError):
@@ -519,10 +588,10 @@ def handle_tool_call_frame(
     if args is not None and not isinstance(args, dict):
         _reply(_error_frame("args must be a dictionary"))
         return True
-    # Stop was checked once before the venv turn, so the child kept calling
-    # host tools, including export, after the sidebar went idle. The same
-    # scope the LLM frame already receives refuses the call and tells the
-    # child to end with USER_STOPPED.
+    # Stop is checked once before the venv turn; without this check the child
+    # could keep calling host tools, including export, after the sidebar went
+    # idle. The same scope the LLM frame receives refuses the call and tells
+    # the child to end with USER_STOPPED.
     if is_cancelled(cancel):
         _reply(
             _error_frame("Stopped by user.", code="USER_STOPPED"),
@@ -543,8 +612,8 @@ def handle_tool_call_frame(
     except Exception as exc:
         log.exception("venv tool_call %s failed", tool_name)
         # Copy code onto the response when the exception has one
-        # (ToolExecutionError code="USER_STOPPED", domain codes). A payload of
-        # only status and message hid that code from the child worker.
+        # (ToolExecutionError code="USER_STOPPED", domain codes); a payload of
+        # only status and message would hide that code from the child worker.
         err_code = getattr(exc, "code", None)
         # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
         tool_response = _error_frame(resolve_exception_message(exc), code=str(err_code) if err_code else None)

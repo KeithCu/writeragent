@@ -13,32 +13,18 @@ from plugin.calc.formula_dep_chain import (
     _MAX_PRECEDENT_CELLS,
     _cell_snapshot,
     _precedents_via_formula_query,
-    _resolve_sheet_and_cell,
     fetch_formula_dep_chain,
 )
 from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
 
 
-def test_resolve_sheet_and_cell_with_sheet_prefix():
-    doc = CalcDocStub()
-    sheet = doc.getSheets().getByName("Sheet1")
-    # No active controller path for prefixed addresses — still resolves via getSheets.
-    doc.CurrentController = None
-    doc._controller = None
-
-    resolved = _resolve_sheet_and_cell(doc, "Sheet1.B2")
-    assert resolved is not None
-    got_sheet, col, row = resolved
-    assert got_sheet is sheet
-    assert col == 1
-    assert row == 1
-
-
 def test_fetch_formula_dep_chain_uses_command_values_when_available():
     doc = CalcDocStub(command_values='{"commandValues": {"root": {"address": "B2"}}}')
 
-    with patch("plugin.calc.navigation.navigate_to_cell"):
+    with patch("plugin.calc.formula_dep_chain.navigate_to_cell") as nav:
         chain = fetch_formula_dep_chain(doc, MagicMock(), "B2")
+
+    nav.assert_called_once_with(doc, "B2")
 
     assert chain is not None
     assert chain.get("source") == "uno_formula_dep_chain"
@@ -49,7 +35,7 @@ def test_fetch_formula_dep_chain_falls_back_to_formula_query():
     doc = CalcDocStub()
 
     fallback = {"source": "formula_query", "precedents": [{"address": "A1", "type": "value"}]}
-    with patch("plugin.calc.navigation.navigate_to_cell"), patch(
+    with patch("plugin.calc.formula_dep_chain.navigate_to_cell"), patch(
         "plugin.calc.formula_dep_chain._precedents_via_formula_query",
         return_value=fallback,
     ):
@@ -65,7 +51,7 @@ def test_fetch_formula_dep_chain_continues_when_navigation_raises():
     # navigate_to_cell. That must not skip getCommandValues.
     doc = CalcDocStub(command_values='{"commandValues": {"root": {"address": "B2"}}}')
 
-    with patch("plugin.calc.navigation.navigate_to_cell", side_effect=RuntimeError("disposed")):
+    with patch("plugin.calc.formula_dep_chain.navigate_to_cell", side_effect=RuntimeError("disposed")):
         chain = fetch_formula_dep_chain(doc, MagicMock(), "B2")
 
     assert chain is not None
@@ -77,7 +63,7 @@ def test_fetch_formula_dep_chain_falls_back_when_navigation_raises():
     doc = CalcDocStub()
     fallback = {"source": "formula_query", "precedents": [{"address": "A1"}], "truncated": False}
 
-    with patch("plugin.calc.navigation.navigate_to_cell", side_effect=RuntimeError("headless")), patch(
+    with patch("plugin.calc.formula_dep_chain.navigate_to_cell", side_effect=RuntimeError("headless")), patch(
         "plugin.calc.formula_dep_chain._precedents_via_formula_query",
         return_value=fallback,
     ):
@@ -284,23 +270,6 @@ def test_precedents_via_formula_query_reports_whole_column_total(monkeypatch):
     assert result["total_cells"] == 1048576
     assert result["truncated"] is True
     assert len(result["precedents"]) == _MAX_PRECEDENT_CELLS
-
-
-def test_precedents_via_formula_query_reads_sheet_name_once(monkeypatch):
-    calls: list[tuple[int, int]] = []
-    sheet = _sheet_with_precedent_ranges(
-        monkeypatch,
-        [SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=1, StartRow=0, EndRow=1)],
-        calls,
-    )
-    name_calls: list[int] = []
-    sheet.getName = lambda: (name_calls.append(1), "Sheet1")[1]
-    doc = SimpleNamespace(getSheets=lambda: SimpleNamespace(getByIndex=lambda _idx: sheet))
-
-    result = _precedents_via_formula_query(sheet, 0, 0, doc)
-
-    assert len(name_calls) == 1
-    assert len(result["precedents"]) == 4
 
 
 def test_cell_snapshot_formula_text_and_error(monkeypatch):

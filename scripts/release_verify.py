@@ -54,8 +54,6 @@ DESELECTED_K = (
     # Same: its DEBUG half expects a stripped log.debug payload.
     "test_styling_logging_counts_not_payloads",
     "test_slash_compact_lane_status_callback_logs",
-    # --strip drops grammar_obs calls, so this grammar_obs assert has nothing to see.
-    "test_locale_mismatch_proceeds_and_double_caches",
     # The bundle has no source extension/Addons.xcu (build_oxt strips Debug from its copy).
     "test_hamburger_menu_commands_parity_with_addons_xcu",
     # --strip drops log.info calls, so the TLS-error caplog check sees nothing.
@@ -78,7 +76,6 @@ DESELECTED_K = (
     "test_dispatch_client_disconnect_is_not_a_500",
     "test_dispatch_body_read_reset_does_not_write_a_500",
     "test_fail_open_logs_capability_error",
-    "test_resolve_work_spans",
     "test_split_debug_summary_is_one_gated_line",
 )
 

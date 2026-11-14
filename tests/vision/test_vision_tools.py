@@ -85,16 +85,6 @@ def test_extract_structure_hidden_when_vision_unavailable(_mock_avail, writer_do
     assert "extract_structure_from_image" not in names
 
 
-def test_extract_structure_description_mentions_text_and_structure():
-    tool = ExtractStructureFromImage()
-    text = f"{tool.description} {tool.parameters['properties']['insert_into_document']['description']}"
-    lowered = text.lower()
-    assert "text and structure" in lowered
-    assert "high-quality representation" in lowered
-    for banned in ("html", "docling", "rapidocr", "paddle"):
-        assert banned not in lowered
-
-
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_delegate_writer_gateway_includes_vision(_mock_avail):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
@@ -256,7 +246,6 @@ def test_vision_directive_draw_names_draw_gateway(_mock_avail):
     doc.supportsService.side_effect = lambda svc: svc in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
     text = get_vision_core_directive(doc, MagicMock())
     assert 'delegate_to_specialized_draw_toolset(domain="vision"' in text
-    assert "nothing is inserted" in text.lower()
 
 
 def test_supports_vision_manual_true_for_draw():
@@ -319,27 +308,11 @@ def test_delegate_vision_requires_document_lock_when_sub_agent():
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
+def test_get_vision_core_directive_calc_when_available(_mock_avail, calc_doc):
     from plugin.vision.vision_availability import get_vision_core_directive
 
-    text = get_vision_core_directive(writer_doc, MagicMock())
-    assert "domain=\"vision\"" in text
-    assert "text and structure" in text
-    assert "high-quality" in text
-    assert "selected graphic" in text
-    assert "task is ignored" in text
-    assert "must use this call to perform OCR" in text
-    lowered = text.lower()
-    for banned in ("html", "docling", "rapidocr", "recognized text"):
-        assert banned not in lowered
-
-
-def test_images_guidance_names_structure_tool():
-    from plugin.framework.prompts import WRITER_IMAGES_RULES
-
-    assert "extract_structure_from_image" in WRITER_IMAGES_RULES
-    assert "extract_text_from_image" not in WRITER_IMAGES_RULES
-    assert "text and structure" in WRITER_IMAGES_RULES.lower()
+    text = get_vision_core_directive(calc_doc, MagicMock())
+    assert 'delegate_to_specialized_calc_toolset(domain="vision"' in text
 
 
 @patch("plugin.framework.queue_executor.main.call")

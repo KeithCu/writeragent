@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeGuard
 
 
 SNAPSHOT_HEADER = "[DOCUMENT CONTENT — current state, not written by the user]"  # U+2014
@@ -127,6 +127,62 @@ def split_snapshot_text(content: Any) -> tuple[Any, str | None]:
     return content, snap
 
 
+def _attach_cache_control(content: Any, control: dict[str, str]) -> Any | None:
+    """Attach cache_control to the last non-empty text block in content.
+
+    Returns the updated content structure (without mutating the input), or
+    None if the content has no non-empty text (or is whitespace-only). A plain
+    string becomes a single text block list so cache_control can be attached.
+    """
+    if isinstance(content, str):
+        if not content.strip():
+            return None
+        return [{"type": "text", "text": content, "cache_control": control}]
+    if isinstance(content, list):
+        for i in range(len(content) - 1, -1, -1):
+            part = content[i]
+            if isinstance(part, dict) and part.get("type") == "text":
+                txt = part.get("text")
+                if isinstance(txt, str) and txt.strip():
+                    new_part = dict(part, cache_control=control)
+                    new_content = list(content)
+                    new_content[i] = new_part
+                    return new_content
+            elif isinstance(part, str) and part.strip():
+                new_part = {"type": "text", "text": part, "cache_control": control}
+                new_content = list(content)
+                new_content[i] = new_part
+                return new_content
+        return None
+    return None
+
+
+def _mark_opening_system(
+    messages: list[dict[str, Any]], control: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Attach control to the last opening system or developer message's last text block.
+
+    Walks from index 0 while the role is system or developer. Stops at the first
+    other role so a mid-conversation system message is never marked as the system
+    breakpoint. Returns messages unchanged if no opening system message with non-empty
+    text exists.
+    """
+    last_idx = -1
+    for i, msg in enumerate(messages):
+        if not isinstance(msg, dict) or msg.get("role") not in ("system", "developer"):
+            break
+        last_idx = i
+    if last_idx < 0:
+        return messages
+    msg = messages[last_idx]
+    new_content = _attach_cache_control(msg.get("content"), control)
+    if new_content is None:
+        return messages
+    new_messages = list(messages)
+    new_messages[last_idx] = dict(msg, content=new_content)
+    return new_messages
+
+
 def _mark_part(messages: list[dict[str, Any]], msg_i: int, part_i: int) -> list[dict[str, Any]]:
     """Return a shallow copy of messages with an ephemeral cache marker on the chosen block."""
     msg = messages[msg_i]
@@ -148,17 +204,27 @@ def _mark_part(messages: list[dict[str, Any]], msg_i: int, part_i: int) -> list[
     return new_messages
 
 
-def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Place Anthropic ephemeral cache marker on the block before the snapshot.
+def annotate_anthropic_cache(
+    messages: list[dict[str, Any]],
+    *,
+    system_cache_control: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Place cache breakpoints on the opening system prompt and before the trailing snapshot.
 
+    When system_cache_control is provided, the last opening system or developer
+    message gets that breakpoint attached to its last text block.
     For a user send (or native Anthropic tool round where the snapshot is
-    placed as a trailing text block), the marker is set on the block preceding
-    the tail block. For an OpenRouter Claude tool round ending in a tool
-    message with a snapshot, the snapshot is stripped into a trailing user
-    message and the tool result is marked.
+    placed as a trailing text block), an ephemeral marker is set on the block
+    preceding the tail block. For an OpenRouter Claude tool round ending in a
+    tool message with a snapshot, the snapshot is stripped into a trailing user
+    message and the tool result is marked. The live snapshot itself is never
+    marked.
     """
     if not messages:
         return messages
+
+    if system_cache_control is not None:
+        messages = _mark_opening_system(messages, system_cache_control)
 
     last_msg = messages[-1]
     if not isinstance(last_msg, dict):
@@ -256,8 +322,43 @@ def openai_model_leaf(model_name: str | None) -> str:
     return name
 
 
+def is_anthropic_message_id(value: Any) -> TypeGuard[str]:
+    """Return True if value matches Anthropic message ID shape (msg_ prefix, max 256 chars)."""
+    return isinstance(value, str) and value.startswith("msg_") and len(value) <= 256
+
+
+def anthropic_response_cache_facts(chunk: Any) -> tuple[str | None, Any] | None:
+    """Extract message ID and diagnostics object from an Anthropic SSE chunk or sync response.
+
+    Returns (message_id, diagnostics) for 'message_start' SSE events and sync
+    'message' envelopes, or None for all other chunks. The message_id slot is
+    populated only when the ID is a string starting with 'msg_' of at most 256
+    characters; otherwise it is None.
+    """
+    if not isinstance(chunk, dict):
+        return None
+
+    msg_type = chunk.get("type")
+    if msg_type == "message_start":
+        message = chunk.get("message")
+        if isinstance(message, dict):
+            raw_id = message.get("id")
+            diag = message.get("diagnostics")
+        else:
+            raw_id = None
+            diag = None
+    elif msg_type == "message":
+        raw_id = chunk.get("id")
+        diag = chunk.get("diagnostics")
+    else:
+        return None
+
+    msg_id = raw_id if is_anthropic_message_id(raw_id) else None
+    return msg_id, diag
+
+
 def cache_read_count(usage: Any) -> int | None:
-    """Return cached input token count from Anthropic or OpenAI usage dict, or None."""
+    """Return cached input token count from Anthropic, OpenAI, or DeepSeek usage dict, or None."""
     if not isinstance(usage, dict):
         return None
     c = usage.get("cache_read_input_tokens")
@@ -268,4 +369,7 @@ def cache_read_count(usage: Any) -> int | None:
         c = details.get("cached_tokens")
         if isinstance(c, int) and not isinstance(c, bool):
             return c
+    c = usage.get("prompt_cache_hit_tokens")
+    if isinstance(c, int) and not isinstance(c, bool):
+        return c
     return None

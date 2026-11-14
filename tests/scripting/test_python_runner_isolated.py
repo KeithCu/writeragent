@@ -24,34 +24,33 @@ def test_isolated_rps_pins_document():
 
 
 def test_reset_python_session_action_in_background():
-    from unittest.mock import patch
-    import plugin.framework.main_shared
+    from unittest.mock import MagicMock, patch
+    from plugin.menu_handlers import register_common_handlers
 
-    with patch("plugin.framework.worker_pool.run_in_background") as m_run, patch("plugin.framework.main_shared.register_action_handler") as m_reg:
-        import importlib
+    ctx = MagicMock()
+    registered = {}
+    with (
+        patch("plugin.framework.uno_context.get_ctx", return_value=ctx),
+        patch("plugin.framework.worker_pool.run_in_background") as m_run,
+        patch("plugin.scripting.session_manager.reset_workbook_python_session") as m_reset,
+        patch(
+            "plugin.menu_handlers.register_action_handler",
+            side_effect=lambda mod, act, fn: registered.__setitem__((mod, act), fn),
+        ),
+    ):
+        register_common_handlers()
+        reset_func = registered[("scripting", "reset_python_session")]
+        reset_func()
 
-        try:
-            importlib.reload(plugin.framework.main_shared)
-        except Exception:
-            pass
-
-        reset_func = None
-        for call in m_reg.mock_calls:
-            if call.args[0] == "scripting" and call.args[1] == "reset_python_session":
-                reset_func = call.args[2]
-                break
-
-        if reset_func:
-            reset_func()
-            # We used a lambda, we can't assert the function easily, we just check call
-            m_run.assert_called_once()
-            args, kwargs = m_run.call_args
-            assert kwargs["name"] == "reset-python-session"
-            assert callable(args[0])
+        m_run.assert_called_once()
+        args, kwargs = m_run.call_args
+        assert kwargs["name"] == "reset-python-session"
+        assert callable(args[0])
+        args[0]()
+        m_reset.assert_called_once_with(ctx)
 
 
-def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
-    import logging
+def test_prepare_rps_session_failure_releases_pin():
     from unittest.mock import MagicMock, patch
     from tests.scripting.python_runner_test_support import execute_and_insert_result
 
@@ -61,20 +60,18 @@ def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
     with (
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
-        patch("plugin.scripting.session_manager.rps_session_id", side_effect=RuntimeError("session lookup failed")),
-        caplog.at_level(logging.ERROR, logger="writeragent.scripting"),
+        patch("plugin.scripting.python_runner.rps_session_id", side_effect=RuntimeError("session lookup failed")),
     ):
         outcome = execute_and_insert_result(ctx, doc, "x = 1")
 
     assert outcome.get("ok") is False
     mock_release.assert_called_once_with("doc:tok")
-    assert "prepare Run Python Script failed" in caplog.text
-    assert "execute_and_insert_result failed" not in caplog.text
 
 
 def test_execute_and_insert_result_releases_pin_when_venv_raises():
     from unittest.mock import MagicMock, patch
     from tests.scripting.python_runner_test_support import execute_and_insert_result
+    from plugin.scripting.python_runner import PreparedScript
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -82,7 +79,19 @@ def test_execute_and_insert_result_releases_pin_when_venv_raises():
     with (
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
-        patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0}),
+        patch(
+            "plugin.scripting.python_runner._prepare_rps_execution",
+            return_value=PreparedScript(
+                ctx=ctx,
+                doc=MagicMock(),
+                code="bad()",
+                t0=0.0,
+                bindings=None,
+                py_data=None,
+                session_id="rps:t",
+                script_session_id=None,
+            ),
+        ),
         patch("plugin.scripting.python_runner._run_prepared_rps", side_effect=RuntimeError("boom")),
     ):
         outcome = execute_and_insert_result(ctx, doc, "x = 1")

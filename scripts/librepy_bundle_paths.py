@@ -42,8 +42,9 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
     "plugin/contrib/scripting/assets/editor/": (),
     "plugin/contrib/nbformat/": (),
     "plugin/notebook/": (),
-    # Excel Python-in-Excel → DAG =PY auto-convert on open (stdlib OOXML + optional openpyxl write).
-    "plugin/calc/excel_py_convert/": (),
+    # Excel Python-in-Excel → DAG =PY auto-convert on open and export on save (stdlib OOXML only).
+    # The command-line converter (cli.py and the __main__.py that imports it) is WriterAgent-only for now.
+    "plugin/calc/excel_py_convert/": ("cli.py", "__main__.py"),
 }
 
 # Explicit files outside the directory rules above.
@@ -71,13 +72,10 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/calc/datetime_wire.py",
     "plugin/calc/inspector.py",
     "plugin/calc/analyzer.py",
-    "plugin/calc/error_detector.py",
     "plugin/calc/navigation.py",
     "plugin/calc/tabular_egress.py",
     "plugin/calc/rich_html.py",
     "plugin/calc/analysis_egress.py",
-    "plugin/calc/viz_auto_plot.py",
-    "plugin/calc/forecast_auto_plot.py",
     "plugin/calc/quant_egress.py",
     "plugin/calc/vision_egress.py",
     "plugin/calc/python/__init__.py",

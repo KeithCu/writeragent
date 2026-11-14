@@ -20,19 +20,20 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
-    _as_nonzero,
-    _build_holiday_set,
-    _clean_paired_arrays,
-    _collect_a_values,
-    _criteria_numbers,
-    _extract_numeric_array,
-    _is_calc_error,
-    _npf_result,
-    _parse_weekend,
-    _scipy_stats,
-    _serial_to_date,
+    as_nonzero,
+    build_holiday_set,
     calc_function,
+    clean_paired_arrays,
+    collect_a_values,
+    criteria_numbers,
+    extract_numeric_array,
+    finite_or_nan,
+    is_calc_error,
     is_number,
+    npf_result,
+    parse_weekend,
+    scipy_stats,
+    serial_to_date,
     yearfrac,
 )
 from .coerce import is_missing_value
@@ -90,10 +91,6 @@ __all__ = [
 ]
 
 
-def _finite_or_nan(x: float) -> float:
-    return x if math.isfinite(x) else float("nan")
-
-
 def na() -> float:
     # Usually #N/A in Calc maps to NaN in Python data array
     return float("nan")
@@ -110,12 +107,11 @@ def n(val: Any) -> float:
 
 
 def negbinomdist(x: Any, r: Any, p: Any) -> float:
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
-    # int(float(+inf)) and int() of an oversized count raise OverflowError.
-    # The old except only named ValueError, so that input escaped. Excel
-    # NEGBINOMDIST is #NUM!, which this module returns as NaN.
+    # int(float(+inf)) and int() of an oversized count raise OverflowError,
+    # which the worker returns as #NUM! (Excel NEGBINOMDIST is #NUM!).
     k = int(float(x))
     r_val = int(float(r))
     prob = float(p)
@@ -129,8 +125,8 @@ def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> 
 
 
 def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
-    sd = _serial_to_date(start_date)
-    ed = _serial_to_date(end_date)
+    sd = serial_to_date(start_date)
+    ed = serial_to_date(end_date)
     if sd is None or ed is None:
         return float("nan")
 
@@ -140,11 +136,11 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
     else:
         sign = 1
 
-    wk_days = _parse_weekend(weekend)
+    wk_days = parse_weekend(weekend)
     if not isinstance(wk_days, set):
         return float("nan")
 
-    h_dates = _build_holiday_set(holidays)
+    h_dates = build_holiday_set(holidays)
     total_days = (ed - sd).days + 1
     weeks = total_days // 7
     workdays_per_week = 7 - len(wk_days)
@@ -174,14 +170,15 @@ def nominal(effect_rate: Any, npery: Any) -> float:
         return float("nan")
     # NOMINAL(inf, n) returns NaN (getNominal returns finiteOrThrow).
     res = np_y * ((er + 1) ** (1.0 / np_y) - 1)
-    return _finite_or_nan(res)
+    return finite_or_nan(res)
 
 
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     x_val = float(x)
     m = float(mean)
     s = float(stdev)
-    cum = bool(float(c))
+    # ScNormDist reads the flag with GetBool (GetDouble() != 0), so a blank cell or an empty fourth argument is the density.
+    cum = as_nonzero(c)
     if s <= 0:
         return float("nan")
     # integralPhi / phi from ScNormDist. scipy.stats was imported inside
@@ -191,7 +188,7 @@ def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         res = 0.5 * math.erfc(-z / math.sqrt(2.0))
     else:
         res = math.exp(-0.5 * z * z) / (s * math.sqrt(2.0 * math.pi))
-    return _finite_or_nan(res)
+    return finite_or_nan(res)
 
 
 def norminv(prob: Any, mean: Any, stdev: Any) -> float:
@@ -202,7 +199,7 @@ def norminv(prob: Any, mean: Any, stdev: Any) -> float:
         return float("nan")
     # gaussinv(p) is the standard-normal inverse CDF.
     res = m + s * statistics.NormalDist().inv_cdf(p)
-    return _finite_or_nan(res)
+    return finite_or_nan(res)
 
 
 def normsdist(z: Any) -> float:
@@ -214,15 +211,15 @@ def normsinv(prob: Any) -> float:
 
 
 def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float:
-    # Only type 1 is beginning-of-period, same rule as PMT/FV/PV.
-    # The old closed form plugged any integer into (1+rate*type).
-    # float() of an oversized int raises OverflowError. Excel is #VALUE!.
+    # Only type 1 is beginning-of-period, same rule as PMT/FV/PV; any other
+    # type is end-of-period, never a multiplier in (1 + rate*type).
+    # float() of an oversized int raises OverflowError, which the worker returns as #NUM! (Excel: #VALUE!).
     a_f = float(a)
     b_f = float(b)
     c_f = float(c)
     d_f = float(d)
     t = 1 if int(float(type_val)) == 1 else 0
-    return _npf_result(kind, a_f, b_f, c_f, d_f, t)
+    return npf_result(kind, a_f, b_f, c_f, d_f, t)
 
 
 def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
@@ -298,7 +295,7 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     if _NUMBER_TEXT.fullmatch(s) is None:
         return float("nan")
     value = float(s) * (10.0 ** (-2 * percent))
-    return _finite_or_nan(value)
+    return finite_or_nan(value)
 
 
 def odd(n: Any) -> float:
@@ -378,7 +375,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     if isinstance(tail, complex) or tail == 0:
         return float("nan")
     price += red / tail
-    return _finite_or_nan(float(price))
+    return finite_or_nan(float(price))
 
 
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
@@ -435,14 +432,12 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
     if denom == 0.0:
         return float("nan")
     price = (red + span_last_mat * 100.0 * r) / denom - span_last_set * 100.0 * r
-    if not math.isfinite(price):
-        return float("nan")
-    return float(price)
+    return finite_or_nan(float(price))
 
 
 def pearson(data1: Any, data2: Any) -> float:
     # inputs are pre-cleaned finite floats; corrcoef does not raise.
-    cleaned = _clean_paired_arrays(data1, data2)
+    cleaned = clean_paired_arrays(data1, data2)
     if cleaned is None:
         return float("nan")
     d1_clean, d2_clean = cleaned
@@ -450,7 +445,7 @@ def pearson(data1: Any, data2: Any) -> float:
         return float("nan")
     # ScPearson is the correlation. np.corrcoef is the same value rsq squares.
     corr = float(np.corrcoef(d1_clean, d2_clean)[0, 1])
-    return _finite_or_nan(corr)
+    return finite_or_nan(corr)
 
 
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
@@ -503,7 +498,7 @@ def permut(n: Any, k: Any) -> float:
 
 
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    # nper == 0 must not raise ZeroDivisionError. numpy-financial returns.
+    # nper == 0 must not raise ZeroDivisionError. numpy-financial returns
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
     return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
@@ -515,12 +510,12 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
     m = float(mean)
     if k < 0 or m < 0:
         return float("nan")
-    st = _scipy_stats()
+    st = scipy_stats()
     if st is None:
         return float("nan")
 
     # ScPoissonDist: cumulative uses GetBool (GetDouble() != 0) rather than Python truthiness.
-    if _as_nonzero(cumulative):
+    if as_nonzero(cumulative):
         return float(st.poisson.cdf(k, m))
     return float(st.poisson.pmf(k, m))
 
@@ -544,9 +539,9 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
 
 
 def quartile(r: Any, q: Any) -> float | str:
-    # Non-numeric quart must not raise ValueError from float(). Out-of-range.
-    # quart fell through to `qi * 25` and np.percentile raised ValueError
-    # (percentile outside 0..100). Excel QUARTILE returns #NUM! for both.
+    # A non-numeric quart is NaN, not a ValueError from float(). A quart outside
+    # 0..4 is NaN too; qi * 25 would put np.percentile outside 0..100.
+    # Excel QUARTILE returns #NUM! for both.
     try:
         qi = int(float(q))
     except (ValueError, TypeError, OverflowError):
@@ -577,7 +572,7 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
         descending = int(float(order)) == 0
     except OverflowError:
         return float("nan")
-    arr = _extract_numeric_array(r, propagate_nan=False)
+    arr = extract_numeric_array(r, propagate_nan=False)
     if arr.size == 0:
         return float("nan")
     # ScRank: missing value returns #N/A (PushError(NotAvailable)).
@@ -705,7 +700,7 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
             if isinstance(term, complex):
                 return float("nan")
             res += term
-        return _finite_or_nan(float(res))
+        return finite_or_nan(float(res))
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return float("nan")
 
@@ -715,7 +710,7 @@ def skew(*args: Any) -> float:
     # n * sum(((x - mean) / s)^3) / ((n - 1) * (n - 2)), s = sample stdev.
     # scipy.stats.skew(bias=False) is that formula. Text and bools stay out,
     # same as RANK.
-    arr = _extract_numeric_array(*args)
+    arr = extract_numeric_array(*args)
     n = len(arr)
     if n < 3:
         return float("nan")
@@ -725,11 +720,11 @@ def skew(*args: Any) -> float:
     mean = float(np.mean(arr))
     acc = float(np.sum(((arr - mean) / s) ** 3))
     res = n * acc / ((n - 1) * (n - 2))
-    return _finite_or_nan(float(res))
+    return finite_or_nan(float(res))
 
 
 def slope(data_y: Any, data_x: Any) -> float:
-    cleaned = _clean_paired_arrays(data_y, data_x)
+    cleaned = clean_paired_arrays(data_y, data_x)
     if cleaned is None:
         return float("nan")
     y, x = cleaned
@@ -744,7 +739,7 @@ def slope(data_y: Any, data_x: Any) -> float:
 def small(r: Any, k: Any) -> float:
     # Numbers only. Text, bools, and NaN are not part of the ranking.
     ki = int(float(k))
-    arr = _extract_numeric_array(r, propagate_nan=False)
+    arr = extract_numeric_array(r, propagate_nan=False)
     if ki <= 0 or ki > len(arr):
         return float("nan")
     arr_sorted = np.sort(arr)
@@ -753,7 +748,7 @@ def small(r: Any, k: Any) -> float:
 
 def _calc_sort_key(val: Any) -> tuple[int, Any]:
     """Sort key matching Calc/Excel ordering: numbers < text (case-insensitive) < bools < blanks/errors."""
-    if val is None or val == "" or _is_calc_error(val):
+    if val is None or val == "" or is_calc_error(val):
         return (3, "")
     if isinstance(val, (bool, np.bool_)):
         return (2, int(val))
@@ -836,7 +831,7 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     # Excel SORTBY of a non-range is #VALUE!, returned here as NaN.
     if arr.ndim == 0:
         return float("nan")
-    # *extra must not be ignored, so by_array2/sort_order2 never affected the order.
+    # *extra holds by_array2, sort_order2, ...; every pair takes part in the order.
     specs: list[tuple[Any, int]] = []
     tokens = [by_array, sort_order, *extra]
     idx = 0
@@ -897,7 +892,7 @@ def sqrtpi(number: Any) -> float:
         return float("nan")
     # AnalysisAddIn::getSqrtpi returns finiteOrThrow; non-finite root is NaN.
     res = math.sqrt(n * math.pi)
-    return _finite_or_nan(res)
+    return finite_or_nan(res)
 
 
 def standardize(x: Any, mean: Any, stdev: Any) -> float:
@@ -910,13 +905,13 @@ def standardize(x: Any, mean: Any, stdev: Any) -> float:
 
 
 def stdeva(*args: Any) -> float:
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.std(vals, ddof=1))
 
 
 def stdevpa(*args: Any) -> float:
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     # numpy gives NaN for too few samples.
     return float(np.std(vals, ddof=0))
 
@@ -925,7 +920,7 @@ def steyx(data_y: Any, data_x: Any) -> float:
     # ScSTEYX is CalculatePearsonCovar. sqrt((Syy - Sxy^2/Sxx) / (n-2))
     # is that residual. The old path imported intercept, which imports slope
     # from this module, and walked the pairs three times.
-    cleaned = _clean_paired_arrays(data_y, data_x)
+    cleaned = clean_paired_arrays(data_y, data_x)
     if cleaned is None:
         return float("nan")
     y, x = cleaned
@@ -965,7 +960,7 @@ def _cell_number(val: Any) -> float | None:
 
 
 def subtotal(fn_num: Any, r: Any) -> float:
-    # int(float(fn_num)) raises on text. Match small() / steyx and return NaN.
+    # A text fn_num raises ValueError here, which the worker returns as #VALUE!.
     fn = int(float(fn_num))
     # dtype=object keeps True and "5" distinct. Default asarray turned
     # [1, True, "5"] into strings, then float("True") dropped the bool
@@ -1025,7 +1020,7 @@ def subtotal(fn_num: Any, r: Any) -> float:
 
 
 def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
-    vals = _criteria_numbers(r if sr is None else sr, [(r, crit)])
+    vals = criteria_numbers(r if sr is None else sr, [(r, crit)])
     if vals is None:
         return float("nan")
     return float(sum(vals))
@@ -1033,7 +1028,7 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 
 def sumifs(sr: Any, *args: Any) -> float:
     # Criteria ranges must match the sum range in shape. A shorter range, or a
-    # 2x3 next to a 3x2, must not truncate or line up after ravel. That is NaN.
+    # 2x3 next to a 3x2, must not truncate or line up after ravel; that is NaN
     # here, same as an odd argument count. No pairs still sums nothing.
     if len(args) % 2 != 0:
         return float("nan")
@@ -1042,7 +1037,7 @@ def sumifs(sr: Any, *args: Any) -> float:
     if isinstance(sr, str):
         return 0.0
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    vals = _criteria_numbers(sr, pairs)
+    vals = criteria_numbers(sr, pairs)
     if vals is None:
         return float("nan")
     return float(sum(vals))
@@ -1071,7 +1066,7 @@ def sumproduct(*args: Any) -> float:
             prod *= val
         total += prod
     # ScSumProduct (TreatDoubleError): overflow produces NaN.
-    return _finite_or_nan(float(total))
+    return finite_or_nan(float(total))
 
 
 @calc_function
@@ -1087,7 +1082,7 @@ def sumsq(*args: Any) -> float:
                 return float("nan")
             total += num * num
     # TreatDoubleError: overflow produces NaN.
-    return _finite_or_nan(float(total))
+    return finite_or_nan(float(total))
 
 
 def py_str(val: Any) -> str:

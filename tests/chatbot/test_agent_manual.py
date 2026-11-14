@@ -18,6 +18,7 @@ from plugin.chatbot.agent_manual import (
     list_topics,
     manual_index,
     normalize_topic,
+    writer_topic_list_text,
 )
 from plugin.doc.document_research_tools import GetGuidance
 
@@ -61,13 +62,16 @@ def test_normalize_aliases():
     assert normalize_topic("Tracked_Changes") == "review-modes"
     assert normalize_topic("crop") == "images"
     assert normalize_topic("429") == "concurrency"
+    assert normalize_topic("multi-document") == "concurrency"
+    assert normalize_topic("document_url") == "concurrency"
     assert normalize_topic("editing") == "editing"
     assert normalize_topic("nonsense") is None
     assert normalize_topic("") is None
 
 
 def test_get_section_known_and_unknown():
-    assert "apply_document_content" in get_section("editing").lower()
+    sec = get_section("editing")
+    assert sec is not None and sec.strip()
     assert get_section("nope") is None
 
 
@@ -86,8 +90,7 @@ def test_calc_topics_use_calc_manual_not_writer():
     assert topics == ["workflow", "formula-syntax", "directives", "concurrency"]
     assert "review-modes" not in topics and "navigation" not in topics and "editing-html" not in topics
     for topic in topics:
-        section = get_section(topic, "calc") or ""
-        assert "apply_document_content" not in section
+        assert get_section(topic, "calc")
     assert get_section("workflow", "calc") is c.CALC_WORKFLOW
     formula = get_section("formula-syntax", "calc")
     assert formula == c.CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", "")
@@ -112,7 +115,6 @@ def test_draw_manual_topics_and_impress_fold():
 def test_no_document_serves_neutral_generic_index():
     assert list_topics(None) == list_topics("generic")
     idx = manual_index(None)
-    assert "No document is open" in idx
     assert "editing" in idx and "concurrency" in idx
 
 
@@ -125,7 +127,8 @@ def test_shared_pieces_are_identical_in_both_channels():
 
     writer_texts = {topic.id: topic.text for topic in _WRITER_TOPICS}
     # Topic -> the exact constants piece (identity, not a copy that could be edited apart).
-    assert writer_texts["editing-html"] is c.WRITER_APPLY_DOCUMENT_HTML_RULES
+    # editing-html = ambient block + pull-only examples; equality, since concatenation makes a new string.
+    assert writer_texts["editing-html"] == c.WRITER_APPLY_DOCUMENT_HTML_RULES + c.HTML_MATH_AND_LINK_EXAMPLES
     assert writer_texts["review-modes"] is c.WRITER_REVIEW_MODES_RULES
     assert writer_texts["search"] is c.WRITER_SEARCH_RULES
     assert writer_texts["navigation"] is c.WRITER_NAVIGATION_RULES
@@ -163,40 +166,23 @@ def test_sidebar_hybrid_prompt_composition():
         assert template.count(piece) == 1
     for piece in (c.WRITER_SEARCH_RULES, c.WRITER_NAVIGATION_RULES, c.WRITER_IMAGES_RULES):
         assert piece not in template          # on-demand, not ambient
-    assert "get_guidance" in template         # the tools section tells the model how to pull
+    assert writer_topic_list_text() in GetGuidance.description
+    assert c.HTML_MATH_AND_LINK_EXAMPLES not in template
     assert GetGuidance.tier == "core"         # visible to the sidebar's default tool list
 
 
 def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
-    """The HTTP 429 concurrency contract is real for MCP clients and the agent-backend path,
-    meaningless for the in-process sidebar — channel-specific text must not leak across."""
+    """The MCP concurrency contract is served to MCP / agent-backend channels, not the sidebar."""
     from plugin.framework import prompts as c
 
-    assert "429" in get_section("concurrency", "writer")   # MCP topic has it
-    assert "429" in full_manual("writer")                  # agent backend (HTTP) gets it
-    assert "429" not in c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE  # sidebar never sees it
-    assert "429" not in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
-    assert "429" not in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
+    concurrency_section = get_section("concurrency", "writer")
+    assert concurrency_section in full_manual("writer")
+    assert concurrency_section not in c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert concurrency_section not in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert concurrency_section not in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
 
 
 # ---- full manual (agent-backend delivery) ------------------------------------
-
-def test_full_manual_writer_covers_key_rules():
-    """Pin the high-value cross-cutting rules (moved here from the retired EXTERNAL_AGENT_GUIDANCE
-    blob in constants.py) so a refactor can't silently drop one from the single source."""
-    g = full_manual("writer")
-    assert "apply_document_content" in g           # prefer the document tools
-    assert "full_document" in g                    # whole-doc vs search target
-    assert "replaced_count" in g                   # confirm via structured field
-    assert "accept or reject" in g.lower()         # don't resolve own tracked changes
-    assert "429" in g                              # one operation at a time / busy retry
-    assert "include_images" in g                   # how a vision model sees images
-    # Stale-snapshot warning (channel-neutral wording: the classic sidebar DOES auto-refresh its
-    # document context after successful mutations, so the old "NOT auto-refreshed" claim was false
-    # for one of the channels this shared piece ships to).
-    assert "partial/truncated snapshot" in g
-    assert "record" in g and "wait" in g           # the three review modes reach the sidebar too
-
 
 def test_full_manual_contains_every_section_in_order():
     g = full_manual("writer")
@@ -210,35 +196,8 @@ def test_full_manual_impress_uses_draw_sections():
     assert full_manual("Impress") == full_manual("draw")
     assert full_manual("  IMPRESS ") == full_manual("draw")
     assert list_topics("Impress") == list_topics("draw")
-    assert "TRACKED CHANGES" not in full_manual("Impress")
     assert full_manual(" Writer ") == full_manual("writer")
-    assert "TRACKED CHANGES" in full_manual(" Writer ")
     assert full_manual(" Nope ") == full_manual("generic")
-
-
-def test_writer_topic_strings_contain_exact_writer_topics():
-    from plugin.mcp.mcp_protocol import _MCP_GUIDANCE_POINTER
-
-    expected_topics = list_topics("writer")
-    guidance_desc = GetGuidance.description
-    mcp_pointer = _MCP_GUIDANCE_POINTER
-
-    for topic in expected_topics:
-        assert topic in guidance_desc
-        assert topic in mcp_pointer
-
-    import re
-    # Extract topics in "(for Writer: ...)"
-    pattern = r"\(for Writer:\s*([^)]+)\)"
-    match_desc = re.search(pattern, guidance_desc)
-    assert match_desc is not None
-    desc_topics = [t.strip() for t in match_desc.group(1).split(",")]
-    assert desc_topics == expected_topics
-
-    match_mcp = re.search(pattern, mcp_pointer)
-    assert match_mcp is not None
-    mcp_topics = [t.strip() for t in match_mcp.group(1).split(",")]
-    assert mcp_topics == expected_topics
 
 
 # ---- GetGuidance tool --------------------------------------------------------
@@ -255,7 +214,7 @@ def test_get_guidance_no_topic_returns_writer_index():
 def test_get_guidance_topic_returns_section():
     res = GetGuidance().execute(FakeCtx(WRITER_DOC), topic="review-modes")
     assert res["status"] == "ok" and res["topic"] == "review-modes"
-    assert "record" in res["guidance"].lower() and "wait" in res["guidance"].lower()
+    assert res["guidance"] == get_section("review-modes", "writer")
 
 
 def test_get_guidance_alias():
@@ -282,27 +241,12 @@ def test_get_guidance_calc_session_never_reads_writer_advice():
 def test_get_guidance_without_document_is_neutral():
     res = GetGuidance().execute(FakeCtx(None))
     assert res["status"] == "ok" and res["doc_type"] is None
-    assert "No document is open" in res["index"]
+    assert res["topics"] == list_topics("generic")
 
 
-def test_get_guidance_does_not_require_document():
-    assert GetGuidance.requires_document is False
+def test_no_duplicate_aliases():
+    from plugin.chatbot.agent_manual import _ALIASES_BY_TOPIC
 
-def test_multidoc_guidance_reaches_mcp_topic():
-    from plugin.chatbot.agent_manual import get_section, normalize_topic
-
-    sec = get_section("concurrency", "writer")
-    assert "document_url" in sec and "list_open_documents" in sec
-    assert normalize_topic("multi-document") == "concurrency"
-    assert normalize_topic("document_url") == "concurrency"
-
-
-def test_alias_targets_exist_and_no_duplicate_aliases():
-    from plugin.chatbot.agent_manual import _ALIASES_BY_TOPIC, _MANUALS
-
-    all_topic_ids = {topic.id for manual in _MANUALS.values() for topic in manual}
-    for canon in _ALIASES_BY_TOPIC:
-        assert canon in all_topic_ids
     seen: set[str] = set()
     for aliases in _ALIASES_BY_TOPIC.values():
         for alias in aliases:

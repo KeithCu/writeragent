@@ -92,7 +92,7 @@ def test_insert_symbolic_result_into_calc() -> None:
     ):
         res = insert_symbolic_result_into_doc(ctx, doc, result)
         assert res == 1
-        mock_insert.assert_called_once_with(doc, ctx, format_symbolic_for_calc(result))
+        mock_insert.assert_called_once_with(doc, format_symbolic_for_calc(result))
 
 
 @pytest.mark.parametrize(
@@ -107,7 +107,8 @@ def test_differentiate_atan(expression, value, expected):
 
     res = differentiate(expression=expression, variable="x")
     assert res["status"] == "ok"
-    assert value in res["text"] or res["latex"] == expected
+    assert res["text"] == value
+    assert res["latex"] == expected
 
 @pytest.mark.parametrize(
     "expression, expected, value, expected_2",
@@ -174,11 +175,11 @@ def test_solve_equation_rejects_inequalities_and_double_equals():
     for eq in ("x <= 2", "x >= 2", "x != 2", "x == 2", "x < 2", "x > 2"):
         res = solve_equation(equation=eq, variable="x")
         assert res["status"] == "error"
-        assert res["code"] == "INVALID_PARAMS"
+        assert res["code"] == "INVALID_PARAM"
 
     res_multi = solve_equation(equation="x = 1 = 2", variable="x")
     assert res_multi["status"] == "error"
-    assert res_multi["code"] == "INVALID_PARAMS"
+    assert res_multi["code"] == "INVALID_PARAM"
 
 
 def test_variable_returned_stripped():
@@ -272,7 +273,9 @@ def test_helpers_match_helper_names():
     from plugin.scripting.helper_registry import bound, names
     import plugin.scripting.venv.symbolic  # noqa: F401
 
-    assert all(callable(bound("symbolic", name)) for name in names("symbolic"))
+    helper_names = names("symbolic")
+    assert helper_names
+    assert all(callable(bound("symbolic", name)) for name in helper_names)
 
 
 def test_factorial_equation_needs_a_space_before_equals():
@@ -282,7 +285,7 @@ def test_factorial_equation_needs_a_space_before_equals():
     for equation in ("n!=720", "5!=120"):
         res = solve_equation(equation=equation, variable="n")
         assert res["status"] == "error"
-        assert res["code"] == "INVALID_PARAMS"
+        assert res["code"] == "INVALID_PARAM"
 
     spaced = solve_equation(equation="n! = 720", variable="n")
     assert spaced["status"] == "error"

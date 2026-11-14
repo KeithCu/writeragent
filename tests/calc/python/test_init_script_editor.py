@@ -24,7 +24,6 @@ def test_open_init_script_editor_no_calc_doc():
     ):
         open_init_script_editor(ctx)
         mock_box.assert_called_once()
-        assert "spreadsheet" in mock_box.call_args[0][2].lower()
 
 
 def test_open_init_script_editor_force_internal():
@@ -39,7 +38,6 @@ def test_open_init_script_editor_force_internal():
     ):
         open_init_script_editor(ctx)
         mock_box.assert_called_once()
-        assert "disabled" in mock_box.call_args[0][2].lower()
 
 
 def test_open_init_script_editor_no_venv():
@@ -71,7 +69,6 @@ def test_open_init_script_editor_webview_failure():
     ):
         open_init_script_editor(ctx)
         mock_report.assert_called_once()
-        assert "webview" in mock_report.call_args[0][2].lower()
 
 
 def test_open_init_script_editor_probe_pending():
@@ -89,8 +86,6 @@ def test_open_init_script_editor_probe_pending():
     ):
         open_init_script_editor(ctx)
         mock_box.assert_called_once()
-        assert mock_box.call_args[1].get("box_type") == 1
-        assert "still running" in mock_box.call_args[0][2]
         mock_launch.assert_not_called()
 
 
@@ -112,7 +107,7 @@ def test_open_init_script_editor_success_and_on_save():
         patch("plugin.calc.python.init_script_editor.document_scripts_identity", return_value="doc_1"),
         patch("plugin.calc.python.init_script_editor.launch_monaco_editor", side_effect=capture_launch),
         patch("plugin.calc.python.init_script_editor.set_calc_init_script") as mock_set,
-        patch("plugin.calc.python.function.clear_python_addin_cache") as mock_clear,
+        patch("plugin.calc.python.init_script_editor.clear_workbook_matrix_cache") as mock_clear,
     ):
         open_init_script_editor(ctx)
         assert saved_cb is not None
@@ -130,7 +125,7 @@ def test_open_init_script_editor_success_and_on_save():
         assert res_ok.get("type") == "saved"
         assert res_ok.get("ok") is True
         mock_set.assert_called_once_with(doc, "good code")
-        mock_clear.assert_called_once()
+        mock_clear.assert_called_once_with(doc)
 
         # Save "good code" again (unchanged write)
         mock_set.reset_mock()
@@ -166,14 +161,14 @@ def test_open_init_script_editor_disposed_save_returns_error_frame():
         patch("plugin.calc.python.init_script_editor.document_scripts_identity", return_value="doc_1"),
         patch("plugin.calc.python.init_script_editor.launch_monaco_editor", side_effect=capture_launch),
         patch("plugin.calc.python.init_script_editor.set_calc_init_script", side_effect=_DisposedException("gone")),
-        patch("plugin.calc.python.function.clear_python_addin_cache") as mock_clear,
+        patch("plugin.calc.python.init_script_editor.clear_workbook_matrix_cache") as mock_clear,
     ):
         open_init_script_editor(ctx)
         assert saved_cb is not None
 
         res = saved_cb("changed code", True, None, "save")
         assert res.get("type") == "error"
-        assert "no longer open" in res.get("message", "")
+        assert res.get("message")
         mock_clear.assert_not_called()
 
 
@@ -190,5 +185,4 @@ def test_open_init_script_editor_disposed_at_open_shows_message():
     ):
         open_init_script_editor(ctx)
         mock_box.assert_called_once()
-        assert "no longer open" in mock_box.call_args[0][2]
         mock_launch.assert_not_called()

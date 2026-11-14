@@ -11,10 +11,11 @@
 ## Tests
 
 New features and bugfixes **must include tests**.
+- **No change-detector tests:** Do not assert on prompt or tool-description prose, log text, static config or catalog constants, removed-feature lists, signatures/exports already enforced by type checkers, or exact mock call order/choreography, unless the test cites a real bug. Keep structural guards (section order, uniqueness, routing) and tests that cite a real bug.
 - **Unit:** `tests/`, pytest (`make pytest`) when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file** to maintain consistent naming and visible coverage.
 - **UNO / LibreOffice:** collocated `*_uno.py` files via `testing_runner.py` (`make test-uno`, no pytest)—use `@native_test`, `@setup`, `@teardown`; test functions take `ctx`. Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).
 - **Enumerations:** All `XEnumeration` walks (portions, paragraphs, annotations, desktop components) must use `enum_has_more` (`plugin/framework/uno_context.py`) because `not enum.hasMoreElements()` does not terminate on mock objects.
-- **Execution Policy:** **Do not run tests or `make typecheck` before starting work** unless you need output from a test to understand a failure. Assume the tree and tests are already green. After edits, run tests for the files you changed plus `make typecheck`. Typecheck takes about **one minute** — wait for it; do not poll every few seconds. Run full `make test` **only if making large refactors** or cross-cutting changes.
+- **Execution Policy:** **Do not run tests or `make typecheck` before starting work** unless you need output from a test to understand a failure. Assume the tree and tests are already green. After edits, run tests for the files you changed plus `make typecheck` before each commit (incremental on staged, unstaged, and untracked Python files — usually seconds; skips `thread-safety-lint`, and incremental `basedpyright`/`mypy` do not catch errors in unchanged files broken by a signature change — `make typecheck-full` / CI catches those). `make typecheck-full` takes about **one minute** — wait for it; do not poll every few seconds. Run full `make test` **only if making large refactors** or cross-cutting changes.
 
 When unsure of LibreOffice / UNO API behavior, **inspect it directly**! Do not guess, add layers of speculative fallback code, or flail. You have a full running LibreOffice instance and a fast native test runner:
 ```bash
@@ -46,7 +47,8 @@ Explain the code that is here **now**, for a reader who would otherwise be lost.
 
 | Command | When to use |
 |---------|-------------|
-| `make typecheck` | After edits (required with targeted tests). basedpyright, bandit, opengrep, pyspector, ty, thread-safety, and mypy in parallel. Details: [docs/framework/type-checking.md](docs/framework/type-checking.md) |
+| `make typecheck` | Run before each commit (required with targeted tests). Incremental basedpyright, bandit, opengrep, pyspector, and mypy on staged, unstaged, and untracked Python files plus full `ty` in parallel (skips `thread-safety-lint`; `CI=true` or `TYPECHECK_FULL=1` runs `typecheck-full`). Details: [docs/framework/type-checking.md](docs/framework/type-checking.md) |
+| `make typecheck-full` | Full-repo checkers including `basedpyright` library-source walk and `thread-safety-lint` (used by CI and `make release`; standalone `make thread-safety-lint` also available). |
 | `make deploy` | WriterAgent OXT: build + install/cache sync; **restart LibreOffice** (or `make deploy writer/calc/draw/impress` to launch) |
 | `make deploy-core` | LibrePy OXT only (`build/LibrePy.oxt`); **removes WriterAgent**. |
 | `make pytest` | Unit pytest only: `-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist (`-n auto --dist=loadgroup`; `PYTEST_WORKERS=0` for serial). No live soffice. Single file: `.venv/bin/python -m pytest tests/<area>/test_<module>.py -m "not slow and not integration" --timeout=300` |

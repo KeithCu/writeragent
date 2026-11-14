@@ -1252,7 +1252,8 @@ def test_rotate_if_large_second_thread_keeps_oversized_backup(tmp_path) -> None:
             if count <= 2:
                 if count == 2:
                     both_entered.set()
-                both_entered.wait(timeout=5.0)
+                # With the size recheck inside the lock only one thread gets here; this wait expires by design.
+                both_entered.wait(timeout=0.5)
             return size
 
         replace_count = 0
@@ -1697,6 +1698,16 @@ def test_exception_text_is_formatted_before_handler_emit() -> None:
             return "boom"
 
     logger, handler = _isolated_logger("writeragent.test.exc-text")
+    orig_emit = handler.emit
+
+    def tracked_emit(record: logging.LogRecord) -> None:
+        phase["emit"] = True
+        try:
+            orig_emit(record)
+        finally:
+            phase["emit"] = False
+
+    handler.emit = tracked_emit  # type: ignore[method-assign]
     try:
         try:
             raise Boom()

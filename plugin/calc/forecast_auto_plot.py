@@ -9,9 +9,19 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.errors import reraise_if_disposed
+from plugin.calc.calc_addin_data import resolve_python_data
+from plugin.framework.errors import make_tool_error, reraise_if_disposed
+from plugin.framework.queue_executor import main
+from plugin.scripting.calc_range import materialize_calc_range
+from plugin.scripting.helper_domain import run_domain
+from plugin.scripting.payload_codec import is_calc_range_payload
 
 log = logging.getLogger(__name__)
+
+
+def _plot_error(message: str) -> dict[str, Any]:
+    """A failed auto-plot as a VIZ_ERROR dict; apply_auto_plot_result copies its message to plot_error."""
+    return make_tool_error(message, code="VIZ_ERROR")
 
 
 def _forecast_table(forecast_result: dict[str, Any]) -> dict[str, Any] | None:
@@ -39,17 +49,13 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
     date_col = str((forecast_params or {}).get("date_col", "Date"))
     value_col = str((forecast_params or {}).get("value_col", "Value"))
 
-    from plugin.scripting.payload_codec import is_calc_range_payload
-
     grid = history_data
     if is_calc_range_payload(history_data):
         # Materialize the envelope to its rectangular values first.
-        # _resolve_python_data returns a calc_range dict, and
+        # resolve_python_data returns a calc_range dict, and
         # grid_to_dataframe wraps an unrecognized dict as a 1×1 cell,
         # so the Date and Value columns disappear and auto-plot drops
         # the history.
-        from plugin.scripting.calc_range import materialize_calc_range
-
         grid = materialize_calc_range(history_data).values
 
     if not (isinstance(grid, list) and grid and isinstance(grid[0], list)):
@@ -98,24 +104,18 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
     """Run time_series_plot with merged history + forecast."""
     try:
         if _forecast_table(forecast_result) is None:
-            return {"status": "error", "message": f"No plot mapping for forecast helper {forecast_helper!r}"}
-
-        from plugin.calc.calc_addin_data import _resolve_python_data
-        from plugin.framework.queue_executor import main
+            return _plot_error(f"No plot mapping for forecast helper {forecast_helper!r}")
 
         # Sheet read is UNO. Viz IPC (run_domain) stays on the caller.
-        def _fetch() -> tuple[Any, Any]:
-            return _resolve_python_data(doc, data_range=data_range, data=None)
-
-        py_data, err = main.run(_fetch)
+        py_data, err = main.run(resolve_python_data, doc, data_range=data_range, data=None)
         if err:
-            return {"status": "error", "message": f"Could not read forecast history: {err}"}
+            return _plot_error(f"Could not read forecast history: {err}")
         if py_data is None:
-            return {"status": "error", "message": "Could not read forecast history"}
+            return _plot_error("Could not read forecast history")
 
         merged = merge_forecast_plot_data(py_data, forecast_result, forecast_params)
         if merged is None:
-            return {"status": "error", "message": "Could not merge forecast history with the forecast table"}
+            return _plot_error("Could not merge forecast history with the forecast table")
 
         header = merged[0]
         viz_params: dict[str, Any] = {"date_col": "date", "value_col": header[1], "forecast_col": "forecast"}
@@ -124,10 +124,8 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
         if "upper" in header:
             viz_params["upper_col"] = "upper"
 
-        from plugin.scripting.helper_domain import run_domain
-
         return run_domain("viz", uno_ctx, doc, helper="time_series_plot", params=viz_params, data=merged, data_range=None, task_hint=task_hint)
     except Exception as exc:
         reraise_if_disposed(exc, object_type="calc")
         log.exception("Forecast auto-plot failed")
-        return {"status": "error", "message": f"Auto-plot failed: {exc}"}
+        return _plot_error(f"Auto-plot failed: {exc}")

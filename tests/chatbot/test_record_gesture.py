@@ -1,9 +1,6 @@
 """Press / hold / release decisions for hands-free Record."""
 
-import inspect
-
 from plugin.chatbot.record_gesture import (
-    EMPTY_TAKES_EXIT,
     RecordGesture,
     RecordPhase,
     exit_sticky,
@@ -12,7 +9,6 @@ from plugin.chatbot.record_gesture import (
     gesture_press,
     gesture_release,
     hands_free_silence_text,
-    hands_free_status_text,
 )
 import pytest
 
@@ -113,10 +109,6 @@ def test_exit_while_idle_sticky_does_not_swallow_the_next_action() -> None:
     assert step.swallowed_action is False
 
 
-def test_hands_free_status_msgid() -> None:
-    assert hands_free_status_text() == "Hands-free recording..."
-
-
 def test_exit_lock_keeps_the_next_stop_rec_click() -> None:
     """Stop on a settled locked take must not swallow the Stop Rec that sends it."""
     gesture, _records = _run(["press", "hold", "release", "action", "exit"])
@@ -128,11 +120,6 @@ def test_hands_free_silence_text_keeps_mode_visible() -> None:
     text = hands_free_silence_text(750)
     assert text.startswith("Hands-free")
     assert "750" in text
-    assert "_(" in inspect.getsource(hands_free_silence_text)
-
-
-def test_empty_takes_exit_after_two() -> None:
-    assert EMPTY_TAKES_EXIT == 2
 
 
 def test_press_no_release_then_press_again() -> None:

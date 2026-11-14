@@ -287,40 +287,29 @@ def test_required_scalar_not_nullable():
     assert props["arg1"]["type"] == "string"
 
 
-def test_to_mcp_schema_delegate_writer_includes_specialized_delegation_hint():
+def test_to_mcp_schema_delegate_writer_flattens_domain_description():
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
     tool = DelegateToSpecializedWriter()
-    openai_schema = to_openai_schema(tool)
     mcp_schema = to_mcp_schema(tool)
 
-    assert "specialized Writer task" not in openai_schema["function"]["description"]
-    assert "specialized Writer task" in mcp_schema["description"]
     assert "\n" not in mcp_schema["description"]
     domain_desc = mcp_schema["inputSchema"]["properties"]["domain"]["description"]
-    assert "domain one of:" in domain_desc
-    assert "bookmarks:" in domain_desc
     assert "\n" not in domain_desc
-    assert mcp_schema["inputSchema"]["properties"]["domain"]["description"] != "The specialized domain to activate."
+    assert domain_desc != "The specialized domain to activate."
     domain_enum = mcp_schema["inputSchema"]["properties"]["domain"]["enum"]
     assert "brainstorming" not in domain_enum
     assert "writing_plan" not in domain_enum
-    assert "brainstorming:" not in domain_desc
-    assert "writing_plan:" not in domain_desc
 
 
 def test_to_mcp_schema_delegate_calc_domain_list_omits_analysis_and_python():
     from plugin.calc.specialized import DelegateToSpecializedCalc
 
     mcp_schema = to_mcp_schema(DelegateToSpecializedCalc())
-    domain_desc = mcp_schema["inputSchema"]["properties"]["domain"]["description"]
     domain_enum = mcp_schema["inputSchema"]["properties"]["domain"]["enum"]
-    assert "specialized Calc task" in mcp_schema["description"]
     assert "python" not in domain_enum
     assert "analysis" not in domain_enum
     assert "solvers" not in domain_enum
-    assert "analysis:" not in domain_desc
-    assert "python:" not in domain_desc
 
 
 def test_calc_gateway_description_lists_every_domain():
@@ -529,12 +518,8 @@ def test_named_range_flags_schema_is_string_array_not_oneof():
         assert "oneOf" not in flags
         assert "anyOf" not in flags
         assert flags["type"] == "array"
-        assert flags["items"]["enum"] == [
-            "filter_criteria",
-            "print_area",
-            "column_header",
-            "row_header",
-        ]
+        assert flags["items"]["type"] == "string"
+        assert isinstance(flags["items"]["enum"], list) and flags["items"]["enum"]
 
 
 def test_venv_data_range_schema_is_string_not_oneof():

@@ -6,8 +6,7 @@ from plugin.framework.client.base_provider_shim import BaseProviderShim, coerce_
 from plugin.framework.client.llm_client import adjust_image_body_for_rejection
 
 def test_adjust_image_body_for_rejection_drops_resolution():
-    # Trailing JSON used to be captured into the replacement token. resolution
-    # is now deleted, and the quote must not leak into a sibling field.
+    # resolution is deleted without capturing trailing JSON or leaking quotes into sibling fields.
     body = b'{"resolution": "512", "aspect_ratio": "16:9"}'
     error_text = "resolution: not supported. Accepted: 2K\"}"
 
@@ -94,22 +93,22 @@ def test_parse_sync_response_null_usage():
     _, _, _, usage, _, _ = shim.parse_sync_response(resp_with_usage)
     assert usage == {"prompt_tokens": 10, "completion_tokens": 20}
 
-    # A string images value used to be returned as-is and iterated per character.
+    # A non-list images value is ignored and normalized to [].
     content, _finish, _tools, _usage, images, _message = shim.parse_sync_response({"choices": [{"message": {"role": "assistant", "content": "hi", "images": "http://x"}}]})
     assert content == "hi"
     assert images == []
     assert shim.parse_image_responses(["nope"]) == []
 
-    # A string tool_calls is truthy, so the caller used to rewrite
-    # finish_reason to tool_calls and then drop the value. A list usage
-    # has no .get and crashed token accounting.
+    # Non-list tool_calls and non-dict usage are normalized to None and {};
+    # otherwise a string tool_calls is truthy and rewrites finish_reason, and
+    # a list usage crashes token accounting on .get.
     _content, _finish, tools, bad_usage, _images, _message = shim.parse_sync_response({"choices": [{"message": {"role": "assistant", "content": "hi", "tool_calls": "x"}}], "usage": ["not", "a", "dict"]})
     assert tools is None
     assert bad_usage == {}
 
 
 def test_coerce_image_data_url_keeps_any_data_url():
-    # A non-image data URL used to get a second data:image/png prefix.
+    # Any existing data: URL is returned unchanged without adding another prefix.
     assert coerce_image_data_url("data:application/octet-stream;base64,aaa") == "data:application/octet-stream;base64,aaa"
     assert coerce_image_data_url("data:image/jpeg;base64,abc") == "data:image/jpeg;base64,abc"
     # Raw selection bytes are PNG exports, so the label stays image/png.
@@ -117,8 +116,7 @@ def test_coerce_image_data_url_keeps_any_data_url():
 
 
 def test_coerce_raw_b64_rejects_http_url():
-    # An https URL used to pass through into Ollama images[] and Gemini
-    # inlineData, which both require raw base64.
+    # HTTP(S) URLs are rejected because Ollama images[] and Gemini inlineData require raw base64.
     with pytest.raises(ValueError, match="http"):
         coerce_raw_b64("https://example.com/a.png")
     assert coerce_raw_b64("data:image/png;base64,aaa") == "aaa"
@@ -139,7 +137,7 @@ class _DummyClient:
 
 
 def test_image_payload_omits_size_when_axis_is_zero():
-    # (n // 64) * 64 and an explicit width=0 used to send size "0x512".
+    # A zero width or height omits the size field instead of sending "0x512".
     shim = BaseProviderShim(_DummyClient())
     _method, _path, body, _headers = shim.build_image_request("cat", "flux", 0, 512)
     data = json.loads(body)

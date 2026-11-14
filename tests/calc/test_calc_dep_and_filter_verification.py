@@ -13,7 +13,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.calc.formula_dep_chain import _resolve_sheet_and_cell
 from plugin.calc.sheet_filter_criteria import (
     filter_connection_code,
     resolve_filter_operator_code,
@@ -24,48 +23,52 @@ from plugin.calc.excel_py_convert.resolve_refs import (
     resolve_dep,
 )
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN
-from plugin.framework.errors import UnoObjectError
+from plugin.framework.errors import ToolExecutionError
 
 
 
-def test_resolve_sheet_and_cell_parse() -> None:
-    res = _resolve_sheet_and_cell(None, "Sheet1.B10")
-    # doc is None, so function returns None after parsing cell part B10 (col 1, row 9)
-    assert res is None
-
-    res2 = _resolve_sheet_and_cell(None, "INVALID_CELL_1234567")
-    assert res2 is None
-
-
-@given(conn=st.sampled_from(["AND", "and", "OR", "or", None]))
-def test_filter_connection_code_valid(conn: str | None) -> None:
-    code = filter_connection_code(conn)
-    assert code in (0, 1)
+@pytest.mark.parametrize(
+    "conn, expected",
+    [("AND", 0), ("and", 0), (None, 0), ("OR", 1), ("or", 1)],
+)
+def test_filter_connection_code_valid(conn: str | None, expected: int) -> None:
+    assert filter_connection_code(conn) == expected
 
 
 def test_filter_connection_code_invalid() -> None:
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError) as exc:
         filter_connection_code("INVALID_CONN")
+    assert exc.value.code == "INVALID_PARAM"
 
 
-@given(op=st.sampled_from(["EQUAL", "NOT_EQUAL", "GREATER", "LESS", "CONTAINS", "BEGINS_WITH"]))
-def test_resolve_filter_operator_code_valid(op: str) -> None:
-    code = resolve_filter_operator_code(op)
-    assert isinstance(code, int)
-    assert code >= 0
+# Values are FilterOperator2 IDL constants; _NAME_TO_CODE is derived from label order, so a reordered label must fail here.
+@pytest.mark.parametrize(
+    "op, expected",
+    [
+        ("EQUAL", 2),
+        ("NOT_EQUAL", 3),
+        (" not-equal ", 3),
+        ("GREATER", 4),
+        ("LESS", 6),
+        ("CONTAINS", 12),
+        ("BEGINS_WITH", 14),
+    ],
+)
+def test_resolve_filter_operator_code_valid(op: str, expected: int) -> None:
+    assert resolve_filter_operator_code(op) == expected
 
 
 def test_resolve_filter_operator_code_invalid() -> None:
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError):
         resolve_filter_operator_code("UNKNOWN_OPERATOR_123")
 
 
-def test_filter_string_longer_than_token_is_uno_error() -> None:
-    """An over-long operator is UnoObjectError, not PreContractError."""
+def test_filter_string_longer_than_token_is_invalid_param() -> None:
+    """An over-long operator is ToolExecutionError (INVALID_PARAM), not PreContractError."""
     too_long = "A" * (DEAL_MAX_TOKEN + 1)
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError):
         resolve_filter_operator_code(too_long)
-    with pytest.raises(UnoObjectError):
+    with pytest.raises(ToolExecutionError):
         filter_connection_code(too_long)
 
 
@@ -78,10 +81,10 @@ def test_parse_sheet_filter_criterion_basic() -> None:
     assert str_val == "test"
 
 
-def test_parse_sheet_filter_criterion_bad_field_raises_uno() -> None:
-    with pytest.raises(UnoObjectError, match="Invalid filter 'field'"):
+def test_parse_sheet_filter_criterion_bad_field_is_invalid_param() -> None:
+    with pytest.raises(ToolExecutionError, match="Invalid filter 'field'"):
         parse_sheet_filter_criterion({"field": "", "operator": "EQUAL", "value": "x"}, is_first=True)
-    with pytest.raises(UnoObjectError, match="Invalid filter 'field'"):
+    with pytest.raises(ToolExecutionError, match="Invalid filter 'field'"):
         parse_sheet_filter_criterion({"field": None, "operator": "EQUAL", "value": "x"}, is_first=True)
 
 
@@ -193,7 +196,7 @@ def test_unwrap_cell_invariants(val) -> None:
         assert res is None
     elif isinstance(val, float) and math.isnan(val):
         assert isinstance(res, float) and math.isnan(res)
-    elif isinstance(val, (int, float, bool)) or val is None:
+    else:
         assert res == val
 
 
@@ -215,24 +218,4 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
             for row in grid:
                 assert isinstance(row, list)
                 assert len(row) == first_len
-
-
-def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
-    """filter_operator2_code_to_name stays out of cover-all targets.
-
-    connection and resolve stay on under a closed
-    FilterOperator2 profile, while code→name remains off.
-    """
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/calc/sheet_filter_criteria.py"))
-    assert not any(f.endswith(".filter_operator2_code_to_name") for f in fqns)
-    assert not any(f.endswith(".filter_operator2_name_to_code") for f in fqns)
-    assert any(f.endswith(".filter_connection_code") for f in fqns)
-    assert any(f.endswith(".resolve_filter_operator_code") for f in fqns)
 

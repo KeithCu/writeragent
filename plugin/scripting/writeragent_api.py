@@ -31,6 +31,11 @@ def get_active_document_type() -> str:
     return "unknown"
 
 
+def help(name: str | None = None) -> str:
+    """Return signature and docstring help for a wa.<namespace>.<method> API, or list namespaces."""
+    return str(call_host_tool("writeragent_help", name=name))
+
+
 DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                     'bookmark_create',
                     'bookmark_delete',
@@ -557,7 +562,7 @@ class _CalcProxy:
         return call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge)
 
     def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:
-        """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). Supports lists for non-contiguous areas.
+        """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). Supports lists for non-contiguous areas. `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`.
 
         Args:
             range_name (required): Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["'Data Sheet'!B2"]). Sheet prefixes target that sheet without switching the active sheet.
@@ -604,7 +609,7 @@ class _CellCommentProxy:
         """Add a comment (annotation) to a specific cell in a Calc sheet.
 
         Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
+            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell.
             text (required): Comment text.
             sheet (optional): Sheet name (active sheet if omitted).
         """
@@ -614,7 +619,7 @@ class _CellCommentProxy:
         """Delete the comment (annotation) from a specific cell.
 
         Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
+            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return call_host_tool("cell_comment_delete", cell=cell, sheet=sheet)
@@ -654,7 +659,7 @@ class _ChartProxy:
         return call_host_tool("chart_get_info", name=name, sheet=sheet, page=page)
 
     def list(self, *, sheet: str | None = None, page: int | None = None) -> dict[str, Any]:
-        """List charts in the current document (active sheet, document body, or all slides).
+        """List every chart in the current document (all sheets, the Writer body and frames, or all slides/pages). sheet and page do not narrow the list.
 
         Args:
             sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
@@ -669,7 +674,7 @@ class _ChartProxy:
             name (optional): Chart name for edit, or for create when the chart does not yet exist.
             sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
             page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
-            data_range (optional): Cell range for chart data (Calc only, required for create, e.g. 'A1:B10').
+            data_range (optional): Cell range or named range for chart data (Calc only, required for create, e.g. 'A1:B10' or 'SalesData').
             has_header (optional): Whether the first row/column of data_range contains header and category labels (Calc only, defaults to true).
             headers (optional): Category/series column headers (Writer/Draw only, required for create, e.g. ['Month', 'Sales', 'Expenses']).
             rows (optional): 2D array of category labels and values (Writer/Draw only, required for create, e.g. [['Jan', 100, 80], ['Feb', 150, 110]]).
@@ -1797,7 +1802,7 @@ class _PythonSqlProxy:
 
         Args:
             sql (required): Read-only SQL (SELECT/CTE/in-memory VIEW). COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. Results longer than 200 rows are truncated and flagged.
-            files (optional): Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table). A list of basenames is still accepted.
+            files (optional): Folder files as name -> basename/spec. Flat: {"ledger": "ledger.parquet"}, {"events": "events.json"}. Sibling spreadsheet used-range: {"sales": "budget.xlsx#Sales"} (#SheetName is the sheet identity; the dict key is the SQL table).
             data_range (optional): Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity.
             headers (optional): First row of data_range (or preloaded) contains column headers (default true).
             tables (optional): Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. e.g. {"sales": {"sheet": "Sales_Analytics"}, "costs": {"named_range": "CostData"}}. Mix with files.
@@ -1827,7 +1832,7 @@ class _RangeProxy:
         """Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right').
 
         Args:
-            range_name (required): The table cell range containing both headers and data (e.g. ["A1:D20"] or ["Sheet1.A1:D20"]).
+            range_name (required): The table cell range or named range containing both headers and data (e.g. ["A1:D20"], ["Sheet1.A1:D20"], or ["Table"]).
             border (optional): Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
             scope (optional): Container scope for creating the names: 'global' (default) or specific sheet name.
         """

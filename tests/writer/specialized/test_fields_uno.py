@@ -2,6 +2,7 @@
 import uno  # noqa: F401
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.fields import FieldsDelete, FieldsInsert
@@ -20,7 +21,7 @@ def _set_body(doc, text_value):
 def _count_text_fields(doc):
     enum = doc.getTextFields().createEnumeration()
     count = 0
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         field = enum.nextElement()
         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
             count += 1
@@ -110,7 +111,7 @@ def test_fields_insert_page_number_visible_default(ctx, doc):
 
     enum = doc.getTextFields().createEnumeration()
     page_field = None
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         f = enum.nextElement()
         if f.supportsService("com.sun.star.text.textfield.PageNumber"):
             page_field = f

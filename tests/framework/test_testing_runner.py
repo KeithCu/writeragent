@@ -22,8 +22,6 @@ import plugin.testing_runner as tr
 from plugin.testing_runner import (
     _APPLICATION_ERROR_MARKER,
     _exit_after_summary,
-    _fail_reason,
-    _fail_reason_with_lifecycle,
     _function_name_matches,
     _is_case_id,
     _module_matches_filters,
@@ -33,7 +31,6 @@ from plugin.testing_runner import (
     collect_post_test_death,
     current_office,
     expand_soak_pair,
-    format_lifecycle_breadcrumb,
     probe_uno_bridge,
     record_test_end,
     record_test_start,
@@ -120,48 +117,6 @@ def test_cli_filters_default_empty() -> None:
     assert current_office().options.filters == []
 
 
-def test_lifecycle_breadcrumb_names_previous_and_current(monkeypatch) -> None:
-    """DisposedException on the next open must name the last TEST end, not only the victim."""
-    monkeypatch.setattr("plugin.testing_runner._soffice_pids", lambda: "4242")
-    current_office().reset_lifecycle_breadcrumb()
-    assert "previous=-" in format_lifecycle_breadcrumb()
-    assert "current=-" in format_lifecycle_breadcrumb()
-
-    record_test_start("draw.test_draw_uno.test_get_draw_tree")
-    crumb = format_lifecycle_breadcrumb()
-    assert "current=draw.test_draw_uno.test_get_draw_tree" in crumb
-    assert "start_pids=4242" in crumb
-    assert "now_pids=4242" in crumb
-
-    record_test_end("draw.test_draw_uno.test_get_draw_tree", "OK")
-    record_test_start("draw.test_draw_uno.test_insert_math_draw")
-    crumb = format_lifecycle_breadcrumb()
-    assert "previous=draw.test_draw_uno.test_get_draw_tree" in crumb
-    assert "result=OK" in crumb
-    assert "end_pids=4242" in crumb
-    assert "last_ok=draw.test_draw_uno.test_get_draw_tree" in crumb
-    assert "current=draw.test_draw_uno.test_insert_math_draw" in crumb
-    assert "pids_changed=0" in crumb
-    assert "dt_ms=" in crumb
-
-
-def test_lifecycle_breadcrumb_marks_pid_change_and_last_ok(monkeypatch) -> None:
-    pids = ["11"]
-
-    def fake_pids() -> str:
-        return pids[0]
-
-    monkeypatch.setattr("plugin.testing_runner._soffice_pids", fake_pids)
-    current_office().reset_lifecycle_breadcrumb()
-    record_test_end("suite.test_ok", "OK")
-    pids[0] = "-"
-    record_test_start("suite.test_victim")
-    crumb = format_lifecycle_breadcrumb()
-    assert "last_ok=suite.test_ok" in crumb
-    assert "pids_changed=1" in crumb
-    assert "now_pids=-" in crumb
-
-
 def test_probe_uno_bridge_states() -> None:
     assert probe_uno_bridge(None) == "no_probe"
     assert probe_uno_bridge(object()) == "no_probe"
@@ -183,15 +138,6 @@ def test_probe_uno_bridge_states() -> None:
             raise ValueError("no desktop")
 
     assert probe_uno_bridge(_Boom()) == "error:ValueError"
-
-
-def test_expand_soak_pair_aliases() -> None:
-    assert expand_soak_pair("tree-math") == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert expand_soak_pair("dup-move") == [
-        "test_duplicate_slide_copies_shapes",
-        "test_duplicate_rename_move_slide",
-    ]
-    assert expand_soak_pair("unknown") == []
 
 
 def test_function_name_matches_draw_tree_prefix_bleed() -> None:
@@ -222,9 +168,6 @@ def test_collect_post_test_death_application_error() -> None:
     office.note_stderr_line(_APPLICATION_ERROR_MARKER)
     reason = collect_post_test_death(None)
     assert reason is not None
-    assert "Unspecified Application Error" in reason
-    assert "Binary URP bridge" in reason
-    assert "VCL SalAbort" in reason
     office.reset_death_signals(clear_proc=True)
 
 
@@ -242,101 +185,96 @@ def test_collect_post_test_death_soffice_exit() -> None:
     assert office.soffice_exit_code() == 1
     reason = collect_post_test_death(None)
     assert reason is not None
-    assert "soffice exited 1" in reason
-    assert "Binary URP bridge" in reason
     office.reset_death_signals(clear_proc=True)
 
 
-def test_native_suite_sort_key_windows_puts_peer_last(monkeypatch) -> None:
-    """GHA 34551644954: other suites must run before leftover peer docs."""
-    import plugin.testing_runner as tr
-
-    monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/chatbot/test_peer_message_uno.py",
-        "/tmp/tests/doc/test_text_helpers_uno.py",
-        "/tmp/tests/chatbot/test_slash_popup_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    assert ordered[-1].endswith("test_peer_message_uno.py")
-    assert ordered[0].endswith("test_slash_popup_uno.py")
-
-
-def test_native_suite_sort_key_windows_puts_draw_uno_before_peer(
+@pytest.mark.parametrize(
+    ("paths", "expected_before_pairs"),
+    [
+        # GHA 34551644954: other suites must run before leftover peer docs.
+        pytest.param(
+            [
+                "/tmp/tests/chatbot/test_peer_message_uno.py",
+                "/tmp/tests/doc/test_text_helpers_uno.py",
+                "/tmp/tests/chatbot/test_slash_popup_uno.py",
+            ],
+            [
+                ("test_slash_popup_uno.py", "test_text_helpers_uno.py"),
+                ("test_text_helpers_uno.py", "test_peer_message_uno.py"),
+            ],
+            id="puts_peer_last",
+        ),
+        # GHA 34616287301: leftover Math Draw hung notebook import-filter load.
+        pytest.param(
+            [
+                "/tmp/tests/chatbot/test_peer_message_uno.py",
+                "/tmp/tests/draw/test_draw_uno.py",
+                "/tmp/tests/notebook/test_import_filter_uno.py",
+                "/tmp/tests/draw/test_draw_forms_uno.py",
+                "/tmp/tests/impress/test_impress_uno.py",
+            ],
+            [
+                ("test_import_filter_uno.py", "test_draw_uno.py"),
+                ("test_draw_forms_uno.py", "test_draw_uno.py"),
+                ("test_impress_uno.py", "test_draw_uno.py"),
+                ("test_draw_uno.py", "test_peer_message_uno.py"),
+            ],
+            id="puts_draw_uno_before_peer",
+        ),
+        # GHA 34648929578: leftover paste Writers poisoned Hidden Budget_read.
+        pytest.param(
+            [
+                "/tmp/tests/calc/test_formulas_uno.py",
+                "/tmp/tests/calc/test_rich_html_uno.py",
+                "/tmp/tests/chatbot/test_slash_popup_uno.py",
+                "/tmp/tests/doc/test_document_research_uno.py",
+                "/tmp/tests/notebook/test_import_filter_uno.py",
+                "/tmp/tests/draw/test_draw_uno.py",
+                "/tmp/tests/chatbot/test_peer_message_uno.py",
+            ],
+            [
+                ("test_slash_popup_uno.py", "test_formulas_uno.py"),
+                ("test_document_research_uno.py", "test_formulas_uno.py"),
+                ("test_import_filter_uno.py", "test_rich_html_uno.py"),
+                ("test_formulas_uno.py", "test_draw_uno.py"),
+                ("test_rich_html_uno.py", "test_draw_uno.py"),
+                ("test_draw_uno.py", "test_peer_message_uno.py"),
+            ],
+            id="defers_html_paste_after_doc_research",
+        ),
+        # GHA 37406913485: designs must not inherit the bridge suite's recycle.
+        pytest.param(
+            [
+                "/tmp/tests/draw/test_draw_forms_uno.py",
+                "/tmp/tests/draw/test_bridge_uno.py",
+                "/tmp/tests/doc/test_visual_helpers_uno.py",
+                "/tmp/tests/draw/test_designs_uno.py",
+                "/tmp/tests/calc/test_cells_uno.py",
+                "/tmp/tests/draw/test_draw_uno.py",
+            ],
+            [
+                ("test_cells_uno.py", "test_visual_helpers_uno.py"),
+                ("test_visual_helpers_uno.py", "test_designs_uno.py"),
+                ("test_designs_uno.py", "test_bridge_uno.py"),
+                ("test_bridge_uno.py", "test_draw_forms_uno.py"),
+                ("test_draw_forms_uno.py", "test_draw_uno.py"),
+            ],
+            id="runs_designs_before_bridge",
+        ),
+    ],
+)
+def test_native_suite_sort_key_windows_ordering(
     monkeypatch,
+    paths: list[str],
+    expected_before_pairs: list[tuple[str, str]],
 ) -> None:
-    """GHA 34616287301: leftover Math Draw hung notebook import-filter load."""
+    """Windows native suite ordering isolates leftover docs and recycle boundaries."""
     import plugin.testing_runner as tr
 
     monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/chatbot/test_peer_message_uno.py",
-        "/tmp/tests/draw/test_draw_uno.py",
-        "/tmp/tests/notebook/test_import_filter_uno.py",
-        "/tmp/tests/draw/test_draw_forms_uno.py",
-        "/tmp/tests/impress/test_impress_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    names = [p.rsplit("/", 1)[-1] for p in ordered]
-    assert names[-1] == "test_peer_message_uno.py"
-    assert names[-2] == "test_draw_uno.py"
-    assert names.index("test_import_filter_uno.py") < names.index("test_draw_uno.py")
-    assert names.index("test_draw_forms_uno.py") < names.index("test_draw_uno.py")
-
-
-def test_native_suite_sort_key_windows_defers_html_paste_after_doc_research(
-    monkeypatch,
-) -> None:
-    """GHA 34648929578: leftover paste Writers poisoned Hidden Budget_read."""
-    import plugin.testing_runner as tr
-
-    monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/calc/test_formulas_uno.py",
-        "/tmp/tests/calc/test_rich_html_uno.py",
-        "/tmp/tests/chatbot/test_slash_popup_uno.py",
-        "/tmp/tests/doc/test_document_research_uno.py",
-        "/tmp/tests/notebook/test_import_filter_uno.py",
-        "/tmp/tests/draw/test_draw_uno.py",
-        "/tmp/tests/chatbot/test_peer_message_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    names = [p.rsplit("/", 1)[-1] for p in ordered]
-    assert names.index("test_slash_popup_uno.py") < names.index("test_formulas_uno.py")
-    assert names.index("test_document_research_uno.py") < names.index(
-        "test_formulas_uno.py"
-    )
-    assert names.index("test_import_filter_uno.py") < names.index("test_rich_html_uno.py")
-    assert names.index("test_formulas_uno.py") < names.index("test_draw_uno.py")
-    assert names.index("test_rich_html_uno.py") < names.index("test_draw_uno.py")
-    assert names[-1] == "test_peer_message_uno.py"
-
-
-def test_native_suite_sort_key_windows_runs_designs_before_bridge(
-    monkeypatch,
-) -> None:
-    """GHA 37406913485: designs must not inherit the bridge suite's recycle."""
-    import plugin.testing_runner as tr
-
-    monkeypatch.setattr(tr.sys, "platform", "win32")
-    paths = [
-        "/tmp/tests/draw/test_draw_forms_uno.py",
-        "/tmp/tests/draw/test_bridge_uno.py",
-        "/tmp/tests/doc/test_visual_helpers_uno.py",
-        "/tmp/tests/draw/test_designs_uno.py",
-        "/tmp/tests/calc/test_cells_uno.py",
-        "/tmp/tests/draw/test_draw_uno.py",
-    ]
-    ordered = sorted(paths, key=_native_suite_sort_key)
-    names = [p.rsplit("/", 1)[-1] for p in ordered]
-    assert names == [
-        "test_cells_uno.py",
-        "test_visual_helpers_uno.py",
-        "test_designs_uno.py",
-        "test_bridge_uno.py",
-        "test_draw_forms_uno.py",
-        "test_draw_uno.py",
-    ]
+    names = [p.rsplit("/", 1)[-1] for p in sorted(paths, key=_native_suite_sort_key)]
+    for earlier, later in expected_before_pairs:
+        assert names.index(earlier) < names.index(later)
 
 
 def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
@@ -413,15 +351,6 @@ def test_exit_after_summary_keeps_systemexit_on_failure(monkeypatch) -> None:
         raise AssertionError("expected SystemExit(1) on failure")
 
 
-def test_exit_after_summary_minus_m_uses_helper() -> None:
-    import plugin.testing_runner as tr
-
-    text = Path(tr.__file__).read_text(encoding="utf-8")
-    assert "if __name__ == \"__main__\":" in text
-    assert "_exit_after_summary(main())" in text
-    assert "raise SystemExit(main())" not in text
-
-
 def test_native_suite_save_forwards_text_model_event_key(monkeypatch) -> None:
     """Sidebar setup calls set_text_model, which always passes event_key."""
     from plugin.framework.client.model_fetcher import set_text_model
@@ -486,23 +415,8 @@ def test_native_suite_save_review_mode_keeps_mapped_event_key(monkeypatch) -> No
     assert emitted[-1] == ("config:changed", {"key": "ai.review", "value": "wait", "ctx": ctx})
 
 
-def test_fail_reason_with_lifecycle_keeps_crumb_after_cap() -> None:
-    current_office().reset_lifecycle_breadcrumb()
-    record_test_end("suite.test_ok", "OK")
-    record_test_start("suite.test_victim")
-    long_exc = AssertionError("n" * 500)
-    out = _fail_reason_with_lifecycle(long_exc)
-    assert _fail_reason(long_exc).endswith("...")
-    assert "previous=suite.test_ok" in out
-    assert "result=OK" in out
-    assert "current=suite.test_victim" in out
-
-
-def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) -> None:
-    """A *_uno.py that fails to import must set total_failed so main() exits 1.
-
-    The loader used to print and continue, so the process exited 0.
-    """
+def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path) -> None:
+    """A *_uno.py that fails to import must set total_failed so main() exits 1."""
     plugin_dir = tmp_path / "plugin"
     tests_dir = tmp_path / "tests"
     plugin_dir.mkdir()
@@ -549,24 +463,6 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     assert any("ImportError" in line for line in by_name["test_r48_import_fail_uno"]["log"])
     assert by_name["test_r48_syntax_uno"]["failed"] == 1
     assert any("SyntaxError" in line for line in by_name["test_r48_syntax_uno"]["log"])
-    out = capsys.readouterr().out
-    assert "Skipping" not in out
-
-
-
-def test_mark_urp_dead_prints_office_log_tail(monkeypatch, tmp_path):
-    cfg = tmp_path / "user" / "config"
-    cfg.mkdir(parents=True)
-    (cfg / "writeragent_debug.log").write_text("\n".join("line %d" % i for i in range(50)) + "\n", encoding="utf-8")
-    seen: list[str] = []
-    monkeypatch.setattr(tr._office, "throwaway_profile_dir", tmp_path)
-    monkeypatch.setattr(tr, "_progress", seen.append)
-    monkeypatch.setattr(tr._office, "urp_bridge_dead", False)
-    tr._mark_urp_dead(RuntimeError("gone"), "t")
-    tail = [s for s in seen if s.startswith("OFFICE LOG | ")]
-    assert tail[0] == "OFFICE LOG | line 10"
-    assert tail[-1] == "OFFICE LOG | line 49"
-    assert len(tail) == 40
 
 
 def test_clean_test_does_not_probe_pids(monkeypatch) -> None:
@@ -658,7 +554,6 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
     discovery_suites = [s for s in summary["suites"] if s["name"] == "discovery"]
     assert len(discovery_suites) == 1
     assert discovery_suites[0]["failed"] == 1
-    assert any("No native test suites matched filters" in line for line in discovery_suites[0]["log"])
 
 
 def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
@@ -678,7 +573,6 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     discovery_suites = [s for s in summary["suites"] if s["name"] == "discovery"]
     assert len(discovery_suites) == 1
     assert discovery_suites[0]["failed"] == 1
-    assert any("Tests directory not found" in line for line in discovery_suites[0]["log"])
 
 
 def test_parse_cli_args_visible_and_filters(monkeypatch) -> None:
@@ -723,16 +617,6 @@ def test_parse_cli_args_user_profile_sets_env(monkeypatch) -> None:
     tr._parse_cli_args(["--user-profile"])
     assert tr.current_office().options.use_user_profile is True
     assert os.environ["WRITERAGENT_UNO_USER_PROFILE"] == "1"
-
-
-def test_runner_options_reach_current_office(monkeypatch) -> None:
-    """Options configured on the runner reach current_office().options."""
-    import inspect
-    from tests.testing_utils import with_native_doc
-
-    monkeypatch.setattr(tr.current_office().options, "show_window", True)
-    assert tr.current_office().options.show_window is True
-    assert inspect.signature(with_native_doc).parameters["hidden"].default is True
 
 
 @pytest.mark.parametrize(

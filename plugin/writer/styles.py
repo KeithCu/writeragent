@@ -79,14 +79,15 @@ STYLE_GOVERNED_CHAR_PROPERTIES = (
     "CharHeight", "CharHeightAsian", "CharHeightComplex",
 )
 
+# Deliberately narrower than setAllPropertiesToDefault: numbering, borders, and
+# language are not the caller's to lose.
 CLEARABLE_PARA_PROPERTIES = (
     "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
     "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
 )
 
-REPORTED_CHAR_PROPERTIES = (
-    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
-    "CharHeight", "CharHeightAsian", "CharHeightComplex",
+# Must cover everything style_props clears so the report echoes every dropped slot.
+REPORTED_CHAR_PROPERTIES = STYLE_GOVERNED_CHAR_PROPERTIES + (
     "CharWeight", "CharPosture", "CharColor",
 )
 

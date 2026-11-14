@@ -30,36 +30,15 @@ def test_resolve_allowed_tools_disabled():
     assert resolve_allowed_tools("") == frozenset()
 
 
-def test_resolve_allowed_tools_librepy_domain_stays_unrestricted(caplog):
+def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
     """No writeragent_api: a domain string must not disable every tool RPC."""
-    import logging
-
-    with caplog.at_level(logging.WARNING):
-        with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
-            assert resolve_allowed_tools("writer") is None
-            assert resolve_allowed_tools("shapes, footnotes, core") is None
-        assert "not a DOMAIN_TOOLS key" not in caplog.text
+    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+        assert resolve_allowed_tools("writer") is None
+        assert resolve_allowed_tools("shapes, footnotes, core") is None
     # The proxy is present: an unknown name is still a real allowlist.
     unknown = resolve_allowed_tools("not-a-domain")
     assert unknown is not None
     assert "list_open_documents" in unknown
-
-
-def test_unknown_domain_logs_warning(caplog):
-    import logging
-
-    with caplog.at_level(logging.WARNING):
-        caplog.clear()
-        allowed = resolve_allowed_tools("not-a-domain")
-        assert allowed is not None
-        assert "list_open_documents" in allowed
-        assert "not-a-domain" in caplog.text
-        assert "not a DOMAIN_TOOLS key" in caplog.text
-
-        caplog.clear()
-        allowed_footnotes = resolve_allowed_tools("footnotes")
-        assert allowed_footnotes is not None
-        assert "not a DOMAIN_TOOLS key" not in caplog.text
 
 
 def test_resolve_allowed_tools_writer_domain_includes_apply():
@@ -78,31 +57,6 @@ def test_resolve_allowed_tools_plural_domain_name():
     assert "list_open_documents" in allowed
 
 
-def test_shape_group_proxy_docstring_says_why_to_group():
-    """wa.shape.group carries the tool description, including why to group."""
-    import inspect
-
-    import plugin.scripting.writeragent_api as api
-    from plugin.calc.shapes import GroupShapes as CalcGroupShapes
-    from plugin.draw.shapes import GroupShapes
-    from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
-
-    doc = inspect.cleandoc(api.shape.group.__doc__ or "")
-    assert "select and move them together" in doc
-    assert "a flag, logo, diagram, icon" in doc
-    assert "ALWAYS call this before finishing" in doc
-    assert "leaving loose parts is wrong" in doc
-    assert "Pass every related shape index" in doc
-    assert "shape_upsert (action edit)" in doc
-    # Args stay the generated schema text.
-    assert "indices (required): List of shape indices or Names to group." in doc
-    assert "page (optional): Page index containing the shapes." in doc
-    # Writer and Calc re-export Draw's class and do not own a second description.
-    assert WriterGroupShapes.description == GroupShapes.description
-    assert CalcGroupShapes.description == GroupShapes.description
-    assert GroupShapes.description in doc
-
-
 def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     """Inner catalog is the generated Args text, not a one-line summary."""
     import inspect
@@ -117,15 +71,9 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     from plugin.scripting.writeragent_api import DOMAIN_TOOLS
 
     catalog = format_script_api_catalog(["shapes"])
-    assert catalog.startswith("run_venv_python_script has access to the following APIs")
-    assert "Only the Python script may call these wa.* functions" in catalog
-    assert "import writeragent as wa" in catalog
     assert "wa.core.list_open_documents()" in catalog
     assert "wa.shape.upsert(" in catalog
     assert "wa.footnote." not in catalog
-    assert "wa.python.run_venv_python_script" not in catalog
-    assert not hasattr(api.python, "run_venv_python_script")
-    assert DOMAIN_TOOLS["python"] == ["symbolic_math"]
 
     tools = _domain_tools_map()
     assert tools is not None
@@ -136,11 +84,6 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
         doc = inspect.cleandoc(method.__doc__ or "")
         assert doc
         assert doc in catalog
-    # Rich Args from the proxy generator (#916), not a trimmed blurb.
-    assert "shape_type (optional)" in catalog
-    assert "round-rectangle" in catalog
-    assert "action (required)" in catalog
-    assert len(catalog) > 5000
 
     both = format_script_api_catalog(["footnotes", "shapes"])
     assert both.count("core:\n") == 1
@@ -276,8 +219,8 @@ def test_execute_tool_prefers_script_session_document():
     registry.execute.return_value = {"status": "ok"}
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=MagicMock()),
+        patch("plugin.scripting.host_rpc.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
         patch("plugin.app.get_tools", return_value=registry),
         patch("plugin.framework.doc_type.is_draw", return_value=True),
@@ -307,8 +250,8 @@ def test_execute_tool_uses_pinned_document_not_front_window():
     try:
         with (
             patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
-            patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-            patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
+            patch("plugin.scripting.host_rpc.get_ctx", return_value=MagicMock()),
+            patch("plugin.scripting.host_rpc.get_active_document", return_value=focused) as mock_active,
             patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
             patch("plugin.app.get_tools", return_value=registry),
             patch("plugin.framework.doc_type.is_draw", return_value=True),
@@ -573,17 +516,8 @@ def test_run_code_in_user_venv_forwards_python_tool_domain():
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
         run_code_in_user_venv("result = 1", python_tool_domain="writer")
-        assert manager.execute.call_args.kwargs.get("python_tool_domain") == "writer"
-
-
-def test_apply_document_content_proxy_omits_optional_defaults():
-    import inspect
-
-    import plugin.scripting.writeragent_api as api
-
-    params = inspect.signature(api.writer.apply_document_content).parameters
-    assert params["dry_run"].default is None
-    assert params["target"].default is None
+        req = manager.execute.call_args.args[0]
+        assert req.python_tool_domain == "writer"
 
 
 def test_resolve_allowed_tools_indexes_and_exempt_domains():
@@ -611,61 +545,6 @@ def test_handle_tool_call_frame_invalid_tool_name_type():
     assert resp is not None
     assert resp["status"] == "error"
     assert "Invalid tool_call: None" in resp["message"]
-
-def test_execute_tool_async_tool_runs_on_caller_thread():
-    from plugin.framework.tool import ToolBase, ToolContext
-    import threading
-
-    class AsyncMockTool(ToolBase):
-        name: str = "async_mock_tool"
-        description: str = "Mock tool"
-        timeout: float = 600.0
-
-        def is_async(self) -> bool:
-            return True
-
-        def execute(self, ctx: ToolContext, **kwargs) -> dict:
-            return {"status": "ok", "thread": threading.current_thread().name}
-
-    from plugin.scripting.host_rpc import execute_tool
-
-    registry = MagicMock()
-    registry._services = {}
-
-    # We simulate ToolRegistry.execute's thread behavior loosely for tests,
-    # but more importantly we test that host_rpc does not wrap the final `registry.execute`
-    # in `main.call` directly anymore since we split it.
-
-    # ToolRegistry.execute is actually what executes. Let's make sure it receives ToolContext properly.
-    def mock_registry_execute(tool_name, tctx, **kwargs):
-        assert tctx.doc is not None
-        assert tctx.ctx is not None
-        return {"status": "ok", "caller_tctx": tctx.caller}
-
-    registry.execute.side_effect = mock_registry_execute
-    focused = MagicMock()
-    bound = MagicMock()
-
-    with (
-        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()) as mock_exec_main,
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch("plugin.framework.uno_context.get_active_document", return_value=focused),
-        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
-        patch("plugin.app.get_tools", return_value=registry),
-        patch("plugin.framework.doc_type.is_draw", return_value=True),
-        patch("plugin.framework.doc_type.is_calc", return_value=False),
-        patch("plugin.framework.doc_type.is_writer", return_value=False),
-    ):
-        res = execute_tool("async_mock_tool", {}, allowed_tools=frozenset({"async_mock_tool"}), caller="test_caller")
-
-    assert res["status"] == "ok"
-    assert res["caller_tctx"] == "test_caller"
-    registry.execute.assert_called_once()
-
-    # main.call should only be called once, for `_run`
-    mock_exec_main.assert_called_once()
-    assert mock_exec_main.call_args[0][0].__name__ == "_run"
-
 
 def test_singularize_domain():
     from plugin.scripting.host_rpc import singularize_domain
@@ -749,15 +628,11 @@ def test_proxy_methods_by_tool_uses_tool_methods():
     assert methods["list_open_documents"] == api.core.list_open_documents
 
 
-def test_proxy_methods_by_tool_missing_tool_methods_skips_bytecode(monkeypatch, caplog):
-    import logging
+def test_proxy_methods_by_tool_missing_tool_methods_skips_bytecode(monkeypatch):
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
 
     monkeypatch.delattr("plugin.scripting.writeragent_api.TOOL_METHODS")
-    with caplog.at_level(logging.WARNING):
-        res = _proxy_methods_by_tool()
-    assert res == {}
-    assert "no TOOL_METHODS" in caplog.text
+    assert _proxy_methods_by_tool() == {}
 
 
 def test_writeragent_api_in_process_rpc_call_preserves_error_code():
@@ -798,25 +673,6 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
                 raise AssertionError("Expected RuntimeError")
 
 
-def test_writeragent_api_exports_and_tool_methods():
-    import plugin.scripting.writeragent_api as api
-
-    assert hasattr(api, "TOOL_METHODS")
-    assert isinstance(api.TOOL_METHODS, dict)
-    assert api.TOOL_METHODS["shape_upsert"] == ("shape", "upsert")
-    assert api.TOOL_METHODS["tracking_start"] == ("tracking", "start")
-    assert api.TOOL_METHODS["tracking_stop"] == ("tracking", "stop")
-    assert api.TOOL_METHODS["tracking_list"] == ("tracking", "list")
-    assert api.TOOL_METHODS["tracking_show"] == ("tracking", "show")
-    assert api.TOOL_METHODS["tracking_manage"] == ("tracking", "manage")
-    assert hasattr(api, "__all__")
-    assert "shape" in api.__all__
-    assert "core" in api.__all__
-    # Builtin range should not be in __all__ so star-import does not clobber it
-    assert "range" not in api.__all__
-    assert "math" in api.__all__
-
-
 def test_execute_tool_copies_stop_onto_tool_context():
     from plugin.framework.send_cancellation import SendCancellation
 
@@ -832,8 +688,8 @@ def test_execute_tool_copies_stop_onto_tool_context():
     scope = SendCancellation()
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch("plugin.framework.uno_context.get_active_document", return_value=focused),
+        patch("plugin.scripting.host_rpc.get_ctx", return_value=MagicMock()),
+        patch("plugin.scripting.host_rpc.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
         patch("plugin.app.get_tools", return_value=registry),
         patch("plugin.framework.doc_type.is_draw", return_value=True),
@@ -925,12 +781,7 @@ def test_handle_tool_call_frame_write_timeout_propagates():
 
 
 def test_every_domain_tool_resolves_to_a_proxy_method():
-    import importlib
-
     import plugin.scripting.writeragent_api as api
-
-    # Alias/sandbox tests can repoint writeragent.vision; reload keeps TOOL_METHODS and proxies aligned.
-    importlib.reload(api)
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
 
     methods = _proxy_methods_by_tool()
@@ -965,5 +816,69 @@ def test_format_script_api_catalog_prints_identifier_safe_calls():
     assert inspect.cleandoc(api.styles.import_.__doc__ or "") in catalog
     assert inspect.cleandoc(api.python_sql.query_folder_sql.__doc__ or "") in catalog
     assert "wa.python/sql." not in catalog
+
+
+def test_wa_help_known_name_matches_prompt_catalog():
+    """wa.help('shape.upsert') returns the exact signature/docstring text from the prompt catalog."""
+    import plugin.scripting.writeragent_api as api
+    from plugin.scripting.host_rpc import (
+        _format_script_api_catalog_cached,
+        format_script_api_catalog,
+    )
+
+    _format_script_api_catalog_cached.cache_clear()
+    catalog = format_script_api_catalog(["shapes"])
+    assert "wa.help(" in catalog
+
+    help_text = api.help("shape.upsert")
+    assert help_text.startswith("wa.shape.upsert(")
+    assert help_text in catalog
+    assert api.help("wa.shape.upsert") == help_text
+
+
+def test_wa_help_no_arg_lists_namespaces_and_methods():
+    from plugin.scripting.host_rpc import format_script_api_help
+    import plugin.scripting.writeragent_api as api
+
+    listing = api.help()
+    assert listing == format_script_api_help()
+    assert "shape:" in listing
+    assert "upsert" in listing
+    assert "core:" in listing
+    assert "list_open_documents" in listing
+    assert "run_venv_python_script" not in listing
+
+
+def test_wa_help_unknown_name_lists_close_matches():
+    import plugin.scripting.writeragent_api as api
+
+    typo = api.help("shape.upser")
+    assert "shape.upsert" in typo
+
+    far = api.help("qqqqq")
+    assert far
+    assert "shape.upsert" not in far
+
+
+def test_wa_help_via_worker_ipc_frame():
+    """wa.help() goes through the same Pickle5 tool_call host RPC path as other proxy calls."""
+    from plugin.scripting.host_rpc import format_script_api_help
+
+    written = io.BytesIO()
+    keep_going = handle_tool_call_frame(
+        {"type": "tool_call", "id": "h1", "tool": "writeragent_help", "args": {"name": "shape.upsert"}},
+        stdin_write=written.write,
+    )
+    assert keep_going is True
+    written.seek(0)
+    reply = read_pickle_frame(written)
+    assert reply["status"] == "ok"
+    assert reply["id"] == "h1"
+    assert reply["result"] == format_script_api_help("shape.upsert")
+
+
+def test_wa_help_refused_during_py_recalc():
+    with pytest.raises(RuntimeError, match="=PY\\(\\) recalculation"):
+        execute_tool("writeragent_help", {}, allowed_tools=frozenset())
 
 

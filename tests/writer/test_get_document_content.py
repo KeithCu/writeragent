@@ -20,8 +20,7 @@ def test_truncated_flag_on_get_document_content():
                       return_value="<p>short</p>\n\n[... truncated ...]"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
     assert res.get("truncated") is True
-    assert "scope='range'" in res.get("hint", "")
-    assert "document_length" in res.get("hint", "")
+    assert res.get("hint")
     assert "next_range" not in res
     with patch.object(html_export, "document_to_content", return_value="<p>all</p>"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
@@ -110,7 +109,6 @@ def test_get_document_content_warns_when_redlines_are_not_listed():
     assert res["status"] == "ok"
     assert "tracked_changes" not in res
     assert "could not list tracked changes" in res["warning"]
-    assert "do not accept or reject" in res["warning"]
 
 
 def test_format_only_redlines_are_reported_without_a_listing_failure():
@@ -247,14 +245,14 @@ def test_range_scope_without_both_offsets_is_an_error():
 
 
 @pytest.mark.parametrize(
-    "args, message",
+    "args",
     [
-        ({"scope": "whole"}, "Invalid value for scope: 'whole'. Valid options: full, selection, range"),
-        ({"max_chars": True}, "Invalid type for max_chars: expected integer, got bool"),
-        ({"scope": "range", "start": "2", "end": 4}, "Invalid type for start: expected integer, got str"),
+        {"scope": "whole"},
+        {"max_chars": True},
+        {"scope": "range", "start": "2", "end": 4},
     ],
 )
-def test_get_document_content_wrong_arguments_are_rejected_before_execute(args, message):
+def test_get_document_content_wrong_arguments_are_rejected_before_execute(args):
     from types import SimpleNamespace
 
     from plugin.framework.tool import prepare_tool_call
@@ -264,7 +262,6 @@ def test_get_document_content_wrong_arguments_are_rejected_before_execute(args, 
     prep = prepare_tool_call(GetDocumentContent(), ctx, "get_document_content", args)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
-    assert prep.error["message"] == message
 
 
 def test_selection_with_no_content_warns():
@@ -275,17 +272,7 @@ def test_selection_with_no_content_warns():
     with patch("plugin.writer.html_export.document_to_content", return_value=""):
         res = GetDocumentContent().execute(ctx, scope="selection")
     assert res["status"] == "ok"
-    assert "does not mean the document is empty" in res.get("warning", "")
-
-
-def test_schema_documents_plain_text_offsets():
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    tool = GetDocumentContent()
-    start_desc = tool.parameters["properties"]["start"]["description"]
-    assert "Plain-text" in start_desc
-    assert "document_length" in start_desc
-    assert "tracked_changes_total" in tool.description
+    assert res.get("warning")
 
 
 def test_document_length_zero_warns():

@@ -2,65 +2,37 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared host glue for trusted helper domains (headers, templates, RPS outcomes, data binding).
+"""Shared host glue for trusted helper domains (script facts, templates, RPS outcomes, data binding).
 
-Domain modules keep public parse/template wrappers; compute and egress stay domain-specific.
 No imports of domain modules here (avoids cycles).
+
+In-function imports fall into three classes:
+- the ``domain_registry`` cycle (``domain_registry`` imports this module);
+- host-only ``client``, ``queue_executor``, and ``plugin.calc.*`` (not in the
+  compute bundle; the venv child must not load ``trusted_rpc``);
+- ``doc_type``, which loads ``thread_guard`` and must not be pulled into the
+  venv child through the optimize/forecast facades
+  (``test_optimize_facade_import_does_not_load_host_worker``).
 """
 
 from __future__ import annotations
 
 import ast
-import json
+import html
 import logging
 import re
 import time
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
-
-
-def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
-    # User scripts are longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before ast.parse could return None. run_name is
-    # our helper token. CrossHair keeps the short source.
-    return isinstance(code, str) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-
-
-_deal_user_code_ok = _deal_user_code_ok_pytest
+from plugin.framework.deal_shim import deal
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
-
-log = logging.getLogger("writeragent.scripting")
-
+from plugin.scripting.helper_registry import names
 
 if TYPE_CHECKING:
-    from collections.abc import Collection
+    from plugin.scripting.domain_registry import DomainWiring
 
-# --- Header meta ---
-
-
-@dataclass(frozen=True)
-class HelperScriptMeta:
-    """Machine-readable ``# writeragent:<tag> helper=… params=…`` header."""
-
-    helper: str
-    params: dict[str, Any]
-
-
-@deal.pre(lambda tag: str_bounded(tag, DEAL_MAX_TOKEN, min_len=1))
-@deal.post(lambda result: isinstance(result, str) and result.startswith("# writeragent:"))
-def header_prefix(tag: str) -> str:
-    """Return ``# writeragent:<tag>`` (no trailing space)."""
-    return f"# writeragent:{tag}"
-
-
-def _header_re(tag: str) -> re.Pattern[str]:
-    # Same wire shape as historical per-domain regexes.
-    return re.compile(
-        rf"^\s*#\s*writeragent:{re.escape(tag)}\s+helper=(\w+)\s+params=(\{{.*\}})\s*$",
-        re.MULTILINE,
-    )
+log = logging.getLogger("writeragent.scripting")
 
 
 _UNRESOLVED: Any = object()
@@ -325,41 +297,11 @@ class ScriptFacts:
     def needs_data_binding(self, *, doc: Any = None) -> bool:
         """True when code uses a trusted helper that may bind Calc sheet data."""
         if doc is not None:
-            from plugin.framework.doc_type import is_calc
+            from plugin.framework.doc_type import is_calc  # child boundary: loads thread_guard
 
             if not is_calc(doc):
                 return False
         return self._needs_data_binding
-
-    @deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
-    def header(
-        self,
-        tag: str,
-        *,
-        helper_names: Collection[str] | None = None,
-    ) -> HelperScriptMeta | None:
-        """Parse ``# writeragent:<tag> helper=NAME params={…}``."""
-        prefix = header_prefix(tag)
-        if prefix not in self.code:
-            return None
-        match = _header_re(tag).search(self.code)
-        if not match:
-            return None
-        helper = match.group(1)
-        if helper_names is not None and helper not in helper_names:
-            return None
-        raw = match.group(2)
-        try:
-            params = json.loads(raw)
-        except Exception:
-            params = {}
-        return HelperScriptMeta(helper=helper, params=params if isinstance(params, dict) else {})
-
-
-def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* uses a trusted helper that may bind Calc sheet data."""
-    return ScriptFacts.from_source(code).needs_data_binding(doc=doc)
-
 
 
 # --- Templates ---
@@ -441,8 +383,24 @@ def format_elapsed_time(seconds: float) -> str:
 
 
 def _elapsed_since(t0: float) -> float:
-    """Seconds since *t0*, or 0 while CrossHair is loaded."""
+    """Seconds since *t0*.
+
+    ``scripts/crosshair_domains.py`` swaps this body for one that returns 0.0,
+    so the outcome builders stay deterministic under CrossHair.
+    """
     return time.perf_counter() - t0
+
+
+def escape_for_html_insert(value: Any) -> str:
+    """Escape a script result so it stays text after Writer/Calc HTML insert.
+
+    ``insert_content_at_position`` (``plugin/writer/html_import.py``) and
+    ``insert_cell_html_rich`` (``plugin/calc/rich_html.py``) call
+    ``html.unescape`` before the StarWriter HTML filter, so a single
+    ``html.escape`` is undone and ``<`` becomes markup again. Double-escape
+    so a literal ``<`` survives as text (``&amp;lt;`` -> ``&lt;`` -> ``<``).
+    """
+    return html.escape(html.escape(str(value)))
 
 
 def _exception_detail(error: BaseException) -> str:
@@ -457,14 +415,19 @@ def _exception_detail(error: BaseException) -> str:
 def rps_error_outcome(
     message: str,
     *,
-    t0: float,
+    t0: float | None,
     traceback: str | None = None,
 ) -> dict[str, Any]:
-    """Standard ``{ok: False, message}`` with elapsed time when not a timeout."""
-    elapsed = _elapsed_since(t0)
+    """Standard ``{ok: False, message}`` with elapsed time when not a timeout.
+
+    When ``t0`` is ``None``, the message is returned as given with no elapsed time.
+    Callers use this for refusals before the run starts or failures with no run clock.
+    """
     err_msg = str(message)
-    if "timed out" not in err_msg.lower() and "timeout" not in err_msg.lower():
-        err_msg = f"{err_msg} (took {format_elapsed_time(elapsed)})"
+    if t0 is not None:
+        elapsed = _elapsed_since(t0)
+        if "timed out" not in err_msg.lower() and "timeout" not in err_msg.lower():
+            err_msg = f"{err_msg} (took {format_elapsed_time(elapsed)})"
     out: dict[str, Any] = {"ok": False, "message": err_msg}
     if traceback is not None:
         out["traceback"] = traceback
@@ -498,7 +461,13 @@ def rps_ok_outcome(
     *,
     result: Any,
     stdout: str | None = None,
+    no_output: bool = False,
 ) -> dict[str, Any]:
+    """Standard ``{ok: True, status_ok_text, result}`` outcome dictionary.
+
+    The returned dictionary contains ``ok``, ``status_ok_text``, and ``result``.
+    Optional keys include ``stdout`` when non-None, and ``no_output`` when True.
+    """
     out: dict[str, Any] = {
         "ok": True,
         "status_ok_text": status_ok_text,
@@ -506,6 +475,8 @@ def rps_ok_outcome(
     }
     if stdout is not None:
         out["stdout"] = stdout
+    if no_output:
+        out["no_output"] = True
     return out
 
 
@@ -555,13 +526,10 @@ def run_domain(
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Execute trusted helper within *wiring_id* on the host."""
-    from plugin.scripting.domain_registry import get_domain_wiring
-    from plugin.scripting.helper_registry import names
+    from plugin.scripting.domain_registry import get_domain_wiring  # cycle: domain_registry imports this module
 
     row = get_domain_wiring(wiring_id)
     if row.runner == "symbolic":
-        from plugin.framework.errors import ToolExecutionError
-
         name = str(helper or "").strip()
         if not name:
             raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
@@ -571,7 +539,7 @@ def run_domain(
 
         doc_type = kwargs.get("doc_type")
         if doc_type is None and doc is not None:
-            from plugin.framework.doc_type import is_calc, is_writer
+            from plugin.framework.doc_type import is_calc, is_writer  # child boundary: loads thread_guard
 
             if is_calc(doc):
                 doc_type = "calc"
@@ -586,7 +554,7 @@ def run_domain(
             spec["params"] = params
 
         task_hint = kwargs.get("task_hint")
-        from plugin.scripting.client import run_symbolic as client_run_symbolic
+        from plugin.scripting.client import run_symbolic as client_run_symbolic  # host only: client loads trusted_rpc
 
         return client_run_symbolic(
             uno_ctx,
@@ -596,23 +564,7 @@ def run_domain(
         )
 
     if row.runner == "sheet":
-        import plugin.scripting.client as client
-
-        rpc = row.rpc_domain or row.helper_domain or wiring_id
-        client_run = getattr(client, f"run_{rpc}")
-        h_names = names(row.helper_domain or wiring_id)
-        return run_trusted_calc_data_helper(
-            uno_ctx,
-            doc,
-            helper=helper,
-            helper_names=h_names,
-            error_code=row.error_code or "",
-            empty_data_message=row.empty_data_message or "",
-            client_run=client_run,
-            require_calc_or_writer=row.require_calc_or_writer,
-            force_queue=row.force_queue,
-            **kwargs,
-        )
+        return run_trusted_calc_data_helper(uno_ctx, doc, row, helper=helper, **kwargs)
 
     raise ValueError(f"No host runner configured for wiring id {wiring_id!r}")
 
@@ -639,23 +591,27 @@ def is_status_helper_result(
 def run_trusted_calc_data_helper(
     uno_ctx: Any,
     doc: Any,
+    row: DomainWiring,
     *,
     helper: str,
-    helper_names: frozenset[str] | set[str],
-    error_code: str,
-    empty_data_message: str,
-    client_run: Callable[..., dict[str, Any]],
     params: dict[str, Any] | None = None,
     data_range: str | None = None,
     data: Any = None,
     headers: bool = True,
     task_hint: str | None = None,
-    require_calc_or_writer: bool = False,
-    force_queue: bool = False,
 ) -> dict[str, Any]:
-    """Fetch Calc data and run one trusted sheet helper. Forecast and optimize share this."""
-    from plugin.calc.calc_addin_data import _resolve_python_data
-    from plugin.framework.errors import ToolExecutionError
+    """Fetch Calc data and run one trusted sheet helper.
+
+    ``row`` supplies the error code, helper names, RPC target, and threading/doc-type
+    flags; analysis, forecast, optimize, and viz share this function.
+    """
+    import plugin.scripting.client as client  # host only: client loads trusted_rpc
+    from plugin.calc.calc_addin_data import resolve_python_data  # host only: plugin.calc needs UNO
+
+    wiring_id = row.id
+    error_code = row.error_code or ""
+    helper_names = names(row.helper_domain or wiring_id)
+    client_run = getattr(client, f"run_{row.rpc_domain or row.helper_domain or wiring_id}")
 
     name = str(helper or "").strip()
     if not name:
@@ -669,17 +625,16 @@ def run_trusted_calc_data_helper(
 
     def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
-        from plugin.framework.doc_type import is_calc, is_writer
-        from plugin.framework.errors import reraise_if_disposed
+        from plugin.framework.doc_type import is_calc, is_writer  # child boundary: loads thread_guard
 
         # Doc-type check lives inside _read_sheet after the main-thread hop because get_document_type must not run on worker threads.
-        if require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
+        if row.require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
             raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
 
-        py_data, err = _resolve_python_data(doc, data_range=dr, data=data)
+        py_data, err = resolve_python_data(doc, data_range=dr, data=data)
         context: dict[str, Any] = {}
         try:
-            from plugin.calc.bridge import CalcBridge
+            from plugin.calc.bridge import CalcBridge  # host only: plugin.calc needs UNO
 
             context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
         except Exception as e:
@@ -693,17 +648,17 @@ def run_trusted_calc_data_helper(
         return py_data, err, context
 
     # Only the sheet read hops to the main thread; venv client_run stays on the worker so Calc does not freeze during IPC.
-    from plugin.framework.queue_executor import main
+    from plugin.framework.queue_executor import main  # host only: not in the compute bundle
 
     # force_queue marshals sheet reads through main.call on PyUNO Dummy-N threads that falsely report as main.
-    if not force_queue and main.is_current():
+    if not row.force_queue and main.is_current():
         py_data, err, context = _read_sheet()
     else:
         py_data, err, context = main.call(_read_sheet)
     if err:
         raise ToolExecutionError(err, code=error_code)
     if py_data is None:
-        raise ToolExecutionError(empty_data_message, code=error_code)
+        raise ToolExecutionError(row.empty_data_message or "", code=error_code)
 
     spec: dict[str, Any] = {"helper": name, "headers": bool(headers)}
     if isinstance(params, dict) and params:
@@ -716,7 +671,7 @@ def supports_calc_or_writer_manual(doc: Any) -> bool:
     """True when Run Python Script should expose helpers for Calc or Writer *doc*."""
     if doc is None:
         return False
-    from plugin.framework.doc_type import is_calc, is_writer
+    from plugin.framework.doc_type import is_calc, is_writer  # child boundary: loads thread_guard
 
     return is_writer(doc) or is_calc(doc)
 
@@ -739,8 +694,9 @@ def insert_helper_result_into_calc(
     tabular writer qualifies the anchor so ``CalcBridge.resolve`` opens
     that sheet. A missing name stays on the active sheet (Run Python Script
     selection, or an unqualified ``output_range``).
+    *uno_ctx* is unused; it stays because DomainWiring.insert passes (doc, ctx, result) positionally to post_venv_calc_only inserters.
     """
-    from plugin.calc.tabular_egress import (
+    from plugin.calc.tabular_egress import (  # host only: plugin.calc needs UNO
         format_tabular_helper_for_calc,
         insert_tabular_result_into_calc,
     )
@@ -753,7 +709,6 @@ def insert_helper_result_into_calc(
     )
     return insert_tabular_result_into_calc(
         doc,
-        uno_ctx,
         grid,
         sheet_name=sheet_name,
         start_col=start_col,

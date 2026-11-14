@@ -59,10 +59,11 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 - DuckDB — `plugin/scripting/venv/duckdb_sql.py`, picker origin `sql`, `domain=sql`
 - Spreadsheet import — `plugin/calc/spreadsheet_import/` (proposed), `calc.convert_spreadsheet_to_python`
 - Calc-parity `xl` helpers — **not in LibrePy today**; see [Calc-parity `xl` helpers (deferred)](#calc-parity-xl-helpers-deferred-from-librepy) below.
+- Unbundled prototype / CLI helpers — `plugin/calc/viz_auto_plot.py`, `plugin/calc/forecast_auto_plot.py` (only importers are unbundled prototype tools), `plugin/calc/error_detector.py` (only importers are unbundled `errors.py`, `formulas.py`, `spreadsheet_import/`), and `plugin/calc/excel_py_convert/cli.py` + `__main__.py` (CLI converter is WriterAgent-only).
 
 #### Calc-parity `xl` helpers (deferred from LibrePy) {#calc-parity-xl-helpers-deferred-from-librepy}
 
-WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **261** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They were built so the **prototype** spreadsheet import could emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md), low priority). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
+WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **257** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They were built so the **prototype** spreadsheet import could emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md), low priority). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
 
 **LibrePy (core OXT) excludes them for now** (~134 KB source; filtered in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py) via `LIBREPY_CALC_FUNCTIONS_EXCLUDES`). Rationale:
 
@@ -70,7 +71,7 @@ WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/
 - **Spreadsheet import is WriterAgent-only** — menu, translator, and chat tool are not in the core bundle; nothing in LibrePy menus calls `calc.*` today.
 - **Coverage not fully exercised in core QA** — parity tests live in WriterAgent (`tests/scripting/test_calc_functions.py`); bundling without a core conversion workflow would ship dead weight for most installs.
 
-**What LibrePy still ships:** [`calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) — host-side name frozensets for Analysis, Viz, Forecast, etc. (no NumPy on the LO host).
+**What LibrePy still ships:** [`calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) — row and column caps for the tables the venv helper domains (analysis, forecast, optimize, duckdb_sql) return.
 
 **Runtime without the library:** `inject_auto_imports` skips `calc` when the module is absent; `=PY()` and Run Python Script work with `np`/`pd` and domain helpers. Only `calc.*` in user scripts or converted formulas would fail.
 
@@ -183,7 +184,7 @@ Call chain:
 
 `PythonFunction.python()` → `execute_python_addin` → `calc_addin_data` / `payload_codec` → `run_code_in_user_venv` → `PythonWorkerManager` → `venv/worker_harness` → `venv/venv_sandbox` → `LocalPythonExecutor`
 
-Error display: `addin_values.py` uses `framework.errors.format_error_payload` plus a local `_format_error_for_display` so `=PY()` does **not** import `plugin.framework.client` (package init is now lazy HTTP/errors only, but the add-in still stays off that package).
+Error display: `addin_values.py` uses `framework.errors.format_error_payload` plus a local `format_addin_error_for_display` so `=PY()` does **not** import `plugin.framework.client` (package init is now lazy HTTP/errors only, but the add-in still stays off that package).
 
 Config: `get_config_str("scripting.python_venv_path")`, session mode, timeout, auto-spill.
 
@@ -234,8 +235,8 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/calc/python/addin_values.py`](../../plugin/calc/python/addin_values.py) | Value coercion, type conversion |
 | [`plugin/calc/python/undo.py`](../../plugin/calc/python/undo.py) | Undo lock management |
 | [`plugin/calc/addin_common.py`](../../plugin/calc/addin_common.py) | Shared add-in helpers |
-| [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing; `_resolve_python_data` for Run Python Script / trusted helpers |
-| [`plugin/calc/__init__.py`](../../plugin/calc/__init__.py) | Package (`CalcError`) |
+| [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing; `resolve_python_data` for Run Python Script / trusted helpers |
+| [`plugin/calc/__init__.py`](../../plugin/calc/__init__.py) | Package (`CalcModule`) |
 | [`plugin/calc/prompt_addin.py`](../../plugin/calc/prompt_addin.py) | **WriterAgent only** — do not register in core |
 | [`plugin/calc/prompt_function.py`](../../plugin/calc/prompt_function.py) | **WriterAgent only** |
 
@@ -296,7 +297,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/_lazy_venv.py`](../../plugin/scripting/_lazy_venv.py) | Lazy `plugin.scripting.*` → `plugin.scripting.venv.*` |
 | [`plugin/scripting/helper_domain.py`](../../plugin/scripting/helper_domain.py) | Shared helper-domain glue |
 | [`plugin/scripting/domain_registry.py`](../../plugin/scripting/domain_registry.py) | RPS fast-path, picker origins, post-venv specs/order (routing helper in `python_runner.py`) |
-| [`plugin/scripting/calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) | Helper name frozensets (no numpy on host) |
+| [`plugin/scripting/calc_functions_common.py`](../../plugin/scripting/calc_functions_common.py) | Row/column caps for helper-domain result tables |
 | [`plugin/scripting/import_policy.py`](../../plugin/scripting/import_policy.py) | LLM import-policy text generation |
 | [`plugin/scripting/venv_diagnostics.py`](../../plugin/scripting/venv_diagnostics.py) | Settings → Python **Test** self-check |
 
@@ -362,7 +363,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/framework/worker_pool.py`](../../plugin/framework/worker_pool.py) | Via `dialogs.py` |
 | [`plugin/framework/appearance.py`](../../plugin/framework/appearance.py) | LO light/dark → Monaco theme |
 | [`plugin/doc/__init__.py`](../../plugin/doc/__init__.py) | Package marker. WriterAgent `CommonModule` (embeddings / document-research tool discovery) lives in unbundled [`common_module.py`](../../plugin/doc/common_module.py); LibrePy import of the package is inert. |
-| [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py) | `is_writer` / `is_calc` / `is_draw` / `DocumentType` (no analyzer) |
+| [`plugin/framework/doc_type.py`](../../plugin/framework/doc_type.py) | `is_writer` / `is_calc` / `is_draw` / `DocumentType` (no analyzer) |
 | [`plugin/doc/udprops.py`](../../plugin/doc/udprops.py) | Document user-defined properties (session id, spill registry) |
 | [`plugin/doc/text_helpers.py`](../../plugin/doc/text_helpers.py) | Linebreaks, tracked-deletion reads, heading tree, document path |
 | [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Graphic export for Vision egress |
@@ -376,7 +377,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) | Rich HTML cell insert (Vision Calc egress) |
 | [`plugin/main_core.py`](../../plugin/main_core.py) | LibrePy bootstrap — **not** [`plugin/main.py`](../../plugin/main.py) |
 
-**Refactor note:** [`plugin/doc/doc_type.py`](../../plugin/doc/doc_type.py) holds `is_writer` / `is_calc` / `DocumentType` so Layer 0 (`=PY()`) and menu guards do not import `document_helpers`. Document properties use [`udprops.py`](../../plugin/doc/udprops.py). Writer text/path helpers used by RPS and text analytics live in [`text_helpers.py`](../../plugin/doc/text_helpers.py). `document_helpers.py` is WriterAgent-only (chat context / `DocumentService`) and must not import Calc at module load.
+**Refactor note:** [`plugin/framework/doc_type.py`](../../plugin/framework/doc_type.py) holds `is_writer` / `is_calc` / `DocumentType` so Layer 0 (`=PY()`) and menu guards do not import `document_helpers`. Document properties use [`udprops.py`](../../plugin/doc/udprops.py). Writer text/path helpers used by RPS and text analytics live in [`text_helpers.py`](../../plugin/doc/text_helpers.py). `document_helpers.py` is WriterAgent-only (chat context / `DocumentService`) and must not import Calc at module load.
 
 Optional gettext: filtered catalogs via `make compile-translations-core` (part of `make build-core`) — [`scripts/build_librepy_locales.py`](../../scripts/build_librepy_locales.py) extracts strings from the LibrePy file closure only and bundles slim `.mo` files from `build/generated/locales/`, not the full WriterAgent `locales/` tree.
 
@@ -683,7 +684,7 @@ Optional runtime guard: if core is missing, log a clear error and disable chat P
 2. Calls `init_logging` then `init_config(ctx)`
 3. Adds downloaded Cython pack binaries to `sys.path` ([`native_binaries.py`](../../plugin/scripting/native_binaries.py))
 4. Registers only core actions: `run_python_dialog`, `edit_python_cell`, `reset_python_session`, `insert_latex_dialog`, `vision.open_settings`, `textanalytics.open_dialog`, Settings → Python
-5. Installs the Calc cell context menu (CommandURL from `resolve_package_extension_id()` so LibrePy right-click is `org.extension.librepy:scripting.edit_python_cell`; `GlobalEventBroadcaster` so Calc windows opened after `OnStartApp` still get the interceptor) and Excel `=PY` auto-convert-on-open (best-effort)
+5. Installs the Calc cell context menu (CommandURL from `resolve_package_extension_id()` so LibrePy right-click is `org.extension.librepy:scripting.edit_python_cell`; `GlobalEventBroadcaster` so Calc windows opened after `OnStartApp` still get the interceptor) and the global document-event listener (geometric open, unload listener, Excel `=PY` convert/export, Collabora rewrite) (best-effort)
 6. Schedules the weekly update check
 
 Registered as `org.extension.librepy.Main` in [`extension-core/Jobs.xcu`](../extension-core/Jobs.xcu) and [`extension-core/META-INF/manifest.xml`](../extension-core/META-INF/manifest.xml). Do not re-add a filtered `main.py` for core.
@@ -764,8 +765,7 @@ Makefile
 | [`tests/scripting/test_worker_harness_trusted_action.py`](../../tests/scripting/test_worker_harness_trusted_action.py) | Trusted RPC dispatch |
 | [`tests/scripting/test_python_runner_config.py`](../../tests/scripting/test_python_runner_config.py) | `last_python_script_name_*` keys |
 | [`tests/scripting/test_python_runner_formatting.py`](../../tests/scripting/test_python_runner_formatting.py) | `format_result_for_writer` |
-| [`tests/scripting/test_python_runner_analysis.py`](../../tests/scripting/test_python_runner_analysis.py) | Analysis fast-path |
-| [`tests/scripting/test_python_runner_viz.py`](../../tests/scripting/test_python_runner_viz.py) | Viz fast-path |
+| [`tests/scripting/test_python_runner_domains.py`](../../tests/scripting/test_python_runner_domains.py) | Domain venv/egress routing |
 | [`tests/scripting/test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py) | Vision fast-path |
 | [`tests/scripting/test_python_runner_monaco.py`](../../tests/scripting/test_python_runner_monaco.py) | Monaco Run Python path |
 | [`tests/scripting/test_analysis.py`](../../tests/scripting/test_analysis.py) | Analysis templates / trusted stubs |
@@ -780,7 +780,7 @@ Makefile
 | [`tests/calc/test_vision_structure_egress.py`](../../tests/calc/test_vision_structure_egress.py) | Structure egress |
 | [`tests/writer/math/test_latex_dialog_uno.py`](../../tests/writer/math/test_latex_dialog_uno.py) | Insert LaTeX Math dialog |
 | [`tests/writer/math/test_math_mml_convert.py`](../../tests/writer/math/test_math_mml_convert.py) | LaTeX/MathML → StarMath |
-| [`tests/writer/math/test_math_preservation.py`](../../tests/writer/math/test_math_preservation.py) | HTML/math integration |
+| [`tests/writer/test_html_import.py`](../../tests/writer/test_html_import.py) | HTML/math integration |
 | [`tests/framework/test_appearance.py`](../../tests/framework/test_appearance.py) | Theme sync for Monaco |
 | [`tests/calc/python/test_workbook_lifecycle.py`](../../tests/calc/python/test_workbook_lifecycle.py) | Workbook `OnUnload` resets `calc:…` / `:init` sessions |
 | [`tests/librepy/test_main_core.py`](../../tests/librepy/test_main_core.py) | LibrePy bootstrap handlers |
@@ -841,13 +841,13 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 **Venv compute:** `venv/analysis.py`, `venv/viz.py`, `venv/symbolic.py`, `venv/units.py`, `venv/forecast.py`, `venv/optimize.py`, `venv/quant.py`, `venv/text_analytics.py`
 
-**Calc runners/egress:** `calc/analysis_runner.py`, `calc/analysis_egress.py`, `calc/viz_auto_plot.py`, `calc/forecast_auto_plot.py`, `calc/quant_egress.py`, `calc/python/image_egress.py`, `calc/inspector.py`
+**Calc runners/egress:** `calc/analysis_egress.py`, `calc/quant_egress.py`, `calc/python/image_egress.py`, `calc/inspector.py`
 
 **Writer images:** [`image_tools.py`](../../plugin/writer/images/image_tools.py) + [`__init__.py`](../../plugin/writer/images/__init__.py) (graphic insert). Do **not** ship [`image_utils.py`](../../plugin/writer/images/image_utils.py) or [`images.py`](../../plugin/writer/images/images.py) (LLM image gen). [`analyzer.py`](../../plugin/calc/analyzer.py) stays in the bundle (later use).
 
 ### Layer 4 adds (~8 paths)
 
-`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py` (workbook `OnUnload` resets worker sessions), `venv/editor_main.py`, `calc/excel_py_convert/` (Excel Python-in-Excel → DAG `=PY` auto-convert on open)
+`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py` (workbook `OnUnload` resets worker sessions, and the global document-event listener), `venv/editor_main.py`, `calc/excel_py_convert/` (Excel Python-in-Excel → DAG `=PY` auto-convert on open; the CLI is WriterAgent-only)
 
 Dev reference only (not OXT): `contrib/scripting/assets/editor/*`
 
@@ -999,16 +999,13 @@ Shipped domains per [numpy-domains.md](numpy-domains.md): **Analysis**, **Visual
 | [`quant.py`](../../plugin/scripting/venv/quant.py) | `run_quant` |
 | [`text_analytics.py`](../../plugin/scripting/venv/text_analytics.py) | `run_text_analytics` |
 
-Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/scripting/domain_registry.py) for RPS picker templates and fast-path headers (`writeragent:forecast`, etc.).
+Requires [Layer 1](#layer-1--trusted-rpc) + [`domain_registry.py`](../../plugin/scripting/domain_registry.py) for RPS picker templates.
 
 ### Calc runners / egress (not chat tool classes)
 
 | File | Role |
 |------|------|
-| [`calc/analysis_runner.py`](../../plugin/calc/analysis_runner.py) | Trusted analysis invoke |
 | [`calc/analysis_egress.py`](../../plugin/calc/analysis_egress.py) | Analysis results → sheet |
-| [`calc/viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) | Auto-chart after viz |
-| [`calc/forecast_auto_plot.py`](../../plugin/calc/forecast_auto_plot.py) | Auto-chart after forecast |
 | [`calc/quant_egress.py`](../../plugin/calc/quant_egress.py) | Quant results → sheet |
 | [`calc/python/image_egress.py`](../../plugin/calc/python/image_egress.py) | Matplotlib figure → sheet image |
 | [`calc/inspector.py`](../../plugin/calc/inspector.py) | `read_range` for data-bound helpers |
@@ -1073,7 +1070,7 @@ flowchart LR
 | [`plugin/librepy/python_sidebar.py`](../../plugin/librepy/python_sidebar.py) | Sidebar controller (cells, diagnostics, actions; vertical stretch from XDL snapshot heights) |
 | [`plugin/librepy/sidebar_menus.py`](../../plugin/librepy/sidebar_menus.py) | Header toolbar + hamburger (LibrePy-registered actions only; no Search/embeddings/MCP) |
 | [`plugin/calc/navigation.py`](../../plugin/calc/navigation.py) | Click-to-navigate from sidebar |
-| [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open + CLI) |
+| [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open; the CLI is WriterAgent-only) |
 | [`plugin/scripting/venv/editor_main.py`](../../plugin/scripting/venv/editor_main.py) | Child process entry (runs in user venv) |
 | [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu) | LibrePyDeck + PythonPanel (Calc + Writer); deck icon `assets/python_32.png` (PSF two-snakes) |
 | [`extension-core/registry/.../Factories.xcu`](../extension-core/registry/org/openoffice/Office/UI/Factories.xcu) | PythonPanelFactory registration |

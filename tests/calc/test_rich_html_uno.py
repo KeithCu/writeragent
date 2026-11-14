@@ -8,6 +8,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+from plugin.framework.uno_context import enum_has_more
 from plugin.testing_runner import _progress_verbose as _progress, native_test
 from plugin.tests.testing_utils import (
     execute_calc_tool as _execute_calc_tool,
@@ -61,7 +62,7 @@ def _iter_cell_text_portions_for_test(cell):
     yielded = 0
     while True:
         _progress("insert_cell_html: portions hasMoreElements block=%s" % block_i)
-        if not top.hasMoreElements():
+        if not enum_has_more(top):
             _progress(
                 "insert_cell_html: portions hasMoreElements=False block=%s yielded=%s"
                 % (block_i, yielded)
@@ -94,7 +95,7 @@ def _iter_cell_text_portions_for_test(cell):
                 "insert_cell_html: portions inner hasMoreElements block=%s inner=%s"
                 % (block_i, inner_i)
             )
-            if not inner.hasMoreElements():
+            if not enum_has_more(inner):
                 break
             any_inner = True
             _progress(
@@ -232,3 +233,73 @@ def test_insert_cell_html_sheet_prefix_without_switching(ctx, doc):
     assert res.get("status") == "ok", res
     cell = sheets.getByName("Sheet2").getCellByPosition(0, 0)
     assert "remote" in cell.getString()
+
+
+@native_test
+@with_native_doc("calc")
+def test_insert_cell_html_is_one_undo_step_uno(ctx, doc):
+    from plugin.doc.compound_undo import undo_titles
+
+    sheet = doc.getSheets().getByIndex(0)
+    d5 = sheet.getCellByPosition(3, 4)
+    d5.setString("old")
+
+    before = undo_titles(doc)
+    assert before is not None
+
+    res = _execute_calc_tool(doc, ctx, "insert_cell_html", {"cell": "D5", "html": "<b>new</b>"})
+    assert res.get("status") == "ok", res
+    assert "new" in d5.getString()
+
+    after = undo_titles(doc)
+    assert after is not None
+    delta = after[: len(after) - len(before)]
+    assert delta == ("WriterAgent: Insert HTML",)
+
+    doc.getUndoManager().undo()
+    assert d5.getString() == "old"
+
+
+@native_test
+@with_native_doc("calc")
+def test_failed_paste_restores_cell_text_uno(ctx, doc):
+    from plugin.calc.rich_html import insert_cell_html_rich
+    from plugin.doc.compound_undo import undo_titles
+    from plugin.framework.errors import ToolExecutionError
+
+    sheet = doc.getSheets().getByIndex(0)
+    d6 = sheet.getCellByPosition(3, 5)
+    d6.setString("old")
+
+    before = undo_titles(doc)
+    assert before is not None
+
+    class _FailPasteCtrl:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def insertTransferable(self, _xfer):
+            raise RuntimeError("boom")
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    class _FailPasteDoc:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def getCurrentController(self):
+            return _FailPasteCtrl(self._inner.getCurrentController())
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    try:
+        insert_cell_html_rich(_FailPasteDoc(doc), ctx, "D6", "<b>new</b>")
+    except ToolExecutionError:
+        pass
+    else:
+        raise AssertionError("Expected ToolExecutionError on failed paste")
+
+    assert d6.getString() == "old"
+    assert undo_titles(doc) == before

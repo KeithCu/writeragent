@@ -11,6 +11,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 from tests.scripting.python_runner_test_support import execute_and_insert_result
+from plugin.scripting import python_runner as pr
 from plugin.vision.vision_templates import get_vision_script_templates
 
 
@@ -133,6 +134,7 @@ def test_execute_and_insert_vision_rejects_unsupported_doc(mock_venv):
 
     assert outcome["ok"] is False
     assert "Draw" in outcome["message"]
+    assert "(took" not in outcome["message"]
     mock_venv.assert_not_called()
 
 
@@ -318,15 +320,14 @@ def test_prepare_rps_execution_vision_runs_before_calc_data():
     with (
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
         patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
+        patch("plugin.scripting.python_runner.resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
         patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value={"status": "ok", "individual_results": []}),
     ):
         from plugin.scripting.python_runner import _prepare_rps_execution
 
         prepared = _prepare_rps_execution(ctx, doc, code)
 
-    assert prepared.get("early_outcome") is None
-    assert "helper_name" in prepared
+    assert isinstance(prepared, pr.PreparedVision)
     # Calc data resolution must not have run for vision scripts
     mock_calc_data.assert_not_called()
 
@@ -378,13 +379,13 @@ def test_execute_and_insert_vision_inserts_each_individual_result():
 def test_rps_finish_vision_skips_insert_on_draw():
     from plugin.scripting.python_runner import _finish_vision_execution
 
-    prepared = {
-        "t0": 0.0,
-        "doc": MagicMock(),
-        "ctx": MagicMock(),
-        "helper_name": "extract_structure",
-        "params": {},
-    }
+    prepared = pr.PreparedVision(
+        t0=0.0,
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        helper_name="extract_structure",
+        params={},
+    )
     response = {
         "vision_selection_result": {
             "status": "ok",
@@ -392,7 +393,7 @@ def test_rps_finish_vision_skips_insert_on_draw():
             "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>x</p>"}],
         }
     }
-    with patch("plugin.framework.doc_type.is_draw", return_value=True), patch(
+    with patch("plugin.scripting.python_runner.is_draw", return_value=True), patch(
         "plugin.vision.vision_egress.insert_vision_result"
     ) as mock_insert:
         out = _finish_vision_execution(prepared, response)

@@ -16,8 +16,13 @@ See docs/scripting/ms-py-compatibility.md §5.8.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import Any, Literal
+from dataclasses import asdict, dataclass, field, fields
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+T = TypeVar("T")
 
 # Cast/docs aliases only — CrossHair cannot proxy Literal in parameters or dataclass
 # fields on the type heap (use str there).
@@ -56,7 +61,7 @@ class ExcelWorkbookModel:
     scripts: list[str] = field(default_factory=list)
     cells: list[ExcelPyCell] = field(default_factory=list)
     sheets: list[SheetInfo] = field(default_factory=list)
-    # Qualified table refs: name → "'Sheet'.A1:B10" or "Sheet.A1:B10"
+    # Qualified table refs in Excel's bang form: name → "Sheet!A1:B10" or "'My Sheet'!A1:B10" (parse_excel_ooxml.qualify_excel_ref). python/formula_edit._format_qualified_range turns them into Calc's dot form when the =PY formula is written.
     tables: dict[str, str] = field(default_factory=dict)
     # Anchor/spill snapshots: "Sheet!A6" or "A6" → A1 range
     anchor_snapshots: dict[str, str] = field(default_factory=dict)
@@ -102,7 +107,7 @@ class ExcelWorkbookModel:
         )
 
 
-def _as_header_mode(value: object) -> HeaderMode:
+def as_header_mode(value: object) -> HeaderMode:
     if value == "true":
         return "true"
     if value == "false":
@@ -121,7 +126,7 @@ class BindingInfo:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> BindingInfo:
-        hm = _as_header_mode(data.get("header_mode"))
+        hm = as_header_mode(data.get("header_mode"))
         role = "ordering" if data.get("role") == "ordering" else "data"
         return cls(
             a1=str(data.get("a1") or ""),
@@ -129,6 +134,55 @@ class BindingInfo:
             role=role,
             original_indices=list(data.get("original_indices") or []),
         )
+
+
+@dataclass
+class DagCellMeta:
+    """Round-trip metadata stored per DAG ``=PY`` cell in ``ExcelPyDagMeta``."""
+
+    return_type: int = 0
+    data_args: list[str] | None = None  # None: the source gave no list; use the formula's trailing ranges
+    excel_deps: list[str] = field(default_factory=list)
+    array_ref: str = ""
+    bindings: list[BindingInfo] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DagCellMeta:
+        raw_bindings = data.get("bindings")
+        bindings = [BindingInfo.from_dict(b) for b in raw_bindings if isinstance(b, dict)] if isinstance(raw_bindings, list) else []
+        return cls(
+            return_type=int(data.get("return_type") or 0),
+            data_args=[str(a) for a in data.get("data_args") or []] if "data_args" in data else None,
+            excel_deps=[str(a) for a in data.get("excel_deps") or [] if a],
+            array_ref=str(data.get("array_ref") or ""),
+            bindings=bindings,
+        )
+
+
+@dataclass
+class DagFormulaItem:
+    """One DAG ``=PY`` cell extracted for reverse conversion to Excel."""
+
+    sheet: str
+    cell: str
+    formula: str
+    meta: DagCellMeta | None = None
+
+
+def find_sheet_ci(by_title: Mapping[str, T], title: str) -> T | None:
+    """Look up *title* in *by_title* with exact match first, then case-folded.
+
+    Calc and Excel sheet names are unique case-insensitively (in Calc,
+    ``ScDocument::ValidNewTabName`` compares ``GetUpperName()``), and
+    hand-written refs or imported formulas can differ in case.
+    """
+    if title in by_title:
+        return by_title[title]
+    target = title.casefold()
+    for name, value in by_title.items():
+        if name.casefold() == target:
+            return value
+    return None
 
 
 @dataclass
@@ -141,7 +195,6 @@ class ConvertedCell:
     original_code: str
     converted_code: str
     data_args: list[str] = field(default_factory=list)
-    ordering_args: list[str] = field(default_factory=list)  # legacy; converter relies on shared-kernel session
     # Parallel to data_args: original Excel dep tokens for _xlws.PY export (see module doc).
     excel_deps: list[str] = field(default_factory=list)
     bindings: list[BindingInfo] = field(default_factory=list)
@@ -159,6 +212,11 @@ class ConvertedCell:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    def dag_meta(self) -> dict[str, Any]:
+        """Subset of fields persisted in ``ExcelPyDagMeta``, aligned with ``DagCellMeta``."""
+        d = self.to_dict()
+        return {f.name: d[f.name] for f in fields(DagCellMeta)}
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ConvertedCell:
         bindings: list[BindingInfo] = []
@@ -172,7 +230,6 @@ class ConvertedCell:
             original_code=str(data.get("original_code") or ""),
             converted_code=str(data.get("converted_code") or ""),
             data_args=[str(a) for a in (data.get("data_args") or [])],
-            ordering_args=[str(a) for a in (data.get("ordering_args") or [])],
             excel_deps=[str(a) for a in (data.get("excel_deps") or [])],
             bindings=bindings,
             dag_formula=str(data.get("dag_formula") or ""),

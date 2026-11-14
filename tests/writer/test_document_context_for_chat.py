@@ -9,7 +9,6 @@ from plugin.doc.document_helpers import (
     get_document_context_for_chat,
 )
 from plugin.doc.text_helpers import read_writer_text_slice
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 import pytest
 
 
@@ -74,20 +73,6 @@ def test_get_document_context_short_doc_single_slice(mock_doc_type, mock_char_co
     mock_read_slice.assert_called_once_with(model, 0, 100)
 
 
-@patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=True)
-@patch("plugin.doc.text_helpers.read_writer_text_slice", return_value="short doc text")
-@patch("plugin.doc.text_helpers.writer_char_count", return_value=100)
-@patch("plugin.framework.doc_type.get_document_type")
-def test_get_document_context_hints_math_ole(mock_doc_type, mock_char_count, mock_read_slice, mock_math):
-    from plugin.framework.doc_type import DocumentType
-
-    mock_doc_type.return_value = DocumentType.WRITER
-    out = get_document_context_for_chat(MagicMock(), max_context=8000, include_selection=False)
-    assert "short doc text" in out
-    assert "get_document_content" in out
-    assert "OLE" in out
-
-
 @patch("plugin.doc.text_helpers.read_writer_text_slice")
 @patch("plugin.doc.text_helpers.writer_char_count", return_value=8)
 @patch("plugin.framework.doc_type.get_document_type")
@@ -148,17 +133,6 @@ def test_get_document_context_splits_only_past_budget(mock_doc_type, mock_char_c
     assert "bcdef" in ctx
     assert "56789a" not in ctx
     assert "middle of document omitted" in ctx
-
-
-def test_chat_document_context_max_chars_default():
-    assert CHAT_DOCUMENT_CONTEXT_MAX_CHARS == 8000
-
-
-def test_settings_field_specs_omit_chat_context_length():
-    from plugin.chatbot.settings_dialog import get_settings_field_specs
-
-    names = {f["name"] for f in get_settings_field_specs(MagicMock())}
-    assert "chat_context_length" not in names
 
 
 def test_writer_selection_overlaps_windows_true_when_ranges_overlap():

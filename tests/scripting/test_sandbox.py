@@ -104,24 +104,24 @@ def test_resolve_venv_python_accepts_uppercase_file_url(tmp_path):
 
 
 def test_path_from_file_url_scheme_case_and_unc(monkeypatch):
-    from plugin.scripting.sandbox import _path_from_file_url
+    from plugin.scripting.sandbox import path_from_file_url
 
     # Check the POSIX rules first, even on Windows; the nt rules (UNC paths) are below.
     monkeypatch.setattr("plugin.scripting.sandbox.os.name", "posix")
-    assert _path_from_file_url("FILE:///tmp/x") == "/tmp/x"
-    assert _path_from_file_url("File:/tmp/x") == "/tmp/x"
-    assert _path_from_file_url("file://localhost/tmp/x") == "/tmp/x"
-    assert _path_from_file_url("file://server/share/a") == "/share/a"
-    assert _path_from_file_url("file:tmp") is None
-    assert _path_from_file_url("FILE:") is None
+    assert path_from_file_url("FILE:///tmp/x") == "/tmp/x"
+    assert path_from_file_url("File:/tmp/x") == "/tmp/x"
+    assert path_from_file_url("file://localhost/tmp/x") == "/tmp/x"
+    assert path_from_file_url("file://server/share/a") == "/share/a"
+    assert path_from_file_url("file:tmp") is None
+    assert path_from_file_url("FILE:") is None
 
     monkeypatch.setattr("plugin.scripting.sandbox.os.name", "nt")
-    assert _path_from_file_url("file:///C:/x") == r"C:\x"
-    assert _path_from_file_url("FILE:///C:/x") == r"C:\x"
-    assert _path_from_file_url("file://localhost/C:/x") == r"C:\x"
-    assert _path_from_file_url("file://LocalHost/C:/Users/a") == r"C:\Users\a"
-    assert _path_from_file_url("file://server/share/a") == r"\\server\share\a"
-    assert _path_from_file_url("file://server/C:/x") == r"\\server\C:\x"
+    assert path_from_file_url("file:///C:/x") == r"C:\x"
+    assert path_from_file_url("FILE:///C:/x") == r"C:\x"
+    assert path_from_file_url("file://localhost/C:/x") == r"C:\x"
+    assert path_from_file_url("file://LocalHost/C:/Users/a") == r"C:\Users\a"
+    assert path_from_file_url("file://server/share/a") == r"\\server\share\a"
+    assert path_from_file_url("file://server/C:/x") == r"\\server\C:\x"
 
 
 def test_normalize_venv_path_input_uppercase_file_scheme():
@@ -590,17 +590,7 @@ def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
 
 
 def test_scrub_drops_dyld_and_python_executable() -> None:
-    from plugin.framework.subprocess_env import _BLOCKED_ENV_EXACT, scrub_subprocess_env
-
-    for var in (
-        "DYLD_LIBRARY_PATH",
-        "DYLD_FRAMEWORK_PATH",
-        "DYLD_FALLBACK_LIBRARY_PATH",
-        "DYLD_FALLBACK_FRAMEWORK_PATH",
-        "PYTHONEXECUTABLE",
-        "PYTHONNOUSERSITE",
-    ):
-        assert var in _BLOCKED_ENV_EXACT
+    from plugin.framework.subprocess_env import scrub_subprocess_env
 
     base = {
         "DYLD_LIBRARY_PATH": "/lib",
@@ -626,10 +616,7 @@ def test_scrub_drops_dyld_and_python_executable() -> None:
 
 def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     """PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT are blocked, and empty dict gets overrides."""
-    from plugin.framework.subprocess_env import _BLOCKED_ENV_EXACT, scrub_subprocess_env
-
-    for var in ("PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONINSPECT", "DATABASE_URL", "WRITERAGENT_COMPUTE_WORKER"):
-        assert var in _BLOCKED_ENV_EXACT
+    from plugin.framework.subprocess_env import scrub_subprocess_env
 
     base = {
         "PYTHONSTARTUP": "/etc/startup.py",
@@ -766,73 +753,6 @@ def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None
     assert import_authorized("plugin.vision", ()) is False
     assert import_authorized("writeragent.scripting.duckdb_sql", ()) is True
     assert import_authorized("plugin.scripting.duckdb_sql", ()) is False
-
-
-def test_sandbox_policy_module_yaml_keys() -> None:
-    from pathlib import Path
-    import yaml
-
-    yaml_path = Path(__file__).resolve().parents[2] / "plugin" / "scripting" / "module.yaml"
-    with open(yaml_path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-    cfg = data.get("config", {})
-
-    for old_key in (
-        "python_allow_file_writes",
-        "python_allow_subprocess",
-        "python_allow_run_programs",
-        "python_allow_file_os",
-    ):
-        assert old_key not in cfg
-
-    net = cfg.get("python_allow_network")
-    assert net is not None
-    assert net.get("default") is False
-    assert net.get("label") == "Allow network access"
-    assert "network connections" in net.get("helper", "")
-    assert net.get("public") is True
-
-    files = cfg.get("python_allow_files")
-    assert files is not None
-    assert files.get("default") is False
-    assert files.get("label") == "Allow file access"
-    assert "read and write" in files.get("helper", "")
-    assert files.get("public") is True
-
-    os_key = cfg.get("python_allow_os")
-    assert os_key is not None
-    assert os_key.get("default") is False
-    assert os_key.get("label") == "Allow OS access"
-    assert "file read and write" in os_key.get("helper", "")
-    assert os_key.get("public") is True
-
-    extra = cfg.get("python_extra_modules")
-    assert extra is not None
-    assert extra.get("default") == ""
-    assert extra.get("label") == "Extra allowed modules"
-    assert "file, network, and process" in extra.get("helper", "")
-    assert extra.get("public") is True
-
-
-def test_sandbox_policy_defaults() -> None:
-    from plugin.scripting.sandbox import (
-        build_sandbox_policy,
-        policy_allowlist,
-        policy_blocked_imports,
-        policy_relaxed_roots,
-    )
-
-    p = build_sandbox_policy()
-    assert policy_allowlist(p) == []
-    blocked = policy_blocked_imports(p)
-    assert "subprocess" in blocked
-    assert "multiprocessing" in blocked
-    assert "pty" in blocked
-    assert "socket" in blocked
-    assert "importlib" in blocked
-    assert "pickle" in blocked
-    assert "os" not in blocked
-    assert policy_relaxed_roots(p) == frozenset()
 
 
 def test_sandbox_policy_network() -> None:
@@ -973,10 +893,15 @@ def test_policy_blocked_imports_drops_flag_and_extra_entries() -> None:
         FILE_BLOCKED_MODULES,
         NETWORK_BLOCKED_MODULES,
         build_sandbox_policy,
+        policy_allowlist,
         policy_blocked_imports,
+        policy_relaxed_roots,
     )
 
-    default_blocked = set(policy_blocked_imports(build_sandbox_policy()))
+    default_policy = build_sandbox_policy()
+    assert policy_allowlist(default_policy) == []
+    assert policy_relaxed_roots(default_policy) == frozenset()
+    default_blocked = set(policy_blocked_imports(default_policy))
     assert "subprocess" in default_blocked
     assert "socket" in default_blocked
     assert "shutil" in default_blocked
@@ -1041,6 +966,23 @@ def test_plugin_public_alias_allowed_but_framework_blocked() -> None:
     assert import_authorized("writeragent.scripting.analysis", ()) is True
     assert import_authorized("plugin.framework.config", ()) is False
     assert import_authorized("writeragent.framework.config", ()) is False
+
+
+def test_dangerous_modules_fallback_matches_vendored(monkeypatch):
+    """LibreHarper ships sandbox.py without smolagents; its fallback copy must block the same modules."""
+    import importlib.util
+    from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as vendored
+
+    # None in sys.modules makes the vendored import raise ModuleNotFoundError, so the fresh copy
+    # runs its except arm. @dataclass needs the copy registered in sys.modules while it executes.
+    monkeypatch.setitem(sys.modules, "plugin.contrib.smolagents.local_python_executor", None)
+    spec = importlib.util.spec_from_file_location("sandbox_without_smolagents", sandbox.__file__)
+    assert spec is not None and spec.loader is not None
+    bare = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, bare)
+    spec.loader.exec_module(bare)
+    assert bare.DANGEROUS_MODULES == tuple(vendored)
+
 
 
 

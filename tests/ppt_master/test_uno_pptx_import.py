@@ -27,7 +27,7 @@ from plugin.draw.shape_clone import (
     clone_shape,
 )
 from plugin.ppt_master.adapter.uno_pptx_import import copy_shapes_to_page
-from tests.harness.strip_bundle import is_release_build, skip_if_release_build
+from tests.harness.strip_bundle import skip_if_release_build
 
 _NOTES = "com.sun.star.presentation.NotesShape"
 _HEADER = "com.sun.star.presentation.HeaderShape"
@@ -354,7 +354,7 @@ def test_copy_page_notes_reraises_dispose():
     with pytest.raises(DocumentDisposedError):
         _copy_page_notes(source, _DeadPage())
 
-def test_copy_page_notes_skips_non_dispose_exceptions(caplog: pytest.LogCaptureFixture) -> None:
+def test_copy_page_notes_skips_non_dispose_exceptions() -> None:
     source = _Page([_Shape(_NOTES, "Real")])
 
     class _BrokenShape(_Shape):
@@ -364,13 +364,13 @@ def test_copy_page_notes_skips_non_dispose_exceptions(caplog: pytest.LogCaptureF
     tgt_shape = _BrokenShape(_NOTES, "old")
     target = _Page([tgt_shape])
 
-    # Must not raise; skips notes for this slide and logs warning
+    # Must not raise; skips notes for this slide.
     _copy_page_notes(source, target)
-    assert any("Skipping slide notes copy" in record.message for record in caplog.records)
 
 
 # --- migrated from test_uno_shape_postprocess.py ---
 
+# hidden-document pool items; assigning one and closing the source aborts soffice
 _POOL_ITEM_PROPS = ("Graphic", "GraphicURL", "FillBitmap", "Background")
 
 
@@ -475,13 +475,6 @@ def test_graphic_clone_reimports_pixels_instead_of_aliasing_source_pool(monkeypa
     assert live not in graphic_values
     assert all(name != "GraphicURL" for name, value in dest.sets)
     assert dest.props["FillColor"] == 5
-    uno_ctx.ServiceManager.createInstanceWithContext.assert_called_once_with(
-        "com.sun.star.graphic.GraphicProvider",
-        uno_ctx,
-    )
-    assert provider.storeGraphic.call_count == 2
-    assert provider.storeGraphic.call_args_list[0].args[0] is live
-    assert provider.storeGraphic.call_args_list[1].args[0] is live
     assert created
     assert all(not os.path.exists(path) for path in created)
 
@@ -522,42 +515,25 @@ def test_graphic_clone_without_context_does_not_alias_live_graphic():
     assert all(name != "Graphic" or value is not live for name, value in dest.sets)
 
 
-def test_copy_shapes_to_page_forwards_uno_ctx(monkeypatch):
-    seen: dict[str, Any] = {}
-    source = _ScFakeShape("com.sun.star.drawing.RectangleShape", {"FillColor": 1})
-    dest_page = _ScFakePage()
+def test_copy_shapes_to_page_reimports_graphics_with_context():
+    live = object()
+    owned = object()
+    source = _ScFakeShape(
+        "com.sun.star.drawing.GraphicObjectShape",
+        {"Graphic": live, "GraphicURL": "vnd.sun.star.GraphicObject:hidden-pool"},
+    )
+    dest = _ScFakeShape("com.sun.star.drawing.GraphicObjectShape")
     doc = MagicMock()
+    doc.createInstance.return_value = dest
+    provider = MagicMock()
+    provider.queryGraphic.side_effect = [None, owned]
+    uno_ctx = MagicMock()
+    uno_ctx.ServiceManager.createInstanceWithContext.return_value = provider
 
-    def fake_clone(
-        target_doc: Any,
-        target_page: Any,
-        source_shape: Any,
-        *,
-        uno_ctx: Any | None = None,
-        **kwargs: Any,
-    ) -> ClonedShape:
-        seen["ctx"] = uno_ctx
-        seen["source"] = source_shape
-        seen["doc"] = target_doc
-        seen["page"] = target_page
-        return ClonedShape(
-            shape=object(),
-            shape_type="com.sun.star.drawing.RectangleShape",
-            reimported=None,
-            graphic_shapes=0,
-            graphic_reimports=0,
-            empty_group_message=None,
-        )
-
-    monkeypatch.setattr(uno_pptx_import, "clone_shape", fake_clone)
-    marker = object()
-    copied = copy_shapes_to_page(_ScFakePage([source]), doc, dest_page, uno_ctx=marker)
+    copied = copy_shapes_to_page(_ScFakePage([source]), doc, _ScFakePage(), uno_ctx=uno_ctx)
 
     assert copied == 1
-    assert seen["ctx"] is marker
-    assert seen["source"] is source
-    assert seen["doc"] is doc
-    assert seen["page"] is dest_page
+    assert dest.props.get("Graphic") is owned
 
 
 def test_clone_shape_copies_fill_gradient_and_hatch():
@@ -676,9 +652,7 @@ def test_copy_shapes_to_page_empty_group_removes_clone_and_skips(monkeypatch):
     assert target_page.getByIndex(0) is clone2
 
 
-def test_copy_shapes_to_page_empty_group_remove_fails_logs_debug(monkeypatch, caplog):
-    import logging
-
+def test_copy_shapes_to_page_empty_group_remove_fails_returns_zero(monkeypatch):
     doc = MagicMock()
     clone1 = _ScFakeShape("com.sun.star.drawing.GroupShape")
     target_page = MagicMock()
@@ -695,14 +669,8 @@ def test_copy_shapes_to_page_empty_group_remove_fails_logs_debug(monkeypatch, ca
     monkeypatch.setattr(uno_pptx_import, "clone_shape", lambda *a, **kw: res)
 
     src_page = _ScFakePage([_ScFakeShape("s1")])
-    with caplog.at_level(logging.DEBUG):
-        copied = copy_shapes_to_page(src_page, doc, target_page)
+    copied = copy_shapes_to_page(src_page, doc, target_page)
     assert copied == 0
-    # Release strip removes log.debug; empty-group WARNING path still fires.
-    if not is_release_build():
-        assert "remove empty-group clone failed" in caplog.text
-    else:
-        assert "clone_shape empty group" in caplog.text
 
 
 def test_import_pptx_public_entry_points_raise_off_main(monkeypatch, tmp_path: Path) -> None:

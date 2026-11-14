@@ -14,15 +14,6 @@ from plugin.embeddings.venv import embeddings_llama_index
 from plugin.embeddings.venv.embeddings_llama_index import llama_index_installed
 
 
-def test_llama_index_retrieval_pool_over_fetches_for_rerank():
-    final_k, fetch_k = embeddings_llama_index._llama_index_retrieval_pool(5)
-    assert final_k == 5
-    assert fetch_k == 20
-    final_k, fetch_k = embeddings_llama_index._llama_index_retrieval_pool(10)
-    assert final_k == 10
-    assert fetch_k == 40
-
-
 def test_nodes_to_tool_hits_preserves_matched_by():
     node = SimpleNamespace(
         node_id="42",

@@ -1,26 +1,16 @@
 import pytest
 import os
-import sys
 import tempfile
 import types
 from unittest.mock import MagicMock, patch
 
+from plugin.writer.images import image_tools
+from plugin.doc import visual_helpers
 
-# image_tools imports TextContentAnchorType at load time; conftest usually provides it.
-_anchor_key = "com.sun.star.text.TextContentAnchorType"
-if _anchor_key not in sys.modules:
-    anchor_mod = types.ModuleType(_anchor_key)
-    setattr(anchor_mod, "AS_CHARACTER", 1)
-    setattr(anchor_mod, "AT_FRAME", 3)
-    sys.modules[_anchor_key] = anchor_mod
 
-# systemPathToFileUrl is used by image_tools; patch per-test where needed.
-_uno = sys.modules.get("uno")
-if isinstance(_uno, MagicMock):
-    _uno.systemPathToFileUrl.side_effect = lambda p: f"file:///{p}"
-
-from plugin.writer.images import image_tools  # noqa: E402
-from plugin.doc import visual_helpers  # noqa: E402
+@pytest.fixture(autouse=True)
+def _system_path_to_file_url(monkeypatch):
+    monkeypatch.setattr(image_tools.uno, "systemPathToFileUrl", lambda p: f"file:///{p}")
 
 
 class TestInsertImageIntoHeaderFooter:
@@ -151,16 +141,14 @@ class TestShouldLinkImagePath:
         with tempfile.NamedTemporaryFile(suffix=".png", dir=tempfile.gettempdir()) as f:
             assert not (image_tools._should_link_image_path(f.name))
 
-    def test_cache_path_is_embedded(self):
+    def test_cache_path_is_embedded(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
         cache_dir = image_tools.image_cache_dir()
         os.makedirs(cache_dir, exist_ok=True)
         path = os.path.join(cache_dir, "cached.png")
         with open(path, "wb") as f:
             f.write(b"x")
-        try:
-            assert not (image_tools._should_link_image_path(path))
-        finally:
-            os.unlink(path)
+        assert not (image_tools._should_link_image_path(path))
 
     def test_symlink_into_temp_is_embedded(self, tmp_path):
         temp_dir = tmp_path / "temp"
@@ -233,7 +221,7 @@ class TestWriterImageCursorConversion:
         # Body must clone via getStart(), not the ViewCursor itself (PR #796).
         doc_text.createTextCursorByRange.assert_called_once_with("range-start")
         doc_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
-        image_instance.GraphicURL = "file:////home/user/photo.png"
+        image_instance.setPropertyValue.assert_any_call("GraphicURL", "file:////home/user/photo.png")
 
     def test_insert_uses_cell_xtext_not_body_clone(self):
         """Cursor in a nested XText must not clone through the body."""

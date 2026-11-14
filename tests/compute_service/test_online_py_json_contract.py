@@ -15,11 +15,12 @@ from typing import Any
 
 from compute_service.formula_worker import _handle_request
 from compute_service.json_egress import to_dumb_json_value
+from compute_service.json_forward import parse_execute_request
 import pytest
 
 
-def _execute_code(code: str, *, data: Any = None, mode: str = "isolated") -> dict[str, Any]:
-    req: dict[str, Any] = {"code": code, "mode": mode}
+def _execute_code(code: str, *, data: Any = None) -> dict[str, Any]:
+    req: dict[str, Any] = {"code": code}
     if data is not None:
         req["data_json"] = json.dumps(data, allow_nan=False).encode("utf-8")
     env = _handle_request(req)
@@ -60,14 +61,13 @@ class TestOnlinePyJsonContract:
         assert out.get("error")
         json.dumps(out, allow_nan=False)
 
-    def test_ragged_grid_errors(self) -> None:
+    def test_ragged_grid_passes_through_unpadded(self) -> None:
+        # The Python service does not pad ragged grids; the result must stay
+        # JSON-serializable (allow_nan=False), and any padding happens on the consumer side.
         out = _execute_code("result = [[1, 2], [3]]")
         json.dumps(out, allow_nan=False)
-        if out["status"] == "ok":
-            # Service currently pads or passes through; must stay JSON-serializable.
-            assert out["result"] == [[1, 2], [3]] or out["result"] == [[1, 2], [3, None]]
-        else:
-            assert out.get("error")
+        assert out["status"] == "ok"
+        assert out["result"] == [[1, 2], [3]]
 
     def test_1d_list_for_row_vector(self) -> None:
         out = _execute_code("import numpy as np\nresult = np.array([10, 20, 30])")
@@ -114,14 +114,22 @@ class TestOnlinePyJsonContract:
 
     def test_request_body_shape(self) -> None:
         # Document the AddIn request (id + code + optional data + mode).
+        # mode is decoded only for validation (routing uses ?session_id=), and
+        # the worker dict below is hand-built after parse_execute_request.
         body = {
             "id": "py-test-1",
             "code": "result = float(np.sum(data))",
             "data": [1, 2, 3],
             "mode": "isolated",
         }
-        json.dumps(body, allow_nan=False)
-        out = _execute_code(body["code"], data=body["data"], mode=body["mode"])
+        raw_body = json.dumps(body, allow_nan=False).encode("utf-8")
+        parts = parse_execute_request(raw_body, "application/json")
+        assert parts.req_id == "py-test-1"
+        assert parts.code is not None
+        assert parts.data_json is not None
+        env = _handle_request({"id": parts.req_id, "code": parts.code, "data_json": parts.data_json})
+        out = json.loads(env["result_json"])
+        assert out["id"] == "py-test-1"
         assert out["status"] == "ok"
         assert out["result"] == 6.0
 
@@ -140,13 +148,6 @@ class TestOnlinePyJsonContract:
         import numpy as np
 
         assert to_dumb_json_value(np.array([[1.0, float("nan")]])) == [[1.0, None]]
-
-
-class TestBusyPlaceholderSemantics:
-    """Document interim / error strings (Core uses XVolatileResult, not FormulaError)."""
-
-    def test_busy_literal(self) -> None:
-        assert "#BUSY!" == "#BUSY!"
 
     def test_error_field_on_sandbox_failure(self) -> None:
         out = _execute_code("import subprocess\nresult = subprocess")

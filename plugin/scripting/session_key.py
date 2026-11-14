@@ -63,12 +63,6 @@ class SessionKey:
             raise ValueError("OTHER is parse-only")
         return cls(kind, document_key)
 
-    @classmethod
-    def from_host(cls, value: object) -> SessionKey | None:
-        if not isinstance(value, str) or not value:
-            return None
-        return cls.parse(value)
-
     def with_init_suffix(self) -> SessionKey:
         """Return the init-script companion id for this session (sets ``init=True``).
 

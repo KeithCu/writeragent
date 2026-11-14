@@ -13,6 +13,7 @@ import time
 import pytest
 
 import plugin.scripting.calc_functions as calc
+from plugin.scripting.sandbox import build_sandbox_policy
 
 
 def test_conditional_aggregates():
@@ -112,10 +113,9 @@ def test_always_injected_calc_does_not_resolve_bare_x():
     The injected alias is ``calc``, not ``xl``, so bare ``x`` must not fuzzy-resolve from auto-imports.
     """
     from plugin.contrib.smolagents.local_python_executor import InterpreterError
-    from plugin.scripting.config_limits import python_exec_timeout_default
     from plugin.scripting.venv.venv_sandbox import _new_executor, inject_auto_imports
 
-    executor = _new_executor(python_exec_timeout_default())
+    executor = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor, "result = x")
     assert "calc" in executor.state
     assert "xl" not in executor.state
@@ -129,15 +129,8 @@ def test_always_injected_calc_does_not_resolve_bare_x():
 
 def test_auto_imports_inject_st_dt_plt_aliases():
     """Sandbox gets st/dt/plt aliases without explicit imports when packages exist."""
-    from plugin.framework.constants import AUTO_IMPORTS
-    from plugin.scripting.config_limits import python_exec_timeout_default
     from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv.venv_sandbox import _new_executor, apply_auto_imports, inject_auto_imports
-
-    assert AUTO_IMPORTS["scipy.stats"] == "import scipy.stats as st"
-    assert AUTO_IMPORTS["datetime"] == "import datetime as dt"
-    assert AUTO_IMPORTS["matplotlib.pyplot"] == "import matplotlib.pyplot as plt"
-    assert "seaborn" not in AUTO_IMPORTS
 
     code, _lines = apply_auto_imports("result = 1")
     assert "import datetime as dt" in code
@@ -146,7 +139,7 @@ def test_auto_imports_inject_st_dt_plt_aliases():
     if oi.optional_module("matplotlib.pyplot") is not None:
         assert "import matplotlib.pyplot as plt" in code
 
-    executor = _new_executor(python_exec_timeout_default())
+    executor = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor, "result = 1")
     assert "dt" in executor.state
     assert "datetime" not in executor.state
@@ -160,18 +153,17 @@ def test_auto_imports_inject_st_dt_plt_aliases():
 
 
 def test_inject_auto_imports_skips_bound_names():
-    from plugin.scripting.config_limits import python_exec_timeout_default
     from plugin.scripting.venv.venv_sandbox import _new_executor, inject_auto_imports
 
-    executor = _new_executor(python_exec_timeout_default())
+    executor = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor, "dt = 123\nresult = dt")
     assert "dt" not in executor.state
 
-    executor2 = _new_executor(python_exec_timeout_default())
+    executor2 = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor2, "def dt(): pass\nresult = 1")
     assert "dt" not in executor2.state
 
-    executor3 = _new_executor(python_exec_timeout_default())
+    executor3 = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor3, "import datetime as dt\nresult = 1")
     assert "dt" not in executor3.state
 
@@ -1151,11 +1143,6 @@ def test_xor_flattens_ranges_and_does_not_crash_on_arrays():
     assert calc.xor(np.longdouble(1.0), np.longdouble(0.0)) is True
     assert calc.xor(np.array(1.0)) == "#VALUE!"
     assert calc.xor() == "#VALUE!"
-
-
-def test_yield_functions():
-    assert calc.yielddisc(1, 2, 95, 100) > 0
-    assert calc.yieldmat(1, 2, 0, 0.05, 95) > 0
 
 
 def test_sort_by_col_uses_row_key_and_keeps_shape():

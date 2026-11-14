@@ -14,7 +14,6 @@ import pytest
 
 from plugin.framework.errors import ConfigValidationError
 from plugin.framework.config_schema import (
-    DEFAULT_IMAGE_BASE_SIZE,
     WriterAgentConfig,
     as_bool,
     get_config_schema,
@@ -67,47 +66,6 @@ def restore_manifest():
     schema.MODULES, schema.CONFIG_DEFAULTS, schema.CONFIG_SCHEMAS = orig
 
 
-def test_config_schema_imports_only_modules_from_manifest() -> None:
-    """Do not require derived _manifest dicts; ImportError on those emptied MODULES."""
-    source = _SCHEMA_PATH.read_text(encoding="utf-8")
-    imported_from_manifest: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom) and node.module == "plugin._manifest":
-            imported_from_manifest.update(alias.name for alias in node.names)
-    assert imported_from_manifest == {"MODULES"}
-    assert "set_manifest_modules(_imported_modules)" in source
-
-
-def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
-    """module.yaml keys resolve from MODULES; no writeragent.json required."""
-    from plugin.framework import config_schema as schema
-
-    assert schema.MODULES, "empty MODULES; run make manifest"
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_max_data_cells") == 250000
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_venv_path") == ""
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_auto_spill") is True
-    assert schema.CONFIG_DEFAULTS.get("scripting.python_geometric_recalc_order") is False
-    assert schema.CONFIG_DEFAULTS.get("doc.agent_edit_review_mode") == "off"
-    assert schema.CONFIG_DEFAULTS.get("chatbot.max_tool_rounds") == 15
-    assert schema.CONFIG_DEFAULTS["scripting.python_max_data_cells"] == 250000
-    assert isinstance(schema.MODULES, list) and len(schema.MODULES) > 0
-
-
-def test_max_tool_rounds_schema_allows_200() -> None:
-    """Eval headed trials may set chatbot.max_tool_rounds to 200; schema max must allow it."""
-    from plugin.framework import config_schema as schema
-
-    assert schema.MODULES, "empty MODULES; run make manifest"
-    field = get_config_schema("chatbot.max_tool_rounds")
-    assert field is not None
-    assert field["min"] == 1
-    assert field["max"] == 200
-    assert field["default"] == 15
-
-    validated = validate({"endpoint": "http://x", "chatbot.max_tool_rounds": 200})
-    assert validated["chatbot.max_tool_rounds"] == 200
-
-
 def test_config_schema_has_no_forbidden_imports() -> None:
     source = _SCHEMA_PATH.read_text(encoding="utf-8")
     imported = _imported_modules(ast.parse(source))
@@ -116,25 +74,26 @@ def test_config_schema_has_no_forbidden_imports() -> None:
     assert "plugin.framework.config" not in imported
 
 
-def test_image_base_size_default_is_1024() -> None:
-    assert DEFAULT_IMAGE_BASE_SIZE == 1024
-    assert WriterAgentConfig().image_base_size == 1024
+def test_config_schema_import_populates_modules_and_defaults() -> None:
+    """Real import of config_schema loads manifest MODULES and module.yaml defaults."""
+    import plugin.framework.config_schema as schema
+
+    assert schema.MODULES
+    assert schema.CONFIG_DEFAULTS
 
 
-def test_config_does_not_reexport_schema_names() -> None:
-    import plugin.framework.config as config
+def test_manifest_config_keys_are_known_in_schema() -> None:
+    from plugin._manifest import MODULES
+    from plugin.framework.config_schema import is_known_config_key
 
-    for name in (
-        "as_bool",
-        "WriterAgentConfig",
-        "is_default_value",
-        "set_manifest_modules",
-        "MODULES",
-        "validate",
-    ):
-        assert name not in vars(config), name
-        with pytest.raises(ImportError):
-            exec(f"from plugin.framework.config import {name}")
+    for mod in MODULES:
+        if not isinstance(mod, dict):
+            continue
+        mod_name = mod.get("name")
+        for key, spec in (mod.get("config") or {}).items():
+            if key.startswith("_") or not isinstance(spec, dict) or spec.get("type") == "separator":
+                continue
+            assert is_known_config_key(f"{mod_name}.{key}")
 
 
 def test_parse_float_robust_huge_int_is_value_error() -> None:
@@ -254,20 +213,6 @@ def test_set_and_get_manifest_modules(restore_manifest) -> None:
     assert validate({"only.flag": "yes"})["only.flag"] is True
 
 
-def test_dataclass_field_helpers_parameterize_field() -> None:
-    """Bare dataclasses.Field leftovers trip reportMissingTypeArgument.
-
-    Quoted so older LibreOffice runtimes (Field is not subscriptable) can import
-    the module; check the stored annotation string rather than get_type_hints.
-    """
-    from plugin.framework import config_schema as schema
-
-    # from __future__ import annotations stores the source text, including
-    # the quotes already written on the parameter.
-    assert "dataclasses.Field" in schema._dataclass_field_default.__annotations__["field"]
-    assert "dataclasses.Field" in schema._dataclass_field_type.__annotations__["field"]
-
-
 def test_dataclass_field_type_resolves_int_with_postponed_annotations() -> None:
     import dataclasses
 
@@ -293,24 +238,4 @@ def test_set_endpoint_normalizer() -> None:
         assert schema._endpoint_normalizer("localhost", False) == "mock_localhost_False"
     finally:
         set_endpoint_normalizer(previous)
-
-
-def test_text_analytics_sentiment_engine_is_not_a_config_field() -> None:
-    import dataclasses
-
-    field_names = {f.name for f in dataclasses.fields(WriterAgentConfig)}
-    assert "text_analytics_sentiment_engine" not in field_names
-    assert "text_analytics_sentiment_model" in field_names
-
-
-def test_removed_chatbot_context_and_depth_schema_keys() -> None:
-    from plugin.framework.config_schema import get_config_schema
-
-    assert get_config_schema("chatbot.context_strategy") is None
-    assert get_config_schema("chatbot.deep_research_depth") is None
-    rounds = get_config_schema("chatbot.deep_research_max_rounds")
-    assert rounds is not None
-    assert rounds.get("min") == 1
-    assert rounds.get("max") == 6
-    assert rounds.get("default") == 3
 

@@ -823,15 +823,6 @@ def test_starts_at_or_after():
     text.compareRegionStarts.side_effect = RuntimeError("UNO error")
     assert starts_at_or_after(text, left, right) is False
 
-
-def test_clear_direct_numbering_sets_numbering_rules_none() -> None:
-    from plugin.doc.text_helpers import clear_direct_numbering
-
-    cursor = MagicMock()
-    clear_direct_numbering(cursor)
-    cursor.setPropertyValue.assert_called_once_with("NumberingRules", None)
-
-
 def _del_mark(is_start):
     return _Portion(portion_type="Redline", redline_type="Delete", is_start=is_start)
 

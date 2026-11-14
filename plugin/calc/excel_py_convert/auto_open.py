@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Excel Python-in-Excel ↔ DAG ``=PY`` automatic round-trip on open/save.
 
+``plugin.calc.python.workbook_lifecycle``'s global document-event listener calls
+``maybe_convert_excel_py_document`` on open and ``maybe_export_excel_py_on_save``
+on save:
+
 * **Open** (``OnLoadFinished``): if the ``.xlsx`` on disk still has
   ``pythonScripts.xml`` / ``_xlws.PY``, rewrite in-place to DAG ``=PY`` via UNO.
-  The same event also prefix-rewrites Collabora ``GETPY`` OriginalNames (see
-  ``plugin.calc.python.collabora_formula``).
 * **Save** (``OnSaveDone`` / ``OnSaveAsDone`` / ``OnSaveToDone``): if the open
   Calc doc has DAG ``=PY`` cells and the destination is ``.xlsx``, snapshot
   formulas from memory (UNO) and ZipFile-patch the saved file to native Excel
@@ -20,7 +22,11 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from plugin.calc.python.workbook_lifecycle import is_calc_document
+from plugin.doc.text_helpers import get_document_path
 from plugin.framework.errors import best_effort
+from plugin.framework.i18n import _
+from plugin.framework.uno_context import product_display_name
 
 log = logging.getLogger(__name__)
 
@@ -29,40 +35,12 @@ log = logging.getLogger(__name__)
 # file instead; _busy_path guards same-process reentry.
 
 _lock = threading.Lock()
-_doc_listener: Any = None
 _busy_paths: set[str] = set()
-
-# Only *Done* events — OnSave/OnSaveAs also fire and would double-patch the file.
-_SAVE_DONE_EVENTS = frozenset({"OnSaveDone", "OnSaveAsDone", "OnSaveToDone"})
-# Factory ``private:factory/scalc`` fires OnNew, not OnLoadFinished. Geometric
-# strip state and the unload listener are set up on these events too.
-_GEOMETRIC_OPEN_EVENTS = frozenset({"OnLoadFinished", "OnNew", "OnLoad", "OnCreate"})
-
-
-def _geometric_open_job(ctx: Any, doc: Any) -> None:
-    from plugin.calc.python.geometric_recalc import maybe_geometric_on_document_open
-
-    maybe_geometric_on_document_open(ctx, doc)
-    # Wire OnUnload here so closing the workbook resets its kernel and
-    # geometric state; client-side clear cannot reach soffice.
-    if _is_calc_doc(doc):
-        from plugin.calc.python.workbook_state import WorkbookState
-
-        best_effort(lambda: WorkbookState.for_doc(doc), "excel_py lifecycle: unload listener install")
-
-
-def _is_calc_doc(doc: Any) -> bool:
-    try:
-        return bool(doc and doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"))
-    except Exception:
-        return False
 
 
 def _calc_xlsx_path(doc: Any) -> Path | None:
-    if not _is_calc_doc(doc):
+    if not is_calc_document(doc):
         return None
-    from plugin.doc.text_helpers import get_document_path
-
     path_str = get_document_path(doc)
     if not path_str:
         return None
@@ -134,6 +112,7 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
         if not acquired:
             return False
         try:
+            # The converter loads only once the file on disk is an Excel-Python workbook.
             from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
             from plugin.calc.excel_py_convert.convert import convert_to_dag, store_dag_meta_on_doc
 
@@ -157,6 +136,8 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
                 log.warning("excel_py auto-open: failed to store ExcelPyDagMeta for %s", path, exc_info=True)
             # setFormula dirties the doc; a pristine open must not prompt "Save changes?".
             best_effort(lambda: doc.setModified(modified_before), "excel_py auto-open: restore modified flag")
+            if any(c.issues for c in report.cells):
+                log.info("excel_py auto-open: %s", _issue_summary(report))
             log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
             return True
         except Exception:
@@ -165,9 +146,8 @@ def maybe_convert_excel_py_document(doc: Any) -> bool:
 
 
 def _show_save_failure(ctx: Any, path: Path, detail: str) -> None:
+    # Cross-app (chat UI), failure path only.
     from plugin.chatbot.dialogs import msgbox
-    from plugin.framework.i18n import _
-    from plugin.framework.uno_context import product_display_name
 
     msg = _(
         "Could not write Microsoft Excel Python package parts for:\n{0}\n\n"
@@ -186,6 +166,7 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
         if not acquired:
             return False
         try:
+            # The snapshot and writer load only when a Calc document is saved as .xlsx.
             from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
             from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
 
@@ -220,91 +201,3 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
             detail = str(exc)
             best_effort(lambda: _show_save_failure(ctx, path, detail), "excel_py auto-save error dialog")
             return False
-
-
-def _doc_from_event(event: Any) -> Any | None:
-    # UNO getattr on a disposed ViewController raises RuntimeException (not AttributeError),
-    # so getattr(..., None) is not enough — common on unload / Draw teardown during tests.
-    # Factory ``OnNew`` / ``OnCreate`` for a hidden ``scalc`` often has Source=doc
-    # but getCurrentController() throws — do not skip ``_is_calc_doc(source)``.
-    try:
-        controller = event.ViewController
-        if controller is not None:
-            return controller.getModel()
-    except Exception:  # noqa: S110 - disposed ViewController; probe falls through to Source
-        pass
-    try:
-        source = event.Source
-    except Exception:
-        source = None
-    if source is not None and _is_calc_doc(source):
-        return source
-    try:
-        if source is not None:
-            ctrl = source.getCurrentController()
-            if ctrl is not None:
-                return ctrl.getModel()
-    except Exception:  # noqa: S110 - getCurrentController throws on hidden factory OnNew; probe falls through
-        pass
-    return None
-
-
-def install_excel_py_auto_convert(ctx: Any) -> None:
-    """Attach a global listener for Excel-PY convert on open and export on save."""
-    global _doc_listener
-    with _lock:
-        if _doc_listener is not None:
-            return
-    try:
-        from plugin.framework.uno_listeners import BaseDocumentEventListener
-
-        class _ExcelPyLifecycleListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
-            def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                name = getattr(Event, "EventName", "") or ""
-                doc = _doc_from_event(Event)
-                # Hidden factory OnNew/OnCreate often has Source the Writer
-                # keeper (leftover scalc is not focused), so the geometric
-                # open hook still runs when ``doc is None``.
-                if name in _GEOMETRIC_OPEN_EVENTS:
-                    try:
-                        log.info("excel_py lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
-                        # VCL OnNew/OnCreate is often not Python's MainThread.
-                        # Leftover Shared =PY() then sees session_id=None.
-                        # Inlines when main.is_current() is true, including an untagged Dummy thread.
-                        # Release bundles keep UNTAGGED_DUMMY_IS_CURRENT False (linguistic Dummy-21), so a URP open there still marshals and can time out.
-                        from plugin.framework.queue_executor import main
-
-                        main.run(_geometric_open_job, ctx, doc)
-                    except Exception:
-                        log.warning("geometric recalc on open failed", exc_info=True)
-                if doc is None:
-                    return
-                if name == "OnLoadFinished":
-                    maybe_convert_excel_py_document(doc)
-                    from plugin.framework.queue_executor import main
-
-                    try:
-                        from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
-
-                        # URP OnLoadFinished can run on Dummy with SolarMutex held: main.run inlines when is_current().
-                        # Pass the callable first—do not pass ctx as the first positional (main treats it as fn).
-                        main.run(maybe_rewrite_collabora_py_formulas, doc)
-                    except Exception:
-                        # FIXME: this swallows marshal/rewrite failures (e.g. TypeError
-                        # from a mis-wired main.run) so UNO tests still
-                        # pass; only the log shows it. Narrow or re-raise after the
-                        # listener is proven not to abort OnLoadFinished.
-                        log.warning("collabora PY rewrite on open failed", exc_info=True)
-                    return
-                if name in _SAVE_DONE_EVENTS:
-                    maybe_export_excel_py_on_save(ctx, doc)
-
-        smgr = ctx.getServiceManager()
-        broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)
-        listener = _ExcelPyLifecycleListener()
-        broadcaster.addDocumentEventListener(listener)
-        with _lock:
-            _doc_listener = listener
-        log.debug("excel_py lifecycle: OnLoadFinished + OnSave* listener attached")
-    except Exception:
-        log.warning("excel_py lifecycle: listener install failed", exc_info=True)

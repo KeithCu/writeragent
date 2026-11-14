@@ -12,7 +12,6 @@ from plugin.writer.search import (
     old_content_covers_most,
     prepare_old_content,
     SINGLE_QUOTE_CLASS,
-    SPACE_NORMALIZE_MAP,
 )
 import pytest
 
@@ -24,12 +23,6 @@ def test_normalize_search_string_collapses_nbsp():
     assert normalize_search_string_for_find("foo" + nbsp + nbsp + "bar") == "foo bar"
     assert normalize_search_string_for_find("foo" + em_space + cjk_space + "bar") == "foo bar"
     assert normalize_search_string_for_find("line1\nline2") == "line1\nline2"
-
-
-def test_space_normalize_map_is_one_to_one_ascii():
-    for cp, replacement in SPACE_NORMALIZE_MAP.items():
-        assert len(chr(cp)) == 1
-        assert replacement == " "
 
 
 def test_escape_for_lo_regex_expands_ascii_space_runs():

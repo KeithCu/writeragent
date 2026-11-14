@@ -91,7 +91,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 |-------|---------|
 | **Entry** | **WriterAgent → Run Python Script…** (already on menu for Writer/Calc/Draw/Impress) |
 | **Picker section** | **Vision Helpers →** e.g. `[Vision] extract_text`, `[Vision] extract_structure`, … |
-| **Templates** | [`vision_templates.py`](../../plugin/vision/vision_templates.py) with `# writeragent:vision helper=… params=…` header; params include optional **`image_name`** (from `image_list`) |
+| **Templates** | [`vision_templates.py`](../../plugin/vision/vision_templates.py) calling `run_vision(...)`; kwargs include optional **`image_name`** (from `image_list`) |
 | **Input** | User **selects an embedded graphic**, or sets **`image_name`** in params; host exports PNG bytes |
 | **Run** | Fast path in `execute_and_insert_result` → `run_trusted_vision` → [`run_vision`](../../plugin/scripting/client.py) |
 | **App scope** | **Writer, Calc, Draw, Impress** — Vision Helpers when [`supports_vision_manual`](plugin/vision/vision_runner.py); Draw/Impress OCR is return-only (no insert). Text-box egress → **Phase 1b.2** |
@@ -191,7 +191,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | HTML export (Docling / Paddle) | [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (`export_docling_to_html`), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (`html_from_paddle_regions`, `html_from_paddle_structure`), [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) (`prepare_html_for_lo_import`, **css-inline** required; heading/body/table/MathML augment) |
 | Script picker (Writer + Calc) | [`document_scripts.py`](../../plugin/scripting/document_scripts.py) — `SCRIPT_ORIGIN_VISION`, `_vision_script_section` |
 | Monaco built-in guards | [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
-| Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`client.py`](../../plugin/scripting/client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
+| Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`client.py`](../../plugin/scripting/client.py), [`helper_domain.py`](../../plugin/scripting/helper_domain.py) (`run_domain`) |
 | Calc analysis egress | [`analysis_egress.py`](../../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
 | **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_structure_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase`](../../plugin/writer/specialized_base.py) / [`ToolCalcVisionBase`](../../plugin/calc/base.py) |
 | Tests | [`test_vision*.py`](../../tests/vision/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_format_uno.py`](../../tests/writer/test_format_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
@@ -224,7 +224,7 @@ sequenceDiagram
   participant Venv as vision.py
 
   User->>RPS: Vision Helpers extract_text Run
-  RPS->>Host: parse_vision_script_header
+  RPS->>Host: ScriptFacts.first_run_spec("run_vision")
   Host->>Export: get_selected_image_bytes
   Export-->>Host: PNG bytes
   Host->>VC: run_vision spec image context
@@ -241,7 +241,7 @@ sequenceDiagram
 |------|------|
 | [`plugin/vision/venv/vision.py`](../../plugin/vision/venv/vision.py) | `HELPER_NAMES`, `run_vision`, `_extract_text` via PaddleOCR (lazy engine singleton per worker) |
 | [`plugin/scripting/client.py`](../../plugin/scripting/client.py) | Host entry `run_vision`; fixed stub IPC like analysis |
-| [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | `# writeragent:vision helper=… params=…`; Phase 1 template: **`extract_text` only** |
+| [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | Calls `run_vision(...)`; Phase 1 template: **`extract_text` only** |
 | [`plugin/vision/vision_runner.py`](../../plugin/vision/vision_runner.py) | `get_selected_image_bytes(ctx, doc)`, `run_trusted_vision(...)` — host-side export + RPC |
 | [`plugin/vision/vision_egress.py`](../../plugin/vision/vision_egress.py) | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 
@@ -259,7 +259,7 @@ result = _run(data["spec"], data.get("image"), data.get("context") or {})
 | File | Change |
 |------|--------|
 | [`document_scripts.py`](../../plugin/scripting/document_scripts.py) | `SCRIPT_ORIGIN_VISION`, `VISION_SCRIPT_DISPLAY_PREFIX = "[Vision] "`, `_vision_script_section(doc)` gated on **`is_writer(doc)`**; wire `build_xdl_script_picker_state` / `build_scripts_list_message` / `resolve_script_picker_entry` |
-| [`python_runner.py`](../../plugin/scripting/python_runner.py) | Before generic venv run: if `parse_vision_script_header(code)` → export bytes → `run_trusted_vision` → `insert_vision_result` (Writer or Calc) |
+| [`python_runner.py`](../../plugin/scripting/python_runner.py) | Before generic venv run: if `ScriptFacts.first_run_spec("run_vision")` → export bytes → `run_trusted_vision` → `insert_vision_result` (Writer or Calc) |
 | [`sandbox.py`](../../plugin/scripting/sandbox.py) | Add `plugin.vision.venv.vision` |
 | [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) | `isBuiltInVision = currentOrigin === "vision"`; disable Attach like analysis |
 
@@ -306,7 +306,7 @@ return png_bytes
 
 | File | Covers |
 |------|--------|
-| `tests/vision/test_vision_templates.py` | Template coverage, `parse_vision_script_header` round-trip |
+| `tests/vision/test_vision_templates.py` | Template coverage, `run_vision` call generation |
 | `tests/vision/venv/test_vision.py` | `run_vision` / `_extract_text` with mocked Paddle |
 | `tests/vision/test_vision_egress.py` | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 | `tests/scripting/test_python_runner_vision.py` | Fast path in `execute_and_insert_result` (mock export + RPC + insert) |
@@ -437,7 +437,7 @@ pip install docling rapidocr-paddle paddleocr paddlepaddle ultralytics numpy pil
 
 Helpers degrade with `DOCLING_UNAVAILABLE` / `PADDLEOCR_UNAVAILABLE` / `OCR_BACKEND_UNAVAILABLE` / `YOLO_UNAVAILABLE` and messages pointing to **Settings → Python**.
 
-Template params for OCR research (in `# writeragent:vision … params=…`):
+Template params for OCR research (keyword arguments of the `run_vision(...)` call):
 
 | Param | Default | Values |
 |-------|---------|--------|
@@ -904,7 +904,7 @@ Checklist for implementers / QA:
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
-**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent).
+**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent). Writer: `vision` catalog line in the specialized domain list (only when vision is available); Calc/Draw: `get_vision_core_directive`.
 
 **Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
 

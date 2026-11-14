@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Hammer Stop across threads before/after client cancellation refactor."""
+"""Stress tests for concurrent Stop cancellation across client threads."""
 
 from __future__ import annotations
 

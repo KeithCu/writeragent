@@ -21,10 +21,6 @@ def test_path_to_file_url_uses_three_slashes_on_unix():
     assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
 
 
-def test_embeddings_fs_does_not_reexport_path_to_file_url():
-    assert not hasattr(embeddings_fs, "path_to_file_url")
-
-
 def test_embeddings_fs_import_stays_uno_free():
     """url_utils must stay UNO-free so embeddings extract can import it."""
     import subprocess
@@ -137,13 +133,6 @@ def test_guess_indexable_paths_includes_ods_and_office(tmp_path: Path):
     entries = embeddings_fs.guess_indexable_paths(str(tmp_path))
     names = sorted(entry.name for entry in entries)
     assert names == ["Budget.ods", "budget.xlsx", "deck.odp", "doc.odt", "notes.md", "notes.txt"]
-
-
-def test_all_indexable_extensions_includes_foreign():
-    assert ".xlsx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
-    assert ".docx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
-    assert ".pptx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
-    assert ".pdf" not in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
 
 
 def test_paragraph_chunks_from_txt(tmp_path: Path):

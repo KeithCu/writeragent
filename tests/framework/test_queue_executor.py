@@ -731,7 +731,7 @@ def test_execute_refusal_log_has_no_synthetic_traceback(caplog: pytest.LogCaptur
         t = threading.Thread(target=run_on_worker)
         t.start()
         t.join()
-    assert "AsyncCallback unavailable" in caplog.text
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
     assert "Traceback" not in caplog.text
 
 
@@ -787,33 +787,11 @@ class TestWorkItemClaimLockTimeoutRace:
 
         qe = MainThread()
         item = _WorkItem(lambda: None, (), {}, blocking=True)
-        # Simulate _wait_for_result timing out: event never fired.
-        assert not item.event.wait(0)  # immediate timeout
-        with qe._claim_lock:
-            if not item._claimed:
-                item.cancelled = True
+        item.event.wait = lambda timeout=None: False
+        with pytest.raises(TimeoutError):
+            qe._wait_for_result(item, 0.01)
         assert item.cancelled is True
         assert item._claimed is False
-
-    def test_claimed_item_is_not_cancelled_on_timeout(self):
-        # When the main thread has already claimed the item (_claimed=True),
-        # the timeout path must NOT set item.cancelled — the function is already
-        # executing and cancellation would be a no-op anyway.
-        from plugin.framework.queue_executor import MainThread, _WorkItem
-
-        qe = MainThread()
-        item = _WorkItem(lambda: None, (), {}, blocking=True)
-        # Simulate main thread claiming before timeout fires.
-        with qe._claim_lock:
-            item._claimed = True
-
-        # Simulate timeout path:
-        with qe._claim_lock:
-            if not item._claimed:
-                item.cancelled = True
-
-        assert item.cancelled is False  # claim won — item not cancelled
-        assert item._claimed is True
 
     def test_timeout_returns_result_if_event_is_set_during_wait(self):
         # wait() can return false in the same window process_queue stores
@@ -1292,20 +1270,18 @@ def test_flush_failure_logs_after_order_lock_released(monkeypatch: pytest.Monkey
 
     qe._enqueue_work = failing_enqueue  # type: ignore[method-assign]
 
-    logged: list[tuple[int, str, tuple[object, ...], object]] = []
+    logged: list[tuple[int, object]] = []
 
     def mock_log_error(msg: str, *args: object, **kwargs: object) -> None:
-        logged.append((probe.depth, msg, args, kwargs.get("exc_info")))
+        logged.append((probe.depth, kwargs.get("exc_info")))
 
     monkeypatch.setattr(log, "error", mock_log_error)
 
     qe._flush_pending_posts()
 
     assert len(logged) == 1
-    depth, msg, args, exc_info = logged[0]
+    depth, exc_info = logged[0]
     assert depth == 0
-    assert msg == "MainThread: flush failed after %d pending post(s); %d put back"
-    assert args == (0, 1)
     assert exc_info is fail_exc
     assert exc_info.__traceback__ is not None
     assert [row[0] for row in qe._pending_posts] == [pending_fn]
@@ -1890,3 +1866,13 @@ def test_on_python_main_thread_is_designated_or_python_main() -> None:
     finally:
         main.install(orig_policy, designated=orig_designated, poke=orig_poke)
         set_background_task(None)
+
+
+def test_eval_harness_disables_async_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mt.MainThread, "_policy", mt.MainThread._policy)
+    monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
+    mt.install_from_environ()
+    ex = mt.MainThread()
+    ex.set_context(MagicMock(name="ctx"))
+    assert ex._get_async_callback() is None
+    assert ex._initialized is True

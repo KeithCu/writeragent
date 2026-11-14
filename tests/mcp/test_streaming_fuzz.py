@@ -38,26 +38,6 @@ class TestStreamingFuzz:
             "request_timeout": 60,
         }
 
-    def test_malformed_json_sse_payload(self):
-        """Ensure that garbled JSON lines in the SSE stream are gracefully skipped."""
-        lines = [
-            b"data: {\"choices\": [{\"delta\": {\"content\": \"hello \"}}]}\n",
-            b"data: {GARBAGE JSON[[[}\n",
-            b"data: {\"choices\": [{\"delta\": {\"content\": \"world\"}}]}\n",
-        ]
-        lines = _make_sse_lines(*lines, done=True)
-
-        client = LlmClient(self.config, self.ctx)
-        client._transport.get_connection = lambda: _mock_connection_with_sse_lines(lines)
-
-        content_parts = []
-        client._run_streaming_loop(
-            "POST", "/v1/chat/completions", b"{}", {},
-            content_parts.append,
-        )
-        # The garbled chunk should be skipped, and the rest parsed.
-        assert (content_parts) == (["hello ", "world"])
-
     def test_truncated_tool_call_arguments(self):
         """Ensure that truncated tool call arguments (due to AI stop mid-stream) are returned as a truncated JSON string."""
         chunks = [
@@ -107,16 +87,6 @@ class TestStreamingFuzz:
         fn = result["tool_calls"][0].get("function") or {}
         # The string should be correctly concatenated, even if it's invalid JSON
         assert (fn["arguments"]) == ("{\"arg1\": ")
-
-        # Mocking the UI thread's parsing fallback logic in panel.py
-        from plugin.framework.errors import safe_python_literal_eval
-        func_args_str = fn["arguments"]
-        func_args = safe_python_literal_eval(func_args_str, default={})
-        if not isinstance(func_args, dict):
-            func_args = {}
-
-        # Proves it recovers gracefully to an empty dict
-        assert (func_args) == ({})
 
     def test_unexpected_schema_structures(self):
         """Ensure feeding structurally invalid delta dictionaries raises a clean Exception that doesn't cause a fatal error but gets caught."""

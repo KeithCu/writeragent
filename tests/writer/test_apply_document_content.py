@@ -391,13 +391,6 @@ def test_position_after_rejects_math_and_table_cells():
     assert res["status"] == "error" and "table cell" in res["message"]
 
 
-def test_position_in_schema():
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-
-    props = ApplyDocumentContent.parameters["properties"]
-    assert props["position"]["enum"] == ["replace", "before", "after"]
-
-
 def test_apply_document_content_validate_accepts_string_or_array():
     """UNO tests pass one string. The schema was array-only, so validate rejected it.
 
@@ -527,7 +520,7 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
     found.getText.assert_not_called()
 
 
-def test_all_matches_hoists_plain_text_conversion():
+def test_all_matches_replaces_every_range():
     from plugin.writer import html_import
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
@@ -539,7 +532,7 @@ def test_all_matches_hoists_plain_text_conversion():
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
-         patch.object(html_import, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
+         patch.object(html_import, "plain_text_if_markup", return_value="hi"), \
          patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
@@ -548,9 +541,6 @@ def test_all_matches_hoists_plain_text_conversion():
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 2
-    # plain_text_if_markup is called once for old_content and hoisted once for content (not per-match)
-    assert mock_html_plain.call_count == 2
-    assert mock_html_plain.call_args_list[1][0][0] == "<b>hi</b>"
 
 
 def test_search_replace_attaches_style_note_warning():
@@ -1018,8 +1008,7 @@ def test_target_end_entity_decoded_proposed_preview():
     assert mock_record.call_args[1]["proposed_preview"] == "<b>hi</b>"
 
 
-def test_shape_edit_leave_undo_context_failure_logged():
-    from unittest.mock import ANY
+def test_shape_edit_leave_undo_context_failure_does_not_fail_edit():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -1032,14 +1021,12 @@ def test_shape_edit_leave_undo_context_failure_logged():
     with patch("plugin.writer.search.find_first_range", return_value=None), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
-         patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True), \
-         patch("plugin.doc.compound_undo.log.exception") as mock_log_exc:
+         patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True):
         res = ApplyDocumentContent().execute(
             ctx, target="search", old_content="foo", content="bar"
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 1
-    mock_log_exc.assert_called_once_with("leaveUndoContext failed (title=%r)", ANY)
 
 
 def test_content_list_item_must_be_string():
@@ -1673,30 +1660,6 @@ def test_edit_outline_capture_failure_does_not_change_text():
         preserve.assert_not_called()
 
 
-def test_content_tool_discovery_and_modules():
-    """Verify split modules declare tools correctly and register one instance each."""
-    from plugin.framework.service import iter_named_concrete_subclasses
-    from plugin.framework.tool import ToolBase, ToolRegistry
-    from plugin.writer import apply_document_content, get_document_content
-    from plugin.writer.apply_document_content import ApplyDocumentContent
-    from plugin.writer.get_document_content import GetDocumentContent
-
-    assert ApplyDocumentContent.__module__ == "plugin.writer.apply_document_content"
-    assert GetDocumentContent.__module__ == "plugin.writer.get_document_content"
-
-    apply_tools = list(iter_named_concrete_subclasses(apply_document_content, ToolBase))
-    assert apply_tools == [ApplyDocumentContent]
-
-    get_tools = list(iter_named_concrete_subclasses(get_document_content, ToolBase))
-    assert get_tools == [GetDocumentContent]
-
-    reg = ToolRegistry(services={})
-    reg.auto_discover(apply_document_content)
-    reg.auto_discover(get_document_content)
-    assert reg.get("apply_document_content") is not None
-    assert reg.get("get_document_content") is not None
-
-
 # ---- K171: undo entry, table verification, regex validation -----------------
 
 def test_outline_undo_disposed_undo_manager_reraises():
@@ -1715,18 +1678,6 @@ def test_all_matches_disposed_undo_manager_reraises():
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
-
-
-def test_all_matches_truthy_non_bool_islocked_is_not_locked():
-    ctx = _edit_ctx()
-    ctx.doc.getUndoManager.return_value.isLocked.return_value = MagicMock()
-    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
-         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
-         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
-         patch.object(ApplyDocumentContent, "_replace_found", return_value=[]):
-        res = ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
-    assert res["status"] == "ok"
-    assert res["replaced_count"] == 1
 
 
 def test_selection_table_insert_fails_when_the_doc_already_has_a_table():

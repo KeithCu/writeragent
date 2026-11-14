@@ -94,7 +94,7 @@ from .stream_normalizer import (
     strip_think_tags,
 )
 from .provider_detection import is_openrouter_endpoint
-from .shim_helpers import cache_read_count
+from .shim_helpers import anthropic_response_cache_facts, cache_read_count, is_anthropic_message_id
 
 log = logging.getLogger(__name__)
 
@@ -217,6 +217,7 @@ class LlmClient:
         self.ctx = ctx
         self._transport = LlmHttpTransport(self._endpoint, self._timeout, openrouter_getter=lambda: bool(self.config.get("is_openrouter")))
         self._shims: dict[str, BaseProviderShim] = {}
+        self._anthropic_prev_message_id: dict[str, str] = {}
         # Stop before the first byte: close() alone is a no-op when sock is None;
         # the worker must not open a new connection (B13 / llm_request_lane).
         self._owned = SendCancellation()
@@ -377,6 +378,46 @@ class LlmClient:
         """Get the provider ID from resolved auth."""
         auth_info = self._resolve_auth()
         return auth_info.get("provider", "custom")
+
+    def anthropic_previous_message_id(self, cache_session_id: str | None) -> str | None:
+        """Return the most recent Anthropic message ID recorded for this session ID, or None."""
+        if self._get_provider() != "anthropic":
+            return None
+        if not cache_session_id or not isinstance(cache_session_id, str):
+            return None
+        return self._anthropic_prev_message_id.get(cache_session_id)
+
+    def remember_anthropic_message_id(self, cache_session_id: str | None, message_id: str | None) -> None:
+        """Store the Anthropic message ID for the given session ID when running on native Anthropic."""
+        if self._get_provider() != "anthropic":
+            return
+        if not cache_session_id or not isinstance(cache_session_id, str):
+            return
+        if not is_anthropic_message_id(message_id):
+            return
+        self._anthropic_prev_message_id[cache_session_id] = message_id
+
+    def _note_anthropic_cache_facts(self, source: Any, cache_session_id: str | None) -> Any:
+        """Record the Anthropic message ID and return any cache diagnostics object."""
+        facts = anthropic_response_cache_facts(source)
+        if facts is None:
+            return None
+        msg_id, diag = facts
+        if msg_id is not None:
+            self.remember_anthropic_message_id(cache_session_id, msg_id)
+        return diag
+
+    def _log_anthropic_cache_diagnostics(self, diag: Any, usage: Any) -> None:
+        """Log Anthropic cache diagnostics and token metrics if available."""
+        cache_miss_reason = diag.get("cache_miss_reason") if isinstance(diag, dict) else None
+        usage_dict = usage if isinstance(usage, dict) else {}
+        log.info(
+            "Anthropic cache diagnostics: cache_miss_reason=%s cache_read_input_tokens=%s cache_creation_input_tokens=%s cache_read=%s",
+            cache_miss_reason,
+            usage_dict.get("cache_read_input_tokens"),
+            usage_dict.get("cache_creation_input_tokens"),
+            cache_read_count(usage_dict),
+        )
 
     def _timeout(self) -> Any:
         """Settings read/stall budget. Connect uses ``LLM_CONNECT_TIMEOUT_SEC``."""
@@ -656,7 +697,21 @@ class LlmClient:
         messages.append({"role": "user", "content": prompt})
         return self.stream_chat_response(messages, max_tokens, append_callback, append_thinking_callback, cancel=cancel, status_callback=status_callback)
 
-    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
+    def _run_streaming_loop(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        on_content: Any,
+        on_thinking: Any = None,
+        on_delta: Any = None,
+        cancel: SendCancellation | None = None,
+        status_callback: Any = None,
+        reset_unemitted_attempt: Any = None,
+        *,
+        cache_session_id: str | None = None,
+    ) -> Any:
         """Common low-level streaming engine."""
         log.info("=== Starting streaming loop (persistent) ===")
         log.debug("Request Path: %s" % path)
@@ -700,8 +755,10 @@ class LlmClient:
                 think_tag_splitter = ThinkTagStreamSplitter()
                 requested_model = request_model_from_body(body)
                 used_model = None
+                native_anthropic = self._get_provider() == "anthropic"
                 stream_state: dict[str, Any] = {}
                 last_usage_obj: dict[str, Any] | None = None
+                last_diagnostics: Any = None
 
                 for payload in iterate_sse(response):
                     if payload == "[DONE]":
@@ -726,6 +783,11 @@ class LlmClient:
                     # well-formed chunks can still apply.
                     if type(chunk) is not dict:
                         continue
+
+                    if native_anthropic:
+                        diag = self._note_anthropic_cache_facts(chunk, cache_session_id)
+                        if diag is not None:
+                            last_diagnostics = diag
 
                     chunk_model = chunk.get("model")
                     if chunk_model and used_model is None:
@@ -893,6 +955,8 @@ class LlmClient:
                     last_finish_reason,
                     cache_read_count(last_usage_obj),
                 )
+                if native_anthropic:
+                    self._log_anthropic_cache_diagnostics(last_diagnostics, last_usage_obj)
 
                 # Flush any trailing buffered text from the think tag splitter
                 # (trailing buffer contains small tag prefix remnants like '<' at EOF).
@@ -990,7 +1054,17 @@ class LlmClient:
             prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
             cache_session_id=cache_session_id,
         )
-        return self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, cancel=cancel, status_callback=status_callback)
+        return self._run_streaming_loop(
+            method,
+            path,
+            body,
+            headers,
+            on_content=append_callback,
+            on_thinking=append_thinking_callback,
+            cancel=cancel,
+            status_callback=status_callback,
+            cache_session_id=cache_session_id,
+        )
 
     def request_with_tools(
         self,
@@ -1066,7 +1140,19 @@ class LlmClient:
 
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, cancel=cancel, status_callback=status_callback, reset_unemitted_attempt=_reset_unemitted_attempt)
+                last_finish_reason = self._run_streaming_loop(
+                    method,
+                    path,
+                    body,
+                    headers,
+                    on_content=append_callback,
+                    on_thinking=append_thinking_callback,
+                    on_delta=on_delta,
+                    cancel=cancel,
+                    status_callback=status_callback,
+                    reset_unemitted_attempt=_reset_unemitted_attempt,
+                    cache_session_id=cache_session_id,
+                )
             except NetworkError:
                 raise
             except Exception as e:
@@ -1129,6 +1215,9 @@ class LlmClient:
 
             used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
 
+            native_anthropic = self._get_provider() == "anthropic"
+            sync_diag = self._note_anthropic_cache_facts(result, cache_session_id) if native_anthropic and isinstance(result, dict) else None
+
             # Use unified extraction for shims/native providers
             try:
                 raw_parsed_content, last_finish_reason, tool_calls, usage, images, message = self._get_shim().parse_sync_response(result)
@@ -1147,6 +1236,8 @@ class LlmClient:
                 raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": path}) from e
 
             log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r cache_read=%s", self._get_provider(), requested_model, used_model, cache_read_count(usage))
+            if native_anthropic:
+                self._log_anthropic_cache_diagnostics(sync_diag, usage)
             content, extracted_thinking = strip_think_tags(raw_parsed_content)
             if extracted_thinking and "reasoning" not in message:
                 message["reasoning"] = extracted_thinking

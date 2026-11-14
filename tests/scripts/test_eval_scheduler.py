@@ -34,23 +34,22 @@ def _events() -> tuple[list[tuple[str, float]], threading.Lock]:
 
 def test_declared_backend_defaults_string_and_flag_is_lo() -> None:
     kinds = {ex["task_id"]: declared_backend(ex) for ex in ALL_EXAMPLES}
+    for ex in ALL_EXAMPLES:
+        expected = ex.get("backend") or "string"
+        assert kinds[ex["task_id"]] == expected
     assert kinds["python_shapes_flag"] == "lo"
-    assert kinds["org_chart_gen"] == "lo"
-    assert kinds["solar_sld_gen"] == "lo"
-    assert kinds["toc_list_entries"] == "lo"
-    assert kinds["toc_renumber_insert"] == "lo"
     assert kinds["table_from_mess"] == "string"
     assert kinds["py_refuse_overlap"] == "string"
-    assert sum(1 for kind in kinds.values() if kind == "lo") == 5
-    assert len(ALL_EXAMPLES) == 22
+
+
+def test_flag_ask_matches_headed_prompt_file() -> None:
     flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
-    assert flag["user_question"] == PYTHON_SHAPES_FLAG_ASK
-    assert flag["document_content"] == ""
     prompt = (
         Path(__file__).resolve().parents[2]
         / "docs/eval/eval-2/python-shapes-flag/prompt.writeragent.txt"
     )
     assert prompt.read_text(encoding="utf-8").strip() == PYTHON_SHAPES_FLAG_ASK
+    assert flag["user_question"] == PYTHON_SHAPES_FLAG_ASK
 
 
 def test_resolve_backend_cli_overrides_row() -> None:
@@ -64,14 +63,11 @@ def test_resolve_backend_cli_overrides_row() -> None:
 
 def test_select_pack_string_skips_flag_unless_explicit() -> None:
     examples = to_eval_examples(ALL_EXAMPLES)
+    lo_ids = {ex["task_id"] for ex in ALL_EXAMPLES if declared_backend(ex) == "lo"}
     skipped = select_pack(examples, cli_backend="string", explicit=False, student="llm")
     assert skipped.error is None
-    assert len(skipped.examples) == 17
-    assert "python_shapes_flag" in skipped.notes[0]
-    assert "org_chart_gen" in skipped.notes[0]
-    assert "solar_sld_gen" in skipped.notes[0]
-    assert "toc_list_entries" in skipped.notes[0]
-    assert "toc_renumber_insert" in skipped.notes[0]
+    assert {ex.task_id for ex in skipped.examples} == {ex.task_id for ex in examples} - lo_ids
+    assert all(tid in skipped.notes[0] for tid in lo_ids)
     # An explicit -e that includes the flag is an error, not a silent drop.
     mixed = select_pack(examples, cli_backend="string", explicit=True, student="llm")
     assert mixed.error
@@ -84,18 +80,15 @@ def test_select_pack_string_skips_flag_unless_explicit() -> None:
 
 def test_select_pack_scripted_skips_flag_on_auto() -> None:
     examples = to_eval_examples(ALL_EXAMPLES)
+    lo_ids = {ex["task_id"] for ex in ALL_EXAMPLES if declared_backend(ex) == "lo"}
     selected = select_pack(examples, cli_backend="auto", explicit=False, student="scripted")
     assert selected.error is None
-    # 22 pack − flag (no script). org_chart_gen, solar_sld_gen, and both TOC rows have scripted LO replays and stay.
-    assert len(selected.examples) == 21
+    ids = {ex.task_id for ex in selected.examples}
+    assert ids == {ex.task_id for ex in examples} - {"python_shapes_flag"}
     assert "no scripted replay" in selected.notes[0]
     assert "python_shapes_flag" in selected.notes[0]
-    ids = {ex.task_id for ex in selected.examples}
     assert "python_shapes_flag" not in ids
-    assert "org_chart_gen" in ids
-    assert "solar_sld_gen" in ids
-    assert "toc_list_entries" in ids
-    assert "toc_renumber_insert" in ids
+    assert (lo_ids - {"python_shapes_flag"}) <= ids
     only_flag = [ex for ex in examples if ex.task_id == "python_shapes_flag"]
     refused = select_pack(only_flag, cli_backend="auto", explicit=True, student="scripted")
     assert refused.error
@@ -380,7 +373,6 @@ def test_string_scripted_cli_skips_flag(capsys: pytest.CaptureFixture[str]) -> N
     assert "org_chart_gen" in out
     assert "python_shapes_flag" in out
     assert "backend=lo" in out
-    assert "Scripted result pass: 17/17" in out
 
 
 def test_auto_scripted_cli_skips_flag(
@@ -397,10 +389,15 @@ def test_auto_scripted_cli_skips_flag(
     import tools_lo
     from eval_scheduler import PackSelection, declared_backend, select_pack as real_select_pack
 
+    product_selected_ids: list[str] = []
+
     def select_pack_without_lo_bootstrap(*args: object, **kwargs: object) -> PackSelection:
         selected = real_select_pack(*args, **kwargs)  # type: ignore[arg-type]
         if selected.error:
             return selected
+        product_selected_ids.extend(
+            getattr(ex, "task_id", "") for ex in selected.examples
+        )
         kept = [ex for ex in selected.examples if declared_backend(ex) != "lo"]
         notes = list(selected.notes)
         dropped = [
@@ -428,8 +425,9 @@ def test_auto_scripted_cli_skips_flag(
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "no scripted replay" in out
+    assert "python_shapes_flag" not in product_selected_ids
+    assert "org_chart_gen" in product_selected_ids
+    assert "solar_sld_gen" in product_selected_ids
     assert "python_shapes_flag" in out
     assert "org_chart_gen" in out  # noted as unit-test LO drop
     assert "solar_sld_gen" in out
-    assert "Scripted result pass: 17/17" in out

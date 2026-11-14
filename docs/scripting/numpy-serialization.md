@@ -58,7 +58,8 @@ LibreOffice's embedded Python and the user's venv are **different interpreters**
 | Layer | Behavior |
 |-------|----------|
 | `PythonWorkerManager` | One subprocess per resolved venv `python`; respawns on crash/timeout; auto-warms before first timed execute |
-| `worker_harness.py` | Read loop; delegates to `venv_sandbox.run_sandboxed_code` |
+| `sandbox_request.py` | `SandboxRequest` holds one execute's child fields; `ExecRequest` subclasses it with host-only fields; `wire()` is a plain dict; timeout is bounded by the sender (`python_exec_timeout` on the LibreOffice host, the pool deadline in compute) |
+| `worker_harness.py` | Read loop; rebuilds `SandboxRequest.from_wire` → `run_sandboxed_code(req)` |
 | `venv_sandbox.py` | **Isolated (default):** new `LocalPythonExecutor` per request. **Shared kernel:** one executor per `calc:…` session id; inject `data`; serialize `result` |
 | **Code hot cache** | [`sandbox_cache.py`](../../plugin/scripting/sandbox_cache.py): SHA-256 keyed LRU (default 256 entries; sources longer than 65536 characters are parsed and validated but not stored) caches **parsed AST** + **static** sandbox policy per unchanged source + import allowlist. A RecursionError from ast.parse or validate_sandbox_ast, a SyntaxError, and a ValueError for a null byte are cached parse errors, not an internal traceback. Skips re-parse and re-validation on recalc; **does not** cache execution `result` or variables. Separate from host [Worker Result Session](#matrix-formula-result-session-ipc-reduction). |
 
@@ -265,7 +266,7 @@ The split-grid codec is the project's reference Tier-0 verification target: `dea
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index |
 | Python `complex` or a NumPy complex scalar | `NaN` | `str(val)`, imaginary part kept |
 
-Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `to_wire` (depth 64) coerces list/dict results, DataFrame/Series object grids, object-ndarray `tolist()` output, and datetime64/timedelta64 arrays (timedelta becomes fractional days) before that pack. A rectangular list whose cells are themselves lists or tuples is not one split_grid: each row is packed on its own, so a list of grids is not stringified.
+Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); below the threshold `child_pack_result` copies cells unchanged and `None` stays `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `to_wire` (depth 64) coerces list/dict results, DataFrame/Series object grids, object-ndarray `tolist()` output, and datetime64/timedelta64 arrays (timedelta becomes fractional days) before that pack. A rectangular list whose cells are themselves lists or tuples is not one split_grid: each row is packed on its own, so a list of grids is not stringified.
 
 #### Child materialization (ingress, before CalcRange wrap)
 
@@ -277,6 +278,8 @@ Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../.
 After unpack, `=PY()` exposes a `CalcRange` (see [data shapes](../calc/py-data-shapes.md)). Use `np.nansum` / masks when ignoring holes.
 
 #### Egress (child → host / Calc)
+
+Image and dataframe envelopes are built by `pack_image_envelope` / `pack_dataframe_envelope` beside their detectors, and readers use the detectors.
 
 | Child `result` | Host / UI after unpack |
 |----------------|------------------------|
@@ -304,7 +307,7 @@ Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN]
 
 Asymmetric simulation: **host** = stdlib pack/serialize; **child** = deserialize + materialize. Timings are median values; the automatic `split_grid` envelope is triggered when **at least 100 cells** (smaller grids fall back to standard Pickle lists). The bench compares four transport + envelope strategies:
 1. `json_list` (standard nested lists over JSON wire, materializing using `np.array(list)`).
-2. **`json+sg`** (split_grid envelope with Base64 `b64` buffer inside a JSON line, materializing using `np.frombuffer`).
+2. **`json+sg`** (split_grid envelope with Base64 `b64` buffer inside a JSON line, materializing using `np.frombuffer`; bench-only legacy coder in `payload_codec_test_support.py`; production `is_split_grid` rejects it).
 3. `pickle5` (Pickle protocol 5 of nested lists, which still requires expensive `np.array(list)` conversions in the child).
 4. **`pickle5+sg`** (**Winner**: split_grid envelope with raw `buffer` bytes inside Pickle5, materializing at C-speed via `np.frombuffer`).
 
@@ -393,7 +396,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
 | [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `=PY()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Chat tool ingress pack |
-| [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
+| [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `materialize_inputs` (`calc_range.py`) before inject (it calls `child_unpack_split_grid` on a split_grid); `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
 | [`tests/scripting/test_venv_worker.py`](../../tests/scripting/test_venv_worker.py) | Harness integration with split_grid payloads |
 
@@ -409,7 +412,7 @@ Calc UNO range
   → pack_calc_data_for_wire → host_pack_data (host: split_grid or nested list)
   → pickle.dumps(request)        (host: binary payload, protocol 5; split_grid contains raw bytes)
   → pickle.loads(payload)        (child: parse request dict)
-  → child_unpack_data → ndarray  (child: frombuffer + reshape when split_grid and strings is empty)
+  → materialize_inputs → CalcRange (child: child_unpack_split_grid on split_grid: frombuffer + reshape when strings is empty)
   → send_variables({"data": ...}) (child: ndarray or list in fresh namespace)
   → user code (NumPy/pandas)
   → serialize_result → child_pack_result (child: split_grid or list for large numeric result)
@@ -419,7 +422,7 @@ Calc UNO range
   → finalize_python_return / write_formula_range
 ```
 
-Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`) without NumPy. A numeric list stays a list when NumPy is absent; a `split_grid` envelope still needs NumPy in the child. Numeric and mixed-string child unpack both require the float buffer's length to equal `nrows * ncols` before reshape. A short or long mixed buffer raises `ValueError` instead of becoming a different-sized 1D list.
+Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize_inputs` wraps a plain list without NumPy; a `split_grid` envelope still needs NumPy in the child. Numeric and mixed-string child unpack both require the float buffer's length to equal `nrows * ncols` before reshape. A short or long mixed buffer raises `ValueError` instead of becoming a different-sized 1D list.
 
 | Stage | Module | What happens | Large dense numeric `data` (shipped path) |
 |-------|--------|--------------|-------------------------------------------|
@@ -453,7 +456,7 @@ This caches **execution output** on the host — separate from the worker [**cod
 
 **Status:** Shipped — varargs IDL + `multi_data` of `calc_range` envelopes.
 
-Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `calc_range` payloads). Each `calc_range` wraps an inner list or `split_grid`. In the venv, this becomes `ranges: list[CalcRange]` with `data = ranges[0]`.
+Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `calc_range` payloads, built by `payload_codec.pack_multi_data_envelope`). Each `calc_range` wraps an inner list or `split_grid`. In the venv, this becomes `ranges: list[CalcRange]` with `data = ranges[0]`.
 
 | Layer | Module |
 |-------|--------|
@@ -482,7 +485,7 @@ With the highly optimized pure-Python/NumPy vectorized object-masking strategy i
 
 Re-run when changing [`payload_codec.py`](../../plugin/scripting/payload_codec.py) or considering vendored codecs or mmap. **Standalone bench (outside LO):** [`scripts/bench_serialization.py`](../../scripts/bench_serialization.py) — asymmetric host (stdlib) vs child (NumPy), ingress and egress, scalar/list/ndarray sizes up to 100 000 cells (includes 20 000×5); compares `json_list`, `json+sg`, `pickle5`, and `pickle5+sg`. Production path is `pickle5+sg`; `json+sg` is the historical JSON/Base64 diagnostic lane. Production policy matches bench defaults (`BINARY_MIN_CELLS = 100`).
 
-**Regression note (2026-06):** A change in June 2026 inadvertently made the pure-numeric (`strings == {}`) path in `child_unpack_split_grid` do `.tolist()` + recursive conversion even for split_grid envelopes. This regressed the C-speed `frombuffer` materialize (visible as ~52 ms child mat on 20k×5 / 100k cells in ingress bench vs the prior microsecond numbers). The contract ("return ndarray directly" for no-strings case) and calling code in `_child_unpack_single_data` were restored; the fast path is now guarded by an explicit ndarray-vs-list sentinel in tests. Re-bench `pickle5+sg` ingress after edits to `payload_codec.py`.
+**Regression note (2026-06):** A change in June 2026 inadvertently made the pure-numeric (`strings == {}`) path in `child_unpack_split_grid` do `.tolist()` + recursive conversion even for split_grid envelopes. This regressed the C-speed `frombuffer` materialize (visible as ~52 ms child mat on 20k×5 / 100k cells in ingress bench vs the prior microsecond numbers). The contract ("return ndarray directly" for no-strings case) and calling code in `calc_range._materialize_inner_grid` were restored; the fast path is now guarded by an explicit ndarray-vs-list sentinel in tests. Re-bench `pickle5+sg` ingress after edits to `payload_codec.py`.
 
 ```bash
 python scripts/bench_serialization.py --direction both
@@ -593,7 +596,7 @@ See [Host pack hot path — pure-Python optimizations](#host-pack-hot-path--pure
 - **Bound Method Capture**: Pre-captured `buf_append = buf.append` to avoid attribute lookups in tight loops.
 - **Identity Type Checks**: Fast path uses `type(val) is float/int/str` and `val is None` / `val is True or val is False` — not `isinstance()` per cell.
 - **Regular Grid Validation**: `_validate_rectangular_grid` runs once before the 2D stdlib loop; the cell loop has no per-row length branch.
-- **Unified Stdlib Cell Loop**: `_iter_split_grid_cells` yields `(col_idx, flat_idx, val)` row-major for 1D and 2D; a single inlined `_stdlib_flatten_pass` block handles both shapes. Slow tail still delegates to `_flatten_append_cell_slow` (strings, NumPy scalars, post-string cells).
+- **Unified Stdlib Cell Loop**: `_iter_split_grid_cells` yields `(col_idx, flat_idx, val)` row-major for 1D and 2D; a single inlined `_stdlib_flatten_pass` block handles both shapes. Slow tail still delegates to `_flatten_append_cell_slow` (strings, NumPy scalars, post-string cells). The slow tail is None, str, or `_store_numeric_cell` plus `_flatten_update_column_state`; it holds no column-kind rule of its own.
 - **Module-level numeric store**: `_store_numeric_cell` writes the float64-or-text decision. It used to be a closure rebuilt inside `_flatten_append_cell_slow` on every slow-path cell.
 - **Integer Keys**: Sparse `strings` dictionary uses integer keys, bypassing $O(\text{cells})$ string allocations.
 

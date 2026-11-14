@@ -211,7 +211,7 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
             try:
                 from plugin.scripting.editor_host import arm_webview_probe_at_startup
 
-                arm_webview_probe_at_startup(ctx)
+                arm_webview_probe_at_startup()
             except Exception:
                 log.exception("bootstrap: failed to arm webview probe at startup")
     except Exception as exc:

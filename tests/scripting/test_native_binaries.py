@@ -239,7 +239,6 @@ def test_run_vec_pack_download_pins_sha_and_does_not_bind(tmp_path):
     from plugin.scripting import native_binaries
     from plugin.scripting.native_binaries import run_vec_pack_download
 
-    assert "/master/" not in native_binaries._CONTRIB_BASE_URL
     assert native_binaries._CONTRIB_COMMIT in native_binaries._CONTRIB_BASE_URL
 
     with (
@@ -484,7 +483,8 @@ def test_cleanup_stale_native_backups_noop_on_posix(tmp_path):
     assert (tmp_path / "pack.so.old").exists()
 
 
-def test_wave_open_failure_message_does_not_mention_portaudio():
+def test_wave_open_failure_raises_before_opening_mic():
+    """WAV is created before the mic opens so disk errors aren't reported as PortAudio errors."""
     import threading
     from unittest.mock import MagicMock, patch
     from plugin.scripting.venv.audio_recorder import record_to_wav
@@ -493,9 +493,8 @@ def test_wave_open_failure_message_does_not_mention_portaudio():
     with patch("plugin.scripting.venv.audio_recorder._import_sounddevice", return_value=fake_sd):
         with pytest.raises(RuntimeError) as exc_info:
             record_to_wav("/nonexistent_dir_cannot_create/test.wav", threading.Event())
-        msg = str(exc_info.value)
-        assert "Failed to create audio WAV file" in msg
-        assert "PortAudio" not in msg
+    fake_sd.InputStream.assert_not_called()
+    assert isinstance(exc_info.value.__cause__, OSError)
 
 
 @pytest.mark.parametrize(

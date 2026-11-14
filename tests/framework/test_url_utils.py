@@ -180,8 +180,7 @@ class TestLibrePyDispatchUrl:
 class TestPathToFileUrl:
     def test_posix_absolute_uses_three_slashes(self):
         url = path_to_file_url("/home/user/Writing/Test.odt")
-        assert url.startswith("file:///")
-        assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
+        assert url == "file:///home/user/Writing/Test.odt"
 
 
 class TestHostMatches:

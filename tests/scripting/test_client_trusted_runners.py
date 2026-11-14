@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Contract tests for trusted client runners built via _make_spec_runner."""
+"""Contract tests for trusted client runners."""
 
 from __future__ import annotations
 
@@ -10,16 +10,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import ToolExecutionError
 from plugin.scripting import client
 
 
 _SPEC_RUNNERS = (
-    ("run_analysis", "writeragent:analysis", "analysis", "ANALYSIS_ERROR"),
-    ("run_viz", "writeragent:viz", "viz", "VIZ_ERROR"),
-    ("run_symbolic", "writeragent:symbolic", "symbolic", "SYMBOLIC_ERROR"),
-    ("run_optimize", "writeragent:optimize", "optimize", "OPTIMIZE_ERROR"),
-    ("run_forecast", "writeragent:forecast", "forecast", "FORECAST_ERROR"),
+    ("run_analysis", "analysis", "ANALYSIS_ERROR"),
+    ("run_viz", "viz", "VIZ_ERROR"),
+    ("run_symbolic", "symbolic", "SYMBOLIC_ERROR"),
+    ("run_optimize", "optimize", "OPTIMIZE_ERROR"),
+    ("run_forecast", "forecast", "FORECAST_ERROR"),
 )
 
 
@@ -28,13 +27,13 @@ def ctx():
     return MagicMock()
 
 
-@pytest.mark.parametrize("runner_name,session_prefix,domain,error_code", _SPEC_RUNNERS)
-def test_spec_runner_happy_path(ctx, runner_name, session_prefix, domain, error_code):
+@pytest.mark.parametrize("runner_name,domain,error_code", _SPEC_RUNNERS)
+def test_spec_runner_happy_path(ctx, runner_name, domain, error_code):
     runner = getattr(client, runner_name)
     worker_result = {"status": "ok", "helper": "demo"}
     spec = {"helper": "demo"}
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         result = runner(ctx, spec, [], context={"sheet_name": "Sheet1"})
@@ -44,22 +43,7 @@ def test_spec_runner_happy_path(ctx, runner_name, session_prefix, domain, error_
     assert kwargs.get("session_id") is None
     assert kwargs["domain"] == domain
     assert kwargs["helper"] == spec["helper"]
-
-
-@pytest.mark.parametrize("runner_name,session_prefix,domain,error_code", _SPEC_RUNNERS)
-def test_spec_runner_worker_error(ctx, runner_name, session_prefix, domain, error_code):
-    runner = getattr(client, runner_name)
-    with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=10),
-        patch(
-            "plugin.scripting.client.run_trusted_worker_action",
-            side_effect=ToolExecutionError("boom", code=error_code),
-        ),
-    ):
-        with pytest.raises(ToolExecutionError, match="boom") as exc_info:
-            runner(ctx, {"helper": "demo"}, [])
-
-    assert exc_info.value.code == error_code
+    assert kwargs["error_code"] == error_code
 
 
 def test_languagetool_and_vale_use_config_limit_timeouts(ctx):
@@ -95,7 +79,7 @@ def test_headers_false_survives_client_path(ctx):
         "params": {"periods": 2},
     }
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run,
     ):
         mock_run.return_value = {"status": "ok", "result": {"status": "ok", "helper": "forecast_time_series"}}
@@ -126,7 +110,7 @@ def test_string_false_header_is_not_coerced_on_the_host(ctx):
         "params": {"periods": 2},
     }
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run,
     ):
         mock_run.return_value = {"status": "ok", "result": {"status": "ok", "helper": "forecast_time_series"}}
@@ -150,7 +134,7 @@ def test_string_false_header_is_not_coerced_on_the_host(ctx):
         "params": {"periods": 2},
     }
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run2,
     ):
         mock_run2.return_value = {"status": "ok", "result": {"status": "ok", "helper": "forecast_time_series"}}
@@ -169,7 +153,7 @@ def test_string_false_header_is_not_coerced_on_the_host(ctx):
 
 def test_spec_runner_omits_headers_when_unset(ctx):
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run,
     ):
         mock_run.return_value = {"status": "ok", "result": {"status": "ok"}}
@@ -179,7 +163,7 @@ def test_spec_runner_omits_headers_when_unset(ctx):
     assert "header_row" not in payload
 
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run,
     ):
         mock_run.return_value = {"status": "ok", "result": {"status": "ok"}}
@@ -195,7 +179,7 @@ def test_spec_runner_omits_headers_when_unset(ctx):
 
 def test_run_text_analytics_string_spec_applies_sentiment_model(ctx):
     with (
-        patch("plugin.framework.config.get_config", return_value="xlm-roberta"),
+        patch("plugin.scripting.client.get_config", return_value="xlm-roberta"),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run,
     ):
         client.run_text_analytics(ctx, "sentiment", "hi")
@@ -219,15 +203,9 @@ def test_non_dict_params_become_empty_dict(ctx):
     assert kwargs["params"] == {}
 
 
-def test_run_optimize_dunder_name():
-    assert client.run_optimize.__name__ == "run_optimize"
-    assert client.run_analysis.__name__ == "run_analysis"
-    assert client.run_forecast.__name__ == "run_forecast"
-
-
 def test_run_text_analytics_non_dict_spec(ctx):
     with (
-        patch("plugin.framework.config.get_config", return_value=""),
+        patch("plugin.scripting.client.get_config", return_value=""),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run,
     ):
         client.run_text_analytics(ctx, None, "hi")
@@ -235,7 +213,7 @@ def test_run_text_analytics_non_dict_spec(ctx):
     assert mock_run.call_args.kwargs["params"] == {}
 
     with (
-        patch("plugin.framework.config.get_config", return_value="xlm-roberta"),
+        patch("plugin.scripting.client.get_config", return_value="xlm-roberta"),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run2,
     ):
         client.run_text_analytics(ctx, None, "hi")

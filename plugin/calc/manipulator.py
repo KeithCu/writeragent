@@ -23,33 +23,33 @@ UNO imports are deferred to method bodies.
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import contextmanager
 import csv
 import io
+from itertools import chain
 import logging
-from typing import TYPE_CHECKING, Any, Callable, NamedTuple, Sequence, TypeGuard
+from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard
 
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-    from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
     from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
 else:
     try:
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-        from com.sun.star.table.CellVertJustify import CENTER as V_CENTER, TOP, BOTTOM
         from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
     except ImportError:
         pass
 
 
-from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_range, index_to_column
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_address, format_range
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
+from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import (
-    format_category_from_type,
     coalesce_temporal_apply_rects,
     duration_serial_from_iso,
     is_compatible_temporal_template,
@@ -57,8 +57,9 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
-from plugin.framework.errors import CalcError, best_effort, is_disposal, uno_read
+from plugin.framework.errors import CalcError, WriterAgentException, best_effort, is_disposal, uno_read
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_ctx
 
 
@@ -68,12 +69,18 @@ MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
 
+# Calc declares VertJustify as a long (sc/source/ui/unoobj/cellsuno.cxx,
+# SC_UNONAME_CELLVJUS). SvxVerJustifyItem::PutValue
+# (editeng/source/items/justifyitem.cxx) reads only a CellVertJustify2 integer;
+# any CellVertJustify enum value fails that read and leaves the cell at STANDARD.
+_VERT_JUSTIFY: dict[str, int] = {"standard": 0, "top": 1, "center": 2, "bottom": 3}
+
 
 class _CommitResult(NamedTuple):
     formula_warning: str
     data_array: list[list[Any]]
     dest_categories: dict[tuple[int, int], str | None]
-    category_cache: dict[int, str | None]
+    categories: NumberFormatCategories
     cols_needing: dict[int, str]
 
 
@@ -83,6 +90,27 @@ class _CellWrite(NamedTuple):
     kind: str
     input_category: str | None
     detected_key: int | None
+
+
+class WritePlan(NamedTuple):
+    """One range's write, decided by ``CellManipulator.plan_write`` before any cell changes.
+
+    ``kind`` is ``"clear"`` (empty values cleared at commit), ``"array"`` (a dynamic-array
+    formula measured with ``_probe_array_formula``), or ``"cells"`` (a row-major ``values``
+    list ready for ``plan_writes``/``commit``). ``expanded`` is ``True`` when a 2-D array
+    targeted a single cell and ``range_str`` / ``end`` grew to match the array's size.
+    """
+
+    kind: Literal["clear", "array", "cells"]
+    range_str: str
+    sheet: Any = None
+    start: tuple[int, int] = (0, 0)
+    end: tuple[int, int] = (0, 0)
+    values: Any = None
+    array_size: tuple[int, int] | None = None
+    expanded: bool = False
+    literal_text: bool = False
+    data_text: bool = False
 
 
 def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, rows: int, cols: int) -> str:
@@ -95,22 +123,74 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
     return f"Array has {n_vals} values but range {range_name} has {n_cells} cells ({rows}×{cols}). JSON array must match range size exactly, or pass a single string to fill the whole range.{hint}"
 
 
+def _write_summary(
+    range_str: str,
+    cell_metas: Sequence[_CellWrite],
+    suffix: str,
+    overwrite_warning: str | None,
+) -> str:
+    """The one-line summary the agent gets after a cell write: how many of each kind landed, plus any format or overwrite warning."""
+    counts = Counter(
+        (m.input_category or "temporal") if m.kind == "temporal"
+        else "text" if m.kind in ("text", "forced_text")
+        else m.kind
+        for m in cell_metas
+        if m.kind in ("temporal", "text", "forced_text", "number", "formula")
+    )
 
-def _coerce_array_flag(array: Any) -> bool | None:
-    """Coerce optional array parameter (bool, 'true'/'false', or None) to bool | None."""
-    if isinstance(array, str):
-        return {"true": True, "false": False}.get(array.strip().lower())
-    if array is None:
+    parts = []
+    for name in ("date", "time", "datetime", "duration", "number", "text", "formula"):
+        n = counts[name]
+        if n:
+            parts.append(f"{n} {name}" + ("s" if n != 1 and name != "text" else ""))
+    detail = f" ({', '.join(parts)})" if parts else ""
+    n_vals = len(cell_metas)
+    values_word = "value" if n_vals == 1 else "values"
+    msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{suffix}."
+
+    if overwrite_warning:
+        msg = f"{msg} ({overwrite_warning})"
+    return msg
+
+
+_WRITE_VALUES_CELL_ERR = (
+    "Each cell in values must be string, number, boolean, or null; got {kind}."
+)
+
+
+def _write_values_cell_ok(cell: Any) -> bool:
+    if cell is None:
+        return True
+    return isinstance(cell, (str, int, float, bool))
+
+
+def _write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
+    """Reject nested structures before UNO."""
+    if not parsed_vals:
         return None
-    return bool(array)
+    if isinstance(parsed_vals[0], (list, tuple)):
+        for row in parsed_vals:
+            if not isinstance(row, (list, tuple)):
+                return _WRITE_VALUES_CELL_ERR.format(kind=type(row).__name__)
+        cells: Any = chain.from_iterable(parsed_vals)
+    else:
+        cells = parsed_vals
+    for cell in cells:
+        if not _write_values_cell_ok(cell):
+            return _WRITE_VALUES_CELL_ERR.format(kind=type(cell).__name__)
+    return None
 
 
-def _requests_array_formula(formula_or_values: Any, array: Any) -> TypeGuard[str]:
-    # Coerce array flag strings to bool | None—bool("false") is True and would force array mode.
-    forced_array = _coerce_array_flag(array)
-    if forced_array is True and isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
+def _check_write_cap(n_cells: int) -> None:
+    if n_cells > MAX_WRITE_CELLS:
+        raise CalcError(f"The range has {n_cells} cells, over the {MAX_WRITE_CELLS}-cell write limit. Write a smaller range.")
+
+
+
+def _requests_array_formula(formula_or_values: Any, array: bool | None) -> TypeGuard[str]:
+    if array is True and isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
         raise CalcError("array=true needs a formula starting with '='.")
-    return isinstance(formula_or_values, str) and returns_array(formula_or_values, forced=forced_array)
+    return isinstance(formula_or_values, str) and returns_array(formula_or_values, forced=array)
 
 
 # ── Helper ─────────────────────────────────────────────────────────────
@@ -137,7 +217,7 @@ def _uno_range_address(cell_or_range: Any) -> Any:
     return ra
 
 
-def _quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
+def quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
     """Best-effort probe teardown that still surfaces a disposed document."""
     # Re-raise disposal during array-formula probe cleanup; suppress other probe teardown errors.
     try:
@@ -165,6 +245,33 @@ def _range_has_blank_cell(sheet: Any, start: tuple[int, int], end: tuple[int, in
             if cell.getFormula() == "" and cell.getString() == "" and cell.getValue() == 0.0:
                 return True
     return False
+
+
+def refuse_occupied_cells(sheet: Any, left: int, top: int, right: int, bottom: int, *, skip: Sequence[tuple[int, int, int, int]] = ()) -> None:
+    """Raise CalcError when a cell in the inclusive box holds a value, text or formula.
+
+    The box is read once with getFormulaArray. Calc builds each entry with the
+    same input-string helper as XCell.getFormula (sc/source/ui/unoobj/cellsuno.cxx,
+    lcl_GetInputString, shared by ScCellRangeObj::getFormulaArray and
+    ScCellObj::GetInputString_Impl), so an entry is "" exactly when the cell is
+    empty; a cell with only a comment or a format counts as empty. Cells inside
+    a *skip* box (left, top, right, bottom) are not checked: the array formula
+    being replaced and the formula's own origin. Nothing has been written when
+    this raises, so the caller can refuse cleanly.
+    """
+    formulas = sheet.getCellRangeByPosition(left, top, right, bottom).getFormulaArray()
+    occupied = [
+        (left + c, top + r)
+        for r, row in enumerate(formulas)
+        for c, text in enumerate(row)
+        if text and not any(b[0] <= left + c <= b[2] and b[1] <= top + r <= b[3] for b in skip)
+    ]
+    if occupied:
+        first_c, first_r = occupied[0]
+        raise CalcError(
+            "The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere."
+            % (format_range(left, top, right, bottom, collapse_single=True), len(occupied), format_address(first_c, first_r))
+        )
 
 
 def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
@@ -229,23 +336,15 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
                 reader = csv.reader(io.StringIO(s), delimiter=delimiter, skipinitialspace=True)
                 rows = list(reader)
                 if len(rows) == 1:
-                    # Case 2a: single logical CSV row (possibly multiple fields).
+                    # csv.reader splits on the data delimiter, so a one-cell write such as
+                    # "Hello, world" would become two fields, and write_formula_range would
+                    # fail ("Array has N values but range has 1 cells") or mis-split it.
                     #
-                    # Bug we fix: csv.reader splits on the data delimiter, so a
-                    # one-cell write like "Hello, world" becomes two fields and
-                    # write_formula_range then errors ("Array has N values but range
-                    # has 1 cells") or would mis-split if we padded silently.
-                    #
-                    # When *single_cell_range* is True, a single line with multiple
-                    # fields is ambiguous (real CSV row vs sentence with commas /
-                    # semicolons). We treat it as literal text for that one cell.
-                    #
-                    # Tradeoff: you cannot use a raw comma-separated *row* string
-                    # to mean "many columns" into a single cell—use a contiguous
-                    # range (e.g. A1:B1) or a JSON array for exact per-cell values.
-                    #
-                    # Multiline CSV is unchanged: len(rows) > 1 still returns a 2D
-                    # list below and write_formula_range expands the anchor cell.
+                    # When *single_cell_range* is True, a single line with several fields is
+                    # ambiguous (a real CSV row, or a sentence with commas or semicolons), so it
+                    # is literal text for that one cell. To write many columns, use a range
+                    # (A1:B1) or a JSON array. Multiline CSV still returns a 2-D list below,
+                    # and write_formula_range expands the anchor cell.
                     if single_cell_range and len(rows[0]) > 1:
                         return None
                     return [val.strip() for val in rows[0]]
@@ -311,7 +410,7 @@ class CellManipulator:
                         contained.append(existing)
                         continue
 
-                    cell_name = f"{index_to_column(c)}{r + 1}"
+                    cell_name = format_address(c, r)
                     arr_name = format_range(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow)
                     raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
 
@@ -362,7 +461,7 @@ class CellManipulator:
         """Apply style to a cell or range.
 
         Args:
-            address_or_range: Cell address or range (e.g. "A1" or "A1:D10").
+            address_or_range: Cell address, range, or named range (e.g. "A1", "A1:D10", or "Totals").
             bold: Bold flag.
             italic: Italic flag.
             bg_color: Background colour (RGB int).
@@ -374,8 +473,7 @@ class CellManipulator:
             border_color: Border colour (RGB int).
             number_format: Number format string (e.g. "#,##0.00").
         """
-        is_range = ":" in address_or_range
-        target = self.bridge.resolve_range_or_address(address_or_range) if is_range else self.bridge.get_cell_by_address(address_or_range)
+        target = self.bridge.resolve_range_or_address(address_or_range)
         if bold is not None:
             target.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
         if italic is not None:
@@ -391,37 +489,21 @@ class CellManipulator:
             if h_align.lower() in align_map:
                 target.setPropertyValue("HoriJustify", align_map[h_align.lower()])
         if v_align is not None:
-            align_map = {"top": TOP, "center": CENTER, "bottom": BOTTOM, "standard": STANDARD}
-            if v_align.lower() in align_map:
-                target.setPropertyValue("VertJustify", align_map[v_align.lower()])
+            vert = _VERT_JUSTIFY.get(v_align.lower())
+            if vert is not None:
+                target.setPropertyValue("VertJustify", vert)
         if wrap_text is not None:
             target.setPropertyValue("IsTextWrapped", wrap_text)
         if border_color is not None:
             self._apply_borders(target, border_color)
         if number_format:
             self._set_number_format(target, number_format)
-        log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
-
-    @staticmethod
-    def _resolve_document_locale(doc: Any) -> Any:
-        """Return document CharLocale, or en-US when Language is empty/unusable."""
-        import uno
-
-        try:
-            locale = doc.getPropertyValue("CharLocale")
-            language = getattr(locale, "Language", None) or ""
-            if language:
-                return locale
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            log.debug("CharLocale unavailable; using en-US fallback", exc_info=True)
-        return uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
+        log.info("%s style updated.", address_or_range.upper())
 
     def _set_number_format(self, target: Any, format_str: str) -> None:
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
-        locale = self._resolve_document_locale(doc)
+        locale = resolve_document_locale(doc)
         format_id = formats.queryKey(format_str, locale, False)
         if format_id == -1:
             format_id = formats.addNew(format_str, locale)
@@ -452,7 +534,7 @@ class CellManipulator:
             unmerge: When true, split the range instead of merging (center is skipped).
         """
         cell_range = self.bridge.resolve_range_or_address(range_str)
-        # merge(True) was hard-coded; unmerge=False splits a merged range.
+        # merge(False) splits the range, so unmerge=True passes False.
         cell_range.merge(not unmerge)
         if unmerge:
             log.info("Range %s unmerged.", range_str.upper())
@@ -461,7 +543,7 @@ class CellManipulator:
 
         if center:
             cell_range.setPropertyValue("HoriJustify", CENTER)
-            cell_range.setPropertyValue("VertJustify", V_CENTER)
+            cell_range.setPropertyValue("VertJustify", _VERT_JUSTIFY["center"])
 
     def range_sort(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
         """Sort a range.
@@ -478,11 +560,9 @@ class CellManipulator:
         cell_range = self.bridge.resolve_range_or_address(range_str)
         addr = _uno_range_address(cell_range)
         width = int(addr.EndColumn) - int(addr.StartColumn) + 1
-        # Validate sort_column against range width and require real bools for ascending/has_header.
-        if type(sort_column) is not int or sort_column < 0 or sort_column >= width:
+        # sort_column is checked against the range width here, because the tool cannot know the width.
+        if not 0 <= sort_column < width:
             raise CalcError(f"sort_column must be an integer from 0 to {width - 1} for this range ({width} columns).")
-        if type(ascending) is not bool or type(has_header) is not bool:
-            raise CalcError("ascending and has_header must be booleans")
 
         import uno
 
@@ -532,26 +612,11 @@ class CellManipulator:
         not auto-unwrapped — hand it the raw UNO supplier or attach fails with
         an often-empty UNO message and ISO writes never run.
         """
-        from plugin.framework.thread_guard import unwrap_uno
-
         uno_ctx = unwrap_uno(get_ctx())
         smgr = uno_ctx.getServiceManager()
         formatter = smgr.createInstanceWithContext("com.sun.star.util.NumberFormatter", uno_ctx)
         formatter.attachNumberFormatsSupplier(unwrap_uno(doc))
         return formatter
-
-    def _resolve_elapsed_format_key(self, formats: Any, locale: Any) -> int:
-        """Built-in ``[HH]:MM:SS`` key (formatindex 43), with queryKey/addNew fallback."""
-        try:
-            return int(formats.getFormatIndex(43, locale))
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            log.debug("getFormatIndex(43) failed; falling back to queryKey", exc_info=True)
-        key = formats.queryKey("[HH]:MM:SS", locale, False)
-        if key == -1:
-            key = formats.addNew("[HH]:MM:SS", locale)
-        return int(key)
 
     def _classify_write_cell(
         self,
@@ -622,15 +687,20 @@ class CellManipulator:
         except ValueError:
             return _CellWrite(value, "", "text", None, None)
 
-    def _find_column_temporal_templates(self, sheet: Any, formats: Any, columns_needing_templates: dict[int, str], scan_start_row: int, category_cache: dict[int, str | None]) -> dict[int, int]:
+    def _find_column_temporal_templates(
+        self,
+        sheet: Any,
+        columns_needing_templates: dict[int, str],
+        scan_start_row: int,
+        categories: NumberFormatCategories,
+    ) -> dict[int, int]:
         """Find inherited NumberFormat keys by the upward scan that copies a column's existing number format.
 
         Args:
             sheet: The active sheet.
-            formats: doc.getNumberFormats().
             columns_needing_templates: {col_index: input_category} for columns needing template.
             scan_start_row: Row index to start scanning upward from (exclusive).
-            category_cache: Shared key -> category cache (mutated in place).
+            categories: Shared NumberFormatCategories reader for the document.
 
         Returns:
             {col_index: inherited_format_key} for columns where a template was found.
@@ -639,8 +709,7 @@ class CellManipulator:
         date does not inherit datetime; clock time skips elapsed FormatString templates.
         """
         column_templates: dict[int, int] = {}
-        # FormatString beside Type so the upward scan that copies a column's existing number format can skip elapsed [HH]:… templates.
-        format_code_cache: dict[int, object | None] = {}
+        no_format: tuple[str | None, str | None] = (None, None)
         for col, input_category in columns_needing_templates.items():
             start_r = scan_start_row - 1
             min_r = max(0, scan_start_row - 100)
@@ -649,21 +718,8 @@ class CellManipulator:
                 key = uno_read(lambda: int(sheet.getCellByPosition(col, r).getPropertyValue("NumberFormat")), 0)
                 if key == 0:
                     continue
-                if key not in category_cache or key not in format_code_cache:
-
-                    def read_format() -> bool:
-                        props = formats.getByKey(key)
-                        if key not in category_cache:
-                            category_cache[key] = format_category_from_type(props.getPropertyValue("Type"))
-                        if key not in format_code_cache:
-                            format_code_cache[key] = props.getPropertyValue("FormatString")
-                        return True
-
-                    if not uno_read(read_format, False):
-                        category_cache.setdefault(key, None)
-                        format_code_cache.setdefault(key, None)
-                cat = category_cache[key]
-                if is_compatible_temporal_template(input_category, cat, format_code_cache.get(key)):
+                cat, format_code = uno_read(lambda: categories.lookup(key), no_format)
+                if is_compatible_temporal_template(input_category, cat, format_code):
                     column_templates[col] = key
                     break
         return column_templates
@@ -681,21 +737,20 @@ class CellManipulator:
             target = sheet.getCellRangeByPosition(start_col + c0, start_row + r0, start_col + c1, start_row + r1)
             target.setPropertyValue("NumberFormat", int(key))
 
-    def prepare_array_formula_if_needed(self, range_str: str, formula_or_values: Any, array: Any = None, premeasured_array_size: tuple[int, int] | None = None) -> tuple[int, int] | None:
-        '''Run the array formula measure and occupancy check without committing.
+    def _probe_array_formula(
+        self,
+        sheet: Any,
+        formula: str,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        premeasured_array_size: tuple[int, int] | None = None,
+    ) -> tuple[int, int]:
+        """Measure an array formula and check target occupancy without committing.
 
-        Returns (rows, cols) if an array formula was measured, else None.
         We use a hidden undo context, not lock(), because Calc still records API edits while
         XUndoManager is locked. This merges the probe's temporary actions cleanly without leaving
         a phantom Ctrl+Z step.
-        '''
-        if not _requests_array_formula(formula_or_values, array):
-            return None
-
-        _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
-        start = (addr.StartColumn, addr.StartRow)
-        end = (addr.EndColumn, addr.EndRow)
-
+        """
         doc = self.bridge.doc
 
         was_modified = doc.isModified()
@@ -717,17 +772,17 @@ class CellManipulator:
             if premeasured_array_size is not None:
                 rows, cols = premeasured_array_size
             else:
-                rows, cols = self._measure_array(sheet, formula_or_values, avoid_col=c2, avoid_start_row=start[1], avoid_end_row=r2)
-            self._write_array_formula(sheet, formula_or_values, start, end, measure_only=True, premeasured_array_size=(rows, cols))
+                rows, cols = self._measure_array(sheet, formula, avoid_col=c2, avoid_start_row=start[1], avoid_end_row=r2)
+            self._write_array_formula(sheet, formula, start, end, measure_only=True, premeasured_array_size=(rows, cols))
             return (rows, cols)
         finally:
             if hidden_context_entered and undo_mgr:
-                _quiet_probe_cleanup(undo_mgr.leaveUndoContext, "leaveUndoContext")
+                quiet_probe_cleanup(undo_mgr.leaveUndoContext, "leaveUndoContext")
             elif undo_mgr and not was_possible:
-                _quiet_probe_cleanup(undo_mgr.clear, "clear")
+                quiet_probe_cleanup(undo_mgr.clear, "clear")
 
             if not was_modified:
-                _quiet_probe_cleanup(lambda: doc.setModified(False), "setModified")
+                quiet_probe_cleanup(lambda: doc.setModified(False), "setModified")
 
     def plan_writes(
         self,
@@ -769,7 +824,7 @@ class CellManipulator:
         literal_text_cells: list[tuple[int, int, str]] = []
         s29_snapshots: list[tuple[int, int, int]] = []  # col, row, key
         dest_categories: dict[tuple[int, int], str | None] = {}
-        category_cache: dict[int, str | None] = {}
+        categories = NumberFormatCategories(formats)
         cols_needing: dict[int, str] = {}
 
         num_cols = end[0] - start[0] + 1
@@ -797,9 +852,7 @@ class CellManipulator:
                     if cell_write.kind == "text":
                         s29_snapshots.append((col, row, key))
                     if cell_write.kind == "temporal":
-                        if key not in category_cache:
-                            category_cache[key] = uno_read(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
-                        dest_cat = category_cache[key]
+                        dest_cat = uno_read(lambda: categories.category(key), None)
                         dest_categories[(col, row)] = dest_cat
                         if dest_cat is None and col not in cols_needing:
                             cols_needing[col] = cell_write.input_category or ""
@@ -838,12 +891,11 @@ class CellManipulator:
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
 
-        return _CommitResult(formula_warning, data_array, dest_categories, category_cache, cols_needing)
+        return _CommitResult(formula_warning, data_array, dest_categories, categories, cols_needing)
 
     def apply_temporal_formats(
         self,
         sheet: Any,
-        formats: Any,
         start: tuple[int, int],
         range_str: str,
         cell_metas: list[_CellWrite],
@@ -852,14 +904,14 @@ class CellManipulator:
         """Apply detected temporal formats with upward template inheritance and coalesced writes."""
         data_array = committed.data_array
         dest_categories = committed.dest_categories
-        category_cache = committed.category_cache
+        categories = committed.categories
         cols_needing = committed.cols_needing
         if not any(m.kind == "temporal" for m in cell_metas):
             return ""
 
         format_warning = ""
         num_cols = len(data_array[0]) if data_array else 0
-        column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
+        column_templates = self._find_column_temporal_templates(sheet, cols_needing, start[1], categories)
 
         # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
         decisions: list[list[tuple[str, int | None] | str | None]] = []
@@ -895,16 +947,232 @@ class CellManipulator:
                 format_warning = f"; date/time format pass failed for {range_str}"
         return format_warning
 
+    @contextmanager
+    def _write_errors(self, range_str: str) -> Generator[None, None, None]:
+        """Shared by plan_write and commit_write so a failure in either is explained the same way."""
+        try:
+            yield
+        except WriterAgentException:
+            # A refusal (CalcError) or a bridge error such as a missing sheet
+            # (UnoObjectError) keeps its own code and details; only unexpected
+            # LibreOffice errors get the array probe and the CalcError text.
+            raise
+        except Exception as e:
+            if is_disposal(e):
+                raise
+            # Check if this cell intersects an array formula
+            try:
+                _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
+                self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=False)
+            except CalcError:
+                raise
+            except Exception:
+                log.debug("array-formula intersection probe failed for %s", range_str, exc_info=True)
+
+            # UNO often yields str(e) == ""; keep a usable message for the agent.
+            msg = str(e) or getattr(e, "Message", None) or type(e).__name__
+            log.exception("Range formula write failed for %s", range_str)
+            raise CalcError(msg) from e
+
+    def plan_write(
+        self,
+        range_str: str,
+        values: Any,
+        array: bool | None = None,
+        *,
+        literal_text: bool = False,
+        data_text: bool = False,
+        check_cell_types: bool = False,
+        premeasured_array_size: tuple[int, int] | None = None,
+    ) -> WritePlan:
+        """Resolve ``range_str`` once and decide what ``values`` means there without changing a cell.
+
+        Raises ``CalcError`` for a shape or type that does not fit, so a caller writing several
+        ranges can refuse before the first is touched.
+        """
+        with self._write_errors(range_str):
+            # Handle empty values as a clear_range operation; resolve first so an unknown
+            # range is refused during planning before any earlier range is cleared.
+            if values is None or values == "" or values == [] or values == "[]" or values == "{}":
+                self.bridge.resolve_range_or_address(range_str)
+                return WritePlan("clear", range_str)
+
+            cell_range = self.bridge.resolve_range_or_address(range_str)
+            addr = _uno_range_address(cell_range)
+            sheet = cell_range.getSpreadsheet()
+            start = (addr.StartColumn, addr.StartRow)
+            end = (addr.EndColumn, addr.EndRow)
+
+            # LibreOffice does not spill: setFormula on =SORT(FILTER(...)) shows only
+            # the first value. A top-level dynamic-array function is entered with
+            # setArrayFormula over its result size instead of being filled down;
+            # =SUM(FILTER()) stays a scalar formula.
+            if not literal_text and not data_text and _requests_array_formula(values, array):
+                return WritePlan(
+                    "array",
+                    range_str,
+                    sheet,
+                    start,
+                    end,
+                    values,
+                    array_size=self._probe_array_formula(sheet, values, start, end, premeasured_array_size),
+                )
+
+            num_rows = addr.EndRow - addr.StartRow + 1
+            num_cols = addr.EndColumn - addr.StartColumn + 1
+            total = num_rows * num_cols
+            _check_write_cap(total)
+
+            # Normalise string-as-array from AI callers. Single-cell ranges skip the
+            # CSV "single row -> many fields" path so prose with commas stays one value.
+            if isinstance(values, str):
+                parsed = _parse_formula_or_values_string(values, single_cell_range=start == end)
+                if parsed is not None:
+                    values = parsed
+
+            rows_2d = isinstance(values, (list, tuple)) and bool(values) and isinstance(values[0], (list, tuple))
+            r_cnt = 0
+            c_cnt = 0
+            ragged = False
+            if rows_2d:
+                r_cnt, c_cnt = len(values), len(values[0])
+                ragged = not all(isinstance(row, (list, tuple)) and len(row) == c_cnt for row in values)
+                if total > 1 and (ragged or (r_cnt, c_cnt) != (num_rows, num_cols)):
+                    raise CalcError(f"Array is {r_cnt}x{c_cnt} but range is {num_rows}x{num_cols}.")
+            elif isinstance(values, (list, tuple)) and len(values) != total:
+                raise CalcError(_values_length_mismatch_message(range_str, len(values), total, num_rows, num_cols))
+
+            if check_cell_types and isinstance(values, (list, tuple)):
+                err = _write_values_grid_cell_error(list(values))
+                if err:
+                    raise CalcError(err)
+
+            expanded = False
+            if rows_2d:
+                if total == 1:
+                    if ragged:
+                        raise CalcError(f"Array is {r_cnt}x{max(len(r) for r in values)} but range is 1x1.")
+                    end = (start[0] + c_cnt - 1, start[1] + r_cnt - 1)
+                    _check_write_cap(r_cnt * c_cnt)
+                    range_str = format_range(start[0], start[1], end[0], end[1])
+                    expanded = True
+                values = [v for row in values for v in row]
+            elif not isinstance(values, (list, tuple)):
+                # One formula written to a multi-cell range is filled like Calc's
+                # fill-down: relative A1 refs shift per cell (expand_single_formula), and
+                # =PY formulas follow the direction-aware span policy in formula_fill.
+                if not literal_text and not data_text and isinstance(values, str) and values.startswith("=") and total > 1:
+                    values = expand_single_formula(values, num_rows, num_cols)
+                else:
+                    values = [values] * total
+
+            return WritePlan(
+                "cells",
+                range_str,
+                sheet,
+                start,
+                end,
+                list(values),
+                expanded=expanded,
+                literal_text=literal_text,
+                data_text=data_text,
+            )
+
+    def commit_write(self, plan: WritePlan) -> dict[str, Any]:
+        """Execute a ``WritePlan`` produced by ``plan_write``."""
+        with self._write_errors(plan.range_str):
+            if plan.kind == "clear":
+                self.clear_range(plan.range_str)
+                return {"message": f"Range {plan.range_str} cleared."}
+            if plan.kind == "array":
+                return self._write_array_formula(
+                    plan.sheet,
+                    plan.values,
+                    plan.start,
+                    plan.end,
+                    premeasured_array_size=plan.array_size,
+                )
+
+            range_str = plan.range_str
+            sheet = plan.sheet
+            start = plan.start
+            end = plan.end
+            values = plan.values
+            literal_text = plan.literal_text
+            data_text = plan.data_text
+
+            expand_overwrite_warning: str | None = None
+            if plan.expanded:
+                non_empty_count = 0
+                for r in range(start[1], end[1] + 1):
+                    for c in range(start[0], end[0] + 1):
+                        cell = sheet.getCellByPosition(c, r)
+                        if cell.getFormula() or cell.getString():
+                            non_empty_count += 1
+                if non_empty_count > 0:
+                    expand_overwrite_warning = f"overwrote {non_empty_count} non-empty cell(s)"
+
+            doc = self.bridge.doc
+            formats = doc.getNumberFormats()
+            locale = resolve_document_locale(doc)
+            std_key = formats.getStandardIndex(locale)
+            # OCR grids must not be scanned as dates or numbers. literal_text
+            # commits with setString below.
+            if literal_text:
+                needs_formatter = needs_duration = False
+            else:
+                cands = [v.strip() for v in values if isinstance(v, str) and not v.startswith(("=", "'"))]
+                needs_formatter = any(match_iso_temporal(v) for v in cands)
+                needs_duration = any(match_iso_duration(v) for v in cands)
+            formatter = self._make_number_formatter(doc) if needs_formatter else None
+            elapsed_key = elapsed_format_key(formats, locale) if needs_duration else None
+
+            cell_metas = self.plan_writes(
+                values,
+                formatter,
+                std_key,
+                elapsed_format_key=elapsed_key,
+                literal_text=literal_text,
+                data_text=data_text,
+            )
+
+            committed = self.commit(
+                sheet,
+                start,
+                end,
+                cell_metas,
+                formats,
+                literal_text=literal_text,
+                data_text=data_text,
+            )
+
+            format_warning = self.apply_temporal_formats(
+                sheet,
+                start,
+                range_str,
+                cell_metas,
+                committed,
+            )
+
+            msg = _write_summary(
+                range_str,
+                cell_metas,
+                format_warning + committed.formula_warning,
+                expand_overwrite_warning,
+            )
+
+            log.info("%s", msg)
+            return {"message": msg}
+
     def write_formula_range(
         self,
         range_str: str,
         formula_or_values: Any,
-        array: Any = None,
+        array: bool | None = None,
         *,
         literal_text: bool = False,
         data_text: bool = False,
-        premeasured_array_size: tuple[int, int] | None = None,
-    ) -> str | dict[str, Any]:
+    ) -> dict[str, Any]:
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -928,182 +1196,17 @@ class CellManipulator:
                 ``setString``; everything else is classified as usual.
 
         Returns:
-            Summary string, or a dict with ``array_range`` / ``rows`` /
-            ``cols`` when an array formula was written.
+            A dict with ``message``; an array formula adds ``array_range`` / ``rows`` / ``cols`` / ``preview``.
         """
-        def _check_write_cap(n_cells: int) -> None:
-            if n_cells > MAX_WRITE_CELLS:
-                raise CalcError(f"The range has {n_cells} cells, over the {MAX_WRITE_CELLS}-cell write limit. Write a smaller range.")
-
-        expand_overwrite_warning: str | None = None
-        try:
-            # Handle empty values as a clear_range operation
-            is_empty = formula_or_values is None or formula_or_values == "" or formula_or_values == [] or formula_or_values == "[]" or formula_or_values == "{}"
-            if is_empty:
-                self.clear_range(range_str)
-                return f"Range {range_str} cleared."
-
-            cell_range = self.bridge.resolve_range_or_address(range_str)
-            addr = _uno_range_address(cell_range)
-            start = (addr.StartColumn, addr.StartRow)
-            end = (addr.EndColumn, addr.EndRow)
-
-            num_rows = addr.EndRow - addr.StartRow + 1
-            num_cols = addr.EndColumn - addr.StartColumn + 1
-            total_cells = num_rows * num_cols
-
-            _check_write_cap(total_cells)
-
-            # True when this invocation writes exactly one cell (corners match).
-            # Passed into string parsing so we do not run the CSV "single row → many fields" path.
-            single_cell_range = start == end
-
-            # Normalise string-as-array from AI callers.
-            if isinstance(formula_or_values, str):
-                parsed = _parse_formula_or_values_string(formula_or_values, single_cell_range=single_cell_range)
-                if parsed is not None:
-                    formula_or_values = parsed
-
-            # LibreOffice does not spill. setFormula on =SORT(FILTER(...))
-            # Top-level dynamic arrays need setArrayFormula, not a single setFormula cell.
-            # Detect top-level array functions and enter setArrayFormula
-            # instead of fill-down. =SUM(FILTER()) stays scalar.
-            if not literal_text and not data_text and _requests_array_formula(formula_or_values, array):
-                sheet = self.bridge.doc.getSheets().getByIndex(addr.Sheet)
-                return self._write_array_formula(sheet, formula_or_values, start, end, premeasured_array_size=premeasured_array_size)
-
-            sheet = cell_range.getSpreadsheet()
-
-            if isinstance(formula_or_values, (list, tuple)):
-                if len(formula_or_values) > 0 and isinstance(formula_or_values[0], (list, tuple)):
-                    r_cnt = len(formula_or_values)
-                    c_cnt = len(formula_or_values[0])
-                    if not all(isinstance(r, (list, tuple)) and len(r) == c_cnt for r in formula_or_values):
-                        raise CalcError(f"Array is {r_cnt}x{max(len(r) for r in formula_or_values)} but range is {num_rows}x{num_cols}.")
-
-                    if total_cells == 1:
-                        # Expand single cell target to fit the 2D array
-                        end = (start[0] + c_cnt - 1, start[1] + r_cnt - 1)
-                        num_rows = end[1] - start[1] + 1
-                        num_cols = end[0] - start[0] + 1
-                        total_cells = num_rows * num_cols
-
-                        _check_write_cap(total_cells)
-
-                        non_empty_count = 0
-                        for r in range(start[1], end[1] + 1):
-                            for c in range(start[0], end[0] + 1):
-                                cell = sheet.getCellByPosition(c, r)
-                                if cell.getFormula() or cell.getString():
-                                    non_empty_count += 1
-                        if non_empty_count > 0:
-                            expand_overwrite_warning = f"overwrote {non_empty_count} non-empty cell(s)"
-
-                        range_str = format_range(start[0], start[1], end[0], end[1])
-                    elif r_cnt != num_rows or c_cnt != num_cols:
-                        raise CalcError(f"Array is {r_cnt}x{c_cnt} but range is {num_rows}x{num_cols}.")
-
-                    formula_or_values = [v for r in formula_or_values for v in r]
-
-                if len(formula_or_values) != total_cells:
-                    raise CalcError(_values_length_mismatch_message(range_str, len(formula_or_values), total_cells, num_rows, num_cols))
-                values = formula_or_values
-            else:
-                # Used to pin ``[formula] * n`` so J2:J5 + ``=H2`` wrote
-                # identical ``=H2`` in every cell (AFC fill-down miss).
-                # Formulas now adjust relative A1 refs across 1-D and 2-D;
-                # =PY respects direction-aware span policy.
-                if not literal_text and not data_text and isinstance(formula_or_values, str) and formula_or_values.startswith("=") and total_cells > 1:
-                    values = expand_single_formula(formula_or_values, num_rows, num_cols)
-                else:
-                    values = [formula_or_values] * total_cells
-
-            doc = self.bridge.doc
-            formats = doc.getNumberFormats()
-            locale = self._resolve_document_locale(doc)
-            std_key = formats.getStandardIndex(locale)
-            # OCR grids must not be scanned as dates or numbers. literal_text
-            # commits with setString below.
-            if literal_text:
-                needs_formatter = needs_duration = False
-            else:
-                cands = [v.strip() for v in values if isinstance(v, str) and not v.startswith(("=", "'"))]
-                needs_formatter = any(match_iso_temporal(v) for v in cands)
-                needs_duration = any(match_iso_duration(v) for v in cands)
-            formatter = self._make_number_formatter(doc) if needs_formatter else None
-            elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
-
-            cell_metas = self.plan_writes(
-                values,
-                formatter,
-                std_key,
-                elapsed_format_key=elapsed_format_key,
-                literal_text=literal_text,
-                data_text=data_text,
-            )
-
-            committed = self.commit(
-                sheet,
-                start,
-                end,
-                cell_metas,
-                formats,
-                literal_text=literal_text,
-                data_text=data_text,
-            )
-
-            format_warning = self.apply_temporal_formats(
-                sheet,
-                formats,
-                start,
+        return self.commit_write(
+            self.plan_write(
                 range_str,
-                cell_metas,
-                committed,
+                formula_or_values,
+                array,
+                literal_text=literal_text,
+                data_text=data_text,
             )
-
-            counts = Counter(
-                (m.input_category or "temporal") if m.kind == "temporal"
-                else "text" if m.kind in ("text", "forced_text")
-                else m.kind
-                for m in cell_metas
-                if m.kind in ("temporal", "text", "forced_text", "number", "formula")
-            )
-
-            parts = []
-            for name in ("date", "time", "datetime", "duration", "number", "text", "formula"):
-                n = counts[name]
-                if n:
-                    parts.append(f"{n} {name}" + ("s" if n != 1 and name != "text" else ""))
-            detail = f" ({', '.join(parts)})" if parts else ""
-            n_vals = len(values)
-            values_word = "value" if n_vals == 1 else "values"
-            msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}{committed.formula_warning}."
-
-            if expand_overwrite_warning:
-                msg = f"{msg} ({expand_overwrite_warning})"
-
-            log.info("%s", msg)
-            return msg
-        except CalcError:
-            # Occupied-target / formula-error refusals are the caller's input,
-            # not a write-path fault.
-            raise
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            # Check if this cell intersects an array formula
-            try:
-                _cell_range, addr, sheet = self._resolve_range_sheet(range_str)
-                self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=False)
-            except CalcError:
-                raise
-            except Exception:
-                log.debug("array-formula intersection probe failed for %s", range_str, exc_info=True)
-
-            # UNO often yields str(e) == ""; keep a usable message for the agent.
-            msg = str(e) or getattr(e, "Message", None) or type(e).__name__
-            log.exception("Range formula write failed for %s", range_str)
-            raise CalcError(msg) from e
+        )
 
     @staticmethod
     def _array_probe_origin(used: Any, avoid_col: int, avoid_start_row: int, avoid_end_row: int) -> tuple[int, int]:
@@ -1208,19 +1311,14 @@ class CellManipulator:
         if existing is not None and (existing.StartColumn, existing.StartRow) == (c1, r1):
             replaced_box = (int(existing.StartColumn), int(existing.StartRow), int(existing.EndColumn), int(existing.EndRow))
 
-        occupied: list[tuple[int, int]] = []
-        for row in range(target.top, target.bottom + 1):
-            for col in range(target.left, target.right + 1):
-                if (col, row) == (c1, r1):
-                    continue
-                if replaced_box is not None and replaced_box[0] <= col <= replaced_box[2] and replaced_box[1] <= row <= replaced_box[3]:
-                    continue
-                cell = sheet.getCellByPosition(col, row)
-                if cell.getFormula() or cell.getString():
-                    occupied.append((col, row))
-        if occupied:
-            block_c, block_r = occupied[0]
-            raise CalcError("The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere." % (block_name, len(occupied), "%s%d" % (index_to_column(block_c), block_r + 1)))
+        refuse_occupied_cells(
+            sheet,
+            target.left,
+            target.top,
+            target.right,
+            target.bottom,
+            skip=[(c1, r1, c1, r1)] + ([replaced_box] if replaced_box is not None else []),
+        )
 
         if measure_only:
             return {}
@@ -1274,7 +1372,7 @@ class CellManipulator:
             log.info("%s", msg)
             return {"message": msg, "rows_copied": rows, "cols_copied": cols}
         except Exception as e:
-            if is_disposal(e):
+            if is_disposal(e) or isinstance(e, WriterAgentException):
                 raise
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__
             log.exception("Range copy failed from %s onto %s", source_str, dest_str)
@@ -1291,8 +1389,7 @@ class CellManipulator:
         insert: bool,
         sheet: Any | None = None,
     ) -> str:
-        if structure_type != "rows" and structure_type != "columns":
-            raise CalcError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")
+        # The tool schema and the tool's assert restrict structure_type to "rows" or "columns".
         target = sheet if sheet is not None else self.bridge.get_active_sheet()
         assert target is not None
         if structure_type == "rows":

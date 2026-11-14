@@ -47,8 +47,6 @@ def test_format_shapes_canvas_context_writer_standard_page():
     assert "Standard" in s
     assert "210.0" in s
     assert "297.0" in s
-    assert "1/100 mm" in s
-    assert "printable" in s
 
 
 def test_writer_page_style_uses_view_cursor_text():
@@ -97,23 +95,48 @@ def test_writer_page_style_uses_view_cursor_text():
     doc.getText.assert_not_called()
 
 
-def test_format_shapes_canvas_context_draw_active_slide():
+@pytest.mark.parametrize(
+    ("service", "width", "height", "page_num", "page_count", "expected_snippets"),
+    [
+        pytest.param(
+            "com.sun.star.drawing.DrawingDocument",
+            28_000,
+            20_000,
+            2,  # 1-based slide number -> index 1
+            5,
+            ["Document canvas (Draw):", "280.0", "200.0", "index 1", "5 page"],
+            id="draw",
+        ),
+        pytest.param(
+            "com.sun.star.presentation.PresentationDocument",
+            25_400,
+            19_050,
+            1,
+            3,
+            ["Document canvas (Impress):", "254.0", "190.5"],
+            id="impress",
+        ),
+    ],
+)
+def test_format_shapes_canvas_context_active_slide(
+    service: str,
+    width: int,
+    height: int,
+    page_num: int,
+    page_count: int,
+    expected_snippets: list[str],
+):
     doc = MagicMock()
-
-    def supports(svc: str) -> bool:
-        return svc == "com.sun.star.drawing.DrawingDocument"
-
-    doc.supportsService = supports
+    doc.supportsService = lambda svc: svc == service
 
     page = MagicMock()
-    page.Width = 28_000
-    page.Height = 20_000
-    page.getNumber = lambda: 2  # 1-based slide number -> index 1
+    page.Width = width
+    page.Height = height
+    page.getNumber = lambda: page_num
 
     pages = MagicMock()
-    pages.getCount.return_value = 5
+    pages.getCount.return_value = page_count
     pages.getByIndex = MagicMock(return_value=page)
-
     doc.getDrawPages.return_value = pages
 
     ctrl = MagicMock()
@@ -121,40 +144,8 @@ def test_format_shapes_canvas_context_draw_active_slide():
     doc.getCurrentController.return_value = ctrl
 
     s = format_shapes_canvas_context(doc)
-    assert "Document canvas (Draw):" in s
-    assert "280.0" in s
-    assert "200.0" in s
-    assert "index 1" in s
-    assert "5 page" in s or "5 page(s)" in s
-
-
-def test_format_shapes_canvas_context_impress_active_slide():
-    doc = MagicMock()
-
-    def supports(svc: str) -> bool:
-        return svc == "com.sun.star.presentation.PresentationDocument"
-
-    doc.supportsService = supports
-
-    page = MagicMock()
-    page.Width = 25_400
-    page.Height = 19_050
-    page.getNumber = lambda: 1
-
-    pages = MagicMock()
-    pages.getCount.return_value = 3
-    pages.getByIndex = MagicMock(return_value=page)
-
-    doc.getDrawPages.return_value = pages
-
-    ctrl = MagicMock()
-    ctrl.getCurrentPage.return_value = page
-    doc.getCurrentController.return_value = ctrl
-
-    s = format_shapes_canvas_context(doc)
-    assert "Document canvas (Impress):" in s
-    assert "254.0" in s
-    assert "190.5" in s
+    for snippet in expected_snippets:
+        assert snippet in s
 
 
 class _DistinctSheet:
@@ -275,7 +266,6 @@ def test_format_shapes_canvas_context_reraises_disposed():
 
     with pytest.raises(DocumentDisposedError):
         format_shapes_canvas_context(doc)
-    assert format_shapes_canvas_context(None) == ""
 
 
 def test_format_shapes_canvas_context_ordinary_failure_returns_empty():

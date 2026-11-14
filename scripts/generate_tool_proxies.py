@@ -529,6 +529,11 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '    return "unknown"',
         '',
         '',
+        'def help(name: str | None = None) -> str:',
+        '    """Return signature and docstring help for a wa.<namespace>.<method> API, or list namespaces."""',
+        '    return str(call_host_tool("writeragent_help", name=name))',
+        '',
+        '',
     ]
 
     # Domain tools whitelist for host-side enforcement
@@ -545,18 +550,18 @@ def generate_module(tools: list["ToolBase"]) -> str:
             key = (safe_ns, method)
             prev = seen_methods.get(key)
             if prev is not None and prev != t.name:
-                # Two tools that strip to one method used to emit def twice,
-                # the later def won, and the catalog advertised one call for two
+                # Two tools that strip to one method would emit def twice: the later
+                # def would win and the catalog would advertise one call for two
                 # tools. make proxy-stubs stops instead.
                 raise ValueError(
                     f"proxy method {safe_ns}.{method} is produced by both {prev!r} and {t.name!r}"
                 )
             seen_methods[key] = t.name
-            # TOOL_METHODS used to store the raw domain and the unescaped short
-            # name, so _proxy_methods_by_tool did getattr(api, "python/sql") and
-            # getattr(proxy, "import"), both missing, and format_script_api_catalog
-            # logged no proxy method and omitted query_folder_sql and style_import.
-            # The tuple is now the attribute the class body emits.
+            # TOOL_METHODS stores the attribute names the class body emits, not the
+            # raw domain and short name. host_rpc._proxy_methods_by_tool does
+            # getattr(api, ns) then getattr(proxy, method); a raw "python/sql" or
+            # "import" is missing there, and format_script_api_catalog would omit
+            # query_folder_sql and style_import.
             tool_methods_map[t.name] = (safe_ns, method)
 
     pretty_map = pprint.pformat(domain_tools_map, indent=4, width=120)
@@ -568,6 +573,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
     import builtins
 
     builtin_names = set(dir(builtins))
+    # Keep builtin names (range) out of __all__ so a star-import does not shadow them.
     all_exports = sorted(
         {_proxy_namespace_attr(ns) for ns in groups if _proxy_namespace_attr(ns) not in builtin_names}
         | {

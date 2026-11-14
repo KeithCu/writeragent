@@ -18,7 +18,7 @@ from plugin.scripting.sandbox import (
     DANGEROUS_MODULES,
     FILE_BLOCKED_MODULES,
     NETWORK_BLOCKED_MODULES,
-    _PROCESS_MODULES,
+    PROCESS_MODULES,
 )
 
 PYTHON_VENV_SANDBOX_CONTEXT_PREFIX = (
@@ -59,11 +59,11 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         ", ".join(
             m
             for m in DANGEROUS_MODULES
-            if m not in ("plugin", "writeragent.framework") and m not in _PROCESS_MODULES
+            if m not in ("plugin", "writeragent.framework") and m not in PROCESS_MODULES
         )
         + "; plugin internals"
     )
-    processes = ", ".join(m for m in DANGEROUS_MODULES if m in _PROCESS_MODULES)
+    processes = ", ".join(m for m in DANGEROUS_MODULES if m in PROCESS_MODULES)
     networking = ", ".join(NETWORK_BLOCKED_MODULES)
     file_writes = ", ".join(FILE_BLOCKED_MODULES)
 
@@ -87,8 +87,6 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         parts.append(_ALLOW_ALL_NOTE)
 
     return " ".join(parts)
-
-
 
 
 _DRAW_PLOT_HINT = (

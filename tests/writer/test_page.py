@@ -1,15 +1,11 @@
-import pytest
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.tests.testing_utils import TestingFactory
 from plugin.writer import html_import_styles
-
-
-# Set up BreakType PAGE_BEFORE constant explicitly if needed for the test
-import sys
-
-setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
 
 from plugin.writer.page import (
     PageGetHeaderFooterText,
@@ -27,6 +23,16 @@ from plugin.writer.page import (
     _scan_region_content,
     copy_page_style,
 )
+
+
+@pytest.fixture(autouse=True)
+def _stub_break_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    # page.py imports PAGE_BEFORE at call time; the shared shell has none. 4 is the real UNO value.
+    monkeypatch.setitem(
+        sys.modules,
+        "com.sun.star.style.BreakType",
+        SimpleNamespace(PAGE_BEFORE=4),
+    )
 
 
 def test_get_page_style_properties_without_header_or_footer():
@@ -229,9 +235,7 @@ def _attach_page_styles(doc, names):
 
 
 def test_page_break_view_cursor_page_style_and_restart():
-    import sys
     from unittest.mock import call
-    setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
     doc = MagicMock()
     controller = MagicMock()
     view_cursor = MagicMock()
@@ -262,7 +266,7 @@ def test_page_break_view_cursor_page_style_and_restart():
     ])
     assert text_cursor.setPropertyValue.call_count == 3
     text_obj.insertControlCharacter.assert_not_called()
-    assert not hasattr(text_cursor, "gotoNextParagraph") or text_cursor.gotoNextParagraph.call_count == 0
+    text_cursor.gotoNextParagraph.assert_not_called()
     assert [c.args[0] for c in text_cursor.getPropertyValue.call_args_list] == ["TextTable"]
 
 
@@ -488,21 +492,6 @@ def test_set_header_footer_enables_a_region_that_is_off():
     text_obj.setString.assert_not_called()
 
 
-def test_page_header_footer_schema_has_no_force_and_descriptions_say_html():
-    """force/refuse-on-held is gone: schema omits force; copy says get/set HTML, not wipe."""
-    get_desc = PageGetHeaderFooterText.description.lower()
-    set_desc = PageSetHeaderFooterText.description.lower()
-    assert "html" in get_desc
-    assert "html" in set_desc
-    assert "images" in get_desc and "fields" in get_desc
-    assert "force" not in PageSetHeaderFooterText.parameters["properties"]
-    assert "force" not in set_desc
-    assert "force" not in get_desc
-    assert "wipe" not in set_desc
-    assert "refuse" not in set_desc
-    assert "setstring" not in set_desc
-
-
 def test_scan_region_warns_when_portion_cap_is_hit(monkeypatch):
     """A header walk that hits the cap used to drop later fields with no signal."""
     from plugin.writer import page as pg
@@ -541,16 +530,6 @@ def test_get_header_footer_surfaces_walk_cap_warning(monkeypatch):
 
     assert res["status"] == "ok"
     assert "cap 1" in res["warning"]
-
-
-def test_first_page_region_targets_its_own_text_object():
-    """A 'different first page' letterhead lives in HeaderTextFirst; the shared HeaderText never
-    reaches it."""
-    from plugin.writer.page import REGION_PROPS
-
-    assert REGION_PROPS["header_first"] == ("HeaderIsOn", "HeaderTextFirst")
-    assert REGION_PROPS["footer_first"] == ("FooterIsOn", "FooterTextFirst")
-    assert REGION_PROPS["header_left"] == ("HeaderIsOn", "HeaderTextLeft")
 
 
 def test_first_page_region_uses_the_header_height_properties():
@@ -869,30 +848,9 @@ def test_disable_still_refuses_independent_first_page_letterhead():
     assert "header_first" in msg
 
 
-def test_page_uno_skips_windows_leftover_hidden_xtext() -> None:
-    """GHA 34689136372: leftover Hidden _blank hung in xtext_to_content."""
-    from pathlib import Path
-
-    writer = Path(__file__).parent
-    for name in ("test_page_header_html_uno.py", "test_page_uno.py"):
-        src = (writer / name).read_text(encoding="utf-8")
-        # writer_services_tool_context performs the leftover-Hidden skip.
-        assert (
-            "skip_windows_leftover_hidden_load" in src
-            or "writer_services_tool_context" in src
-        ), name
-        assert "page_header Hidden _blank xtext_to_content" in src, name
-        assert "34689136372" in src, name
-
-
 # ---- D5: page break happy paths + last-paragraph edge ------------------------
 
 def _pagebreak_doc(found_next=True):
-    import types as _types
-    import sys as _sys
-    bt = _types.ModuleType("com.sun.star.style.BreakType")
-    bt.PAGE_BEFORE = "PAGE_BEFORE"
-    _sys.modules["com.sun.star.style.BreakType"] = bt
     doc = MagicMock()
     found = MagicMock()
     para = MagicMock()
@@ -911,7 +869,7 @@ def test_page_break_before_text_sets_break_on_match_paragraph():
     assert res["status"] == "ok" and "before" in res["message"]
     assert doc.createSearchDescriptor.return_value.SearchCaseSensitive is False
     assert res["matched_case_sensitive"] is False
-    para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
+    para.setPropertyValue.assert_called_once_with("BreakType", 4)
     para.gotoNextParagraph.assert_not_called()
 
 
@@ -931,7 +889,7 @@ def test_page_break_page_style_sets_page_desc_name_on_match_paragraph():
     assert set(res) == {"status", "message", "page_style", "matched_case_sensitive"}
     assert res["page_style"] == "Annex"
     assert res["matched_case_sensitive"] is False
-    para.setPropertyValue.assert_has_calls([call("BreakType", "PAGE_BEFORE"), call("PageDescName", "Annex")])
+    para.setPropertyValue.assert_has_calls([call("BreakType", 4), call("PageDescName", "Annex")])
     assert para.setPropertyValue.call_count == 2
     para.gotoNextParagraph.assert_not_called()
     assert [c.args[0] for c in para.getPropertyValue.call_args_list] == ["TextTable"]
@@ -944,7 +902,7 @@ def test_page_break_after_text_breaks_on_following_paragraph():
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="clausula")
     assert res["status"] == "ok" and "after" in res["message"]
     para.gotoNextParagraph.assert_called_once()
-    para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
+    para.setPropertyValue.assert_called_once_with("BreakType", 4)
 
 
 def test_page_break_restart_sets_page_number_offset():
@@ -967,7 +925,7 @@ def test_page_break_restart_sets_page_number_offset():
     assert res["matched_case_sensitive"] is False
     para.gotoNextParagraph.assert_called_once()
     para.setPropertyValue.assert_has_calls([
-        call("BreakType", "PAGE_BEFORE"),
+        call("BreakType", 4),
         call("PageDescName", "Annex"),
         call("PageNumberOffset", 1),
     ])
@@ -989,7 +947,7 @@ def test_page_break_restart_short_max_is_accepted():
     assert res["status"] == "ok"
     assert res["restart_page_number"] == 32767
     para.setPropertyValue.assert_has_calls([
-        call("BreakType", "PAGE_BEFORE"),
+        call("BreakType", 4),
         call("PageDescName", "Annex"),
         call("PageNumberOffset", 32767),
     ])
@@ -1571,13 +1529,11 @@ def test_is_landscape_explicit_size_written_after_flag():
     style.setPropertyValue.assert_any_call("Height", 21000)
 
 
-def test_page_style_layout_read_and_write():
-    from types import SimpleNamespace
-    import sys
+def test_page_style_layout_read_and_write(monkeypatch: pytest.MonkeyPatch):
     from plugin.writer.page import get_page_style_properties, PageSetStyleProperties
 
     psl = SimpleNamespace(ALL=0, LEFT=1, RIGHT=2, MIRRORED=3)
-    sys.modules["com.sun.star.style.PageStyleLayout"] = psl
+    monkeypatch.setitem(sys.modules, "com.sun.star.style.PageStyleLayout", psl)
 
     doc = MagicMock()
     style = MagicMock()
@@ -1782,8 +1738,6 @@ def test_page_break_page_style_in_table_cell_still_errors():
     para.setPropertyValue.assert_not_called()
 
     # View-cursor path: model cursor is in text table
-    import sys
-    setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
     doc2 = MagicMock()
     _attach_page_styles(doc2, {"Annex"})
     controller = MagicMock()

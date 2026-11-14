@@ -166,7 +166,7 @@ The extension ships a **Monaco-based code editor** (pywebview child in the confi
 
 **Requirements:** Settings → Python → venv path with `pywebview` installed (Linux also needs `PyQt6 PyQt6-WebEngine qtpy`) for the Monaco UI. **Edit Python in Cell…** and **Run Python Script…** both fall back to native LibreOffice dialogs when pywebview is missing or `scripting.force_internal_script_editor` is true. Native cell edit does not need a venv.
 
-**Document-attached scripts:** Named scripts live in document properties so they travel with the file. New and Save As can attach a script to the document. A read-only document falls back to the personal library (**My Scripts** in `writeragent.json`) when that name is free. Save As starts from the script's stored name, without a `[Doc]` or helper prefix. If the stored envelope is damaged or uses a version this release does not read, it is left unchanged.
+**Document-attached scripts:** Named scripts live in document properties so they travel with the file. New and Save As can attach a script to the document. On a read-only document, Save fails with the document's read-only message and nothing is written to My Scripts; use Save As with the attach box unchecked to keep a copy. Save As starts from the script's stored name, without a `[Doc]` or helper prefix. If the stored envelope is damaged or uses a version this release does not read, it is left unchanged.
 
 **Undo behavior:** In Calc, running a Python script that inserts tabular or structured results registers a native undo action in LibreOffice Calc's internal undo manager. Pressing **Ctrl+Z** (`Edit → Undo`) immediately removes all inserted titles, headers, and rows in a single step.
 
@@ -684,6 +684,8 @@ Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_
 | **Comma vs semicolon** | Match file/locale | XLSX OOXML → commas; Calc UI often `;` |
 | **XLSX test sheets** | Manual serialization regression | See [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py) |
 | **Excel Python-in-Excel `.xlsx`** | Open in Calc with the Python/`=PY` extension | Auto-rewrites to DAG `=PY` on load; `=PY(...)` formulas **>1000 chars** parked on visible `py_code_<Sheet>` at the same A1, shorter stay inline ([`script_bank.py`](../plugin/calc/excel_py_convert/script_bank.py)) — see [ms-py §5.8](scripting/ms-py-compatibility.md#58-ooxml--xlfnpy-import) |
+
+The **Code in a cell** pattern: the chat prompt does not ask the model to emit this two-cell pattern: auto-imports and helpers usually fit in Calc's `MAXSTRLEN` (1024). Revisit `CALC_FORMULA_SYNTAX` if `Err:513` shows up for generated `=PY("…")`.
 
 **XLSX input cells must be numeric, not text:** if the sheet stores values as strings (e.g. `"1.0"` from `str()` in a generator), Calc passes them as text, `split_grid` lands them in the `strings` map, and `np.sum(data)` fails with a Unicode dtype `TypeError`. Regenerate [`serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) after fixing the generator so ints/floats are written as native cell types.
 

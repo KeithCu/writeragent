@@ -67,6 +67,7 @@ _DATA_CELLS_CONFIG_KEY = "scripting.python_max_data_cells"
 
 def _schema_int(field_name: str, name: str, *, fallback: int | None = None, required: bool = False) -> int:
     """One scripting schema field. Fallbacks cover trees without plugin._manifest."""
+    # Lazy: the compute bundle ships this module for its constants, not config_schema.
     from plugin.framework.config_schema import get_config_schema
 
     field = get_config_schema(f"scripting.{field_name}")
@@ -110,31 +111,18 @@ def python_exec_timeout_default() -> int:
     return _schema_int("python_exec_timeout", "default", fallback=_TIMEOUT_FALLBACK_DEFAULT)
 
 
-def _timeout_int(value: object, fallback: int) -> int:
-    """User/config timeout; anything unparseable uses *fallback*."""
-    from plugin.framework.config_schema import parse_int_robust
-
-    try:
-        return parse_int_robust(value)
-    except (ValueError, TypeError, OverflowError):
-        return fallback
-
-
 @deal.post(lambda result: isinstance(result, int) and _bounds("python_exec_timeout")[0] <= result <= _bounds("python_exec_timeout")[1])
-def resolve_python_exec_timeout(
-    timeout_sec: object,
-    *,
-    configured: object = None,
-) -> int:
-    """Clamp *timeout_sec* to schema min/max; invalid values use *configured* or schema default."""
-    base = python_exec_timeout_default()
-    if configured is not None:
-        base = _timeout_int(configured, base)
-    return _clamp("python_exec_timeout", _timeout_int(timeout_sec, base))
+def python_exec_timeout(requested: int | None = None) -> int:
+    """Seconds for one venv run: *requested* when the caller chose one, else the Settings value.
+    Clamped to the schema bounds once. A failed Settings read uses the schema default."""
+    if requested is None:
+        requested = _configured_int(_TIMEOUT_CONFIG_KEY, python_exec_timeout_default)
+    return _clamp("python_exec_timeout", requested)
 
 
 def _configured_int(key: str, fallback: Callable[[], int]) -> int:
     """Read one settings int; a failed read uses the schema default, not the clamp floor."""
+    # Lazy: the compute bundle ships this module for its constants, not plugin.framework.config.
     from plugin.framework.config import get_config
 
     try:
@@ -143,21 +131,12 @@ def _configured_int(key: str, fallback: Callable[[], int]) -> int:
         return fallback()
 
 
-def configured_python_exec_timeout() -> int:
-    """Read Settings value for scripting.python_exec_timeout and clamp to schema bounds."""
-    return _clamp("python_exec_timeout", _configured_int(_TIMEOUT_CONFIG_KEY, python_exec_timeout_default))
-
-
 def embeddings_worker_timeout_sec() -> int:
     """Wall-clock budget for trusted embeddings RPC (uses the single long trusted budget)."""
     return long_trusted_worker_timeout_sec()
 
 
 # --- python_max_data_cells ---
-
-
-def python_max_data_cells_min() -> int:
-    return _schema_int("python_max_data_cells", "min", required=True)
 
 
 def configured_python_max_data_cells() -> int:

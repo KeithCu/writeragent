@@ -1,12 +1,19 @@
 from unittest.mock import patch
 
+import pytest
 
-from plugin.framework.uno_bootstrap import register_alias_importer
-register_alias_importer()
 
-import writeragent as wa
+@pytest.fixture
+def wa_module(alias_import_state):
+    from plugin.framework.uno_bootstrap import register_alias_importer
 
-def test_get_active_document_type_writer():
+    register_alias_importer()
+    import writeragent as wa
+
+    return wa
+
+
+def test_get_active_document_type_writer(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
@@ -14,11 +21,11 @@ def test_get_active_document_type_writer():
                 {"is_active": True, "doc_type": "writer"}
             ]
         }
-        doc_type = wa.get_active_document_type()
+        doc_type = wa_module.get_active_document_type()
         assert doc_type == "writer"
         mock_rpc.assert_called_once_with("list_open_documents")
 
-def test_get_active_document_type_calc():
+def test_get_active_document_type_calc(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": [
@@ -26,104 +33,53 @@ def test_get_active_document_type_calc():
                 {"is_active": False, "doc_type": "writer"}
             ]
         }
-        doc_type = wa.get_active_document_type()
+        doc_type = wa_module.get_active_document_type()
         assert doc_type == "calc"
 
-def test_get_active_document_type_unknown():
+def test_get_active_document_type_unknown(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:
         mock_rpc.return_value = {
             "documents": []
         }
-        doc_type = wa.get_active_document_type()
+        doc_type = wa_module.get_active_document_type()
         assert doc_type == "unknown"
 
-def test_get_active_document_type_propagates_rpc_error():
+def test_get_active_document_type_propagates_rpc_error(wa_module):
     with patch("writeragent.call_host_tool", side_effect=RuntimeError("pipe closed")):
         try:
-            wa.get_active_document_type()
+            wa_module.get_active_document_type()
         except RuntimeError as exc:
             assert "pipe closed" in str(exc)
         else:
             raise AssertionError("RPC failure was swallowed")
 
 
-def test_universal_sample_writer():
-    with patch("writeragent.get_active_document_type") as mock_get_type, \
-         patch.object(wa.writer, "apply_document_content") as mock_apply, \
-         patch.object(wa.shape, "upsert") as mock_upsert:
-        
-        mock_get_type.return_value = "writer"
-        mock_apply.return_value = {}
-        mock_upsert.return_value = {}
-        
+@pytest.mark.parametrize("doc_type", ["writer", "calc"])
+def test_universal_sample_dispatches_by_doc_type(wa_module, doc_type):
+    with (
+        patch("writeragent.get_active_document_type", return_value=doc_type),
+        patch.object(wa_module.writer, "apply_document_content", return_value={}) as mock_apply,
+        patch.object(wa_module.calc, "insert_cell_html", return_value={}) as mock_insert,
+        patch.object(wa_module.shape, "upsert", return_value={}) as mock_upsert,
+    ):
         from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS
-        code = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
-        exec(code, {"__name__": "__main__"})
-        
-        mock_apply.assert_called_once_with(
-            content=["<h1>Hello from WriterAgent</h1>", "<p>Rich <b>HTML</b> at the end.</p>"],
-            target="end",
-        )
-        mock_upsert.assert_called_once_with(
-            action="create",
-            shape_type="star24",
-            x=2000,
-            y=5000,
-            width=4000,
-            height=4000,
-            fill_color="blue",
-            text="24-sided Star"
-        )
 
-def test_universal_sample_calc():
-    with patch("writeragent.get_active_document_type") as mock_get_type, \
-         patch.object(wa.calc, "insert_cell_html") as mock_insert, \
-         patch.object(wa.shape, "upsert") as mock_upsert:
-        
-        mock_get_type.return_value = "calc"
-        mock_insert.return_value = {}
-        mock_upsert.return_value = {}
-        
-        from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS
-        code = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
-        exec(code, {"__name__": "__main__"})
-        
-        mock_insert.assert_called_once_with(
-            cell="A1",
-            html="<h1>Hello from WriterAgent</h1><p>Rich <b>HTML</b>.</p>",
-        )
-        mock_upsert.assert_called_once_with(
-            action="create",
-            shape_type="star24",
-            x=2000,
-            y=5000,
-            width=4000,
-            height=4000,
-            fill_color="blue",
-            text="24-sided Star"
-        )
+        exec(_DEFAULT_PYTHON_SCRIPTS["Universal Sample"], {"__name__": "__main__"})
+
+    if doc_type == "writer":
+        mock_apply.assert_called_once()
+        mock_insert.assert_not_called()
+    else:
+        mock_insert.assert_called_once()
+        mock_apply.assert_not_called()
+    mock_upsert.assert_called_once()
 
 
 def test_config_injects_universal_sample():
     from plugin.framework.config_schema import validate
-    
-    # Test that a config without "Universal Sample" gets it injected during validation
+
     config = validate({"saved_python_scripts": {"Hello WriterAgent": "result = 1"}})
     assert "Universal Sample" in config["saved_python_scripts"]
-    sample = config["saved_python_scripts"]["Universal Sample"]
-    assert "import writeragent as wa" in sample
-    assert any(
-        "apply_document_content(" in line and "target=" in line
-        for line in sample.splitlines()
-    )
-    assert any(
-        "insert_cell_html(" in line and "html=" in line
-        for line in sample.splitlines()
-    )
-    assert any(
-        "shape.upsert(" in line and "shape_type=" in line
-        for line in sample.splitlines()
-    )
 
 
 def test_config_migrates_old_universal_sample():

@@ -17,7 +17,6 @@ import pytest
 from plugin.tests.testing_utils import TestingFactory
 
 
-from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles
 from plugin.doc.visual_helpers import anchor_type_index
 from plugin.framework.client.http_transport import HttpResult
@@ -65,19 +64,33 @@ def _image_tool_config_all_false(_key: str) -> bool:
     return False
 
 
-def test_resolve_orient_named_positions():
-    # Friendly names resolve to a (mocked) UNO constant, never an error.
-    for name in ("left", "center", "right", "LEFT", "Right"):
-        const, err = _resolve_orient(name, "hori")
-        assert err is None and const is not None
-    for name in ("top", "center", "bottom"):
-        const, err = _resolve_orient(name, "vert")
-        assert err is None and const is not None
+_ORIENT_CONSTANTS = {
+    "com.sun.star.text.HoriOrientation.LEFT": 3,
+    "com.sun.star.text.HoriOrientation.CENTER": 2,
+    "com.sun.star.text.HoriOrientation.RIGHT": 1,
+    "com.sun.star.text.VertOrientation.TOP": 1,
+    "com.sun.star.text.VertOrientation.CENTER": 2,
+    "com.sun.star.text.VertOrientation.BOTTOM": 3,
+}
 
 
-def test_resolve_orient_centre_british_spelling():
-    const, err = _resolve_orient("centre", "hori")
-    assert err is None and const is not None
+@pytest.mark.parametrize(
+    ("name", "axis", "expected"),
+    [
+        ("left", "hori", 3),
+        ("LEFT", "hori", 3),
+        ("center", "hori", 2),
+        ("centre", "hori", 2),
+        ("right", "hori", 1),
+        ("Right", "hori", 1),
+        ("top", "vert", 1),
+        ("center", "vert", 2),
+        ("bottom", "vert", 3),
+    ],
+)
+def test_resolve_orient_named_positions(name: str, axis: str, expected: int) -> None:
+    with patch("uno.getConstantByName", side_effect=_ORIENT_CONSTANTS.__getitem__):
+        assert _resolve_orient(name, axis) == (expected, None)
 
 
 def test_resolve_orient_int_passthrough():
@@ -104,22 +117,16 @@ def test_resolve_orient_vert_rejects_hori_name():
     assert const is None and err is not None and "top" in err
 
 
-def test_image_insert_schema_includes_first_page_targets():
-    enum = ImageInsert.parameters["properties"]["target"]["enum"]
-    assert "header_first" in enum
-    assert "footer_first" in enum
-    assert "header" in enum and "footer" in enum
-
-
-def test_image_insert_routes_header_first_to_region_helper():
+@pytest.mark.parametrize("target", ["header_first", "footer_first"])
+def test_image_insert_routes_first_page_target_to_region_helper(target: str):
     # Shared target=header never reaches HeaderTextFirst; the tool must
-    # pass header_first through to the same helper page_get/set use.
+    # pass header_first/footer_first through to the same helper page_get/set use.
     graphic = MagicMock()
     graphic.getName.return_value = "Graphic1"
     placed = {
         "graphic": graphic,
         "style_name": "Standard",
-        "region": "header_first",
+        "region": target,
         "auto_height": True,
     }
     ctx = TestingFactory.create_context(doc_type="writer")
@@ -128,36 +135,11 @@ def test_image_insert_routes_header_first_to_region_helper():
         patch("plugin.writer.images.images.insert_image_into_header_footer", return_value=placed) as insert,
     ):
         res = ImageInsert().execute(
-            ctx, path="/tmp/logo.png", target="header_first", width_mm=40, height_mm=20,
+            ctx, path="/tmp/logo.png", target=target, width_mm=40, height_mm=20,
         )
     assert res["status"] == "ok"
-    assert res["target"] == "header_first"
-    assert insert.call_args.args[2] == "header_first"
-
-
-def test_image_insert_routes_footer_first_to_region_helper():
-    graphic = MagicMock()
-    graphic.getName.return_value = "Graphic1"
-    placed = {
-        "graphic": graphic,
-        "style_name": "Standard",
-        "region": "footer_first",
-        "auto_height": True,
-    }
-    ctx = TestingFactory.create_context(doc_type="writer")
-    with (
-        patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images.insert_image_into_header_footer", return_value=placed) as insert,
-    ):
-        res = ImageInsert().execute(ctx, path="/tmp/logo.png", target="footer_first")
-    assert res["status"] == "ok"
-    assert res["target"] == "footer_first"
-    assert insert.call_args.args[2] == "footer_first"
-
-
-def test_image_generate_default_base_size_is_1024():
-    assert ImageGenerate.parameters["properties"]["base_size"]["default"] == 1024
-    assert DEFAULT_IMAGE_BASE_SIZE == 1024
+    assert res["target"] == target
+    assert insert.call_args.args[2] == target
 
 
 def test_image_generate_forwards_stop_checker():
@@ -474,27 +456,24 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "1:1"
 
 
-def test_only_top_overrides_others_preserved():
-    # T3 (R3): set_image_properties really crops now (GraphicCrop). Pin the mm -> 1/100mm edge math
-    # and the preserve-unspecified-edges behavior. No LibreOffice required. Applying the struct is live.
-    # current crop = (top, bottom, left, right) in 1/100mm
-    out = _resolve_crop_edges({"crop_top_mm": 5}, (0, 200, 300, 400))
-    assert out == (500, 200, 300, 400)
-
-
-def test_all_edges_mm_to_hundredths():
-    out = _resolve_crop_edges(
-        {"crop_top_mm": 1, "crop_bottom_mm": 2, "crop_left_mm": 3, "crop_right_mm": 4.5}, (0, 0, 0, 0)
-    )
-    assert out == (100, 200, 300, 450)
-
-
-def test_none_keeps_current():
-    assert _resolve_crop_edges({}, (10, 20, 30, 40)) == (10, 20, 30, 40)
-
-
-def test_rounding():
-    assert _resolve_crop_edges({"crop_left_mm": 1.234}, (0, 0, 0, 0)) == (0, 0, 123, 0)
+@pytest.mark.parametrize(
+    ("kwargs", "current", "expected"),
+    [
+        pytest.param({"crop_top_mm": 5}, (0, 200, 300, 400), (500, 200, 300, 400), id="only_top_overrides"),
+        pytest.param(
+            {"crop_top_mm": 1, "crop_bottom_mm": 2, "crop_left_mm": 3, "crop_right_mm": 4.5},
+            (0, 0, 0, 0),
+            (100, 200, 300, 450),
+            id="all_edges_mm_to_hundredths",
+        ),
+        pytest.param({}, (10, 20, 30, 40), (10, 20, 30, 40), id="none_keeps_current"),
+        pytest.param({"crop_left_mm": 1.234}, (0, 0, 0, 0), (0, 0, 123, 0), id="rounding"),
+    ],
+)
+def test_resolve_crop_edges(kwargs, current, expected):
+    # set_image_properties applies this via GraphicCrop; the struct write itself is UNO-only,
+    # so only the mm -> 1/100mm edge math and preserve-unspecified-edges behavior are pinned here.
+    assert _resolve_crop_edges(kwargs, current) == expected
 
 
 # --- list nearby image files (from test_list_nearby_image_files.py) ---
@@ -529,15 +508,6 @@ def test_images_domain_includes_list_nearby_image_files_not_document_research_li
     assert "image_list_nearby_files" in names
     assert "list_nearby_files" not in names
     assert "specialized_workflow_finished" in names
-
-
-def test_image_download_has_no_tls_opt_out():
-    import inspect
-
-    assert "verify_ssl" not in inspect.signature(_download_image_to_cache).parameters
-    assert ImageDownload.scripting_only_parameters == frozenset()
-    props = (ImageDownload.parameters.get("properties") if ImageDownload.parameters else {}) or {}
-    assert "verify_ssl" not in props
 
 
 def test_image_download_prepare_tool_call_drops_verify_ssl_for_every_caller():
@@ -850,13 +820,6 @@ def test_download_failure_leaves_no_cache_file(tmp_path, monkeypatch, sync_outco
         with pytest.raises(Exception):
             _download_image_to_cache("https://example.com/sample.png")
     assert list(tmp_path.iterdir()) == []
-
-
-def test_image_download_insert_replace_are_async():
-    assert ImageDownload().is_async() is True
-    assert ImageInsert().is_async() is True
-    assert ImageReplace().is_async() is True
-    assert ImageList().is_async() is False
 
 
 def test_image_insert_downloads_before_main_thread():
@@ -1802,11 +1765,11 @@ def test_image_set_properties_tiny_width_mm_clamps_to_one_unit():
         assert recorded_sizes[0].Width == 1
 
 
-def test_image_generate_temp_files_cleaned_up_after_insert():
+def test_image_generate_temp_files_cleaned_up_after_insert(tmp_path, monkeypatch):
     ctx = TestingFactory.create_context(doc_type="writer")
-    temp_dir = tempfile.gettempdir()
-    p1 = os.path.join(temp_dir, "wa-img-test1.png")
-    p2 = os.path.join(temp_dir, "wa-img-test2.png")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    p1 = str(tmp_path / "wa-img-test1.png")
+    p2 = str(tmp_path / "wa-img-test2.png")
     with open(p1, "wb") as f:
         f.write(b"data1")
     with open(p2, "wb") as f:
@@ -1832,10 +1795,10 @@ def test_image_generate_temp_files_cleaned_up_after_insert():
     assert not os.path.exists(p2)
 
 
-def test_image_generate_temp_files_cleaned_up_on_insert_exception():
+def test_image_generate_temp_files_cleaned_up_on_insert_exception(tmp_path, monkeypatch):
     ctx = TestingFactory.create_context(doc_type="writer")
-    temp_dir = tempfile.gettempdir()
-    p1 = os.path.join(temp_dir, "wa-img-test-exc.png")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    p1 = str(tmp_path / "wa-img-test-exc.png")
     with open(p1, "wb") as f:
         f.write(b"data")
 
@@ -1880,15 +1843,6 @@ def test_download_image_to_cache_html_body_not_cached(tmp_path, monkeypatch):
             _download_image_to_cache("https://example.com/fake.png")
         assert "Invalid Content-Type" in str(exc_info.value)
         assert list(tmp_path.iterdir()) == []
-
-
-def test_schema_properties_removed():
-    gen_props = ImageGenerate.parameters["properties"]
-    assert "provider" not in gen_props
-    assert "strength" not in gen_props
-
-    del_props = ImageDelete.parameters["properties"]
-    assert "remove_frame" not in del_props
 
 
 def test_image_insert_non_writer_with_paragraph_or_locator_returns_unsupported():
@@ -2339,7 +2293,6 @@ def test_image_delete_draw_miss_has_list_hint():
     assert res["status"] == "error"
     assert res["code"] == "IMAGE_NOT_FOUND"
     assert "details" in res
-    assert res["details"]["hint"] == "Call image_list to list names."
 
 
 def test_prune_image_cache_drops_oldest(tmp_path):

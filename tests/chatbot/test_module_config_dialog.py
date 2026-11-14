@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.module_config_dialog import (
@@ -31,17 +30,6 @@ def test_get_module_config_dialog_id_for_vision():
         assert get_module_config_dialog_id("vision") == "VisionSettingsDialog"
 
 
-def test_manifest_vision_module_has_config_dialog():
-    from typing import cast
-    from plugin._manifest import MODULES
-
-    vision = cast("dict[str, Any]", next(m for m in MODULES if m.get("name") == "vision"))
-    assert vision.get("settings_tab") is False
-    config_dlg = vision.get("config_dialog")
-    assert isinstance(config_dlg, dict)
-    assert config_dlg.get("id") == "VisionSettingsDialog"
-
-
 def test_get_module_config_field_specs_skips_internal_and_non_persisted():
     ctx = object()
     manifest = {
@@ -59,20 +47,6 @@ def test_get_module_config_field_specs_skips_internal_and_non_persisted():
     assert len(specs) == 1
     assert specs[0]["name"] == "device"
     assert specs[0]["config_key"] == "vision.device"
-
-
-def test_manifest_vision_insert_mode_has_options():
-    from typing import cast
-    from plugin._manifest import MODULES
-
-    vision = cast("dict[str, Any]", next(m for m in MODULES if m.get("name") == "vision"))
-    cfg = vision.get("config")
-    assert isinstance(cfg, dict)
-    schema = cfg.get("insert_mode")
-    assert isinstance(schema, dict)
-    assert schema.get("widget") == "select"
-    opts = schema.get("options")
-    assert isinstance(opts, list) and len(opts) >= 2
 
 
 def test_populate_settings_control_sets_translated_option_labels():

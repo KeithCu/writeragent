@@ -2,83 +2,44 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""math_insert JSON schema matches smolagents WrappedSmolTool validation."""
+"""Argument validation tests for InsertMathDraw."""
 
 from __future__ import annotations
 
-import pytest
-
-from plugin.contrib.smolagents.tools import Tool, validate_tool_arguments
 from plugin.draw.math_insert import InsertMathDraw
 
 
-def _smol_inputs_from_tool_parameters(writer_tool: object) -> dict:
-    """Mirror plugin.doc.specialized_base.WrappedSmolTool.__init__."""
-    inputs: dict = {}
-    params = getattr(writer_tool, "parameters", {}) or {}
-    props = params.get("properties", {})
-    for param_name, spec in props.items():
-        inputs[param_name] = {**spec}
-        inputs[param_name]["type"] = spec.get("type", "any")
-        inputs[param_name]["description"] = spec.get("description", "")
-    return inputs
-
-
-class _InsertMathSmolStubTool(Tool):
-    """Minimal smolagents Tool for validate_tool_arguments only."""
-
-    skip_forward_signature_validation = True
-
-    def __init__(self, inputs: dict[str, dict]) -> None:
-        self.name = "math_insert"
-        self.description = "stub for schema validation"
-        self.inputs = inputs
-        self.output_type = "object"
-        super().__init__()
-
-    def forward(self, **kwargs):  # noqa: ARG002
-        return {}
-
-
-def _stub() -> _InsertMathSmolStubTool:
-    return _InsertMathSmolStubTool(_smol_inputs_from_tool_parameters(InsertMathDraw()))
-
-
-def test_insert_math_smolagents_validate_latex_payload() -> None:
-    validate_tool_arguments(
-        _stub(),
-        {
-            "formula_type": "latex",
-            "formula": "E = mc^2",
-            "page": 0,
-            "x": 2000,
-            "y": 2000,
-        },
+def test_insert_math_validate_accepts_latex_payload() -> None:
+    ok, err = InsertMathDraw().validate(
+        doc_type="impress",
+        formula_type="latex",
+        formula="E = mc^2",
+        page=0,
+        x=2000,
+        y=2000,
     )
+    assert (ok, err) == (True, None)
 
 
-def test_insert_math_smolagents_validate_mathml_payload() -> None:
-    mml = "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"><mi>x</mi></math>"
-    validate_tool_arguments(
-        _stub(),
-        {
-            "formula_type": "mathml",
-            "formula": mml,
-            "page": 0,
-            "x": 100,
-            "y": 100,
-        },
+def test_insert_math_validate_accepts_mathml_payload() -> None:
+    mml = '<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi></math>'
+    ok, err = InsertMathDraw().validate(
+        doc_type="impress",
+        formula_type="mathml",
+        formula=mml,
+        page=0,
+        x=100,
+        y=100,
     )
+    assert (ok, err) == (True, None)
 
 
-def test_insert_math_smolagents_missing_page_index_raises() -> None:
-    with pytest.raises(ValueError, match="page"):
-        validate_tool_arguments(
-            _stub(),
-            {
-                "formula_type": "latex",
-                "formula": "a",
-                "x": 0,
-                "y": 0,
-            },
-        )
+def test_insert_math_validate_rejects_missing_page() -> None:
+    ok, err = InsertMathDraw().validate(
+        doc_type="impress",
+        formula_type="latex",
+        formula="a",
+        x=0,
+        y=0,
+    )
+    assert (ok, err) == (False, "Missing required parameter: page")

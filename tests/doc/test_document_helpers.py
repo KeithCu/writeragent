@@ -388,9 +388,6 @@ def test_get_page_for_paragraph_uses_find_element(mock_find):
     mock_controller.getViewCursor.return_value = mock_vc
     mock_vc.getPage.return_value = 5
 
-    mock_saved_cursor = MagicMock()
-    mock_text.createTextCursorByRange.return_value = mock_saved_cursor
-
     mock_element = MagicMock()
     mock_anchor = MagicMock()
     mock_element.getAnchor.return_value = mock_anchor
@@ -402,10 +399,7 @@ def test_get_page_for_paragraph_uses_find_element(mock_find):
     page = ds.get_page_for_paragraph(mock_doc, 42)
 
     assert page == 5
-    ds.find_paragraph_element.assert_called_once_with(mock_doc, 42)
     mock_vc.gotoRange.assert_any_call(mock_anchor, False)
-    mock_doc.lockControllers.assert_called_once()
-    mock_doc.unlockControllers.assert_called_once()
 
 
 @patch.object(DocumentService, 'find_paragraph_element')
@@ -578,11 +572,3 @@ def test_excerpt_overlap_other_xtext_is_false():
         assert _writer_excerpt_overlaps_selection(
             model, 0, 10, _Pos(_Text()), _Pos(_Text())) is False
     model.getText.return_value.compareRegionStarts.assert_not_called()
-
-
-def test_document_service_open_documents_magicmock_enum_is_empty():
-    with patch("plugin.doc.document_helpers.get_desktop") as mock_desktop:
-        mock_desktop.return_value = MagicMock()
-        mock_desktop.return_value.getComponents.return_value.createEnumeration.return_value = MagicMock()
-        docs = DocumentService().open_documents()
-    assert docs == []

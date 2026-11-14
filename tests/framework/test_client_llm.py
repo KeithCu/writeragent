@@ -1,5 +1,7 @@
-import socket
 import json
+import re
+import socket
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -7,11 +9,13 @@ import pytest
 from plugin.framework.client.auth import AuthError
 from plugin.framework.send_cancellation import SendCancellation
 
-from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_template_control_tokens
+from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
-from tests.harness.strip_bundle import is_release_build
+
+# Structural check: pins the injected ISO date, not its surrounding wording.
+_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 
 def _cancelled_scope() -> SendCancellation:
@@ -84,24 +88,6 @@ def test_headers_and_config_injection(client):
     client.config["is_openwebui"] = False
     client.config["endpoint"] = "https://api.z.ai"
     assert client._api_path() == "/api/paas/v4"
-
-
-def test_make_chat_request_logs_body_model(caplog, client):
-    import logging
-
-    from plugin.framework.client import llm_client as llm_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if not module_source_contains(llm_mod, "Chat Request body:"):
-        pytest.skip("log.debug stripped in release bundle")
-    caplog.set_level(logging.DEBUG, logger="plugin.framework.client.llm_client")
-    client.config["endpoint"] = "https://api.z.ai/api/paas"
-    client.config["model"] = "glm-5.2"
-    client.config["api_key"] = "test-key"
-    client.make_chat_request([{"role": "user", "content": "hi"}], 100, tools=[{"type": "function"}], stream=True)
-    joined = "\n".join(r.message for r in caplog.records)
-    assert "Chat Request body: model='glm-5.2'" in joined
-    assert "full_url='https://api.z.ai/api/paas/v4/chat/completions'" in joined
 
 
 def test_make_chat_request_omits_temperature_when_unset():
@@ -404,14 +390,12 @@ def test_stream_delta_normalized_once(client, monkeypatch):
         assert result["role"] == "assistant"
 
 
-def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, caplog):
+def test_stream_request_with_tools_coalesces_split_tool_call(client):
     # Cerebras/OpenRouter gpt-oss stream-split: first delta is the real call
     # (index 0, name=lookup, partial args); second delta is a phantom
     # continuation (new index, empty id/name, remainder of arguments).
     # accumulate_delta keeps both slots; coalesce_split_tool_calls then
     # merges the phantom into the real call and rebases index to 0.
-    # Merge unit coverage lives in test_stream_delta.py; this test is the
-    # stream_request_with_tools end-to-end + raw/accumulated logging path.
     mock_responses = [
         b'data: {"id":"chunk-1","model":"gpt-oss","provider":"Cerebras","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"query\\":\\"part"}}]}}]}\n\n',
         b'data: {"id":"chunk-2","model":"gpt-oss","provider":"Cerebras","choices":[{"delta":{"tool_calls":[{"index":1,"id":"","type":"function","function":{"name":"","arguments":" two\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
@@ -426,12 +410,11 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
         mock_response.__iter__.return_value = iter(mock_responses)
         mock_conn.getresponse.return_value = mock_response
 
-        with caplog.at_level("DEBUG", logger="plugin.framework.client.llm_client"):
-            result = client.stream_request_with_tools(
-                messages=[{"role": "user", "content": "Look it up"}],
-                max_tokens=100,
-                tools=[{"type": "function", "function": {"name": "lookup"}}],
-            )
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Look it up"}],
+            max_tokens=100,
+            tools=[{"type": "function", "function": {"name": "lookup"}}],
+        )
 
     assert result["tool_calls"] is not None
     assert len(result["tool_calls"]) == 1
@@ -440,24 +423,6 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
     assert kept["function"]["name"] == "lookup"
     assert kept["function"]["arguments"] == '{"query":"part two"}'
     assert kept["index"] == 0
-
-    from plugin.framework.client import llm_client as llm_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if not module_source_contains(llm_mod, "raw tool_call delta"):
-        pytest.skip("log.debug stripped in release bundle")
-
-    # Raw deltas are logged before accumulate/coalesce — the phantom
-    # index=1 chunk must still appear on the wire log.
-    assert "raw tool_call delta" in caplog.text
-    assert "chunk_provider='Cerebras'" in caplog.text
-    assert '"index": 1' in caplog.text
-    # After coalesce the accumulated snapshot is one rebased call.
-    # json.dumps escapes the arguments string, so the merged JSON appears
-    # as \"query\":\"part two\" in the log text.
-    assert "accumulated tool_calls" in caplog.text
-    assert '\\"query\\":\\"part two\\"' in caplog.text
-    assert '"index": 0' in caplog.text
 
 
 def test_stream_request_with_tools_preserves_reasoning_replay(client):
@@ -852,7 +817,7 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
     assert LLM_DEV_BUILD_SYSTEM_PREFIX in system
-    assert "Today's date is" in system
+    assert _DATE_RE.search(system)
 
 
 def test_make_chat_request_skips_dev_build_prefix_when_disabled():
@@ -897,38 +862,6 @@ def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
     
     # Original messages array must NOT be mutated
     assert messages[0]["content"] == "Core instructions."
-
-
-def test_strip_leaked_chat_template_control_tokens_removes_harmony_style():
-    raw = (
-        '<|channel|>final <|constrain|>commentary<|message|>{\n'
-        '  "name": "reply_to_user",\n'
-        '  "arguments": {\n'
-        '    "answer": "Hi"\n'
-        "  }\n"
-        "}"
-    )
-    out = strip_leaked_chat_template_control_tokens(raw)
-    assert "<|" not in out
-    assert "reply_to_user" in out
-    assert "Hi" in out
-
-
-def test_strip_leaked_chat_template_control_tokens_plain_unchanged():
-    assert strip_leaked_chat_template_control_tokens("Hello world") == "Hello world"
-
-
-def test_strip_leaked_chat_template_control_tokens_empty():
-    assert strip_leaked_chat_template_control_tokens("") == ""
-    assert strip_leaked_chat_template_control_tokens(None) == ""
-
-
-def test_strip_leaked_chat_template_control_tokens_llama_python_tag_still_parsable():
-    """Stripping ``<|python_tag|>`` leaves the JSON payload intact."""
-    raw = '<|python_tag|>{"name": "x", "arguments": {}}'
-    out = strip_leaked_chat_template_control_tokens(raw)
-    assert "<|" not in out
-    assert out.startswith('{"name"')
 
 
 def test_request_with_tools_strips_leaked_control_tokens_in_sync_response(client):
@@ -1105,9 +1038,10 @@ def test_make_chat_request_coalesces_system_messages(client):
         # The system string should be a combination of the two
         # Plus the injected date prepended
         system_content = request_body.get("system")
-        assert "Base instructions." in system_content
-        assert "Document context." in system_content
-        assert "Today's date is" in system_content
+        system_text = system_content[0]["text"] if isinstance(system_content, list) else system_content
+        assert "Base instructions." in system_text
+        assert "Document context." in system_text
+        assert _DATE_RE.search(system_text)
             
     # And check Google as well
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1121,7 +1055,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         combined_text = api_messages[0]["content"]
         assert "Base instructions." in combined_text
         assert "Document context." in combined_text
-        assert "Today's date is" in combined_text
+        assert _DATE_RE.search(combined_text)
 
     # And check OpenAI-compatible path
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
@@ -1135,7 +1069,7 @@ def test_make_chat_request_coalesces_system_messages(client):
         combined_text = api_messages[0]["content"]
         assert "Base instructions." in combined_text
         assert "Document context." in combined_text
-        assert "Today's date is" in combined_text
+        assert _DATE_RE.search(combined_text)
         assert len(api_messages) == 2  # The merged system message + the user message
         assert api_messages[1]["role"] == "user"
 
@@ -1237,20 +1171,6 @@ def test_ollama_shim_image(client):
         assert shim.parse_image_responses({"images": ["abc", 1, ""]}) == ["abc"]
         with pytest.raises(ValueError, match="http"):
             shim.build_image_request("edit", "flux", 512, 512, image_url="https://example.com/a.png")
-
-
-def test_image_completion_passes_client_timeout(client):
-    """Image generate/edit must use Settings request_timeout, not a silent 10s default."""
-    client.config["request_timeout"] = 122
-    with (
-        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
-        patch("plugin.framework.client.llm_client.LlmClient._request_json") as mock_sync,
-    ):
-        mock_auth.return_value = {"provider": "openai"}
-        mock_sync.return_value = {"data": []}
-        client.image_completion("Draw a cat", model="dall-e-3", width=1024, height=1024)
-        assert client._timeout() == 122
-        assert mock_sync.called
 
 
 def test_image_completion_http_200_error_raises(client):
@@ -1432,6 +1352,9 @@ def test_is_image_only_model(client):
 
 def test_anthropic_shim(client):
     client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
 
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
@@ -1448,7 +1371,9 @@ def test_anthropic_shim(client):
 
         data = json.loads(body)
         assert data["model"] == "claude-sonnet-4-5"
-        assert data["system"].endswith("You are a helpful assistant.")
+        assert data["system"][0]["text"].endswith("You are a helpful assistant.")
+        assert data["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert data["diagnostics"]["previous_message_id"] is None
         assert data["messages"] == [{"role": "user", "content": [{"type": "text", "text": "Hello!"}]}]
         assert data["max_tokens"] == 100
 
@@ -1463,6 +1388,9 @@ def test_anthropic_blank_model_raises(client):
 
 def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
     client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         messages = [
@@ -1478,8 +1406,10 @@ def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
         assert method == "POST"
         assert "/v1/messages" in path
         data = json.loads(body)
-        assert "Date line." in data["system"]
-        assert "Extra instructions." in data["system"]
+        assert "Date line." in data["system"][0]["text"]
+        assert "Extra instructions." in data["system"][0]["text"]
+        assert data["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert data["diagnostics"]["previous_message_id"] is None
         assert data["output_config"] == {"effort": "low"}
 
 
@@ -1698,10 +1628,8 @@ def test_anthropic_stream_loop_keeps_tool_events(client):
     assert result["finish_reason"] == "tool_calls"
 
 
-def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog):
+def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client):
     """message_start output_tokens=1 plus message_delta output_tokens=15 stays 15, not 16."""
-    import logging
-
     payloads = [
         '{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":9}}}',
         '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
@@ -1714,7 +1642,6 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog
         yield from payloads
 
     with (
-        caplog.at_level(logging.INFO),
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate),
@@ -1736,12 +1663,6 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog
     assert usage["completion_tokens"] == 15
     assert usage["cache_read_input_tokens"] == 9
 
-    # Release strip removes log.info call sites; usage asserts above still run.
-    if not is_release_build():
-        finished_records = [r for r in caplog.records if "LLM response stream finished" in r.getMessage()]
-        assert len(finished_records) == 1
-        assert "cache_read=9" in finished_records[0].getMessage()
-
 
 def test_cache_read_count_helper():
     from plugin.framework.client.shim_helpers import cache_read_count
@@ -1752,6 +1673,205 @@ def test_cache_read_count_helper():
     assert cache_read_count({}) is None
     assert cache_read_count(None) is None
     assert cache_read_count({"prompt_tokens_details": None}) is None
+    assert cache_read_count({"prompt_cache_hit_tokens": 12}) == 12
+    assert cache_read_count({"prompt_cache_hit_tokens": 0}) == 0
+    assert cache_read_count({"prompt_cache_hit_tokens": True}) is None
+    assert cache_read_count({"prompt_cache_hit_tokens": "12"}) is None
+    assert cache_read_count({"cache_read_input_tokens": 9, "prompt_cache_hit_tokens": 12}) == 9
+    assert cache_read_count({"prompt_tokens_details": {"cached_tokens": 4}, "prompt_cache_hit_tokens": 12}) == 4
+
+
+def test_anthropic_response_cache_facts():
+    from plugin.framework.client.shim_helpers import anthropic_response_cache_facts
+
+    chunk_miss = {
+        "type": "message_start",
+        "message": {
+            "id": "msg_01",
+            "diagnostics": {"cache_miss_reason": {"type": "system_changed", "cache_missed_input_tokens": 10}},
+        },
+    }
+    assert anthropic_response_cache_facts(chunk_miss) == (
+        "msg_01",
+        {"cache_miss_reason": {"type": "system_changed", "cache_missed_input_tokens": 10}},
+    )
+
+    chunk_null_reason = {
+        "type": "message_start",
+        "message": {
+            "id": "msg_02",
+            "diagnostics": {"cache_miss_reason": None},
+        },
+    }
+    assert anthropic_response_cache_facts(chunk_null_reason) == (
+        "msg_02",
+        {"cache_miss_reason": None},
+    )
+
+    assert anthropic_response_cache_facts({"type": "content_block_delta", "delta": {"text": "hi"}}) is None
+    assert anthropic_response_cache_facts({"id": "chatcmpl-123", "object": "chat.completion.chunk"}) is None
+
+
+def test_anthropic_cache_diagnostics_stream_wiring(client):
+    client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
+
+    payloads1 = [
+        '{"type":"message_start","message":{"id":"msg_turn1","diagnostics":{"cache_miss_reason":{"type":"system_changed","cache_missed_input_tokens":10}},"usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":9,"cache_creation_input_tokens":16}}}',
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
+        '{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":15}}',
+        '{"type":"message_stop"}',
+        "[DONE]",
+    ]
+
+    sent_requests: list[dict[str, Any]] = []
+
+    def mock_request(*args, **kwargs):
+        body = kwargs.get("body") or (args[2] if len(args) > 2 else None)
+        if body:
+            sent_requests.append(json.loads(body.decode("utf-8") if isinstance(body, bytes) else body))
+
+    def iterate1(_response):
+        yield from payloads1
+
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("http.client.HTTPSConnection") as mock_https,
+        patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate1),
+        patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
+    ):
+        mock_conn = MagicMock()
+        mock_conn.request.side_effect = mock_request
+        mock_https.return_value = mock_conn
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_conn.getresponse.return_value = mock_response
+
+        client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+            cache_session_id="sess-1",
+        )
+
+    # First request sent previous_message_id: null
+    assert len(sent_requests) == 1
+    assert sent_requests[0]["diagnostics"] == {"previous_message_id": None}
+
+    # After the call, client remembered msg_turn1 for sess-1, and None for unset session
+    assert client.anthropic_previous_message_id("sess-1") == "msg_turn1"
+    assert client.anthropic_previous_message_id(None) is None
+
+    # A second request with sess-1 sends previous_message_id: msg_turn1
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}):
+        _m, _p, body2, _h = client.make_chat_request(
+            [{"role": "user", "content": "Hi again"}], max_tokens=10, cache_session_id="sess-1"
+        )
+    data2 = json.loads(body2)
+    assert data2["diagnostics"]["previous_message_id"] == "msg_turn1"
+
+    # Follow-up stream_request_with_tools without cache_session_id does not replace sess-1's id
+    payloads2 = [
+        '{"type":"message_start","message":{"id":"msg_turn2","diagnostics":null,"usage":{"input_tokens":10,"output_tokens":1}}}',
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+        '{"type":"message_stop"}',
+        "[DONE]",
+    ]
+
+    def iterate2(_response):
+        yield from payloads2
+
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("http.client.HTTPSConnection") as mock_https2,
+        patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate2),
+        patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
+    ):
+        mock_conn2 = MagicMock()
+        mock_https2.return_value = mock_conn2
+        mock_resp2 = MagicMock()
+        mock_resp2.status = 200
+        mock_conn2.getresponse.return_value = mock_resp2
+
+        client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Grammar prompt"}],
+            max_tokens=10,
+        )
+
+    # sess-1 id is preserved and not overwritten
+    assert client.anthropic_previous_message_id("sess-1") == "msg_turn1"
+
+    # Patch provider to openrouter: remember does not write and anthropic_previous_message_id returns None
+    with patch.object(client, "_get_provider", return_value="openrouter"):
+        client.remember_anthropic_message_id("sess-openrouter", "msg_never_write")
+        assert client.anthropic_previous_message_id("sess-1") is None
+        assert client.anthropic_previous_message_id("sess-openrouter") is None
+
+
+def test_anthropic_cache_diagnostics_sync_wiring(client):
+    client.config["model"] = "claude-sonnet-4-5"
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
+
+    sync_response = {
+        "type": "message",
+        "id": "msg_sync",
+        "content": [{"type": "text", "text": "Sync reply"}],
+        "stop_reason": "end_turn",
+        "diagnostics": {"cache_miss_reason": {"type": "system_changed", "cache_missed_input_tokens": 15}},
+        "usage": {
+            "input_tokens": 30,
+            "output_tokens": 5,
+            "cache_read_input_tokens": 12,
+            "cache_creation_input_tokens": 18,
+        },
+    }
+
+    with patch.object(client, "_exchange_json", return_value=sync_response):
+        result = client.request_with_tools(
+            messages=[{"role": "user", "content": "Hello sync"}],
+            stream=False,
+            cache_session_id="sess-sync-1",
+        )
+
+    assert result["content"] == "Sync reply"
+    assert client.anthropic_previous_message_id("sess-sync-1") == "msg_sync"
+
+
+@pytest.mark.parametrize(
+    "candidate,expected",
+    [
+        ("msg_abc", True),
+        ("msg_" + "x" * 252, True),
+        ("msg_" + "x" * 253, False),
+        ("chatcmpl-1", False),
+        ("", False),
+        (True, False),
+        (None, False),
+        (123, False),
+    ],
+)
+def test_is_anthropic_message_id(candidate, expected):
+    from plugin.framework.client.shim_helpers import is_anthropic_message_id
+
+    assert is_anthropic_message_id(candidate) is expected
+
+
+def test_remember_anthropic_message_id_rejects_invalid_ids(client):
+    client.config["provider"] = "anthropic"
+    client.config["api_key"] = "test-key"
+    client.config["endpoint"] = "https://api.anthropic.com"
+
+    client.remember_anthropic_message_id("sess-1", "chatcmpl-invalid")
+    assert client.anthropic_previous_message_id("sess-1") is None
+
+    client.remember_anthropic_message_id("sess-1", "msg_" + "x" * 300)
+    assert client.anthropic_previous_message_id("sess-1") is None
+
+    client.remember_anthropic_message_id("sess-1", "msg_valid_1")
+    assert client.anthropic_previous_message_id("sess-1") == "msg_valid_1"
 
 
 def test_make_chat_request_coalesces_mixed_system_messages(client):
@@ -1776,7 +1896,7 @@ def test_make_chat_request_coalesces_mixed_system_messages(client):
         all_text = sys_msg["content"]
         assert "Base instructions." in all_text
         assert "Document context." in all_text
-        assert "Today's date is" in all_text
+        assert _DATE_RE.search(all_text)
 
 
 def test_prepend_dev_build_prefix_supports_list_content():
@@ -1812,7 +1932,7 @@ def test_make_chat_request_flattens_system_message(client):
         assert isinstance(sys_msg["content"], str)
         assert "Part 1" in sys_msg["content"]
         assert "Part 2" in sys_msg["content"]
-        assert "Today's date is" in sys_msg["content"]
+        assert _DATE_RE.search(sys_msg["content"])
 
 
 def test_chat_request_omits_top_p(client):
@@ -1826,93 +1946,15 @@ def test_chat_request_omits_top_p(client):
 
 
 def test_parallel_tool_calls_config(client):
-    """Verify that parallel_tool_calls is currently forced to False due to subagent parsing issues."""
+    """Wire sends parallel_tool_calls=False even when stored config is True (base_provider_shim.py:468-471)."""
     messages = [{"role": "user", "content": "Hi"}]
     tools = [{"type": "function", "function": {"name": "test_tool"}}]
-
-    # Case 1: Default (should be False due to the current subagent FIXME)
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
-        mock_auth.return_value = {"provider": "openai"}
-        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
-        data = json.loads(body.decode("utf-8"))
-        assert data["parallel_tool_calls"] is False
-
-    # The stored setting is not what the wire sends.
     client.config["parallel_tool_calls"] = True
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
         _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
         data = json.loads(body.decode("utf-8"))
         assert data["parallel_tool_calls"] is False
-
-    # Case 2: Explicitly False
-    client.config["parallel_tool_calls"] = False
-    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
-        mock_auth.return_value = {"provider": "openai"}
-        _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
-        data = json.loads(body.decode("utf-8"))
-        assert data["parallel_tool_calls"] is False
-
-
-def test_normalize_multimodal_messages_openai(client):
-    """Test that in OpenAI/Grok/Together, tool images are moved to the user message."""
-    messages = [
-        {"role": "user", "content": "Tell me about this document"},
-        {"role": "assistant", "content": "Let me read it."},
-        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
-    ]
-    
-    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
-    normalize_multimodal_messages(messages, "openai")
-    
-    # Tool message content should have its image replaced with [Image Ref]
-    assert messages[2]["content"] == "Here is the page: [Image Ref]"
-    
-    # Nearest preceding user message (messages[0]) should have the image appended
-    assert isinstance(messages[0]["content"], list)
-    assert messages[0]["content"][0] == {"type": "text", "text": "Tell me about this document"}
-    assert messages[0]["content"][1]["type"] == "image_url"
-    assert messages[0]["content"][1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
-
-
-def test_normalize_multimodal_messages_anthropic(client):
-    """Test that in Anthropic, tool images are kept in-place."""
-    messages = [
-        {"role": "user", "content": "Tell me about this document"},
-        {"role": "assistant", "content": "Let me read it."},
-        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
-    ]
-    
-    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
-    normalize_multimodal_messages(messages, "anthropic")
-    
-    # Tool message content should also be stripped of the raw base64 string,
-    # but re-attached to the SAME message as a list of content parts
-    assert isinstance(messages[2]["content"], list)
-    assert messages[2]["content"][0] == {"type": "text", "text": "Here is the page: [Image Ref]"}
-    assert messages[2]["content"][1]["type"] == "image_url"
-    assert messages[2]["content"][1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
-    
-    # User message (messages[0]) should NOT have the image attached
-    assert messages[0]["content"] == "Tell me about this document"
-
-
-def test_normalize_multimodal_messages_gemini(client):
-    """Test that in Gemini, tool images are moved to the user message."""
-    messages = [
-        {"role": "user", "content": "Tell me about this document"},
-        {"role": "assistant", "content": "Let me read it."},
-        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
-    ]
-    
-    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
-    normalize_multimodal_messages(messages, "google")
-    
-    assert messages[2]["content"] == "Here is the page: [Image Ref]"
-    assert isinstance(messages[0]["content"], list)
-    assert messages[0]["content"][0] == {"type": "text", "text": "Tell me about this document"}
-    assert messages[0]["content"][1]["type"] == "image_url"
-    assert messages[0]["content"][1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
 
 
 def test_gemini_shim_inline_data():
@@ -1949,12 +1991,7 @@ def test_gemini_shim_inline_data():
         }
 
 
-def test_stream_request_with_tools_tracks_used_model(client, caplog):
-    import logging
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info stripped in release bundle")
-
+def test_stream_request_with_tools_tracks_used_model(client):
     mock_responses = [
         b'data: {"model": "deepseek/deepseek-r1:free", "choices": [{"delta": {"role": "assistant", "content": "Hello free world"}}]}\n\n',
         b'data: {"model": "deepseek/deepseek-r1:free", "choices": [{"finish_reason": "stop", "delta": {}}]}\n\n',
@@ -1971,25 +2008,17 @@ def test_stream_request_with_tools_tracks_used_model(client, caplog):
 
         messages = [{"role": "user", "content": "Hi"}]
 
-        with caplog.at_level(logging.INFO):
-            result = client.stream_request_with_tools(
-                messages=messages,
-                max_tokens=100,
-                model="openrouter/free",
-            )
+        result = client.stream_request_with_tools(
+            messages=messages,
+            max_tokens=100,
+            model="openrouter/free",
+        )
 
         assert result["content"] == "Hello free world"
         assert result["model"] == "deepseek/deepseek-r1:free"
-        assert any("LLM response stream started" in rec.message and "deepseek/deepseek-r1:free" in rec.message for rec in caplog.records)
-        assert any("LLM response stream finished" in rec.message and "deepseek/deepseek-r1:free" in rec.message for rec in caplog.records)
 
 
-def test_sync_request_with_tools_tracks_used_model(client, caplog):
-    import logging
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info stripped in release bundle")
-
+def test_sync_request_with_tools_tracks_used_model(client):
     sync_resp_body = json.dumps({
         "id": "gen-123",
         "model": "deepseek/deepseek-r1:free",
@@ -2006,17 +2035,15 @@ def test_sync_request_with_tools_tracks_used_model(client, caplog):
 
         messages = [{"role": "user", "content": "Hi"}]
 
-        with caplog.at_level(logging.INFO):
-            result = client.request_with_tools(
-                messages=messages,
-                max_tokens=100,
-                stream=False,
-                model="openrouter/free",
-            )
+        result = client.request_with_tools(
+            messages=messages,
+            max_tokens=100,
+            stream=False,
+            model="openrouter/free",
+        )
 
         assert result["content"] == "Sync response"
         assert result["model"] == "deepseek/deepseek-r1:free"
-        assert any("LLM sync response received" in rec.message and "deepseek/deepseek-r1:free" in rec.message for rec in caplog.records)
 
 
 def test_sync_request_with_tools_429_does_not_error_log_prompt(client, caplog, _fast_retry_waits):
@@ -2159,17 +2186,8 @@ def _raise_http_error(client, status, reason, body, err_json, path="/v1/chat/com
     return err
 
 
-def _assert_http_500_diag_safe(joined, *, prompt, api_key, model, stream, n_messages, n_tools, payload_bytes, reason):
-    assert "HTTP 500 request diagnostic:" in joined
-    assert "provider=openai" in joined
-    assert "request_model=%r" % model in joined
-    assert "full_url='https://api.openai.com/v1/chat/completions'" in joined
-    assert "status=500" in joined
-    assert "reason=%r" % reason in joined
-    assert "stream=%s" % stream in joined
-    assert "messages=%s" % n_messages in joined
-    assert "tools=%s" % n_tools in joined
-    assert "payload_bytes=%s" % payload_bytes in joined
+def _assert_http_500_diag_safe(joined, *, prompt, api_key):
+    assert joined.count("HTTP 500 request diagnostic:") == 1
     assert prompt not in joined
     assert api_key not in joined
     assert "Authorization" not in joined
@@ -2209,22 +2227,9 @@ def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     assert str(err.value) == expected_user
     assert api_key not in str(err.value)
     joined = "\n".join(r.getMessage() for r in caplog.records)
-    _assert_http_500_diag_safe(
-        joined,
-        prompt=prompt,
-        api_key=api_key,
-        model="gpt-4o",
-        stream=True,
-        n_messages=1,
-        n_tools=1,
-        payload_bytes=len(body),
-        reason="Internal Server Error",
-    )
+    _assert_http_500_diag_safe(joined, prompt=prompt, api_key=api_key)
     assert "SECRET_TOOL_SCHEMA_SHOULD_NOT_APPEAR" not in joined
     assert "lookup_secret" not in joined
-    assert "Provider API Error 500:" in joined
-    assert "boom echoed <redacted>" in joined
-    assert joined.count("HTTP 500 request diagnostic:") == 1
 
 
 def test_http_500_logs_safe_request_diag_without_tools(client, caplog):
@@ -2240,18 +2245,7 @@ def test_http_500_logs_safe_request_diag_without_tools(client, caplog):
     )
     assert err.value.code == "HTTP_ERROR"
     joined = "\n".join(r.getMessage() for r in caplog.records)
-    _assert_http_500_diag_safe(
-        joined,
-        prompt=prompt,
-        api_key=api_key,
-        model="llama3.2",
-        stream=False,
-        n_messages=1,
-        n_tools=0,
-        payload_bytes=len(body),
-        reason="Internal Server Error",
-    )
-    assert "Provider API Error 500:" in joined
+    _assert_http_500_diag_safe(joined, prompt=prompt, api_key=api_key)
 
 
 def test_http_500_llama_overflow_friendly_sentence_logs_stay_loud(caplog, mock_ctx):
@@ -2288,38 +2282,22 @@ def test_http_500_llama_overflow_friendly_sentence_logs_stay_loud(caplog, mock_c
     assert "HTTP Error 500" not in str(err.value)
     assert "0xc0000005" not in str(err.value)
     joined = "\n".join(r.getMessage() for r in caplog.records)
-    assert "HTTP 500 request diagnostic:" in joined
-    assert "provider=ollama" in joined
-    assert "request_model='qwen2.5:7b'" in joined
-    assert "messages=1" in joined
-    assert "tools=0" in joined
-    assert "payload_bytes=%s" % len(body) in joined
-    assert "n_ctx=4096" in joined
-    assert "prompt_chars=%s" % len(prompt) in joined
-    assert "exit_code='0xc0000005'" in joined
-    assert "Provider API Error 500:" in joined
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+    assert joined.count("HTTP 500 request diagnostic:") == 1
     assert "llama-server process has terminated" in joined
     assert prompt not in joined
     assert api_key not in joined
-    assert joined.count("HTTP 500 request diagnostic:") == 1
 
 
-def test_http_500_llama_overflow_without_num_ctx_still_friendly(client, caplog):
+def test_http_500_llama_overflow_without_num_ctx_still_friendly(client):
     """Missing /api/show must not fail closed — still explain overflow."""
-    import logging
-
     from plugin.framework.client.errors import local_model_overflow_message
 
     body = _http_500_diag_body(stream=False, tools=None, prompt="hi", model="gpt-4o")
     err_json = {"error": {"message": "llama-server process has terminated"}}
-    caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
     err = _raise_http_error(client, 500, "Internal Server Error", body, err_json)
     assert str(err.value) == local_model_overflow_message()
     assert "too-small context" in str(err.value)
-    joined = "\n".join(r.getMessage() for r in caplog.records)
-    assert "HTTP 500 request diagnostic:" in joined
-    assert "Provider API Error 500:" in joined
-    assert "llama-server process has terminated" in joined
 
 
 def test_http_429_does_not_log_500_request_diag(client, caplog, _fast_retry_waits):

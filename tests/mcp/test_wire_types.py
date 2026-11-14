@@ -9,6 +9,8 @@
 import json
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from plugin.mcp import wire_types
 
@@ -37,9 +39,12 @@ def test_call_tool_result_text_content():
 
 
 def test_call_tool_result_json_serializable():
-    text = json.dumps({"n": 1}, ensure_ascii=False, default=str)
+    text = json.dumps({"n": 1}, ensure_ascii=False)
     payload = wire_types.call_tool_result(text)
-    json.dumps(payload, ensure_ascii=False, default=str)
+    decoded = json.loads(json.dumps(payload, ensure_ascii=False))
+    assert set(decoded.keys()) == {"content"}
+    assert len(decoded["content"]) == 1
+    assert decoded["content"][0] == {"type": "text", "text": text}
 
 
 def test_call_tool_result_image_content():
@@ -69,6 +74,15 @@ def test_parse_jsonrpc_request_preserves_extra_params():
     assert parsed.params["extra"] is True
 
 
+@given(req_id=st.one_of(st.integers(), st.text(min_size=1, max_size=10)))
+@settings(max_examples=50)
+def test_parse_jsonrpc_request_with_ids(req_id: int | str) -> None:
+    msg = {"jsonrpc": "2.0", "id": req_id, "method": "ping"}
+    parsed = wire_types.parse_jsonrpc_request(msg)
+    assert isinstance(parsed, wire_types.ParsedJsonRpcRequest)
+    assert parsed.req_id == req_id
+
+
 @pytest.mark.parametrize(
     "msg",
     [
@@ -77,6 +91,9 @@ def test_parse_jsonrpc_request_preserves_extra_params():
         {"jsonrpc": "2.0", "id": 1},
         {"jsonrpc": "2.0", "id": 1, "method": ""},
         {"jsonrpc": "2.0", "id": 1, "method": "ping", "params": []},
+        # bool is a subclass of int, so it must not pass as an id.
+        {"jsonrpc": "2.0", "id": True, "method": "ping"},
+        {"jsonrpc": "2.0", "id": False, "method": "ping"},
     ],
 )
 def test_parse_jsonrpc_request_rejects_invalid(msg):
@@ -152,7 +169,7 @@ def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     assert len(err["error"]["message"]) == DEAL_MAX_SOURCE + 1
 
 
-def test_parse_and_initialize_ignore_loaded_crosshair_module(monkeypatch):
+def test_parse_request_ignores_loaded_crosshair_module(monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "crosshair", object())
@@ -161,13 +178,4 @@ def test_parse_and_initialize_ignore_loaded_crosshair_module(monkeypatch):
     assert parsed is not None
     assert parsed.method == "ping"
     assert parsed.req_id == 1
-
-    result = wire_types.initialize_result(
-        protocol_version="2025-06-18",
-        server_version="1.2.3",
-        instructions="hi",
-    )
-    assert result["protocolVersion"] == "2025-06-18"
-    assert result["serverInfo"]["version"] == "1.2.3"
-    assert result["instructions"] == "hi"
 

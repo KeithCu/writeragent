@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import queue as queue_mod
 import threading
 import time
@@ -310,9 +311,7 @@ def test_wait_while_pumping_off_main_posts_instead_of_pe2i():
             ):
                 result["ok"] = wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01)
 
-        worker = threading.Thread(target=_waiter, name="Dummy-21")
-        worker.start()
-        worker.join(timeout=2.0)
+        _run_off_main(_waiter)
         assert result.get("ok") is True
         assert posts
         assert pe2i_threads == []
@@ -355,9 +354,7 @@ def test_wait_while_pumping_off_main_post_fallback_skips_pe2i():
             ):
                 result["ok"] = wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01)
 
-        worker = threading.Thread(target=_waiter, name="Dummy-21")
-        worker.start()
-        worker.join(timeout=2.0)
+        _run_off_main(_waiter)
         assert result.get("ok") is True
         assert pe2i_threads == []
     finally:
@@ -394,16 +391,32 @@ def test_post_secondary_idle_coalesces_and_passes_none_scope():
                 _post_secondary_idle(MagicMock())
                 _post_secondary_idle(MagicMock())
 
-        t = threading.Thread(target=_worker, name="Dummy-21")
-        t.start()
-        t.join(timeout=2.0)
-        assert not t.is_alive()
+        _run_off_main(_worker)
         assert len(posts) == 1
         _fn, kwargs = posts[0]
         assert kwargs.get("bound_scope") is None
         assert pe2i_called == []
     finally:
         _restore_default_work_queue(saved)
+
+
+def _run_off_main(fn: Callable[[], None], name: str = "Dummy-21") -> None:
+    """Run ``fn`` on a worker thread and re-raise any exception after joining."""
+    err: BaseException | None = None
+
+    def _runner() -> None:
+        nonlocal err
+        try:
+            fn()
+        except BaseException as exc:
+            err = exc
+
+    t = threading.Thread(target=_runner, name=name)
+    t.start()
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    if err is not None:
+        raise err
 
 
 def test_post_secondary_idle_runs_pump_and_allows_next_post():
@@ -433,10 +446,7 @@ def test_post_secondary_idle_runs_pump_and_allows_next_post():
             _post_secondary_idle(MagicMock())
             assert len(posts) == 2
 
-    t = threading.Thread(target=_worker, name="Dummy-21")
-    t.start()
-    t.join(timeout=2.0)
-    assert not t.is_alive()
+    _run_off_main(_worker)
 
 
 def test_post_secondary_idle_unrun_callable_leaves_flag_set():
@@ -455,10 +465,7 @@ def test_post_secondary_idle_unrun_callable_leaves_flag_set():
             _post_secondary_idle(MagicMock())
             _post_secondary_idle(MagicMock())
 
-    t = threading.Thread(target=_worker, name="Dummy-21")
-    t.start()
-    t.join(timeout=2.0)
-    assert not t.is_alive()
+    _run_off_main(_worker)
     assert len(posts) == 1
 
 
@@ -489,10 +496,7 @@ def test_post_secondary_idle_post_raises_clears_flag():
             assert callable(callable_fn)
             callable_fn()
 
-    t = threading.Thread(target=_worker, name="Dummy-21")
-    t.start()
-    t.join(timeout=2.0)
-    assert not t.is_alive()
+    _run_off_main(_worker)
 
     # Also verify exception propagates into wait_while_pumping and is swallowed
     done = threading.Event()
@@ -510,10 +514,7 @@ def test_post_secondary_idle_post_raises_clears_flag():
         with patch("plugin.framework.queue_executor.main.post", side_effect=_post_then_set):
             assert wait_while_pumping(done, MagicMock(), timeout=1.0, poll_sec=0.01) is True
 
-    t2 = threading.Thread(target=_waiter, name="Dummy-22")
-    t2.start()
-    t2.join(timeout=2.0)
-    assert not t2.is_alive()
+    _run_off_main(_waiter, name="Dummy-22")
     assert done.is_set()
 
 
@@ -546,7 +547,4 @@ def test_post_secondary_idle_pump_raises_clears_flag():
             _post_secondary_idle(MagicMock())
             assert len(posts) == 2
 
-    t = threading.Thread(target=_worker, name="Dummy-21")
-    t.start()
-    t.join(timeout=2.0)
-    assert not t.is_alive()
+    _run_off_main(_worker)

@@ -11,7 +11,8 @@ from itertools import islice
 from typing import Any
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
-from plugin.calc.calc_utils import cell_value_and_type, query_interface, resolve_sheet_and_cell as _resolve_sheet_and_cell
+from plugin.calc.calc_utils import cell_value_and_type, query_interface, resolve_sheet_and_cell
+from plugin.calc.navigation import navigate_to_cell
 from plugin.framework.errors import best_effort
 from plugin.framework.json_utils import safe_json_loads
 
@@ -21,10 +22,6 @@ _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
 # verbose dict. 80 matches the chat range budget in cells.py. Stop after
 # this many snapshots.
 _MAX_PRECEDENT_CELLS = 80
-
-
-def _sheet_name(sheet: Any) -> str:
-    return sheet.getName()
 
 
 def _cell_snapshot(sheet: Any, col: int, row: int, sheet_name: str) -> dict[str, Any]:
@@ -68,7 +65,7 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any) -> d
         # throws after earlier addresses filled the cap exactly.
         # CellRangeAddress.Sheet is the precedent sheet.
         prec_sheet = doc.getSheets().getByIndex(int(addr.Sheet))
-        prec_name = _sheet_name(prec_sheet)
+        prec_name = prec_sheet.getName()
         room = _MAX_PRECEDENT_CELLS - len(precedents)
         if room <= 0:
             break
@@ -99,18 +96,16 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any) -> d
 
 def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
     """Return dependency JSON for *address* using LO command values or ``XFormulaQuery``."""
-    resolved = _resolve_sheet_and_cell(doc, address)
+    resolved = resolve_sheet_and_cell(doc, address)
     if resolved is None:
         return None
     sheet, col, row = resolved
 
     if ctx is not None:
-        # Navigation selects the cell for the UNO command. A disposed
-        # document, headless run, or missing controller can throw here.
-        # navigate_to_cell can fail without a view; dep-chain collection must continue anyway.
-        from plugin.calc.navigation import navigate_to_cell
-
-        best_effort(lambda: navigate_to_cell(doc, ctx, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
+        # Navigation selects the cell for the UNO command. A disposed document, a
+        # headless run, or a missing controller can throw here; the dependency
+        # chain does not need the view, so collection continues.
+        best_effort(lambda: navigate_to_cell(doc, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
 
     chain: dict[str, Any] | None = None
     raw = best_effort(lambda: doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD), f"getCommandValues({_FORMULA_DEP_CHAIN_CMD}) failed")
@@ -126,7 +121,7 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
         chain = _precedents_via_formula_query(sheet, col, row, doc)
 
     local = format_address(col, row)
-    sheet_name = _sheet_name(sheet)
+    sheet_name = sheet.getName()
     cell = qualify_a1(sheet_name, local) if split_sheet_prefix(address)[0] is not None and sheet_name else local
     chain.setdefault("cell", cell)
     return chain

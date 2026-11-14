@@ -19,12 +19,11 @@ import hypothesis.strategies as st
 from hypothesis import strategies
 
 import plugin.scripting.payload_codec as pc
-from plugin.scripting.calc_range import ensure_rectangular_2d
+from plugin.scripting.calc_range import ensure_rectangular_2d, materialize_calc_range
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
     PAYLOAD_MULTI_DATA,
     ForceBinary,
-    child_unpack_data,
     host_pack_data,
     host_unpack_data,
     is_numeric_grid,
@@ -83,8 +82,9 @@ def assert_cython_vs_python_parity(
         result_python = run_venv_roundtrip(grid, code, pack_force="always")
 
     assert_semantically_equal(result_cython, result_python, label=f"{label} (Cython vs Python)")
-from plugin.scripting.venv_worker import PythonWorkerManager
-from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+from plugin.scripting.config_limits import python_exec_timeout
+from plugin.scripting.venv_worker import ExecRequest, PythonWorkerManager
+from tests.scripting.sandbox_support import sandbox_run
 from tests.calc.serialization_cases import SerializationCase, all_serialization_cases
 from tests.scripting.payload_codec_test_support import (
     MIXED_LABEL_GRID,
@@ -351,13 +351,14 @@ def grid_cell_count(grid: list[Any] | list[list[Any]]) -> int:
 
 
 def codec_child_materialization(grid: list[Any] | list[list[Any]], *, force: ForceBinary) -> Any:
-    return child_unpack_data(host_pack_data(grid, force=force))
+    """Production child ingress (venv_sandbox._inject_data -> materialize_inputs)."""
+    return materialize_calc_range(host_pack_data(grid, force=force)).values
 
 
 def codec_host_decode(grid: list[Any] | list[list[Any]], *, force: ForceBinary) -> Any:
     """Host-side decode only (no venv): split_grid envelope vs nested list wire."""
     wire = host_pack_data(grid, force=force)
-    return host_unpack_data(wire, as_nested_list=True)
+    return host_unpack_data(wire)
 
 
 def flatten_semantic_cells(value: Any) -> list[Any]:
@@ -493,18 +494,18 @@ def run_venv_roundtrip(
         wire = host_pack_data(grid, force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV, pool=_TEST_SUBPROCESS_POOL)
-        response = mgr.execute(code, data=wire)
+        response = mgr.execute(ExecRequest(code=code, data=wire, timeout_sec=python_exec_timeout()))
         if response.get("status") != "ok":
             raise AssertionError(f"Worker error: {response.get('message')}")
         return response.get("result")
-    response = run_sandboxed_code(code, wire)
+    response = sandbox_run(code, wire)
     if response.get("status") != "ok":
         raise AssertionError(f"Sandbox error: {response.get('message')}")
     result = response.get("result")
     if result is None:
         return None
     if is_split_grid(result):
-        return host_unpack_data(result, as_nested_list=True)
+        return host_unpack_data(result)
     return result
 
 
@@ -877,15 +878,6 @@ MULTI_RANGE_FIXTURES: list[tuple[list[list[Any] | list[list[Any]]], str]] = [
 ]
 
 
-def multi_range_child_materialization(
-    grids: list[list[Any] | list[list[Any]]],
-    *,
-    force: ForceBinary = "auto",
-) -> Any:
-    """Child-side materialization for a list of Calc ranges (multi_data envelope)."""
-    return child_unpack_data(_pack_multi_data(grids, force=force))
-
-
 def run_multi_venv_echo(
     grids: list[list[Any] | list[list[Any]]],
     *,
@@ -897,17 +889,17 @@ def run_multi_venv_echo(
     wire = _pack_multi_data(grids, force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV, pool=_TEST_SUBPROCESS_POOL)
-        response = mgr.execute(code, data=wire)
+        response = mgr.execute(ExecRequest(code=code, data=wire, timeout_sec=python_exec_timeout()))
         if response.get("status") != "ok":
             raise AssertionError(f"Worker error: {response.get('message')}")
         return response.get("result")
-    response = run_sandboxed_code(code, wire)
+    response = sandbox_run(code, wire)
     if response.get("status") != "ok":
         raise AssertionError(f"Sandbox error: {response.get('message')}")
     result = response.get("result")
     if result is None:
         return None
-    return host_unpack_data(result, as_nested_list=True)
+    return host_unpack_data(result)
 
 
 # --- Strategies for fancier payloads (images and dataframes) ---
@@ -990,7 +982,6 @@ __all__ = [
     "is_valid_grid_for_pack",
     "hypothesis_grid_ok",
     "MULTI_RANGE_FIXTURES",
-    "multi_range_child_materialization",
     "run_multi_venv_echo",
     "BINARY_MIN_CELLS",
     "multi_range_grid",

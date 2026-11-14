@@ -364,9 +364,11 @@ Unresolved deps, out-of-range `%Pn%` placeholders, missing formula dependencies,
 
 **Microsoft and dynamic `xl()`:** Excel does **not** productize `xl(variable)` / `xl(f"A{n}")` (community reports: KeyError / binding failures). The converter fails closed on those shapes as defense and because they are not DAG-safe—not because MS’s happy path is full runtime-dynamic addresses.
 
+Scripts that import a module the `=PY()` sandbox blocks, or call `xl()` with anything but a `"%Pn%"` binding string, still convert; the warning goes to that cell's `issues` in the conversion report and does not change `ok`.
+
 #### Auto round-trip on open / save (no menu)
 
-LibreOffice Calc (with the Python/`=PY` extension) registers a global document listener ([`auto_open.py`](../../plugin/calc/excel_py_convert/auto_open.py)):
+LibreOffice Calc (with the Python/`=PY` extension) registers a global document listener ([`workbook_lifecycle.py`](../../plugin/calc/python/workbook_lifecycle.py)), which calls [`auto_open.py`](../../plugin/calc/excel_py_convert/auto_open.py):
 
 **On open (`OnLoadFinished`):** when the local `.xlsx` still contains `xl/pythonScripts.xml` and/or `_xlws.PY` **on disk**, rewrite to DAG `=PY` in memory:
 
@@ -380,7 +382,7 @@ LibreOffice Calc (with the Python/`=PY` extension) registers a global document l
 
 There is **no** new menu item.
 
-**Shared formulas and dependency shifting:** Excel frequently stores filled-down formulas using shared formula groups (`t="shared"`, `si=…`) where only the master cell carries the formula body. On import, dependent cells shift trailing dependency arguments by the row/col delta, preserving absolute axis locks (`$B$1`, `B$1`) and table references (`Table1[Col]`). Unrecognized dependency expressions refuse the group and record conversion issues. On export, a shared group is expanded only when it contains a cell this export rewrites; other groups stay shared. Siblings of a rewritten cell are written out with shifted A1 refs.
+**Shared formulas and dependency shifting:** Excel frequently stores filled-down formulas using shared formula groups (`t="shared"`, `si=…`) where only the master cell carries the formula body. On import, dependent cells shift trailing dependency arguments by the row/col delta, preserving absolute axis locks (`$B$1`, `B$1`) and table references (`Table1[Col]`). Unrecognized dependency expressions refuse the group and record conversion issues. On export, a shared group is expanded only when it contains a cell this export rewrites; other groups stay shared. Siblings of a rewritten cell are written out with shifted A1 refs. All three readers expand a group through `expand_shared` and differ only for a non-`_xlws.PY` master: import ignores it, the DAG scan shifts a `=PY(…)` master's data arguments, and export shifts any formula by A1 rules.
 
 **Package guards and atomic writes:** Export ensures `xl/pythonScripts.xml` has an explicit workbook relationship (`http://schemas.microsoft.com/office/2022/relationships/pythonScript`), drops obsolete `xl/calcChain.xml` (part, content-type override, and relationship) to prevent Excel repair prompts, scans for unwritten `_xlws.PY` formulas to avoid orphan bank indices, and uses atomic temporary file replacement on disk. Bank sheets (`py_code_*`) are managed via workbook defined names and `ZZ1` notes to protect existing user sheets from deletion or collisions; identity is the defined name `_py_code_bank_<sheet>`, the formula’s sheet token, or the `ZZ1` note. Spill clearing visits stored cells inside the bounding rectangle without enumerating large coordinate ranges.
 
@@ -395,7 +397,7 @@ python -m plugin.calc.excel_py_convert --to excel converted.xlsx --write-xlsx ex
 python -m plugin.calc.excel_py_convert --to excel converted.xlsx --from-report dag.json --write-xlsx excel_native.xlsx
 ```
 
-Both `--write-xlsx` directions (`--to dag` and `--to excel`) are stdlib ZIP patches (no openpyxl), and parts the converter does not understand (drawings, charts, VBA, etc.) are copied. Native Excel export reconstructs `xl(%Pn%)`, header mode, and `return_type` from real data args. Prefer `--from-report dag.json` or in-memory `convert_dag_report_to_excel` so `return_type` survives; re-parsing a DAG `.xlsx` alone cannot recover it. Legacy `ordering_args` in old reports (from an earlier converter that injected prior-PY edges) are ignored on export.
+Both `--write-xlsx` directions (`--to dag` and `--to excel`) are stdlib ZIP patches (no openpyxl), and parts the converter does not understand (drawings, charts, VBA, etc.) are copied. Native Excel export reconstructs `xl(%Pn%)`, header mode, and `return_type` from real data args. Prefer `--from-report dag.json` or in-memory `convert_dag_report_to_excel` so `return_type` survives; re-parsing a DAG `.xlsx` alone cannot recover it. An `ordering_args` key in an old report or `ExcelPyDagMeta` (from an earlier converter that injected prior-PY edges) is not read.
 
 **Sample round-trip check:** [`scripts/roundtrip_excel_py_samples.py`](../../scripts/roundtrip_excel_py_samples.py) (`make excel-py-roundtrip`) runs Excel → DAG → Excel over [`PythonExcelSamples/`](../PythonExcelSamples/) and fails on script-text, `returnType`, or lost Table/`ANCHORARRAY` tokens. Sheet punctuation (`.` vs `!`) may warn.
 

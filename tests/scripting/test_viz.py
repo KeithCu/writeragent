@@ -15,11 +15,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from plugin.scripting.viz import (
-    get_viz_script_templates,
-    parse_viz_script_header,
-    run_viz,
-)
+from plugin.scripting.viz import run_viz
 
 
 def _mock_figure_payload():
@@ -181,7 +177,7 @@ def test_insert_image_payload_calc_passes_target_doc():
         from plugin.scripting.viz import insert_image_payload_for_doc
 
         insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
-    insert.assert_called_once_with(ctx, payload, doc=doc)
+    insert.assert_called_once_with(payload, doc=doc)
 
 
 def test_insert_image_payload_calc_surfaces_egress_failure():
@@ -201,26 +197,6 @@ def test_insert_image_payload_calc_surfaces_egress_failure():
         from plugin.scripting.viz import insert_image_payload_for_doc
 
         insert_image_payload_for_doc(ctx, doc, payload, title="Plot")
-
-
-# --- Viz Run Python Script templates (from test_viz_templates.py) ---
-
-def test_get_viz_script_templates_include_run_call():
-    templates = get_viz_script_templates()
-    assert "quick_plot" in templates
-    assert "from writeragent.scripting.viz import quick_plot" in templates["quick_plot"]
-    assert "# writeragent:viz" not in templates["quick_plot"]
-
-
-def test_viz_template_body_includes_helper_params():
-    code = get_viz_script_templates()["correlation_heatmap"]
-    assert "correlation_heatmap(data, method='pearson')" in code
-    assert "from writeragent.scripting.viz import correlation_heatmap" in code
-
-
-def test_parse_viz_script_header_rejects_unknown_helper():
-    code = "# writeragent:viz helper=not_a_helper params={}\n"
-    assert parse_viz_script_header(code) is None
 
 
 def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
@@ -244,7 +220,7 @@ def test_run_trusted_viz_reads_on_main_and_runs_client_off_main():
         patch("plugin.framework.queue_executor.main.call", side_effect=exec_main) as mock_main,
         patch("plugin.framework.doc_type.is_calc", return_value=True),
         patch("plugin.framework.doc_type.is_writer", return_value=False),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
         patch("plugin.scripting.client.run_viz", side_effect=client) as mock_client,
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
@@ -287,7 +263,7 @@ def test_run_trusted_viz_doc_type_check_runs_inside_main_thread_hop():
         patch("plugin.framework.queue_executor.main.call", side_effect=exec_main) as mock_main,
         patch("plugin.framework.doc_type.is_calc", side_effect=check_is_calc),
         patch("plugin.framework.doc_type.is_writer", side_effect=check_is_writer),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([["date", "Value"], ["2024-01-01", 1.0]], None)),
         patch("plugin.scripting.client.run_viz", return_value={"status": "ok", "helper": "time_series_plot"}),
     ):
         from plugin.framework.errors import ToolExecutionError
@@ -703,7 +679,7 @@ def test_time_series_plots_rows_in_date_order(mock_plt, _mock_payload):
     assert list(ax.plot.call_args[0][1]) == [1.0, 2.0, 3.0]
 
 
-@patch("plugin.scripting.venv.venv_sandbox._figure_to_image_payload", side_effect=RuntimeError("render failed"))
+@patch("plugin.scripting.venv.viz.figure_to_image_payload", side_effect=RuntimeError("render failed"))
 @patch("plugin.scripting.venv.viz._require_matplotlib")
 def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
     """Savefig used to skip plt.close, and trusted actions never call _close_open_figures."""
@@ -720,7 +696,7 @@ def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
 
 @patch("plugin.scripting.venv.viz._MAX_SVG_BYTES", 10)
 @patch(
-    "plugin.scripting.venv.venv_sandbox._figure_to_image_payload",
+    "plugin.scripting.venv.viz.figure_to_image_payload",
     side_effect=[
         {"__wa_payload__": "image", "format": "svg", "data": b"x" * 11},
         {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG"},
@@ -741,7 +717,7 @@ def test_figure_payload_rerenders_oversized_svg_as_png(mock_plt, mock_render):
 
 @patch("plugin.scripting.venv.viz._MAX_SVG_BYTES", 10)
 @patch(
-    "plugin.scripting.venv.venv_sandbox._figure_to_image_payload",
+    "plugin.scripting.venv.viz.figure_to_image_payload",
     side_effect=[
         {"__wa_payload__": "image", "format": "svg", "data": b"x" * 5},
     ],
@@ -765,7 +741,7 @@ def test_correlation_heatmap_rejects_unknown_method(method):
     result = run_viz({"helper": "correlation_heatmap", "params": {"method": method}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "method must be pearson, kendall, or spearman"
     assert result["helper"] == "correlation_heatmap"
 
@@ -816,7 +792,7 @@ def test_run_trusted_viz_sheet_disposal_propagates():
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.framework.doc_type.is_calc", return_value=True),
         patch("plugin.framework.doc_type.is_writer", return_value=False),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["x"], [1]], None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([["x"], [1]], None)),
         patch("plugin.scripting.client.run_viz", client_mock),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
@@ -840,7 +816,7 @@ def test_run_trusted_viz_sheet_name_failure_is_best_effort():
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.framework.doc_type.is_calc", return_value=True),
         patch("plugin.framework.doc_type.is_writer", return_value=False),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["x"], [1]], None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([["x"], [1]], None)),
         patch("plugin.scripting.client.run_viz", client_mock),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
@@ -1043,7 +1019,7 @@ def test_quick_plot_y_cols_key_is_invalid(mock_plt):
     result = run_viz({"helper": "quick_plot", "params": {"y_cols": ["B"]}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "quick_plot takes y_col, not y_cols"
     plt_mod.subplots.assert_not_called()
 
@@ -1057,7 +1033,7 @@ def test_quick_plot_y_col_list_is_invalid(mock_plt):
     result = run_viz({"helper": "quick_plot", "params": {"y_col": ["B"]}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "y_col must be one column name"
     plt_mod.subplots.assert_not_called()
 
@@ -1072,7 +1048,7 @@ def test_plot_data_unknown_chart_type(mock_plt, bad_type):
     result = run_viz({"helper": "plot_data", "params": {"spec": {"chart_type": bad_type}}}, df, {})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["message"] == "chart_type must be line, scatter, histogram, or bar"
     assert result["helper"] == "plot_data"
     plt_mod.subplots.assert_not_called()
@@ -1154,6 +1130,44 @@ def test_time_series_band_only_still_plots(mock_plt, _mock_payload):
     ax.fill_between.assert_called_once()
 
 
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_all_null_overlays_are_not_drawn(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    unused_fig, ax = plt_mod.subplots.return_value
+    ax.get_legend_handles_labels.return_value = ([], [])
+    df = pd.DataFrame(
+        {
+            "date": ["2024-01-01", "2024-02-01"],
+            "Value": [1.0, 2.0],
+            "forecast": [None, None],
+            "lower": [None, 3.0],
+            "upper": [4.0, None],
+        }
+    )
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {
+                "date_col": "date",
+                "value_col": "Value",
+                "forecast_col": "forecast",
+                "lower_col": "lower",
+                "upper_col": "upper",
+            },
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+    assert ax.plot.call_count == 1
+    assert ax.plot.call_args.kwargs["label"] == "Value"
+    ax.fill_between.assert_not_called()
+
+
 def test_try_insert_plot_result_multi_data_images():
     from plugin.scripting import viz
 
@@ -1194,3 +1208,75 @@ def test_try_insert_plot_result_mixed_multi_data_is_not_a_plot():
     assert res is False
     mock_insert.assert_not_called()
     mock_sheet.assert_not_called()
+
+
+_PIN_VIZ_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E", 30, 3], ["W", 40, 4]]
+_PIN_VIZ_TEXT_GRID = [["Region", "Rep"], ["N", "Ann"], ["S", "Bo"]]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_code", "expected_message", "expected_helper"),
+    [
+        (
+            lambda v: v.plot_data(_PIN_VIZ_GRID, spec={"chart_type": "pie"}),
+            "INVALID_PARAM",
+            "chart_type must be line, scatter, histogram, or bar",
+            "plot_data",
+        ),
+        (
+            lambda v: v.plot_data(_PIN_VIZ_GRID, spec={"y": "Nope"}),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "plot_data",
+        ),
+        (
+            lambda v: v.quick_plot(_PIN_VIZ_TEXT_GRID),
+            "NO_NUMERIC_COLUMNS",
+            "No numeric columns to plot.",
+            "quick_plot",
+        ),
+        (
+            lambda v: v.plot_data(_PIN_VIZ_TEXT_GRID, spec={"chart_type": "bar"}),
+            "NO_NUMERIC_COLUMNS",
+            "No numeric columns to plot.",
+            "plot_data",
+        ),
+        (
+            lambda v: v.quick_plot(_PIN_VIZ_GRID, y_col="Region"),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "quick_plot",
+        ),
+        (
+            lambda v: v.plot_data(_PIN_VIZ_GRID, spec={"chart_type": "scatter", "x": "Region", "y": "Sales"}),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "plot_data",
+        ),
+    ],
+)
+@patch("plugin.scripting.venv.viz._require_matplotlib", return_value=MagicMock())
+def test_viz_helper_errors_keep_code_message_helper(
+    _mock_plt,
+    call,
+    expected_code: str,
+    expected_message: str,
+    expected_helper: str,
+):
+    from plugin.scripting.venv import viz as venv_viz
+
+    assert call(venv_viz) == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib", return_value=MagicMock())
+def test_plot_data_passes_plain_value_error(_mock_plt):
+    from plugin.scripting.venv import viz as venv_viz
+
+    with pytest.raises(ValueError, match="header_row 99 is outside the grid") as exc:
+        venv_viz.plot_data(_PIN_VIZ_GRID, header_row=99)
+    assert type(exc.value) is ValueError

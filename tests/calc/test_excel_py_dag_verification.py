@@ -6,20 +6,15 @@
 
 from __future__ import annotations
 
-from typing import get_args, get_origin, get_type_hints
-
 import pytest
 from hypothesis import given, strategies as st
 
 import deal
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
 from plugin.calc.excel_py_convert.to_dag import (
-    _deal_convert_cell_ok,
-    _deal_convert_scripts_ok,
-    _deal_excel_src_ok,
     _find_xl_calls,
     _normalize_bindings,
-    _normalize_excel_placeholders,
+    normalize_excel_placeholders,
     _placeholder_to_data_index,
     _skip_string,
     _xl_binding_expr,
@@ -29,17 +24,6 @@ from plugin.calc.excel_py_convert.to_dag import (
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_XL_EXPR
 from tests.harness.strip_bundle import deal_pre_present
-
-
-def test_xl_binding_expr_header_mode_annotation_is_str() -> None:
-    """CrossHair cannot proxy Literal; HeaderMode must not appear in proxied params."""
-    hints = get_type_hints(_xl_binding_expr)
-    assert hints["header_mode"] is str
-    bind_hints = get_type_hints(_normalize_bindings)
-    header_modes = bind_hints["header_modes"]
-    assert get_origin(header_modes) is dict
-    _key, value = get_args(header_modes)
-    assert value is str
 
 
 @given(st.integers(min_value=2, max_value=2 + DEAL_MAX_PLACEHOLDER_INDEX))
@@ -65,7 +49,7 @@ def test_xl_binding_expr_invariants(idx: int, header_mode: str) -> None:
 
 @given(st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=64))
 def test_normalize_excel_placeholders_length_invariant(src: str) -> None:
-    normalized = _normalize_excel_placeholders(src)
+    normalized = normalize_excel_placeholders(src)
     assert len(normalized) == len(src)
     # Check bare %P2% outside quotes gets replaced by _P2_
     if "%P2%" in src and '"' not in src and "'" not in src and "#" not in src:
@@ -123,38 +107,6 @@ def test_dag_wrapper_overflow_pre_fails_closed() -> None:
                 ],
             )
         )
-
-
-def test_find_xl_calls_accepts_tab_then_quote() -> None:
-    """Pytest domain is DEAL_MAX_SOURCE; a two-char quote walk is a legal script."""
-    calls, issues = _find_xl_calls('\t"')
-    assert calls == []
-    assert isinstance(issues, list)
-
-
-def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
-    """Wrapper scripts pre must share _find_xl_calls' _deal_excel_src_ok.
-
-    Pytest keeps str_bounded (NUL allowed).
-    """
-    assert _deal_excel_src_ok("\x00")
-    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
-    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["x"], cells=[]))
-
-
-def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
-    """Pytest deps stay ascii_bounded so ``_xlfn.ANCHORARRAY`` / ``Table[#All]`` work."""
-    def cell(deps: list[str]) -> ExcelPyCell:
-        return ExcelPyCell(sheet="S", cell="A1", script_index=0, return_type=0, deps=deps)
-
-    assert _deal_convert_cell_ok(cell(["_"]))  # pytest ascii; CrossHair A1 rejects
-    assert _deal_convert_cell_ok(cell(["["]))
-    assert _deal_convert_cell_ok(cell(["\x00"]))
-    assert _deal_convert_cell_ok(cell(["A"]))
-    assert _deal_convert_cell_ok(cell(["M"]))
-    assert _deal_convert_cell_ok(cell(["A1"]))
-    assert _deal_convert_cell_ok(cell(["_xlfn.ANCHORARRAY(A6)"]))
-    assert _deal_convert_cell_ok(cell(["Table1[#All]"]))
 
 
 def test_convert_model_to_dag_underscore_dep_no_pattern_error() -> None:

@@ -95,7 +95,7 @@ def test_navigate_to_cell(ctx, doc):
 
     active_sheet = doc.getCurrentController().getActiveSheet()
     active_sheet.getCellByPosition(4, 4).setString("target")
-    ok = navigate_to_cell(doc, ctx, "E5")
+    ok = navigate_to_cell(doc, "E5")
     assert ok, "navigate_to_cell returned False"
     sel = doc.getCurrentController().getSelection()
     addr = sel.getCellAddress()
@@ -112,23 +112,11 @@ def test_write_formula_range_compound_undo(ctx, doc):
     assert active_sheet.getCellByPosition(6, 1).getString() == "undo-test"
 
     um = doc.getUndoManager()
-    if um is not None:
-        undo_enabled = False
-        try:
-            undo_enabled = um.isUndoEnabled()
-        except Exception:
-            # If the attribute/method is missing or raises, check if undoing is possible
-            try:
-                undo_enabled = um.isUndoPossible()
-            except Exception:
-                pass
-        if undo_enabled:
-            try:
-                um.undo()
-                assert active_sheet.getCellByPosition(6, 0).getString() == "", "G1 should revert after single undo"
-                assert active_sheet.getCellByPosition(6, 1).getString() == "", "G2 should revert after single undo"
-            except Exception:
-                pass
+    assert um is not None, "Expected UndoManager on Calc document"
+    assert um.isUndoPossible(), "Expected compound undo step after write_formula_range"
+    um.undo()
+    assert active_sheet.getCellByPosition(6, 0).getString() == "", "G1 should revert after single undo"
+    assert active_sheet.getCellByPosition(6, 1).getString() == "", "G2 should revert after single undo"
 
 
 @native_test
@@ -306,6 +294,7 @@ def test_evaluate_formula(ctx, doc):
     # Error formula evaluation (e.g. division by zero)
     res_err = eval_tool.execute(tctx, formula="=1/0")
     assert res_err.get("status") == "error", f"Expected error status, got {res_err}"
+    assert res_err.get("code") == "CALC_ERROR", f"Expected CALC_ERROR, got {res_err}"
     assert "error_code" in res_err, f"Expected error_code in response: {res_err}"
     assert "#DIV/0!" in res_err.get("message", ""), f"Expected division by zero message, got {res_err.get('message')}"
 
@@ -393,7 +382,7 @@ def test_calc_spill_undo_lock(ctx, doc):
 
     titles_before = list(um.getAllUndoActionTitles()) if um else []
 
-    perform_deferred_spill(active_sheet.Name, 0, 0, [[1, 2], [3, 4]], doc=doc, key=doc_url)
+    perform_deferred_spill(active_sheet.Name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=active_sheet, code="result = [1, 2, 3]", key=doc_url)
 
     assert active_sheet.getCellByPosition(1, 0).getValue() == 2.0
     assert active_sheet.getCellByPosition(0, 1).getValue() == 3.0

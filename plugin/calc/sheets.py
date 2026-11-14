@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import is_disposal
+from plugin.framework.errors import ToolExecutionError, is_disposal
 from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 from plugin.framework.tool import ToolBase
 
@@ -36,13 +36,14 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
 from plugin.calc.analyzer import SheetAnalyzer
+from plugin.calc.python.sheet_modify import migrate_sheet_rename
 
 log = logging.getLogger(__name__)
 
 _INVALID_SHEET_CHARS = set("[]*?:/\\")
 
 
-def _sheet_name_error(doc: Any, name: Any, *, exclude: str | None = None) -> str | None:
+def _sheet_name_error(doc: Any, name: str, *, exclude: str | None = None) -> str | None:
     """Validate sheet name for create or rename.
 
     Returns an error message string if invalid, or None if valid.
@@ -50,7 +51,7 @@ def _sheet_name_error(doc: Any, name: Any, *, exclude: str | None = None) -> str
     leading underscores (reserved for internal sheets), and case-insensitive
     duplicates (ignoring `exclude`).
     """
-    if not isinstance(name, str) or not name.strip():
+    if not name.strip():
         return "Sheet name cannot be empty."
     for ch in name:
         if ch in _INVALID_SHEET_CHARS:
@@ -64,6 +65,34 @@ def _sheet_name_error(doc: Any, name: Any, *, exclude: str | None = None) -> str
         if folded == target_cf and folded != exclude_cf:
             return f"A sheet named '{existing}' already exists in the document."
     return None
+
+
+def _user_sheet(doc: Any, name: str, verb: str) -> Any:
+    """Return sheet *name* for a sheet verb, refusing LibreOffice-internal tabs.
+
+    A missing name raises CalcBridge.get_sheet's UnoObjectError, which lists the
+    visible sheets. A leading-underscore tab (xlsx import leftovers such as
+    __Anonymous_Sheet_DB__0) exists but is hidden from the agent, so every verb
+    refuses it with the same sentence.
+    """
+    sheet = CalcBridge(doc).get_sheet(name)
+    if not is_agent_visible_sheet(name):
+        raise ToolExecutionError(f"Cannot {verb} internal sheet '{name}'.", code="INVALID_PARAM")
+    return sheet
+
+
+def _insert_position(sheets: Any, position: int | None) -> int:
+    """0-based index for a new tab. Omitted appends; 0..count is valid (count appends).
+
+    prepare_tool_call has already checked that *position* is an integer; only the
+    bound depends on the workbook.
+    """
+    count = sheets.getCount()
+    if position is None:
+        return count
+    if position < 0 or position > count:
+        raise ToolExecutionError(f"Position {position} is out of range (0..{count}).", code="INVALID_PARAM")
+    return position
 
 
 class ListSheets(ToolCalcSheetBase):
@@ -106,7 +135,7 @@ class SwitchSheet(ToolCalcSheetBase):
         sheet_name = kwargs["sheet"]
 
         doc = ctx.doc
-        sheet = CalcBridge(doc).get_sheet(sheet_name)
+        sheet = _user_sheet(doc, sheet_name, "switch to")
         controller = doc.getCurrentController()
         controller.setActiveSheet(sheet)
         log.info("Switched to sheet: %s", sheet_name)
@@ -132,14 +161,10 @@ class CreateSheet(ToolCalcSheetBase):
         doc = ctx.doc
         err = _sheet_name_error(doc, sheet_name)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
 
         sheets = doc.getSheets()
-        count = sheets.getCount()
-        if position is None:
-            position = count
-        elif not isinstance(position, int) or isinstance(position, bool) or position < 0 or position > count:
-            return self._tool_error(f"Position {position} is out of range (0..{count}).")
+        position = _insert_position(sheets, position)
 
         sheets.insertNewByName(sheet_name, position)
         log.info("New sheet created: %s (position: %d)", sheet_name, position)
@@ -167,15 +192,13 @@ class RenameSheet(ToolCalcSheetBase):
         new_name = kwargs["new_name"]
 
         doc = ctx.doc
-        sheet = CalcBridge(doc).get_sheet(old_name)
+        sheet = _user_sheet(doc, old_name, "rename")
         err = _sheet_name_error(doc, new_name, exclude=old_name)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
         sheet.setName(new_name)
         if sheet.getName() != new_name:
             return self._tool_error(f"LibreOffice did not rename '{old_name}' (invalid name or read-only document).")
-        from plugin.calc.python.sheet_modify import migrate_sheet_rename
-
         migrate_sheet_rename(doc, old_name, new_name)
         log.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
         return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}
@@ -193,13 +216,11 @@ class DeleteSheet(ToolCalcSheetBase):
         sheet_name = kwargs["sheet"]
 
         doc = ctx.doc
-        CalcBridge(doc).get_sheet(sheet_name)
-        if not is_agent_visible_sheet(sheet_name):
-            return self._tool_error(f"Cannot delete internal sheet '{sheet_name}'.")
+        _user_sheet(doc, sheet_name, "delete")
         sheets = doc.getSheets()
         visible_names = filter_agent_sheet_names(sheets.getElementNames())
         if len(visible_names) <= 1:
-            return self._tool_error("Cannot delete the only sheet in the document.")
+            return self._tool_error("Cannot delete the only sheet in the document.", code="INVALID_PARAM")
         sheets.removeByName(sheet_name)
         log.info("Sheet deleted: %s", sheet_name)
         return {"status": "ok", "message": f"Sheet '{sheet_name}' deleted."}
@@ -219,10 +240,7 @@ class ProtectSheet(ToolCalcSheetBase):
 
         doc = ctx.doc
         bridge = CalcBridge(doc)
-        if sheet_name:
-            sheet = bridge.get_sheet(sheet_name)
-        else:
-            sheet = bridge.get_active_sheet()
+        sheet = bridge.sheet_or_active(sheet_name)
 
         actual_name = sheet.getName()
         is_currently_protected = sheet.isProtected()
@@ -273,19 +291,13 @@ class SheetCopy(ToolCalcSheetBase):
         position = kwargs.get("position")
 
         doc = ctx.doc
-        CalcBridge(doc).get_sheet(source)
-        if not is_agent_visible_sheet(source):
-            return self._tool_error(f"Cannot copy internal sheet '{source}'.")
+        _user_sheet(doc, source, "copy")
         err = _sheet_name_error(doc, new_name)
         if err:
-            return self._tool_error(err)
+            return self._tool_error(err, code="INVALID_PARAM")
 
         sheets = doc.getSheets()
-        count = sheets.getCount()
-        if position is None:
-            position = count
-        elif not isinstance(position, int) or isinstance(position, bool) or position < 0 or position > count:
-            return self._tool_error(f"Position {position} is out of range (0..{count}).")
+        position = _insert_position(sheets, position)
 
         sheets.copyByName(source, new_name, position)
         log.info("Sheet copied from '%s' to '%s' at position %d.", source, new_name, position)
@@ -311,18 +323,14 @@ class SheetMove(ToolCalcSheetBase):
         sheet_name = kwargs["sheet"]
         position = kwargs["position"]
 
-        if not isinstance(position, int) or isinstance(position, bool):
-            return self._tool_error("position must be an integer.")
-
         doc = ctx.doc
-        CalcBridge(doc).get_sheet(sheet_name)
-        if not is_agent_visible_sheet(sheet_name):
-            return self._tool_error(f"Cannot move internal sheet '{sheet_name}'.")
+        _user_sheet(doc, sheet_name, "move")
 
         sheets = doc.getSheets()
         count = sheets.getCount()
+        # prepare_tool_call has already checked that position is an integer; only the bound depends on the workbook.
         if position < 0 or position >= count:
-            return self._tool_error(f"Position {position} is out of range (0..{count - 1}).")
+            return self._tool_error(f"Position {position} is out of range (0..{count - 1}).", code="INVALID_PARAM")
 
         sheets.moveByName(sheet_name, position)
         log.info("Sheet '%s' moved to position %d.", sheet_name, position)
@@ -347,14 +355,9 @@ class SheetHide(ToolCalcSheetBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         sheet_name = kwargs["sheet"]
         visible = kwargs.get("visible", False)
-        if not isinstance(visible, bool):
-            return self._tool_error("visible must be a boolean.")
 
         doc = ctx.doc
-        bridge = CalcBridge(doc)
-        sheet = bridge.get_sheet(sheet_name)
-        if not is_agent_visible_sheet(sheet_name):
-            return self._tool_error(f"Cannot hide internal sheet '{sheet_name}'.")
+        sheet = _user_sheet(doc, sheet_name, "hide")
 
         if not visible:
             sheets = doc.getSheets()
@@ -364,7 +367,7 @@ class SheetHide(ToolCalcSheetBase):
                 if sheets.getByName(name).getPropertyValue("IsVisible")
             )
             if sheet.getPropertyValue("IsVisible") and visible_count <= 1:
-                return self._tool_error("Cannot hide the only visible sheet in the document.")
+                return self._tool_error("Cannot hide the only visible sheet in the document.", code="INVALID_PARAM")
 
         sheet.setPropertyValue("IsVisible", visible)
         state = "visible" if visible else "hidden"
@@ -389,7 +392,7 @@ class GetSheetSummary(ToolBase):
         # Leading '_' tabs are LO internals (xlsx→ods ``__Anonymous_Sheet_DB__*``).
         # Omit from agent summaries; do not delete the sheet.
         if sheet_name and not is_agent_visible_sheet(sheet_name):
-            return self._tool_error(f"No user-visible sheet named '{sheet_name}'.")
+            return self._tool_error(f"No user-visible sheet named '{sheet_name}'.", code="INVALID_PARAM")
 
         result = analyzer.get_sheet_summary(sheet_name=sheet_name)
         if not is_agent_visible_sheet(result.get("sheet_name", "")):

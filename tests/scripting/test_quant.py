@@ -15,22 +15,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.scripting.helper_domain import header_prefix
-from plugin.scripting.helper_registry import names
-from plugin.scripting.quant import (
-    get_quant_template,
-)
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.venv.quant import run_quant as venv_run_quant
-
-
-def test_quant_template_is_executable():
-    code = get_quant_template("fetch_historical_data")
-    assert code is not None
-    assert "from writeragent.scripting.quant import run_quant" in code
-    assert "fetch_historical_data" in code
-    assert header_prefix("quant") not in code.splitlines()[0]
-    assert "'tickers': 'AAPL'" in code
-    assert "'tickers': 'data'" not in code
 
 
 def test_run_quant_missing_package(monkeypatch):
@@ -53,9 +39,8 @@ def test_run_quant_invalid_params(monkeypatch):
     monkeypatch.setitem(sys.modules, "yfinance", object())
     result = venv_run_quant({"helper": "fetch_historical_data", "params": {}})
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert result["helper"] == "fetch_historical_data"
-    from plugin.scripting.domain_registry import get_domain_wiring
 
     assert get_domain_wiring("quant").is_result(result) is True
 
@@ -75,11 +60,6 @@ def test_fetch_historical_data_calc_range(monkeypatch):
     assert result["status"] == "ok"
     fake_yf.download.assert_called_once()
     assert fake_yf.download.call_args[0][0] == ["AAPL", "MSFT"]
-
-
-def test_helper_names_cover_templates():
-    for helper in names("quant"):
-        assert get_quant_template(helper) is not None
 
 
 def test_portfolio_tearsheet_portfolio_returns_grid():
@@ -102,7 +82,7 @@ def test_portfolio_tearsheet_portfolio_returns_grid():
     assert result["helper"] == "portfolio_tearsheet"
     assert "metrics" in result
     assert isinstance(result["metrics"], dict)
-    assert "Cumulative Return" in result["metrics"] or len(result["metrics"]) > 0
+    assert "Cumulative Return" in result["metrics"]
 
 
 def test_portfolio_tearsheet_with_date_column_and_single_column_param():
@@ -150,7 +130,6 @@ def test_technical_analysis_missing_column_sets_helper(monkeypatch):
     assert result["status"] == "error"
     assert result["code"] == "MISSING_COLUMN"
     assert result["helper"] == "technical_analysis"
-    from plugin.scripting.domain_registry import get_domain_wiring
 
     assert get_domain_wiring("quant").is_result(result) is True
 
@@ -179,7 +158,6 @@ def test_efficient_frontier_treats_grid_as_returns():
 
 
 def test_is_quant_result_uses_helper_names_not_fetch_prefix():
-    from plugin.scripting.domain_registry import get_domain_wiring
 
     is_quant_result = get_domain_wiring("quant").is_result
     assert is_quant_result({"status": "ok", "helper": "fetch_historical_data"}) is True
@@ -214,7 +192,7 @@ def test_portfolio_tearsheet_bad_column(monkeypatch):
         data=grid,
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "NonExistent" in result["message"]
 
 
@@ -412,7 +390,7 @@ def test_technical_analysis_unknown_indicator(monkeypatch):
         data=grid,
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
     assert "invalid_indicator" in result["message"]
 
 
@@ -547,7 +525,7 @@ def test_technical_analysis_rejects_non_list_indicators(monkeypatch):
         data=[["Close"], [1.0]],
     )
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
 
 
 def test_portfolio_tearsheet_sorts_and_averages_duplicate_dates(monkeypatch):
@@ -720,13 +698,13 @@ def test_efficient_frontier_rejects_bad_bounds_and_rate(monkeypatch):
         data=grid,
     )
     assert bounds["status"] == "error"
-    assert bounds["code"] == "INVALID_PARAMS"
+    assert bounds["code"] == "INVALID_PARAM"
     rate = venv_run_quant(
         {"helper": "efficient_frontier", "params": {"risk_free_rate": "nope"}},
         data=grid,
     )
     assert rate["status"] == "error"
-    assert rate["code"] == "INVALID_PARAMS"
+    assert rate["code"] == "INVALID_PARAM"
     mock_ef_class.assert_not_called()
 
 

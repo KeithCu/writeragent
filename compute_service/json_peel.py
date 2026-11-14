@@ -15,7 +15,7 @@ import json
 from typing import Any
 
 from compute_service import error_codes as ec
-from compute_service.json_forward import ExecuteRequestError, ExecuteRequestParts, _reject_json_constant, _reject_nonfinite_number
+from compute_service.json_forward import ExecuteRequestError, ExecuteRequestParts, check_req_id, reject_json_constant, reject_nonfinite_number
 
 _WS = frozenset({0x09, 0x0A, 0x0D, 0x20})
 _MAX_JSON_DEPTH = 256
@@ -50,7 +50,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
         i = _skip_ws(buf, i + 1)
         if i != len(buf):
             raise ExecuteRequestError("Trailing data after JSON object")
-        return ExecuteRequestParts(req_id=None, code=None, mode=None, timeout_ms=None, init_script=None, data_json=None, has_session_id=False)
+        return ExecuteRequestParts(req_id=None, code=None, timeout_ms=None, init_script=None, data_json=None, has_session_id=False)
 
     while True:
         i = _skip_ws(buf, i)
@@ -80,6 +80,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
             if data_json is None:
                 data_json = _coerce_data_json_field(value_slice)
         elif key in ("id", "code", "mode", "timeout_ms", "init_script", "session_id"):
+            # mode is decoded only so a non-finite value is still a 400; routing reads ?session_id=
             fields[key] = _loads_small(value_slice)
 
         i = _skip_ws(buf, i)
@@ -99,13 +100,12 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
             raise ExecuteRequestError("Trailing comma in JSON object")
 
     req_id = fields.get("id")
-    if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-        raise ExecuteRequestError("id must be a scalar", code=ec.INVALID_REQUEST)
+    check_req_id(req_id)
     timeout_ms = fields.get("timeout_ms")
     if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
         raise ExecuteRequestError("timeout_ms must be a scalar", code=ec.INVALID_REQUEST)
 
-    return ExecuteRequestParts(req_id=req_id, code=fields.get("code"), mode=fields.get("mode"), timeout_ms=timeout_ms, init_script=fields.get("init_script"), data_json=data_json, has_session_id="session_id" in fields)
+    return ExecuteRequestParts(req_id=req_id, code=fields.get("code"), timeout_ms=timeout_ms, init_script=fields.get("init_script"), data_json=data_json, has_session_id="session_id" in fields)
 
 
 def _coerce_data_json_field(value_slice: bytes) -> bytes:
@@ -127,10 +127,10 @@ def _coerce_data_json_field(value_slice: bytes) -> bytes:
 
 def _loads_small(value_slice: bytes) -> Any:
     try:
-        value = json.loads(value_slice.decode("utf-8"), parse_constant=_reject_json_constant)
+        value = json.loads(value_slice.decode("utf-8"), parse_constant=reject_json_constant)
     except Exception as exc:
         raise ExecuteRequestError("Invalid JSON value") from exc
-    _reject_nonfinite_number(value)
+    reject_nonfinite_number(value)
     return value
 
 

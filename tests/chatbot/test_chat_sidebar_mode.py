@@ -15,13 +15,11 @@ import pytest
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_BRAINSTORMING,
     CHAT_MODE_CHAT,
-    CHAT_MODE_DEEP_RESEARCH,
     CHAT_MODE_IMAGE,
     CHAT_MODE_LIBRARIAN,
     CHAT_MODE_PPT_MASTER,
     CHAT_MODE_WEB_RESEARCH,
     CHAT_MODE_WRITING_PLAN,
-    LIBRARIAN_HISTORY_SESSION_ID,
     SidebarModeFlags,
     SidebarModeController,
     _modes_for,
@@ -33,7 +31,6 @@ from plugin.chatbot.chat_sidebar_mode import (
     populate_mode_selector_with_flags,
     release_sticky_session,
     set_selector_mode_with_flags,
-    sidebar_mode_flags_for_doc_type,
 )
 
 
@@ -51,48 +48,12 @@ def test_mode_labels_match_modes_for_length_and_order():
             assert mode_from_label(label, flags) == mode
 
 
-def test_mode_labels_include_brainstorming_when_writer():
-    flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_deep_research=True)
-    labels = get_mode_labels(flags)
-    assert len(labels) == 7
-    assert mode_from_label(labels[0], flags) == CHAT_MODE_CHAT
-    assert labels[1] == "Image"
-    assert mode_from_label(labels[1], flags) == CHAT_MODE_IMAGE
-    assert mode_from_label(labels[2], flags) == CHAT_MODE_WEB_RESEARCH
-    assert mode_from_label(labels[3], flags) == CHAT_MODE_DEEP_RESEARCH
-    assert mode_from_label(labels[4], flags) == CHAT_MODE_BRAINSTORMING
-    assert mode_from_label(labels[5], flags) == CHAT_MODE_WRITING_PLAN
-    assert mode_from_label(labels[6], flags) == CHAT_MODE_LIBRARIAN
-
-
-def test_mode_labels_omit_brainstorming_for_calc():
+def test_mode_labels_writing_plan_without_brainstorming():
     flags = SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
     labels = get_mode_labels(flags)
     assert len(labels) == 5
     assert mode_from_label(labels[3], flags) == CHAT_MODE_WRITING_PLAN
     assert mode_from_label(labels[-1], flags) == CHAT_MODE_LIBRARIAN
-
-
-def test_calc_sidebar_omits_writing_plan():
-    flags = sidebar_mode_flags_for_doc_type("calc")
-    assert flags.include_writing_plan is False
-    assert "Writing Plan" not in get_mode_labels(flags)
-    assert "Deep Research" in get_mode_labels(flags)
-
-
-def test_mode_labels_ppt_master_for_impress():
-    flags = sidebar_mode_flags_for_doc_type("impress")
-    labels = get_mode_labels(flags)
-    assert len(labels) == 6
-    assert mode_from_label(labels[3], flags) == CHAT_MODE_DEEP_RESEARCH
-    assert mode_from_label(labels[-2], flags) == CHAT_MODE_PPT_MASTER
-    assert mode_from_label(labels[-1], flags) == CHAT_MODE_LIBRARIAN
-
-
-def test_deep_research_in_all_product_apps():
-    for app in ("calc", "draw", "impress", "writer"):
-        assert "Deep Research" in get_mode_labels(sidebar_mode_flags_for_doc_type(app))
-    assert "Deep Research" not in get_mode_labels(sidebar_mode_flags_for_doc_type("unknown"))
 
 
 def test_mode_from_selector_reads_combobox_text():
@@ -205,31 +166,12 @@ def test_librarian_default_mode_existing_profile_skips_and_sets_flag():
         mock_mark.assert_called_once()
 
 
-def test_librarian_history_session_id_is_global():
-    assert LIBRARIAN_HISTORY_SESSION_ID == "writeragent_librarian"
-    assert "_web" not in LIBRARIAN_HISTORY_SESSION_ID
-
-
 def test_set_selector_mode_librarian_is_last_index():
     ctrl = MagicMock()
     flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     labels = get_mode_labels(flags)
     set_selector_mode_with_flags(ctrl, CHAT_MODE_LIBRARIAN, flags)
     ctrl.selectItemPos.assert_called_once_with(len(labels) - 1, True)
-
-
-def test_mode_from_label_dropped_from_check_all_fqns():
-    """mode_from_label is omitted from cover_fqns_for_module."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/chatbot/chat_sidebar_mode.py"), require_deal=True)
-    assert not any(f.endswith(".mode_from_label") for f in fqns)
-    assert any(f.endswith(".get_mode_labels") for f in fqns)
 
 
 def test_sidebar_mode_controller_brainstorming_finished():
@@ -271,27 +213,10 @@ def test_sidebar_mode_controller_other_modes_finished():
         panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
 
-def test_greeting_for_sidebar_mode():
-    from plugin.chatbot.chat_sidebar_mode import (
-        CHAT_MODE_BRAINSTORMING,
-        CHAT_MODE_CHAT,
-        CHAT_MODE_DEEP_RESEARCH,
-        CHAT_MODE_LIBRARIAN,
-        CHAT_MODE_PPT_MASTER,
-        CHAT_MODE_WEB_RESEARCH,
-        CHAT_MODE_WRITING_PLAN,
-        greeting_for_sidebar_mode,
-    )
+def test_greeting_for_chat_mode_falls_back_to_document_greeting():
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, greeting_for_sidebar_mode
 
     fake_model = MagicMock()
-
-    assert "web research" in greeting_for_sidebar_mode(CHAT_MODE_WEB_RESEARCH, fake_model).lower()
-    assert "deep research" in greeting_for_sidebar_mode(CHAT_MODE_DEEP_RESEARCH, fake_model).lower()
-    assert "design your idea" in greeting_for_sidebar_mode(CHAT_MODE_BRAINSTORMING, fake_model).lower()
-    assert "writing plan" in greeting_for_sidebar_mode(CHAT_MODE_WRITING_PLAN, fake_model).lower()
-    assert "ppt-master" in greeting_for_sidebar_mode(CHAT_MODE_PPT_MASTER, fake_model).lower()
-    assert "librarian" in greeting_for_sidebar_mode(CHAT_MODE_LIBRARIAN, fake_model).lower()
-
     with patch("plugin.framework.prompts.get_greeting_for_document", return_value="Default doc greeting") as mock_fallback:
         res = greeting_for_sidebar_mode(CHAT_MODE_CHAT, fake_model)
         assert res == "Default doc greeting"

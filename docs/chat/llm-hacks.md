@@ -14,7 +14,7 @@ Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now
 **Problem**: When using `write_formula_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a native row array `[["Name", "Age", "Salary"]]` or a JSON-encoded flat array. Without a workaround, this writes the entire string into a single cell.
 
 ### [Workaround] Raw String Splitting
-The internal `_parse_formula_or_values_string` helper in `core/calc_manipulator.py` detects raw semicolon-separated strings.
+The internal `_parse_formula_or_values_string` helper in `plugin/calc/manipulator.py` detects raw semicolon-separated strings.
 - **Formula-Safe Detection**: It skips strings starting with `=` (standard formulas) but splits other strings containing `;` using `csv.reader`.
 - **CSV Reader**: Using `csv.reader` (with `skipinitialspace=True`) ensures that if the LLM puts a semicolon inside a quoted string, it won't be split incorrectly.
 
@@ -24,7 +24,7 @@ The internal `_parse_formula_or_values_string` helper in `core/calc_manipulator.
 **Problem**: LLMs often use semicolons inside JSON arrays (e.g., `["A"; "B"]`). Standard `json.loads` fails here. A blind `replace(";", ",")` fix breaks real formulas that *need* semicolons (e.g., `=SUM(A1;B1)` becomes `=SUM(A1,B1)` which is an error in Calc).
 
 ### [Workaround] Regex-Bound Replacement
-In `core/calc_manipulator.py`, we use a regular expression to normalize JSON arrays before parsing.
+In `plugin/calc/manipulator.py`, we use a regular expression to normalize JSON arrays before parsing.
 - **Regex**: `re.sub(r';(?=(?:[^"]*"[^"]*")*[^"]*$)', ',', s_strip)`
 - **Behavior**: This only replaces semicolons that are **not** inside double quotes. This preserves semicolons inside formula strings while fixing the JSON structure.
 
@@ -208,7 +208,9 @@ Tests: [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_
 - **Cerebras**: Chat Completions body `prompt_cache_key` (capped at 1024 characters).
 - **xAI**: Header `x-grok-conv-id` (native xAI stays on Chat Completions via `GrokShim`, so header is used; omitted if containing non-printable ASCII).
 
-Anthropic Messages has no session routing key (cache breakpoints use `cache_control` blocks via `annotate_anthropic_cache`), and every unnamed host (`google`, `groq`, `ollama`, `together`, `mistral`, `custom`) gets nothing to avoid HTTP 400 rejection on unknown fields. Non-chat requests (compaction, smol, grammar, images, web research, forms, `=PROMPT()`) do not send it.
+Anthropic Messages has no session routing key (cache breakpoints use explicit `cache_control` blocks via `annotate_anthropic_cache`). Instead, native Anthropic requests send `diagnostics: {"previous_message_id": <msg_...>}` to receive cache hit/miss metadata, storing the last `msg_...` identifier on the panel's `LlmClient` keyed by `cache_session_id`. Other providers do not send or receive this field. Non-chat requests (compaction, smol, grammar, images, web research, forms, `=PROMPT()`) do not pass `cache_session_id`, sending `null` and leaving any active chat session ID untouched. Every unnamed host (`google`, `groq`, `ollama`, `together`, `mistral`, `custom`) gets nothing to avoid HTTP 400 rejection on unknown fields.
+
+`cache_read_count` normalizes cache read metrics across providers, checking `cache_read_input_tokens` (Anthropic), `prompt_tokens_details.cached_tokens` (OpenAI and OpenRouter), and `prompt_cache_hit_tokens` (DeepSeek).
 
 **Workaround** ([`cache_route`](../../plugin/framework/client/base_provider_shim.py)):
 `ChatSession.session_id` is passed as `cache_session_id` during tool-loop and final stream requests, applying provider-specific body fields or headers without altering message history or system prompt text. The chat session id overrides any `session_id` in the model's extra JSON, on purpose, so every turn of one chat keeps the same routing key. All librarian chats share [`LIBRARIAN_HISTORY_SESSION_ID`](../../plugin/chatbot/chat_sidebar_mode.py), which is harmless at one user's request rate.

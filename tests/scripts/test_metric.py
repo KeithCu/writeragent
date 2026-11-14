@@ -16,14 +16,12 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from metric import (  # noqa: E402
-    SLICE_LENGTH_MAX_RATIO,
     _get_total_tokens,
     slice_length_penalty,
 )
 
 
 def test_slice_length_penalty_stays_zero_until_double() -> None:
-    assert SLICE_LENGTH_MAX_RATIO == 2.0
     assert slice_length_penalty("x" * 20, 10) == 0.0
     assert slice_length_penalty("x" * 10, 10) == 0.0
     assert slice_length_penalty("x" * 30, 10) == pytest.approx(0.5)

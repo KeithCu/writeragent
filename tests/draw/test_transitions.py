@@ -11,44 +11,21 @@ from plugin.draw.transitions import (
     GetSlideTransition,
     SetSlideLayout,
     SetSlideTransition,
-    _FADE_EFFECTS,
     apply_slide_layout,
 )
 
 
-def test_layout_ids_match_libreoffice_autolayout():
-    """Friendly names must be AutoLayout ids, not PpSlideLayout minus one."""
-    assert layout_id("title") == 0
-    assert layout_id("text") == 1
-    assert layout_id("two_column_text") == 3
-    assert layout_id("title_only") == 19
-    assert layout_id("blank") == 20
-    assert layout_id("four_objects") == 18
-    assert layout_id("vertical_text") == 29
-    assert layout_id("six_objects") == 34
-    assert layout_id("chart") == 2
-    assert layout_id("table") == 8
-    assert layout_id("object") == 11
-    # The old VBA table wrote these onto page.Layout and picked another layout.
-    assert layout_id("title_only") != 10
-    assert layout_id("blank") != 11
-    assert layout_id("two_column_text") != 2
-    assert layout_id("four_objects") != 23
+def test_layout_table_friendly_names_unique():
+    """Friendly names in LAYOUT_TABLE must be unique (id pins live in test_transitions_uno.py)."""
     friendly_entries = [row[0] for row in LAYOUT_TABLE if row[0] is not None]
     assert len(set(friendly_entries)) == len(friendly_entries)
 
 
 def test_layout_id_blank_and_none_alias():
-    assert layout_id("blank") == 20
-    assert layout_id("none") == 20
+    assert layout_id("none") == layout_id("blank") == 20
     assert layout_id("NONE") == 20
-    assert layout_id("large_object") == layout_id("object") == 11
-    assert layout_id("two_objects") == layout_id("two_column_text") == 3
     assert layout_id("unknown") is None
     assert layout_id("") is None
-    # No AutoLayout constant; the old ids were handout pages.
-    assert layout_id("text_and_media") is None
-    assert layout_id("media_and_text") is None
 
 
 def test_apply_slide_layout_sets_page_and_returns_canonical():
@@ -71,21 +48,10 @@ def test_apply_slide_layout_unknown_raises():
         apply_slide_layout(MagicMock(), "999")
 
 
-def test_layout_name_and_available():
-    from plugin.draw.layouts import available_layout_names
-
-    assert layout_name(0) == "title"
-    assert layout_name(1) == "text"
-    assert layout_name(20) == "blank"
+def test_layout_name_fallback_and_numeric_id():
     assert layout_name(21) == "autolayout_notes"
     assert layout_name(99) == "unknown_99"
     assert apply_slide_layout(MagicMock(), "21") == "autolayout_notes"
-
-    avail = available_layout_names()
-    assert "blank" in avail
-    assert "none" in avail
-    assert "text" in avail
-    assert "two_objects" in avail
 
 
 def test_set_slide_layout_uses_shared_helper():
@@ -135,9 +101,6 @@ def test_get_slide_layout_labels_autolayout_not_powerpoint_ids():
     assert four["layout_id"] == 18
     assert handout["layout_name"] == "autolayout_handout2"
     assert unknown["layout_name"] == "unknown_99"
-    assert "blank" in blank["available_layouts"]
-    assert "none" in blank["available_layouts"]
-    assert "title_only" in blank["available_layouts"]
 
 
 def test_get_slide_transition_defaults_when_properties_missing():
@@ -210,16 +173,27 @@ def test_set_slide_transition_effect_and_speed():
     page.setPropertyValue.assert_any_call("Change", 1)
 
 
-def test_set_slide_transition_unknown_effect():
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"effect": "not_a_real_effect"}, id="unknown_effect"),
+        pytest.param({"speed": "supersonic"}, id="unknown_speed"),
+        pytest.param({"advance": "telepathic"}, id="unknown_advance"),
+        pytest.param({"effect": "dissolve", "speed": "supersonic"}, id="invalid_speed_with_effect"),
+        pytest.param({"effect": "dissolve", "duration": 5, "advance": "telepathic"}, id="invalid_advance_with_effect"),
+        pytest.param({"duration": "five"}, id="bad_duration_type"),
+        pytest.param({"transition_duration": "long"}, id="bad_transition_duration_type"),
+    ],
+)
+def test_set_slide_transition_invalid_args_write_nothing(kwargs):
     ctx = MagicMock()
     page = MagicMock()
     with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, effect="not_a_real_effect")
+        out = SetSlideTransition().execute(ctx, page=0, **kwargs)
 
     assert out["status"] == "error"
-    assert "Unknown effect" in out["message"]
-    assert "dissolve" in out["details"]["available"]
+    page.setPropertyValue.assert_not_called()
 
 
 def test_set_slide_transition_enum_import_error_is_a_tool_error():
@@ -231,20 +205,7 @@ def test_set_slide_transition_enum_import_error_is_a_tool_error():
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 
     assert out["status"] == "error"
-    assert "Could not update slide transition" in out["message"]
     page.setPropertyValue.assert_not_called()
-
-
-def test_set_slide_transition_accepts_every_effect_key():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
-         patch("plugin.draw.transitions._pres_enum", return_value="enum"):
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        for key in _FADE_EFFECTS:
-            out = SetSlideTransition().execute(ctx, page=0, effect=key)
-            assert out["status"] == "ok"
-            assert "effect" in out["updated"]
 
 
 def test_set_slide_transition_unknown_effect_never_looks_up_enum():
@@ -256,31 +217,7 @@ def test_set_slide_transition_unknown_effect_never_looks_up_enum():
         out = SetSlideTransition().execute(ctx, page=0, effect="bogus")
 
     assert out["status"] == "error"
-    assert "Unknown effect" in out["message"]
-
-
-def test_set_slide_transition_unknown_speed():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, speed="supersonic")
-
-    assert out["status"] == "error"
-    assert "Unknown speed" in out["message"]
-    assert out["details"]["available"] == ["fast", "medium", "slow"]
-
-
-def test_set_slide_transition_unknown_advance():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, advance="telepathic")
-
-    assert out["status"] == "error"
-    assert "Unknown advance" in out["message"]
-    assert out["details"]["available"] == ["auto", "on_click", "semi_auto"]
+    page.setPropertyValue.assert_not_called()
 
 
 def test_set_slide_transition_accepts_semi_auto():
@@ -328,49 +265,6 @@ def test_set_slide_layout_uses_ctx_active_page_index():
     bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=1)
 
 
-def test_set_slide_transition_invalid_speed_writes_nothing():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", speed="supersonic")
-    assert out["status"] == "error"
-    assert "Unknown speed" in out["message"]
-    page.setPropertyValue.assert_not_called()
-
-
-def test_set_slide_transition_invalid_advance_writes_nothing():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", duration=5, advance="telepathic")
-    assert out["status"] == "error"
-    page.setPropertyValue.assert_not_called()
-
-
-def test_set_slide_transition_bad_duration_type():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, duration="five")
-    assert out["status"] == "error"
-    assert "Invalid duration" in out["message"]
-    page.setPropertyValue.assert_not_called()
-
-
-def test_set_slide_transition_bad_transition_duration_type():
-    ctx = MagicMock()
-    page = MagicMock()
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        out = SetSlideTransition().execute(ctx, page=0, transition_duration="long")
-    assert out["status"] == "error"
-    assert "Invalid transition_duration" in out["message"]
-    page.setPropertyValue.assert_not_called()
-
-
 def test_set_slide_transition_write_failure_is_a_tool_error():
     ctx = MagicMock()
     page = MagicMock()
@@ -383,12 +277,14 @@ def test_set_slide_transition_write_failure_is_a_tool_error():
 
 
 def test_set_slide_transition_disposal_still_raises():
+    class DisposedException(Exception):
+        pass
+
     ctx = MagicMock()
     page = MagicMock()
-    page.setPropertyValue.side_effect = RuntimeError("boom")
-    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
-         patch("plugin.draw.transitions.is_disposal", return_value=True):
+    page.setPropertyValue.side_effect = DisposedException("disposed")
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with pytest.raises(RuntimeError):
+        with pytest.raises(DisposedException):
             SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 

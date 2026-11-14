@@ -120,7 +120,7 @@ def test_direct_parse_quantity_scalar_and_vector():
 
 
 def test_direct_format_quantity_scalar_and_vector():
-    # Compact unit text. The long name used to be "3.5 meter".
+    # Compact unit text (not the long unit name).
     assert format_quantity(magnitude=3.5, units="m") == "3.5 m"
     assert format_quantity(magnitude=0, units="m") == "0 m"
     # Sheet blanks stay empty. map_over_range skips them before formatting.
@@ -260,7 +260,7 @@ def test_run_units_parse_error():
 
 @pytest.mark.parametrize("value", ["", None])
 def test_run_units_blank_value_is_parse_error(value):
-    # Empty used to become a successful 0 km/h via `float(text or "0")`.
+    # Empty or None value is a PARSE_ERROR rather than coercing to 0.
     result = run_units(
         {"helper": "convert_quantity", "params": {"value": value, "from": "m/s", "to": "km/h"}},
         None,
@@ -296,7 +296,7 @@ def test_run_units_blank_format_magnitude_is_parse_error():
 
 
 def test_unknown_unit_is_parse_error_and_mismatch_is_units_error():
-    # UndefinedUnitError subclasses AttributeError, so it used to be UNITS_ERROR.
+    # UndefinedUnitError subclasses AttributeError; unknown units map to PARSE_ERROR.
     bad = run_units(
         {"helper": "convert_quantity", "params": {"value": "10", "from": "m", "to": "not_a_unit"}},
         None,
@@ -404,7 +404,7 @@ def test_check_dimensionality_alias_conflict_is_invalid_spec():
 
 
 def test_convert_quantity_none_unit_is_missing_param():
-    # None used to pass `!= ""` and come back as #VALUE!.
+    # None unit returns a MISSING_PARAM error dict.
     result = convert_quantity(10, None, "m")
     assert isinstance(result, dict)
     assert result["status"] == "error"
@@ -453,7 +453,9 @@ def test_dispatch_matches_helper_names():
     from plugin.scripting.helper_registry import bound, names
     import plugin.scripting.venv.units  # noqa: F401
 
-    assert all(callable(bound("units", name)) for name in names("units"))
+    helper_names = names("units")
+    assert helper_names
+    assert all(callable(bound("units", name)) for name in helper_names)
 
 
 def test_run_units_pairwise_units_broadcast_suffixes():
@@ -694,3 +696,24 @@ def test_is_units_result_uses_helper_names():
     assert is_res({"status": "ok", "values": [[36.0]], "magnitudes": [36.0]}) is False
     assert is_res({"status": "error", "code": "PARSE_ERROR"}) is False
     assert is_res("36 km/h") is False
+
+
+def test_blank_one_cell_unit_is_value_error_direct_and_missing_param_rpc():
+    assert convert_quantity(5, [[""]], "m") == "#VALUE!"
+    assert format_quantity(magnitude=5, units=[[""]]) == "#VALUE!"
+    assert (
+        run_units(
+            {"helper": "convert_quantity", "params": {"value": 5, "from_unit": [[""]], "to_unit": "m"}},
+            None,
+            {},
+        )["code"]
+        == "MISSING_PARAM"
+    )
+    assert (
+        run_units(
+            {"helper": "format_quantity", "params": {"magnitude": 5, "units": [[""]]}},
+            None,
+            {},
+        )["code"]
+        == "MISSING_PARAM"
+    )

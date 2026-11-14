@@ -15,25 +15,32 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Calc analysis tools: trusted numpy helpers, Goal Seek, and Solver.
 
+This module also owns the shared data-tool ladder (``CalcDataToolArgs``,
+``run_calc_data_tool``, ``write_anchor_result``) used by ``analyze_data``,
+``forecast_data``, ``optimize_data``, and ``plot_data``.
+
 Chat/MCP: these classes are ToolBaseDummy (not registered). Use =PY() or domain=python.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from functools import partial
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from plugin.framework.errors import (
     ToolExecutionError,
-    UnoObjectError,
-    is_disposal,
     reraise_if_disposed,
     uno_read,
 )
+from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import enum_has_more
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
+from plugin.calc.analysis_egress import insert_analysis_result_into_calc
 from plugin.calc.calc_utils import resolve_sheet_and_cell
+from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis, should_auto_plot
+from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names
 
 
@@ -42,6 +49,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+
+_GENERIC_SOLVER_SERVICE = "com.sun.star.sheet.Solver"
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
 # NLPSolver engines that open status dialogs (see docs/calc/analysis-tools.md).
@@ -60,27 +69,59 @@ def _impl_name_is_java_nlp_headless_unsafe(impl_name: str) -> bool:
 
 
 def _user_requested_java_nlp_engine(engine_name: str | None) -> bool:
-    if not engine_name or engine_name == "com.sun.star.sheet.Solver":
+    if not engine_name or engine_name == _GENERIC_SOLVER_SERVICE:
         return False
     return any(tok in engine_name for tok in ("NLPSolver", "DEPS", "SCO"))
 
 
-def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> bool:
-    """Drop instances that need a visible frame when user did not ask for a Java NLP engine."""
-    if _user_requested_java_nlp_engine(engine_name):
-        return False
-    return _impl_name_is_java_nlp_headless_unsafe(_solver_impl_name(solver))
+def _solver_is_usable(engine_name: str | None, solver: Any) -> bool:
+    """Return True if solver is non-null and safe to run headless.
+
+    Java NLP engines (DEPS, SCO) need a visible frame and open status dialogs,
+    so they are used only when the caller named one.
+    """
+    return bool(solver) and (_user_requested_java_nlp_engine(engine_name) or not _impl_name_is_java_nlp_headless_unsafe(_solver_impl_name(solver)))
+
+
+def pick_solver(smgr: Any, uno_ctx: Any, engine_name: str | None) -> tuple[Any, str] | None:
+    """Select a usable Solver service and return ``(solver, engine_label)`` or ``None``.
+
+    Tries the caller-named engine (unless generic), then native linear engines,
+    then every other registered implementation via ``createContentEnumeration``,
+    and finally the generic ``com.sun.star.sheet.Solver`` service. The generic
+    service comes last because it resolves to the first registered
+    implementation, which is a Java NLP engine on standard builds.
+    """
+    named = (engine_name,) if engine_name and engine_name != _GENERIC_SOLVER_SERVICE else ()
+    for svc in (*named, *_PREFERRED_SOLVER_SERVICES):
+        solver = uno_read(partial(smgr.createInstanceWithContext, svc, uno_ctx), None)
+        if _solver_is_usable(engine_name, solver):
+            return solver, svc
+    # cppuhelper/source/servicemanager.cxx: ServiceManager::createContentEnumeration.
+    # Java factories are skipped by name before instantiation so no JVM starts for them.
+    factories = smgr.createContentEnumeration(_GENERIC_SOLVER_SERVICE)
+    while factories is not None and enum_has_more(factories):
+        factory = factories.nextElement()
+        impl_name = _solver_impl_name(factory)
+        if _impl_name_is_java_nlp_headless_unsafe(impl_name):
+            continue
+        solver = uno_read(partial(factory.createInstanceWithContext, uno_ctx), None)
+        if _solver_is_usable(engine_name, solver):
+            return solver, f"enumeration:{impl_name}"
+    solver = uno_read(partial(smgr.createInstanceWithContext, _GENERIC_SOLVER_SERVICE, uno_ctx), None)
+    if _solver_is_usable(engine_name, solver):
+        return solver, _GENERIC_SOLVER_SERVICE
+    return None
 
 
 def resolve_cell_address(doc: Any, address: str) -> Any:
     """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a UNO CellAddress struct.
 
-    Raises:
-        UnoObjectError: When sheet cannot be found or address is invalid.
+    Refuses a caller-passed address that cannot be resolved with ``INVALID_PARAM``.
     """
     resolved = resolve_sheet_and_cell(doc, address)
     if resolved is None:
-        raise UnoObjectError(f"Cannot resolve cell address '{address}'.")
+        raise ToolExecutionError(f"Cannot resolve cell address '{address}'.", code="INVALID_PARAM")
     sheet, col, row = resolved
     cell = sheet.getCellByPosition(col, row)
     return cell.getCellAddress()
@@ -102,6 +143,9 @@ class GoalSeekTool(ToolBaseDummy):
         "required": ["formula_cell", "variable_cell", "target_value"],
     }
     is_mutation: bool | None = True
+    # ScModelObj implements XGoalSeek (sc/source/ui/unoobj/docuno.cxx ScModelObj::seekGoal),
+    # and the registry matches this list when the class is wired.
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         formula_str = kwargs["formula_cell"]
@@ -109,40 +153,27 @@ class GoalSeekTool(ToolBaseDummy):
         target_value = float(kwargs["target_value"])
         apply_result = kwargs.get("apply_result", True)
 
-        try:
-            doc = ctx.doc
+        doc = ctx.doc
 
-            formula_addr = resolve_cell_address(doc, formula_str)
-            variable_addr = resolve_cell_address(doc, variable_str)
+        formula_addr = resolve_cell_address(doc, formula_str)
+        variable_addr = resolve_cell_address(doc, variable_str)
 
-            # SpreadsheetDocument implements XGoalSeek directly
-            if not hasattr(doc, "seekGoal"):
-                return self._tool_error("Document does not support Goal Seek")
+        # seekGoal returns a GoalResult struct: {Result: float, Divergence: float}
+        gs_result = doc.seekGoal(formula_addr, variable_addr, target_value)
 
-            # seekGoal returns a GoalResult struct: {Result: float, Divergence: float}
-            gs_result = doc.seekGoal(formula_addr, variable_addr, target_value)
+        result_val = gs_result.Result
+        divergence = gs_result.Divergence
 
-            result_val = gs_result.Result
-            divergence = gs_result.Divergence
+        if apply_result:
+            sheets = doc.getSheets()
+            sheet = sheets.getByIndex(variable_addr.Sheet)
+            cell = sheet.getCellByPosition(variable_addr.Column, variable_addr.Row)
+            cell.setValue(result_val)
+            message = f"Goal Seek success. Found result {result_val} and applied it to {variable_str}."
+        else:
+            message = f"Goal Seek success. Found result {result_val} for {variable_str}."
 
-            if apply_result:
-                sheets = doc.getSheets()
-                sheet = sheets.getByIndex(variable_addr.Sheet)
-                cell = sheet.getCellByPosition(variable_addr.Column, variable_addr.Row)
-                cell.setValue(result_val)
-                message = f"Goal Seek success. Found result {result_val} and applied it to {variable_str}."
-            else:
-                message = f"Goal Seek success. Found result {result_val} for {variable_str}."
-
-            return {"status": "ok", "message": message, "result": {"value": result_val, "divergence": divergence}}
-        except Exception as e:
-            # Re-raise disposal before wrapping. Catching DisposedException
-            # as ToolExecutionError makes execute_safe report
-            # TOOL_EXECUTION_ERROR, and the native runner keeps going on a
-            # dead document.
-            if is_disposal(e):
-                raise
-            raise ToolExecutionError(str(e)) from e
+        return {"status": "ok", "message": message, "result": {"value": result_val, "divergence": divergence}}
 
 
 class SolverTool(ToolBaseDummy):
@@ -174,6 +205,7 @@ class SolverTool(ToolBaseDummy):
         "required": ["objective_cell", "variables"],
     }
     is_mutation: bool | None = True
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from com.sun.star.sheet import SolverConstraint
@@ -183,133 +215,114 @@ class SolverTool(ToolBaseDummy):
         variable_strs = kwargs["variables"]
         maximize = kwargs.get("maximize", True)
         constraints_raw = kwargs.get("constraints", [])
-        engine_name = kwargs.get("engine", "com.sun.star.sheet.Solver")
+        engine_name = kwargs.get("engine", _GENERIC_SOLVER_SERVICE)
 
-        try:
-            doc = ctx.doc
+        doc = ctx.doc
 
-            objective_addr = resolve_cell_address(doc, objective_str)
-            variable_addrs = tuple(resolve_cell_address(doc, v) for v in variable_strs)
+        objective_addr = resolve_cell_address(doc, objective_str)
+        variable_addrs = tuple(resolve_cell_address(doc, v) for v in variable_strs)
 
-            smgr = ctx.ctx.ServiceManager
-            solver = None
-            selected_engine_label: str | None = None
+        picked = pick_solver(ctx.ctx.ServiceManager, ctx.ctx, engine_name)
+        if picked is None:
+            return self._tool_error("No Solver engine available in this LibreOffice installation")
 
-            def _try_solver_service(svc: str) -> bool:
-                nonlocal solver, selected_engine_label
-                instance = uno_read(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
-                if not instance or _should_reject_solver_for_headless(engine_name, instance):
-                    return False
-                solver = instance
-                selected_engine_label = svc
-                return True
+        solver, engine_label = picked
+        log.info("calc_solver: engine=%s implementation=%s", engine_label, _solver_impl_name(solver))
 
-            # User-named engine, then native solvers. Enumeration stays between
-            # this list and the generic Solver service (Java NLP dialog engines).
-            if engine_name and engine_name != "com.sun.star.sheet.Solver":
-                _try_solver_service(engine_name)
-            if not solver:
-                for svc in _PREFERRED_SOLVER_SERVICES:
-                    if _try_solver_service(svc):
-                        break
+        solver.Document = doc
+        solver.Maximize = maximize
+        solver.Objective = objective_addr
+        solver.Variables = variable_addrs
 
-            # 3. Enumerate implementations (loop skips DEPS/NLPSolver; _priority sorts CoinMP/Lpsolve ahead of other selectable engines)
-            if not solver:
-                enum_access = smgr.createInstanceWithContext("com.sun.star.container.XContentEnumerationAccess", ctx.ctx)
-                if enum_access:
-                    enum = enum_access.createContentEnumeration("com.sun.star.sheet.Solver")
-                    if enum is not None and enum_has_more(enum):
-                        impls = []
-                        while enum_has_more(enum):
-                            el = enum.nextElement()
-                            if hasattr(el, "createInstanceWithContext"):
-                                impls.append(el)
+        # Process constraints
+        op_map = {"EQUAL": EQUAL, "GREATER_EQUAL": GREATER_EQUAL, "LESS_EQUAL": LESS_EQUAL}
 
-                        def _priority(factory: Any) -> int:
-                            name = _solver_impl_name(factory)
-                            if "CoinMP" in name or "Lpsolve" in name:
-                                return 0
-                            return 1
+        solver_constraints = []
+        for c in constraints_raw:
+            constraint = SolverConstraint()
+            constraint.Left = resolve_cell_address(doc, c["left"])
+            constraint.Operator = op_map[c["operator"]]
 
-                        impls.sort(key=_priority)
+            right_val = c["right"]
+            # Try to parse as float (constant), otherwise assume it's a cell address
+            try:
+                constraint.Right = float(right_val)
+            except ValueError:
+                constraint.Right = resolve_cell_address(doc, right_val)
 
-                        for el in impls:
-                            impl_name = _solver_impl_name(el)
-                            if _impl_name_is_java_nlp_headless_unsafe(impl_name):
-                                continue
-                            s = uno_read(lambda: el.createInstanceWithContext(ctx.ctx), None)
-                            if not s or _should_reject_solver_for_headless(engine_name, s):
-                                continue
-                            solver = s
-                            selected_engine_label = f"enumeration:{impl_name}"
-                            break
+            solver_constraints.append(constraint)
 
-            # Last ditch: generic service, only after enumeration skipped Java NLP engines.
-            if not solver:
-                _try_solver_service("com.sun.star.sheet.Solver")
+        solver.Constraints = tuple(solver_constraints)
 
-            if not solver:
-                return self._tool_error("No Solver engine available in this LibreOffice installation")
+        # Execute Solver
+        solver.solve()
 
-            log.info("calc_solver: engine=%s implementation=%s", selected_engine_label or "unknown", _solver_impl_name(solver))
-
-            solver.Document = doc
-            solver.Maximize = maximize
-            solver.Objective = objective_addr
-            solver.Variables = variable_addrs
-
-            # Process constraints
-            op_map = {"EQUAL": EQUAL, "GREATER_EQUAL": GREATER_EQUAL, "LESS_EQUAL": LESS_EQUAL}
-
-            solver_constraints = []
-            for c in constraints_raw:
-                constraint = SolverConstraint()
-                constraint.Left = resolve_cell_address(doc, c["left"])
-                constraint.Operator = op_map[c["operator"]]
-
-                right_val = c["right"]
-                # Try to parse as float (constant), otherwise assume it's a cell address
-                try:
-                    constraint.Right = float(right_val)
-                except ValueError:
-                    constraint.Right = resolve_cell_address(doc, right_val)
-
-                solver_constraints.append(constraint)
-
-            solver.Constraints = tuple(solver_constraints)
-
-            # Execute Solver
-            solver.solve()
-
-            if solver.Success:
-                # The solution is already applied to the document by solver.solve()
-                return {"status": "ok", "message": f"Solver success. Objective value: {solver.ResultValue}", "result": {"success": True, "result_value": solver.ResultValue, "solution": list(solver.Solution)}}
-            else:
-                return {"status": "error", "message": "Solver failed to find a solution.", "result": {"success": False}}
-
-        except Exception as e:
-            # Same dispose guard as Goal Seek: do not wrap a dead document.
-            if is_disposal(e):
-                raise
-            raise ToolExecutionError(str(e)) from e
+        if solver.Success:
+            # The solution is already applied to the document by solver.solve()
+            return {"status": "ok", "message": f"Solver success. Objective value: {solver.ResultValue}", "result": {"success": True, "result_value": solver.ResultValue, "solution": list(solver.Solution)}}
+        # Hand-built on purpose: the solver ran and found no solution, and result.success
+        # sits beside status as on the success branch, so a caller reads one shape.
+        # A top-level field is allowed for this case.
+        return {"status": "error", "message": "Solver failed to find a solution.", "result": {"success": False}}
 
 
 _ANALYZE_DATA_HELPERS = ", ".join(sorted(names("analysis")))
 
 
-def extract_calc_data_tool_args(
+class CalcDataToolArgs(NamedTuple):
+    """Arguments shared by the four Calc data tools, normalized once."""
+
+    helper: str
+    data_range: str | None
+    data: Any
+    params: dict[str, Any] | None
+    headers: bool
+    task_hint: str | None
+    output_range: str | None
+
+
+def run_calc_data_tool(
+    ctx: ToolContext,
+    wiring_id: str,
     kwargs: dict[str, Any],
-) -> tuple[str, str | None, Any, dict[str, Any] | None, bool, str | None, str | None]:
-    """Extract and normalize common calc analysis tool arguments."""
-    helper = str(kwargs.get("helper") or "").strip()
+) -> tuple[CalcDataToolArgs, dict[str, Any]]:
+    """Normalize shared data-tool arguments, enforce range-only domains, and run the helper.
+
+    Runs on the calling worker. ``run_domain`` marshals only the sheet read to
+    the main thread, and the venv IPC must stay off the UI thread or Calc
+    freezes. ``run_domain`` refuses a blank or unknown helper, or missing data,
+    with the domain's error code. Nothing here catches exceptions: disposal and
+    other failures reach ``execute_safe`` once the tool is wired.
+    """
     data_range = kwargs.get("data_range")
-    data = kwargs.get("data")
-    dr = str(data_range).strip() if data_range else None
-    params = kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None
-    headers = bool(kwargs.get("headers", True))
-    task_hint = str(kwargs["task_hint"]) if kwargs.get("task_hint") else None
-    output_range = str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None
-    return helper, dr, data, params, headers, task_hint, output_range
+    args = CalcDataToolArgs(
+        helper=str(kwargs.get("helper") or "").strip(),
+        data_range=str(data_range).strip() if data_range else None,
+        data=kwargs.get("data"),
+        params=kwargs.get("params") if isinstance(kwargs.get("params"), dict) else None,
+        headers=bool(kwargs.get("headers", True)),
+        task_hint=str(kwargs["task_hint"]) if kwargs.get("task_hint") else None,
+        output_range=str(kwargs["output_range"]).strip() if kwargs.get("output_range") else None,
+    )
+    # Range-only domains keep raw values out of the model context; see docs/calc/analysis-sub-agent.md "Data Handoff".
+    if args.data is not None and ctx.active_domain in ("analysis", wiring_id):
+        raise ToolExecutionError(
+            f"The {ctx.active_domain} domain takes data_range (an A1 address string) only. "
+            "Do not pass raw data values; the host reads the range out-of-band.",
+            code="INVALID_PARAM",
+        )
+    result = run_domain(
+        wiring_id,
+        ctx.ctx,
+        ctx.doc,
+        helper=args.helper,
+        params=args.params,
+        data_range=args.data_range,
+        data=args.data,
+        headers=args.headers,
+        task_hint=args.task_hint,
+    )
+    return args, result
 
 
 def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
@@ -331,11 +344,15 @@ def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
 def write_anchor_result(
     ctx: ToolContext,
     result: dict[str, Any],
-    output_range: str,
+    output_range: str | None,
     insert_fn: Any,
 ) -> dict[str, Any]:
-    """Write result to output anchor; record non-disposal write errors on the result."""
-    from plugin.framework.queue_executor import main
+    """Write result to output anchor; no anchor, or a failed run, writes nothing.
+
+    Records non-disposal write errors on the result and propagates disposal.
+    """
+    if not output_range or result.get("status") != "ok":
+        return result
 
     def _write() -> None:
         sheet, col, row = parse_output_anchor(output_range)
@@ -382,33 +399,24 @@ class AnalyzeDataTool(ToolBaseDummy):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        helper, dr, data, params, headers, task_hint, output_range = extract_calc_data_tool_args(kwargs)
-
-        # Strict enforcement for the analysis domain (see docs/calc/analysis-sub-agent.md "Data Handoff").
-        if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
-            return self._tool_error("analysis domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
-
-        from plugin.scripting.helper_domain import run_domain
-        from plugin.calc.analysis_egress import insert_analysis_result_into_calc
-
-        try:
-            result = run_domain("analysis", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))
-        except Exception as exc:
-            return self._tool_error(f"Failed to run analysis: {exc}")
-
-        if output_range and result.get("status") == "ok":
-            result = write_anchor_result(ctx, result, output_range, insert_analysis_result_into_calc)
+        args, result = run_calc_data_tool(ctx, "analysis", kwargs)
+        result = write_anchor_result(ctx, result, args.output_range, insert_analysis_result_into_calc)
 
         if result.get("status") == "ok" and ctx.doc_type == "calc":
             auto_plot = bool(kwargs.get("auto_plot", False))
-            from plugin.calc.viz_auto_plot import apply_auto_plot_result, run_auto_plot_after_analysis, should_auto_plot
 
             plot_result = None
-            if should_auto_plot(helper=helper, auto_plot=auto_plot, task_hint=task_hint):
+            if should_auto_plot(helper=args.helper, auto_plot=auto_plot, task_hint=args.task_hint):
                 # Sub-agent worker thread: viz data reads use CalcBridge — marshal like plot_data.
-                plot_result = run_auto_plot_after_analysis(ctx.ctx, ctx.doc, analysis_helper=helper, analysis_result=result, analysis_params=params, data_range=dr, task_hint=task_hint)
+                plot_result = run_auto_plot_after_analysis(
+                    ctx.ctx,
+                    ctx.doc,
+                    analysis_helper=args.helper,
+                    analysis_result=result,
+                    analysis_params=args.params,
+                    data_range=args.data_range,
+                    task_hint=args.task_hint,
+                )
             result = apply_auto_plot_result(result, plot_result, ctx.ctx, ctx.doc)
 
         return result

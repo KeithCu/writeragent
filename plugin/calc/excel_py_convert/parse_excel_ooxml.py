@@ -11,6 +11,7 @@ import json
 import re
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts; not network XML (Bandit B314)
 
 from plugin.calc.address_utils import (
@@ -34,11 +35,14 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     workbook_sheets,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
 _RE_XLWS_PY = re.compile(r"(?:_xlfn\.)?_xlws\.PY\s*\(\s*(\d+)\s*,\s*(\d+)(.*)\)$", re.IGNORECASE | re.DOTALL)
 
 
-def _col_row(a1: str) -> tuple[int, int]:
-    """1-based (row, col) coordinate for OOXML callers, or (0, 0) on error."""
+def row_col_1based(a1: str) -> tuple[int, int]:
+    """Row-first: (row, col), both 1-based, or (0, 0) when *a1* is not a cell."""
     try:
         col, row = parse_address(a1)
         return row + 1, col + 1
@@ -237,6 +241,49 @@ def shift_xlws_py_formula(
     return shifted_formula, shifted_deps
 
 
+def is_xlws_py(text: str) -> bool:
+    """True when *text* calls Excel's Python-in-Excel function (_xlws.PY, any case)."""
+    return "_xlws.py" in text.lower()
+
+
+def iter_formula_cells(ws_root: ET.Element) -> Iterator[tuple[str, ET.Element, str]]:
+    """Yield (r as written, <f> element, stripped formula text) for each <c> that has both r and <f>."""
+    for c in find_all(ws_root, "c"):
+        a1 = c.attrib.get("r") or ""
+        f = find_child(c, "f")
+        if f is None or not a1:
+            continue
+        # ElementTree already decodes entities. A second _unescape_xml
+        # corrupts literals like &lt; or &amp;. Use body as decoded.
+        body = "".join(f.itertext()).strip()
+        yield a1, f, body
+
+
+def expand_shared(
+    master: tuple[str, str],
+    a1: str,
+    shift_other: Callable[[str, int, int], str | None] | None = None,
+) -> str | None:
+    """Formula for shared-group member *a1* from its master (body, master A1).
+
+    The offset is (rows, cols) from the master to *a1* (via row_col_1based). A _xlws.PY master
+    goes through shift_xlws_py_formula, and None means a dependency cannot move. Any
+    other master goes to shift_other(body, rows, cols), which each caller supplies with
+    its own rule; with no shift_other the answer is None.
+    """
+    master_body, master_a1 = master
+    m_row, m_col = row_col_1based(master_a1)
+    c_row, c_col = row_col_1based(a1)
+    rows = c_row - m_row
+    cols = c_col - m_col
+    if is_xlws_py(master_body):
+        shifted = shift_xlws_py_formula(master_body, rows, cols)
+        return shifted[0] if shifted is not None else None
+    if shift_other is None:
+        return None
+    return shift_other(master_body, rows, cols)
+
+
 def _read_xml(zf: zipfile.ZipFile, part: str, issues: list[str]) -> ET.Element | None:
     try:
         raw = zf.read(part)
@@ -252,9 +299,7 @@ def _read_xml(zf: zipfile.ZipFile, part: str, issues: list[str]) -> ET.Element |
 def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str]) -> list[str]:
     """Parse ``xl/pythonScripts.xml``.
 
-    Map each script to its index (the explicit attribute, or document
-    order). Dropping indexed scripts whenever any sequential script is
-    present throws away the indexed bank.
+    Each script goes to its ``index`` / ``scriptIndex`` attribute or, when it has none, to its document position. Indexed and unindexed scripts in one file are all kept; gaps become empty strings.
     """
     root = _read_xml(zf, "xl/pythonScripts.xml", issues)
     if root is None:
@@ -291,7 +336,7 @@ def _parse_python_scripts(zf: zipfile.ZipFile, issues: list[str]) -> list[str]:
     return out
 
 
-def _qualify_sheet_ref(sheet_title: str, ref: str) -> str:
+def qualify_excel_ref(sheet_title: str, ref: str) -> str:
     """Return Sheet!A1:B2 with quoting when the sheet name needs it."""
     clean_ref = canonical(ref)
     if "!" in clean_ref:
@@ -311,31 +356,32 @@ def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str, iss
     ref = root.attrib.get("ref") or ""
     if not name or not ref:
         return None
-    return name, _qualify_sheet_ref(sheet_title, ref)
+    return name, qualify_excel_ref(sheet_title, ref)
 
 
 def _collect_array_refs(ws_root: ET.Element, sheet_title: str, anchors: dict[str, str]) -> None:
     """Qualified keys overwrite; bare keys are first-wins. Only t="array" (not shared ref=)."""
-    for c in find_all(ws_root, "c"):
-        cell_ref = (c.attrib.get("r") or "").replace("$", "")
-        f = find_child(c, "f")
-        if f is None or not cell_ref or (f.attrib.get("t") or "") != "array":
+    for a1, f, _body in iter_formula_cells(ws_root):
+        cell_ref = a1.replace("$", "")
+        if not cell_ref or (f.attrib.get("t") or "") != "array":
             continue
         arr = (f.attrib.get("ref") or "").strip().replace("$", "")
         if not arr:
             continue
         top_left = arr.split(":", 1)[0]
-        q_top = _qualify_sheet_ref(sheet_title, top_left)
-        q_arr = _qualify_sheet_ref(sheet_title, arr)
+        q_top = qualify_excel_ref(sheet_title, top_left)
+        q_arr = qualify_excel_ref(sheet_title, arr)
         anchors[q_top] = q_arr
         anchors.setdefault(top_left, arr)
         anchors.setdefault(cell_ref, arr)
-        anchors[_qualify_sheet_ref(sheet_title, cell_ref)] = q_arr
+        anchors[qualify_excel_ref(sheet_title, cell_ref)] = q_arr
 
 
-def _shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
+def shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
     """Resolve shared formula masters (si → (formula text, master A1))."""
     masters: dict[str, tuple[str, str]] = {}
+    # Walk <c> directly rather than iter_formula_cells because this map records a
+    # master even when it has no `r` attribute (master A1 ""), which iter_formula_cells skips.
     for c in find_all(ws_root, "c"):
         a1 = c.attrib.get("r") or ""
         f = find_child(c, "f")
@@ -353,32 +399,25 @@ def _shared_formula_map(ws_root: ET.Element) -> dict[str, tuple[str, str]]:
 
 
 def _iter_py_cells(ws_root: ET.Element, sheet_title: str, issues: list[str]) -> list[ExcelPyCell]:
-    masters = _shared_formula_map(ws_root)
+    masters = shared_formula_map(ws_root)
     cells: list[ExcelPyCell] = []
     failed_si: set[str] = set()
     cell_si: dict[str, str] = {}
-    for c in find_all(ws_root, "c"):
-        a1 = c.attrib.get("r") or ""
-        f = find_child(c, "f")
-        if f is None or not a1:
-            continue
-        body = "".join(f.itertext()).strip()
+    for a1, f, body in iter_formula_cells(ws_root):
         t_attr = f.attrib.get("t") or ""
         si = f.attrib.get("si")
-        row, col = _col_row(a1)
+        row, col = row_col_1based(a1)
         if t_attr == "shared" and si is not None:
             cell_si[a1] = si
-            master_info = masters.get(si)
-            if master_info is not None and "_xlws.py" in master_info[0].lower():
-                master_body, master_a1 = master_info
-                m_row, m_col = _col_row(master_a1)
-                shifted = shift_xlws_py_formula(master_body, row - m_row, col - m_col)
+            master = masters.get(si)
+            if master is not None and is_xlws_py(master[0]):
+                shifted = expand_shared(master, a1)
                 if shifted is None:
                     failed_si.add(si)
-                    issues.append(f"shared formula si={si} at {sheet_title}!{a1}: unsupported dependency argument in {master_body!r}")
+                    issues.append(f"shared formula si={si} at {sheet_title}!{a1}: unsupported dependency argument in {master[0]!r}")
                     continue
-                body = shifted[0]
-        if not body or "_xlws.py" not in body.lower():
+                body = shifted
+        if not body or not is_xlws_py(body):
             continue
         parsed = parse_xlws_py_formula(body)
         if parsed is None:
@@ -437,6 +476,6 @@ def load_excel_model(path: str | Path) -> ExcelWorkbookModel:
             model.sheets = [SheetInfo(title=t, order=i, part_name="") for i, t in enumerate(titles)]
         for c in model.cells:
             if not c.row or not c.col:
-                c.row, c.col = _col_row(c.cell)
+                c.row, c.col = row_col_1based(c.cell)
         return model
     return parse_excel_xlsx(path)

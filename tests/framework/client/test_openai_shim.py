@@ -529,3 +529,110 @@ def test_cache_route_absent_when_unset():
         assert "prompt_cache_key" not in data
         assert "x-grok-conv-id" not in headers
         assert headers == client._headers()
+
+
+def test_openrouter_cache_family_gate():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    client = _DummyClient(provider="openrouter")
+    shim = OpenRouterShim(client)
+    snap = snapshot_text("Document text")
+
+    # 1. System + user send with snapshot
+    sys_user_messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "hello"},
+                {"type": "text", "text": snap},
+            ],
+        },
+    ]
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "search", "description": "Search web", "parameters": {"type": "object"}},
+        }
+    ]
+
+    # Anthropic models on OpenRouter: 1h system breakpoint, ephemeral user breakpoint
+    for m in ("anthropic/claude-sonnet-4.5", "anthropic/claude-sonnet-4.5:nitro"):
+        _m, _u, body, _h = shim.build_chat_request(sys_user_messages, 100, None, tools, False, m, None)
+        data = json.loads(body)
+        assert "cache_control" not in data
+        assert "diagnostics" not in data
+        assert data["messages"][0]["role"] == "system"
+        assert data["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+        assert "cache_control" not in data["tools"][0]
+        assert data["messages"][1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "ttl" not in data["messages"][1]["content"][0]["cache_control"]
+        assert "cache_control" not in data["messages"][1]["content"][1]
+        assert json.dumps(data).count("cache_control") == 2
+
+    # Alibaba models on OpenRouter: ephemeral on system (no ttl), ephemeral on user (no ttl)
+    alibaba_ids = [
+        "deepseek/deepseek-v3.2",
+        "qwen/qwen3-max",
+        "qwen/qwen-plus",
+        "qwen/qwen3.6-plus",
+        "qwen/qwen3-coder-plus",
+        "qwen/qwen3-coder-flash",
+        "qwen/qwen3-max:nitro",
+    ]
+    for m in alibaba_ids:
+        _m, _u, body, _h = shim.build_chat_request(sys_user_messages, 100, None, tools, False, m, None)
+        data = json.loads(body)
+        assert "cache_control" not in data
+        assert "diagnostics" not in data
+        assert data["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "ttl" not in data["messages"][0]["content"][0]["cache_control"]
+        assert "cache_control" not in data["tools"][0]
+        assert data["messages"][1]["content"][0]["cache_control"] == {"type": "ephemeral"}
+        assert "ttl" not in data["messages"][1]["content"][0]["cache_control"]
+        assert json.dumps(data).count("cache_control") == 2
+
+    # Unmarked models: zero cache_control anywhere, diagnostics absent
+    unmarked_ids = [
+        "qwen/qwen3.5-plus-02-15",
+        "qwen/qwen3.5-flash-02-23",
+        "qwen/qwen-plus-2025-07-28",
+        "qwen/qwen3-max-thinking",
+        "deepseek/deepseek-v3.2-exp",
+        "qwen/qwen3-max:free",
+        "openai/gpt-oss-120b",
+        "deepseek/deepseek-chat",
+        "x-ai/grok-2",
+        "google/gemini-2.5-pro",
+        "moonshotai/kimi-k2",
+        "groq/llama-3.3-70b-versatile",
+    ]
+    for m in unmarked_ids:
+        _m, _u, body, _h = shim.build_chat_request(sys_user_messages, 100, None, tools, False, m, None)
+        data = json.loads(body)
+        assert "cache_control" not in json.dumps(data)
+        assert "diagnostics" not in data
+
+    # Unmarked models on tool round: snapshot remains inside tool message, zero cache_control
+    tool_round_messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "t1", "function": {"name": "f1", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": f"res1\n\n{snap}"},
+    ]
+    for m in unmarked_ids:
+        _m, _u, body, _h = shim.build_chat_request(tool_round_messages, 100, None, None, False, m, None)
+        data = json.loads(body)
+        assert "cache_control" not in json.dumps(data)
+        assert len(data["messages"]) == 2
+        assert data["messages"][1]["role"] == "tool"
+        assert snap in data["messages"][1]["content"]
+
+    # Cerebras BaseProviderShim body has neither cache_control nor diagnostics
+    cerebras_shim = BaseProviderShim(_DummyClient(provider="cerebras"))
+    _m, _u, c_body, _h = cerebras_shim.build_chat_request(sys_user_messages, 100, None, tools, False, "llama3.1-70b", None)
+    c_data = json.loads(c_body)
+    assert "cache_control" not in json.dumps(c_data)
+    assert "diagnostics" not in c_data

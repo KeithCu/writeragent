@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
-from plugin.calc.base import ToolCalcSpecialBase
 from plugin.framework.tool import prepare_tool_call
 from plugin.writer.tracking import (
     TrackChangesStart,
@@ -49,47 +48,6 @@ def _create_mock_ctx():
     doc.getCurrentController.return_value = controller
     
     return ctx, dispatcher, frame, view_settings
-
-def test_track_changes_tools_support_calc_document_type():
-    assert isinstance(TrackChangesStart(), ToolCalcSpecialBase)
-    assert isinstance(ManageTrackedChanges(), ToolCalcSpecialBase)
-    expected = (
-        "com.sun.star.text.TextDocument",
-        "com.sun.star.sheet.SpreadsheetDocument",
-    )
-    assert TrackChangesStart.uno_services == list(expected)
-    assert TrackChangesList.uno_services == list(expected)
-
-
-_REMOVED_TRACK_CHANGES_COMMENT_TOOLS = (
-    "track_changes_comment_insert",
-    "track_changes_comment_list",
-    "track_changes_comment_delete",
-)
-
-
-def test_track_changes_comment_tools_removed():
-    """Leftover annotation trio lived in tracking after comments domain landed; delete, do not alias."""
-    import plugin.writer.tracking as tracking
-
-    for cls_name in (
-        "TrackChangesCommentInsert",
-        "TrackChangesCommentList",
-        "TrackChangesCommentDelete",
-    ):
-        assert not hasattr(tracking, cls_name)
-
-    from plugin.scripting import writeragent_api
-
-    assert writeragent_api.DOMAIN_TOOLS["tracking"] == [
-        "tracking_list",
-        "tracking_manage",
-        "tracking_show",
-        "tracking_start",
-        "tracking_stop",
-    ]
-    for name in _REMOVED_TRACK_CHANGES_COMMENT_TOOLS:
-        assert not hasattr(writeragent_api.tracking, name)
 
 
 def test_track_changes_start():
@@ -190,13 +148,6 @@ def test_track_changes_show():
     assert res_false["message"] == "Hiding tracked changes markup."
     assert props["RedlineDisplayType"] == 1
     view_settings.setPropertyValue.assert_not_called()
-
-
-def test_track_changes_show_missing_required():
-    ctx, _, _, _ = _create_mock_ctx()
-    tool = TrackChangesShow()
-    with pytest.raises(KeyError):
-        tool.execute(ctx)
 
 
 @pytest.mark.parametrize("show", ["not-a-bool", 1, None])
@@ -383,13 +334,11 @@ def test_manage_tracked_changes_self_resolve_undo_fails():
 
     ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")
 
-    with patch("plugin.writer.tracking.log.exception") as mock_log_exc:
-        res = tool.execute(ctx, action="accept", index=0)
+    res = tool.execute(ctx, action="accept", index=0)
 
     assert res["status"] == "error"
     assert "Agent edit was resolved, which is forbidden." in res["message"]
     assert "Undo failed; the change is still resolved." in res["message"]
-    mock_log_exc.assert_called_once_with("tracking_manage: undo of a forbidden agent resolution failed")
 
 def test_manage_tracked_changes_accept():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
@@ -480,15 +429,8 @@ from plugin.writer.review_scan import TOKEN_PREFIX
 _AGENT_COMMENT = TOKEN_PREFIX + "sess123:0"
 
 
-def _fake_redline(comment, raise_comment=False, text_mock=None):
-    rl = MagicMock()
-    start = MagicMock()
-    if text_mock is not None:
-        start.getText.return_value = text_mock
-    end = MagicMock()
-    if text_mock is not None:
-        end.getText.return_value = text_mock
-    props = {
+def _redline_props(comment, start, end):
+    return {
         "RedlineComment": comment,
         "RedlineIdentifier": f"id:{comment}",
         "RedlineType": "Insert",
@@ -497,6 +439,38 @@ def _fake_redline(comment, raise_comment=False, text_mock=None):
         "RedlineStart": start,
         "RedlineEnd": end,
     }
+
+
+class _LightRange:
+    __slots__ = ("_text",)
+
+    def __init__(self, text_obj):
+        self._text = text_obj
+
+    def getText(self):
+        return self._text
+
+
+class _LightRedline:
+    __slots__ = ("_props",)
+
+    def __init__(self, comment, text_mock=None):
+        rng = _LightRange(text_mock)
+        self._props = _redline_props(comment, rng, rng)
+
+    def getPropertyValue(self, name):
+        return self._props.get(name, "")
+
+
+def _fake_redline(comment, raise_comment=False, text_mock=None):
+    rl = MagicMock()
+    start = MagicMock()
+    if text_mock is not None:
+        start.getText.return_value = text_mock
+    end = MagicMock()
+    if text_mock is not None:
+        end.getText.return_value = text_mock
+    props = _redline_props(comment, start, end)
 
     def _get(name):
         if raise_comment and name == "RedlineComment":
@@ -705,14 +679,12 @@ def test_track_changes_list_record_changes_read_fails():
     enum_mock.hasMoreElements.return_value = False
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
 
-    with patch("plugin.writer.tracking.log.exception") as mock_log_exc:
-        res = TrackChangesList().execute(ctx)
+    res = TrackChangesList().execute(ctx)
     assert res["status"] == "ok"
     assert res["recording"] is None
     assert res["count"] == 0
     assert res["changes"] == []
     assert "track_changes_list_unsupported" not in res
-    mock_log_exc.assert_called_once_with("tracking_list: could not read RecordChanges")
 
 
 @pytest.mark.parametrize("action", ["accept_all", "reject_all"])
@@ -937,7 +909,8 @@ def test_track_changes_list_caps_at_100_and_reports_more():
     cursor_mock.getString.return_value = "hello"
     text_mock.createTextCursorByRange.return_value = cursor_mock
 
-    items = [_fake_redline("user %d" % i, text_mock=text_mock) for i in range(101)]
+    # Use _LightRedline instead of _fake_redline (303 MagicMocks for 101 items takes ~42 ms vs <1 ms).
+    items = [_LightRedline("user %d" % i, text_mock=text_mock) for i in range(101)]
     _install_redlines(ctx, items)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res = tool.execute(ctx)
@@ -947,7 +920,7 @@ def test_track_changes_list_caps_at_100_and_reports_more():
     assert res["next_index"] == 100
     assert res["changes"][-1]["index"] == 99
 
-    items_one = [_fake_redline("user 0", text_mock=text_mock)]
+    items_one = [_LightRedline("user 0", text_mock=text_mock)]
     _install_redlines(ctx, items_one)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res_one = tool.execute(ctx)

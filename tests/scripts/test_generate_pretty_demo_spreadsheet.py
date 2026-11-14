@@ -21,11 +21,9 @@ from scripts.generate_pretty_demo_spreadsheet import (
     SALES_RANGE_ODS_CROSS,
     SALES_RANGE_XLSX,
     SALES_ZIPS_BY_REGION,
-    SQL_IDENTITY_TEACH,
     SQL_RESULTS_SPILL_GUTTER_COLS,
     SQL_RESULTS_SPILL_GUTTER_ROWS,
     SQL_SALES_BY_REGION_CATEGORY,
-    SQL_SALES_ZIP_INCOME_JOIN,
     STANDARD_METRICS_BANNER,
     ZIP_INCOME_CSV_NAME,
     ZIP_INCOME_FIXTURE,
@@ -42,9 +40,7 @@ from scripts.generate_pretty_demo_spreadsheet import (
     ods_formula,
     py_formula,
     relative_named_range_eval_start_row,
-    sql_demo_scenarios,
     sql_query_lines,
-    sql_results_gutter_rows,
     standard_sheet_specs,
     write_zip_income_csv,
 )
@@ -150,20 +146,6 @@ def test_sales_dataset_has_zip_column_from_real_zctas() -> None:
 def _is_sql_results_formula(formula: str) -> bool:
     """Live SQL_DuckDB RESULTS: sheet-only ``con.sql`` or join ``query_folder_df`` / ``run_sql``."""
     return "con.sql(sql)" in formula or "query_folder_df(" in formula or "run_sql(" in formula
-
-
-def test_sql_demo_scenarios_include_sheet_and_join() -> None:
-    kinds = {s["kind"] for s in sql_demo_scenarios()}
-    assert kinds == {"sheet_sales", "sheet_marketing", "join_zip"}
-    join = next(s for s in sql_demo_scenarios() if s["kind"] == "join_zip")
-    assert "zip_income" in join["sql"]
-    assert join["sql"] == SQL_SALES_ZIP_INCOME_JOIN
-    assert "ZIP" in join["sql"] or "zip" in join["sql"]
-    teach = " ".join(s["blurb"] for s in sql_demo_scenarios()) + SQL_IDENTITY_TEACH
-    assert "{sheet" in teach
-    assert "{named_range" in teach
-    assert "file#Sheet" in teach or "budget.xlsx#Actuals" in teach
-    assert SALES_NAMED_RANGE in teach
 
 
 def test_zip_income_csv_is_fuller_acs_extract_and_covers_sales_zips() -> None:
@@ -349,15 +331,6 @@ def _assert_results_formula_is_short_and_quote_safe(
     return payload
 
 
-def test_sql_results_gutter_covers_region_category_spill() -> None:
-    """Sheet-only RESULTS need ≥15×5 empty (header + 12 Region×Category + clearance)."""
-    assert SQL_RESULTS_SPILL_GUTTER_ROWS >= 15
-    assert SQL_RESULTS_SPILL_GUTTER_COLS >= 5
-    assert sql_results_gutter_rows("sheet_sales") == SQL_RESULTS_SPILL_GUTTER_ROWS
-    assert sql_results_gutter_rows("sheet_marketing") == SQL_RESULTS_SPILL_GUTTER_ROWS
-    assert sql_results_gutter_rows("join_zip") == SQL_RESULTS_SPILL_GUTTER_ROWS
-
-
 def _empty_rows_below_xlsx_results(ws: object) -> list[tuple[str, int]]:
     """(RESULTS coordinate, consecutive empty rows in column A until the next value)."""
     from openpyxl.utils import coordinate_to_tuple
@@ -430,9 +403,23 @@ def test_generated_xlsx_results_have_spill_gutter(tmp_path: Path) -> None:
     assert len(gaps) == 3
     for coord, empty in gaps:
         assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (coord, empty)
+    # Header + every distinct (Region, Category) pair must fit inside the spill gutter.
+    sales_rows = get_sales_dataset()
+    region_col = sales_rows[0].index("Region")
+    category_col = sales_rows[0].index("Category")
+    distinct_pairs = {(r[region_col], r[category_col]) for r in sales_rows[1:]}
+    assert len(distinct_pairs) + 1 <= SQL_RESULTS_SPILL_GUTTER_ROWS
     _assert_xlsx_results_unmerged_with_clearance(ws)
     assert SALES_NAMED_RANGE in wb.defined_names
     assert MARKETING_NAMED_RANGE in wb.defined_names
+    assert re.fullmatch(
+        r"Sales_Analytics!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+",
+        wb.defined_names[SALES_NAMED_RANGE].attr_text,
+    )
+    assert re.fullmatch(
+        r"Statistics_ML!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+",
+        wb.defined_names[MARKETING_NAMED_RANGE].attr_text,
+    )
     assert wb.defined_names[SALES_NAMED_RANGE].attr_text == _xlsx_named_range_address(
         "Sales_Analytics", SALES_RANGE_XLSX
     )
@@ -604,15 +591,6 @@ def test_xlsx_relative_named_range_shift_matches_headed_binder_exceptions() -> N
     assert "Channel" not in empty_cols
 
 
-def test_xlsx_named_range_address_is_absolute() -> None:
-    assert _xlsx_named_range_address("Sales_Analytics", SALES_RANGE_XLSX) == (
-        "Sales_Analytics!$A$4:$J$39"
-    )
-    assert _xlsx_named_range_address("Statistics_ML", MARKETING_RANGE_XLSX) == (
-        "Statistics_ML!$A$4:$G$24"
-    )
-
-
 def _ods_row_cell_texts(row: object) -> list[str]:
     from odf.table import TableCell
     from odf.text import P
@@ -731,9 +709,5 @@ def test_ods_overview_spans_emit_covered_cells_for_eight_columns(tmp_path: Path)
     assert _ods_row_slot_count(labels) == 8
     assert _ods_row_slot_count(values) == 8
     assert _ods_row_slot_count(headers) == 8
-    assert labels.count("AVG PROFIT MARGIN") == 1
-    assert labels.count("ANOMALIES FLAGGED") == 1
-    assert labels.count("FORECAST TARGET") == 1
-    assert headers.count("Traditional Calc Formula") == 1
     assert labels.count("<table:covered-table-cell") == 4
     assert headers.count("<table:covered-table-cell") == 4

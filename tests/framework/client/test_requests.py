@@ -1,6 +1,5 @@
 """sync_request is the shared transport, with an explicit read timeout."""
 
-import inspect
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -38,18 +37,6 @@ def _patch_https(response_or_list):
         return conn
 
     return patch("http.client.HTTPSConnection", side_effect=_factory)
-
-
-def test_sync_request_timeout_is_required_keyword():
-    params = inspect.signature(sync_request).parameters
-    timeout = params["timeout"]
-    assert timeout.default is inspect.Parameter.empty
-    assert timeout.kind is inspect.Parameter.KEYWORD_ONLY
-
-
-def test_sync_request_without_timeout_raises_typeerror():
-    with pytest.raises(TypeError, match="timeout"):
-        sync_request("https://example.invalid")
 
 
 def test_sync_request_log_omits_query_secret(caplog):

@@ -7,12 +7,10 @@
 from __future__ import annotations
 
 import datetime as dt
-import inspect
 import math
 import pytest
 
 import plugin.scripting.calc_functions as calc
-import plugin.scripting.venv.calc_functions_a_c as calc_a_c
 
 
 def test_address():
@@ -32,15 +30,6 @@ def test_address():
     assert calc.address(0, 1, 1) == "#VALUE!"
     assert calc.address(1, 0, 1) == "#VALUE!"
     assert calc.address("invalid", 1) == "#VALUE!"
-
-
-def test_public_names_match_all():
-    defined = [
-        name
-        for name, obj in vars(calc_a_c).items()
-        if inspect.isfunction(obj) and obj.__module__ == calc_a_c.__name__ and not name.startswith("_")
-    ]
-    assert sorted(calc_a_c.__all__) == sorted(defined)
 
 
 def test_aggregate_stubs_and_bools():
@@ -437,4 +426,29 @@ def test_oracle_coup_functions_table():
     assert calc.coupnum(s, m, freq, 0) == 12.0
 
 
+@pytest.mark.parametrize(
+    ("fn_name", "args", "exc_type"),
+    [
+        ("betadist", ("x", 2, 3), ValueError),
+        ("betainv", (0.5, "a", 3), ValueError),
+        ("binomdist", (3, 10, 0.5, "abc"), ValueError),
+        ("binomdist", ("x", 10, 0.5, 1), ValueError),
+        ("chidist", ("abc", 3), ValueError),
+        ("chidist", (1, ""), ValueError),
+        ("chidist", (None, 3), TypeError),
+        ("chidist", (1, float("inf")), OverflowError),
+        ("chiinv", ("x", 3), ValueError),
+        ("confidence", (0.05, "s", 50), ValueError),
+        ("confidence", (0.05, 1, float("inf")), OverflowError),
+        ("critbinom", ("t", 0.5, 0.5), ValueError),
+    ],
+)
+def test_a_c_distribution_bad_argument_raises(fn_name: str, args: tuple[object, ...], exc_type: type[BaseException]) -> None:
+    with pytest.raises(exc_type):
+        getattr(calc, fn_name)(*args)
+
+
+def test_binomdist_blank_flag_is_mass_function():
+    # ScBinomDist reads the flag with GetBool; a blank is 0, the mass function.
+    assert calc.binomdist(3, 10, 0.5, "") == calc.binomdist(3, 10, 0.5, False)
 

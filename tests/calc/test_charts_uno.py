@@ -90,8 +90,11 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
         "headers": ["Month", "Sales"],
         "rows": [["Jan", 100], ["Feb", 150]]
     })
+    # Schema strips the other doc type's fields before validation (docs/calc/charts.md).
     assert res.get("status") == "error"
-    assert "Unknown parameter" in res.get("message", "") or "not supported" in res.get("message", "").lower()
+    assert res.get("code") == "VALIDATION_ERROR"
+    assert "data_range" in res.get("message", "")
+    assert res["details"]["ignored_parameters"] == ["headers", "rows"]
 
     # Create chart without data_range should fail in Calc
     res = _execute_calc_tool(doc, ctx, "chart_upsert", {
@@ -111,8 +114,11 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
         # Create chart with data_range should fail in Writer due to missing headers/rows
         res_fail = get_tools().execute("chart_upsert", writer_ctx, chart_type="bar", data_range="A1:B6")
+        # Schema strips the other doc type's fields before validation (docs/calc/charts.md).
         assert res_fail.get("status") == "error"
-        assert "Both 'headers' and 'rows' are required" in res_fail.get("message", "") or "only supported in Calc" in res_fail.get("message", "")
+        assert res_fail.get("code") == "VALIDATION_ERROR"
+        assert "Both 'headers' and 'rows' are required" in res_fail.get("message", "")
+        assert res_fail["details"]["ignored_parameters"] == ["data_range"]
 
         # Create chart without headers/rows should fail in Writer
         res_fail2 = get_tools().execute("chart_upsert", writer_ctx, chart_type="bar")
@@ -163,18 +169,18 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
         # Read back series color
         diag = chart_doc.getFirstDiagram()
-        if diag:
-            coords = diag.getCoordinateSystems()
-            if coords:
-                ctypes = coords[0].getChartTypes()
-                if ctypes:
-                    series_list = ctypes[0].getDataSeries()
-                    if series_list:
-                        s0 = series_list[0]
-                        for prop in ["FillColor", "Color"]:
-                            if s0.getPropertySetInfo().hasPropertyByName(prop):
-                                assert s0.getPropertyValue(prop) == 0xFF0000
-                                break
+        assert diag is not None, "Expected diagram on Writer chart"
+        coords = diag.getCoordinateSystems()
+        assert coords, "Expected coordinate systems on Writer chart"
+        ctypes = coords[0].getChartTypes()
+        assert ctypes, "Expected chart types on Writer chart"
+        series_list = ctypes[0].getDataSeries()
+        assert series_list, "Expected data series on Writer chart"
+        s0 = series_list[0]
+        prop_info = s0.getPropertySetInfo()
+        color_prop = next((p for p in ("FillColor", "Color") if prop_info.hasPropertyByName(p)), None)
+        assert color_prop is not None, "Expected FillColor or Color property on data series"
+        assert s0.getPropertyValue(color_prop) == 0xFF0000
 
         # Test edit in Writer
         new_headers = ["Period", "Revenue"]
@@ -205,29 +211,51 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
 
 @native_test
-def test_charts_schema_filtering():
-    from plugin.app import get_tools
+@with_native_doc("calc")
+def test_chart_from_named_data_range(ctx, doc):
+    from com.sun.star.table import CellAddress
 
-    chart_upsert_tool = get_tools().get("chart_upsert")
-    assert chart_upsert_tool is not None
+    active_sheet = doc.getCurrentController().getActiveSheet()
+    data = [
+        "Month", "Sales",
+        "Jan", "100",
+        "Feb", "150",
+        "Mar", "200",
+        "Apr", "250",
+        "May", "300",
+    ]
+    res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": "A1:B6", "values": data})
+    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
 
-    # Test Calc filtering
-    calc_params = chart_upsert_tool.get_parameters("calc")
-    assert calc_params is not None
-    assert "data_range" in calc_params["properties"]
-    assert "headers" not in calc_params["properties"]
-    assert "rows" not in calc_params["properties"]
+    named_ranges = doc.NamedRanges
+    if named_ranges.hasByName("ChartData"):
+        named_ranges.removeByName("ChartData")
+    named_ranges.addNewByName("ChartData", "$Sheet1.$A$1:$B$6", CellAddress(Sheet=0, Column=0, Row=0), 0)
+    chart_name = None
+    try:
+        res_create = _execute_calc_tool(doc, ctx, "chart_upsert", {"data_range": "ChartData", "chart_type": "bar"})
+        assert res_create.get("status") == "ok", f"chart_upsert create failed: {res_create}"
 
-    # Test Writer filtering
-    writer_params = chart_upsert_tool.get_parameters("writer")
-    assert writer_params is not None
-    assert "data_range" not in writer_params["properties"]
-    assert "headers" in writer_params["properties"]
-    assert "rows" in writer_params["properties"]
+        res_list = _execute_calc_tool(doc, ctx, "chart_list", {})
+        charts = res_list.get("charts", [])
+        assert len(charts) == 1
+        chart_name = charts[0]["name"]
 
-    # Test Draw filtering
-    draw_params = chart_upsert_tool.get_parameters("draw")
-    assert draw_params is not None
-    assert "data_range" not in draw_params["properties"]
-    assert "headers" in draw_params["properties"]
-    assert "rows" in draw_params["properties"]
+        chart_obj = active_sheet.getCharts().getByName(chart_name)
+        addr = chart_obj.getRanges()[0]
+        assert (addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow) == (0, 0, 1, 5)
+
+        res_edit = _execute_calc_tool(doc, ctx, "chart_upsert", {"name": chart_name, "data_range": "ChartData"})
+        assert res_edit.get("status") == "ok", f"chart_upsert edit failed: {res_edit}"
+
+        named_ranges.removeByName("ChartData")
+        named_ranges.addNewByName("ChartData", "$Sheet1.$A$1:$B$4", CellAddress(Sheet=0, Column=0, Row=0), 0)
+        res_edit2 = _execute_calc_tool(doc, ctx, "chart_upsert", {"name": chart_name, "data_range": "ChartData"})
+        assert res_edit2.get("status") == "ok", f"chart_upsert edit2 failed: {res_edit2}"
+        addr2 = chart_obj.getRanges()[0]
+        assert (addr2.StartColumn, addr2.StartRow, addr2.EndColumn, addr2.EndRow) == (0, 0, 1, 3)
+    finally:
+        if chart_name is not None:
+            _execute_calc_tool(doc, ctx, "chart_delete", {"name": chart_name})
+        if named_ranges.hasByName("ChartData"):
+            named_ranges.removeByName("ChartData")

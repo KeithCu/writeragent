@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import ast
 import io
-import threading
+import re
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -13,22 +13,28 @@ from xml.etree import ElementTree as ET
 import pytest
 
 from plugin.calc.excel_py_convert.auto_open import has_excel_python_xlsx
-from plugin.calc.excel_py_convert.convert import convert_to_excel
+from plugin.calc.excel_py_convert.convert import convert_to_dag, convert_to_excel
 from plugin.calc.excel_py_convert.models import (
     ConvertedCell,
     ConversionReport,
+    DagCellMeta,
+    DagFormulaItem,
     ExcelPyCell,
     ExcelWorkbookModel,
     SheetInfo,
+    find_sheet_ci,
 )
 from plugin.calc.excel_py_convert.ooxml_util import (
+    SSML_NS,
+    find_child,
     local_name,
     parse_and_extract_namespaces,
     serialize_xml_preserving_namespaces,
-    xml_namespace_lock,
 )
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     a1_span_bounds,
+    expand_shared,
+    iter_formula_cells,
     load_excel_model,
     parse_xlws_py_formula,
     shift_xlws_py_dep,
@@ -39,7 +45,7 @@ from plugin.calc.excel_py_convert.script_bank import (
     formula_for_converted_cell,
 )
 from plugin.calc.excel_py_convert.to_dag import (
-    _OBJECT_SUPPRESS,
+    OBJECT_SUPPRESS,
     _prefer_excel_dep_token,
     _skip_string,
     analyze_xl_calls,
@@ -49,6 +55,7 @@ from plugin.calc.excel_py_convert.to_dag import (
 )
 from plugin.calc.excel_py_convert.to_excel import (
     assign_script_bank,
+    convert_dag_cells_to_excel,
     convert_dag_formula_to_excel,
     rewrite_dag_code_to_excel,
     xlws_py_formula,
@@ -451,14 +458,11 @@ def test_demo1_fillna_specifics():
     assert h4.excel_deps == ["_xlfn.ANCHORARRAY(A6)"]
     assert h4.return_type == 1
     assert "result = None" in h4.converted_code
-    assert not h4.ordering_args
     assert by_cell["H5"].excel_deps == ["_xlfn.ANCHORARRAY(D6)"]
-    assert not by_cell["H5"].ordering_args
     assert "H4" not in (by_cell["H5"].dag_formula or "")
     h6 = by_cell["H6"]
     assert h6.shared_kernel
     assert "merge" in h6.converted_code
-    assert not h6.ordering_args
     assert "H5" not in (h6.dag_formula or "")
     assert any("does not add order edges" in i for i in h6.issues)
 
@@ -471,12 +475,10 @@ def test_demo3_table_and_scalar_groupby():
     assert 'xl("%P2%",headers=True)' in c1.converted_code
     c9 = by_cell["C9"]
     assert c9.data_args == ["C4", "C5", "C6"]
-    assert not c9.ordering_args
     assert "C3" not in (c9.dag_formula or "")
     assert 'xl("%P2%")' in c9.converted_code and 'xl("%P4%")' in c9.converted_code
     d9 = by_cell["D9"]
     assert d9.data_args == ["D4", "D5", "D6"]
-    assert not d9.ordering_args
     assert "C9" not in (d9.dag_formula or "")
 
 
@@ -509,7 +511,6 @@ def test_demo6_multi_range_and_headers_false():
     assert by_cell["L2"].data_args == ["A4:I63"]
     n17 = by_cell["N17"]
     assert n17.data_args[:2] == ["U8:U15", "M8:T15"]
-    assert not n17.ordering_args
     assert 'xl("%P2%")' in n17.converted_code and 'xl("%P3%")' in n17.converted_code
     ak = by_cell["AK34"]
     assert 'xl("%P2%",headers=False)' in ak.converted_code and 'xl("%P3%")' in ak.converted_code
@@ -663,12 +664,12 @@ def test_export_unparseable_code_fails_closed():
 
 
 def test_export_object_suppress_exact_trailer_only():
-    dag_code = "x = data[0]" + _OBJECT_SUPPRESS
+    dag_code = "x = data[0]" + OBJECT_SUPPRESS
     res, deps, issues, fatal = rewrite_dag_code_to_excel(dag_code, ["A1"])
     assert not fatal
     assert res == "x = xl(%P2%)"
 
-    inside_str = f's = """{_OBJECT_SUPPRESS}"""\nresult = None\n'
+    inside_str = f's = """{OBJECT_SUPPRESS}"""\nresult = None\n'
     res2, deps2, issues2, fatal2 = rewrite_dag_code_to_excel(inside_str, ["A1"])
     assert not fatal2
     assert res2 == inside_str
@@ -681,48 +682,51 @@ def test_reverse_preserves_headers_false_and_return_type():
     cell = convert_dag_formula_to_excel(
         formula,
         cell="Z1",
-        meta={
+        meta=DagCellMeta.from_dict({
             "return_type": 1,
             "data_args": ["A1:A2"],
             "ordering_args": ["Y1"],
             "bindings": [{"a1": "A1:A2", "header_mode": "false", "role": "data", "original_indices": [0]}],
-        },
+        }),
     )
     assert "headers=False" in cell.converted_code
     assert cell.return_type == 1
-    assert any("ordering-only" in i for i in cell.issues)
+    assert not any("ordering" in i for i in cell.issues)
     assert "Y1" not in cell.converted_code
 
 
 def test_convert_dag_report_preserves_return_type_drops_legacy_ordering():
     """Legacy reports may still carry ordering_args; export must not put them on _xlws.PY."""
-    from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport
+    from plugin.calc.excel_py_convert.models import ConversionReport
     from plugin.calc.excel_py_convert.to_excel import convert_dag_report_to_excel, xlws_py_formula
 
-    dag = ConversionReport(
-        direction="dag",
-        cells=[
-            ConvertedCell(
-                sheet="Sheet1",
-                cell="H5",
-                direction="dag",
-                original_code="x = data.to_pandas()",
-                converted_code="x = data.to_pandas()",
-                data_args=["A1:B2"],
-                ordering_args=["H4"],
-                bindings=[BindingInfo(a1="A1:B2", header_mode="true", role="data", original_indices=[0])],
-                return_type=1,
-                converted=True,
-                array_ref="H5:I10",
-            )
-        ],
+    dag = ConversionReport.from_dict(
+        {
+            "direction": "dag",
+            "cells": [
+                {
+                    "sheet": "Sheet1",
+                    "cell": "H5",
+                    "direction": "dag",
+                    "original_code": "x = data.to_pandas()",
+                    "converted_code": "x = data.to_pandas()",
+                    "data_args": ["A1:B2"],
+                    "ordering_args": ["H4"],
+                    "bindings": [{"a1": "A1:B2", "header_mode": "true", "role": "data", "original_indices": [0]}],
+                    "return_type": 1,
+                    "converted": True,
+                    "array_ref": "H5:I10",
+                }
+            ],
+        }
     )
     excel = convert_dag_report_to_excel(dag)
     assert excel.ok
     c = excel.cells[0]
     assert c.return_type == 1
     assert c.data_args == ["A1:B2"]
-    assert c.ordering_args == ["H4"]
+    assert "ordering_args" not in c.to_dict()
+    assert not any("ordering" in i for i in c.issues)
     assert "H4" not in xlws_py_formula(c.script_index, c.return_type, c.data_args)
     assert "xl(%P2%,headers=True)" in c.converted_code
     assert c.excel_formula.startswith("=_xlfn._xlws.PY(0,1,")
@@ -748,16 +752,22 @@ def test_dag_meta_payload_roundtrip():
                 original_code="",
                 converted_code="data",
                 data_args=["B1"],
-                ordering_args=["Z9"],
                 return_type=1,
                 converted=True,
             )
         ],
     )
     payload = dag_report_to_meta_payload(report)
-    assert cell_meta_key("S", "A1") in payload
-    assert payload[cell_meta_key("S", "A1")]["return_type"] == 1
-    assert payload[cell_meta_key("S", "A1")]["ordering_args"] == ["Z9"]
+    assert payload == {
+        cell_meta_key("S", "A1"): {
+            "return_type": 1,
+            "data_args": ["B1"],
+            "excel_deps": [],
+            "array_ref": "",
+            "bindings": [],
+        }
+    }
+    assert DagCellMeta.from_dict(payload[cell_meta_key("S", "A1")]) == DagCellMeta(return_type=1, data_args=["B1"])
 
     doc = MagicMock()
     with patch("plugin.doc.udprops.set_document_property") as set_prop:
@@ -1578,30 +1588,6 @@ def test_script_bank_truncation_collision_raises():
     assert report.issues == []
 
 
-def test_write_dag_formulas_xlsx_closes_workbook_on_error(tmp_path: Path):
-    """write_dag_formulas_xlsx must close the openpyxl workbook in try/finally on all errors."""
-    from plugin.calc.excel_py_convert.xlsx_write import write_dag_formulas_xlsx
-    from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
-
-    src = tmp_path / "dag_src.xlsx"
-    src.write_bytes(_dag_xlsx_bytes())
-
-    # Create a cell with an unmapped sheet to trigger ValueError in write_dag_formulas_xlsx
-    cell = ConvertedCell(
-        sheet="NonExistentSheet",
-        cell="A1",
-        direction="dag",
-        original_code="x = 1",
-        converted_code="x = 1",
-        converted=True,
-    )
-    report = ConversionReport(direction="dag", cells=[cell])
-    out = tmp_path / "dag_out.xlsx"
-
-    with pytest.raises(ValueError, match="unmapped sheet"):
-        write_dag_formulas_xlsx(src, report, out)
-
-
 def test_temp_files_cleaned_up_on_exception(tmp_path: Path, monkeypatch):
     """Temporary files ({stem}_*.tmp) must be cleaned up on exception."""
     from plugin.calc.excel_py_convert.xlsx_write import write_excel_python_xlsx
@@ -1885,10 +1871,9 @@ def test_inline_string_bank_reading(tmp_path: Path):
 
     items = iter_dag_py_formulas_xlsx(xlsx)
     assert len(items) == 1
-    sheet, a1, formula = items[0]
-    assert sheet == "Data"
-    assert a1 == "A1"
-    assert 'df = xl(""A1:B10"")' in formula
+    assert items[0].sheet == "Data"
+    assert items[0].cell == "A1"
+    assert 'df = xl(""A1:B10"")' in items[0].formula
 
 
 def test_convert_cell_no_deps_with_xl_reference_fails_closed():
@@ -2580,6 +2565,7 @@ def test_clear_spill_uno_single_range_clear():
 
     doc = MagicMock()
     sheet = MagicMock()
+    doc.getSheets().getElementNames.return_value = ("Sheet1",)
     doc.getSheets().getByName.return_value = sheet
     doc.getSheets().hasByName.return_value = True
 
@@ -2603,6 +2589,7 @@ def test_clear_spill_uno_single_range_clear():
         original_code="",
         converted_code="x = 1",
         data_args=[],
+        dag_formula='=PY("x = 1")',
         converted=True,
         array_ref="C1:D2",
     )
@@ -2610,7 +2597,6 @@ def test_clear_spill_uno_single_range_clear():
     errors = apply_dag_formulas_to_calc_doc(doc, report)
     assert errors == []
     spill_range.clearContents.assert_called_once_with(55)
-    assert anchor_cell.getFormula.call_count == 1
     assert anchor_cell.setFormula.call_args[0][0] == '=PY("x = 1")'
 
 
@@ -2618,8 +2604,8 @@ def test_worksheet_cell_index_sparse_order():
     """Sparse inserts maintain ascending numerical row order and alphabetical column order."""
     from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex
 
-    root = ET.Element("worksheet")
-    ET.SubElement(root, "sheetData")
+    root = ET.Element(f"{{{SSML_NS}}}worksheet")
+    ET.SubElement(root, f"{{{SSML_NS}}}sheetData")
     idx = _WorksheetCellIndex(root)
 
     coords = ["Z100", "A2", "C10", "B5", "AA50", "B2", "A1"]
@@ -2627,7 +2613,7 @@ def test_worksheet_cell_index_sparse_order():
         el = idx.ensure_cell(c)
         el.text = c
 
-    sd = root.find("sheetData")
+    sd = find_child(root, "sheetData")
     assert sd is not None
     rows = list(sd)
     row_nums = [int(r.attrib["r"]) for r in rows]
@@ -2701,51 +2687,6 @@ def test_strip_rels_preserves_python_notes():
     assert "rId2" not in res
     assert "rId3" in res
     assert "python_notes.xml" in res
-
-
-def test_strip_rels_keeps_python_when_not_stripping():
-    from plugin.calc.excel_py_convert.xlsx_write import _strip_rels_python
-
-    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/calcChain" Target="calcChain.xml"/>
-  <Relationship Id="rId3" Type="http://schemas.microsoft.com/office/2022/relationships/pythonScript" Target="pythonScripts.xml"/>
-</Relationships>"""
-    res = _strip_rels_python(xml, strip_python=False).decode("utf-8")
-    assert "rId1" in res
-    assert "rId2" not in res
-    assert "rId3" in res
-    assert "pythonScripts.xml" in res
-
-
-def test_xml_namespace_lock_thread_safety():
-    """Concurrent serialization with different namespaces does not cross-pollute declarations."""
-    errors: list[str] = []
-
-    def run_serialization(prefix: str, uri: str):
-        try:
-            for _ in range(50):
-                with xml_namespace_lock():
-                    ET.register_namespace(prefix, uri)
-                    el = ET.Element(f"{{{uri}}}root")
-                    _ = ET.SubElement(el, f"{{{uri}}}item")
-                    out = ET.tostring(el, encoding="utf-8").decode("utf-8")
-                    if f"xmlns:{prefix}" not in out and "xmlns=" not in out:
-                        errors.append(f"Missing xmlns in: {out}")
-        except Exception as e:
-            errors.append(str(e))
-
-    threads = [
-        threading.Thread(target=run_serialization, args=("nsA", "http://example.com/nsA")),
-        threading.Thread(target=run_serialization, args=("nsB", "http://example.com/nsB")),
-    ]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert errors == []
 
 
 def test_write_excel_python_xlsx_leaves_untouched_shared_group_intact(tmp_path: Path):
@@ -2903,7 +2844,7 @@ def test_rewrite_dag_code_to_excel_valid_placeholder():
 
 def test_excel_report_with_fatal_placeholder_refuses_export(tmp_path: Path):
     formula = '=PY("x = xl(\\"%P9%\\")"; A1)'
-    cell = convert_dag_formula_to_excel(formula, sheet="Sheet1", cell="A1", return_type=0)
+    cell = convert_dag_formula_to_excel(formula, sheet="Sheet1", cell="A1")
     assert cell.converted is False
     report = ConversionReport(direction="excel", cells=[cell])
     assert report.ok is False
@@ -3056,31 +2997,31 @@ def test_worksheet_custom_prefix_roundtrip(tmp_path: Path):
 def test_clear_spill_xml_touches_stored_cells_only():
     from plugin.calc.excel_py_convert.xlsx_write import _WorksheetCellIndex, _clear_spill_xml
 
-    ws_root = ET.Element("worksheet")
-    ET.SubElement(ws_root, "sheetData")
+    ws_root = ET.Element(f"{{{SSML_NS}}}worksheet")
+    ET.SubElement(ws_root, f"{{{SSML_NS}}}sheetData")
     index = _WorksheetCellIndex(ws_root)
 
     c_anchor = index.ensure_cell("A1")
-    v_a = ET.SubElement(c_anchor, "v")
+    v_a = ET.SubElement(c_anchor, f"{{{SSML_NS}}}v")
     v_a.text = "anchor"
 
     c_spill = index.ensure_cell("B2")
-    v_s = ET.SubElement(c_spill, "v")
+    v_s = ET.SubElement(c_spill, f"{{{SSML_NS}}}v")
     v_s.text = "spill"
 
     c_outside = index.ensure_cell("A10001")
-    v_o = ET.SubElement(c_outside, "v")
+    v_o = ET.SubElement(c_outside, f"{{{SSML_NS}}}v")
     v_o.text = "outside"
 
     _clear_spill_xml("A1", "A1:XFD10000", index=index)
 
     # Anchor value kept
-    v_a_found = c_anchor.find("v")
+    v_a_found = find_child(c_anchor, "v")
     assert v_a_found is not None and v_a_found.text == "anchor"
     # In-range non-anchor cleared
-    assert c_spill.find("v") is None
+    assert find_child(c_spill, "v") is None
     # Out-of-range cell kept
-    v_o_found = c_outside.find("v")
+    v_o_found = find_child(c_outside, "v")
     assert v_o_found is not None and v_o_found.text == "outside"
 
 
@@ -3345,15 +3286,6 @@ def test_parse_python_scripts_normal_and_hostile_indices():
         assert any("out of range" in iss for iss in issues)
 
 
-def test_standard_namespaces_x16_mapping():
-    from plugin.calc.excel_py_convert.ooxml_util import register_standard_namespaces
-
-    register_standard_namespaces()
-    el = ET.Element("{http://schemas.microsoft.com/office/spreadsheetml/2014/11/main}test")
-    out = ET.tostring(el, encoding="utf-8")
-    assert b"x16:test" in out
-
-
 def test_write_dag_formulas_preserves_drawings_and_vba(tmp_path: Path):
     src = tmp_path / "preserve_src.xlsx"
     out = tmp_path / "preserve_out.xlsx"
@@ -3527,7 +3459,7 @@ def test_write_dag_formulas_multiple_cell_errors_collected(tmp_path: Path):
     assert not out.exists()
 
 
-def test_write_dag_formulas_drops_calc_chain_when_strip_python_parts_false(tmp_path: Path):
+def test_write_dag_formulas_drops_calc_chain_and_python_parts(tmp_path: Path):
     src = tmp_path / "with_calc_chain.xlsx"
     out = tmp_path / "out.xlsx"
     buf = io.BytesIO()
@@ -3581,20 +3513,20 @@ def test_write_dag_formulas_drops_calc_chain_when_strip_python_parts_false(tmp_p
 
     cell = ConvertedCell(sheet="Sheet1", cell="A1", direction="dag", original_code="x = 1", converted_code="x = 1", data_args=[], converted=True)
     report = ConversionReport(direction="dag", cells=[cell])
-    write_dag_formulas_xlsx(src, report, out, strip_python_parts=False)
+    write_dag_formulas_xlsx(src, report, out)
 
     with zipfile.ZipFile(out, "r") as zf:
         names = zf.namelist()
         assert "xl/calcChain.xml" not in names
-        assert "xl/pythonScripts.xml" in names
+        assert "xl/pythonScripts.xml" not in names
 
         ct = zf.read("[Content_Types].xml").decode("utf-8")
         assert "calcChain" not in ct
-        assert "/xl/pythonScripts.xml" in ct
+        assert "/xl/pythonScripts.xml" not in ct
 
         rels = zf.read("xl/_rels/workbook.xml.rels").decode("utf-8")
         assert "calcChain" not in rels
-        assert "pythonScripts.xml" in rels
+        assert "pythonScripts.xml" not in rels
 
 
 def test_ensure_workbook_full_calc_on_load_before_extlst():
@@ -3698,3 +3630,182 @@ def test_shared_strings_helper(tmp_path: Path):
         assert shared_strings(zf) == []
 
 
+def test_iter_formula_cells_yields_only_cells_with_r_and_f():
+    ws_root = ET.fromstring(
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData>"
+        '<row r="1">'
+        '<c r="A1"><f> X </f></c>'
+        "<c><f>Y</f></c>"
+        '<c r="B1"><v>1</v></c>'
+        "</row>"
+        "</sheetData>"
+        "</worksheet>"
+    )
+    items = list(iter_formula_cells(ws_root))
+    assert len(items) == 1
+    a1, f_el, body = items[0]
+    assert a1 == "A1"
+    assert local_name(f_el.tag) == "f"
+    assert body == "X"
+
+
+def test_expand_shared_shifts_xlws_py_and_defers_other_masters():
+    assert expand_shared(("_xlfn._xlws.PY(0,1,A1)", "B1"), "B3") == "_xlfn._xlws.PY(0,1,A3)"
+    assert expand_shared(("_xlfn._xlws.PY(0,1,A1)", "B2"), "B1") is None
+    assert expand_shared(("A1+1", "B1"), "C3") is None
+
+    calls: list[tuple[str, int, int]] = []
+
+    def _record(body: str, rows: int, cols: int) -> str:
+        calls.append((body, rows, cols))
+        return "B3+1"
+
+    assert expand_shared(("A1+1", "B1"), "C3", shift_other=_record) == "B3+1"
+    assert calls == [("A1+1", 2, 1)]
+
+
+def test_write_excel_python_xlsx_unshare_ref_error_raises_unwrapped(tmp_path: Path):
+    src = tmp_path / "src_ref.xlsx"
+    out = tmp_path / "out_ref.xlsx"
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        "<sheetData>"
+        '<row r="1">'
+        '<c r="A1"><f t="shared" si="0"/></c>'
+        '<c r="B1"><f t="shared" ref="A1:B1" si="0">A1+1</f></c>'
+        "</row>"
+        "</sheetData>"
+        "</worksheet>"
+    )
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml))
+
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="B1",
+        direction="excel",
+        original_code="x = 1",
+        converted_code="x = 1",
+        data_args=[],
+        converted=True,
+        script_index=0,
+    )
+    report = ConversionReport(direction="excel", cells=[cell])
+    with pytest.raises(
+        ValueError,
+        match=r"^Cannot unshare formula for Sheet1!A1 in si=0: out-of-bounds shift produced #REF!$",
+    ):
+        write_excel_python_xlsx(src, report, out)
+
+
+@pytest.mark.parametrize(
+    ("sheet_xml", "cell_addr", "expected_msg"),
+    [
+        (
+            '<row r="1">'
+            '<c r="A1"><f t="shared" si="0"/></c>'
+            '<c r="B1"><f t="shared" ref="A1:B1" si="0">A1+1</f></c>'
+            "</row>",
+            "B1",
+            "write_dag_formulas_xlsx failed:\n"
+            "Sheet1: Cannot unshare formula for Sheet1!A1 in si=0: out-of-bounds shift produced #REF!",
+        ),
+        (
+            '<row r="1"><c r="B1"><f t="shared" si="0"/></c></row>'
+            '<row r="2"><c r="B2"><f t="shared" ref="B1:B2" si="0">_xlfn._xlws.PY(0,1,A1)</f></c></row>',
+            "B2",
+            "write_dag_formulas_xlsx failed:\n"
+            "Sheet1: Cannot unshare formula for Sheet1!B1 in si=0: shifter refused '_xlfn._xlws.PY(0,1,A1)'",
+        ),
+    ],
+)
+def test_write_dag_formulas_unshare_errors_are_collected(
+    tmp_path: Path,
+    sheet_xml: str,
+    cell_addr: str,
+    expected_msg: str,
+):
+    src = tmp_path / "src_dag_err.xlsx"
+    out = tmp_path / "out_dag_err.xlsx"
+    full_sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f"<sheetData>{sheet_xml}</sheetData>"
+        "</worksheet>"
+    )
+    wb_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+        "</workbook>"
+    )
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+        "</Relationships>"
+    )
+    src.write_bytes(_minimal_xlsx_bytes(sheet_xml=full_sheet_xml, workbook_xml=wb_xml, rels_xml=rels_xml))
+
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell=cell_addr,
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        data_args=[],
+        converted=True,
+    )
+    report = ConversionReport(direction="dag", cells=[cell])
+    with pytest.raises(ValueError, match=re.escape(expected_msg)):
+        write_dag_formulas_xlsx(src, report, out)
+
+
+def test_convert_to_dag_puts_sandbox_warnings_on_cell_issues(tmp_path: Path):
+    import json
+
+    fixture = tmp_path / "model.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "scripts": ["import requests\nx = 1"],
+                "cells": [{"sheet": "Sheet1", "cell": "A1", "script_index": 0, "return_type": 0, "deps": []}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    report = convert_to_dag(fixture)
+    assert report.ok
+    assert "import is blocked by the Python sandbox: requests" in report.to_dict()["cells"][0]["issues"]
+
+
+def test_dag_formula_item_without_data_args_uses_formula_ranges():
+    report = convert_dag_cells_to_excel(
+        [DagFormulaItem("S", "A1", '=PY("x = data";B1:B3)', DagCellMeta.from_dict({"return_type": 2}))]
+    )
+    c = report.cells[0]
+    assert c.data_args == ["B1:B3"]
+    assert c.return_type == 2
+    assert c.excel_formula.endswith("B1:B3)")
+
+
+def test_find_sheet_ci_exact_first_then_casefold():
+    by_title = {"Data": 1, "data": 2}
+    assert find_sheet_ci(by_title, "data") == 2
+    assert find_sheet_ci({"Data": 1}, "DATA") == 1
+    assert find_sheet_ci({"Data": 1}, "Missing") is None

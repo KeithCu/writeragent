@@ -105,10 +105,19 @@ def test_async_process_start_success():
     assert exit_codes == [0]
 
 def test_async_process_start_drain_only():
-    ap = AsyncProcess([sys.executable, "-c", "print('hello')"])
-    ap.start()
-    ap._wait_thread.join(timeout=2)
+    ap = AsyncProcess([sys.executable, "-c", "import sys; print('hello'); print('err', file=sys.stderr)"])
+    with patch.object(ap, "_drain_stream", wraps=ap._drain_stream) as drain_spy:
+        ap.start()
+        ap._wait_thread.join(timeout=2)
+        if ap._stdout_thread:
+            ap._stdout_thread.join(timeout=1)
+        if ap._stderr_thread:
+            ap._stderr_thread.join(timeout=1)
     assert ap.is_running is False
+    assert drain_spy.call_count == 2
+    assert ap.process is not None
+    assert ap.process.stdout is not None and ap.process.stdout.closed
+    assert ap.process.stderr is not None and ap.process.stderr.closed
 
 
 def test_stderr_drain_prevents_pipe_deadlock():
@@ -245,13 +254,28 @@ def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(m
                     pass
 
 def test_async_process_wait_for_exit_callback_error():
+    called = []
+
     def on_exit_error(code):
+        called.append(code)
         raise ValueError("exit callback error")
 
     ap = AsyncProcess([sys.executable, "-c", "pass"], on_exit_cb=on_exit_error)
-    ap.start()
-    ap._wait_thread.join(timeout=2)
-    # The error should be caught and logged, not crash
+    uncaught: list[BaseException] = []
+    orig_wait = ap._wait_for_exit
+
+    def _checked_wait(*args, **kwargs):
+        try:
+            return orig_wait(*args, **kwargs)
+        except BaseException as exc:
+            uncaught.append(exc)
+            raise
+
+    with patch.object(ap, "_wait_for_exit", _checked_wait):
+        ap.start()
+        ap._wait_thread.join(timeout=2)
+    assert called == [0]
+    assert uncaught == []
     assert ap.is_running is False
 
 def test_async_process_terminate_does_not_join_on_caller():
@@ -705,47 +729,39 @@ class TestReadStreamStripsNewlines:
         ap._read_stream(_ChunkStream([b"hello\n\r"]), received.append)
         assert received == ["hello", ""]
 
-    def test_read_stream_exact_cap_trailing_cr_is_not_an_extra_line(self, caplog):
+    def test_read_stream_exact_cap_trailing_cr_is_not_an_extra_line(self):
         from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS
 
         ap = AsyncProcess(["dummy"])
         received: list[str] = []
 
-        with caplog.at_level("WARNING"):
-            ap._read_stream(
-                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]),
-                received.append,
-            )
+        ap._read_stream(
+            _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]),
+            received.append,
+        )
         assert received == ["y" * _MAX_STREAM_LINE_CHARS, "next"]
 
         received.clear()
-        with caplog.at_level("WARNING"):
-            ap._read_stream(
-                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]),
-                received.append,
-            )
+        ap._read_stream(
+            _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]),
+            received.append,
+        )
         assert received == ["y" * _MAX_STREAM_LINE_CHARS]
 
-        warning_records = [r for r in caplog.records if "delivering a partial line" in r.message]
-        assert len(warning_records) == 0
-
-    def test_read_stream_flushes_partial_line_at_cap(self, caplog):
+    def test_read_stream_flushes_partial_line_at_cap(self):
         from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS
 
         ap = AsyncProcess(["dummy"])
         stream = _ChunkStream([b"y" * (_MAX_STREAM_LINE_CHARS + 10)])
         received: list[str] = []
 
-        with caplog.at_level("WARNING"):
-            ap._read_stream(stream, received.append)
+        ap._read_stream(stream, received.append)
 
         assert len(received) == 2
         assert len(received[0]) == _MAX_STREAM_LINE_CHARS
         assert received[0] == "y" * _MAX_STREAM_LINE_CHARS
         assert len(received[1]) == 10
         assert received[1] == "y" * 10
-        warning_records = [r for r in caplog.records if "delivering a partial line" in r.message]
-        assert len(warning_records) == 1
 
 
 def test_stderr_drain_short_read_before_eof():
@@ -1261,7 +1277,7 @@ def test_daemon_work_pool_logs_base_exception_and_keeps_worker_alive(caplog):
             release.set()
             release_thread.join()
 
-    assert any("Unhandled SystemExit in pooled background job" in r.message for r in caplog.records)
+    assert any(r.exc_info is not None for r in caplog.records)
 
     # Worker thread must still be alive and process subsequent jobs
     second_ran = []

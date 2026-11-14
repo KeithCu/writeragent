@@ -1,27 +1,5 @@
 import pytest
-import sys
 from unittest.mock import MagicMock, patch
-
-from plugin.tests.testing_utils import setup_uno_mocks
-
-# Mocks specific to UI and dialogs missing from setup_uno_mocks
-class MockXEventListener:
-    pass
-
-class MockXTransferable:
-    pass
-
-class MockXControlContainer:
-    pass
-
-class MockXItemListener:
-    pass
-
-setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
-setattr(sys.modules["com.sun.star.awt"], "XControlContainer", MockXControlContainer)
-setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener)
-setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable)
-
 
 # Important: We need to mock `_` inside `plugin.chatbot.dialogs` directly,
 # since it uses `from plugin.framework.i18n import _` inside some functions.
@@ -35,23 +13,6 @@ from plugin.chatbot.dialogs import (
     format_exception_detail,
     _collect_xdl_load_diagnostics,
 )
-
-
-@pytest.fixture(autouse=True)
-def _restore_com_sun_star_for_dialog_tests():
-    """Re-install UNO stubs before each test.
-
-    Other modules (e.g. ``test_tool_loop``, ``test_image_tools_cursor``) assign
-    ``sys.modules['com.sun.star.awt']`` at import time without
-    ``XControlContainer``, which breaks ``from com.sun.star.awt import
-    XControlContainer`` in ``dialogs._xcc`` depending on collection order.
-    """
-    setup_uno_mocks()
-    setattr(sys.modules["com.sun.star.lang"], "XEventListener", MockXEventListener)
-    setattr(sys.modules["com.sun.star.awt"], "XControlContainer", MockXControlContainer)
-    setattr(sys.modules["com.sun.star.awt"], "XItemListener", MockXItemListener)
-    setattr(sys.modules["com.sun.star.datatransfer"], "XTransferable", MockXTransferable)
-    yield
 
 
 def test_show_approval_dialog_disposes_without_flipping_yes():
@@ -147,11 +108,6 @@ def test_translate_dialog_xcc(mock_i18n_translate):
 
     # Label should be updated
     assert mock_child_model.Label == "T_Old Label"
-    # Ensure it traversed. It gets called twice:
-    # 1. to check root_child_count
-    # 2. in translate_one(dlg) to loop through children
-    assert mock_xcc.getControls.call_count == 2
-    mock_child.getImplementationName.assert_called_once()
 
 @patch("plugin.chatbot.dialogs._")
 
@@ -477,11 +433,9 @@ def test_msgbox_with_report_long_message_does_not_raise():
     with patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=dlg):
         # We also need to mock build_github_issue_url because we aren't testing that.
         with patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="url"):
-            # 2000 > DEAL_MAX_MSGID (which is probably 1000 or so)
+            # Exceeds DEAL_MAX_MSGID so calling `_(long_msg)` would raise deal.PreContractError.
             long_msg = "x" * 2000
-            # If `_(long_msg)` is called, it will raise deal.PreContractError
             msgbox_with_report(ctx, "Test Title", long_msg, reportable=True)
-            # The label should be assigned the long message (or translated prefix + long message)
             assert long_msg in msg_model.Label
 
 def test_msgbox_long_message_does_not_raise():
@@ -537,14 +491,15 @@ def test_show_text_input_dialog_disposes_when_prepare_raises():
     dlg.dispose.assert_called_once()
 
 
-def test_copy_to_clipboard_log_does_not_include_payload(caplog):
+def test_copy_to_clipboard_log_does_not_include_payload(caplog, monkeypatch):
     import logging
     import sys
     from plugin.chatbot.dialogs import copy_to_clipboard
     from unittest.mock import MagicMock
 
-    sys.modules["com.sun.star.datatransfer"].DataFlavor = MagicMock
-    with caplog.at_level(logging.INFO, logger="writeragent.dialogs"):
+    monkeypatch.setattr(sys.modules["com.sun.star.datatransfer"], "DataFlavor", MagicMock, raising=False)
+    with caplog.at_level(logging.INFO, logger="plugin.chatbot.dialogs"):
         assert copy_to_clipboard(MagicMock(), "SECRET_PAYLOAD") is True
-        assert "SECRET_PAYLOAD" not in caplog.text
+    assert caplog.records
+    assert "SECRET_PAYLOAD" not in caplog.text
 

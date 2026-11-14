@@ -22,26 +22,14 @@ import pytest
 from hypothesis import given, settings, example, assume, HealthCheck
 
 from plugin.scripting.payload_codec import (
-    fast_flatten_grid_1d,
-    fast_flatten_grid_2d,
+    child_unpack_split_grid,
     host_pack_data,
     is_split_grid,
 )
 
-def test_cython_active_if_available() -> None:
-    """Verify that the Cython accelerator is loaded if we are in a 'native' build environment."""
-    import os
-    # We only expect this to pass if the user has run 'make native'
-    # or if we are in a CI environment that builds native modules.
-    if os.path.exists("plugin/contrib/vec_pack/pack.cpython-312-x86_64-linux-gnu.so"):
-        assert fast_flatten_grid_2d is not None, "Cython 2D accelerator should be loaded"
-        assert fast_flatten_grid_1d is not None, "Cython 1D accelerator should be loaded"
 from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 from tests.scripting.payload_codec_test_support import MIXED_WITH_ZIP, NUMERIC_4X4
-from tests.harness.vhs_budget import _SERIALIZATION_EXTENSIVE_ENV
 from tests.scripting.serialization_ab_support import (
-    _AB_HYPOTHESIS_EXTENSIVE,
-    _AB_HYPOTHESIS_LIGHT,
     VENV_CODE_ECHO,
     VENV_CODE_SUM,
     AbGridCase,
@@ -51,7 +39,6 @@ from tests.scripting.serialization_ab_support import (
     assert_codec_split_vs_nosplit_parity,
     assert_identity_after_echo,
     assert_venv_always_never_parity,
-    codec_child_materialization,
     expect_child_list_not_ndarray,
     flatten_semantic_cells,
     grid_cell_count,
@@ -65,7 +52,6 @@ from tests.scripting.serialization_ab_support import (
     venv_transform_cases,
     ab_hypothesis_max_examples,
     fancier_result_strategy,
-    serialization_extensive,
 )
 
 _EX = ab_hypothesis_max_examples()
@@ -109,7 +95,7 @@ def test_child_materialization_type(case: AbGridCase) -> None:
     """Under force=always: numeric-only → ndarray; any string → nested list."""
     pytest.importorskip("numpy")
     grid = prepare_grid(case)
-    child = codec_child_materialization(grid, force="always")
+    child = child_unpack_split_grid(host_pack_data(grid, force="always"))
     if expect_child_list_not_ndarray(grid if isinstance(grid, list) else [grid]):
         assert isinstance(child, list)
         assert not isinstance(child, np.ndarray)
@@ -316,25 +302,6 @@ def test_hypothesis_fancier_result_roundtrip(result: Any) -> None:
 
     assert normalize(unpacked) == normalize(result)
 
-
-# --- A/B support helpers (from test_serialization_ab_support.py) ---
-
-def test_serialization_extensive_default_false(monkeypatch) -> None:
-    monkeypatch.delenv(_SERIALIZATION_EXTENSIVE_ENV, raising=False)
-    assert serialization_extensive() is False
-    assert ab_hypothesis_max_examples() == _AB_HYPOTHESIS_LIGHT
-
-
-def test_serialization_extensive_enabled(monkeypatch) -> None:
-    monkeypatch.setenv(_SERIALIZATION_EXTENSIVE_ENV, "1")
-    assert serialization_extensive() is True
-    assert ab_hypothesis_max_examples() == _AB_HYPOTHESIS_EXTENSIVE
-
-
-def test_serialization_extensive_truthy_strings(monkeypatch) -> None:
-    for value in ("true", "TRUE", "yes", "Yes"):
-        monkeypatch.setenv(_SERIALIZATION_EXTENSIVE_ENV, value)
-        assert serialization_extensive() is True
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q", "--tb=short"])

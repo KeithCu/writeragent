@@ -21,12 +21,6 @@ def test_unknown_tool(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_calc_integration_tests(ctx, doc):
-    pass
-
-
-@native_test
-@with_native_doc("calc")
 def test_tool_argument_normalization(ctx, doc):
     active_sheet = doc.getCurrentController().getActiveSheet()
 

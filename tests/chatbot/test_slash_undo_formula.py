@@ -9,6 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.slash_undo_formula import (
     FORMULA_UNDO_TITLE,
     SlashFormulaPromptError,
@@ -46,18 +48,14 @@ def test_build_slash_formula_prompt_uses_data_array_and_range_top_left():
     assert target == "C4"
     sheet.getCellByPosition.assert_called_with(2, 3)
     assert "Name | Qty" in prompt
-    assert "semicolon" in prompt
     assert "C4" in prompt
 
 
 def test_build_slash_formula_prompt_non_cell_selection():
     view = SimpleNamespace(ActiveSheet=MagicMock(), getSelection=lambda: None)
     model = SimpleNamespace(CurrentController=view)
-    try:
+    with pytest.raises(SlashFormulaPromptError):
         build_slash_formula_prompt(model, "x")
-        assert False, "expected SlashFormulaPromptError"
-    except SlashFormulaPromptError as exc:
-        assert "Select a cell" in str(exc)
 
 
 def test_insert_slash_formula_on_main_uses_undo_context():

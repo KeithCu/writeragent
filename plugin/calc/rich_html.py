@@ -23,17 +23,20 @@ import logging
 import sys
 from typing import Any
 
-from plugin.framework.errors import ToolExecutionError, best_effort
+from plugin.doc.compound_undo import UndoStepOrRollback
+from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed
+from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import clear_writer_body
 from plugin.framework.uno_context import create_property_value, get_desktop, get_service_manager
 from plugin.calc.bridge import CalcBridge
+from plugin.calc.calc_utils import query_interface
 import plugin.writer.html_import as html_import
 
 log = logging.getLogger(__name__)
 
 # Not "_blank" or "_default": a shared target collides with testing_runner's
-# Windows Hidden-Writer keeper and hung CI. CREATE|GLOBAL = FrameSearchFlag
-# 8|55; flags 0 can search instead of creating.
+# hidden Writer keeper on Windows and the load can hang. CREATE|GLOBAL =
+# FrameSearchFlag 8|55; flags 0 can search instead of creating.
 _HTML_WRITER_TARGET = "_wa_calc_html"
 _HTML_WRITER_SEARCH_FLAGS = 8 | 55
 # Only this module loads _wa_calc_html. Do not enumerate the desktop:
@@ -54,8 +57,6 @@ def _controller_get_transferable(controller: Any) -> Any:
     t = getattr(controller, "getTransferable", None)
     if callable(t):
         return t()
-    from plugin.calc.calc_utils import query_interface
-
     # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
     xs = best_effort(
         lambda: query_interface(controller, "com.sun.star.datatransfer.XTransferableSupplier"),
@@ -156,24 +157,28 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         # the Windows OLE clipboard thread and a later desktop enum can block.
         # Release-if-ours below is the only clipboard touch.
 
-        cell.getText().setString("")
+        # Group the clear and the paste into one Ctrl+Z step; if the paste raises,
+        # UndoStepOrRollback undoes the clear so the cell keeps its previous text.
+        with UndoStepOrRollback(doc, _("WriterAgent: Insert HTML")):
+            cell.getText().setString("")
 
-        c_ctrl = doc.getCurrentController()
-        step = _step("select cell")
-        c_ctrl.select(cell)
-        step = _step("insert transferable")
-        ins = getattr(c_ctrl, "insertTransferable", None)
-        if not callable(ins):
-            raise ToolExecutionError("Calc controller does not support insertTransferable.")
-        ins(transferable)
+            c_ctrl = doc.getCurrentController()
+            step = _step("select cell")
+            c_ctrl.select(cell)
+            step = _step("insert transferable")
+            ins = getattr(c_ctrl, "insertTransferable", None)
+            if not callable(ins):
+                raise ToolExecutionError("Calc controller does not support insertTransferable.")
+            ins(transferable)
         # Drop SystemClipboard's owner before any close when it still holds
-        # this Writer's SwTransferable. Do not gc.collect(): a forced GC
-        # aborted in the SdrObject destructor after that release.
+        # this Writer's SwTransferable. Do not gc.collect() here: a forced
+        # collection after that release can abort LibreOffice in the SdrObject destructor.
         step = _step("release clipboard")
         pasted = True
     except ToolExecutionError:
         raise
     except Exception as e:
+        reraise_if_disposed(e)
         log.debug("insert_cell_html_rich failed", exc_info=True)
         raise ToolExecutionError(f"Failed to insert HTML into cell at {step!r}: {e}") from e
     finally:

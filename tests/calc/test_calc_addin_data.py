@@ -12,7 +12,7 @@ import pytest
 
 from plugin.calc.calc_addin_data import (
     _normalize_data_range_addresses,
-    _resolve_python_data,
+    resolve_python_data,
     calc_addin_args_from_split,
     calc_addin_data_to_python,
     check_python_data_size,
@@ -23,9 +23,9 @@ from plugin.calc.calc_addin_data import (
     values_from_inspector_range,
 )
 from plugin.framework.errors import DocumentDisposedError
-from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
+from plugin.scripting.calc_range import CalcRange, is_calc_range_payload, materialize_inputs
 from plugin.scripting.config_limits import _schema_int
-from plugin.scripting.payload_codec import child_unpack_data, is_multi_data, is_split_grid, wire_cell_count
+from plugin.scripting.payload_codec import is_multi_data, is_split_grid, wire_cell_count
 
 
 def test_none_returns_none():
@@ -142,7 +142,10 @@ def test_logical_coercion_standard_scope():
 
 
 def test_logical_coercion_negative_controls():
-    """Ensure unrelated strings are not coerced even if they look similar."""
+    """Ensure unrelated strings are not coerced even if they look similar.
+
+    Exact case is intentional: only Calc's English logical strings coerce; lowercase stays text.
+    """
     assert calc_addin_data_to_python("true") == [["true"]]
     assert calc_addin_data_to_python("True()") == [["True()"]]
     assert calc_addin_data_to_python("VERDADERO") == [["VERDADERO"]]
@@ -155,7 +158,7 @@ def test_calc_logical_float_sums_through_wire():
     wire = pack_calc_data_for_wire([[1.0]])
     assert is_calc_range_payload(wire)
     assert not is_split_grid(wire["data"])
-    rng = child_unpack_data(wire)
+    (rng,) = materialize_inputs(wire)
     assert isinstance(rng, CalcRange)
     assert float(np.sum(rng)) == pytest.approx(1.0)
 
@@ -219,9 +222,7 @@ def test_named_range_header_survives_py_pack_when_definition_is_used():
     assert packed[0][0] == "Order_ID"
     assert packed[0][2] == "Region"
     wire = pack_calc_data_for_wire(packed)
-    rng = child_unpack_data(wire)
-    if not hasattr(rng, "to_pandas"):
-        rng = rng[0]
+    (rng,) = materialize_inputs(wire)
     cols = list(rng.to_pandas().columns)
     assert "Region" in cols
     assert "Order_ID" in cols
@@ -233,7 +234,7 @@ def test_pack_calc_multi_data_for_wire_roundtrip():
     wire = pack_calc_multi_data_for_wire(ranges, force="always")
     assert is_multi_data(wire)
     assert wire_cell_count(wire) == 6
-    unpacked = child_unpack_data(wire)
+    unpacked = materialize_inputs(wire)
     assert len(unpacked) == 2
     assert all(isinstance(r, CalcRange) for r in unpacked)
     assert float(np.sum(unpacked[0])) == pytest.approx(6.0)
@@ -283,9 +284,9 @@ def test_resolve_python_data_disposal_propagates():
         pass
 
     doc = MagicMock()
-    with patch("plugin.calc.bridge.CalcBridge", side_effect=DisposedException("disposed")):
+    with patch("plugin.calc.calc_addin_data.CalcBridge", side_effect=DisposedException("disposed")):
         with pytest.raises(DocumentDisposedError):
-            _resolve_python_data(doc, data_range="A1:B1")
+            resolve_python_data(doc, data_range="A1:B1")
 
 
 def test_resolve_python_data_returns_calc_error_message():
@@ -293,6 +294,6 @@ def test_resolve_python_data_returns_calc_error_message():
 
     doc = MagicMock()
     with patch("plugin.calc.inspector.CellInspector.read_range", side_effect=CalcError("Data range has 500000 cells; maximum is 250000.")):
-        data, err = _resolve_python_data(doc, data_range="A1:B500000")
+        data, err = resolve_python_data(doc, data_range="A1:B500000")
     assert data is None
     assert err == "Data range has 500000 cells; maximum is 250000."

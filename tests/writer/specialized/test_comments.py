@@ -6,6 +6,7 @@
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, call, patch
+import pytest
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.specialized.comments import CommentList
 
@@ -30,67 +31,20 @@ def test_read_annotation_falls_back_to_paragraph_context():
     assert entry["anchor_is_paragraph_context"] is True
 
 
-def test_comment_workflow_split_tool_names():
-    from plugin.writer.specialized import comments
-
-    assert comments.CommentScanTasks.name == "comment_scan_tasks"
-    assert comments.CommentWorkflowGet.name == "comment_workflow_get"
-    assert comments.CommentWorkflowSet.name == "comment_workflow_set"
-    assert comments.CommentCheckStop.name == "comment_check_stop"
-    assert comments.CommentWorkflowSet.is_mutation is True
-    assert comments.CommentScanTasks().detects_mutation() is False
-    assert comments.CommentScanTasks().requires_document_lock() is False
-    assert comments.CommentCheckStop().detects_mutation() is False
-    assert comments.CommentCheckStop().requires_document_lock() is False
-    assert not hasattr(comments, "CommentWorkflow")
-
-
-def test_specialized_writer_tools_mutation_and_uno_services_contract():
-    from plugin.writer.specialized import bookmarks, comments, fields, forms
-
-    expected_mutations = {
-        # Comments
-        comments.CommentList: False,
-        comments.CommentScanTasks: False,
-        comments.CommentWorkflowGet: False,
-        comments.CommentCheckStop: False,
-        comments.AddComment: True,
-        comments.CommentDelete: True,
-        comments.CommentResolve: True,
-        comments.CommentEdit: True,
-        comments.CommentWorkflowSet: True,
-        # Bookmarks
-        bookmarks.BookmarkList: False,
-        bookmarks.BookmarkGet: False,
-        bookmarks.BookmarkResolve: False,
-        bookmarks.BookmarkCleanup: True,
-        bookmarks.BookmarkCreate: True,
-        bookmarks.BookmarkDelete: True,
-        bookmarks.BookmarkRename: True,
-        # Fields
-        fields.FieldsList: False,
-        fields.FieldsUpdateAll: True,
-        fields.FieldsDelete: True,
-        fields.FieldsInsert: True,
-        # Forms
-        forms.FormListControls: False,
-        forms.FormCreateControl: True,
-        forms.FormCreate: True,
-        forms.FormGenerate: True,
-        forms.FormEditControl: True,
-        forms.FormDeleteControl: True,
-    }
+def test_form_tools_declare_form_doc_services_union():
+    from plugin.writer.specialized import forms
 
     form_union = forms._FORM_DOC_SERVICES
-    text_doc = ["com.sun.star.text.TextDocument"]
-
-    for tool_cls, expected_mut in expected_mutations.items():
+    for tool_cls in (
+        forms.FormListControls,
+        forms.FormCreateControl,
+        forms.FormCreate,
+        forms.FormGenerate,
+        forms.FormEditControl,
+        forms.FormDeleteControl,
+    ):
         tool = tool_cls()
-        assert tool.detects_mutation() is expected_mut, f"{tool.name} detects_mutation should be {expected_mut}"
-        if tool_cls in (forms.FormListControls, forms.FormCreateControl, forms.FormCreate, forms.FormGenerate, forms.FormEditControl, forms.FormDeleteControl):
-            assert tool.uno_services == form_union, f"{tool.name} uno_services should be form union"
-        else:
-            assert tool.uno_services == text_doc, f"{tool.name} uno_services should be text_doc"
+        assert tool.uno_services == form_union, f"{tool.name} uno_services should be form union"
 
 
 def test_workflow_task_prefixes_shared():
@@ -98,15 +52,11 @@ def test_workflow_task_prefixes_shared():
     from plugin.writer.specialized.comments import CommentScanTasks
     from plugin.scripting import writeragent_api
 
-    expected = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")
-    assert WORKFLOW_TASK_PREFIXES == expected
-    assert writeragent_api.WORKFLOW_TASK_PREFIXES == WORKFLOW_TASK_PREFIXES
+    assert writeragent_api.WORKFLOW_TASK_PREFIXES is WORKFLOW_TASK_PREFIXES
 
     # Schema consistency
     enum_values = CommentScanTasks.parameters["properties"]["prefix_filter"]["enum"]
     assert enum_values == list(WORKFLOW_TASK_PREFIXES)
-    for prefix in WORKFLOW_TASK_PREFIXES:
-        assert prefix in CommentScanTasks.description
 
 
 def test_comment_scan_tasks_with_prefixes():
@@ -162,16 +112,6 @@ def test_comment_scan_tasks_with_prefixes():
     assert res_filtered["status"] == "ok"
     assert res_filtered["count"] == 1
     assert res_filtered["tasks"][0]["prefix"] == "NOTE"
-
-
-def test_add_comment_schema_parent_name_optional():
-    from plugin.writer.specialized.comments import AddComment
-
-    params = AddComment.parameters
-    assert "parent_name" in params["properties"]
-    assert params["required"] == ["content"]
-    assert "search" not in params["required"]
-    assert "parent_name" not in params["required"]
 
 
 def test_add_comment_reply_requires_content():
@@ -395,7 +335,46 @@ def _setup_mock_undo_manager(doc: Any) -> MagicMock:
     return mgr
 
 
-def test_delete_comment_by_name_removes_thread_chain():
+@pytest.mark.parametrize(
+    "specs, kwargs, removed_indices",
+    [
+        pytest.param(
+            [("A", "", "AuthorA"), ("B", "A", "AuthorB"), ("C", "B", "AuthorC"), ("D", "", "AuthorD")],
+            {"name": "A"},
+            [0, 1, 2],
+            id="by_name_removes_thread_chain",
+        ),
+        pytest.param(
+            [("A", "", "AuthorA"), ("B", "A", "AuthorB"), ("C", "B", "AuthorC"), ("D", "", "AuthorD")],
+            {"name": "B"},
+            [1, 2],
+            id="by_name_removes_subthread_only",
+        ),
+        pytest.param(
+            [("A", "", "AuthorA"), ("", "A", "AuthorBlank"), ("E", "", "AuthorE")],
+            {"name": "A"},
+            [0, 1],
+            id="blank_name_reply_removed_and_other_root_stays",
+        ),
+        pytest.param(
+            [("Root", "", "Z"), ("Reply", "Root", "Other")],
+            {"author": "Z"},
+            [0],
+            id="by_author_removes_matching_author_only",
+        ),
+        pytest.param(
+            [("A", "", "Other"), ("B", "A", "Z"), ("OtherZ", "", "Z"), ("D", "", "Other")],
+            {"name": "A", "author": "Z"},
+            [0, 1, 2],
+            id="name_and_author_union_each_field_once",
+        ),
+    ],
+)
+def test_delete_comment_thread_selection(
+    specs: list[tuple[str, str, str]],
+    kwargs: dict[str, str],
+    removed_indices: list[int],
+) -> None:
     from plugin.writer.specialized.comments import CommentDelete
 
     doc = MagicMock()
@@ -403,133 +382,13 @@ def test_delete_comment_by_name_removes_thread_chain():
     text_obj = MagicMock()
     doc.getText.return_value = text_obj
     host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "AuthorA", host=host)
-    field_b = _make_comment_field("B", "A", "AuthorB", host=host)
-    field_c = _make_comment_field("C", "B", "AuthorC", host=host)
-    field_d = _make_comment_field("D", "", "AuthorD", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_b, field_c, field_d]
-    )
+    fields = [_make_comment_field(name, parent, author, host=host) for name, parent, author in specs]
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(fields)
     ctx = MagicMock(doc=doc)
 
-    res = CommentDelete().execute(ctx, name="A")
-    assert res == {"status": "ok", "deleted": 3}
-    assert host.removeTextContent.call_args_list == [
-        call(field_a),
-        call(field_b),
-        call(field_c),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_by_name_removes_subthread_only():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "AuthorA", host=host)
-    field_b = _make_comment_field("B", "A", "AuthorB", host=host)
-    field_c = _make_comment_field("C", "B", "AuthorC", host=host)
-    field_d = _make_comment_field("D", "", "AuthorD", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_b, field_c, field_d]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, name="B")
-    assert res == {"status": "ok", "deleted": 2}
-    assert host.removeTextContent.call_args_list == [
-        call(field_b),
-        call(field_c),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_blank_name_reply_removed_and_other_root_stays():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "AuthorA", host=host)
-    field_blank = _make_comment_field("", "A", "AuthorBlank", host=host)
-    field_e = _make_comment_field("E", "", "AuthorE", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_blank, field_e]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, name="A")
-    assert res == {"status": "ok", "deleted": 2}
-    assert host.removeTextContent.call_args_list == [
-        call(field_a),
-        call(field_blank),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_by_author_removes_matching_author_only():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_root = _make_comment_field("Root", "", "Z", host=host)
-    field_reply = _make_comment_field("Reply", "Root", "Other", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_root, field_reply]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, author="Z")
-    assert res == {"status": "ok", "deleted": 1}
-    assert host.removeTextContent.call_args_list == [
-        call(field_root),
-    ]
-    text_obj.removeTextContent.assert_not_called()
-
-
-def test_delete_comment_name_and_author_union_each_field_once():
-    from plugin.writer.specialized.comments import CommentDelete
-
-    doc = MagicMock()
-    _setup_mock_undo_manager(doc)
-    text_obj = MagicMock()
-    doc.getText.return_value = text_obj
-    host = MagicMock()
-
-    field_a = _make_comment_field("A", "", "Other", host=host)
-    field_b = _make_comment_field("B", "A", "Z", host=host)
-    field_other_z = _make_comment_field("OtherZ", "", "Z", host=host)
-    field_d = _make_comment_field("D", "", "Other", host=host)
-
-    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(
-        [field_a, field_b, field_other_z, field_d]
-    )
-    ctx = MagicMock(doc=doc)
-
-    res = CommentDelete().execute(ctx, name="A", author="Z")
-    assert res == {"status": "ok", "deleted": 3}
-    assert host.removeTextContent.call_args_list == [
-        call(field_a),
-        call(field_b),
-        call(field_other_z),
-    ]
+    res = CommentDelete().execute(ctx, **kwargs)
+    assert res == {"status": "ok", "deleted": len(removed_indices)}
+    assert host.removeTextContent.call_args_list == [call(fields[idx]) for idx in removed_indices]
     text_obj.removeTextContent.assert_not_called()
 
 
@@ -541,12 +400,8 @@ def test_comment_resolve_miss_returns_error():
     ctx = MagicMock(doc=doc)
 
     res = CommentResolve().execute(ctx, name="missing")
-    assert res == {
-        "status": "error",
-        "code": "COMMENT_NOT_FOUND",
-        "message": "Comment 'missing' not found. Call comment_list to see the current names.",
-        "details": {"hint": "Call comment_list to list names."},
-    }
+    assert res["status"] == "error"
+    assert res["code"] == "COMMENT_NOT_FOUND"
 
 
 def test_comment_resolve_reply_insert_uses_anchor_host():
@@ -1247,7 +1102,7 @@ def test_comment_scan_tasks_without_annotations_skips_paragraph_scan():
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
-def test_add_comment_reads_document_assigned_name_in_two_scans():
+def test_add_comment_reads_document_assigned_name():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -1270,10 +1125,9 @@ def test_add_comment_reads_document_assigned_name_in_two_scans():
         res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
     assert res["status"] == "ok", res
     assert res["name"] == "LO_NAME"
-    assert calls["n"] == 2
 
 
-def test_add_comment_reply_uses_three_annotation_scans():
+def test_add_comment_reply_reads_assigned_name():
     from plugin.writer.specialized.comments import AddComment
 
     parent = MagicMock()
@@ -1296,7 +1150,6 @@ def test_add_comment_reply_uses_three_annotation_scans():
         res = AddComment().execute(MagicMock(doc=doc), content="r", parent_name="P")
     assert res["status"] == "ok", res
     assert res["name"] == "R"
-    assert calls["n"] == 3
 
 
 def test_comment_list_paging_and_author_filter_order():

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -20,31 +19,11 @@ from eval_catalog import apply_schema_patches, build_eval_tool_schemas
 from eval_prompts import get_eval_system_prompt
 from llm_chat_eval import run_llm_chat_eval
 from optimize_slices import (
-    DEFAULT_LLM_SLICE,
     apply_named_slice,
     get_slice_baseline,
     get_slice_spec,
-    list_slice_names,
     schema_patches_for_slice,
 )
-
-
-def test_named_slices_cover_calc_and_writer_hooks() -> None:
-    names = set(list_slice_names())
-    assert {
-        "calc_core",
-        "writer_core",
-        "apply_html",
-        "write_formula_range",
-        "write_formula_range.values",
-        "range_sort",
-        "full_prompt",
-    } <= names
-    assert DEFAULT_LLM_SLICE == "calc_core"
-    assert get_slice_spec("apply_html").kind == "prompt_fragment"
-    assert get_slice_spec("apply_html").prompt_attr == "WRITER_APPLY_DOCUMENT_HTML_RULES"
-    assert get_slice_spec("range_sort").kind == "tool_description"
-    assert get_slice_spec("write_formula_range.values").param_name == "values"
 
 
 def test_unknown_slice_raises() -> None:
@@ -191,30 +170,3 @@ def test_live_eval_student_apply_html_scripted_writer_task() -> None:
     assert pred.final_document
     assert pred.error is None
     assert pred.baseline_slice_len == len(get_slice_baseline("apply_html"))
-
-
-def test_make_judge_metric_applies_length_penalty_without_judge() -> None:
-    from metric import make_judge_metric, slice_length_penalty
-
-    metric = make_judge_metric(None, token_penalty_lambda=0.0)
-    example = SimpleNamespace(
-        document_content="x",
-        user_question="y",
-        task_id="tax_column",
-        category="structural",
-        expected_contains=[],
-        reject_contains=[],
-        gold_document="",
-        rubric="",
-        use_quality_judge=False,
-    )
-    pred = SimpleNamespace(
-        final_document='{"error": "no"}',
-        total_tokens=0,
-        slice_text="a" * 40,
-        baseline_slice_len=10,
-    )
-    # Hard gate fails (no oracle pass) so score is 0 before penalty.
-    assert metric(example, pred) == 0.0
-    assert slice_length_penalty("a" * 40, 10) == pytest.approx(1.0)
-    assert slice_length_penalty("a" * 20, 10) == 0.0

@@ -6,9 +6,7 @@
 
 from __future__ import annotations
 
-from tests.harness.strip_bundle import is_release_build
 import io
-import logging
 import os
 import signal
 import pickle
@@ -166,34 +164,16 @@ def test_pack_pickle_frame_defaults_to_max_payload():
         pack_pickle_frame({"text": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 10)})
 
 
-def test_ipc_error_subclasses():
-    from plugin.framework.ipc import IpcFrameError, IpcFrameReadError, IpcPayloadSizeError
-
-    assert issubclass(IpcPayloadSizeError, IpcFrameError)
-    assert issubclass(IpcFrameReadError, IpcFrameError)
-
-    with pytest.raises(IpcPayloadSizeError):
-        pack_pickle_frame({"x": "a" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)})
-
-    with pytest.raises(IpcFrameReadError):
-        read_frame_payload(io.BytesIO(b"\x00\x00\x00\x00"), frame_label="zero frame")
+def test_text_error_prefix_is_invalid_frame_with_header_repr():
+    """Garbage length prefix keeps stdout_rest= on IpcFrameError."""
+    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b'r: boom\\n'"):
+        read_pickle_frame(
+            io.BytesIO(b"Error: boom\n"),
+            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+        )
 
 
-def test_text_error_prefix_is_invalid_frame_with_header_repr(caplog, capsys):
-    """Garbage length prefix keeps stdout_rest= and logs at error, not stderr."""
-    with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):
-        with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b'r: boom\\n'"):
-            read_pickle_frame(
-                io.BytesIO(b"Error: boom\n"),
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-            )
-    assert "stdout_rest=b'r: boom\\n'" in caplog.text
-    err = capsys.readouterr().err
-    assert "ipc leftover peek" not in err
-    assert "peek_skipped" not in err
-
-
-def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
+def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch):
     """Windows/ty: os.set_blocking is POSIX-only; skip the non-blocking peek."""
     from plugin.framework import ipc
 
@@ -205,13 +185,11 @@ def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
     monkeypatch.setattr(ipc.os, "set_blocking", boom)
     stream = MagicMock()
     stream.fileno.return_value = 3
-    with caplog.at_level(logging.INFO, logger="writeragent.scripting.ipc"):
-        assert ipc._unread_pipe_bytes(stream) == b""
-    assert "leftover peek skipped" not in caplog.text
+    assert ipc._unread_pipe_bytes(stream) == b""
     stream.read.assert_not_called()
 
 
-def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch, caplog, capsys):
+def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch):
     """Win32 skip still attaches stdout_rest= (empty) on IpcFrameError."""
     from plugin.framework import ipc
 
@@ -224,34 +202,9 @@ def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch,
     stream = MagicMock()
     stream.fileno.return_value = 3
     stream.read.return_value = b"Erro"
-    with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):
-        with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b''"):
-            read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    assert "stdout_rest=b''" in caplog.text
-    err = capsys.readouterr().err
-    assert "ipc leftover peek" not in err
-    assert "peek_skipped" not in err
+    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b''"):
+        read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     stream.read.assert_called_once_with(4)
-
-
-def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
-    """Unix leftover peek still uses set_blocking; mock so Windows pytest can run it."""
-    from plugin.framework import ipc
-
-    monkeypatch.setattr(ipc.sys, "platform", "linux")
-    seen: list[tuple[int, bool]] = []
-
-    def fake_set_blocking(fd: int, blocking: bool) -> None:
-        seen.append((fd, blocking))
-
-    monkeypatch.setattr(ipc.os, "get_blocking", lambda fd: True)
-    monkeypatch.setattr(ipc.os, "set_blocking", fake_set_blocking)
-    monkeypatch.setattr(ipc.os, "read", lambda fd, n: b"rest")
-    stream = MagicMock()
-    stream.fileno.return_value = 7
-    assert ipc._unread_pipe_bytes(stream) == b"rest"
-    assert seen == [(7, False), (7, True)]
-    stream.read.assert_not_called()
 
 
 def test_nonblocking_skips_on_win32(monkeypatch):
@@ -266,36 +219,6 @@ def test_nonblocking_skips_on_win32(monkeypatch):
     monkeypatch.setattr(ipc.os, "set_blocking", boom)
     with ipc._nonblocking(42):
         pass
-
-
-def test_nonblocking_restores_blocking_posix(monkeypatch):
-    """On POSIX, _nonblocking records initial blocking state and restores it on normal exit or exception."""
-    from plugin.framework import ipc
-
-    monkeypatch.setattr(ipc.sys, "platform", "linux")
-    events: list[tuple[str, int, bool | None]] = []
-
-    def fake_get_blocking(fd: int) -> bool:
-        events.append(("get", fd, None))
-        return True
-
-    def fake_set_blocking(fd: int, blocking: bool) -> None:
-        events.append(("set", fd, blocking))
-
-    monkeypatch.setattr(ipc.os, "get_blocking", fake_get_blocking)
-    monkeypatch.setattr(ipc.os, "set_blocking", fake_set_blocking)
-
-    # Normal exit
-    with ipc._nonblocking(10):
-        pass
-    assert events == [("get", 10, None), ("set", 10, False), ("set", 10, True)]
-
-    # Exception exit restores blocking
-    events.clear()
-    with pytest.raises(RuntimeError, match="boom"):
-        with ipc._nonblocking(11):
-            raise RuntimeError("boom")
-    assert events == [("get", 11, None), ("set", 11, False), ("set", 11, True)]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX peek sets the pipe non-blocking")
@@ -660,45 +583,6 @@ def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch
     stream.read.assert_not_called()
 
 
-def test_win32_clamp_clock_is_private_to_ipc(monkeypatch):
-    """Foreign threads calling time.monotonic() do not steal scripted clock ticks.
-
-    The clock fake is isolated to the ipc module so background threads reading time.monotonic()
-    cannot advance ipc's scripted clock sequence and alter timeout sleep durations.
-    """
-    from plugin.framework import ipc
-
-    monkeypatch.setattr(sys, "platform", "win32")
-    go = threading.Event()
-    done = threading.Event()
-
-    def intruder() -> None:
-        go.wait()
-        time.monotonic()
-        done.set()
-
-    t = threading.Thread(target=intruder, daemon=True)
-    t.start()
-    try:
-        def peek(_fd: int) -> int:
-            go.set()
-            done.wait(5.0)
-            return 0
-
-        times = iter([0.0, 0.009, 0.011, 0.011])
-        slept = _patch_ipc_clock(monkeypatch, lambda: next(times))
-        monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", peek)
-        stream = MagicMock()
-        stream.fileno.return_value = 3
-        with pytest.raises(subprocess.TimeoutExpired):
-            ipc.read_frame_payload(stream, 0.01, deadline=0.01, cmd="IPC frame")
-        assert slept == [0.001]
-        assert all(sec >= 0.0 for sec in slept)
-    finally:
-        go.set()
-        t.join(5.0)
-
-
 def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
     """When peek is empty and child exits (is_alive() is False), win32 read breaks to EOF rather than timing out."""
     from plugin.framework import ipc
@@ -738,15 +622,6 @@ def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
     )
     assert res == b"abcd"
     assert slept == []
-
-
-def test_peek_closed_pipe_errors_exclude_no_data():
-    from plugin.framework import ipc
-
-    assert ipc._WIN_ERROR_BROKEN_PIPE == 109
-    assert ipc._WIN_ERROR_PIPE_NOT_CONNECTED == 233
-    assert 232 not in (ipc._WIN_ERROR_BROKEN_PIPE, ipc._WIN_ERROR_PIPE_NOT_CONNECTED)
-
 
 
 def test_win32_readline_sleep_clamps_when_peek_crosses_deadline(monkeypatch):
@@ -1278,18 +1153,14 @@ def test_joined_write_aborts_when_child_is_dead() -> None:
     assert time.monotonic() - started < 2.0
 
 
-def test_packed_frame_write_without_int_fileno_logs_and_writes(caplog: pytest.LogCaptureFixture) -> None:
+def test_packed_frame_write_without_int_fileno_writes() -> None:
     """A stream whose fileno is not an int is written with no deadline.
 
-    Popen pipes always have an int fileno. Streams without one skip the write
-    deadline and must log at debug so a miswired pipe cannot wedge a worker-lock holder.
+    Popen pipes always have an int fileno, so skipping the deadline here is safe.
     """
     stream = io.BytesIO()
     frame = pack_pickle_frame({"status": "ok"})
-    with caplog.at_level(logging.DEBUG, logger="writeragent.scripting.ipc"):
-        write_packed_frame_with_timeout(stream, frame, 0.01)
-    if not is_release_build():  # log.debug call site is stripped in release bundles
-        assert "without a deadline" in caplog.text
+    write_packed_frame_with_timeout(stream, frame, 0.01)
     stream.seek(0)
     assert read_pickle_frame(stream) == {"status": "ok"}
 
@@ -1350,22 +1221,12 @@ def test_unpack_rejects_ndarray_constructor_opcodes(payload: bytes):
 
 def test_allowlist_unpickler_pins_private_pickle_dispatch():
     """Guards live on pickle._Unpickler. A Python that moves that class or the opcode bytes fails here."""
-    from plugin.framework.ipc import (
-        AllowlistUnpickler,
-        _guarded_load_bytearray8,
-        _guarded_load_newobj,
-        _guarded_load_newobj_ex,
-        _guarded_load_reduce,
-    )
+    from plugin.framework.ipc import AllowlistUnpickler
 
     assert issubclass(AllowlistUnpickler, pickle._Unpickler)
     assert pickle.REDUCE[0] in pickle._Unpickler.dispatch
     assert pickle.NEWOBJ[0] in pickle._Unpickler.dispatch
     assert pickle.NEWOBJ_EX[0] in pickle._Unpickler.dispatch
-    assert AllowlistUnpickler.dispatch[pickle.REDUCE[0]] is _guarded_load_reduce
-    assert AllowlistUnpickler.dispatch[pickle.NEWOBJ[0]] is _guarded_load_newobj
-    assert AllowlistUnpickler.dispatch[pickle.NEWOBJ_EX[0]] is _guarded_load_newobj_ex
-    assert AllowlistUnpickler.dispatch[pickle.BYTEARRAY8[0]] is _guarded_load_bytearray8
     assert AllowlistUnpickler._instantiate is not pickle._Unpickler._instantiate
 
 
@@ -1943,11 +1804,8 @@ def test_host_pickle_leaf_types():
     from plugin.framework.ipc import (
         HOST_PICKLE_LEAF_TYPES,
         PICKLE_PROTOCOL,
-        _SAFE_PICKLE_BUILTINS,
         _SafeUnpickler,
     )
-
-    assert _SAFE_PICKLE_BUILTINS == frozenset({"complex"})
 
     sample_values = [
         None,

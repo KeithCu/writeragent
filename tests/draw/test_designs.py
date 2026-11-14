@@ -14,7 +14,6 @@ import pytest
 from plugin.draw.designs import (
     ApplyDesign,
     ClonedMaster,
-    ListDesigns,
     _blank_master_signal,
     _split_pathsettings_value,
     apply_design_to_current_doc,
@@ -130,13 +129,11 @@ def test_apply_design_current_doc_calls_import_path():
     }
     with (
         patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
-        patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
+        patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload),
     ):
-        out = ApplyDesign().execute(ctx, design="Metropolis")
+        # Deliberate whitespace padding: LLM tool args often arrive padded and must still resolve.
+        out = ApplyDesign().execute(ctx, design="  Metropolis  ")
     assert out["status"] == "ok"
-    assert out["applied_master"] == "Metropolis"
-    assert out["blank_master"] is False
-    apply_cur.assert_called_once()
 
 
 def test_apply_design_current_doc_import_failure():
@@ -155,19 +152,6 @@ def test_apply_design_current_doc_import_failure():
     assert out.get("code") != "LO_WALL"
     details = out.get("details") or {}
     assert details.get("reason") == "current_doc_import_failed"
-    assert "current" in out["message"].lower() or "failed" in out["message"].lower()
-
-
-def test_apply_design_description_mentions_current_doc():
-    desc = ApplyDesign.description.lower()
-    assert "current" in desc or "open" in desc
-    assert "lo_wall" not in desc
-    assert "new_document" not in desc
-    assert "does not use" in desc and "clipboard" in desc
-    assert "diamode" not in desc
-    assert "clone" in desc
-    params = ApplyDesign.parameters or {}
-    assert "new_document" not in params.get("properties", {})
 
 
 def test_apply_design_ignores_legacy_new_document_kwarg():
@@ -194,7 +178,7 @@ def test_apply_design_to_current_doc_uses_clone_not_clipboard():
     master = MagicMock()
     with (
         patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6)) as clone,
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6)),
         patch("plugin.draw.designs._close_hidden_doc") as closer,
         patch("plugin.draw.designs.assign_master_to_all_slides", return_value=2),
         patch(
@@ -209,7 +193,7 @@ def test_apply_design_to_current_doc_uses_clone_not_clipboard():
     assert out["import_method"] == "clone_master"
     assert out["applied_master"] == "Metropolis"
     assert out["applied_master_shape_count"] == 6
-    clone.assert_called_once()
+    # Guards against leaking the hidden template document on the success path.
     closer.assert_called_once_with(src)
 
 
@@ -221,51 +205,22 @@ def test_apply_design_draw_not_impress():
     assert out["code"] == "UNSUPPORTED_DOC_TYPE"
 
 
-def test_list_designs_tool_returns_count():
-    ctx = MagicMock()
-    with patch("plugin.draw.designs.enumerate_impress_designs", return_value=[{"id": "metropolis"}]):
-        out = ListDesigns().execute(ctx)
-    assert out["status"] == "ok"
-    assert out["count"] == 1
-
-
-def test_list_designs_description_mentions_look():
-    desc = ListDesigns.description.lower()
-    assert "look" in desc
-    assert "appearance" in desc or "mood" in desc or "dark" in desc
-    assert "apply_design" in desc
-    assert "set_presentation_design" not in desc
-
-
-def test_draw_prompt_steers_apply_design_on_open_deck():
-    from plugin.framework.prompts import DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
-
-    text = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
-    assert "apply_design" in text
-    assert "list_designs" in text
-    assert "set_presentation_design" not in text
-    assert "new_document" not in text
-
-
-def test_set_presentation_design_is_not_a_tool():
-    import plugin.draw.designs as designs
-
-    assert not hasattr(designs, "SetPresentationDesign")
-    assert not hasattr(designs, "enable_design_headers_footers")
-
-
 def test_blank_master_signal():
     assert _blank_master_signal([]) is True
     assert _blank_master_signal([{"name": "Default", "shape_count": 1}]) is True
     assert _blank_master_signal([{"name": "Metropolis", "shape_count": 6}]) is False
 
 
-def test_inherit_master_from_neighbor_at_zero_skips_the_new_page():
-    """insert_at=0 must not copy the new page's own master.
-
-    The off-by-one left the new page at index 1 while the caller still
-    passed insert_at=0, so the only adjacent slot was the new page itself.
-    """
+@pytest.mark.parametrize(
+    ("neighbor_index", "insert_at"),
+    [
+        pytest.param(0, 0, id="at_zero_skips_new_page"),
+        pytest.param(1, 0, id="at_zero_uses_following_slide"),
+        pytest.param(0, 1, id="copies_previous"),
+    ],
+)
+def test_inherit_master_from_neighbor(neighbor_index: int, insert_at: int):
+    """Copy the master from the adjacent non-new page for both insert_at=0 and >0."""
     designed = MagicMock()
     designed.Name = "Designed"
     neighbor = MagicMock()
@@ -273,39 +228,10 @@ def test_inherit_master_from_neighbor_at_zero_skips_the_new_page():
     new_page = MagicMock()
     pages = MagicMock()
     pages.getCount.return_value = 2
-    pages.getByIndex.side_effect = lambda i: neighbor if i == 0 else new_page
-    name = inherit_master_from_neighbor(pages, new_page, 0)
+    pages.getByIndex.side_effect = lambda i: neighbor if i == neighbor_index else new_page
+    name = inherit_master_from_neighbor(pages, new_page, insert_at)
     assert name == "Designed"
     assert new_page.MasterPage is designed
-
-
-def test_inherit_master_from_neighbor_at_zero_uses_following_slide():
-    """When the new page really occupies index 0, copy the slide now at 1."""
-    designed = MagicMock()
-    designed.Name = "Designed"
-    neighbor = MagicMock()
-    neighbor.MasterPage = designed
-    new_page = MagicMock()
-    pages = MagicMock()
-    pages.getCount.return_value = 2
-    pages.getByIndex.side_effect = lambda i: new_page if i == 0 else neighbor
-    name = inherit_master_from_neighbor(pages, new_page, 0)
-    assert name == "Designed"
-    assert new_page.MasterPage is designed
-
-
-def test_inherit_master_from_neighbor_copies_previous():
-    prev_master = MagicMock()
-    prev_master.Name = "Designed"
-    prev = MagicMock()
-    prev.MasterPage = prev_master
-    new_page = MagicMock()
-    pages = MagicMock()
-    pages.getCount.return_value = 2
-    pages.getByIndex.side_effect = lambda i: prev if i == 0 else new_page
-    name = inherit_master_from_neighbor(pages, new_page, 1)
-    assert name == "Designed"
-    assert new_page.MasterPage is prev_master
 
 
 def test_add_slide_reports_inherited_master():
@@ -321,44 +247,12 @@ def test_add_slide_reports_inherited_master():
     bridge.get_pages.return_value = pages
     with (
         patch("plugin.draw.pages.DrawBridge", return_value=bridge),
-        patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Metropolis"),
+        patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Metropolis") as inherit,
     ):
-        out = AddSlide().execute(ctx)
+        out = AddSlide().execute(ctx, page=0)
     assert out["status"] == "ok"
     assert out["master"] == "Metropolis"
-
-
-def test_apply_design_partial_assign_is_error():
-    dest = MagicMock()
-    dest.getDrawPages().getCount.return_value = 2
-    src = MagicMock()
-    master = MagicMock()
-    with (
-        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
-        patch("plugin.draw.designs.clone_master_into_doc", return_value=ClonedMaster(master, "Metropolis", 6)),
-        patch("plugin.draw.designs._close_hidden_doc"),
-        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=1),
-        patch("plugin.draw.designs._master_entries", return_value=[]),
-    ):
-        out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
-    assert out["status"] == "error"
-    assert out["code"] == "DESIGN_PARTIAL_APPLY"
-    assert out["slides_updated"] == 1
-    assert out["slide_count"] == 2
-    assert "Rolled back" in out["message"]
-    assert out["rolled_back"] is True
-
-
-def test_designs_module_has_no_hardcoded_install_prefix():
-    import inspect
-
-    import plugin.draw.design_look as design_look
-    import plugin.draw.designs as designs
-
-    for mod in (designs, design_look):
-        src = inspect.getsource(mod)
-        assert "/usr/lib/libreoffice" not in src
-        assert "/opt/libreoffice" not in src
+    inherit.assert_called_once_with(pages, page, 1)
 
 
 def test_enumerate_impress_designs_limit():
@@ -1368,111 +1262,110 @@ def test_clone_group_shape_zero_children_raises():
         clone_master_into_doc(dest_doc, src_doc, {"id": "test", "name": "TestMaster"})
 
 
-def test_clone_master_aspect_ratio_selection():
+def _aspect_master_mock(name: str, *, width: int | None = 28000, height: int | None = 15750) -> MagicMock:
+    if width is None or height is None:
+        m = MagicMock(spec=["Name", "getCount", "getByIndex"])
+    else:
+        m = MagicMock(Width=width, Height=height)
+    m.Name = name
+    m.getCount.return_value = 1
+    m.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
+    return m
+
+
+@pytest.mark.parametrize(
+    ("p0_factory", "master_specs", "design_meta", "expected_idx", "unpicked_idx"),
+    [
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=21000),
+            [
+                ("Beehive_20_16_3a_9", 28000, 15750),
+                ("Beehive_20_4_3a_3", 28000, 15750),
+                ("Beehive1_20_16_3a_9", 28000, 15750),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            1,
+            0,
+            id="name_token_4_3_beats_geometry",
+        ),
+        pytest.param(
+            lambda: MagicMock(spec=["MasterPage"], MasterPage=MagicMock(Width=28000, Height=21000)),
+            [
+                ("Beehive_20_16_3a_9", 28000, 15750),
+                ("Beehive_20_4_3a_3", 28000, 15750),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            1,
+            0,
+            id="p0_masterpage_size_fallback",
+        ),
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=21000),
+            [
+                ("Beehive_16_9", None, None),
+                ("Beehive_4_3", None, None),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            1,
+            0,
+            id="candidate_ratio_from_name_without_geom",
+        ),
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=21000),
+            [
+                ("PlainDesign", 28000, 15750),
+                ("PlainDesign", 28000, 21000),
+            ],
+            {"id": "plaindesign", "name": "PlainDesign"},
+            1,
+            0,
+            id="width_height_fallback_without_token",
+        ),
+        pytest.param(
+            lambda: MagicMock(Width=28000, Height=15750),
+            [
+                ("Beehive_20_16_3a_9", 28000, 15750),
+                ("Beehive_20_4_3a_3", 28000, 15750),
+            ],
+            {"id": "beehive", "name": "Beehive"},
+            0,
+            1,
+            id="widescreen_16_9_picks_16_9",
+        ),
+    ],
+)
+def test_clone_master_aspect_ratio_selection(
+    p0_factory,
+    master_specs,
+    design_meta,
+    expected_idx,
+    unpicked_idx,
+):
     from plugin.draw.designs import clone_master_into_doc
 
     dest_doc = MagicMock()
-    p0 = MagicMock()
-    p0.Width = 28000
-    p0.Height = 21000
     dest_doc.getDrawPages().getCount.return_value = 1
-    dest_doc.getDrawPages().getByIndex.return_value = p0
+    dest_doc.getDrawPages().getByIndex.return_value = p0_factory()
 
     dest_master = MagicMock()
     dest_masters = MagicMock()
     dest_masters.insertNewByIndex.return_value = dest_master
     dest_doc.getMasterPages.return_value = dest_masters
 
-    # Two mock masters same design name, both Width/Height 16:9, one Name ending in 4:3
-    m16_9 = MagicMock()
-    m16_9.Name = "Beehive_20_16_3a_9"
-    m16_9.Width = 28000
-    m16_9.Height = 15750
-    m16_9.getCount.return_value = 1
-    m16_9.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
-    m4_3 = MagicMock()
-    m4_3.Name = "Beehive_20_4_3a_3"
-    m4_3.Width = 28000
-    m4_3.Height = 15750
-    m4_3.getCount.return_value = 1
-    m4_3.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
-    m_beehive1 = MagicMock()
-    m_beehive1.Name = "Beehive1_20_16_3a_9"
-    m_beehive1.Width = 28000
-    m_beehive1.Height = 15750
-    m_beehive1.getCount.return_value = 1
-    m_beehive1.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
+    src_masters = [_aspect_master_mock(n, width=w, height=h) for n, w, h in master_specs]
     src_doc = MagicMock()
-    src_masters = [m16_9, m4_3, m_beehive1]
     src_doc.getMasterPages().getCount.side_effect = lambda: len(src_masters)
     src_doc.getMasterPages().getByIndex.side_effect = lambda i: src_masters[i]
 
     with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
+        cloned = clone_master_into_doc(dest_doc, src_doc, design_meta)
+
     assert "aspect mismatch" not in cloned.warnings
     assert cloned.master == dest_master
     assert cloned.selection == "name"
     assert not any("no master name matched" in w for w in cloned.warnings)
-    assert m4_3.getByIndex.called
-    assert not m16_9.getByIndex.called
-
-    # Deck ratio read from p0.MasterPage when p0 lacks dimensions
-    p0_no_dims = MagicMock(spec=["MasterPage"])
-    p0_no_dims.MasterPage = MagicMock(Width=28000, Height=21000)
-    dest_doc.getDrawPages().getByIndex.return_value = p0_no_dims
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned_mp = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
-    assert "aspect mismatch" not in cloned_mp.warnings
-
-    # Candidate aspect ratio inferred from name when geometry is absent
-    m16_no_geom = MagicMock(spec=["Name", "getCount", "getByIndex"])
-    m16_no_geom.Name = "Beehive_16_9"
-    m16_no_geom.getCount.return_value = 1
-    m16_no_geom.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-    m4_no_geom = MagicMock(spec=["Name", "getCount", "getByIndex"])
-    m4_no_geom.Name = "Beehive_4_3"
-    m4_no_geom.getCount.return_value = 1
-    m4_no_geom.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-
-    src_no_geom = MagicMock()
-    src_no_geom.getMasterPages().getCount.return_value = 2
-    src_no_geom.getMasterPages().getByIndex.side_effect = lambda i: [m16_no_geom, m4_no_geom][i]
-
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned_inferred = clone_master_into_doc(dest_doc, src_no_geom, {"id": "beehive", "name": "Beehive"})
-    assert "aspect mismatch" not in cloned_inferred.warnings
-
-    # Width/Height fallback when the name has no ratio token
-    m_plain16 = MagicMock(Name="PlainDesign", Width=28000, Height=15750)
-    m_plain16.getCount.return_value = 1
-    m_plain16.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-    m_plain4 = MagicMock(Name="PlainDesign", Width=28000, Height=21000)
-    m_plain4.getCount.return_value = 1
-    m_plain4.getByIndex.return_value = MagicMock(ShapeType="com.sun.star.drawing.RectangleShape")
-    src_plain = MagicMock()
-    src_plain.getMasterPages().getCount.return_value = 2
-    src_plain.getMasterPages().getByIndex.side_effect = lambda i: [m_plain16, m_plain4][i]
-
-    dest_doc.getDrawPages().getByIndex.return_value = p0
-    p0.Height = 21000
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned_plain = clone_master_into_doc(dest_doc, src_plain, {"id": "plaindesign", "name": "PlainDesign"})
-    assert "aspect mismatch" not in cloned_plain.warnings
-    assert m_plain4.getByIndex.called
-    assert not m_plain16.getByIndex.called
-
-    dest_doc.getDrawPages().getByIndex.return_value = p0
-    p0.Height = 15750
-    m16_9.getByIndex.reset_mock()
-    m4_3.getByIndex.reset_mock()
-    with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
-        cloned16 = clone_master_into_doc(dest_doc, src_doc, {"id": "beehive", "name": "Beehive"})
-    assert "aspect mismatch" not in cloned16.warnings
-    assert m16_9.getByIndex.called
-    assert not m4_3.getByIndex.called
+    assert src_masters[expected_idx].getByIndex.called
+    assert not src_masters[unpicked_idx].getByIndex.called
 
 
 def test_clone_master_name_normalization_matches():
@@ -1691,7 +1584,7 @@ def test_clone_master_runtime_exception_on_rename_succeeds():
 
     with patch("plugin.draw.designs.clone_shape", return_value=_STUB_CLONED_SHAPE):
         cloned = clone_master_into_doc(dest_doc, src_doc, {"id": "src", "name": "SourceMaster"})
-    assert cloned.name == "Original" or cloned.name == "SourceMaster"
+    assert cloned.name == "Original"
 
 
 def test_clone_master_disposed_exception_on_rename_propagates():

@@ -391,10 +391,40 @@ def test_numeric_columns_integer_labels_keeps_original_type():
 def test_auto_numeric_unknown_column_raises():
     import pandas as pd
     from plugin.scripting.venv.coerce import auto_numeric
+    from plugin.scripting.venv.results import HelperError
 
     df = pd.DataFrame({"a": [1.0]})
-    with pytest.raises(ValueError, match="Unknown columns: nope"):
+    with pytest.raises(HelperError, match="Unknown columns: nope") as exc_info:
         auto_numeric(df, ["nope"])
+    assert exc_info.value.code == "UNKNOWN_COLUMN"
+
+
+def test_resolve_columns_raises_coded_error():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import resolve_columns
+    from plugin.scripting.venv.results import HelperError
+
+    df = pd.DataFrame({"Region": ["N", "S"], "Sales": [10, 20]})
+    with pytest.raises(HelperError, match="Unknown columns: Nope") as missing_exc:
+        resolve_columns(df, ["Nope"])
+    assert missing_exc.value.code == "UNKNOWN_COLUMN"
+
+    with pytest.raises(HelperError, match="Non-numeric columns: Region") as non_num_exc:
+        resolve_columns(df, ["Region"], numeric=True)
+    assert non_num_exc.value.code == "NON_NUMERIC_COLUMN"
+
+
+def test_coercers_raise_invalid_param():
+    from plugin.scripting.venv.coerce import coerce_int, coerce_str_list
+    from plugin.scripting.venv.results import HelperError
+
+    with pytest.raises(HelperError, match="n must be an integer, got 'x'") as int_exc:
+        coerce_int("x", name="n")
+    assert int_exc.value.code == "INVALID_PARAM"
+
+    with pytest.raises(HelperError, match="m must be a column list, got 5") as list_exc:
+        coerce_str_list(5, name="m")
+    assert list_exc.value.code == "INVALID_PARAM"
 
 
 def test_resolve_columns_integer_labels_and_flat_label():

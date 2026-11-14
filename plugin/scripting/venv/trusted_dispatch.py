@@ -2,7 +2,15 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Per-domain trusted venv dispatchers for run_trusted_action."""
+"""Per-domain trusted venv dispatchers for run_trusted_action.
+
+Each dispatcher, and `run_domain`'s format and units arms, imports its domain
+module inside the function. Most venv helper modules (`analysis`, `units`,
+`duckdb_sql`, …) import this file at their top, so a top-level import here would
+be a cycle. The compute bundle (`scripts/build_compute_bundle.py`) ships this
+file without `text_analytics`, `duckdb_sql`, `vale`, `languagetool` or the
+embeddings modules.
+"""
 
 from __future__ import annotations
 
@@ -165,6 +173,9 @@ def run_domain(
         else:
             helper = str(spec or "full")
             params = {}
+        # The child accepts only the registry's text names, the same rule as every other domain.
+        if helper not in names("text"):
+            return error_result("UNKNOWN_HELPER", f"Unknown text analytics helper {helper!r}", helper=helper)
         from plugin.scripting.venv.text_analytics import dispatch_text_analytics
         return dispatch_text_analytics(helper, data, params, context=ctx)
     else:
@@ -214,6 +225,9 @@ def run_domain(
             return fn(data, **present_kwargs)
 
         if bind == "format":
+            # Lazy (cycle): venv/analysis.py imports this module at its top.
+            from plugin.scripting.venv.analysis import format_cells_result
+
             values = params.get("values", data)
             if helper == "format_currency":
                 symbol = params.get("symbol", "$")
@@ -222,14 +236,12 @@ def run_domain(
                 decimals = _decimals(params, 2, helper)
                 if isinstance(decimals, dict):
                     return decimals
-                from plugin.scripting.venv.analysis import _format_cells_result
-                return _format_cells_result(helper, fn(values, symbol=symbol, decimals=decimals))
+                return format_cells_result(helper, fn(values, symbol=symbol, decimals=decimals))
             if helper == "format_percent":
                 decimals = _decimals(params, 1, helper)
                 if isinstance(decimals, dict):
                     return decimals
-                from plugin.scripting.venv.analysis import _format_cells_result
-                return _format_cells_result(helper, fn(values, decimals=decimals))
+                return format_cells_result(helper, fn(values, decimals=decimals))
             return error_result("UNKNOWN_HELPER", f"Unknown format helper {helper!r}", helper=helper)
 
         if bind == "spec":

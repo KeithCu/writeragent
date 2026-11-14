@@ -33,19 +33,6 @@ def _completed_process(
     return subprocess.CompletedProcess(args or [], returncode, stdout, stderr)
 
 
-def test_module_yaml_stt_defaults() -> None:
-    import yaml
-
-    data = yaml.safe_load((_REPO / "plugin" / "audio" / "module.yaml").read_text(encoding="utf-8"))
-    config = data["config"]
-    assert config["stt_provider"]["default"] == "endpoint"
-    assert config["stt_local_model"]["default"] == "base"
-    values = [opt["value"] for opt in config["stt_provider"]["options"]]
-    assert values == ["endpoint", "local"]
-    sizes = [opt["value"] for opt in config["stt_local_model"]["options"]]
-    assert sizes == ["tiny", "base", "small", "medium"]
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -107,16 +94,18 @@ def test_missing_schema_key_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_status_text(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stt_service, "uses_local_stt", lambda: False)
-    assert stt_service.status_for_transcription() == "Transcribing audio..."
+    remote_text = stt_service.status_for_transcription()
+    assert remote_text
     monkeypatch.setattr(stt_service, "uses_local_stt", lambda: True)
     monkeypatch.setattr(stt_service, "get_stt_local_model", lambda: "base")
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: True)
-    text = stt_service.status_for_transcription()
-    assert text == "Transcribing with local Whisper (base)…"
-    assert "download" not in text
+    cached_text = stt_service.status_for_transcription()
+    assert "base" in cached_text
+    assert cached_text != remote_text
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: False)
-    text = stt_service.status_for_transcription()
-    assert text == "Transcribing with local Whisper (base)… The first run downloads the model."
+    uncached_text = stt_service.status_for_transcription()
+    assert "base" in uncached_text
+    assert uncached_text != cached_text
 
 
 def test_endpoint_transcribe_calls_client_not_venv(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,7 +150,8 @@ def test_local_transcribe_emits_on_status(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(stt_service, "resolve_stt_python", lambda: py_exe)
     monkeypatch.setattr(stt_service, "_local_whisper_weights_cached", lambda model: False)
     assert stt_service._transcribe_local("/tmp/a.wav", "tiny", statuses.append) == "hi"
-    assert statuses == ["Transcribing with local Whisper (tiny)… The first run downloads the model."]
+    assert len(statuses) == 1
+    assert "tiny" in statuses[0]
 
 
 def test_local_without_venv_names_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:

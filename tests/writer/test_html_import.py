@@ -798,7 +798,15 @@ def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
     cm = html_import._deletion_author()
     with cm:
         pass
-    assert type(cm).__name__ == type(contextlib.nullcontext()).__name__ or hasattr(cm, "__enter__")
+    assert isinstance(cm, contextlib.nullcontext)
+
+
+def test_html_import_avoids_document_helpers_ops_review_authors():
+    """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
+    import plugin.writer.html_import as fmt
+    from tests.harness.import_guards import assert_no_toplevel_import
+
+    assert_no_toplevel_import(fmt, {"plugin.doc.document_helpers", "ops", "review_authors"})
 
 
 @pytest.mark.parametrize(
@@ -1351,8 +1359,7 @@ def test_deleted_by_the_edit():
     assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
 
 
-def test_deleted_by_the_edit_name_guard(caplog):
-    import logging
+def test_deleted_by_the_edit_name_guard():
     import pytest
     from unittest.mock import MagicMock
     from plugin.framework.errors import DocumentDisposedError
@@ -1375,15 +1382,13 @@ def test_deleted_by_the_edit_name_guard(caplog):
     assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is False
     original.getAnchor.assert_called_once()
 
-    # 3. Non-disposal lookup failures are logged and treated as deleted
+    # 3. Non-disposal lookup failures are treated as deleted
     model = MagicMock()
     model.getGraphicObjects.side_effect = RuntimeError("collection lookup failed")
     original = MagicMock()
     original.getAnchor.side_effect = AssertionError("getAnchor must not be called on lookup failure")
-    with caplog.at_level(logging.WARNING):
-        assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
+    assert image_placeholders._deleted_by_the_edit(model, original, "Picture 1") is True
     original.getAnchor.assert_not_called()
-    assert "collection lookup failed" in caplog.text
 
     # 4. Disposal lookup failure is re-raised
     model = MagicMock()
@@ -1422,28 +1427,19 @@ def test_full_document_refuses_before_deleting_anything():
     model.getText.assert_not_called()
 
 
-def test_html_to_plain_text_pure_does_not_call_scratch_writer():
+@pytest.mark.parametrize(
+    "html_input,expected",
+    [
+        ("<b>foo</b>", "foo"),
+        ("<p>Hello</p><p>World</p>", "Hello\nWorld"),
+        ("<ruby>漢字<rt>かんじ</rt></ruby>", "漢字"),
+        ("  plain text search  ", "plain text search"),
+    ],
+)
+def test_html_to_plain_text_values(html_input: str, expected: str):
     from plugin.writer.html_import import html_to_plain_text
 
-    with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
-        assert html_to_plain_text("<b>foo</b>") == "foo"
-        mock_new_writer.assert_not_called()
-
-        assert html_to_plain_text("<p>Hello</p><p>World</p>") == "Hello\nWorld"
-        mock_new_writer.assert_not_called()
-
-        # Ruby input returns base text only
-        assert html_to_plain_text("<ruby>漢字<rt>かんじ</rt></ruby>") == "漢字"
-        mock_new_writer.assert_not_called()
-
-
-def test_html_to_plain_text_plain_string_without_markup_succeeds_without_scratch_doc():
-    from plugin.writer.html_import import html_to_plain_text
-
-    with patch("plugin.framework.scratch_writer.new_blank_writer") as mock_new_writer:
-        res = html_to_plain_text("  plain text search  ")
-        assert res == "plain text search"
-        mock_new_writer.assert_not_called()
+    assert html_to_plain_text(html_input) == expected
 
 
 def test_content_has_markup_cases():
@@ -1462,12 +1458,27 @@ def test_content_has_markup_cases():
     assert content_has_markup("a < b") is False
     assert content_has_markup("List<String>") is False
 
-    # TeX and MathML are markup
+    # TeX, MathML, HTML, and ruby are markup
     assert content_has_markup(r"formula \(x\)") is True
     assert content_has_markup(r"formula \[x\]") is True
     assert content_has_markup("cost $$10") is True
     assert content_has_markup("<math>...</math>") is True
+    assert content_has_markup("<b>bold</b>") is True
+    assert content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>") is True
     assert content_has_markup("The identity $x^2$ holds.") is False
+
+    # Markdown and plain prose are not markup
+    assert content_has_markup("**bold**") is False
+    assert content_has_markup("# Heading") is False
+    assert content_has_markup("| col1 | col2 |") is False
+    assert content_has_markup("Issue # 5") is False
+    assert content_has_markup("a | b") is False
+    assert content_has_markup("2**3") is False
+    assert content_has_markup("__init__") is False
+    assert content_has_markup("Jane Doe") is False
+    assert content_has_markup("Hello world, this is plain text.") is False
+    assert content_has_markup("") is False
+    assert content_has_markup(None) is False
 
     from plugin.writer.html_import import content_needs_html_import
     assert content_needs_html_import("The identity $x^2$ holds.") is True
@@ -1767,18 +1778,35 @@ def test_paragraph_after_none_is_text_start():
     text.createTextCursorByRange.assert_called_once_with(text.getStart.return_value)
 
 
-def test_content_has_block_markup_whitespace_and_inline_tags():
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        ("", False),
+        (None, False),
+        ("hello world", False),
+        ("<b>bold</b> text", False),
+        ('<span style="background: transparent">Title</span>', False),
+        ("<span>", False),
+        ("<param>", False),
+        ("List<String>", False),
+        ("<span>a<br>b</span>", False),
+        ("<p>a paragraph</p>", True),
+        ("<h1>title</h1>", True),
+        ("<h3>x</h3>", True),
+        ("<ul><li>x</li></ul>", True),
+        ("<P>X</P>", True),
+        ("<p\n style=a>", True),
+        ("<p\tx>", True),
+        ("<dl><dt>x</dt></dl>", True),
+        ("<figure></figure>", True),
+        ("<header>h</header>", True),
+    ],
+)
+def test_content_has_block_markup(html, expected):
+    """R3: pins the block-vs-inline classification that gates the clear 'rich HTML in a table cell' error in replace_single_range_with_content; inline tags go through the in-cell path."""
     from plugin.writer.html_import import content_has_block_markup
 
-    assert content_has_block_markup("<p\n style=a>") is True
-    assert content_has_block_markup("<p\tx>") is True
-    assert content_has_block_markup("<span>") is False
-    assert content_has_block_markup("<param>") is False
-    assert content_has_block_markup("List<String>") is False
-    assert content_has_block_markup("<dl><dt>x</dt></dl>") is True
-    assert content_has_block_markup("<figure></figure>") is True
-    assert content_has_block_markup("<header>h</header>") is True
-    assert content_has_block_markup("<span>a<br>b</span>") is False
+    assert content_has_block_markup(html) is expected
 
 
 def test_collect_range_portions_magic_mock_returns_immediately():
@@ -1806,81 +1834,33 @@ def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
     return rng
 
 
-def test_lo_style_for_replaced_range_predicates():
+@pytest.mark.parametrize(
+    ("content", "recording", "start_edge", "end_edge", "expected_apply", "expected_note"),
+    [
+        ('<p data-lo-style="Heading2">content</p>', False, True, True, True, None),
+        ('<p data-lo-style="Heading2">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, True, True, True, None),
+        ('<p data-lo-para="text-align:center">content</p>', False, True, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-para="text-align:center">content</p>', False, False, False, False, "STYLE_IGNORED_PARTIAL_MATCH"),
+        ('<p data-lo-style="Heading2">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
+        # Geometry checked first: partial match while recording returns partial note.
+        pytest.param('<p data-lo-style="Heading2">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="style_partial_while_recording"),
+        ('<p data-lo-para="text-align:center">content</p>', True, True, True, False, "STYLE_IGNORED_RECORDING"),
+        pytest.param('<p data-lo-para="text-align:center">content</p>', True, False, True, False, "STYLE_IGNORED_PARTIAL_MATCH", id="para_partial_while_recording"),
+    ],
+)
+def test_lo_style_for_replaced_range(content, recording, start_edge, end_edge, expected_apply, expected_note):
     from plugin.writer.html_import import _lo_style_for_replaced_range
 
-    model = MagicMock()
-    content = '<p data-lo-style="Heading2">content</p>'
-
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        # Both edges true -> apply True, note None
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
-        assert apply is True
-        assert note is None
-
-        # Start only -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # End only -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # Neither -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        para_content = '<p data-lo-para="text-align:center">content</p>'
-        # Both edges true -> apply True, note None
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, True))
-        assert apply is True
-        assert note is None
-
-        # Start only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # End only -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        # Neither -> apply False, note STYLE_IGNORED_PARTIAL_MATCH
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, False))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-
-def test_lo_style_for_replaced_range_recording():
-    from plugin.writer.html_import import _lo_style_for_replaced_range
-
-    model = MagicMock()
-    content = '<p data-lo-style="Heading2">content</p>'
-
-    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
-        # Edges true, recording true -> apply False, recording sentence
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_RECORDING"
-
-        # Geometry checked first: partial match while recording returns partial note
-        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
-
-        para_content = '<p data-lo-para="text-align:center">content</p>'
-        # Para only while recording returns False, STYLE_IGNORED_RECORDING
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(True, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_RECORDING"
-
-        apply, note = _lo_style_for_replaced_range(model, para_content, make_paragraph_edge_range(False, True))
-        assert apply is False
-        assert note == "STYLE_IGNORED_PARTIAL_MATCH"
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=recording):
+        apply, note = _lo_style_for_replaced_range(
+            MagicMock(), content, make_paragraph_edge_range(start_edge, end_edge)
+        )
+    assert apply is expected_apply
+    assert note == expected_note
 
 
 def test_lo_style_for_replaced_range_non_block_tokens():
@@ -2148,28 +2128,110 @@ def test_plain_html_leaves_math_empty():
     assert report.math == []
 
 
-def test_drop_absorb_paragraph_props_resets_extended_properties() -> None:
-    """_drop_absorb_paragraph_props must pass CLEARABLE_PARA_PROPERTIES plus extra direct properties."""
-    from plugin.writer.html_import import _drop_absorb_paragraph_props
-    from plugin.writer.styles import CLEARABLE_PARA_PROPERTIES
+class TestWriterMathPreservation:
+    def test_mixed_math_preservation(self):
+        """Verify that \\nabla in TeX is preserved while \\n in HTML is expanded."""
+        from plugin.writer.html_import import _insert_mixed_html_and_math_at_cursor
 
-    cursor = MagicMock()
-    _drop_absorb_paragraph_props(cursor)
+        ctx = MagicMock()
+        model = MagicMock()
+        cursor = MagicMock()
 
-    cursor.setPropertiesToDefault.assert_called_once()
-    props = cursor.setPropertiesToDefault.call_args[0][0]
+        # r"\nabla" has 1 backslash, r"\n" has 1 backslash.
+        test_content = r"<p>Equation: \[\nabla \cdot \mathbf{E}\]</p> and a newline: \nHello."
 
-    assert props[: len(CLEARABLE_PARA_PROPERTIES)] == CLEARABLE_PARA_PROPERTIES
-    extra_names = (
-        "ParaLineSpacing",
-        "ParaContextMargin",
-        "ParaTabStops",
-        "LeftBorder",
-        "RightBorder",
-        "TopBorder",
-        "BottomBorder",
-    )
-    for name in extra_names:
-        assert name in props
-        assert name not in CLEARABLE_PARA_PROPERTIES
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert_html:
+            with patch("plugin.writer.html_import.convert_latex_to_starmath") as mock_convert_tex:
+                mock_convert_tex.return_value = MagicMock(ok=True, starmath="mocked")
+
+                _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, test_content)
+
+                # Check that HTML segment 2 (with the newline) was expanded
+                calls = mock_insert_html.call_args_list
+                last_html_chunk = calls[-1][0][1]
+                assert "\nHello." in last_html_chunk
+                assert "\\nHello." not in last_html_chunk
+
+                # Verify TeX segment 1: \nabla was NOT expanded
+                tex_chunk = mock_convert_tex.call_args[0][1]
+                assert tex_chunk == r"\nabla \cdot \mathbf{E}"
+
+    def test_brl_currency_never_becomes_a_formula(self):
+        """End-to-end insert path: ``R$ 1.234,56`` pairs must not build a Math object.
+
+        Regression for the Writer corruption where the text between two ``R$``
+        amounts was swallowed into a formula (italic serif, spaces eaten).
+        """
+        from plugin.writer.html_import import _insert_mixed_or_plain_html
+
+        ctx = MagicMock()
+        model = MagicMock()
+        cursor = MagicMock()
+        cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
+
+        content = (
+            "<p>Requer a condena\u00e7\u00e3o em R$ 12.798,82, como montante "
+            "indenizat\u00f3rio por ventura arbitrado, evitando-se, assim, o "
+            "enriquecimento sem causa, al\u00e9m de R$ 500,00 de custas.</p>"
+        )
+
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert_html:
+            with patch("plugin.writer.html_import.convert_latex_to_starmath") as mock_convert_tex:
+                with patch("plugin.writer.html_import.insert_writer_math_formula") as mock_formula:
+                    _insert_mixed_or_plain_html(model, ctx, cursor, content)
+
+        mock_convert_tex.assert_not_called()
+        mock_formula.assert_not_called()
+        inserted = "".join(c[0][1] for c in mock_insert_html.call_args_list)
+        assert "R$ 12.798,82" in inserted
+        assert "R$ 500,00" in inserted
+        assert "evitando-se, assim" in inserted
+
+    def test_plain_html_expansion(self):
+        """Verify that expansion still happens when no math is present."""
+        from plugin.writer.html_import import _insert_mixed_or_plain_html
+
+        ctx = MagicMock()
+        model = MagicMock()
+        cursor = MagicMock()
+        cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
+
+        test_content = "Line 1\\nLine 2"
+
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert_html:
+            _insert_mixed_or_plain_html(model, ctx, cursor, test_content)
+
+            inserted_html = mock_insert_html.call_args[0][1]
+            assert "Line 1" in inserted_html
+            assert "Line 2" in inserted_html
+            assert "Line 1\\n" not in inserted_html
+
+    def test_apply_document_content_plain_text_expansion(self):
+        """Verify that ApplyDocumentContent expands \\n for plain text."""
+        from plugin.writer.apply_document_content import ApplyDocumentContent
+        from plugin.writer.html_import_styles import WriteReport
+
+        tool = ApplyDocumentContent()
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        # The lock rule is True. Keep isLocked.return_value = False.
+        ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+        ctx.ctx = MagicMock()
+        ctx.services = MagicMock()
+
+        # Plain text content (no markup)
+        content = "Line 1\\nLine 2"
+
+        with (
+            patch("plugin.writer.html_import.replace_full_document") as mock_replace,
+            # doc.agent_edit_review_mode is read from live config by both modules; pin off for isolated runs without init_config.
+            patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"),
+            patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"),
+        ):
+            mock_replace.return_value = WriteReport()
+            tool.execute(ctx, content=content, target="full_document")
+
+            passed_content = mock_replace.call_args[0][2]
+            assert passed_content == "Line 1\nLine 2"
+
 

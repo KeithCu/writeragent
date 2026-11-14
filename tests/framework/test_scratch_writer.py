@@ -109,10 +109,11 @@ def test_clear_writer_body_drops_a_letterhead_with_no_text():
     assert count[0] == 0
 
 
-def test_clear_writer_body_leaves_an_already_empty_doc_alone():
+def test_clear_writer_body_returns_true_and_blanks_whitespace_only_body():
     for empty in ("", "   \n  "):
-        doc, _, _, _, _ = _scratch_doc(text=empty)
+        doc, body, _, _, _ = _scratch_doc(text=empty)
         assert clear_writer_body(doc) is True
+        assert body.getString() == ""
 
 
 def test_clear_writer_body_cannot_spin_on_a_page_that_never_empties():

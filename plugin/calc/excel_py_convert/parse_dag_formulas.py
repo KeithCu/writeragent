@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 
+from plugin.calc.excel_py_convert.models import DagFormulaItem, find_sheet_ci
 from plugin.calc.excel_py_convert.ooxml_util import (
     find_all,
     find_child,
@@ -15,10 +16,9 @@ from plugin.calc.excel_py_convert.ooxml_util import (
     workbook_sheets,
 )
 from plugin.calc.excel_py_convert.parse_excel_ooxml import (
-    _col_row,
-    _shared_formula_map,
+    shared_formula_map,
+    expand_shared,
     shift_xlws_py_dep,
-    shift_xlws_py_formula,
 )
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.python.formula_edit import (
@@ -50,9 +50,23 @@ def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
     return raw
 
 
+def _shift_py_formula_args(body: str, rows: int, cols: int) -> str | None:
+    """Shift a =PY/=PYTHON master's data arguments by (rows, cols) for the DAG scan."""
+    parts = PyFormula.parse(body)
+    if parts is None:
+        return None
+    shifted_args: list[str] = []
+    for arg in parts.data_args():
+        s_arg = shift_xlws_py_dep(arg, rows, cols)
+        if s_arg is None:
+            return None
+        shifted_args.append(s_arg)
+    return parts.render(parts.code, data_args=shifted_args)
+
+
 def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[str, str]]:
     """Map A1 → (formula_or_empty, string_value)."""
-    masters = _shared_formula_map(ws_root)
+    masters = shared_formula_map(ws_root)
     out: dict[str, tuple[str, str]] = {}
     for c in find_all(ws_root, "c"):
         a1 = (c.attrib.get("r") or "").replace("$", "").upper()
@@ -65,24 +79,7 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
         formula = "".join(f.itertext()).strip() if f is not None else ""
 
         if f is not None and t_attr == "shared" and not formula and si in masters:
-            master_body, master_a1 = masters[si]
-            m_r, m_c = _col_row(master_a1)
-            c_r, c_c = _col_row(a1)
-            delta_r, delta_c = c_r - m_r, c_c - m_c
-            if "_xlws.py" in master_body.lower():
-                shifted = shift_xlws_py_formula(master_body, delta_r, delta_c)
-                formula = shifted[0] if shifted else ""
-            else:
-                parts = PyFormula.parse(master_body)
-                if parts is not None:
-                    shifted_args: list[str] = []
-                    for arg in parts.data_args():
-                        s_arg = shift_xlws_py_dep(arg, delta_r, delta_c)
-                        if s_arg is None:
-                            break
-                        shifted_args.append(s_arg)
-                    else:
-                        formula = parts.render(parts.code, data_args=shifted_args)
+            formula = expand_shared(masters[si], a1, shift_other=_shift_py_formula_args) or ""
 
         if formula and not formula.startswith("="):
             formula = "=" + formula
@@ -90,14 +87,14 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
     return out
 
 
-def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
-    """Return ``(sheet_title, cell, formula)`` for PY/PYTHON cells in an ``.xlsx``.
+def iter_dag_py_formulas_xlsx(path: str | Path) -> list[DagFormulaItem]:
+    """Return ``DagFormulaItem(sheet_title, cell, formula)`` for PY/PYTHON cells in an ``.xlsx``.
 
     Resolves ``=PY(py_code_Sheet.A1; …)`` bank refs to inline ``=PY("…"; …)`` so
     reverse export banks real Python into ``pythonScripts.xml``.
     """
     path = Path(path)
-    out: list[tuple[str, str, str]] = []
+    out: list[DagFormulaItem] = []
     with zipfile.ZipFile(path, "r") as zf:
         sheets = workbook_sheets(zf)
         shared = shared_strings(zf)
@@ -111,10 +108,8 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
                 continue
             sheet_cells[sh.title] = _sheet_cell_map(ws_root, shared)
 
-        by_lower = {k.lower(): v for k, v in sheet_cells.items()}
-
         def _lookup(sheet: str, a1: str) -> str | None:
-            cell_map = sheet_cells.get(sheet) or by_lower.get(sheet.lower())
+            cell_map = find_sheet_ci(sheet_cells, sheet)
             if not cell_map:
                 return None
             _formula, value = cell_map.get(a1, ("", ""))
@@ -141,5 +136,5 @@ def iter_dag_py_formulas_xlsx(path: str | Path) -> list[tuple[str, str, str]]:
                 if resolved is not None:
                     # Quote-escape only (" -> "").
                     formula = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parts.data_suffix}'
-                out.append((sh.title, a1, formula))
+                out.append(DagFormulaItem(sh.title, a1, formula))
     return out

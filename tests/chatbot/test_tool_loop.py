@@ -1,36 +1,10 @@
-import sys
 from unittest.mock import Mock, MagicMock, patch
 
-
-# Define exact structure for awt to avoid metaclass inheritance issues not covered by setup_uno_mocks
-class XTopWindowListener(object):
-    pass
-class XWindowListener(object):
-    pass
-class XFocusListener(object):
-    pass
-class XKeyListener(object):
-    pass
-class XMouseListener(object):
-    pass
-class XTextListener(object):
-    pass
-
-setattr(sys.modules['com.sun.star.awt'], 'XTopWindowListener', XTopWindowListener)
-setattr(sys.modules['com.sun.star.awt'], 'XWindowListener', XWindowListener)
-setattr(sys.modules['com.sun.star.awt'], 'XFocusListener', XFocusListener)
-setattr(sys.modules['com.sun.star.awt'], 'XKeyListener', XKeyListener)
-setattr(sys.modules['com.sun.star.awt'], 'XMouseListener', XMouseListener)
-setattr(sys.modules['com.sun.star.awt'], 'XTextListener', XTextListener)
-
-
-from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind  # noqa: E402
-
-# Now import the actual ToolCallingMixin class from the module
-from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
-from plugin.chatbot.send_state import SendButtonState, SendMode  # noqa: E402
-from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
-from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display  # noqa: E402
+from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
+from plugin.chatbot.tool_loop import ToolCallingMixin
+from plugin.chatbot.send_state import SendButtonState, SendMode
+from plugin.chatbot.sidebar_state import SidebarCompositeState
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 
 class MockSession:
     def __init__(self):
@@ -105,17 +79,6 @@ def setup_mock_panel():
     begin_send_turn(panel)
     return panel, session
 
-_MIRRORED_CONTROL_ATTRS = (
-    "_active_round_num",
-    "_active_pending_tools",
-    "_active_async_tools",
-    "_active_max_tool_rounds",
-)
-
-
-def test_chat_stream_batch_interval_is_250ms():
-    assert CHAT_STREAM_BATCH_INTERVAL == 0.25
-
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
 @patch('plugin.chatbot.tool_loop.get_config')
@@ -156,14 +119,12 @@ def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_drain_loop):
     assert panel._spawn_llm_worker.call_count >= 1
     # args: q, client, max_tokens, tools, round_num, …
     assert panel._spawn_llm_worker.call_args[0][4] == 0
-    for attr in _MIRRORED_CONTROL_ATTRS:
-        assert not hasattr(panel, attr) or getattr(panel, attr, None) is None
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
-    """After STREAM_DONE with tools, pending/round live on _sm_state; host has no mirror attrs."""
+def test_control_state_on_sm_state(mock_get_config, mock_drain_loop):
+    """After STREAM_DONE with tools, pending/round live on _sm_state."""
     panel, _session = setup_mock_panel()
     tool_calls = [
         {"id": "call_abc", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}
@@ -174,7 +135,6 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
         on_stream_done((StreamQueueKind.STREAM_DONE, {"content": "checking", "tool_calls": tool_calls}))
         seen["round_num"] = panel._sm_state.round_num
         seen["pending_tools"] = list(panel._sm_state.pending_tools)
-        seen["has_mirrors"] = {attr: hasattr(panel, attr) for attr in _MIRRORED_CONTROL_ATTRS}
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -183,7 +143,6 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
     assert seen["round_num"] == 0
     assert len(seen["pending_tools"]) == 1
     assert seen["pending_tools"][0]["id"] == "call_abc"
-    assert not any(seen["has_mirrors"].values())
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
@@ -219,7 +178,7 @@ def test_handle_stream_error_persists_banner():
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_drain_loop):
+def test_handle_stream_stopped_sets_sm_state(mock_get_config, mock_drain_loop):
     from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, _session = setup_mock_panel()
     begin_send_turn(panel)
@@ -227,8 +186,6 @@ def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_drain_lo
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, on_stopped=None, **kwargs):
         on_stopped()
         assert panel._sm_state.is_stopped is True
-        for attr in _MIRRORED_CONTROL_ATTRS:
-            assert not hasattr(panel, attr)
 
     mock_drain_loop.side_effect = mock_drain_impl
 
@@ -424,9 +381,11 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=execute_tool_mock, max_tool_rounds=10)
 
     assert len(results) == 4
+    assert execution_order == ["tool_one", "tool_two"]
 
     # Verify it added tool result to session
     assert len(session.messages) == 3
+    assert session.messages[1]["tool_call_id"] == "call_1"
     assert session.messages[2]["role"] == "tool"
     assert session.messages[2]["tool_call_id"] == "call_2"
 
@@ -1087,16 +1046,14 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     assert result["message"] == "done"
     assert "result" not in result
+    from plugin.framework.prompts import python_specialized_sub_agent_hint
+
     instructions = mock_build.call_args.kwargs["instructions"]
-    assert "DO NOT import numpy" in instructions
-    assert "does not inject spreadsheet" in instructions
+    assert python_specialized_sub_agent_hint("Writer") in instructions
     tools_passed = mock_build.call_args[0][1]
     names = [t.name for t in tools_passed]
     assert "run_venv_python_script" in names
     assert "specialized_workflow_finished" in names
-    venv_tool = next(t for t in tools_passed if t.name == "run_venv_python_script")
-    assert "does not inject spreadsheet" in venv_tool.description
-    assert "Optional data_range" not in venv_tool.description
 
 
 def test_delegate_requires_document_lock_read_only_domains():
@@ -1204,21 +1161,6 @@ def test_toolkit_none_starts_drain_and_first_worker():
         msg.get("role") == "assistant" and "Toolkit unavailable" in str(msg.get("content"))
         for msg in session.messages
     )
-
-
-def test_compaction_state_per_turn():
-    from plugin.chatbot.tool_loop_actions import TurnController
-    turn1 = TurnController(None)
-    turn1._overflow_compact_attempts = 1
-    turn1._last_compact_reason = "overflow"
-    turn1._last_compact_tokens_before = 2000
-    turn1._last_compact_tokens_after = 1000
-
-    turn2 = TurnController(None)
-    assert turn2._overflow_compact_attempts == 0
-    assert turn2._last_compact_reason is None
-    assert turn2._last_compact_tokens_before is None
-    assert turn2._last_compact_tokens_after is None
 
 
 def test_retry_status_restored_on_first_chunk():

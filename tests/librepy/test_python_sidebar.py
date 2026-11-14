@@ -10,15 +10,12 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from plugin.librepy.python_sidebar import (
     _CALC_ONLY_IDS,
     _CONTROL_IDS,
     _PanelResizeListener,
     compute_python_sidebar_layout,
     format_runtime_status,
-    workbook_key_for_doc,
 )
 
 
@@ -83,44 +80,7 @@ def test_format_runtime_status_shared_with_venv():
 
 
 
-def test_workbook_key_for_doc_uses_session_id():
-    doc = MagicMock()
-    with patch(
-        "plugin.librepy.python_sidebar.existing_calc_session_id",
-        return_value="calc:file:///tmp/a.ods",
-    ):
-        assert workbook_key_for_doc(doc) == "calc:file:///tmp/a.ods"
-
-
-def test_workbook_key_for_doc_no_existing_id_returns_unknown_and_does_not_set_prop():
-    doc = MagicMock()
-    with (
-        patch("plugin.librepy.python_sidebar.existing_calc_session_id", return_value=None),
-        patch("plugin.scripting.session_manager.set_document_property") as mock_set_prop,
-    ):
-        assert workbook_key_for_doc(doc) == "unknown"
-        mock_set_prop.assert_not_called()
-
-
-def test_workbook_key_for_doc_does_not_create_session():
-    doc = MagicMock()
-    doc.getURL.return_value = ""
-    props = MagicMock()
-    props.getPropertyValue.side_effect = Exception("UnknownPropertyException")
-    props.getPropertySetInfo.return_value.hasPropertyByName.return_value = True
-    doc.getDocumentProperties.return_value.UserDefinedProperties = props
-    res = workbook_key_for_doc(doc)
-    assert res == "unknown"
-    props.addProperty.assert_not_called()
-
-
-def test_workbook_key_unknown_on_none():
-    assert workbook_key_for_doc(None) == "unknown"
-
-
-def test_python_sidebar_xdl_uses_menulist_not_listbox():
-    """LibreOffice dialog.dtd has dlg:menulist only; dlg:listbox breaks createContainerWindow
-    and aborts soffice with 'pure virtual method called' when the Calc sidebar opens."""
+def _sidebar_xdl_path():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
@@ -131,13 +91,15 @@ def test_python_sidebar_xdl_uses_menulist_not_listbox():
     )
     xdl = next((p for p in candidates if p.is_file()), None)
     assert xdl is not None, f"PythonSidebarDialog.xdl not found under {root} (tried {[str(p) for p in candidates]})"
-    text = xdl.read_text(encoding="utf-8")
+    return xdl
+
+
+def test_python_sidebar_xdl_uses_menulist_not_listbox():
+    """LibreOffice dialog.dtd has dlg:menulist only; dlg:listbox breaks createContainerWindow
+    and aborts soffice with 'pure virtual method called' when the Calc sidebar opens."""
+    text = _sidebar_xdl_path().read_text(encoding="utf-8")
     assert "dlg:listbox" not in text
-    assert 'dlg:id="cells_list"' in text and "dlg:menulist" in text
-    assert 'dlg:id="diag_list"' in text
-    assert 'dlg:id="btn_hdr_settings"' in text
-    assert 'dlg:id="btn_hamburger"' in text
-    assert 'dlg:id="btn_search"' not in text
+    assert "dlg:menulist" in text
 
 
 def test_activation_listener_schedules_refresh():
@@ -385,22 +347,6 @@ def test_writer_does_not_use_desktop_calc_document():
         assert ctrl._calc_document() is None
 
 
-def test_sidebar_xcu_registers_writer():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2]
-    paths = (
-        root / "extension-core" / "registry" / "org" / "openoffice" / "Office" / "UI" / "Sidebar.xcu",
-        root / "extension" / "registry" / "org" / "openoffice" / "Office" / "UI" / "Sidebar.xcu",
-    )
-    if not all(path.is_file() for path in paths):
-        pytest.skip("extension trees are not copied into the stripped make release tree")
-    for path in paths:
-        text = path.read_text(encoding="utf-8")
-        assert "LibrePyDeck" in text
-        assert "com.sun.star.text.TextDocument" in text
-
-
 def test_resize_listener_disposing_runs_callback_once_without_removing():
     calls: list[str] = []
     listener = _PanelResizeListener({}, on_dispose=lambda: calls.append("dispose"))
@@ -414,12 +360,19 @@ def test_resize_listener_disposing_runs_callback_once_without_removing():
     assert calls == ["dispose"]
 
 
-def test_resize_listener_disposing_logs_callback_failure():
+def test_resize_listener_disposing_logs_callback_failure(caplog):
+    calls = 0
+
     def boom() -> None:
+        nonlocal calls
+        calls += 1
         raise RuntimeError("deck")
 
     listener = _PanelResizeListener({}, on_dispose=boom)
     listener.disposing(None)
+    listener.disposing(None)
+    assert calls == 1
+    assert any(r.exc_info is not None for r in caplog.records)
 
 
 def test_window_dispose_hook_cleans_controller_once():
@@ -532,9 +485,8 @@ def test_calc_document_returns_none_for_writer_frame():
 
 
 def test_filter_msgids_translate_at_call():
-    from plugin.librepy.python_sidebar import _FILTER_MSGIDS, _filter_choices
+    from plugin.librepy.python_sidebar import _filter_choices
 
-    assert _FILTER_MSGIDS[0][0] == "All"
     with patch("plugin.librepy.python_sidebar._", side_effect=lambda s: f"T:{s}"):
         assert _filter_choices()[0] == ("T:All", "all")
 
@@ -782,7 +734,7 @@ def test_diag_event_matching_key_does_not_scan_cells():
     posted = []
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
-        patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
+        patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:test"),
         patch("plugin.librepy.python_sidebar.list_python_cells_in_doc") as mock_scan,
     ):
         ctrl._on_diag(entry)
@@ -826,7 +778,7 @@ def test_diag_event_foreign_key_drops_early():
     posted = []
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
-        patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:current"),
+        patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:current"),
     ):
         ctrl._on_diag(entry)
         assert len(posted) == 0
@@ -850,7 +802,7 @@ def test_schedule_refresh_diag_then_full_coalesces_to_full():
     posted = []
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=posted.append),
-        patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"),
+        patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:test"),
     ):
         ctrl._schedule_refresh(entry, full=False)
         assert ctrl._refresh_pending is True
@@ -986,14 +938,25 @@ def test_init_failure_in_wire_allows_safe_disposing():
     ctrl_partial.frame = None
     ctrl_partial._controls = {}
     ctrl_partial._on_torn_down = None
-    # Ensure disposing does not crash on missing attributes
+    # Ensure disposing does not crash on missing attributes and runs cleanup once
     ctrl_partial.disposing()
+    ctrl_partial._store.remove_listener.assert_called_once_with(ctrl_partial._on_diag)
+    ctrl_partial._store.reset_mock()
+    ctrl_partial.disposing()
+    ctrl_partial._store.remove_listener.assert_not_called()
 
 
-def test_control_ids_composition():
-    from plugin.librepy.python_sidebar import _CALC_ONLY_IDS
+def test_control_ids_match_xdl_controls():
+    import xml.etree.ElementTree as ET
 
-    expected = (
+    root = ET.fromstring(_sidebar_xdl_path().read_text(encoding="utf-8"))
+    id_attr = "{http://openoffice.org/2000/dialog}id"
+    all_ids = [elem.attrib[id_attr] for elem in root.iter() if id_attr in elem.attrib]
+    # First id in the XDL is the dialog window itself; controls follow.
+    xdl_control_ids = all_ids[1:]
+
+    assert sorted(_CONTROL_IDS) == sorted(xdl_control_ids)
+    assert set(_CONTROL_IDS) - set(_CALC_ONLY_IDS) == {
         "btn_hdr_settings",
         "btn_python",
         "btn_latex",
@@ -1001,17 +964,10 @@ def test_control_ids_composition():
         "status_label",
         "status",
         "btn_refresh",
-    ) + _CALC_ONLY_IDS + (
         "btn_reset",
         "btn_settings",
-    )
-    assert _CONTROL_IDS == expected
-    for cid in _CALC_ONLY_IDS:
-        assert _CONTROL_IDS.count(cid) == 1
-    assert "btn_settings" in _CONTROL_IDS
-    assert "btn_settings" not in _CALC_ONLY_IDS
-    assert "btn_refresh" in _CONTROL_IDS
-    assert "btn_refresh" not in _CALC_ONLY_IDS
+    }
+    assert set(_xdl_snapshot()) == set(_CONTROL_IDS)
 
 
 def test_diag_enrichment_with_duplicate_code_different_sheets():
@@ -1035,7 +991,7 @@ def test_diag_enrichment_with_duplicate_code_different_sheets():
     ctrl._last_diag_detail_text = None
 
     doc = MagicMock()
-    with patch("plugin.librepy.python_sidebar.workbook_key_for_doc", return_value="calc:test"):
+    with patch("plugin.librepy.python_sidebar.diagnostics_workbook_key", return_value="calc:test"):
         ctrl._refresh_diagnostics(doc)
 
     assert len(ctrl._diags) == 2

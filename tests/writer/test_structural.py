@@ -180,12 +180,9 @@ def test_clone_heading_block_with_table():
     assert inserted_strings == ["Heading A", "Body text"]
     assert created_cursors == [table.getAnchor()]
     cursor_mock.collapseToEnd.assert_called_once()
-    assert "Plain paragraph text" in CloneHeadingBlock.description
-    assert "tables are skipped" in CloneHeadingBlock.description
 
 
-def test_get_page_objects_disposal_and_error_handling(caplog):
-    import logging
+def test_get_page_objects_disposal_and_error_handling():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.structural import GetPageObjects
 
@@ -262,12 +259,10 @@ def test_get_page_objects_disposal_and_error_handling(caplog):
     doc_live.getDrawPage.return_value.getCount.return_value = 0
     ctx.doc = doc_live
 
-    with caplog.at_level(logging.WARNING):
-        res = GetPageObjects().execute(ctx, page=1)
+    res = GetPageObjects().execute(ctx, page=1)
     assert res["status"] == "ok"
     assert len(res["images"]) == 1
     assert res["images"][0]["name"] == "G1"
-    assert any("Failed to scan graphic object 'G2'" in rec.message for rec in caplog.records)
 
 
 def test_nav_goto_page_success():

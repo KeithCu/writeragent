@@ -2,21 +2,40 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Formula cell location for Calc =PY() formulas with array-formula origin detection."""
+"""Formula cell location for Calc =PY() formulas with array-formula origin detection. Locations are memoized for one add-in execution (``bind_formula_locate_memo``); ``FormulaOrigin`` is the record callers carry once they have located the cell."""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 import contextvars
+from dataclasses import dataclass
 from typing import Any, Generator, Iterator
 
 from plugin.calc.python.formula_edit import PyFormula
+from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.framework.errors import uno_read
 
 CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 
 _Location = tuple[Any, Any, tuple[int, int]]
 _LocateMemo = dict[tuple[int, str], _Location | None]
+
+
+@dataclass(frozen=True, slots=True)
+class FormulaOrigin:
+    """The one =PY() cell this call runs in: sheet and cell objects, the sheet's name, 0-based row and column."""
+
+    sheet: Any
+    cell: Any
+    sheet_name: str
+    row: int
+    col: int
+
+    @classmethod
+    def from_located(cls, located: _Location) -> FormulaOrigin:
+        sheet, cell, (row, col) = located
+        name = uno_read(sheet.getName, "")
+        return cls(sheet, cell, name if isinstance(name, str) else "", row, col)
 
 # One memo per add-in execution (bind_formula_locate_memo); a None value means no unique origin.
 _LOCATE_MEMO: contextvars.ContextVar[_LocateMemo | None] = contextvars.ContextVar("_LOCATE_MEMO", default=None)
@@ -41,8 +60,6 @@ def _code_strings_match(extracted: str | None, code_str: str) -> bool:
 
 def _resolve_ref_cell(sheet: Any, doc: Any | None, code_ref: str) -> Any | None:
     try:
-        from plugin.calc.address_utils import parse_address, split_sheet_prefix
-
         sheet_prefix, bare = split_sheet_prefix(code_ref.strip())
         bare = bare.replace("$", "").strip()
         if not bare:

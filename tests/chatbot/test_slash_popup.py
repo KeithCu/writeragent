@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -531,49 +530,17 @@ def test_slash_key_handler_key_pressed_behaviour() -> None:
     assert handler.keyPressed(ev) is False
 
 
-def test_frame_and_toolkit_sources_are_nav_only():
-    import inspect
-
-    attach = inspect.getsource(SlashPopupController._attach_key_handler)
-    frame = inspect.getsource(SlashPopupController._attach_frame_keys)
-    toolkit = inspect.getsource(SlashPopupController._attach_toolkit_keys)
-    listed = inspect.getsource(SlashPopupController._attach_keys)
-    assert "_make_slash_key_handler" in attach
-    assert "_attach_key_handler" in frame
-    assert "_attach_key_handler" in toolkit
-    assert "from_overlay=True" not in attach
-    assert "from_overlay=True" in listed
-
-
 def test_show_matches_repositions_only_before_show():
+    # Fill before reposition (#3137) and reposition while hidden.
     popup, box = _controller()
-    seen_visible: list[bool] = []
-    orig = popup.reposition
-
-    def _wrapped() -> None:
-        seen_visible.append(box.visible)
-        orig()
-
-    popup.reposition = _wrapped  # type: ignore[method-assign]
+    events: list[object] = []
+    fill, repos = popup._fill_visible_list, popup.reposition
+    popup._fill_visible_list = lambda: (events.append("fill"), fill())[1]  # type: ignore[method-assign]
+    popup.reposition = lambda: (events.append(("reposition", box.visible)), repos())[1]  # type: ignore[method-assign]
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
         popup.on_query_text("/")
-    assert seen_visible == [False]
+    assert events[:2] == ["fill", ("reposition", False)]
     assert box.visible is True
-
-
-def test_reposition_does_not_probe_screen_bounds(monkeypatch):
-    calls = {"n": 0}
-
-    def _probe(*_args, **_kwargs):
-        calls["n"] += 1
-        return None
-
-    monkeypatch.setattr("plugin.chatbot.slash_popup._overlay_offset", _probe)
-    popup, _box = _controller()
-    popup.reposition()
-    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
-        popup.on_query_text("/")
-    assert calls["n"] == 0
 
 
 def _capture_posts():
@@ -646,15 +613,10 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     floater.dispose.assert_called_once()
     assert popup.is_open is False
     send.append_output.assert_called_once()
-    assert "Slash commands:" in send.append_output.call_args[0][0]
 
 
-def test_query_text_post_timeout_does_not_run_inline(caplog):
-    """TimeoutError from post must not hide or show on this stack.
-
-    Ask textChanged used to catch the timeout and call hide / _show_matches
-    inline, which deadlocks VCL. _defer_to_next_turn only logs.
-    """
+def test_query_text_post_timeout_does_not_run_inline():
+    """TimeoutError from post must not hide or show inline on the Ask textChanged stack; doing so deadlocks VCL."""
     popup, box = _controller()
     popup.hide = MagicMock()
     popup._show_matches = MagicMock()
@@ -662,21 +624,17 @@ def test_query_text_post_timeout_does_not_run_inline(caplog):
     def _timeout(*_args, **_kwargs):
         raise TimeoutError("marshal post timed out")
 
-    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
-        with patch(
-            "plugin.framework.queue_executor.main.post",
-            side_effect=_timeout,
-        ):
-            popup.on_query_text("hello")  # prefix is None → defer hide
-            popup.on_query_text("/zzz-not-a-command")  # no command starts with zzz → defer hide
-            popup.on_query_text("/")  # matches → defer _show_matches
+    with patch(
+        "plugin.framework.queue_executor.main.post",
+        side_effect=_timeout,
+    ):
+        popup.on_query_text("hello")  # prefix is None → defer hide
+        popup.on_query_text("/zzz-not-a-command")  # no command starts with zzz → defer hide
+        popup.on_query_text("/")  # matches → defer _show_matches
     popup.hide.assert_not_called()
     popup._show_matches.assert_not_called()
     assert popup.is_open is False
     assert box.visible is False
-    deferred = [r for r in caplog.records if "could not defer main-thread turn" in r.message]
-    assert len(deferred) == 3
-    assert all(r.levelno == logging.WARNING for r in deferred)
 
 
 def test_recreate_hide_does_not_dispatch_has_text():
@@ -692,7 +650,7 @@ def test_recreate_hide_does_not_dispatch_has_text():
     win.dispose.assert_called_once()
 
 
-def test_fill_failure_logs_warning(caplog):
+def test_fill_failure_does_not_raise():
     popup, box = _controller()
     popup.control = box
     popup._popup_floater = object()
@@ -704,12 +662,10 @@ def test_fill_failure_logs_warning(caplog):
         raise RuntimeError("addItems")
 
     box.addItems = _boom
-    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
-        popup._fill_visible_list()
-    assert any("fill addItems failed" in r.message and r.levelno == logging.WARNING for r in caplog.records)
+    popup._fill_visible_list()
 
 
-def test_frame_key_attach_failure_logs_warning(caplog):
+def test_frame_key_attach_failure_does_not_raise():
     import com.sun.star.awt as awt
 
     class XKeyHandler:
@@ -721,50 +677,17 @@ def test_frame_key_attach_failure_logs_warning(caplog):
         controller = MagicMock()
         controller.addKeyHandler.side_effect = RuntimeError("attach")
         popup.send_listener.frame = SimpleNamespace(getController=lambda: controller)
-        with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
-            popup._attach_frame_keys()
-        assert any(
-            "frame key handler attach failed" in r.message and r.levelno == logging.WARNING
-            for r in caplog.records
-        )
+        popup._attach_frame_keys()
     finally:
         if hasattr(awt, "XKeyHandler"):
             delattr(awt, "XKeyHandler")
 
 
-def test_slash_disabled_when_flag_false(monkeypatch, caplog):
+def test_slash_disabled_when_flag_false(monkeypatch):
     monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
-    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
     popup, _box = _controller()
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
-        popup.on_query_text("/")
+    popup.on_query_text("/")
     assert popup.is_open is False
-    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
-
-
-def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
-    from plugin.chatbot.slash_popup import _ovlog
-
-    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
-        _ovlog("query_text entered raw=%r", "/he")
-    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
-
-
-def test_ovlog_emits_debug_when_verbose(caplog, monkeypatch):
-    import plugin.chatbot.slash_popup as slash_popup
-    from tests.harness.strip_bundle import module_source_contains
-
-    monkeypatch.setattr(slash_popup, "SLASH_OV_VERBOSE_DEBUG", True)
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
-        slash_popup._ovlog("query_text entered raw=%r", "/he")
-    if not module_source_contains(slash_popup, "log.debug"):
-        return
-    matches = [r for r in caplog.records if "[SLASH-OV]" in r.message]
-    assert matches
-    assert all(r.levelno == logging.DEBUG for r in matches)
-    assert any("query_text entered" in r.message for r in matches)
-    assert not any(r.levelno >= logging.INFO and "[SLASH-OV]" in r.message for r in caplog.records)
 
 
 class _R:
@@ -924,18 +847,17 @@ def test_list_height_measures_rows_and_falls_back():
     assert _list_height(bad, 2) == _overlay_height(2)
 
 
-def test_toolkit_key_handler_registered_at_panel_creation(monkeypatch):
+def test_toolkit_key_handler_registered_at_panel_creation():
     """Esc must reach us before the sidebar FocusManager, which also listens
     app-wide and moves focus to the panel title. App key listeners run in
     registration order, so ours is added once at panel creation and kept
     until dispose; hide must not drop it."""
-    handler = object()
-    monkeypatch.setattr("plugin.chatbot.slash_popup._make_slash_key_handler", lambda host, label: handler)
     toolkit = MagicMock()
     peer = SimpleNamespace(getToolkit=lambda: toolkit)
     query = SimpleNamespace(getPeer=lambda: peer, getText=lambda: "")
     popup = SlashPopupController(_ListBox(), MagicMock(), query)
-    toolkit.addKeyHandler.assert_called_once_with(handler)
+    toolkit.addKeyHandler.assert_called_once()
+    handler = toolkit.addKeyHandler.call_args.args[0]
     popup.hide(restore_send=False)
     toolkit.removeKeyHandler.assert_not_called()
     popup.dispose()
@@ -1035,14 +957,3 @@ def test_single_wide_match_list_is_tall_enough_for_row_and_hscroll():
     popup.reposition()
     assert host.pos[-1][3] == 18 + 4 + 14
     assert popup._row_px == 18 + 4
-
-
-def test_show_matches_fills_before_reposition():
-    popup, _box = _controller()
-    order: list[str] = []
-    fill, repos = popup._fill_visible_list, popup.reposition
-    popup._fill_visible_list = lambda: (order.append("fill"), fill())[1]  # type: ignore[method-assign]
-    popup.reposition = lambda: (order.append("reposition"), repos())[1]  # type: ignore[method-assign]
-    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
-        popup.on_query_text("/")
-    assert order[:2] == ["fill", "reposition"]

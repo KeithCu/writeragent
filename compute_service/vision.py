@@ -24,9 +24,9 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from compute_service import error_codes as ec
-from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, bind_pool_singleton, resolve_override, run_compute_worker
+from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES, DEFAULT_SETTINGS, ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, bind_pool_singleton
+from compute_service.worker_stdio import run_compute_worker
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.child_runtime import error_dict
 
@@ -38,17 +38,21 @@ _WORKER_SCRIPT = os.path.abspath(__file__)
 class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
-    def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
-        cfg = settings or ComputeSettings()
-        eff_num_workers = resolve_override(num_workers, cfg.ocr_workers)
-        eff_timeout = resolve_override(default_timeout_sec, cfg.ocr_timeout_sec)
-        eff_max_tasks = resolve_override(max_tasks, cfg.ocr_max_tasks)
-        eff_idle_ttl = resolve_override(idle_worker_ttl_sec, cfg.idle_worker_ttl_sec)
+    def __init__(self, settings: ComputeSettings | None = None) -> None:
+        cfg = DEFAULT_SETTINGS if settings is None else settings
 
         # Formula workers already pass this. The 16 MiB IPC default rejected a
         # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
         # A read timeout kills the child. The next lease respawns it.
-        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+        super().__init__(
+            script_path=_WORKER_SCRIPT,
+            num_workers=cfg.ocr_workers,
+            default_timeout_sec=cfg.ocr_timeout_sec,
+            max_tasks=cfg.ocr_max_tasks,
+            worker_name="Vision worker",
+            idle_worker_ttl_sec=cfg.idle_worker_ttl_sec,
+            max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
+        )
 
     def execute(
         self,
@@ -136,6 +140,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         image_bytes = image_bytes_raw
 
     try:
+        # OCR backends are optional in the image
         from plugin.vision.venv.vision import run_vision
     except (ModuleNotFoundError, ImportError):
         return error_dict(ec.VISION_UNAVAILABLE, "OCR is not installed in this server", req_id=req_id)

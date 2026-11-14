@@ -15,10 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Sheet analyzer — summarizes the structure of Calc sheets.
-
-Ported from core/calc_sheet_analyzer.py for the plugin framework.
-"""
+"""Sheet analyzer — summarizes the structure of Calc sheets."""
 
 from __future__ import annotations
 
@@ -29,7 +26,6 @@ from typing import Any, Sequence
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS, truncate_chat_context
 from plugin.framework.errors import (
     DocumentDisposedError,
-    ToolExecutionError,
     UnoObjectError,
     is_disposal,
     uno_read,
@@ -42,6 +38,7 @@ from plugin.calc.bridge import (
     is_agent_visible_sheet,
     used_range_address,
 )
+from plugin.calc.inspector import CellInspector
 
 log = logging.getLogger(__name__)
 
@@ -101,9 +98,9 @@ def _resolve_visible_sheet(model: Any) -> _VisibleSheet:
 class SheetAnalyzer:
     """Analyses the structure and data of a worksheet."""
 
-    bridge: Any
+    bridge: CalcBridge
 
-    def __init__(self, bridge: Any) -> None:
+    def __init__(self, bridge: CalcBridge) -> None:
         """
         Args:
             bridge: CalcBridge instance.
@@ -123,59 +120,47 @@ class SheetAnalyzer:
             headers, and optionally chart_count, charts, annotation_count,
             has_merges, shape_count.
         """
-        try:
-            if sheet_name:
-                sheet = self.bridge.get_sheet(sheet_name)
-            else:
-                sheet = self.bridge.get_active_sheet()
+        sheet = self.bridge.sheet_or_active(sheet_name)
 
-            range_addr = used_range_address(sheet)
-            start_col = range_addr.StartColumn
-            start_row = range_addr.StartRow
-            end_col = range_addr.EndColumn
-            end_row = range_addr.EndRow
+        range_addr = used_range_address(sheet)
+        start_col = range_addr.StartColumn
+        start_row = range_addr.StartRow
+        end_col = range_addr.EndColumn
+        end_row = range_addr.EndRow
 
-            row_count = end_row - start_row + 1
-            col_count = end_col - start_col + 1
+        row_count = end_row - start_row + 1
+        col_count = end_col - start_col + 1
 
-            used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=False)
+        used_range = format_range(start_col, start_row, end_col, end_row, collapse_single=False)
 
-            header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
-            header_data = header_range.getDataArray()
+        header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
+        header_data = header_range.getDataArray()
 
-            headers: list[str | None] = []
-            for offset, val in enumerate(header_data[0] if header_data else ()):
-                if val is not None and not isinstance(val, str):
-                    # getDataArray gives raw serials; getString is the displayed text (e.g. dates).
-                    val = header_range.getCellByPosition(offset, 0).getString()
-                headers.append(_header_text(val))
+        headers: list[str | None] = []
+        for offset, val in enumerate(header_data[0] if header_data else ()):
+            if val is not None and not isinstance(val, str):
+                # getDataArray gives raw serials; getString is the displayed text (e.g. dates).
+                val = header_range.getCellByPosition(offset, 0).getString()
+            headers.append(_header_text(val))
 
-            result: dict[str, Any] = {
-                "sheet_name": sheet.getName(),
-                "used_range": used_range,
-                "row_count": row_count,
-                "col_count": col_count,
-                "headers": headers,
-            }
+        result: dict[str, Any] = {
+            "sheet_name": sheet.getName(),
+            "used_range": used_range,
+            "row_count": row_count,
+            "col_count": col_count,
+            "headers": headers,
+        }
 
-            if include_extras:
-                charts = uno_read(sheet.getCharts, None)
-                result["chart_count"] = 0 if charts is None else uno_read(charts.getCount, 0)
-                names = () if charts is None else uno_read(charts.getElementNames, ())
-                result["charts"] = list(names or [])
-                result["annotation_count"] = uno_read(lambda: sheet.getAnnotations().getCount(), 0)
-                result["has_merges"] = uno_read(lambda: sheet.getPropertyValue("HasMergedCells"), None)
-                result["shape_count"] = uno_read(lambda: sheet.DrawPage.getCount(), 0)
+        if include_extras:
+            charts = uno_read(sheet.getCharts, None)
+            result["chart_count"] = 0 if charts is None else uno_read(charts.getCount, 0)
+            names = () if charts is None else uno_read(charts.getElementNames, ())
+            result["charts"] = list(names or [])
+            result["annotation_count"] = uno_read(lambda: sheet.getAnnotations().getCount(), 0)
+            result["has_merges"] = uno_read(lambda: sheet.getPropertyValue("HasMergedCells"), None)
+            result["shape_count"] = uno_read(lambda: sheet.DrawPage.getCount(), 0)
 
-            return result
-        except Exception as e:
-            # Re-raise disposal. Wrapping DisposedException as
-            # ToolExecutionError hides it from get_calc_context_for_chat and
-            # from get_sheet_summary (execute_safe then reports
-            # TOOL_EXECUTION_ERROR).
-            if is_disposal(e):
-                raise
-            raise ToolExecutionError(str(e)) from e
+        return result
 
 
 def _internal_tab_header(active_name: str, sheet_name: str) -> str:
@@ -230,10 +215,8 @@ def get_calc_context_for_chat(
 
                         # Check for selected values if small
                         if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
-                            from plugin.calc.inspector import CellInspector
-
                             inspector = CellInspector(vs.bridge)
-                            # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
+                            # LLM-facing context: enrich dates the same way read_cell_range does.
                             cells = inspector.read_range(sel_range, include_format_info=True)
                             ctx_str += "Selection Content (CSV-like):\n"
                             for row in cells:
@@ -255,27 +238,4 @@ def get_calc_context_for_chat(
             raise DocumentDisposedError("Calc document disposed", object_type="calc") from exc
         log.exception("get_calc_context_for_chat error: %s", exc)
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
-
-
-@main_thread_only
-def get_full_calc_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS) -> str:
-    """Short active-sheet summary for ``get_full_document_text`` (not the chat excerpt).
-
-    Kept next to ``get_calc_context_for_chat`` so ``document_helpers`` can lazy-import
-    this module instead of constructing ``SheetAnalyzer`` itself. ``max_chars`` is
-    this prefix cap.
-    """
-    if model is None:
-        raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-    vs = _resolve_visible_sheet(model)
-    summary = vs.summary
-    if summary is None:
-        return truncate_chat_context("No user-visible sheets.\n", max_chars)
-    if vs.active_is_visible:
-        text = f"Sheet: {summary['sheet_name']}\n"
-    else:
-        text = _internal_tab_header(vs.active_name, summary["sheet_name"])
-    text += f"Used Range: {summary['used_range']}\n"
-    text += f"Columns: {_format_columns(summary['headers'])}\n"
-    return truncate_chat_context(text, max_chars)
 

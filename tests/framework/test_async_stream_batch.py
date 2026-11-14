@@ -405,7 +405,6 @@ def test_batcher_flush_error_still_emits_error_and_unpatches():
     assert errors
     assert any("worker boom" in str(err) for err in errors)
     assert raw._terminal_events == []
-    assert raw.put.__name__ == "put"
 
 
 def test_stop_on_first_batch_item_applies_pulled_display_text():
@@ -510,7 +509,7 @@ def test_stop_applies_flushed_batcher_text():
 
 
 def test_pump_ui_idle_unblocks_call_when_poke_noop():
-    """Regression: async tools marshal UNO while drain loop runs; poke alone must not deadlock."""
+    """Async tools marshal UNO while drain loop runs; poke alone must not deadlock."""
     from plugin.framework import queue_executor as qe
 
     toolkit = DummyToolkit()
@@ -750,7 +749,7 @@ def test_error_item_on_error_raise_is_not_called_twice():
 
 
 def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
-    """Regression: web_research-style hang when main waits in drain loop for async tool."""
+    """Main thread does not hang in drain loop while waiting for an async tool."""
     from plugin.framework import queue_executor as qe
 
     stream_q: queue.Queue = queue.Queue()

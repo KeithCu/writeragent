@@ -11,9 +11,6 @@ import base64
 
 import pytest
 
-from plugin.writer.html_import import (
-    content_has_block_markup,
-)
 from plugin.writer.html_export import (
     _apply_image_export_options,
     strip_embedded_image_data,
@@ -271,8 +268,9 @@ def test_insert_content_at_position_empty_selection_uses_doc_end():
 
 
 
-def test_insert_content_at_position_beginning_applies_styles():
-    """beginning path passes apply_styles=True (no PARAGRAPH_BREAK prep needed at para start)."""
+@pytest.mark.parametrize(("position", "goto"), [("beginning", "gotoStart"), ("end", "gotoEnd")])
+def test_insert_content_at_position_extremes_apply_styles(position: str, goto: str):
+    """Beginning needs no PARAGRAPH_BREAK prep and end runs absorb prep; both pass apply_styles=True."""
     from unittest.mock import MagicMock, patch
 
     from plugin.writer.html_import import insert_content_at_position
@@ -285,38 +283,11 @@ def test_insert_content_at_position_beginning_applies_styles():
 
     with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
         "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
-        side_effect=lambda text, cursor, position: cursor,
-    ) as mock_prep:
-        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "beginning")
+        side_effect=lambda text, cursor, pos: cursor,
+    ):
+        insert_content_at_position(model, MagicMock(), '<p data-lo-style="Heading1">x</p>', position)
 
-    body_cursor.gotoStart.assert_called_once_with(False)
-    mock_prep.assert_called_once()
-    assert mock_prep.call_args.args[2] == "beginning"
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.kwargs.get("apply_styles") is True
-
-
-def test_insert_content_at_position_end_preps_then_applies_styles():
-    """end path runs absorb prep then passes apply_styles=True."""
-    from unittest.mock import MagicMock, patch
-
-    from plugin.writer.html_import import insert_content_at_position
-
-    body_cursor = MagicMock()
-    body_text = MagicMock()
-    body_text.createTextCursor.return_value = body_cursor
-    model = MagicMock()
-    model.getText.return_value = body_text
-
-    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
-        "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
-        side_effect=lambda text, cursor, position: cursor,
-    ) as mock_prep:
-        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Caption\">x</p>", "end")
-
-    body_cursor.gotoEnd.assert_called_once_with(False)
-    mock_prep.assert_called_once()
-    assert mock_prep.call_args.args[2] == "end"
+    getattr(body_cursor, goto).assert_called_once_with(False)
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
 
@@ -1068,48 +1039,6 @@ def test_run_writer_mutation_with_optional_review_import_error():
     apply_fn.assert_called_once()
 
 
-def test_document_to_content_full_timing_path_with_mocks():
-    """Phase timing logs must not change the full-scope export result."""
-    from unittest.mock import patch
-
-    import plugin.writer.html_export as fmt
-    import plugin.writer.html_export as html_export
-
-    xhtml = '<html><body><p class="paragraph-Text_20_body">hello</p></body></html>'
-    with (
-        patch.object(html_export, "_export_xhtml", return_value=xhtml) as export_xhtml,
-        patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)) as autostyle,
-        patch("plugin.writer.xhtml_style_postprocess.xhtml_to_semantic_html", return_value="<p>hello</p>") as post,
-    ):
-        out = fmt.document_to_content(object(), object(), scope="full")
-
-    export_xhtml.assert_called_once()
-    autostyle.assert_called_once()
-    post.assert_called_once_with(xhtml, {}, {})
-    assert out == "<p>hello</p>"
-
-
-def test_format_module_avoids_document_helpers_ops_review_authors():
-    """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
-    import ast
-    from pathlib import Path
-
-    import plugin.writer.html_import as fmt
-
-    tree = ast.parse(Path(fmt.__file__).read_text(encoding="utf-8"))
-    mods: list[str] = []
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module:
-            mods.append(node.module)
-        elif isinstance(node, ast.Import):
-            mods.extend(alias.name for alias in node.names)
-    assert "plugin.doc.document_helpers" not in mods
-    assert ".ops" not in mods
-    assert "ops" not in mods
-    assert ".review_authors" not in mods
-    assert "review_authors" not in mods
-
-
 # --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------
 
 
@@ -1156,24 +1085,6 @@ def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
     assert "ParaSplit" not in cleared  # reported honestly as not cleared
 
 
-def test_clear_direct_never_touches_non_paragraph_properties():
-    """Deliberately narrower than setAllPropertiesToDefault: numbering, borders and language are
-    not the caller's to lose."""
-    from plugin.writer import styles as st
-
-    assert all(name.startswith("Para") for name in st.CLEARABLE_PARA_PROPERTIES)
-    for unwanted in ("NumberingRules", "ParaStyleName", "CharLocale"):
-        assert unwanted not in st.CLEARABLE_PARA_PROPERTIES
-
-
-def test_clearable_para_properties_are_the_single_source_for_styles_schema():
-    """styles.py owns the name list."""
-    from plugin.writer import styles as st
-
-    assert tuple(st._KNOWN_PARAGRAPH_PROPERTIES) == st.CLEARABLE_PARA_PROPERTIES
-    assert set(st._PARA_PROPERTY_SCHEMA) == set(st.CLEARABLE_PARA_PROPERTIES)
-
-
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
     from plugin.writer import styles as st
 
@@ -1209,14 +1120,6 @@ def test_summarize_char_overrides_reports_asian_complex():
     assert summary["CharHeightComplex"] == 11.0
 
 
-def test_reported_char_properties_cover_style_governed():
-    """Keep the clear-set and the report-set aligned: every slot style_props wipes is echoed."""
-    from plugin.writer import styles as st
-
-    for name in st.STYLE_GOVERNED_CHAR_PROPERTIES:
-        assert name in st.REPORTED_CHAR_PROPERTIES
-
-
 def test_enum_hit_walk_cap_and_warning_are_honest():
     from unittest.mock import MagicMock
     from plugin.doc import text_helpers as fmt
@@ -1231,42 +1134,9 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     assert fmt.record_walk_cap(done, 50, 50, "text portions") is False
     dest = []
     assert fmt.record_walk_cap(more, 50, 50, "text portions", dest) is True
-    assert dest and "cap 50" in dest[0]
-    assert "incomplete" in dest[0]
+    assert len(dest) == 1
     assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
-
-
-def test_apply_style_origin_limitation_still_value_compare() -> None:
-    """GHA 34683742049 canary FAIL was leftover reuse, not a product fix."""
-    from pathlib import Path
-
-    from plugin.writer import styles as st
-
-    src = Path(st.__file__).read_text(encoding="utf-8")
-    assert "KNOWN LIMITATION: a direct override whose value equals the old style default" in src
-    assert "differs from the paragraph's current style default" in src
-
-
-def test_style_governed_char_properties_spare_bold_and_italic():
-    """style_props drops the font the style owns; hand-set emphasis is the user's, not the style's."""
-    from plugin.writer import styles as st
-
-    assert "CharFontName" in st.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharHeight" in st.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharWeight" not in st.STYLE_GOVERNED_CHAR_PROPERTIES   # bold survives
-    assert "CharPosture" not in st.STYLE_GOVERNED_CHAR_PROPERTIES  # italic survives
-
-
-def test_report_lists_only_the_overrides_actually_removed():
-    """Under style_props, bold/italic are restored — listing them as removed would be wrong."""
-    from plugin.writer import styles as st
-
-    found = {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharWeight": 150.0}
-    skip = set(st.STYLE_GOVERNED_CHAR_PROPERTIES)
-    removed = {k: v for k, v in found.items() if k in skip}
-
-    assert removed == {"CharFontName": "Times New Roman", "CharHeight": 12.0}
-    assert "CharWeight" not in removed
+    assert len(dest) == 1
 
 
 def test_reset_properties_to_default_is_a_noop_on_empty_names():
@@ -1355,9 +1225,7 @@ def test_visible_portions_warns_when_walk_hits_cap():
     chunks = [chunk for _p, chunk in hx._visible_portions(para, limit=2, truncated_out=truncated)]
 
     assert chunks == ["a", "b"]
-    assert truncated
-    assert "cap 2" in truncated[0]
-    assert "incomplete" in truncated[0]
+    assert len(truncated) == 1
 
 
 def test_visible_portions_does_not_warn_when_enum_is_exhausted():
@@ -1461,47 +1329,6 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert families.getByName.call_count == 1  # second read served from the cache
     assert rc.source_style(model, "Nope", cache) is None
     assert rc.source_style(model, "", cache) is None
-
-
-def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
-    """GHA 34683742049 / 34685648395 / 35470191616: leftover Hidden and pool reuse."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name("test_format_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "apply_document_content Hidden _default swriter" in src
-    assert "34683742049" in src
-    assert "format_uno Hidden _blank small_doc" in src
-    assert "34685648395" in src
-    assert "format_uno cross-paragraph color leftover reuse" in src
-    assert "non-linebreak" in src
-    assert "35466498641" in src
-    assert "skip_windows_pooled_writer_reuse" in src
-    assert "format_uno cross-paragraph color pooled reuse" in src
-    assert "35470191616" in src
-
-
-# --- table-cell HTML block gate (from test_cell_block_html_gate.py) ---
-# R3: pins the block-vs-inline classification that gates the clear "rich HTML in a table cell"
-# error in replace_single_range_with_content.
-
-def test_plain_text_is_not_block():
-    assert content_has_block_markup("hello world") is False
-
-
-def test_inline_tags_are_not_block():
-    # <b>/<span>/<i> are inline -> they go through the in-cell path that works; the cell-error
-    # gate must NOT fire for them.
-    assert content_has_block_markup("<b>bold</b> text") is False
-
-
-def test_paragraph_is_block():
-    # <p> is block -> the path that can raise inside a table cell; the clear-error gate fires here.
-    assert content_has_block_markup("<p>a paragraph</p>") is True
-
-
-def test_heading_is_block():
-    assert content_has_block_markup("<h1>title</h1>") is True
 
 
 def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():

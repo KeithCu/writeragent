@@ -12,87 +12,7 @@ from typing import Any
 
 import pytest
 
-from plugin.scripting.helper_registry import bound, get_spec, names, specs
-
-
-def test_helper_registry_domains_match_expected_names():
-    expected_analysis = {
-        "describe_data",
-        "kpi_summary",
-        "detect_outliers",
-        "quick_stats",
-        "format_currency",
-        "format_percent",
-        "clean_and_prepare",
-        "pivot_aggregate",
-        "group_summary",
-        "compare_periods",
-        "correlation_matrix",
-        "run_regression",
-        "cluster_numeric",
-        "monte_carlo",
-    }
-    assert names("analysis") == expected_analysis
-    assert len(specs("analysis")) == 14
-
-    expected_forecast = {
-        "forecast_time_series",
-        "decompose_time_series",
-        "anomaly_detection_time_series",
-    }
-    assert names("forecast") == expected_forecast
-
-    expected_optimize = {
-        "optimize_portfolio",
-        "linear_programming",
-        "solve_scheduling_problem",
-    }
-    assert names("optimize") == expected_optimize
-
-    expected_quant = {
-        "fetch_historical_data",
-        "technical_analysis",
-        "portfolio_tearsheet",
-        "efficient_frontier",
-    }
-    assert names("quant") == expected_quant
-
-    expected_viz = {
-        "quick_plot",
-        "plot_data",
-        "correlation_heatmap",
-        "time_series_plot",
-    }
-    assert names("viz") == expected_viz
-
-    expected_symbolic = {
-        "solve_equation",
-        "symbolic_simplify",
-        "integrate",
-        "differentiate",
-        "latex_to_math_object",
-    }
-    assert names("symbolic") == expected_symbolic
-
-    expected_units = {
-        "convert_quantity",
-        "parse_quantity",
-        "format_quantity",
-        "check_dimensionality",
-    }
-    assert names("units") == expected_units
-
-    expected_text = {
-        "full",
-        "readability",
-        "entities",
-        "key_phrases",
-        "topics",
-        "sentiment",
-        "diagnostics",
-        "check",
-    }
-    assert names("text") == expected_text
+from plugin.scripting.helper_registry import bound, get_spec, is_text_diagnostics, names
 
 
 def test_helper_registry_ast_has_no_heavy_imports():
@@ -115,6 +35,7 @@ def test_importing_venv_modules_binds_callables():
     pytest.importorskip("pandas")
     pytest.importorskip("numpy")
 
+    # importing the venv module registers its helpers; run_domain needs them when this test runs alone
     import plugin.scripting.venv.analysis  # noqa: F401
     import plugin.scripting.venv.forecast  # noqa: F401
     import plugin.scripting.venv.optimize  # noqa: F401
@@ -133,6 +54,8 @@ def test_importing_venv_modules_binds_callables():
 
 def test_analysis_describe_data_none_and_extra_param():
     pytest.importorskip("pandas")
+    # importing the venv module registers its helpers; run_domain needs them when this test runs alone
+    import plugin.scripting.venv.analysis  # noqa: F401
     from plugin.scripting.venv.trusted_dispatch import run_domain
 
     data = [["A", "B"], [1, 2], [3, 4], [5, 6]]
@@ -166,10 +89,17 @@ def test_optimize_extra_param_returns_invalid_param():
     assert res["code"] == "INVALID_PARAM"
 
 
-def test_viz_plot_data_keeps_unknown_key_inside_spec():
-    pytest.importorskip("matplotlib")
-    pytest.importorskip("pandas")
+def test_viz_plot_data_keeps_unknown_key_inside_spec(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    captured: dict[str, Any] = {}
+
+    def fake_plot(data: Any, spec: dict[str, Any] | None = None, **_kw: Any) -> dict[str, Any]:
+        captured["spec"] = spec
+        return {"status": "ok", "helper": "plot_data"}
+
+    monkeypatch.setitem(helper_registry._BOUND, ("viz", "plot_data"), fake_plot)
 
     data = [["x", "y"], [1, 2], [3, 4]]
     spec = {
@@ -184,6 +114,7 @@ def test_viz_plot_data_keeps_unknown_key_inside_spec():
     res = run_domain("viz", spec, data)
     assert res["status"] == "ok", res
     assert res["helper"] == "plot_data"
+    assert captured["spec"]["custom_chart_option"] == "retained"
 
 
 def test_quant_extra_param_is_not_error(monkeypatch):
@@ -212,9 +143,19 @@ def test_quant_extra_param_is_not_error(monkeypatch):
     assert "extra_ignored_key" not in captured
 
 
-def test_symbolic_explicit_none_variable_uses_default():
-    pytest.importorskip("sympy")
+def test_symbolic_explicit_none_variable_uses_default(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    unset = object()
+    captured: dict[str, Any] = {}
+
+    def fake_solve(equation: str = "", variable: Any = unset) -> dict[str, Any]:
+        captured["equation"] = equation
+        captured["variable"] = variable
+        return {"status": "ok", "helper": "solve_equation"}
+
+    monkeypatch.setitem(helper_registry._BOUND, ("symbolic", "solve_equation"), fake_solve)
 
     spec = {
         "helper": "solve_equation",
@@ -226,11 +167,21 @@ def test_symbolic_explicit_none_variable_uses_default():
     res = run_domain("symbolic", spec, None)
     assert res["status"] == "ok", res
     assert res["helper"] == "solve_equation"
+    assert captured["variable"] is unset
 
 
-def test_units_output_style_popped():
+def test_units_output_style_popped(monkeypatch: pytest.MonkeyPatch):
     pytest.importorskip("pint")
+    from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    captured: dict[str, Any] = {}
+
+    def fake_convert(params: dict[str, Any]) -> dict[str, Any]:
+        captured.update(params)
+        return {"status": "ok", "helper": "convert_quantity"}
+
+    monkeypatch.setitem(helper_registry._BOUND, ("units", "convert_quantity"), fake_convert)
 
     spec = {
         "helper": "convert_quantity",
@@ -244,18 +195,96 @@ def test_units_output_style_popped():
     res = run_domain("units", spec, None)
     assert res["status"] == "ok", res
     assert res["helper"] == "convert_quantity"
+    assert "output_style" not in captured
+    assert captured["value"] == 100
 
 
-def test_text_ner_alias_works_and_not_in_names():
-    assert "ner" not in names("text")
+def test_text_dispatch_reaches_one_branch_per_registry_name(monkeypatch: pytest.MonkeyPatch):
+    """Agreement check between helper_registry text rows and child execution.
+
+    Text helpers are dispatched through an if-ladder rather than bound directly.
+    We mock the heavy NLP models to verify each registry helper reaches its dedicated branch.
+    """
+    from plugin.scripting.venv import text_analytics
     from plugin.scripting.venv.trusted_dispatch import run_domain
 
-    spec = {"helper": "ner", "params": {}}
-    try:
-        res = run_domain("text", spec, "Keith Curtis lives in Seattle.")
-    except RuntimeError as exc:
-        assert "spaCy" in str(exc) or "spacy" in str(exc)
-        return
-    except ImportError:
-        return
-    assert res.get("helper") == "entities" or res.get("code") in ("MISSING_PACKAGE", "SPACY_NOT_INSTALLED", "SPACY_MODEL_MISSING", "TEXT_ANALYTICS_ERROR")
+    monkeypatch.setattr(text_analytics, "check_diagnostics", lambda lang=None: {"stub": "diag"})
+    monkeypatch.setattr(text_analytics, "analyze_text", lambda text, lang=None, context=None: {"status": "ok", "stub": "full"})
+    monkeypatch.setattr(
+        text_analytics,
+        "_nlp_result",
+        lambda text, lang, context, extract: {"status": "ok", "result": extract(None)},
+    )
+    monkeypatch.setattr(text_analytics, "_extract_readability", lambda doc: ({"r": 1}, {}))
+    monkeypatch.setattr(text_analytics, "_extract_entities", lambda doc: [])
+    monkeypatch.setattr(text_analytics, "_extract_key_phrases", lambda doc: [])
+    monkeypatch.setattr(text_analytics, "_extract_topics", lambda text, n_topics=4: {"topics": []})
+    monkeypatch.setattr(text_analytics, "_extract_sentiment", lambda text, params=None: {"overall": {}})
+
+    expected = {
+        "full": lambda res: res.get("stub") == "full",
+        "readability": lambda res: "readability" in res.get("result", {}),
+        "entities": lambda res: "entities" in res.get("result", {}),
+        "key_phrases": lambda res: "key_phrases" in res.get("result", {}),
+        "topics": lambda res: "topics" in res.get("result", {}),
+        "sentiment": lambda res: "sentiment" in res.get("result", {}),
+        "diagnostics": lambda res: res.get("result") == {"stub": "diag"},
+        "check": lambda res: res.get("result") == {"stub": "diag"},
+    }
+
+    assert set(expected) == names("text")
+    for name, predicate in expected.items():
+        res = run_domain("text", name, "Some text.")
+        assert res.get("status") == "ok", f"{name}: {res}"
+        assert predicate(res), f"{name} predicate failed on {res}"
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "analyze",
+        "all",
+        "stats",
+        "descriptive",
+        "ner",
+        "keyphrases",
+        "chunks",
+        "topic",
+        "topic_model",
+        "polarity",
+    ],
+)
+def test_text_dropped_aliases_are_unknown_helper(alias: str):
+    """Only names registered in helper_registry are valid text analytics helpers."""
+    from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    res = run_domain("text", alias, "Keith lives in Seattle.")
+    assert res == {
+        "status": "error",
+        "code": "UNKNOWN_HELPER",
+        "helper": alias,
+        "message": f"Unknown text analytics helper '{alias}'",
+    }
+
+
+def test_text_unknown_helper_with_empty_text_is_unknown_helper():
+    """Helper validation runs before text length checks, returning UNKNOWN_HELPER even with empty text."""
+    from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    res = run_domain("text", "bogus", "")
+    assert res == {
+        "status": "error",
+        "code": "UNKNOWN_HELPER",
+        "helper": "bogus",
+        "message": "Unknown text analytics helper 'bogus'",
+    }
+
+
+def test_is_text_diagnostics():
+    """Verify is_text_diagnostics recognizes diagnostics and check helpers, tolerating non-string values."""
+    assert is_text_diagnostics("diagnostics") is True
+    assert is_text_diagnostics("check") is True
+    assert is_text_diagnostics("full") is False
+    assert is_text_diagnostics("") is False
+    assert is_text_diagnostics(None) is False
+    assert is_text_diagnostics(["check"]) is False

@@ -226,7 +226,6 @@ def test_stream_done_no_text_includes_debug_sidebar():
     assert "finish_reason='stop'" in debug_line
     assert "round=2" in debug_line
     assert "completion_tokens" in debug_line
-    assert format_empty_model_response_debug(2, response) == debug_line
     msg = next(e for e in effects if isinstance(e, AddMessageEffect))
     assert msg.round_num == 2
     assert msg.response == response
@@ -453,15 +452,6 @@ def test_truncate_delegate_task_past_source_cap_truncates():
     preview = _truncate_delegate_task("A" * (DEAL_MAX_SOURCE + 1))
     assert preview.endswith("...")
     assert len(preview) == DELEGATE_TASK_CHAT_MAX
-
-
-def test_truncate_delegate_task_no_deal_scaffolding():
-    """Verify tool_loop_state no longer carries _deal_cap or _deal_truncate_task_ok shims."""
-    from plugin.chatbot import tool_loop_state as tls
-
-    assert not hasattr(tls, "_deal_cap")
-    assert not hasattr(tls, "_DEAL_TRUNCATE_TASK_LEN")
-    assert not hasattr(tls, "_deal_truncate_task_ok")
 
 
 def test_next_tool_delegate_gateway_shows_domain_and_task():
@@ -842,18 +832,6 @@ def test_is_replaced_zero_result():
     assert is_replaced_zero_result({"replaced_count": False}) is False
 
 
-def test_tool_loop_event_default_data_is_not_shared():
-    # typing.NamedTuple rejects a custom __new__, so the omitted value is None
-    # rather than one shared dict. A caller-supplied dict stays that object.
-    first = ToolLoopEvent(kind=EventKind.NEXT_TOOL)
-    second = ToolLoopEvent(kind=EventKind.NEXT_TOOL)
-    assert first.data is None
-    assert second.data is None
-    payload = {"k": 1}
-    held = ToolLoopEvent(kind=EventKind.NEXT_TOOL, data=payload)
-    assert held.data is payload
-
-
 def test_format_empty_model_response_debug_non_list_tool_calls():
     for raw in ({"id": "x"}, "not-a-list", "oops"):
         note = format_empty_model_response_debug(0, {"tool_calls": raw, "content": None})
@@ -888,26 +866,6 @@ def test_format_tool_result_chat_text_null_message_uses_fallback():
         {"status": "error", "message": None},
     )
     assert delegate == "[delegate (styles) failed: Unknown error]\n"
-
-
-def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
-    """Ensure format_empty_model_response_debug and format_delegate_running_chat_line stay out of cover_fqns_for_module."""
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    # Dropped from check-all (require_deal=True) because @deal was removed:
-    check_fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=True)
-    assert not any(f.endswith(".format_empty_model_response_debug") for f in check_fqns)
-    assert not any(f.endswith(".format_delegate_running_chat_line") for f in check_fqns)
-
-    # Dropped from cover-all (require_deal=False) because # crosshair: off is retained:
-    cover_fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=False)
-    assert not any(f.endswith(".format_empty_model_response_debug") for f in cover_fqns)
-    assert not any(f.endswith(".format_delegate_running_chat_line") for f in cover_fqns)
 
 
 def test_describe_empty_response_tool_calls_handles_all_shapes() -> None:

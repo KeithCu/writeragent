@@ -12,16 +12,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.chatbot.brainstorming import BrainstormingSessionTool
-from plugin.chatbot.deep_research_session import DeepResearchSessionTool
-from plugin.chatbot.librarian import LibrarianOnboardingTool
-from plugin.chatbot.ppt_master import PptMasterSessionTool
 from plugin.chatbot.sub_agent_tools import (
     SubAgentSessionToolBase,
     collect_sub_agent_tools,
     get_sub_agent_instructions,
 )
-from plugin.chatbot.writing import WritingPlanSessionTool
 from plugin.framework.errors import (
     DocumentDisposedError,
     WriterAgentException,
@@ -62,7 +57,7 @@ class TestRunSubagentTool:
         assert "Traceback" not in message
         assert "RuntimeError" not in message
         assert result.get("details") == {"query": "Brainstorm ideas"}
-        assert any(r.exc_info is not None and "Brainstorming execution failed" in r.message for r in caplog.records)
+        assert any(r.exc_info is not None for r in caplog.records)
 
     def test_run_subagent_tool_with_no_query_in_kwargs(self):
         ctx = MagicMock()
@@ -238,50 +233,31 @@ class TestSubagentCollector:
         assert "list_nearby_files" not in names
 
 
-class TestSessionToolMetadata:
-    @pytest.mark.parametrize(
-        "tool_cls",
-        [
-            BrainstormingSessionTool,
-            WritingPlanSessionTool,
-            DeepResearchSessionTool,
-            PptMasterSessionTool,
-            LibrarianOnboardingTool,
-        ],
-    )
-    def test_session_tool_metadata_and_execute(self, tool_cls):
-        tool = tool_cls()
-        assert tool.is_async() is True
-        assert tool.is_mutation is False
-        assert isinstance(tool, SubAgentSessionToolBase)
-
-        ctx = MagicMock()
-        mock_runner = MagicMock(return_value={"status": "ok"})
-        tool.runner = mock_runner
-        res = tool.execute(ctx, query="test query")
-        assert res == {"status": "ok"}
-        mock_runner.assert_called_once_with(ctx, query="test query")
-
-
 class TestPromptToolMatching:
     def test_sub_agent_instructions_prompt_tool_matching(self):
-        # Brainstorming: save_design_spec only -> content rules present, target search rules absent
+        from plugin.framework.prompts import (
+            APPLY_DOCUMENT_TARGET_RULES,
+            SUB_AGENT_HTML_CONTENT_RULES,
+        )
+
+        html_rules = SUB_AGENT_HTML_CONTENT_RULES.strip()
+        target_rules = APPLY_DOCUMENT_TARGET_RULES.strip()
+
+        # Brainstorming / writing_plan: content rules present, target='search' rules absent
         b_instr = get_sub_agent_instructions("BASE", tool_names=["save_design_spec"])
-        assert "`content` is a JSON array of HTML strings" in b_instr
-        assert "target='search'" not in b_instr
+        assert html_rules in b_instr
+        assert target_rules not in b_instr
 
-        # Writing plan: write_document_section only -> content rules present, target search rules absent
         w_instr = get_sub_agent_instructions("BASE", tool_names=["write_document_section"])
-        assert "`content` is a JSON array of HTML strings" in w_instr
-        assert "target='search'" not in w_instr
+        assert html_rules in w_instr
+        assert target_rules not in w_instr
 
-        # Deep research with apply_document_content -> both present
+        # Deep research with apply_document_content: both present
         d_instr = get_sub_agent_instructions("BASE", tool_names=["apply_document_content"])
-        assert "`content` is a JSON array of HTML strings" in d_instr
-        assert "APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):" in d_instr
-        assert "target='search'" in d_instr
+        assert html_rules in d_instr
+        assert target_rules in d_instr
 
-        # No HTML tools -> neither content nor target rules
+        # No HTML tools: neither present
         plain_instr = get_sub_agent_instructions("BASE", tool_names=["other_tool"])
-        assert "`content` is a JSON array of HTML strings" not in plain_instr
-        assert "target='search'" not in plain_instr
+        assert html_rules not in plain_instr
+        assert target_rules not in plain_instr

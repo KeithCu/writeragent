@@ -9,12 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
-
-
-def _skip_windows_leftover_hidden_mathml() -> None:
-    """GHA 34678020608: leftover Hidden ``_blank`` ``.mml`` / ``smath`` hang."""
-    skip_windows_leftover_hidden_load("math export Hidden _blank smath")
+from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.math.math_mml_convert import (
     MATH_CLSID,
     convert_latex_to_starmath,
@@ -31,7 +26,6 @@ from plugin.writer.math.math_mml_export import (
 @native_test
 @with_native_doc("writer")
 def test_portion_math_embed_finds_as_character_formula_uno(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     from plugin.doc.text_helpers import iter_elements
 
     text = doc.getText()
@@ -64,11 +58,9 @@ def test_portion_math_embed_finds_as_character_formula_uno(ctx: Any, doc: Any) -
 @native_test
 @with_native_doc("writer")
 def test_starmath_to_latex_reimports(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     res = convert_starmath_to_latex(ctx, "{a} over {b}")
     assert res.ok, res.error_message
-    assert res.latex
-    assert "frac" in res.latex.lower() or "over" in res.latex.lower() or "/" in res.latex
+    assert res.latex == r"\frac{a}{b}", res.latex
     back = convert_latex_to_starmath(ctx, res.latex)
     assert back.ok, back.error_message
     assert back.starmath
@@ -77,7 +69,6 @@ def test_starmath_to_latex_reimports(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_iter_inline_and_display_math(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     text = doc.getText()
     cur = text.createTextCursor()
     cur.gotoEnd(False)
@@ -99,7 +90,6 @@ def test_iter_inline_and_display_math(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_document_to_content_includes_tex(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     from plugin.writer.html_export import document_to_content
 
     text = doc.getText()
@@ -116,7 +106,7 @@ def test_document_to_content_includes_tex(ctx: Any, doc: Any) -> None:
     html = document_to_content(doc, ctx, scope="full")
     assert html
     assert "<math" not in html.lower()
-    assert "frac" in html.lower() or "1" in html
+    assert r"$\frac{1}{2}$" in html, html
     assert html.count("$") == 6
     assert "$$x$$" in html
 
@@ -125,7 +115,6 @@ def test_document_to_content_includes_tex(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_body_table_and_header_math_order_uno(ctx: Any, doc: Any) -> None:
     """Document order: body formula, table cell formula, body formula. Header math must not shift body TeX."""
-    _skip_windows_leftover_hidden_mathml()
     from plugin.writer.html_export import document_to_content
 
     # Header formula

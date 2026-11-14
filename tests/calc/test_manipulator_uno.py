@@ -71,10 +71,16 @@ def test_manipulator_insert_structure_and_unmerge(ctx, doc):
 
     bridge = CalcBridge(doc)
     manipulator = CellManipulator(bridge)
-    manipulator.insert_structure("rows", 1, count=1)
     sheet = bridge.get_active_sheet()
-    sheet.getCellRangeByPosition(0, 0, 1, 0).merge(True)
+    sheet.getCellByPosition(0, 0).setString("shifted")
+    manipulator.insert_structure("rows", 1, count=1)
+    assert sheet.getCellByPosition(0, 0).getString() == ""
+    assert sheet.getCellByPosition(0, 1).getString() == "shifted"
+    merged_range = sheet.getCellRangeByPosition(0, 0, 1, 0)
+    merged_range.merge(True)
+    assert merged_range.getIsMerged() is True
     manipulator.merge_cells("A1:B1", center=False, unmerge=True)
+    assert merged_range.getIsMerged() is False
 
 
 @native_test
@@ -128,3 +134,47 @@ def test_range_sort_reorders_visible_rows(ctx, doc):
     col_a_after = [row[0] for row in sheet.getCellRangeByName("A1:A6").getDataArray()]
     assert col_a_after == ["Region", "East", "West", "South", "Mid", "North"]
 
+
+@native_test
+@with_native_doc("calc")
+def test_set_style_v_align_and_merge_center_vertical_justify_uno(ctx, doc):
+    from com.sun.star.table.CellHoriJustify import CENTER
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    for addr, v_align, expected in (("A1", "top", 1), ("A2", "center", 2), ("A3", "bottom", 3)):
+        res = _execute_calc_tool(doc, ctx, "set_style", {"range": [addr], "v_align": v_align})
+        assert res.get("status") == "ok", f"set_style failed for {v_align}: {res}"
+        row = int(addr[1:]) - 1
+        assert sheet.getCellByPosition(0, row).getPropertyValue("VertJustify") == expected
+
+    res_merge = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["C1:D2"]})
+    assert res_merge.get("status") == "ok", f"merge_cells failed: {res_merge}"
+    c1 = sheet.getCellByPosition(2, 0)
+    assert c1.getPropertyValue("VertJustify") == 2
+    assert c1.getPropertyValue("HoriJustify") == CENTER
+
+
+@native_test
+@with_native_doc("calc")
+def test_refuse_occupied_cells_uno(ctx, doc):
+    from plugin.calc.manipulator import refuse_occupied_cells
+    from plugin.framework.errors import CalcError
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    sheet.getCellByPosition(0, 0).setValue(0)
+    sheet.getCellByPosition(1, 0).setFormula('=""')
+    sheet.getCellByPosition(2, 0).setString("text")
+
+    annotations = sheet.getAnnotations()
+    annotations.insertNew(sheet.getCellByPosition(3, 0).getCellAddress(), "note")
+    sheet.getCellByPosition(4, 0).setPropertyValue("CellBackColor", 0xFFFF00)
+
+    try:
+        refuse_occupied_cells(sheet, 0, 0, 4, 0)
+        raise AssertionError("occupied range should raise CalcError")
+    except CalcError as e:
+        msg = str(e)
+        assert "3 cell(s)" in msg, msg
+        assert "(first: A1)" in msg, msg
+
+    refuse_occupied_cells(sheet, 3, 0, 4, 0)

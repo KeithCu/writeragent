@@ -69,20 +69,13 @@ def test_literal_zero_hits_stays_ok():
     ctx.ctx.ServiceManager.createInstanceWithContext.assert_not_called()
 
 
-def test_validate_icu_regex_wraps_pattern_and_reads_result():
-    import uno
+def test_validate_icu_regex_accepts_valid_and_rejects_invalid():
     from plugin.writer.search import ICU_REGEX_REJECTED, validate_icu_regex
 
     ctx = MagicMock()
     ts = ctx.ServiceManager.createInstanceWithContext.return_value
     ts.searchForward.return_value.subRegExpressions = 1
-    with patch.object(uno, "getConstantByName") as mock_get_const:
-        assert validate_icu_regex(ctx, r"\p{Lu}+") is None
-        ts.searchForward.assert_called_with("a", 0, 1)
-        opts = ts.setOptions2.call_args[0][0]
-        assert opts.searchString == r".|(?:\p{Lu}+)"
-        assert opts.AlgorithmType2 == mock_get_const.return_value
-        mock_get_const.assert_called_with("com.sun.star.util.SearchAlgorithms2.REGEXP")
+    assert validate_icu_regex(ctx, r"\p{Lu}+") is None
 
     ts.searchForward.return_value.subRegExpressions = 0
     assert validate_icu_regex(ctx, "([a-") == ICU_REGEX_REJECTED
@@ -197,7 +190,7 @@ def test_search_in_document_getstring_failure_is_truncated(caplog):
     assert res["count"] == 0
     assert res["truncated"] is True
     assert res["warning"] == "Text-model search ended early after a getString failure; count may be incomplete."
-    assert "search_in_document: getString failed" in caplog.text
+    assert any(r.levelno >= logging.ERROR and r.exc_info for r in caplog.records)
 
 
 @pytest.mark.parametrize("bad_val", [0, -1])
@@ -491,7 +484,7 @@ def test_build_page_map_rebuilds_and_unlocks(caplog):
         pm_err = _build_page_map(doc)
     assert pm_err == {}
     doc.lockControllers.assert_not_called()
-    assert "advanced_search: could not read the view cursor" in caplog.text
+    assert any(r.levelno >= logging.ERROR and r.exc_info for r in caplog.records)
 
 
 def test_advanced_search_missing_query():

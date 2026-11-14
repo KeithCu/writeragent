@@ -1,16 +1,17 @@
 """Unit tests for SheetAnalyzer helpers, including Calc chat context."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from plugin.calc.analyzer import SheetAnalyzer, _header_text, get_calc_context_for_chat, get_full_calc_text
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+from plugin.calc.analyzer import SheetAnalyzer, _header_text, get_calc_context_for_chat
+from plugin.framework.errors import DocumentDisposedError
 
 
 def test_get_sheet_summary_used_range_letters():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -31,35 +32,32 @@ def test_get_sheet_summary_reraises_disposed():
         pass
 
     bridge = MagicMock()
-    bridge.get_active_sheet.side_effect = DisposedException("Binary URP bridge disposed during call")
+    bridge.sheet_or_active.side_effect = DisposedException("Binary URP bridge disposed during call")
     with pytest.raises(DisposedException, match="URP"):
         SheetAnalyzer(bridge).get_sheet_summary()
 
 
-def test_get_sheet_summary_wraps_other_errors():
-    bridge = MagicMock()
-    bridge.get_active_sheet.side_effect = ValueError("bad sheet")
-    with pytest.raises(ToolExecutionError, match="bad sheet"):
-        SheetAnalyzer(bridge).get_sheet_summary()
+def test_get_sheet_summary_missing_sheet_is_uno_object_error():
+    from plugin.app import get_tools
+
+    doc = MagicMock()
+    sheets = doc.getSheets.return_value
+    sheets.hasByName.side_effect = lambda name: name in ("Sheet1", "Data")
+    sheets.getElementNames.return_value = ("Sheet1", "Data")
+
+    tool = get_tools().get("get_sheet_summary")
+    assert tool is not None
+    res = tool.execute_safe(SimpleNamespace(doc=doc), sheet="Nope")
+
+    assert res["status"] == "error"
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert "Available: Sheet1, Data" in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
 
 
 def test_get_calc_context_for_chat_requires_ctx():
     with pytest.raises(ValueError, match="ctx is required"):
         get_calc_context_for_chat(object())
-
-
-def test_get_full_calc_text_uses_sheet_summary():
-    summary = {"sheet_name": "Sheet1", "used_range": "A1:C3", "headers": ["Name", None, "Amt"]}
-    analyzer = MagicMock()
-    analyzer.get_sheet_summary.return_value = summary
-    with (
-        patch("plugin.calc.analyzer.CalcBridge", return_value=MagicMock()),
-        patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-    ):
-        text = get_full_calc_text(MagicMock(), max_chars=100)
-    assert "Sheet: Sheet1" in text
-    assert "Used Range: A1:C3" in text
-    assert "Columns: Name, Amt" in text
 
 
 def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
@@ -93,30 +91,6 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     assert "Active Sheet: Sheet1" in text
 
 
-def test_get_full_calc_text_names_internal_active_tab():
-    visible = {"sheet_name": "Sales", "used_range": "A1:C3", "headers": ["A", "B", "C"]}
-    analyzer = MagicMock()
-    analyzer.get_sheet_summary.return_value = visible
-    model = MagicMock()
-    model.getSheets.return_value.getElementNames.return_value = (
-        "__Anonymous_Sheet_DB__0",
-        "Sales",
-    )
-    bridge = MagicMock()
-    bridge.get_active_sheet.return_value.getName.return_value = "__Anonymous_Sheet_DB__0"
-    with (
-        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
-        patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-    ):
-        text = get_full_calc_text(model, max_chars=500)
-    assert "Sheet: Sales" in text
-    assert "Active Tab: __Anonymous_Sheet_DB__0 (internal; not summarized)" in text
-    assert "Inspected Sheet: Sales" in text
-    assert 'Pass sheet="Sales"' in text
-    assert "Active Sheet: Sales" not in text
-    analyzer.get_sheet_summary.assert_called_once_with(sheet_name="Sales", include_extras=False)
-
-
 def test_get_calc_context_for_chat_disposed():
     model = MagicMock()
     with patch("plugin.calc.analyzer.SheetAnalyzer.get_sheet_summary", side_effect=DocumentDisposedError("stale")):
@@ -136,7 +110,7 @@ def test_header_text_normalization():
 
 def test_get_sheet_summary_header_normalization():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=4, EndRow=1)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -163,7 +137,7 @@ def test_get_sheet_summary_header_normalization():
 
 def test_get_sheet_summary_header_uses_display_string_for_formatted_dates():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=2, EndRow=1)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -245,23 +219,6 @@ def test_get_calc_context_for_chat_truncation():
         assert out_bool == "\n\n[... document truncated ...]"
 
 
-def test_get_full_calc_text_truncation():
-    summary = {"sheet_name": "Sheet1", "used_range": "A1:C3", "headers": ["Name", None, "Amt"]}
-    analyzer = MagicMock()
-    analyzer.get_sheet_summary.return_value = summary
-    bridge = MagicMock()
-    bridge.get_active_sheet.return_value.getName.return_value = "Sheet1"
-    model = MagicMock()
-    model.getSheets.return_value.getElementNames.return_value = ("Sheet1",)
-    with (
-        patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
-        patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-    ):
-        out = get_full_calc_text(model, max_chars=20)
-    assert out.endswith("\n\n[... document truncated ...]")
-    assert len(out) == 20 + len("\n\n[... document truncated ...]")
-
-
 def test_get_calc_context_for_chat_long_selection_truncation():
     summary = {
         "sheet_name": "Sheet1",
@@ -290,7 +247,7 @@ def test_get_calc_context_for_chat_long_selection_truncation():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.inspector.CellInspector", return_value=inspector),
+        patch("plugin.calc.analyzer.CellInspector", return_value=inspector),
     ):
         out = get_calc_context_for_chat(model, max_context=150, ctx=object())
     assert out.endswith("\n\n[... document truncated ...]")
@@ -372,7 +329,7 @@ def test_get_calc_context_for_chat_selection_failure_preserves_summary(scenario)
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.inspector.CellInspector", return_value=inspector),
+        patch("plugin.calc.analyzer.CellInspector", return_value=inspector),
     ):
         text = get_calc_context_for_chat(model, ctx=object())
 
@@ -411,7 +368,7 @@ def test_get_calc_context_for_chat_disposed_from_read_range():
     with (
         patch("plugin.calc.analyzer.CalcBridge", return_value=bridge),
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
-        patch("plugin.calc.inspector.CellInspector", return_value=inspector),
+        patch("plugin.calc.analyzer.CellInspector", return_value=inspector),
     ):
         with pytest.raises(DocumentDisposedError):
             get_calc_context_for_chat(model, ctx=object())
@@ -433,7 +390,7 @@ def test_get_sheet_summary_disposed_on_optional_metric_raises(failing_attr):
         pass
 
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -462,7 +419,7 @@ def test_get_sheet_summary_disposed_on_optional_metric_raises(failing_attr):
 @pytest.mark.parametrize("failing_attr", ["getCharts", "getAnnotations", "getPropertyValue", "DrawPage"])
 def test_get_sheet_summary_value_error_on_optional_metric_uses_defaults(failing_attr):
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr
@@ -498,7 +455,7 @@ def test_get_sheet_summary_value_error_on_optional_metric_uses_defaults(failing_
 
 def test_get_sheet_summary_include_extras_false_skips_optional_metrics():
     bridge = MagicMock()
-    sheet = bridge.get_active_sheet.return_value
+    sheet = bridge.sheet_or_active.return_value
     sheet.getName.return_value = "Sheet1"
     addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
     sheet.createCursor.return_value.getRangeAddress.return_value = addr

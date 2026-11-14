@@ -5,9 +5,7 @@ from __future__ import annotations
 import gc
 import logging
 import os
-import sys
 import threading
-import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -16,53 +14,9 @@ import pytest
 from plugin.framework.queue_executor import main as main_thread
 from tests.harness.strip_bundle import is_release_build
 
-
-def _ensure_main_import_stubs() -> None:
-    task = sys.modules.get("com.sun.star.task")
-    if task is None:
-        task = types.ModuleType("com.sun.star.task")
-        sys.modules["com.sun.star.task"] = task
-    if not hasattr(task, "XJobExecutor"):
-        task.XJobExecutor = type("XJobExecutor", (), {})
-    if not hasattr(task, "XJob"):
-        task.XJob = type("XJob", (), {})
-
-    frame = sys.modules.get("com.sun.star.frame")
-    if frame is None:
-        frame = types.ModuleType("com.sun.star.frame")
-        sys.modules["com.sun.star.frame"] = frame
-    if not hasattr(frame, "DispatchDescriptor"):
-        frame.DispatchDescriptor = type("DispatchDescriptor", (), {})
-    if not hasattr(frame, "XDispatch"):
-        frame.XDispatch = type("XDispatch", (), {})
-    if not hasattr(frame, "XDispatchProvider"):
-        frame.XDispatchProvider = type("XDispatchProvider", (), {})
-
-    lang = sys.modules.get("com.sun.star.lang")
-    if lang is not None:
-        if not hasattr(lang, "XInitialization"):
-            lang.XInitialization = type("XInitialization", (), {})
-        if not hasattr(lang, "XServiceInfo"):
-            lang.XServiceInfo = type("XServiceInfo", (), {})
-
-
-def _patch_unohelper_implementation_helper() -> None:
-    class _FakeImplHelper:
-        def addImplementation(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-    uh = sys.modules.get("unohelper")
-    if uh is not None:
-        uh.ImplementationHelper = lambda: _FakeImplHelper()
-
-
-_ensure_main_import_stubs()
-_patch_unohelper_implementation_helper()
-
 import plugin.app as app
 import plugin.bootstrap as bootstrap
 import plugin.main as main
-from plugin.bootstrap import BootstrapState
 from plugin.framework.doc_type import DocumentType
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.event_bus import EventBus
@@ -952,31 +906,6 @@ def test_main_bootstrap_job_trigger_extend_selection_none_model():
         mock_action.assert_not_called()
 
 
-# --- Bug 10 tests: TestTypes removed from framework actions ---
-
-
-def test_main_bootstrap_job_trigger_test_types_and_noop():
-    """Bare TestTypes and NoOp no longer dispatch; dotted commands still do."""
-    job = main.MainBootstrapJob(MagicMock())
-    with patch("plugin.app.dispatch_command") as mock_disp:
-        job.trigger("TestTypes")
-        job.trigger("NoOp")
-        mock_disp.assert_not_called()
-
-        job.trigger("main.NoOp")
-        mock_disp.assert_called_once_with("main.NoOp")
-
-
-# --- Bug 11 tests: module exports ---
-
-
-def test_module_exports_expected_classes():
-    """plugin.main must export g_ImplementationHelper, DispatchHandler, and MainBootstrapJob."""
-    assert hasattr(main, "g_ImplementationHelper")
-    assert hasattr(main, "DispatchHandler")
-    assert hasattr(main, "MainBootstrapJob")
-
-
 def test_trigger_body_exception_is_reported():
     """MainBootstrapJob.trigger catches body exceptions and reports them via report_action_failure."""
     job = main.MainBootstrapJob(MagicMock())
@@ -1006,28 +935,15 @@ def test_trigger_extend_selection_bootstraps():
         mock_do.assert_called_once()
 
 
-def test_main_calls_execute_not_hello(monkeypatch):
-    """plugin.main.main() creates MainBootstrapJob and calls execute(()), not trigger."""
-    fake_ctx = MagicMock()
-    monkeypatch.setitem(main.__dict__, "XSCRIPTCONTEXT", fake_ctx)
-    with (
-        patch.object(main.MainBootstrapJob, "execute") as mock_exec,
-        patch.object(main.MainBootstrapJob, "trigger") as mock_trig,
-    ):
-        main.main()
-        mock_exec.assert_called_once_with(())
-        mock_trig.assert_not_called()
-
-
 def test_bootstrap_finish_arms_webview_probe():
     """_writeragent_bootstrap_finish arms exactly one webview probe on background pool."""
     from plugin.scripting import editor_host
 
-    editor_host.reset_webview_probe_state()
+    editor_host.reset_webview_probe_state_for_tests()
     ctx = MagicMock()
     try:
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
             patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
         ):
@@ -1036,7 +952,7 @@ def test_bootstrap_finish_arms_webview_probe():
             assert len(probe_calls) == 1
             assert probe_calls[0][0][0] == editor_host._webview_probe_worker
     finally:
-        editor_host.reset_webview_probe_state()
+        editor_host.reset_webview_probe_state_for_tests()
 
 
 def test_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeypatch):
@@ -1044,19 +960,19 @@ def test_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeypatch):
     from plugin.framework.queue_executor import MainThread, Policy
     from plugin.scripting import editor_host
 
-    editor_host.reset_webview_probe_state()
+    editor_host.reset_webview_probe_state_for_tests()
     ctx = MagicMock()
     monkeypatch.setattr(MainThread, "_policy", Policy.eval_harness)
     try:
         with (
-            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.get_config", return_value=False),
             patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
             patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
         ):
             main._writeragent_bootstrap_finish(ctx)
             mock_bg.assert_not_called()
     finally:
-        editor_host.reset_webview_probe_state()
+        editor_host.reset_webview_probe_state_for_tests()
 
 
 def test_command_from_dispatch_url_and_dispatch(monkeypatch):
@@ -1123,13 +1039,15 @@ def test_register_core_handlers_continues_after_optional_import_failure(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     orig_handlers = dict(_ACTION_HANDLERS)
-    had_module = "plugin.calc.excel_py_convert.auto_open" in sys.modules
-    prev_module = sys.modules.get("plugin.calc.excel_py_convert.auto_open")
+
+    def _raise(_ctx: Any) -> None:
+        raise RuntimeError("listener install failed")
 
     recorded: list[str] = []
     try:
-        sys.modules["plugin.calc.excel_py_convert.auto_open"] = types.ModuleType(
-            "plugin.calc.excel_py_convert.auto_open"
+        monkeypatch.setattr(
+            "plugin.calc.python.workbook_lifecycle.install_global_document_event_listener",
+            _raise,
         )
         monkeypatch.setattr(
             "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
@@ -1158,7 +1076,7 @@ def test_register_core_handlers_continues_after_optional_import_failure(
 
         # Release strip removes log.debug; continue asserting handlers still registered.
         if not is_release_build():
-            assert "Excel PY auto-convert on open install failed" in caplog.text
+            assert "Document event listener install failed" in caplog.text
         assert recorded == ["geo", "review"]
         assert get_action_handler("embeddings.search_dialog") is not None
         assert get_action_handler("writer.accept_change") is not None
@@ -1170,32 +1088,93 @@ def test_register_core_handlers_continues_after_optional_import_failure(
     finally:
         _ACTION_HANDLERS.clear()
         _ACTION_HANDLERS.update(orig_handlers)
-        if had_module:
-            sys.modules["plugin.calc.excel_py_convert.auto_open"] = prev_module
-        else:
-            sys.modules.pop("plugin.calc.excel_py_convert.auto_open", None)
 
 
-def test_bootstrap_state_enum(monkeypatch):
-    """BootstrapState enum tracks bootstrap lifecycle states."""
+def test_run_test_suite_invokes_run_module_suite_on_main() -> None:
+    """``run_module_suite`` must run on the UI thread so UNO tools pass ``execute_safe``."""
+    threads_seen: list[threading.Thread] = []
+    sentinel_module = object()
+    modules_seen: list[Any] = []
 
-    assert BootstrapState.UNINITIALIZED.value == "uninitialized"
-    assert BootstrapState.BOOTSTRAPPING.value == "bootstrapping"
-    assert BootstrapState.INITIALIZED.value == "initialized"
+    def fake_run_module_suite(ctx, module, name):
+        threads_seen.append(threading.current_thread())
+        modules_seen.append(module)
+        return (0, 0, [])
 
-    monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
-    monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
-    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
-    monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
+    fake_ctx = MagicMock()
+    with (
+        patch("plugin.app.tests_bundled", return_value=True),
+        patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
+        patch("plugin.chatbot.dialogs.msgbox"),
+        patch("plugin.testing_runner.run_module_suite", side_effect=fake_run_module_suite),
+        patch("importlib.import_module", return_value=sentinel_module) as mock_import,
+    ):
+        main._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
 
-    bootstrap.mark_uninitialized()
-    assert not bootstrap.bootstrap_initialized()
+    assert len(threads_seen) == 1
+    assert threads_seen[0] is threading.main_thread()
+    assert modules_seen == [sentinel_module]
+    mock_import.assert_called_once_with("plugin.tests.writer.test_format_uno")
 
-    app.bootstrap(MagicMock())
-    assert bootstrap.bootstrap_initialized()
+
+def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
+    """Menubar titles come from get_menu_text, not from a po msgstr alone.
+
+    Vision OCR was missing from the static map (None → Addons.xcu en-US).
+    Debug was a raw English literal, so the status event overwrote the catalog.
+    """
+    monkeypatch.setattr(app, "bootstrap", lambda: None)
+
+    def fake_gettext(message: str) -> str:
+        return {
+            "Vision OCR Settings...": "Vision OCR 設定...",
+            "Debug": "デバッグ",
+        }.get(message, message)
+
+    monkeypatch.setattr("plugin.framework.i18n._", fake_gettext)
+    assert app.get_menu_text("vision.open_settings") == "Vision OCR 設定..."
+    assert app.get_menu_text("main.NoOp") == "デバッグ"
 
 
+def test_run_test_suite_unavailable_does_not_print_or_import() -> None:
+    """When tests are not bundled, _run_test_suite must not print or import the test module."""
+    printed: list[str] = []
+    with (
+        patch("plugin.app.tests_bundled", return_value=False),
+        patch("builtins.print", side_effect=lambda *args, **kw: printed.append(" ".join(map(str, args)))),
+        patch("plugin.main._show_tests_unavailable") as mock_unavailable,
+        patch("importlib.import_module", side_effect=ModuleNotFoundError("unbundled")) as mock_import,
+    ):
+        main._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
+
+    assert printed == []
+    mock_unavailable.assert_called_once_with("writer.format_tests")
+    mock_import.assert_not_called()
+
+
+def test_run_test_suite_failure_shows_dialog() -> None:
+    """When run_module_suite raises, _run_test_suite catches the error and shows a dialog."""
+    fake_ctx = MagicMock()
+    sentinel_module = object()
+    with (
+        patch("plugin.app.tests_bundled", return_value=True),
+        patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+        patch("plugin.testing_runner.run_module_suite", side_effect=RuntimeError("suite crash")),
+        patch("importlib.import_module", return_value=sentinel_module),
+    ):
+        main._run_test_suite("plugin.tests.writer.test_format_uno", "writer.format_tests")
+        mock_msgbox.assert_called_once()
+
+
+def test_show_tests_unavailable_invokes_msgbox() -> None:
+    """_show_tests_unavailable invokes msgbox with package info."""
+    fake_ctx = MagicMock()
+    with (
+        patch("plugin.main.get_ctx", return_value=fake_ctx),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+    ):
+        main._show_tests_unavailable("writer.format_tests")
+        mock_msgbox.assert_called_once()
+        assert mock_msgbox.call_args[0][:2] == (fake_ctx, "writer.format_tests")
 

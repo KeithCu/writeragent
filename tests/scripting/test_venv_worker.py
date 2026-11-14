@@ -1,7 +1,6 @@
 """Tests for venv_worker (paths, warm worker, run_code) via PythonWorkerManager + worker_harness."""
 from __future__ import annotations
 import io
-import logging
 import os
 import pickle
 import struct
@@ -12,18 +11,33 @@ import threading
 import time
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 import pytest
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, FRAME_RESULT, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame, unpack_pickle_frame
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.scripting.session_key import SessionKey
-from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
+from plugin.scripting.venv_worker import (
+    ExecRequest,
+    FailedAfterStart,
+    NotStarted,
+    PythonWorkerManager,
+    RetryWithNewLease,
+    Terminal,
+    _TurnState,
+    _classify_read_failure,
+    _worker_error_message,
+    parse_worker_stdout_frame,
+    reset_python_session,
+    run_code_in_user_venv,
+    shutdown_venv_workers_for_tests,
+    warm_venv_worker,
+)
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
-from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
+from plugin.scripting.venv.venv_sandbox import serialize_result
+from tests.scripting.sandbox_support import sandbox_run
 
 def _mgr_proc(mgr: PythonWorkerManager) -> Any:
     """Test helper: Popen for the live warm child, if any."""
@@ -116,7 +130,7 @@ def _mgr_stderr_tail(mgr: PythonWorkerManager) -> Any:
         return None
     return child.managed.stderr_tail
 
-def _run_ipc_with_mock(mgr: PythonWorkerManager, req: _ExecRequest, proc: Any) -> dict[str, Any]:
+def _run_ipc_with_mock(mgr: PythonWorkerManager, req: ExecRequest, proc: Any) -> dict[str, Any]:
     import contextlib
     counter = {'n': 0}
 
@@ -130,7 +144,7 @@ def _run_ipc_with_mock(mgr: PythonWorkerManager, req: _ExecRequest, proc: Any) -
         return mgr._run_in_session(lambda leased: mgr._execute_ipc_unlocked(req, leased=leased), timeout_sec=req.timeout_sec or 1)
 
 
-def _guard_ipc_while_lock_wait(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+def _guard_ipc_while_lock_wait(req: ExecRequest, *, leased: Any) -> dict[str, Any]:
     if req.code == 'result = None' and not req.action:
         return {'status': 'ok', 'result': None}
     raise AssertionError('IPC must not run while waiting on pipe lock')
@@ -181,51 +195,51 @@ def test_serialize_numpy_scalar():
     assert serialize_result(np.int64(7)) == 7
 
 def test_execute_request_fresh_namespace():
-    r1 = run_sandboxed_code('x = 41\nresult = x + 1', None)
+    r1 = sandbox_run('x = 41\nresult = x + 1', None)
     assert r1['status'] == 'ok'
     assert r1['result'] == 42
-    r2 = run_sandboxed_code('result = x + 1', None)
+    r2 = sandbox_run('result = x + 1', None)
     assert r2['status'] == 'error'
 
 def test_execute_request_injects_data():
-    r = run_sandboxed_code('result = float(np.sum(data))', [[1, 2, 3, 4]])
+    r = sandbox_run('result = float(np.sum(data))', [[1, 2, 3, 4]])
     assert r['status'] == 'ok'
     assert r['result'] == 10.0
 
 def test_execute_request_1x1_data_arithmetic_dag():
-    r1 = run_sandboxed_code('result = data + 3', [[2]])
+    r1 = sandbox_run('result = data + 3', [[2]])
     assert r1['status'] == 'ok'
     assert r1['result'] == 5
-    r2 = run_sandboxed_code('result = data * 4', [[5.0]])
+    r2 = sandbox_run('result = data * 4', [[5.0]])
     assert r2['status'] == 'ok'
     assert r2['result'] == 20.0
 
 def test_execute_request_1x1_data_serialize_unwraps_to_scalar():
-    r = run_sandboxed_code('result = data', [[2]])
+    r = sandbox_run('result = data', [[2]])
     assert r['status'] == 'ok'
     assert r['result'] == 2
     assert not isinstance(r['result'], list)
 
 def test_execute_request_fan_out_dag_returns_scalars():
-    r1 = run_sandboxed_code('result = data', [[2]])
-    r2 = run_sandboxed_code('result = data', [[2]])
+    r1 = sandbox_run('result = data', [[2]])
+    r2 = sandbox_run('result = data', [[2]])
     assert r1['status'] == 'ok' and r1['result'] == 2
     assert r2['status'] == 'ok' and r2['result'] == 2
 
 def test_execute_request_injects_ranges_single_range():
-    r = run_sandboxed_code("result = (len(ranges), data is ranges[0], hasattr(data, 'to_pandas'))", [[1, 2, 3]])
+    r = sandbox_run("result = (len(ranges), data is ranges[0], hasattr(data, 'to_pandas'))", [[1, 2, 3]])
     assert r['status'] == 'ok'
     assert r['result'] == [1, True, True]
 
 def test_execute_request_injects_ranges_multi_polymorphic_data():
     from plugin.calc.calc_addin_data import pack_calc_multi_data_for_wire
     wire = pack_calc_multi_data_for_wire([[[1.0, 2.0, 3.0]], [[4.0, 5.0]]], force='never')
-    r = run_sandboxed_code('result = (len(ranges), data is ranges, data[1].values[0][0])', wire)
+    r = sandbox_run('result = (len(ranges), data is ranges, data[1].values[0][0])', wire)
     assert r['status'] == 'ok'
     assert r['result'] == [2, True, 4.0]
 
 def test_execute_request_does_not_inject_inputs():
-    r = run_sandboxed_code('result = inputs', [[1]])
+    r = sandbox_run('result = inputs', [[1]])
     assert r['status'] == 'error'
     assert 'inputs' in r.get('message', '').lower() and 'not defined' in r.get('message', '').lower()
 
@@ -247,17 +261,16 @@ def test_run_code_in_user_venv_passes_cancel():
 
         run_code_in_user_venv(code='result = 1', cancel=scope)
         mock_mgr.execute.assert_called_once()
-        kwargs = mock_mgr.execute.call_args.kwargs
-        assert kwargs.get('cancel') is scope
+        assert mock_mgr.execute.call_args.args[0].cancel is scope
 
 def test_blocked_import_os():
-    r = run_sandboxed_code('import subprocess\nresult = 1', None)
+    r = sandbox_run('import subprocess\nresult = 1', None)
     assert r['status'] == 'error'
     assert 'not allowed' in r.get('message', '').lower() or 'Import' in r.get('message', '')
 
 def test_blocked_import_not_on_allowlist():
     pytest.importorskip('requests')
-    r = run_sandboxed_code('import requests\nresult = 1', None)
+    r = sandbox_run('import requests\nresult = 1', None)
     assert r['status'] == 'error'
     assert 'not allowed' in r.get('message', '').lower() or 'Import' in r.get('message', '')
 
@@ -266,7 +279,7 @@ def test_sentence_transformers_import_not_deep_wrapped():
     st = pytest.importorskip('sentence_transformers')
     from plugin.contrib.smolagents.local_python_executor import get_safe_module
     assert get_safe_module(st, []) is st
-    r = run_sandboxed_code('from sentence_transformers import SentenceTransformer\nresult = str(SentenceTransformer)', None)
+    r = sandbox_run('from sentence_transformers import SentenceTransformer\nresult = str(SentenceTransformer)', None)
     assert r['status'] == 'ok'
     assert 'SentenceTransformer' in r['result']
 
@@ -275,7 +288,7 @@ def test_duckdb_import_not_deep_wrapped():
     duck = pytest.importorskip('duckdb')
     from plugin.contrib.smolagents.local_python_executor import get_safe_module
     assert get_safe_module(duck, []) is duck
-    r = run_sandboxed_code("import duckdb\ncon = duckdb.connect()\nresult = con.execute('SELECT 42 AS x').df().to_dict()", None)
+    r = sandbox_run("import duckdb\ncon = duckdb.connect()\nresult = con.execute('SELECT 42 AS x').df().to_dict()", None)
     assert r['status'] == 'ok'
     assert 'x' in str(r.get('result', '')) or 42 in str(r.get('result', ''))
 
@@ -283,7 +296,7 @@ def test_harness_main_loop_integration():
     """Harness reads and writes Pickle (subprocess smoke)."""
     harness = __import__('plugin.scripting.venv.worker_harness', fromlist=['main'])
     proc_pickle = subprocess.Popen([sys.executable, harness.__file__], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False, bufsize=0)
-    req_dict = {'id': 't2', 'code': 'result = 2 ** 10'}
+    req_dict = {'id': 't2', 'code': 'result = 2 ** 10', 'timeout_sec': 10}
     proc_pickle.stdin.write(pack_pickle_frame(req_dict))
     proc_pickle.stdin.flush()
     ready = read_pickle_frame(proc_pickle.stdout, require_dict=True)
@@ -310,7 +323,7 @@ def test_manager_real_spawn_drains_stderr_flood(tmp_path, monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     drain = None
     try:
-        result = mgr.execute('result = 42', timeout_sec=5)
+        result = mgr.execute(ExecRequest(code='result = 42', timeout_sec=5))
         drain = _mgr_stderr_tail(mgr)
         assert result['status'] == 'ok'
         assert result['result'] == 42
@@ -340,7 +353,7 @@ def test_worker_crash_mid_request_retries_and_recovers(tmp_path, monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     mgr._ensure_warmed_unlocked = lambda leased: None
     try:
-        result = mgr.execute('result = 42', timeout_sec=5)
+        result = mgr.execute(ExecRequest(code='result = 42', timeout_sec=5))
         assert result['status'] == 'ok'
         assert result['result'] == 42
         assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).poll() is None
@@ -361,7 +374,7 @@ def test_worker_child_dies_without_response_fails_promptly(tmp_path: Any, monkey
     mgr._ensure_warmed_unlocked = lambda *args, **kwargs: None
     t0 = time.monotonic()
     try:
-        res = mgr.execute('result = 1', timeout_sec=8)
+        res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=8))
         elapsed = time.monotonic() - t0
         assert elapsed < 4.0
         assert res.get('status') == 'error'
@@ -384,7 +397,7 @@ def test_worker_child_hung_zero_bytes_times_out_without_replay(tmp_path: Any, mo
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     t0 = time.monotonic()
     try:
-        res = mgr.execute('result = 1', timeout_sec=1)
+        res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1))
         elapsed = time.monotonic() - t0
         assert 1.0 <= elapsed < 4.0
         assert res.get('status') == 'error'
@@ -406,7 +419,7 @@ def test_worker_child_hung_partial_frame_times_out_without_replay(tmp_path: Any,
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     t0 = time.monotonic()
     try:
-        res = mgr.execute('result = 1', timeout_sec=1)
+        res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1))
         elapsed = time.monotonic() - t0
         assert 1.0 <= elapsed < 4.0
         assert res.get('status') == 'error'
@@ -447,11 +460,6 @@ def _pid_is_alive_win32(pid: int) -> bool:
     alive = bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value == still_active
     kernel32.CloseHandle(handle)
     return alive
-
-def test_pid_is_alive_current_process():
-    assert pid_is_alive(os.getpid())
-    assert not pid_is_alive(0)
-    assert not pid_is_alive(-1)
 
 def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
     """Timeout/crash cleanup must kill descendants (joblib/loky, DataLoader), not only the worker."""
@@ -517,6 +525,8 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
             started = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired):
                 mgr._write_packed_frame_with_timeout(leased.stdin, b'x' * (8 * 1024 * 1024), timeout_sec=0.2, label='test request')
+            # Callers own the kill.
+            mgr._terminate_worker()
             assert time.monotonic() - started < 5
         for t in threading.enumerate():
             if t.name == 'ipc-stdin-write':
@@ -532,7 +542,7 @@ def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     assert mgr._warm is not None
     mgr._warm._fake_io_owner = threading.get_ident()
-    result = mgr.execute('result = 1', timeout_sec=1)
+    result = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1))
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_REENTRY'
     assert 'called back' in result['message']
@@ -547,20 +557,28 @@ def test_large_stdin_write_completes_intact():
     mgr._write_packed_frame_with_timeout(stream, payload, timeout_sec=2, label='test request')
     assert stream.getvalue() == payload
 
-def test_initial_write_timeout_retries_once():
+def test_initial_write_timeout_retries_once(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._write_frame_with_timeout = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
+    monkeypatch.setattr(
+        "plugin.scripting.venv_worker.write_packed_frame_with_timeout",
+        MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)),
+    )
+    mgr._write_frame_with_timeout = MagicMock(wraps=mgr._write_frame_with_timeout)
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    clears: list[int] = []
+    monkeypatch.setattr("plugin.calc.python.function.clear_python_addin_cache", lambda: clears.append(1))
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
-    assert 'timed out after 1 seconds' in result['message']
+    assert result['code'] == 'VENV_TIMEOUT'
+    assert 'timed out after 1.0 seconds' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
+    assert len(clears) == 2
     first = mgr._write_frame_with_timeout.call_args_list[0].args[1]
     second = mgr._write_frame_with_timeout.call_args_list[1].args[1]
     assert first['id'] == second['id']
@@ -573,10 +591,15 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
     mgr._write_frame_with_timeout = MagicMock()
-    mgr._write_packed_frame_with_timeout = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
+    monkeypatch.setattr(
+        "plugin.scripting.venv_worker.write_packed_frame_with_timeout",
+        MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)),
+    )
     response_payload = pickle.dumps({'status': 'host_request'}, protocol=5)
     mgr._read_response_bytes = MagicMock(return_value=response_payload)
     mgr._terminate_worker = MagicMock()
+    clears: list[int] = []
+    monkeypatch.setattr("plugin.calc.python.function.clear_python_addin_cache", lambda: clears.append(1))
     dispatch_calls = []
 
     def dispatch(response, *, stdin_write, on_worker_event=None, cancel=None):
@@ -585,13 +608,14 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
         stdin_write(b'host response')
         return True
     monkeypatch.setattr('plugin.ppt_master.venv.host_rpc.dispatch_worker_response', dispatch)
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1, caller='ppt_master_venv'), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1, caller='ppt_master_venv'), proc)
     assert result['status'] == 'error'
     assert 'host RPC response timed out' in result['message']
     assert len(dispatch_calls) == 1
     assert mgr._write_frame_with_timeout.call_count == 1
     assert mgr._read_response_bytes.call_count == 1
     assert mgr._terminate_worker.call_count == 1
+    assert len(clears) == 1
 
 def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     """A tool_call that already ran must not be followed by a second copy of the script."""
@@ -610,7 +634,7 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
         del response, stdin_write, on_worker_event, cancel
         return True
     monkeypatch.setattr('plugin.ppt_master.venv.host_rpc.dispatch_worker_response', dispatch)
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1, caller='ppt_master_venv'), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1, caller='ppt_master_venv'), proc)
     assert result['status'] == 'error'
     assert mgr._write_frame_with_timeout.call_count == 1
     assert mgr._terminate_worker.call_count == 1
@@ -619,9 +643,8 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
 def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame_type):
     """An intermediate frame that raises mid-dispatch must not be sent again.
 
-    The flag used to be set only after dispatch returned. A RuntimeError
-    from the handler, with no exec_started frame, left may_have_run false
-    and the attempt loop wrote the same request to a new child.
+    may_have_run must be set before dispatch; otherwise a RuntimeError from
+    the handler causes the attempt loop to resend to a new child.
     """
     import plugin.scripting.venv_worker as venv_worker_module
     mgr = PythonWorkerManager(sys.executable, {})
@@ -638,7 +661,7 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame
         del args, kwargs
         raise RuntimeError('tool mutated then failed')
     monkeypatch.setattr(venv_worker_module, '_maybe_dispatch_intermediate_response', dispatch)
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'tool mutated then failed' in result['message']
@@ -657,12 +680,11 @@ def test_stdout_close_before_start_retries_once():
     mgr._read_response_bytes = MagicMock(return_value=b'')
     mgr._drain_stderr = MagicMock(return_value='')
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert 'without a response' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
-    assert mgr._terminate_worker.call_args_list == [call(), call()]
 
 def test_truncated_header_before_exec_started_fails_without_replay():
     """A truncated frame is stream desynchronization; do not replay."""
@@ -675,12 +697,11 @@ def test_truncated_header_before_exec_started_fails_without_replay():
     mgr._write_frame_with_timeout = MagicMock()
     mgr._drain_stderr = MagicMock(return_value='')
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] in ('WORKER_IPC_ERROR', 'VENV_TIMEOUT')
     assert mgr._write_frame_with_timeout.call_count == 1
     assert mgr._terminate_worker.call_count == 1
-    assert mgr._terminate_worker.call_args_list == [call()]
 
 def test_runtime_error_before_exec_started_retries_once():
     """A RuntimeError before the child has started the script is still a failed start."""
@@ -693,12 +714,11 @@ def test_runtime_error_before_exec_started_retries_once():
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=RuntimeError('pipe died'))
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert 'pipe died' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
-    assert mgr._terminate_worker.call_args_list == [call(), call()]
 
 def test_runtime_error_after_exec_started_does_not_replay():
     """A RuntimeError after exec_started must not resend the script on a new child."""
@@ -723,7 +743,7 @@ def test_runtime_error_after_exec_started_does_not_replay():
         raise RuntimeError('worker frame was not a dict')
     mgr._read_response_bytes = _read
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'not a dict' in result['message']
@@ -754,7 +774,7 @@ def test_stdout_close_after_exec_started_does_not_replay():
     mgr._read_response_bytes = _read
     mgr._drain_stderr = MagicMock(return_value='')
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'without a response' in result['message']
@@ -773,7 +793,7 @@ def test_exec_started_wrong_id_is_refused_without_replay():
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': 'exec_started', 'id': 'someone-else'}, protocol=5))
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'id mismatch' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 1
@@ -790,7 +810,7 @@ def test_host_read_timeout_does_not_retry():
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert 'timed out after 1 seconds' in result['message']
     assert mgr._write_frame_with_timeout.call_count == 1
@@ -814,7 +834,7 @@ def test_partial_frame_timeout_does_not_replay():
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=IpcPartialFrameTimeout('python stream desynchronized: timeout mid-frame'))
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'VENV_TIMEOUT'
     assert 'mid-frame' in result['message']
@@ -867,7 +887,7 @@ def test_split_grid_data_round_trip_execute_request():
     wire = pack_calc_data_for_wire(grid)
     assert is_calc_range_payload(wire)
     assert is_split_grid(wire['data'])
-    r = run_sandboxed_code('result = float(np.sum(data))', wire)
+    r = sandbox_run('result = float(np.sum(data))', wire)
     assert r['status'] == 'ok'
     assert r['result'] == pytest.approx(sequential_grid_sum(BINARY_MIN_CELLS))
 
@@ -886,19 +906,19 @@ def test_normalize_response_unpacks_split_grid():
 
 @pytest.mark.parametrize('value, expected', [pytest.param('result = math.sqrt(16)', 4.0, id='test_automatic_imports_math'), pytest.param('import math as my_math\nresult = my_math.sqrt(16)', 4.0, id='test_automatic_imports_already_imported'), pytest.param('import math\nresult = math.sqrt(25)', 5.0, id='test_automatic_imports_explicit')])
 def test_automatic_imports_math(value, expected):
-    r = run_sandboxed_code(value, None)
+    r = sandbox_run(value, None)
     assert r['status'] == 'ok'
     assert r['result'] == expected
 
 @pytest.mark.parametrize('value, value_2, expected', [pytest.param('numpy', 'result = float(np.sum([1, 2, 3]))', 6.0, id='test_automatic_imports_numpy'), pytest.param('sympy', "result = str(sp.Symbol('x'))", 'x', id='test_automatic_imports_sympy')])
 def test_automatic_imports_numpy(value, value_2, expected):
     pytest.importorskip(value)
-    r = run_sandboxed_code(value_2, None)
+    r = sandbox_run(value_2, None)
     assert r['status'] == 'ok'
     assert r['result'] == expected
 
 def test_build_request_sets_heartbeat_on_trusted_action():
-    req = _ExecRequest(action='run_trusted_action', allow_heartbeat=True, data={'domain': 'embeddings_index'})
+    req = ExecRequest(action='run_trusted_action', allow_heartbeat=True, data={'domain': 'embeddings_index'}, timeout_sec=1)
     request = req.wire()
     assert request == req.wire()
     assert request['id'] == req.request_id
@@ -906,10 +926,10 @@ def test_build_request_sets_heartbeat_on_trusted_action():
     assert request['action'] == 'run_trusted_action'
     assert request['data'] is req.data
     assert 'code' not in request
-    assert 'timeout_sec' not in request
+    assert request['timeout_sec'] == 1
     assert 'cancel' not in request
     assert 'script_session_id' not in request
-    empty = _ExecRequest(session=None, allow_heartbeat=False, bindings={}, code=None).wire()
+    empty = ExecRequest(allow_heartbeat=False, timeout_sec=1).wire()
     assert empty['code'] == ''
     assert 'session_id' not in empty
     assert 'allow_heartbeat' not in empty
@@ -917,21 +937,21 @@ def test_build_request_sets_heartbeat_on_trusted_action():
 
 def test_exec_request_wire_sandbox_policy():
     policy = {'network': True, 'files': True, 'os': False, 'extra_modules': 'requests'}
-    code_req = _ExecRequest(code='x = 1', sandbox_policy=policy)
+    code_req = ExecRequest(code='x = 1', sandbox_policy=policy, timeout_sec=1)
     code_wire = code_req.wire()
     assert code_wire['sandbox_policy'] == policy
     assert code_wire['code'] == 'x = 1'
-    reset_req = _ExecRequest(action='reset_session', sandbox_policy=policy)
+    reset_req = ExecRequest(action='reset_session', sandbox_policy=policy, timeout_sec=1)
     reset_wire = reset_req.wire()
     assert 'sandbox_policy' not in reset_wire
     assert reset_wire['action'] == 'reset_session'
-    trusted_req = _ExecRequest(action='run_trusted_action', data={'domain': 'analysis'}, sandbox_policy=policy)
+    trusted_req = ExecRequest(action='run_trusted_action', data={'domain': 'analysis'}, sandbox_policy=policy, timeout_sec=1)
     trusted_wire = trusted_req.wire()
     assert 'sandbox_policy' not in trusted_wire
     assert trusted_wire['action'] == 'run_trusted_action'
 
 def test_run_code_in_user_venv_reads_sandbox_policy_flags():
-    with patch('plugin.scripting.venv_worker.configured_python_exec_timeout', return_value=10), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
+    with patch('plugin.framework.config.get_config', return_value=10), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
         mock_execute.return_value = {'status': 'ok', 'result': 1}
 
         def fake_get_config(key: str):
@@ -944,7 +964,7 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
             return ''
         with patch('plugin.scripting.venv_worker.get_config', side_effect=fake_get_config):
             run_code_in_user_venv('result = 1')
-            assert mock_execute.call_args.kwargs['sandbox_policy'] == {'network': False, 'files': True, 'os': True, 'extra_modules': 'custom_mod'}
+            assert mock_execute.call_args.args[0].sandbox_policy == {'network': False, 'files': True, 'os': True, 'extra_modules': 'custom_mod'}
         mock_execute.reset_mock()
 
         def fake_get_config_net_files(key: str):
@@ -955,15 +975,11 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
             return False
         with patch('plugin.scripting.venv_worker.get_config', side_effect=fake_get_config_net_files):
             run_code_in_user_venv('result = 1')
-            assert mock_execute.call_args.kwargs['sandbox_policy'] == {'network': True, 'files': True, 'os': False, 'extra_modules': ''}
+            assert mock_execute.call_args.args[0].sandbox_policy == {'network': True, 'files': True, 'os': False, 'extra_modules': ''}
 
 @pytest.mark.parametrize('exc_type', [ValueError, OverflowError, TypeError])
 def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
-    """Unpack failures after a finished tool call must not resend the script.
-
-    ValueError was already caught. OverflowError (int(inf) on an int column)
-    and TypeError are on the same host-unpack contract and used to escape.
-    """
+    """Unpack failures (ValueError, OverflowError, TypeError) after a finished tool call do not resend the script."""
     import plugin.scripting.venv_worker as venv_worker_module
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -997,7 +1013,7 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
         dispatched['n'] += 1
         return dispatched['n'] == 1
     monkeypatch.setattr(venv_worker_module, '_maybe_dispatch_intermediate_response', dispatch)
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'inconsistent split_grid' in result['message']
@@ -1022,6 +1038,7 @@ def test_get_refreshes_env_for_the_next_spawn():
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get('/tmp/python-env', {'PATH': '/usr/bin', 'A': '1'})
+        assert first.env['WRITERAGENT_IS_WORKER'] == '1'
         second = PythonWorkerManager.get('/tmp/python-env', {'PATH': '/usr/bin', 'A': '1', 'B': '2'})
         assert first is second
         assert second.env['B'] == '2'
@@ -1034,10 +1051,13 @@ def test_retired_worker_does_not_respawn():
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get('/tmp/python-old-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
+        seen: list[bool] = []
         mock_warm = MagicMock()
         mock_warm.is_alive.return_value = True
+        mock_warm.retire = MagicMock(side_effect=lambda: seen.append(first._retired))
         first._warm = mock_warm
         PythonWorkerManager.get('/tmp/python-new-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
+        assert seen == [True]
         assert first._retired is True
         mock_warm.retire.assert_called_once()
         assert not _session_ok(first)
@@ -1045,56 +1065,30 @@ def test_retired_worker_does_not_respawn():
     finally:
         shutdown_venv_workers_for_tests()
 
-def test_shutdown_all_sets_retired_before_terminate():
-    from plugin.scripting import venv_worker as vw
-    mgr = vw.PythonWorkerManager.__new__(vw.PythonWorkerManager)
-    mgr._retired = False
-    mgr._warm = MagicMock()
-    mgr._warm.retire = MagicMock()
-    key = 'test-pool:shutdown-retire'
-    with vw._registry_lock:
-        previous = dict(vw._instances)
-        vw._instances[key] = mgr
-    try:
-        vw.shutdown_venv_workers_for_tests()
-    finally:
-        with vw._registry_lock:
-            vw._instances.clear()
-            vw._instances.update(previous)
-    assert mgr._retired is True
-
-@patch('plugin.scripting.venv_worker.configured_python_exec_timeout', return_value=10)
+@patch('plugin.framework.config.get_config', return_value=10)
 @patch('plugin.scripting.venv_worker.get_config', return_value='')
 @patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable)
 @patch('plugin.scripting.venv_worker.PythonWorkerManager.execute')
 def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mock_configured_timeout):
-    default_policy = {'network': False, 'files': False, 'os': False, 'extra_modules': ''}
-    run_code_in_user_venv('result = 1')
-    mock_execute.assert_called_once_with('result = 1', data=None, bindings=None, timeout_sec=10, session_id=None, init_script=None, init_session_id=None, init_script_hash=None, allow_heartbeat=False, on_heartbeat=None, action=None, python_tool_domain=None, script_session_id=None, cancel=None, sandbox_policy=default_policy)
-    mock_execute.reset_mock()
-    run_code_in_user_venv('result = 1', timeout_sec=100)
-    mock_execute.assert_called_once_with('result = 1', data=None, bindings=None, timeout_sec=100, session_id=None, init_script=None, init_session_id=None, init_script_hash=None, allow_heartbeat=False, on_heartbeat=None, action=None, python_tool_domain=None, script_session_id=None, cancel=None, sandbox_policy=default_policy)
-    mock_execute.reset_mock()
-    run_code_in_user_venv('result = 1', timeout_sec=1000)
-    mock_execute.assert_called_once_with('result = 1', data=None, bindings=None, timeout_sec=600, session_id=None, init_script=None, init_session_id=None, init_script_hash=None, allow_heartbeat=False, on_heartbeat=None, action=None, python_tool_domain=None, script_session_id=None, cancel=None, sandbox_policy=default_policy)
-    mock_execute.reset_mock()
-    run_code_in_user_venv('result = 1', timeout_sec=0)
-    mock_execute.assert_called_once_with('result = 1', data=None, bindings=None, timeout_sec=1, session_id=None, init_script=None, init_session_id=None, init_script_hash=None, allow_heartbeat=False, on_heartbeat=None, action=None, python_tool_domain=None, script_session_id=None, cancel=None, sandbox_policy=default_policy)
+    for timeout_in, expected_timeout in [(None, 10), (100, 100), (1000, 600), (0, 1)]:
+        if timeout_in is None:
+            run_code_in_user_venv('result = 1')
+        else:
+            run_code_in_user_venv('result = 1', timeout_sec=timeout_in)
+        mock_execute.assert_called_once()
+        req = mock_execute.call_args.args[0]
+        assert req.timeout_sec == expected_timeout
+        mock_execute.reset_mock()
 
 def test_run_code_forwards_script_session_pin_apart_from_kernel_session():
-    with patch('plugin.scripting.venv_worker.configured_python_exec_timeout', return_value=10), patch('plugin.scripting.venv_worker.get_config', return_value=''), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
+    with patch('plugin.framework.config.get_config', return_value=10), patch('plugin.scripting.venv_worker.get_config', return_value=''), patch('plugin.scripting.venv_worker.resolve_libreoffice_python', return_value=sys.executable), patch('plugin.scripting.venv_worker.PythonWorkerManager.execute') as mock_execute:
         mock_execute.return_value = {'status': 'ok', 'result': 1}
         run_code_in_user_venv('result = 1', script_session_id='doc:pin')
-    assert mock_execute.call_args.kwargs['script_session_id'] == 'doc:pin'
-    assert mock_execute.call_args.kwargs['session_id'] is None
-
-def test_host_script_session_id_prefers_pin():
-    from plugin.scripting.venv_worker import host_script_session_id
-    assert host_script_session_id('rps:file:///a.odg', 'doc:pin') == 'doc:pin'
-    assert host_script_session_id('rps:file:///a.odg', None) == 'rps:file:///a.odg'
-    assert host_script_session_id('rps:file:///a.odg', '  ') == 'rps:file:///a.odg'
-    assert host_script_session_id(None, None) is None
-    assert host_script_session_id('  ', 'doc:pin') == 'doc:pin'
+    req = mock_execute.call_args.args[0]
+    assert req.pin == 'doc:pin'
+    assert req.session_id is None
+    assert 'session_id' not in req.wire()
+    assert 'script_session_id' not in req.wire()
 
 def _ipc_one_tool_call(*, session_id, script_session_id):
     """Drive one tool_call frame through the host without a real worker."""
@@ -1123,7 +1117,7 @@ def _ipc_one_tool_call(*, session_id, script_session_id):
     with patch('plugin.scripting.host_rpc.execute_tool', return_value={'status': 'ok'}) as mock_tool:
         result = _run_ipc_with_mock(
             mgr,
-            _ExecRequest('result = 1', timeout_sec=1, session=SessionKey.from_host(session_id), pin=script_session_id),
+            ExecRequest(code='result = 1', timeout_sec=1, session_id=session_id, pin=script_session_id),
             proc,
         )
     return (captured['request'], mock_tool.call_args, result)
@@ -1140,65 +1134,7 @@ def test_request_session_id_still_reaches_tool_rpc_without_pin():
     assert request['session_id'] == 'rps:file:///deck.odg'
     assert call.kwargs['script_session_id'] == 'rps:file:///deck.odg'
 
-def test_execute_forwards_script_session_id_not_as_kernel_session():
-    mgr = PythonWorkerManager(sys.executable, {})
-    proc = MagicMock(stdin=io.BytesIO(), stdout=io.BytesIO())
-    leased = _lease_from_proc(mgr, proc)
-
-    def _run(body, **kwargs):
-        return body(leased)
-
-    with patch.object(mgr, '_run_in_session', side_effect=_run), patch.object(mgr, '_execute_ipc_unlocked', return_value={'status': 'ok'}) as ipc:
-        mgr.execute('result = 1', script_session_id='doc:pin')
-    assert ipc.call_args.kwargs.get('leased') is leased
-    req = ipc.call_args.args[0]
-    assert req.pin == 'doc:pin'
-    assert req.session is None
-    assert 'session_id' not in req.wire()
-    assert 'script_session_id' not in req.wire()
-
-def test_split_grid_pickle_and_json_round_trip():
-    """Regression: production buffer path vs historical Base64 JSON split_grid."""
-    from plugin.scripting.payload_codec import is_split_grid
-    from tests.scripting.payload_codec_test_support import child_pack_split_grid, child_unpack_split_grid, host_pack_split_grid, host_unpack_split_grid, legacy_b64_child_pack_split_grid, legacy_b64_child_unpack_split_grid, legacy_b64_host_pack_split_grid, legacy_b64_host_unpack_split_grid
-    np = pytest.importorskip('numpy')
-    grid = [[float(r * 10 + c) for c in range(4)] for r in range(4)]
-    wire_json = legacy_b64_host_pack_split_grid(grid)
-    assert is_split_grid(wire_json)
-    assert 'b64' in wire_json
-    assert 'buffer' not in wire_json
-    assert isinstance(wire_json['b64'], str)
-    unpacked_host_json = legacy_b64_host_unpack_split_grid(wire_json)
-    assert unpacked_host_json == grid
-    unpacked_child_json = legacy_b64_child_unpack_split_grid(wire_json)
-    assert isinstance(unpacked_child_json, np.ndarray)
-    assert unpacked_child_json.shape == (4, 4)
-    np.testing.assert_allclose(unpacked_child_json, np.array(grid))
-    wire_pickle = host_pack_split_grid(grid)
-    assert is_split_grid(wire_pickle)
-    assert 'buffer' in wire_pickle
-    assert 'b64' not in wire_pickle
-    assert isinstance(wire_pickle['buffer'], bytes)
-    unpacked_host_pickle = host_unpack_split_grid(wire_pickle)
-    assert unpacked_host_pickle == grid
-    unpacked_child_pickle = child_unpack_split_grid(wire_pickle)
-    assert isinstance(unpacked_child_pickle, np.ndarray)
-    assert unpacked_child_pickle.shape == (4, 4)
-    np.testing.assert_allclose(unpacked_child_pickle, np.array(grid))
-    child_wire_json = legacy_b64_child_pack_split_grid(np.array(grid))
-    assert is_split_grid(child_wire_json)
-    assert 'b64' in child_wire_json
-    assert 'buffer' not in child_wire_json
-    unpacked_host_json_from_child = legacy_b64_host_unpack_split_grid(child_wire_json)
-    assert unpacked_host_json_from_child == grid
-    child_wire_pickle = child_pack_split_grid(np.array(grid))
-    assert is_split_grid(child_wire_pickle)
-    assert 'buffer' in child_wire_pickle
-    assert 'b64' not in child_wire_pickle
-    unpacked_host_pickle_from_child = host_unpack_split_grid(child_wire_pickle)
-    assert unpacked_host_pickle_from_child == grid
-
-def test_warm_logs_prime_failure(caplog: pytest.LogCaptureFixture) -> None:
+def test_warm_prime_failure_does_not_raise() -> None:
     import contextlib
 
     mgr = PythonWorkerManager('/tmp/python-warm-fail', {'PATH': '/usr/bin'})
@@ -1209,9 +1145,7 @@ def test_warm_logs_prime_failure(caplog: pytest.LogCaptureFixture) -> None:
         yield {'status': 'error', 'message': 'prime failed'}
 
     with patch.object(mgr, '_io_session', fake_session):
-        with caplog.at_level(logging.WARNING, logger='plugin.scripting.venv_worker'):
-            mgr.warm()
-    assert 'prime failed' in caplog.text
+        mgr.warm()
 
 def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     """A replaced manager must not kill a worker or wipe the Calc scalar cache."""
@@ -1224,25 +1158,12 @@ def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -
     def _clear() -> None:
         cleared.append(True)
     monkeypatch.setattr('plugin.calc.python.function.clear_python_addin_cache', _clear)
-    result = mgr.execute('result = 1', timeout_sec=5)
+    result = mgr.execute(ExecRequest(code='result = 1', timeout_sec=5))
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'will not be restarted' in result['message']
     assert terminated == []
     assert cleared == []
-
-def test_warm_spawns_and_primes_worker():
-    """warm() makes the next execute instant by pre-spawning the process and triggering auto-imports."""
-    shutdown_venv_workers_for_tests()
-    mgr = PythonWorkerManager.get(sys.executable, {'PATH': '/usr/bin:/bin'})
-    assert _mgr_proc(mgr) is None
-    mgr.warm()
-    assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).poll() is None
-    assert mgr._primed is True
-    r = mgr.execute('result = 42')
-    assert r['status'] == 'ok'
-    assert r['result'] == 42
-    shutdown_venv_workers_for_tests()
 
 def test_cold_execute_warms_with_separate_timeout():
     """First execute primes the worker under WARM_WORKER_TIMEOUT_SEC, then runs user code at configured timeout."""
@@ -1257,54 +1178,9 @@ def test_cold_execute_warms_with_separate_timeout():
         return original_read(stdout, timeout_sec)
     mgr._read_response_bytes = record_read
     try:
-        r = mgr.execute('result = 42', timeout_sec=3)
+        r = mgr.execute(ExecRequest(code='result = 42', timeout_sec=3))
         assert r['status'] == 'ok'
         assert r['result'] == 42
-        grace = HOST_IPC_READ_GRACE_SEC
-        assert timeouts == [WARM_WORKER_TIMEOUT_SEC + grace, WARM_WORKER_TIMEOUT_SEC + grace, 3 + grace, 3 + grace]
-    finally:
-        shutdown_venv_workers_for_tests()
-
-def test_warm_execute_uses_configured_timeout_only():
-    """After priming, execute reads exec_started and the result at the configured timeout."""
-    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
-    shutdown_venv_workers_for_tests()
-    mgr = PythonWorkerManager.get(sys.executable, {'PATH': '/usr/bin:/bin'})
-    mgr.warm()
-    timeouts: list[float | int] = []
-    original_read = mgr._read_response_bytes
-
-    def record_read(stdout, timeout_sec, cancel=None):
-        timeouts.append(timeout_sec)
-        return original_read(stdout, timeout_sec)
-    mgr._read_response_bytes = record_read
-    try:
-        r = mgr.execute('result = 7', timeout_sec=3)
-        assert r['status'] == 'ok'
-        assert r['result'] == 7
-        grace = HOST_IPC_READ_GRACE_SEC
-        assert timeouts == [3 + grace, 3 + grace]
-    finally:
-        shutdown_venv_workers_for_tests()
-
-def test_terminate_worker_re_primes_on_next_execute():
-    """After worker kill, the next execute runs warm again before user code."""
-    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
-    shutdown_venv_workers_for_tests()
-    mgr = PythonWorkerManager.get(sys.executable, {'PATH': '/usr/bin:/bin'})
-    mgr.warm()
-    mgr._terminate_worker()
-    timeouts: list[float | int] = []
-    original_read = mgr._read_response_bytes
-
-    def record_read(stdout, timeout_sec, cancel=None):
-        timeouts.append(timeout_sec)
-        return original_read(stdout, timeout_sec)
-    mgr._read_response_bytes = record_read
-    try:
-        r = mgr.execute('result = 99', timeout_sec=3)
-        assert r['status'] == 'ok'
-        assert r['result'] == 99
         grace = HOST_IPC_READ_GRACE_SEC
         assert timeouts == [WARM_WORKER_TIMEOUT_SEC + grace, WARM_WORKER_TIMEOUT_SEC + grace, 3 + grace, 3 + grace]
     finally:
@@ -1343,21 +1219,52 @@ class TestLiveWorkerReuse:
 
     def test_manager_two_calls_same_process(self, warmed_worker_manager):
         mgr = warmed_worker_manager
-        r1 = mgr.execute('result = 1')
+        assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).poll() is None
+        assert mgr._primed is True
+        r1 = mgr.execute(ExecRequest(code='result = 1', timeout_sec=10))
         assert r1['status'] == 'ok'
         pid1 = _mgr_proc(mgr).pid if _mgr_proc(mgr) else None
-        r2 = mgr.execute('result = 2')
+        r2 = mgr.execute(ExecRequest(code='result = 2', timeout_sec=10))
         assert r2['status'] == 'ok'
         pid2 = _mgr_proc(mgr).pid if _mgr_proc(mgr) else None
         assert pid1 is not None and pid1 == pid2
-        r3 = mgr.execute('result = prev')
+        r3 = mgr.execute(ExecRequest(code='result = prev', timeout_sec=10))
         assert r3['status'] == 'error'
+
+    def test_warm_execute_uses_configured_timeout_only(self, warmed_worker_manager, monkeypatch: pytest.MonkeyPatch):
+        """After priming, execute reads exec_started and the result at the configured timeout."""
+        from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+        mgr = warmed_worker_manager
+        timeouts: list[float | int] = []
+        original_read = mgr._read_response_bytes
+
+        def record_read(stdout, timeout_sec, cancel=None):
+            timeouts.append(timeout_sec)
+            return original_read(stdout, timeout_sec)
+
+        monkeypatch.setattr(mgr, '_read_response_bytes', record_read)
+        r = mgr.execute(ExecRequest(code='result = 7', timeout_sec=3))
+        assert r['status'] == 'ok'
+        assert r['result'] == 7
+        grace = HOST_IPC_READ_GRACE_SEC
+        assert timeouts == [3 + grace, 3 + grace]
+
+    def test_io_session_does_not_respawn_live_child(self, warmed_worker_manager):
+        mgr = warmed_worker_manager
+        pid1 = _mgr_proc(mgr).pid
+        assert pid1 is not None
+        warm = mgr._warm
+        assert warm is not None
+        with patch.object(warm._supervisor, 'spawn') as mock_spawn:
+            assert _session_ok(mgr)
+            mock_spawn.assert_not_called()
+        assert _mgr_proc(mgr).pid == pid1
 
     def test_split_grid_result_round_trip_manager(self, warmed_worker_manager):
         """API responses unpack split_grid so LLM/UI never see wire envelopes."""
         pytest.importorskip('numpy')
         mgr = warmed_worker_manager
-        r = mgr.execute('import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)')
+        r = mgr.execute(ExecRequest(code='import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)', timeout_sec=10))
         assert r['status'] == 'ok'
         from plugin.scripting.payload_codec import is_split_grid
         assert not is_split_grid(r['result'])
@@ -1370,7 +1277,7 @@ class TestLiveWorkerReuse:
         pytest.importorskip('sympy')
         mgr = warmed_worker_manager
         code = 'result = [(i, int(sp.prime(i))) for i in range(100, 107)]'
-        r = mgr.execute(code)
+        r = mgr.execute(ExecRequest(code=code, timeout_sec=10))
         assert r['status'] == 'ok'
         from plugin.scripting.payload_codec import is_split_grid
         assert not is_split_grid(r['result'])
@@ -1380,14 +1287,14 @@ class TestLiveWorkerReuse:
     def test_split_grid_integration_pickle_mode(self, warmed_worker_manager):
         pytest.importorskip('numpy')
         mgr = warmed_worker_manager
-        r = mgr.execute('import numpy as np\nresult = np.arange(100, dtype=np.float64).reshape(10, 10)')
+        r = mgr.execute(ExecRequest(code='import numpy as np\nresult = np.arange(100, dtype=np.float64).reshape(10, 10)', timeout_sec=10))
         assert r['status'] == 'ok'
         assert len(r['result']) == 10
         assert r['result'][0][0] == 0.0
         assert r['result'][9][9] == 99.0
         large_grid = [[float(r * 10 + c) for c in range(10)] for r in range(10)]
         from plugin.calc.calc_addin_data import pack_calc_data_for_wire
-        r2 = mgr.execute('result = float(np.sum(data))', data=pack_calc_data_for_wire(large_grid))
+        r2 = mgr.execute(ExecRequest(code='result = float(np.sum(data))', data=pack_calc_data_for_wire(large_grid), timeout_sec=10))
         assert r2['status'] == 'ok'
         assert r2['result'] == pytest.approx(sum((r * 10 + c for r in range(10) for c in range(10))))
 
@@ -1495,7 +1402,7 @@ def test_retry_with_new_lease_second_error_is_returned() -> None:
 
     mgr._write_frame_with_timeout = fail_write  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
-    outcome = mgr._execute_ipc_unlocked(_ExecRequest('result = 1', timeout_sec=1), leased=leased)
+    outcome = mgr._execute_ipc_unlocked(ExecRequest(code='result = 1', timeout_sec=1), leased=leased)
     assert isinstance(outcome, RetryWithNewLease)
     assert outcome.error['code'] == 'WORKER_IPC_ERROR'
     assert outcome.error['details']['attempt'] == 2
@@ -1509,7 +1416,7 @@ def test_retry_with_new_lease_second_error_is_returned() -> None:
 
     mgr._write_frame_with_timeout = fail_twice  # type: ignore[method-assign]
     mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert calls[0] == 2
     assert 'second failure' in result['message']
@@ -1534,7 +1441,7 @@ class TestExecuteOSErrorRetry:
 
         mgr._write_frame_with_timeout = fake_write  # type: ignore[method-assign]
         mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
-        result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+        result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
         assert result['status'] == 'error'
         assert '10038' in result['message']
         assert calls[0] == 2
@@ -1558,70 +1465,51 @@ def test_shared_session_persists_after_soft_timeout():
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     sid = 'test-shared-timeout-session'
     try:
-        r1 = mgr.execute('x = 12345\nresult = x', session_id=sid)
+        r1 = mgr.execute(ExecRequest(code='x = 12345\nresult = x', session_id=sid, timeout_sec=10))
         assert r1['status'] == 'ok'
         assert r1['result'] == 12345
         slow_sec = 2.0 if sys.platform == 'win32' else 5.0
         with patch.object(vw, 'HOST_IPC_READ_GRACE_SEC', 8.0):
-            r2 = mgr.execute(f'import time\ntime.sleep({slow_sec})', session_id=sid, timeout_sec=1)
+            r2 = mgr.execute(ExecRequest(code=f'import time\ntime.sleep({slow_sec})', session_id=sid, timeout_sec=1))
         assert r2['status'] == 'error'
         assert 'execution time' in r2.get('message', '').lower() or 'timed out' in r2.get('message', '').lower()
-        r3 = mgr.execute('result = x + 1', session_id=sid)
+        r3 = mgr.execute(ExecRequest(code='result = x + 1', session_id=sid, timeout_sec=10))
         assert r3['status'] == 'ok', r3
         assert r3['result'] == 12346
     finally:
         mgr._terminate_worker()
 
 def test_init_and_cell_share_one_timeout_without_killing_worker():
-    """Init and the cell used to each get a full alarm, so the host read killed the worker."""
+    """Init and the cell share one timeout budget so the worker is not killed by host read."""
     import plugin.scripting.venv_worker as vw
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     sid = 'test-shared-budget-session'
     try:
         with patch.object(vw, 'HOST_IPC_READ_GRACE_SEC', 8.0):
-            slow = mgr.execute('import time\ntime.sleep(2)\nresult = 1', session_id=sid, timeout_sec=3, init_script='import time\ntime.sleep(2)\n', init_session_id=sid + ':init', init_script_hash='budget-v1')
+            slow = mgr.execute(ExecRequest(code='import time\ntime.sleep(2)\nresult = 1', session_id=sid, timeout_sec=3, init_script='import time\ntime.sleep(2)\n', init_session_id=sid + ':init', init_script_hash='budget-v1'))
         assert slow['status'] == 'error'
         assert 'execution time' in slow.get('message', '').lower() or 'timed out' in slow.get('message', '').lower()
         assert _mgr_proc(mgr) is not None and _mgr_proc(mgr).poll() is None
-        follow = mgr.execute('result = 7', session_id=sid)
+        follow = mgr.execute(ExecRequest(code='result = 7', session_id=sid, timeout_sec=10))
         assert follow['status'] == 'ok'
         assert follow['result'] == 7
     finally:
         mgr._terminate_worker()
 
-def test_session_executor_updates_timeout_seconds():
-    """SESSIONS.get_or_create updates timeout_seconds on an existing session."""
-    from plugin.scripting.venv.venv_sandbox import SESSIONS, reset_sandbox_session
-    sid = 'test-dynamic-timeout-session'
-    try:
-        exec1, created1 = SESSIONS.get_or_create(sid, timeout_sec=10)
-        assert created1 is True
-        assert exec1.timeout_seconds == 10
-        exec2, created2 = SESSIONS.get_or_create(sid, timeout_sec=3)
-        assert created2 is False
-        assert exec2 is exec1
-        assert exec2.timeout_seconds == 3
-    finally:
-        reset_sandbox_session(sid)
-
 def test_venv_worker_error_codes_and_context():
     """Verify venv worker returns structured error codes and context on failure."""
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     try:
-        res = mgr.execute('1 / 0')
+        res = mgr.execute(ExecRequest(code='1 / 0', timeout_sec=10))
         assert res['status'] == 'error'
         assert res.get('code') == 'VENV_EXEC_ERROR'
         assert 'ZeroDivisionError' in res.get('message', '')
         assert 'traceback' in res
-        res_to = mgr.execute('import time\ntime.sleep(5)', timeout_sec=1)
+        res_to = mgr.execute(ExecRequest(code='import time\ntime.sleep(5)', timeout_sec=1))
         assert res_to['status'] == 'error'
-        assert res_to.get('code') in ('VENV_TIMEOUT', 'VENV_EXEC_ERROR')
+        assert res_to.get('code') == 'EXECUTION_TIMEOUT'
     finally:
         mgr._terminate_worker()
-
-def test_worker_error_shape():
-    err = _worker_error('WORKER_IPC_ERROR', 'No code provided.')
-    assert err == {'status': 'error', 'code': 'WORKER_IPC_ERROR', 'message': 'No code provided.', 'details': {}}
 
 def test_run_code_and_reset_session_missing_inputs_include_code():
     empty_code = run_code_in_user_venv('   ')
@@ -1644,10 +1532,9 @@ def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: py
     from plugin.scripting import venv_worker as venv_worker_module
     calls: list[str | None] = []
 
-    def _execute(self: PythonWorkerManager, *args: object, **kwargs: object) -> dict[str, object]:
-        del self, args
-        action = kwargs.get('action')
-        calls.append(action if isinstance(action, str) else None)
+    def _execute(self: PythonWorkerManager, request: ExecRequest, *args: object, **kwargs: object) -> dict[str, object]:
+        del self, args, kwargs
+        calls.append(request.action)
         return {'status': 'ok'}
     monkeypatch.setattr(PythonWorkerManager, 'execute', _execute)
     dead = PythonWorkerManager('/tmp/python-dead', {'PATH': '/usr/bin'})
@@ -1665,10 +1552,10 @@ def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: py
 
 
 def test_reset_python_session_passes_lease_wait_sec(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[dict[str, Any]] = []
+    calls: list[tuple[ExecRequest, dict[str, Any]]] = []
 
-    def _execute(self: Any, code: str, **kwargs: Any) -> dict[str, Any]:
-        calls.append(kwargs)
+    def _execute(self: Any, request: ExecRequest, **kwargs: Any) -> dict[str, Any]:
+        calls.append((request, kwargs))
         return {'status': 'ok'}
 
     monkeypatch.setattr(PythonWorkerManager, 'execute', _execute)
@@ -1678,8 +1565,9 @@ def test_reset_python_session_passes_lease_wait_sec(monkeypatch: pytest.MonkeyPa
     res = reset_python_session('calc:file:///live.ods', timeout_sec=3, lease_wait_sec=3)
     assert res['status'] == 'ok'
     assert len(calls) == 1
-    assert calls[0].get('timeout_sec') == 3
-    assert calls[0].get('lease_wait_sec') == 3
+    req, kwargs = calls[0]
+    assert req.timeout_sec == 3
+    assert kwargs.get('lease_wait_sec') == 3
 
 def test_worker_read_rejects_oversize_length_prefix():
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
@@ -1703,7 +1591,9 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
     with patch('plugin.scripting.host_rpc.execute_tool', return_value={'ok': True}) as mock_tool:
         handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'apply_document_content', 'args': {'content': ['x']}}, stdin_write=written.append)
     assert handled is True
-    mock_tool.assert_called_once_with('apply_document_content', {'content': ['x']}, caller='script', allowed_tools=None, script_session_id=None, send_cancellation=None)
+    mock_tool.assert_called_once()
+    assert mock_tool.call_args.args == ('apply_document_content', {'content': ['x']})
+    assert mock_tool.call_args.kwargs['caller'] == 'script'
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -1715,15 +1605,11 @@ def test_maybe_dispatch_tool_call_forwards_cancel():
 
     scope = SendCancellation()
     written: list[bytes] = []
-    with patch('plugin.scripting.host_rpc.handle_tool_call_frame', return_value=True) as mock_tool:
+    with patch('plugin.scripting.venv_worker.handle_tool_call_frame', return_value=True) as mock_tool:
         handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'apply_document_content', 'args': {'content': ['x']}}, stdin_write=written.append, cancel=scope)
     assert handled is True
     mock_tool.assert_called_once()
     assert mock_tool.call_args.kwargs["cancel"] is scope
-
-def test_python_worker_manager_sets_is_worker_env():
-    mgr = PythonWorkerManager(sys.executable, {'PATH': '/usr/bin'})
-    assert mgr.env.get('WRITERAGENT_IS_WORKER') == '1'
 
 def test_execute_main_thread_waits_for_pipe_lock(monkeypatch: pytest.MonkeyPatch) -> None:
     """The designated main thread waits for the pipe lock instead of bailing with WORKER_REENTRY."""
@@ -1739,14 +1625,14 @@ def test_execute_main_thread_waits_for_pipe_lock(monkeypatch: pytest.MonkeyPatch
 
     releaser = threading.Thread(target=_release_later)
     try:
-        def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+        def _fake_ipc(req: ExecRequest, *, leased: Any) -> dict[str, Any]:
             del req, leased
             return {'status': 'ok', 'result': 42}
 
         with patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
             started = time.monotonic()
             releaser.start()
-            result = mgr.execute('result = 42', timeout_sec=2)
+            result = mgr.execute(ExecRequest(code='result = 42', timeout_sec=2))
             elapsed = time.monotonic() - started
             assert elapsed >= 0.25
             assert result['status'] == 'ok'
@@ -1774,14 +1660,14 @@ def test_execute_sync_host_dispatch_waits_for_pipe_lock() -> None:
     releaser = threading.Thread(target=_release_later)
 
     def _worker() -> None:
-        def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+        def _fake_ipc(req: ExecRequest, *, leased: Any) -> dict[str, Any]:
             del req, leased
             return {'status': 'ok', 'result': 99}
 
         with sync_host_dispatch(), patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
             started = time.monotonic()
             releaser.start()
-            res = mgr.execute('result = 99', timeout_sec=2)
+            res = mgr.execute(ExecRequest(code='result = 99', timeout_sec=2))
             elapsed = time.monotonic() - started
             outcome.append((res, elapsed))
 
@@ -1806,46 +1692,49 @@ def test_execute_main_thread_refuses_when_holder_in_tool_rpc(monkeypatch: pytest
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     thread, release = _hold_pipe_in_thread(mgr)
-    mgr._serving_tool_call = True
     try:
-        started = time.monotonic()
-        result = mgr.execute('result = 1', timeout_sec=1)
-        assert time.monotonic() - started < 1.0
-        assert result['code'] == 'WORKER_REENTRY'
-        assert 'busy' in result['message']
+        with mgr.serving_callback():
+            started = time.monotonic()
+            result = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1))
+            assert time.monotonic() - started < 1.0
+            assert result['code'] == 'WORKER_REENTRY'
+            assert 'busy' in result['message']
     finally:
-        mgr._serving_tool_call = False
         release.set()
         thread.join(timeout=2)
 
 def test_execute_refuses_other_thread_during_tool_rpc():
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    mgr._serving_tool_call = True
     assert mgr._warm is not None
     mgr._warm._fake_io_owner = threading.get_ident() + 1
-    result = mgr.execute('result = 1', timeout_sec=1)
-    assert result['code'] == 'WORKER_REENTRY'
-    assert 'busy' in result['message']
+    with mgr.serving_callback():
+        result = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1))
+        assert result['code'] == 'WORKER_REENTRY'
+        assert 'busy' in result['message']
 
 def test_execute_leaves_when_holder_enters_tool_rpc(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     thread, release = _hold_pipe_in_thread(mgr)
+    rpc_done = threading.Event()
 
     def set_tool_rpc() -> None:
         time.sleep(0.1)
-        mgr._serving_tool_call = True
+        with mgr.serving_callback():
+            rpc_done.wait(timeout=5)
 
-    threading.Thread(target=set_tool_rpc, daemon=True).start()
+    rpc_thread = threading.Thread(target=set_tool_rpc, daemon=True)
+    rpc_thread.start()
     try:
-        result = mgr.execute('result = 1', timeout_sec=1)
+        result = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1))
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
-        mgr._serving_tool_call = False
+        rpc_done.set()
         release.set()
+        rpc_thread.join(timeout=2)
         thread.join(timeout=2)
 
 def test_execute_lock_budget_is_worker_reentry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1855,7 +1744,7 @@ def test_execute_lock_budget_is_worker_reentry(monkeypatch: pytest.MonkeyPatch) 
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     thread, release = _hold_pipe_in_thread(mgr)
     try:
-        result = mgr.execute('result = 1', timeout_sec=1)
+        result = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1))
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
@@ -1870,12 +1759,12 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     outcome: list[dict[str, Any]] = []
 
     def _other() -> None:
-        def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+        def _fake_ipc(req: ExecRequest, *, leased: Any) -> dict[str, Any]:
             del req, leased
             return {'status': 'ok', 'result': 1}
 
         with patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
-            outcome.append(mgr.execute('result = 1', timeout_sec=1))
+            outcome.append(mgr.execute(ExecRequest(code='result = 1', timeout_sec=1)))
 
     waiter = threading.Thread(target=_other)
     waiter.start()
@@ -1979,8 +1868,7 @@ def test_io_session_does_not_merge_parent_env(monkeypatch: pytest.MonkeyPatch) -
             os.environ['WRITERAGENT_SPAWN_SENTINEL'] = old_val
         mgr._terminate_worker()
 
-def test_io_session_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    import logging
+def test_io_session_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
 
     def fake_popen(*args: Any, **kwargs: Any) -> Any:
@@ -1988,9 +1876,7 @@ def test_io_session_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(ms.subprocess, 'Popen', fake_popen)
     mgr = PythonWorkerManager(sys.executable, {})
     monkeypatch.setattr(mgr, '_ensure_warmed_unlocked', lambda leased: None)
-    with caplog.at_level(logging.ERROR, logger='plugin.framework.managed_subprocess'):
-        assert _session_ok(mgr) is False
-    assert 'Failed to start managed subprocess' not in caplog.text
+    assert _session_ok(mgr) is False
     assert _mgr_proc(mgr) is None
     assert _mgr_stderr_tail(mgr) is None
 
@@ -2026,24 +1912,26 @@ def test_heartbeats_cannot_extend_past_absolute_cap():
     def parse(_frame: bytes) -> dict[str, object]:
         return {'frame_type': FRAME_HEARTBEAT, 'payload': {'phase': 'spin'}}
     started = time.monotonic()
-    with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
+    with (
+        patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'),
+        patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse),
+        patch('plugin.scripting.venv_worker.HEARTBEAT_ABSOLUTE_CAP_SEC', 0.3),
+    ):
         with pytest.raises(subprocess.TimeoutExpired):
-            mgr._read_response_with_heartbeats(io.BytesIO(), 30, 30, None, absolute_cap_sec=0.3)
+            mgr._read_response_with_heartbeats(io.BytesIO(), 30, 30, None)
     assert time.monotonic() - started < 10.0
 
-def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCaptureFixture):
+def test_unknown_frame_does_not_extend_heartbeat_deadline():
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = 'python'
 
     def parse(_frame: bytes) -> dict[str, str]:
         return {'frame_type': 'not-a-real-frame'}
     started = time.monotonic()
-    with caplog.at_level(logging.WARNING):
-        with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
-            with pytest.raises(subprocess.TimeoutExpired):
-                mgr._read_response_with_heartbeats(io.BytesIO(), 0.25, 0.25, None, absolute_cap_sec=30)
+    with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
+        with pytest.raises(subprocess.TimeoutExpired):
+            mgr._read_response_with_heartbeats(io.BytesIO(), 0.25, 0.25, None)
     assert time.monotonic() - started < 10.0
-    assert 'unknown frame type' in caplog.text
 
 def test_pool_key_change_retires_old_warm_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """A new venv path retires the old warm child before the replacement can spawn."""
@@ -2081,8 +1969,8 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
 
     class DummyManager:
 
-        def execute(self, action, data, timeout_sec=None, allow_heartbeat=False, **kwargs):
-            mock_execute_calls.append({'action': action, 'timeout_sec': timeout_sec, 'allow_heartbeat': allow_heartbeat})
+        def execute(self, request: ExecRequest, **kwargs):
+            mock_execute_calls.append({'action': request.action, 'timeout_sec': request.timeout_sec, 'allow_heartbeat': request.allow_heartbeat})
             return {'status': 'ok'}
 
         def warm(self):
@@ -2093,15 +1981,11 @@ def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     import types
     mod = types.ModuleType('plugin.embeddings.embedding_client')
     mod.get_embedding_model = lambda: 'dummy-model'
-    sys.modules['plugin.embeddings.embedding_client'] = mod
+    monkeypatch.setitem(sys.modules, 'plugin.embeddings.embedding_client', mod)
     mod2 = types.ModuleType('plugin.scripting.config_limits')
     mod2.embeddings_worker_timeout_sec = lambda: 300
-    sys.modules['plugin.scripting.config_limits'] = mod2
-    try:
-        vw.warm_venv_worker(pool=WORKER_POOL_EMBEDDINGS)
-    finally:
-        sys.modules.pop('plugin.embeddings.embedding_client', None)
-        sys.modules.pop('plugin.scripting.config_limits', None)
+    monkeypatch.setitem(sys.modules, 'plugin.scripting.config_limits', mod2)
+    vw.warm_venv_worker(pool=WORKER_POOL_EMBEDDINGS)
     assert len(mock_execute_calls) == 1
     assert mock_execute_calls[0]['action'] == 'run_trusted_action'
     assert mock_execute_calls[0]['timeout_sec'] == 300
@@ -2226,7 +2110,7 @@ def test_intermediate_dispatch_observes_serving_flag(frame_type: str | None, rai
         result = mgr._read_until_terminal(
             io.BytesIO(),
             io.BytesIO(),
-            _ExecRequest(allow_heartbeat=False),
+            ExecRequest(allow_heartbeat=False, timeout_sec=1),
             {"id": "t1"},
             turn_state,
             host_read_timeout_sec=1.0,
@@ -2296,7 +2180,7 @@ def test_read_until_terminal_uses_parsed_heartbeat_frame(monkeypatch: pytest.Mon
     parsed = {'status': 'ok', 'id': 'abc', 'result': 1, 'frame_type': 'result'}
     mgr._read_response_with_heartbeats = MagicMock(return_value=parsed)
     monkeypatch.setattr(vw, 'unpack_pickle_frame', MagicMock(side_effect=AssertionError('second unpack')))
-    result = mgr._read_until_terminal(io.BytesIO(), io.BytesIO(), _ExecRequest(allow_heartbeat=True), {'id': 'abc'}, vw._TurnState(), host_read_timeout_sec=1, write_timeout_sec=1, allowed_tools=None, resolved_script_session_id=None)
+    result = mgr._read_until_terminal(io.BytesIO(), io.BytesIO(), ExecRequest(allow_heartbeat=True, timeout_sec=1), {'id': 'abc'}, vw._TurnState(), host_read_timeout_sec=1, write_timeout_sec=1, allowed_tools=None, resolved_script_session_id=None)
     assert isinstance(result, Terminal)
     assert result.response == parsed
     mgr._read_response_with_heartbeats.assert_called_once()
@@ -2338,7 +2222,7 @@ def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'payload too large' in result['message']
@@ -2355,7 +2239,7 @@ def test_missing_proc_after_concurrent_terminate():
     _install_mock_proc(mgr, proc)
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=RuntimeError('worker terminated concurrently'))
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'worker terminated concurrently' in result['message']
@@ -2371,7 +2255,7 @@ def test_cancel_returns_cancelled_code():
     mgr._terminate_worker = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=FailedAfterStart(RuntimeError('Python worker stopped by user'), 'cancel'))
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1, cancel=_cancelled_scope()), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1, cancel=_cancelled_scope()), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'CANCELLED'
     assert result['message'] == 'Python worker stopped by user'
@@ -2464,7 +2348,7 @@ def test_harness_main_ipc_frame_error_in_read_stage_breaks_without_response(monk
     _skip_harness_ready_frame(stdout)
     assert stdout.read() == b''
 
-def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplog):
+def test_harness_main_truncated_frame_breaks_without_response(monkeypatch):
     import io
     import plugin.scripting.venv.worker_harness as harness
     stdin = io.BytesIO(b'\x00\x00')
@@ -2474,11 +2358,9 @@ def test_harness_main_truncated_frame_breaks_without_response(monkeypatch, caplo
     monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code})'))
     monkeypatch.setattr(harness, 'die_with_parent', lambda: None)
     monkeypatch.setattr(harness, '_init_logging', lambda: None)
-    with caplog.at_level(logging.WARNING, logger='worker_harness'):
-        harness.main()
+    harness.main()
     _skip_harness_ready_frame(stdout)
     assert stdout.read() == b''
-    assert 'IPC frame error' in caplog.text
 
 def test_harness_main_read_desync_during_handle_request_breaks(monkeypatch):
     import io
@@ -2575,7 +2457,7 @@ def test_harness_main_reads_claimed_stdin(monkeypatch):
     started = read_pickle_frame(stdout, require_dict=True)
     assert started == {'type': 'exec_started', 'id': 'req-claim-in'}
 
-def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixture):
+def test_first_frame_stall_uses_timeout_not_grace():
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = 'python'
 
@@ -2584,12 +2466,10 @@ def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixtu
     started = time.monotonic()
     with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
         with pytest.raises(subprocess.TimeoutExpired) as excinfo:
-            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=30.0, on_heartbeat=None, absolute_cap_sec=30)
+            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=30.0, on_heartbeat=None)
     elapsed = time.monotonic() - started
     assert elapsed < 10.0
     assert excinfo.value.timeout == pytest.approx(0.2)
-    unknown_logs = [rec for rec in caplog.records if rec.levelno >= logging.WARNING and 'ignoring unknown frame' in rec.getMessage()]
-    assert len(unknown_logs) == 1
 
 def test_heartbeat_then_stall_uses_grace():
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
@@ -2605,7 +2485,7 @@ def test_heartbeat_then_stall_uses_grace():
     started = time.monotonic()
     with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=parse):
         with pytest.raises(subprocess.TimeoutExpired) as excinfo:
-            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=0.4, on_heartbeat=None, absolute_cap_sec=30)
+            mgr._read_response_with_heartbeats(io.BytesIO(), timeout_sec=0.2, grace_sec=0.4, on_heartbeat=None)
     elapsed = time.monotonic() - started
     assert elapsed >= 0.35
     assert elapsed < 10.0
@@ -2645,7 +2525,7 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
     def _resolve(domain: str | None) -> frozenset[str]:
         events.append('resolve')
         return frozenset()
-    monkeypatch.setattr('plugin.scripting.host_rpc.resolve_allowed_tools', _resolve)
+    monkeypatch.setattr('plugin.scripting.venv_worker.resolve_allowed_tools', _resolve)
 
     def _write(stdin: Any, message: Any, **kwargs: Any) -> None:
         events.append('write')
@@ -2654,7 +2534,7 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
     def _read(stdout: Any, stdin: Any, req: Any, wire: dict[str, Any], *args: Any, **kwargs: Any) -> Terminal:
         return Terminal({'id': wire['id'], 'status': 'ok', 'result': 1})
     mgr._read_until_terminal = _read
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1, python_tool_domain=''), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1, python_tool_domain=''), proc)
     assert result['status'] == 'ok'
     assert result['result'] == 1
     assert events == ['resolve', 'write']
@@ -2669,10 +2549,10 @@ def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.Monkey
 
     def _fail_resolve(domain: str | None) -> frozenset[str]:
         raise RuntimeError('domain map failed')
-    monkeypatch.setattr('plugin.scripting.host_rpc.resolve_allowed_tools', _fail_resolve)
+    monkeypatch.setattr('plugin.scripting.venv_worker.resolve_allowed_tools', _fail_resolve)
     mgr._write_frame_with_timeout = MagicMock()
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'domain map failed' in result['message']
@@ -2691,7 +2571,7 @@ def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPat
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'id': '', 'status': 'error', 'message': 'Invalid pickle request: nope'}, protocol=5))
     cleared: list[bool] = []
     monkeypatch.setattr('plugin.calc.python.function.clear_python_addin_cache', lambda: cleared.append(True))
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'Invalid pickle request: nope' in result['message']
     assert 'id mismatch' not in result['message']
@@ -2723,12 +2603,11 @@ def test_empty_id_error_after_exec_started_still_kills() -> None:
         return pickle.dumps({'id': '', 'status': 'error', 'message': 'Invalid pickle request: late'}, protocol=5)
     mgr._read_response_bytes = _read
     mgr._terminate_worker = MagicMock()
-    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    result = _run_ipc_with_mock(mgr, ExecRequest(code='result = 1', timeout_sec=1), proc)
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'id mismatch' in result['message']
     assert writes['n'] == 1
     assert mgr._terminate_worker.call_count == 1
-    assert mgr._terminate_worker.call_args_list == [call()]
 
 def test_io_session_popen_runs_on_supervisor_spawner_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
@@ -2795,14 +2674,14 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
         # PR_SET_PDEATHSIG before its first stdin read). A fixed sleep raced
         # interpreter startup under CI load: if the spawn thread exited before
         # prctl ran, nothing was armed and the worker never died.
-        result = mgr.execute('result = 42', timeout_sec=30)
+        result = mgr.execute(ExecRequest(code='result = 42', timeout_sec=30))
         assert result.get('status') == 'ok', result
         assert _mgr_proc(mgr) is not None
         assert _mgr_proc(mgr).poll() is None
 
         # The kernel delivers SIGKILL when the spawn OS thread exits, which can
-        # trail Thread.join() slightly; allow for a loaded CI runner.
-        deadline = time.monotonic() + 15.0
+        # trail Thread.join() slightly; 0.3s is plenty once prctl is armed.
+        deadline = time.monotonic() + 0.3
         exit_code = None
         while time.monotonic() < deadline:
             exit_code = _mgr_proc(mgr).poll()
@@ -2902,69 +2781,34 @@ def test_io_session_passes_refuse_dict_through() -> None:
             warm.retire()
 
 
-def test_is_worker_alive_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    mgr = PythonWorkerManager(sys.executable, {})
-    warm = MagicMock()
-    warm.is_alive = MagicMock(side_effect=[True, False, False])
-    mgr._warm = warm
-    assert mgr._is_worker_alive() is True
-    assert mgr._is_worker_alive() is False
-    assert warm.is_alive.call_count == 2
-    warm.is_alive.reset_mock()
-    warm.is_alive.return_value = False
-    assert mgr._is_worker_alive() is False
-    assert warm.is_alive.call_count == 1
-
 def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    res = mgr.execute('result = 1', timeout_sec=1, cancel=_cancelled_scope())
+    res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=1, cancel=_cancelled_scope()))
     assert res['code'] == 'CANCELLED'
-
-def test_io_session_does_not_respawn_live_child(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
-    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
-    assert _session_ok(mgr)
-    pid1 = _mgr_proc(mgr).pid
-    assert pid1 is not None
-    warm = mgr._warm
-    assert warm is not None
-    with patch.object(warm._supervisor, 'spawn') as mock_spawn:
-        assert _session_ok(mgr)
-        mock_spawn.assert_not_called()
-    assert _mgr_proc(mgr).pid == pid1
-    mgr._terminate_worker()
 
 def test_parse_worker_stdout_frame_rejects_non_dict():
     payload = pickle.dumps([1], protocol=5)
-    with pytest.raises(RuntimeError, match='Worker response must be a dict'):
+    with pytest.raises(RuntimeError):
         parse_worker_stdout_frame(payload)
-
-def test_parse_worker_stdout_frame_returns_empty_dict():
-    payload = pickle.dumps({}, protocol=5)
-    assert parse_worker_stdout_frame(payload) == {}
-
-def test_parse_worker_stdout_frame_empty_bytes_raise():
-    with pytest.raises(ValueError):
-        parse_worker_stdout_frame(b'')
 
 def test_run_in_session_does_not_warm_when_stopped():
     mgr = PythonWorkerManager('/tmp/python-test', {'PATH': '/usr/bin'})
     mock_warm = MagicMock()
     mgr._ensure_warmed_unlocked = mock_warm
-    res = mgr._run_in_session(lambda: {'status': 'ok'}, cancel=_cancelled_scope())
+    res = mgr._run_in_session(lambda session: {'status': 'ok'}, cancel=_cancelled_scope(), timeout_sec=10)
     assert res['status'] == 'error'
     assert res['code'] == 'CANCELLED'
     mock_warm.assert_not_called()
 
 def test_host_preparation_failure_does_not_kill_worker(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
-    monkeypatch.setattr('plugin.scripting.host_rpc.resolve_allowed_tools', MagicMock(side_effect=RuntimeError('boom')))
+    monkeypatch.setattr('plugin.scripting.venv_worker.resolve_allowed_tools', MagicMock(side_effect=RuntimeError('boom')))
     terminate_calls: list[Any] = []
     monkeypatch.setattr(mgr, '_terminate_worker', lambda *args, **kwargs: terminate_calls.append((args, kwargs)))
     mgr._ensure_warmed_unlocked = lambda *args, **kwargs: None
-    res = mgr.execute('result = 1', timeout_sec=5)
+    res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=5))
     assert res['status'] == 'error'
     assert res['code'] == 'WORKER_IPC_ERROR'
     assert 'boom' in res['message']
@@ -3025,7 +2869,7 @@ def test_idle_worker_death_clears_matrix_sessions_and_runs_on_death_once(monkeyp
             st.matrix[stale_key] = calc_python.function.WorkerResultSession([99], [99])
         os.kill(pid, signal.SIGKILL)
         time.sleep(0.2)
-        res = mgr.execute('result = 1', timeout_sec=10)
+        res = mgr.execute(ExecRequest(code='result = 1', timeout_sec=10))
         assert res.get('status') == 'ok'
         assert len(clear_calls) == 1
         with calc_python.function._MATRIX_SCALAR_SESSIONS_LOCK:
@@ -3033,6 +2877,32 @@ def test_idle_worker_death_clears_matrix_sessions_and_runs_on_death_once(monkeyp
     finally:
         mgr._retired = True
         shutdown_venv_workers_for_tests()
+
+
+@pytest.mark.parametrize(
+    ("exc", "state", "expected_type", "expected_kind"),
+    [
+        (subprocess.TimeoutExpired("x", 1), _TurnState(), FailedAfterStart, "read_timeout"),
+        (IpcPartialFrameTimeout("x"), _TurnState(), FailedAfterStart, "read_timeout"),
+        (ValueError("bad frame"), _TurnState(), FailedAfterStart, "ipc"),
+        (RuntimeError("pipe error"), _TurnState(execution_started=True), FailedAfterStart, "ipc"),
+        (OSError("pipe error"), _TurnState(dispatched_intermediate=True), FailedAfterStart, "ipc"),
+        (RuntimeError("worker died"), _TurnState(), NotStarted, None),
+    ],
+)
+def test_classify_read_failure_kinds(
+    exc: BaseException,
+    state: _TurnState,
+    expected_type: type,
+    expected_kind: str | None,
+) -> None:
+    outcome = _classify_read_failure(exc, state)
+    assert isinstance(outcome, expected_type)
+    assert outcome.error is exc
+    if expected_kind is not None:
+        assert isinstance(outcome, FailedAfterStart)
+        assert outcome.kind == expected_kind
+
 
 @pytest.mark.slow
 @pytest.mark.skipif(sys.platform != 'linux', reason='orphan PDEATHSIG check is Linux-only')

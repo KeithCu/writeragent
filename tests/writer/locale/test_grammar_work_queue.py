@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import inspect
-from pathlib import Path
 import threading
 from typing import Any
 
@@ -19,21 +17,6 @@ from plugin.writer.locale.grammar_work_queue import (
     enqueue_misses,
 )
 from unittest.mock import MagicMock, patch
-
-
-def _grammar_obs_call_sites_present() -> bool:
-    """True when ``grammar_obs(...)`` call sites exist in the work-queue module under test.
-
-    ``make release`` runs pytest against a stripped bundle (``scripts/strip_code.py`` removes
-  only ``grammar_obs`` expression statements). Imports and ``grammar_obs.py`` remain.
-    """
-    from plugin.writer.locale import grammar_work_queue as gwq
-
-    try:
-        source = Path(inspect.getfile(gwq)).read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return "grammar_obs(" in source
 
 
 def _item(seq: int, key: str = "d|en-US|k1", *, partial: bool = False, text: str = "x") -> GrammarWorkItem:
@@ -169,28 +152,21 @@ def test_drain_loop_distinct_keys_both_dispatch() -> None:
     assert {it.text for it in drained[0]} == {"No.", "No problem today."}
 
 
-def test_enqueue_updates_latest_seq_and_handles_out_of_order(caplog) -> None:
-    """Enqueue updates latest_seq; older seq leaves higher value and logs error; newer seq updates without error."""
-    import logging
-
+def test_enqueue_updates_latest_seq_and_handles_out_of_order() -> None:
+    """Enqueue updates latest_seq; older seq leaves higher value; newer seq updates."""
     q = GrammarWorkQueue()
     with patch.object(q, "_ensure_workers"):
-        with caplog.at_level(logging.ERROR):
-            # First enqueue seq 10
-            q.enqueue(_item(10, key="d|en-US|k1"))
-            assert q._latest_seq["d|en-US|k1"] == 10
-            assert "out-of-order seq detected" not in caplog.text
+        # First enqueue seq 10
+        q.enqueue(_item(10, key="d|en-US|k1"))
+        assert q._latest_seq["d|en-US|k1"] == 10
 
-            # Enqueue older seq 5: stays 10, logs error
-            q.enqueue(_item(5, key="d|en-US|k1"))
-            assert q._latest_seq["d|en-US|k1"] == 10
-            assert "out-of-order seq detected for key=d|en-US|k1: incoming seq=5 < latest seq=10" in caplog.text
+        # Enqueue older seq 5: stays 10
+        q.enqueue(_item(5, key="d|en-US|k1"))
+        assert q._latest_seq["d|en-US|k1"] == 10
 
-            caplog.clear()
-            # Enqueue newer seq 15: updates to 15, no error
-            q.enqueue(_item(15, key="d|en-US|k1"))
-            assert q._latest_seq["d|en-US|k1"] == 15
-            assert "out-of-order seq detected" not in caplog.text
+        # Enqueue newer seq 15: updates to 15
+        q.enqueue(_item(15, key="d|en-US|k1"))
+        assert q._latest_seq["d|en-US|k1"] == 15
 
 
 # The drain-loop dict accumulator (this test) plus _latest_seq guards

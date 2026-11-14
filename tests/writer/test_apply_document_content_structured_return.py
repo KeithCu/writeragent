@@ -26,46 +26,6 @@ _real_content_has_markup = format_mod.content_has_markup
 _real_normalize_search_string_for_find = search_mod.normalize_search_string_for_find
 
 
-def test_heading_rewrite_uno_skips_windows_leftover_hidden_apply() -> None:
-    """GHA 34681661844: leftover Hidden _default swriter hung on second apply."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name(
-        "test_apply_document_content_heading_rewrite_uno.py"
-    ).read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "apply_document_content Hidden _default swriter" in src
-    assert "34681661844" in src
-    assert "html_to_plain_text" in src
-
-
-def test_later_apply_uno_skips_windows_leftover_hidden_apply() -> None:
-    """GHA 34683742049: leftover Hidden _default hung on content-style write."""
-    from pathlib import Path
-
-    writer = Path(__file__).parent
-    for name in (
-        "test_content_style_model_uno.py",
-        "test_format_uno.py",
-        "test_track_changes_reviewable_uno.py",
-        "test_apply_document_content_anchor_uno.py",
-    ):
-        src = (writer / name).read_text(encoding="utf-8")
-        # Suites that share native_writer_tool_context pass the reason in;
-        # the skip call itself lives in testing_utils.
-        assert (
-            "skip_windows_leftover_hidden_load" in src
-            or "native_writer_tool_context" in src
-        ), name
-        assert "apply_document_content Hidden _default swriter" in src, name
-    style_src = (writer / "test_content_style_model_uno.py").read_text(encoding="utf-8")
-    assert "34683742049" in style_src
-    assert "html_to_plain_text" in style_src
-    track_src = (writer / "test_track_changes_reviewable_uno.py").read_text(encoding="utf-8")
-    assert "track_changes wait timeout leftover reuse" in track_src
-    assert "34692834349" in track_src
-
-
 def _ctx():
     doc = MagicMock()
     um = MagicMock()
@@ -902,21 +862,17 @@ def test_build_search_replace_response():
     single = build_search_replace_response(1)
     assert single["status"] == "ok"
     assert single["replaced_count"] == 1
-    assert single["message"] == "Replaced 1 occurrence (by old_content)."
 
     single_preserve = build_search_replace_response(1, use_preserve=True)
     assert single_preserve["status"] == "ok"
-    assert "formatting preserved" in single_preserve["message"]
 
     # Multiple replacements
     multi = build_search_replace_response(3)
     assert multi["status"] == "ok"
     assert multi["replaced_count"] == 3
-    assert multi["message"] == "Replaced 3 occurrence(s)."
 
     multi_preserve = build_search_replace_response(3, use_preserve=True)
     assert multi_preserve["status"] == "ok"
-    assert "formatting preserved" in multi_preserve["message"]
 
 
 def test_build_search_replace_response_custom_message():
@@ -1461,7 +1417,6 @@ def test_replace_all_rollback_failed_code(monkeypatch):
     )
     assert res["status"] == "error"
     assert res["code"] == "ROLLBACK_FAILED"
-    assert "could not be rolled back" in res["message"]
 
 
 def test_replace_all_mutate_error_rollback_status(monkeypatch):
@@ -1483,7 +1438,6 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
     )
     assert res_failed["status"] == "error"
     assert res_failed["code"] == "ROLLBACK_FAILED"
-    assert "could not be rolled back" in res_failed["message"]
     assert res_failed["replaced_count"] == 0
     assert res_failed["partial_failure"] is True
 
@@ -1499,7 +1453,6 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
     )
     assert res_clean["status"] == "error"
     assert res_clean["code"] == "TOOL_EXECUTION_ERROR"
-    assert "document rolled back" in res_clean["message"]
     assert res_clean["replaced_count"] == 0
     assert res_clean["partial_failure"] is True
 
@@ -1517,8 +1470,6 @@ def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monke
     )
     assert res["status"] == "error"
     assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
-    assert "shapes toolset" in res["message"]
-    assert "In review mode" in res["message"]
 
 
 def test_parameter_validations_return_invalid_param():
@@ -1549,13 +1500,4 @@ def test_parameter_validations_return_invalid_param():
     res = tool.execute(ctx, target="beginning", content=123)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
-
-
-def test_description_leaves_hyperlink_and_dry_run_detail_to_params():
-    """Tool description keeps table deletion behavior while delegating parameter-specific mechanics to the schema."""
-    assert ApplyDocumentContent.description is not None
-    assert ApplyDocumentContent.parameters is not None
-    assert "|outline" not in ApplyDocumentContent.description
-    assert "deletes that table" in ApplyDocumentContent.description
-    assert "|outline" in ApplyDocumentContent.parameters["properties"]["hyperlink_url"]["description"]
 

@@ -9,8 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.errors import CalcError
-from plugin.calc.manipulator import CellManipulator, _coerce_array_flag
+from plugin.framework.errors import CalcError, UnoObjectError
+from plugin.calc.manipulator import CellManipulator, WritePlan
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -123,21 +123,18 @@ def test_write_array_formula_refusal_leaves_prior_array():
     writes: list[tuple[tuple[int, int, int, int], str]] = []
 
     class _Cell:
-        def __init__(self, formula: str = "", text: str = "") -> None:
+        def __init__(self, formula: str = "") -> None:
             self._formula = formula
-            self._text = text
 
         def getFormula(self) -> str:
             return self._formula
 
-        def getString(self) -> str:
-            return self._text
-
-    cells = {
-        (0, 0): _Cell("=OLD"),
-        (1, 0): _Cell("=OLD"),
-        (2, 0): _Cell("", "keep"),
+    formulas = {
+        (0, 0): "=OLD",
+        (1, 0): "=OLD",
+        (2, 0): "keep",
     }
+    cells = {pos: _Cell(text) for pos, text in formulas.items()}
 
     class _Cursor:
         def collapseToCurrentArray(self) -> None:
@@ -161,6 +158,12 @@ def test_write_array_formula_refusal_leaves_prior_array():
                     if box == (0, 0, 1, 0):
                         return state["array"]
                     return ""
+
+                def getFormulaArray(self) -> tuple[tuple[str, ...], ...]:
+                    return tuple(
+                        tuple(formulas.get((col, row), "") for col in range(c1, c2 + 1))
+                        for row in range(r1, r2 + 1)
+                    )
 
                 def setArrayFormula(self, formula: str) -> None:
                     writes.append((box, formula))
@@ -354,9 +357,9 @@ def test_oversized_write_raises_limit():
     bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
 
     with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
-        with patch.object(manipulator, "_resolve_document_locale", return_value=MagicMock()):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
             res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
-            assert "filled with" in res
+            assert "filled with" in res["message"]
 
 
 def test_array_preview_capped():
@@ -447,7 +450,7 @@ def test_sort_range_skips_key_read_for_single_data_row():
 
 
 def test_quiet_probe_cleanup():
-    from plugin.calc.manipulator import _quiet_probe_cleanup
+    from plugin.calc.manipulator import quiet_probe_cleanup
 
     DisposedException = type("DisposedException", (Exception,), {})
 
@@ -455,33 +458,164 @@ def test_quiet_probe_cleanup():
         raise DisposedException("disposed")
 
     with pytest.raises(DisposedException):
-        _quiet_probe_cleanup(raise_disposed, "test_disposed")
+        quiet_probe_cleanup(raise_disposed, "test_disposed")
 
     def raise_val_error():
         raise ValueError("swallowed")
 
     # Does not raise
-    _quiet_probe_cleanup(raise_val_error, "test_swallowed")
+    quiet_probe_cleanup(raise_val_error, "test_swallowed")
 
 
-def test_coerce_array_flag_string_regression():
-    # Item 3: String like "false" must not count as True.
-    assert _coerce_array_flag("false") is False
-    assert _coerce_array_flag("False") is False
-    assert _coerce_array_flag(" FALSE ") is False
-    assert _coerce_array_flag("true") is True
-    assert _coerce_array_flag("True") is True
-    assert _coerce_array_flag(False) is False
-    assert _coerce_array_flag(True) is True
-    assert _coerce_array_flag(None) is None
+def test_plan_write_array_false_does_not_force_array():
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=4, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write("A1:A5", "=A1+1", array=False)
+    assert plan.kind == "cells"
+    assert plan.array_size is None
+
+    plan_sort = manipulator.plan_write("A1:A5", "=SORT(B1:B5)", array=False)
+    assert plan_sort.kind == "cells"
+    assert plan_sort.array_size is None
 
 
-def test_prepare_array_formula_string_false_does_not_force_array():
-    # Regression: array="false" must coerce to False, disabling forced array behavior
+def test_commit_write_always_returns_a_message_record():
+    from plugin.calc.manipulator import MAX_WRITE_CELLS
+
     bridge = MagicMock()
     manipulator = CellManipulator(bridge)
-    res = manipulator.prepare_array_formula_if_needed("A1:A5", "=A1+1", array="false")
-    assert res is None
-    res_sort = manipulator.prepare_array_formula_if_needed("A1:A5", "=SORT(B1:B5)", array="false")
-    assert res_sort is None
 
+    with patch.object(manipulator, "clear_range") as mock_clear:
+        clear_res = manipulator.commit_write(WritePlan("clear", "A1:B2"))
+    mock_clear.assert_called_once_with("A1:B2")
+    assert clear_res == {"message": "Range A1:B2 cleared."}
+
+    exact_addr = SimpleNamespace(StartColumn=0, EndColumn=MAX_WRITE_CELLS - 1, StartRow=0, EndRow=0, Sheet=0)
+    mock_range = MagicMock()
+    mock_sheet = MagicMock()
+    mock_range.getSpreadsheet.return_value = mock_sheet
+    mock_range.getDataArray.return_value = ()
+    bridge.resolve_range_or_address.return_value = mock_range
+    bridge.doc.getNumberFormats.return_value = MagicMock()
+    bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
+
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=exact_addr):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res = manipulator.write_formula_range("A1:range", ["1"] * MAX_WRITE_CELLS)
+    assert set(res) == {"message"}
+    assert "filled with" in res["message"]
+
+
+def test_plan_write_shape_comes_from_the_resolved_named_box():
+    from plugin.framework.errors import CalcError
+
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=0, EndRow=2, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    with pytest.raises(CalcError, match="2 values but range Totals has 3 cells"):
+        manipulator.plan_write("Totals", ["x", "y"])
+
+
+def test_plan_write_single_cell_prose_is_one_value():
+    bridge = MagicMock()
+    one_cell = MagicMock()
+    one_cell.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = one_cell
+    manipulator = CellManipulator(bridge)
+
+    plan_single = manipulator.plan_write("A1", "Hello, world")
+    assert plan_single.values == ["Hello, world"]
+
+    two_cells = MagicMock()
+    two_cells.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = two_cells
+
+    plan_pair = manipulator.plan_write("A1:B1", "Hello, world")
+    assert plan_pair.values == ["Hello", "world"]
+
+
+def test_plan_write_expands_2d_from_one_cell():
+    bridge = MagicMock()
+    one_cell = MagicMock()
+    one_cell.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    sheet = MagicMock()
+    one_cell.getSpreadsheet.return_value = sheet
+    bridge.resolve_range_or_address.return_value = one_cell
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write("A1", [[1, 2], [3, 4]])
+    assert plan.range_str == "A1:B2"
+    assert plan.expanded is True
+    assert plan.values == [1, 2, 3, 4]
+    sheet.getCellByPosition.assert_not_called()
+
+
+def test_write_values_grid_cell_error_rejects_mixed_rows():
+    from plugin.calc.manipulator import _write_values_grid_cell_error
+
+    assert _write_values_grid_cell_error([["a"], "b"]) is not None
+    assert _write_values_grid_cell_error([{"x": 1}]) is not None
+    assert _write_values_grid_cell_error([["a", True]]) is None
+
+
+@pytest.mark.parametrize(("v_align", "expected"), [("top", 1), ("center", 2), ("bottom", 3)])
+def test_set_cell_style_v_align_writes_vert_justify_ints(v_align: str, expected: int):
+    bridge = MagicMock()
+    cell = MagicMock()
+    bridge.resolve_range_or_address.return_value = cell
+    manipulator = CellManipulator(bridge)
+
+    manipulator.set_cell_style("A1", v_align=v_align)
+
+    cell.setPropertyValue.assert_any_call("VertJustify", expected)
+
+    cell.reset_mock()
+    manipulator.set_cell_style("A1", v_align="middle")
+    assert not any(call.args[0] == "VertJustify" for call in cell.setPropertyValue.call_args_list)
+
+
+def test_plan_write_lets_bridge_error_through():
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.side_effect = UnoObjectError(
+        "No sheet named 'Nope'. Available: Sheet1",
+        details={"hint": "h"},
+    )
+    manipulator = CellManipulator(bridge)
+
+    with pytest.raises(UnoObjectError) as exc_plan:
+        manipulator.plan_write("Nope.A1", "1")
+    assert exc_plan.value.details == {"hint": "h"}
+
+    with pytest.raises(UnoObjectError) as exc_copy:
+        manipulator.copy_formula_range("Nope.A1", "A1")
+    assert exc_copy.value.details == {"hint": "h"}
+
+
+def test_refuse_occupied_cells_reads_once_and_skips_boxes():
+    from plugin.calc.manipulator import refuse_occupied_cells
+
+    sheet = MagicMock()
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (
+        ("a", "b", ""),
+        ("", "", "c"),
+    )
+
+    with pytest.raises(CalcError, match=r"needs A1:C2, but 1 cell\(s\).*\(first: C2\)"):
+        refuse_occupied_cells(sheet, 0, 0, 2, 1, skip=[(0, 0, 1, 0)])
+
+    sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 2, 1)
+    sheet.getCellByPosition.assert_not_called()
+
+    empty_sheet = MagicMock()
+    empty_sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (
+        ("", ""),
+        ("", ""),
+    )
+    refuse_occupied_cells(empty_sheet, 0, 0, 1, 1)

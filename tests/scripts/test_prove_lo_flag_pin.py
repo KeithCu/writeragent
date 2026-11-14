@@ -25,7 +25,6 @@ from prove_lo_flag_pin import (  # noqa: E402
     main,
     odt_contains_shape_name,
 )
-from prove_lo_multi_doc import Span as MultiSpan  # noqa: E402
 
 
 def test_b_write_must_start_during_a_sleep() -> None:
@@ -85,8 +84,3 @@ def test_main_rejects_testing_mode_without_starting_soffice(monkeypatch: pytest.
     monkeypatch.setattr("prove_lo_flag_pin.LOBackend.start", boom)
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     assert main() == 1
-
-
-def test_span_type_matches_the_text_proof() -> None:
-    """Overlap checks share the text proof's Span so UNO serial checks stay one helper."""
-    assert Span is MultiSpan

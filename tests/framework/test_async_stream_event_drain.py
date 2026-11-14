@@ -320,25 +320,6 @@ def test_async_callback_for_drain_rearm_keeps_testing_flag(monkeypatch: pytest.M
         executor._ctx = previous_ctx
 
 
-def test_drain_scheduler_override_forces_blocking_and_restores() -> None:
-    """Override selects the scheduler; restoring the previous factory undoes it."""
-    from plugin.framework import async_stream as stream_mod
-
-    previous = stream_mod.set_drain_scheduler_override(lambda: None)
-    try:
-        assert stream_mod._make_drain_rearm() is None
-
-        sentinel = object()
-        blocking_factory = stream_mod.set_drain_scheduler_override(lambda: sentinel)
-        assert blocking_factory is not None
-        assert stream_mod._make_drain_rearm() is sentinel
-
-        stream_mod.set_drain_scheduler_override(blocking_factory)
-        assert stream_mod._make_drain_rearm() is None
-    finally:
-        stream_mod.set_drain_scheduler_override(previous)
-
-
 def test_drain_scheduler_override_none_uses_blocking_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """A None hook selects _run_stream_drain_blocking (pumps idle before return).
 

@@ -13,17 +13,19 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 
 from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
+from plugin.scripting.sandbox import build_sandbox_policy
+from plugin.scripting.venv import venv_sandbox as vs
 from plugin.scripting.venv.venv_sandbox import (
-    SESSIONS,
     reset_sandbox_session,
-    run_sandboxed_code,
     serialize_result,
 )
+from tests.scripting.sandbox_support import sandbox_run
 
 
 @pytest.fixture(autouse=True)
@@ -64,14 +66,14 @@ def test_user_base_exception_does_not_drop_the_shared_session(code: str, label: 
     """
     sid = f"calc:base-exception-{label}"
     try:
-        first = run_sandboxed_code("result = 7", session_id=sid, timeout_sec=8)
+        first = sandbox_run("result = 7", session_id=sid, timeout_sec=8)
         assert first["status"] == "ok", first
         assert first["result"] == 7
-        blown = run_sandboxed_code(code, session_id=sid, timeout_sec=8)
+        blown = sandbox_run(code, session_id=sid, timeout_sec=8)
         assert blown["status"] == "error", blown
         assert label in blown.get("traceback", "")
         assert blown.get("code") != "USER_STOPPED"
-        again = run_sandboxed_code("result = result + 1", session_id=sid, timeout_sec=8)
+        again = sandbox_run("result = result + 1", session_id=sid, timeout_sec=8)
         assert again["status"] == "ok", again
         assert again["result"] == 8
     finally:
@@ -109,7 +111,7 @@ def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
         raise UserStopped("Stopped by user.")
 
     code = "try:\n    boom()\n    result = 'kept going'\nexcept Exception:\n    result = 'caught'\n"
-    out = run_sandboxed_code(code, bindings={"boom": boom}, timeout_sec=5)
+    out = sandbox_run(code, bindings={"boom": boom}, timeout_sec=5)
     assert out["status"] == "error"
     assert out["code"] == "USER_STOPPED"
     assert "Stopped by user" in out["message"]
@@ -142,14 +144,14 @@ def test_timeout_fallback_keeps_sandbox_session_context(monkeypatch: pytest.Monk
         seen["active"] = sandbox_execute_active()
         return 1
 
-    isolated = run_sandboxed_code("result = probe()", bindings={"probe": probe}, timeout_sec=8)
+    isolated = sandbox_run("result = probe()", bindings={"probe": probe}, timeout_sec=8)
     assert isolated["status"] == "ok", isolated
     assert seen["sid"] is None
     assert seen["active"] is True
 
     sid = "calc:file:///timeout-fallback-workbook"
     try:
-        shared = run_sandboxed_code(
+        shared = sandbox_run(
             "result = probe()",
             bindings={"probe": probe},
             session_id=sid,
@@ -164,7 +166,7 @@ def test_timeout_fallback_keeps_sandbox_session_context(monkeypatch: pytest.Monk
 
 def test_run_sandboxed_code_injects_bindings():
     code = "result = image"
-    out = run_sandboxed_code(code, bindings={"image": b"png-bytes"})
+    out = sandbox_run(code, bindings={"image": b"png-bytes"})
     assert out["status"] == "ok"
     assert out["result"] == b"png-bytes"
 
@@ -238,7 +240,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
     sid = "calc:scoped-dir-leak"
     host = str(tmp_path)
     try:
-        first = run_sandboxed_code(
+        first = sandbox_run(
             "scoped_dir = '/tmp/not-the-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": host},
             session_id=sid,
@@ -247,7 +249,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
         assert first["status"] == "ok", first
         assert seen == [host]
 
-        second = run_sandboxed_code(
+        second = sandbox_run(
             "result = query_folder_df('select 1', files=['a.csv'])",
             session_id=sid,
             timeout_sec=10,
@@ -255,11 +257,11 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
         assert second["status"] == "ok", second
         assert seen == [host, None]
 
-        leaked = run_sandboxed_code("result = scoped_dir", session_id=sid, timeout_sec=10)
+        leaked = sandbox_run("result = scoped_dir", session_id=sid, timeout_sec=10)
         assert leaked["status"] == "error", leaked
 
         other = str(tmp_path / "other")
-        rebound = run_sandboxed_code(
+        rebound = sandbox_run(
             "scoped_dir = '/tmp/still-not-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": other},
             session_id=sid,
@@ -379,17 +381,17 @@ def test_clongdouble_scalar_names_the_type():
 
 
 def test_class_statement_result_is_none():
-    res1 = run_sandboxed_code("class Foo:\n    pass", timeout_sec=8)
+    res1 = sandbox_run("class Foo:\n    pass", timeout_sec=8)
     assert res1["status"] == "ok", res1
     assert res1["result"] is None
 
-    res2 = run_sandboxed_code("class Foo:\n    pass\nresult = Foo", timeout_sec=8)
+    res2 = sandbox_run("class Foo:\n    pass\nresult = Foo", timeout_sec=8)
     assert res2["status"] == "ok", res2
     assert res2["result"] is None
 
 
 def test_instance_result_errors_and_keeps_stdout():
-    res = run_sandboxed_code(
+    res = sandbox_run(
         'print("hello world")\nclass Box:\n    pass\nbox = Box()\n',
         timeout_sec=8,
     )
@@ -399,13 +401,13 @@ def test_instance_result_errors_and_keeps_stdout():
 
 
 def test_system_exit_keeps_stdout():
-    res = run_sandboxed_code('print("hi")\nraise SystemExit(1)', timeout_sec=8)
+    res = sandbox_run('print("hi")\nraise SystemExit(1)', timeout_sec=8)
     assert res["status"] == "error", res
     assert res.get("stdout") == "hi\n"
 
 
 def test_module_expression_still_cannot_cross():
-    res = run_sandboxed_code("import math\nresult = math", timeout_sec=8)
+    res = sandbox_run("import math\nresult = math", timeout_sec=8)
     assert res["status"] == "error", res
     assert "cannot cross" in res.get("message", "")
 
@@ -479,16 +481,16 @@ def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.Mo
 
 
 def test_run_sandboxed_code_allows_future_and_collections_abc() -> None:
-    res1 = run_sandboxed_code("from __future__ import annotations\nresult = 1 + 1\n")
+    res1 = sandbox_run("from __future__ import annotations\nresult = 1 + 1\n")
     assert res1["status"] == "ok"
     assert res1["result"] == 2
 
-    res2 = run_sandboxed_code("from collections.abc import Mapping\nresult = issubclass(dict, Mapping)\n")
+    res2 = sandbox_run("from collections.abc import Mapping\nresult = issubclass(dict, Mapping)\n")
     assert res2["status"] == "ok"
     assert res2["result"] is True
 
 
-def test_unpickleable_init_result_closes_open_figures() -> None:
+def test_unpickleable_init_result_closes_open_figures(fresh_sandbox_sessions) -> None:
     pytest.importorskip("matplotlib")
     import matplotlib.pyplot as plt
 
@@ -502,7 +504,7 @@ def test_unpickleable_init_result_closes_open_figures() -> None:
         "Box()\n"
     )
     try:
-        res = run_sandboxed_code(
+        res = sandbox_run(
             "result = 5",
             session_id=None,
             init_script=init_script,
@@ -513,41 +515,36 @@ def test_unpickleable_init_result_closes_open_figures() -> None:
         assert res["result"] == 5
     finally:
         plt.close("all")
-        SESSIONS.clear_all()
 
 
-def test_init_executor_omits_cell_bindings() -> None:
-
-    try:
-        res = run_sandboxed_code(
-            "result = 1",
-            data=None,
-            bindings={"scoped_dir": "/tmp/wa-init-ns"},
-            session_id="calc:init-namespace",
-            init_script="HELPER = 1",
-            init_session_id="calc:init-namespace:init",
-            init_script_hash="ns",
-        )
-        assert res["status"] == "ok"
-        init_exec = SESSIONS.executor("calc:init-namespace:init")
-        assert init_exec is not None
-        init_state = init_exec.state
-        assert init_state.get("HELPER") == 1
-        for name in (
-            "data",
-            "ranges",
-            "xl",
-            "scoped_dir",
-            "session_duckdb",
-            "run_sql",
-            "invalidate_session_tables",
-        ):
-            assert name not in init_state
-    finally:
-        SESSIONS.clear_all()
+def test_init_executor_omits_cell_bindings(fresh_sandbox_sessions) -> None:
+    res = sandbox_run(
+        "result = 1",
+        data=None,
+        bindings={"scoped_dir": "/tmp/wa-init-ns"},
+        session_id="calc:init-namespace",
+        init_script="HELPER = 1",
+        init_session_id="calc:init-namespace:init",
+        init_script_hash="ns",
+    )
+    assert res["status"] == "ok"
+    init_exec = fresh_sandbox_sessions.executor("calc:init-namespace:init")
+    assert init_exec is not None
+    init_state = init_exec.state
+    assert init_state.get("HELPER") == 1
+    for name in (
+        "data",
+        "ranges",
+        "xl",
+        "scoped_dir",
+        "session_duckdb",
+        "run_sql",
+        "invalidate_session_tables",
+    ):
+        assert name not in init_state
 
 
-def test_shared_init_import_session_duckdb_shares_catalog() -> None:
+def test_shared_init_import_session_duckdb_shares_catalog(fresh_sandbox_sessions) -> None:
     pytest.importorskip("duckdb")
     from plugin.framework.uno_bootstrap import register_alias_importer
 
@@ -559,31 +556,28 @@ def test_shared_init_import_session_duckdb_shares_catalog() -> None:
     )
     sid = "calc:init-duck"
     init_sid = f"{sid}:init"
-    try:
-        r1 = run_sandboxed_code(
-            "result = HELPER",
-            session_id=sid,
-            init_script=init_script,
-            init_session_id=init_sid,
-            init_script_hash="h",
-        )
-        assert r1["status"] == "ok"
-        assert r1["result"] == 3
+    r1 = sandbox_run(
+        "result = HELPER",
+        session_id=sid,
+        init_script=init_script,
+        init_session_id=init_sid,
+        init_script_hash="h",
+    )
+    assert r1["status"] == "ok"
+    assert r1["result"] == 3
 
-        r2 = run_sandboxed_code(
-            "result = session_duckdb().execute('SELECT n FROM init_marker').fetchone()[0]",
-            session_id=sid,
-            init_script=init_script,
-            init_session_id=init_sid,
-            init_script_hash="h",
-        )
-        assert r2["status"] == "ok"
-        assert r2["result"] == 11
-    finally:
-        SESSIONS.clear_all()
+    r2 = sandbox_run(
+        "result = session_duckdb().execute('SELECT n FROM init_marker').fetchone()[0]",
+        session_id=sid,
+        init_script=init_script,
+        init_session_id=init_sid,
+        init_script_hash="h",
+    )
+    assert r2["status"] == "ok"
+    assert r2["result"] == 11
 
 
-def test_isolated_init_import_session_duckdb_does_not_share_catalog() -> None:
+def test_isolated_init_import_session_duckdb_does_not_share_catalog(fresh_sandbox_sessions) -> None:
     pytest.importorskip("duckdb")
     from plugin.framework.uno_bootstrap import register_alias_importer
 
@@ -593,100 +587,89 @@ def test_isolated_init_import_session_duckdb_does_not_share_catalog() -> None:
         "session_duckdb().execute('CREATE TABLE init_marker AS SELECT 11 AS n')\n"
         "HELPER = 3\n"
     )
-    try:
-        r1 = run_sandboxed_code(
-            "result = HELPER",
-            session_id=None,
-            init_script=init_script,
-            init_session_id="isolated:init-duck:init",
-            init_script_hash="h2",
-        )
-        assert r1["status"] == "ok"
-        assert r1["result"] == 3
+    r1 = sandbox_run(
+        "result = HELPER",
+        session_id=None,
+        init_script=init_script,
+        init_session_id="isolated:init-duck:init",
+        init_script_hash="h2",
+    )
+    assert r1["status"] == "ok"
+    assert r1["result"] == 3
 
-        r2 = run_sandboxed_code(
-            "result = session_duckdb().execute('SELECT n FROM init_marker').fetchone()[0]",
-            session_id=None,
-            init_script=init_script,
-            init_session_id="isolated:init-duck:init",
-            init_script_hash="h2",
-        )
-        assert r2["status"] == "error"
-        assert "init_marker" in str(r2.get("message", ""))
-    finally:
-        SESSIONS.clear_all()
+    r2 = sandbox_run(
+        "result = session_duckdb().execute('SELECT n FROM init_marker').fetchone()[0]",
+        session_id=None,
+        init_script=init_script,
+        init_session_id="isolated:init-duck:init",
+        init_script_hash="h2",
+    )
+    assert r2["status"] == "error"
+    assert "init_marker" in str(r2.get("message", ""))
 
 
-def test_init_result_lambda_is_not_seeded() -> None:
+def test_init_result_lambda_is_not_seeded(fresh_sandbox_sessions) -> None:
     from plugin.scripting.venv.venv_sandbox import CellNamespace, _new_executor
 
     init_script = "def helper():\n    return 4\nresult = lambda: 99\n"
     init_sid = "isolated:skip-result:init"
-    try:
-        r1 = run_sandboxed_code(
-            "result = helper()",
+    r1 = sandbox_run(
+        "result = helper()",
+        session_id=None,
+        init_script=init_script,
+        init_session_id=init_sid,
+        init_script_hash="s",
+    )
+    assert r1["status"] == "ok"
+    assert r1["result"] == 4
+
+    exe = _new_executor(build_sandbox_policy())
+    CellNamespace(exe).seed(init_sid, copy=True)
+    assert cast("Any", exe.state["helper"])() == 4
+    assert "result" not in exe.state
+    assert "result" not in exe.custom_tools
+    assert "helper" in exe.custom_tools
+
+    check_code = (
+        "try:\n"
+        "    result()\n"
+        "    result = 'present'\n"
+        "except (NameError, Exception):\n"
+        "    result = 'absent'\n"
+    )
+    r2 = sandbox_run(
+        check_code,
+        session_id=None,
+        init_script=init_script,
+        init_session_id=init_sid,
+        init_script_hash="s",
+    )
+    assert r2["status"] == "ok"
+    assert r2["result"] == "absent"
+
+
+def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse(
+    fresh_sandbox_sessions,
+) -> None:
+    store = fresh_sandbox_sessions
+    for i in range(33):
+        r = sandbox_run(
+            "result = 1",
             session_id=None,
-            init_script=init_script,
-            init_session_id=init_sid,
-            init_script_hash="s",
+            init_script=f"MARKER = {i}",
+            init_session_id=f"isolated:{i}:init",
+            init_script_hash=f"h{i}",
+            timeout_sec=8,
         )
-        assert r1["status"] == "ok"
-        assert r1["result"] == 4
+        assert r["status"] == "ok"
 
-        exe = _new_executor(5)
-        CellNamespace(exe).seed(init_sid, copy=True)
-        assert cast("Any", exe.state["helper"])() == 4
-        assert "result" not in exe.state
-        assert "result" not in exe.custom_tools
-        assert "helper" in exe.custom_tools
+    assert store.executor("isolated:0:init") is None
+    assert store.executor("isolated:32:init") is not None
+    assert sum(store.executor(f"isolated:{i}:init") is not None for i in range(33)) == 32
 
-        check_code = (
-            "try:\n"
-            "    result()\n"
-            "    result = 'present'\n"
-            "except (NameError, Exception):\n"
-            "    result = 'absent'\n"
-        )
-        r2 = run_sandboxed_code(
-            check_code,
-            session_id=None,
-            init_script=init_script,
-            init_session_id=init_sid,
-            init_script_hash="s",
-        )
-        assert r2["status"] == "ok"
-        assert r2["result"] == "absent"
-    finally:
-        SESSIONS.clear_all()
-
-
-def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
-    from plugin.scripting.venv import venv_sandbox as vs
-
-    try:
-        for i in range(33):
-            r = run_sandboxed_code(
-                "result = 1",
-                session_id=None,
-                init_script=f"MARKER = {i}",
-                init_session_id=f"isolated:{i}:init",
-                init_script_hash=f"h{i}",
-                timeout_sec=8,
-            )
-            assert r["status"] == "ok"
-
-        assert SESSIONS.executor("isolated:0:init") is None
-        assert SESSIONS.init_script_hash("isolated:0:init") is None
-        assert not SESSIONS.is_isolated_lru("isolated:0:init")
-
-        assert SESSIONS.executor("isolated:32:init") is not None
-        assert SESSIONS.init_script_hash("isolated:32:init") is not None
-        assert SESSIONS.is_isolated_lru("isolated:32:init")
-
-        assert vs.SESSIONS.isolated_lru_len() == 32
-
-        # Re-run i == 1 with the same script and hash "h1" (early return, LRU refresh)
-        r_refresh = run_sandboxed_code(
+    # Re-run i == 1 with the same script and hash "h1" (early return, LRU refresh)
+    with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as patched_run:
+        r_refresh = sandbox_run(
             "result = 1",
             session_id=None,
             init_script="MARKER = 1",
@@ -695,52 +678,22 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
             timeout_sec=8,
         )
         assert r_refresh["status"] == "ok"
+        assert patched_run.call_count == 1
 
-        # Then one more id isolated:33:init with MARKER = 33 and hash "h33"
-        r_33 = run_sandboxed_code(
-            "result = 1",
-            session_id=None,
-            init_script="MARKER = 33",
-            init_session_id="isolated:33:init",
-            init_script_hash="h33",
-            timeout_sec=8,
-        )
-        assert r_33["status"] == "ok"
+    # Then one more id isolated:33:init with MARKER = 33 and hash "h33"
+    r_33 = sandbox_run(
+        "result = 1",
+        session_id=None,
+        init_script="MARKER = 33",
+        init_session_id="isolated:33:init",
+        init_script_hash="h33",
+        timeout_sec=8,
+    )
+    assert r_33["status"] == "ok"
 
-        assert SESSIONS.executor("isolated:1:init") is not None
-        assert SESSIONS.is_isolated_lru("isolated:1:init")
-
-        assert SESSIONS.executor("isolated:2:init") is None
-        assert SESSIONS.init_script_hash("isolated:2:init") is None
-        assert not SESSIONS.is_isolated_lru("isolated:2:init")
-
-        assert vs.SESSIONS.isolated_lru_len() == 32
-    finally:
-        SESSIONS.clear_all()
-
-
-def test_isolated_init_lru_pops_non_isolated_id() -> None:
-    from plugin.scripting.venv import venv_sandbox as vs
-
-    try:
-        SESSIONS.clear_all()
-        vs.SESSIONS.get_or_create("weird:1", 5)
-        vs.SESSIONS.get_or_create("weird:1:init", 5)
-        vs.SESSIONS.set_init_hash("weird:1:init", "h")
-        vs.SESSIONS.set_seeded_digest("weird:1", "h")
-
-        vs.SESSIONS.note_isolated_access("weird:1:init")
-        for i in range(32):
-            vs.SESSIONS.note_isolated_access(f"isolated:lru{i}:init")
-
-        assert SESSIONS.executor("weird:1:init") is None
-        assert SESSIONS.executor("weird:1") is None
-        assert SESSIONS.init_script_hash("weird:1:init") is None
-        assert not SESSIONS.is_isolated_lru("weird:1:init")
-        assert SESSIONS.seeded_digest("weird:1") is None
-        assert vs.SESSIONS.isolated_lru_len() == 32
-    finally:
-        SESSIONS.clear_all()
+    assert store.executor("isolated:1:init") is not None
+    assert store.executor("isolated:2:init") is None
+    assert sum(store.executor(f"isolated:{i}:init") is not None for i in range(34)) == 32
 
 
 def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -771,6 +724,10 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
         harness.main()
     finally:
         lpe.abandoned_timeout = False
+        from plugin.scripting.host_tool_call import set_process_role
+
+        # main() sets the process role to worker; put it back so later tests run as host.
+        set_process_role(None)
 
     assert exit_calls == [1]
     stdout.seek(0)
@@ -825,13 +782,13 @@ def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPa
 
 
 def test_sandbox_policy_socket_default_errors():
-    res = run_sandboxed_code("import socket", sandbox_policy=None)
+    res = sandbox_run("import socket", sandbox_policy=None)
     assert res["status"] == "error"
     assert "Import of socket is not allowed" in res["message"]
 
 
 def test_sandbox_policy_network_binds_socket():
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "import socket\nresult = bool(hasattr(socket, 'socket'))",
         sandbox_policy={"network": True},
     )
@@ -850,13 +807,13 @@ with open({target!r}, "r") as f:
 os.remove({target!r})
 result = content
 """
-    res = run_sandboxed_code(code, sandbox_policy={"files": True})
+    res = sandbox_run(code, sandbox_policy={"files": True})
     assert res["status"] == "ok"
     assert res["result"] == "sandboxed-hello"
     import os
     assert not os.path.exists(target)
 
-    res_sub = run_sandboxed_code("import subprocess\nsubprocess.run(['echo'])", sandbox_policy={"files": True})
+    res_sub = sandbox_run("import subprocess\nsubprocess.run(['echo'])", sandbox_policy={"files": True})
     assert res_sub["status"] == "error"
 
 
@@ -867,7 +824,7 @@ import subprocess
 res = subprocess.run([{sys.executable!r}, "-c", "print(1)"], capture_output=True, text=True)
 result = res.stdout.strip()
 """
-    res = run_sandboxed_code(code, sandbox_policy={"os": True})
+    res = sandbox_run(code, sandbox_policy={"os": True})
     assert res["status"] == "ok"
     assert res["result"] == "1"
 
@@ -880,23 +837,23 @@ def test_sandbox_policy_process_spawning_blocked_by_default():
     at the callable gate.
     """
     # 1. subprocess.run: blocked at import
-    res = run_sandboxed_code("import subprocess\nsubprocess.run(['echo'])", sandbox_policy=None)
+    res = sandbox_run("import subprocess\nsubprocess.run(['echo'])", sandbox_policy=None)
     assert res["status"] == "error"
     assert "not allowed" in res.get("message", "").lower()
 
     # 2. os.system: not present on _FileOsProxy
-    res = run_sandboxed_code("import os\nresult = os.system('true')", sandbox_policy=None)
+    res = sandbox_run("import os\nresult = os.system('true')", sandbox_policy=None)
     assert res["status"] == "error"
 
     # 3. asyncio subprocess: create_subprocess_exec and create_subprocess_shell blocked
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "import asyncio\nproc = asyncio.run(asyncio.create_subprocess_exec('echo', 'hi'))",
         sandbox_policy=None,
     )
     assert res["status"] == "error"
     assert "Forbidden access to function: create_subprocess_exec" in res.get("message", "")
 
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "import asyncio\nproc = asyncio.run(asyncio.create_subprocess_shell('echo hi'))",
         sandbox_policy=None,
     )
@@ -904,14 +861,14 @@ def test_sandbox_policy_process_spawning_blocked_by_default():
     assert "Forbidden access to function: create_subprocess_shell" in res.get("message", "")
 
     # 4. ProcessPoolExecutor: blocked via from import and direct attribute access
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "from concurrent.futures import ProcessPoolExecutor\np = ProcessPoolExecutor(max_workers=1)",
         sandbox_policy=None,
     )
     assert res["status"] == "error"
     assert "Forbidden access to function: ProcessPoolExecutor" in res.get("message", "")
 
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "import concurrent.futures\np = concurrent.futures.ProcessPoolExecutor(max_workers=1)",
         sandbox_policy=None,
     )
@@ -919,24 +876,24 @@ def test_sandbox_policy_process_spawning_blocked_by_default():
     assert "Forbidden access to function: ProcessPoolExecutor" in res.get("message", "")
 
     # 5. multiprocessing: blocked at import (bare, from, submodule)
-    res = run_sandboxed_code("import multiprocessing", sandbox_policy=None)
+    res = sandbox_run("import multiprocessing", sandbox_policy=None)
     assert res["status"] == "error"
     assert "not allowed" in res.get("message", "").lower()
 
-    res = run_sandboxed_code("from multiprocessing import Process, Pool", sandbox_policy=None)
+    res = sandbox_run("from multiprocessing import Process, Pool", sandbox_policy=None)
     assert res["status"] == "error"
     assert "not allowed" in res.get("message", "").lower()
 
-    res = run_sandboxed_code("import multiprocessing.pool", sandbox_policy=None)
+    res = sandbox_run("import multiprocessing.pool", sandbox_policy=None)
     assert res["status"] == "error"
     assert "not allowed" in res.get("message", "").lower()
 
     # 6. pty: blocked at import
-    res = run_sandboxed_code("import pty", sandbox_policy=None)
+    res = sandbox_run("import pty", sandbox_policy=None)
     assert res["status"] == "error"
     assert "not allowed" in res.get("message", "").lower()
 
-    res = run_sandboxed_code("from pty import openpty", sandbox_policy=None)
+    res = sandbox_run("from pty import openpty", sandbox_policy=None)
     assert res["status"] == "error"
     assert "not allowed" in res.get("message", "").lower()
 
@@ -947,12 +904,12 @@ def test_sandbox_policy_process_spawning_allowed_with_os_flag():
 
     # 1. subprocess.run: works
     code_sub = "import subprocess\nres = subprocess.run(['echo', 'hello'], capture_output=True, text=True)\nresult = res.stdout.strip()"
-    res = run_sandboxed_code(code_sub, sandbox_policy=policy)
+    res = sandbox_run(code_sub, sandbox_policy=policy)
     assert res["status"] == "ok"
     assert res["result"] == "hello"
 
     # 2. os.system: works
-    res = run_sandboxed_code("import os\nresult = os.system('true')", sandbox_policy=policy)
+    res = sandbox_run("import os\nresult = os.system('true')", sandbox_policy=policy)
     assert res["status"] == "ok"
     assert res["result"] == 0
 
@@ -965,7 +922,7 @@ loop.run_until_complete(proc.wait())
 loop.close()
 result = proc.pid > 0
 """
-    res = run_sandboxed_code(code_aio_exec, sandbox_policy=policy)
+    res = sandbox_run(code_aio_exec, sandbox_policy=policy)
     assert res["status"] == "ok"
     assert res["result"] is True
 
@@ -977,7 +934,7 @@ loop.run_until_complete(proc.wait())
 loop.close()
 result = proc.pid > 0
 """
-    res = run_sandboxed_code(code_aio_shell, sandbox_policy=policy)
+    res = sandbox_run(code_aio_shell, sandbox_policy=policy)
     assert res["status"] == "ok"
     assert res["result"] is True
 
@@ -989,7 +946,7 @@ with ProcessPoolExecutor(max_workers=1) as executor:
     fut = executor.submit(math.sqrt, 25.0)
     result = fut.result()
 """
-    res = run_sandboxed_code(code_pool, sandbox_policy=policy)
+    res = sandbox_run(code_pool, sandbox_policy=policy)
     assert res["status"] == "ok"
     assert res["result"] == 5.0
 
@@ -1003,7 +960,7 @@ with Pool(1) as pool:
     pool.close()
     pool.join()
 """
-    res = run_sandboxed_code(code_mp_pool, sandbox_policy=policy)
+    res = sandbox_run(code_mp_pool, sandbox_policy=policy)
     assert res["status"] == "ok", res
     assert res["result"] == 7.0
 
@@ -1017,7 +974,7 @@ p.start()
 p.join()
 result = (p.exitcode == 0)
 """
-    res = run_sandboxed_code(code_mp_proc, sandbox_policy=policy)
+    res = sandbox_run(code_mp_proc, sandbox_policy=policy)
     assert res["status"] == "ok", res
     assert res["result"] is True
 
@@ -1031,7 +988,7 @@ os.close(master)
 os.close(slave)
 result = (master > 0 and slave > 0)
 """
-        res = run_sandboxed_code(code_pty, sandbox_policy=policy)
+        res = sandbox_run(code_pty, sandbox_policy=policy)
         assert res["status"] == "ok", res
         assert res["result"] is True
 
@@ -1043,7 +1000,7 @@ def test_sandbox_policy_os_harmless_reads_allowed_by_default():
 import os
 result = (os.name, os.sep, os.linesep, os.path.join('a', 'b'), os.path.basename('/x/y'))
 """
-    res = run_sandboxed_code(code, sandbox_policy=None)
+    res = sandbox_run(code, sandbox_policy=None)
     assert res["status"] == "ok"
     assert res["result"] == [os.name, os.sep, os.linesep, os.path.join('a', 'b'), 'y']
 
@@ -1051,7 +1008,7 @@ result = (os.name, os.sep, os.linesep, os.path.join('a', 'b'), os.path.basename(
 def test_sandbox_policy_shared_session_rebuild():
     sid = "calc:test_policy_rebuild"
     try:
-        r1 = run_sandboxed_code(
+        r1 = sandbox_run(
             "import socket\nx = 1\nresult = x",
             session_id=sid,
             sandbox_policy={"network": True},
@@ -1059,7 +1016,7 @@ def test_sandbox_policy_shared_session_rebuild():
         assert r1["status"] == "ok"
         assert r1["result"] == 1
 
-        r2 = run_sandboxed_code(
+        r2 = sandbox_run(
             "result = x",
             session_id=sid,
             sandbox_policy=None,
@@ -1067,7 +1024,7 @@ def test_sandbox_policy_shared_session_rebuild():
         assert r2["status"] == "error"
         assert "not defined" in r2["message"] or "NameError" in r2["message"] or "InterpreterError" in r2["message"]
 
-        r3 = run_sandboxed_code("import socket", session_id=sid, sandbox_policy=None)
+        r3 = sandbox_run("import socket", session_id=sid, sandbox_policy=None)
         assert r3["status"] == "error"
         assert "Import of socket is not allowed" in r3["message"]
     finally:
@@ -1083,7 +1040,7 @@ s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.settimeout(10)
 s.connect(('192.0.2.1', 80))
 """
-    r_sock = run_sandboxed_code(code_socket, timeout_sec=1, sandbox_policy={"network": True})
+    r_sock = sandbox_run(code_socket, timeout_sec=1, sandbox_policy={"network": True})
     assert r_sock["status"] == "error"
     assert any(term in r_sock["message"].lower() for term in ("timeout", "timed out", "exceeded", "maximum execution time")) or r_sock.get("code") == "TIMEOUT"
 
@@ -1091,7 +1048,7 @@ s.connect(('192.0.2.1', 80))
 import subprocess
 subprocess.run([{sys.executable!r}, "-c", "import time; time.sleep(10)"])
 """
-    r_sub = run_sandboxed_code(code_sub, timeout_sec=1, sandbox_policy={"os": True})
+    r_sub = sandbox_run(code_sub, timeout_sec=1, sandbox_policy={"os": True})
     assert r_sub["status"] == "error"
     assert any(term in r_sub["message"].lower() for term in ("timeout", "timed out", "exceeded", "maximum execution time")) or r_sub.get("code") == "TIMEOUT"
 
@@ -1100,15 +1057,15 @@ subprocess.run([{sys.executable!r}, "-c", "import time; time.sleep(10)"])
 
 
 def test_extra_modules_override_blocklist() -> None:
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "import socket\nresult = callable(socket.socket)",
         sandbox_policy={"extra_modules": "socket"},
     )
     assert res.get("status") == "ok", res
     code = "import subprocess, sys\nresult = subprocess.run([sys.executable, '-c', 'print(1)'], capture_output=True).returncode"
-    res = run_sandboxed_code(code, sandbox_policy={"extra_modules": "subprocess, sys"})
+    res = sandbox_run(code, sandbox_policy={"extra_modules": "subprocess, sys"})
     assert res.get("status") == "ok", res
     assert res.get("result") == 0
 
@@ -1118,28 +1075,28 @@ def test_extra_modules_override_blocklist() -> None:
     ["importlib", "builtins", "pickle", "subprocess", "pty", "multiprocessing", "marshal"],
 )
 def test_sandbox_runtime_default_blocks_host_escape(mod: str) -> None:
-    res = run_sandboxed_code(f"import {mod}", sandbox_policy=None)
+    res = sandbox_run(f"import {mod}", sandbox_policy=None)
     assert res["status"] == "error"
     assert "not allowed" in res.get("message", "").lower()
 
 
 def test_sandbox_runtime_blocks_internal_plugin_and_writeragent_framework() -> None:
     for mod in ("plugin.framework.config", "writeragent.framework.config"):
-        res = run_sandboxed_code(f"import {mod}", sandbox_policy=None)
+        res = sandbox_run(f"import {mod}", sandbox_policy=None)
         assert res["status"] == "error"
         assert "not allowed" in res.get("message", "").lower()
 
 
 def test_sandbox_runtime_reexported_os_proxy() -> None:
     # default: read-only _FileOsProxy (no system, remove forbidden)
-    res_def = run_sandboxed_code(
+    res_def = sandbox_run(
         "from random import _os\nresult = (hasattr(_os, 'system'), hasattr(_os, 'remove'))",
         sandbox_policy=None,
     )
     assert res_def["status"] == "ok"
     assert res_def["result"] == [False, True]
 
-    res_remove_def = run_sandboxed_code(
+    res_remove_def = sandbox_run(
         "from random import _os\n_os.remove('nonexistent_file_xyz')",
         sandbox_policy=None,
     )
@@ -1147,7 +1104,7 @@ def test_sandbox_runtime_reexported_os_proxy() -> None:
     assert "Forbidden access to function: remove" in res_remove_def.get("message", "")
 
     # files=True: _FileOsProxy with writes (remove present, no system)
-    res_files = run_sandboxed_code(
+    res_files = sandbox_run(
         "from random import _os\nresult = (hasattr(_os, 'system'), callable(_os.remove))",
         sandbox_policy={"files": True},
     )
@@ -1155,7 +1112,7 @@ def test_sandbox_runtime_reexported_os_proxy() -> None:
     assert res_files["result"] == [False, True]
 
     # os=True: raw os module (callable(_os.system) is True)
-    res_os = run_sandboxed_code(
+    res_os = sandbox_run(
         "from random import _os\nresult = callable(_os.system)",
         sandbox_policy={"os": True},
     )
@@ -1164,11 +1121,11 @@ def test_sandbox_runtime_reexported_os_proxy() -> None:
 
 
 def test_sandbox_runtime_requests_network_gate() -> None:
-    res_def = run_sandboxed_code("import requests", sandbox_policy=None)
+    res_def = sandbox_run("import requests", sandbox_policy=None)
     assert res_def["status"] == "error"
     assert "not allowed" in res_def.get("message", "").lower()
 
-    res_net = run_sandboxed_code(
+    res_net = sandbox_run(
         "import requests\nresult = bool(hasattr(requests, 'get'))",
         sandbox_policy={"network": True},
     )
@@ -1177,14 +1134,14 @@ def test_sandbox_runtime_requests_network_gate() -> None:
 
 
 def test_sandbox_runtime_pathlib_allowed_default_and_files() -> None:
-    res_def = run_sandboxed_code(
+    res_def = sandbox_run(
         "import pathlib\nresult = pathlib.Path('.').exists()",
         sandbox_policy=None,
     )
     assert res_def["status"] == "ok"
     assert res_def["result"] is True
 
-    res_files = run_sandboxed_code(
+    res_files = sandbox_run(
         "import pathlib\nresult = pathlib.Path('.').exists()",
         sandbox_policy={"files": True},
     )
@@ -1207,18 +1164,18 @@ def test_sandbox_runtime_pathlib_allowed_default_and_files() -> None:
     ],
 )
 def test_sandbox_runtime_safe_stdlib_allowed_by_default(mod: str) -> None:
-    res = run_sandboxed_code(f"import {mod}\nresult = True", sandbox_policy=None)
+    res = sandbox_run(f"import {mod}\nresult = True", sandbox_policy=None)
     assert res["status"] == "ok"
     assert res["result"] is True
 
 
 @pytest.mark.parametrize("mod", ["shutil", "tempfile", "sqlite3"])
 def test_sandbox_runtime_file_blocked_modules(mod: str) -> None:
-    res_def = run_sandboxed_code(f"import {mod}", sandbox_policy=None)
+    res_def = sandbox_run(f"import {mod}", sandbox_policy=None)
     assert res_def["status"] == "error"
     assert "not allowed" in res_def.get("message", "").lower()
 
-    res_files = run_sandboxed_code(f"import {mod}\nresult = True", sandbox_policy={"files": True})
+    res_files = sandbox_run(f"import {mod}\nresult = True", sandbox_policy={"files": True})
     assert res_files["status"] == "ok"
     assert res_files["result"] is True
 
@@ -1275,20 +1232,20 @@ def _file_fixture(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, p
 @pytest.mark.parametrize("code", _FILE_WRITES)
 def test_sandbox_runtime_file_writes_blocked_unless_files(code: str, tmp_path: pathlib.Path) -> None:
     p, src, d, names = _file_fixture(tmp_path)
-    res = run_sandboxed_code(code.format(**names), sandbox_policy=None)
+    res = sandbox_run(code.format(**names), sandbox_policy=None)
     assert res["status"] == "error"
     assert "Forbidden access to function" in res.get("message", "")
     assert not p.exists() and not p.is_symlink()
     _assert_src_fixture_unchanged(src)
     assert d.is_dir()
 
-    res_files = run_sandboxed_code(code.format(**names) + "\nresult = True", sandbox_policy={"files": True})
+    res_files = sandbox_run(code.format(**names) + "\nresult = True", sandbox_policy={"files": True})
     assert res_files["status"] == "ok", res_files
 
 
 def test_sandbox_runtime_file_writes_allowed_with_os_policy(tmp_path: pathlib.Path) -> None:
     p = tmp_path / "os.txt"
-    res = run_sandboxed_code(f"from pathlib import Path\nPath({str(p)!r}).write_text('ok')", sandbox_policy={"os": True})
+    res = sandbox_run(f"from pathlib import Path\nPath({str(p)!r}).write_text('ok')", sandbox_policy={"os": True})
     assert res["status"] == "ok"
     assert p.read_text() == "ok"
 
@@ -1339,7 +1296,7 @@ def test_sandbox_runtime_file_reads_gated(code: str, tmp_path: pathlib.Path) -> 
     _p, _src, _d, names = _file_fixture(tmp_path)
     if "readlink" in code and not _src.is_symlink():
         pytest.skip("symlink fixture unavailable on this host")
-    res = run_sandboxed_code(code.format(**names), sandbox_policy=None)
+    res = sandbox_run(code.format(**names), sandbox_policy=None)
     assert res["status"] == "error"
     if "open({src}).read()" in code:
         assert (
@@ -1349,14 +1306,14 @@ def test_sandbox_runtime_file_reads_gated(code: str, tmp_path: pathlib.Path) -> 
     else:
         assert "Forbidden access to function" in res.get("message", "")
 
-    res_files = run_sandboxed_code(code.format(**names), sandbox_policy={"files": True})
+    res_files = sandbox_run(code.format(**names), sandbox_policy={"files": True})
     assert res_files["status"] == "ok", res_files
     assert res_files["result"] == "fixture"
 
 
 def test_sandbox_runtime_file_reads_allowed_with_os_policy(tmp_path: pathlib.Path) -> None:
     _p, src, _d, _names = _file_fixture(tmp_path)
-    res = run_sandboxed_code(f"from pathlib import Path\nresult = Path({str(src)!r}).read_text()", sandbox_policy={"os": True})
+    res = sandbox_run(f"from pathlib import Path\nresult = Path({str(src)!r}).read_text()", sandbox_policy={"os": True})
     assert res["status"] == "ok"
     assert res["result"] == "fixture"
 
@@ -1364,42 +1321,42 @@ def test_sandbox_runtime_file_reads_allowed_with_os_policy(tmp_path: pathlib.Pat
 def test_sandbox_runtime_safe_in_memory_allowed_without_file_policy(tmp_path: pathlib.Path) -> None:
     _p, src, _d, _names = _file_fixture(tmp_path)
 
-    res_io = run_sandboxed_code(
+    res_io = sandbox_run(
         "import io\ns = io.StringIO('fixture').read()\nb = io.BytesIO(b'fixture').read()\nresult = s == 'fixture' and b == b'fixture'",
         sandbox_policy=None,
     )
     assert res_io["status"] == "ok" and res_io["result"] is True
 
-    res_gz = run_sandboxed_code(
+    res_gz = sandbox_run(
         "import gzip\nresult = gzip.decompress(gzip.compress(b'fixture')).decode()",
         sandbox_policy=None,
     )
     assert res_gz["status"] == "ok" and res_gz["result"] == "fixture"
 
-    res_zip = run_sandboxed_code(
+    res_zip = sandbox_run(
         "import io, zipfile\nbuf = io.BytesIO()\nwith zipfile.ZipFile(buf, 'w') as zf:\n    zf.writestr('x', 'fixture')\nwith zipfile.ZipFile(buf, 'r') as zf:\n    result = zf.read('x').decode()",
         sandbox_policy=None,
     )
     assert res_zip["status"] == "ok" and res_zip["result"] == "fixture"
 
-    res_gz_buf = run_sandboxed_code(
+    res_gz_buf = sandbox_run(
         "import io, gzip\nbuf = io.BytesIO()\nwith gzip.open(buf, 'wb') as f:\n    f.write(b'fixture')\nwith gzip.open(io.BytesIO(buf.getvalue()), 'rb') as f:\n    result = f.read().decode()",
         sandbox_policy=None,
     )
     assert res_gz_buf["status"] == "ok" and res_gz_buf["result"] == "fixture"
 
-    res_exists = run_sandboxed_code(
+    res_exists = sandbox_run(
         f"import os\nfrom pathlib import Path\nresult = os.path.exists({repr(str(src))}) and os.path.isfile({repr(str(src))}) and Path({repr(str(src))}).exists()",
         sandbox_policy=None,
     )
     assert res_exists["status"] == "ok" and res_exists["result"] is True
 
-    res_glob = run_sandboxed_code("import glob\nresult = glob.escape('[*]')", sandbox_policy=None)
+    res_glob = sandbox_run("import glob\nresult = glob.escape('[*]')", sandbox_policy=None)
     assert res_glob["status"] == "ok" and res_glob["result"] in (r"\[\*\]", "[[][*]]")
 
 
 def test_sandbox_runtime_extra_modules_allows_importlib() -> None:
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "import importlib\nresult = bool(hasattr(importlib, 'import_module'))",
         sandbox_policy={"extra_modules": "importlib"},
     )
@@ -1408,24 +1365,23 @@ def test_sandbox_runtime_extra_modules_allows_importlib() -> None:
 
 
 def test_inject_auto_imports_ignores_nested_scope_bindings() -> None:
-    from plugin.scripting.config_limits import python_exec_timeout_default
     from plugin.scripting.venv import optional_import
     from plugin.scripting.venv.venv_sandbox import (
         _new_executor,
         inject_auto_imports,
     )
 
-    executor = _new_executor(python_exec_timeout_default())
+    executor = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor, "def f():\n    dt = 1\nresult = dt")
     assert "dt" in executor.state
     res = executor("def g():\n    dt = 1\nresult = dt.date(2020, 1, 1).isoformat()")
     assert res.output == "2020-01-01"
 
-    executor_class = _new_executor(python_exec_timeout_default())
+    executor_class = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor_class, "class C:\n    dt = 1\nresult = 1")
     assert "dt" in executor_class.state
 
-    executor2 = _new_executor(python_exec_timeout_default())
+    executor2 = _new_executor(build_sandbox_policy())
     inject_auto_imports(executor2, "def f():\n    import numpy as np\nresult = 1")
     if optional_import.optional_module("numpy") is not None:
         assert "np" in executor2.state
@@ -1463,81 +1419,163 @@ def test_apply_auto_imports_parses_source_once(monkeypatch: pytest.MonkeyPatch) 
     assert "import " in code
 
 
-def test_run_sandboxed_code_rejects_non_numeric_timeout() -> None:
-    res = run_sandboxed_code("result = 1", timeout_sec=cast("Any", "soon"))
-    assert res["status"] == "error"
-    assert "timeout" in res["message"].lower()
-
-
 def test_run_sandboxed_code_rejects_non_dict_sandbox_policy() -> None:
-    res = run_sandboxed_code("result = 1", sandbox_policy=cast("Any", [("extra_modules", "x")]))
+    res = sandbox_run("result = 1", sandbox_policy=cast("Any", [("extra_modules", "x")]))
     assert res["status"] == "error"
 
 
 def test_run_sandboxed_code_rejects_non_string_extra_modules() -> None:
-    res = run_sandboxed_code("result = 1", sandbox_policy={"extra_modules": [1]})
+    res = sandbox_run("result = 1", sandbox_policy={"extra_modules": [1]})
     assert res["status"] == "error"
 
 
-def test_get_or_create_rebuilds_on_policy_mismatch() -> None:
-    from plugin.scripting.sandbox import build_sandbox_policy
-
+def test_get_or_create_rebuilds_on_policy_mismatch(fresh_sandbox_sessions) -> None:
+    store = fresh_sandbox_sessions
     sid = "calc:get-or-create-policy-mismatch"
-    try:
-        policy_net = build_sandbox_policy(network=True)
-        policy_default = build_sandbox_policy()
-        exec1, created1 = SESSIONS.get_or_create(sid, timeout_sec=10, policy=policy_net)
-        assert created1 is True
-        exec1.send_variables({"MARKER": 42})
-        exec2, created2 = SESSIONS.get_or_create(
-            sid, timeout_sec=10, policy=policy_default
-        )
-        assert created2 is True
-        assert exec2 is not exec1
-        assert exec2.state.get("MARKER") is None
-        exec3, created3 = SESSIONS.get_or_create(
-            sid, timeout_sec=10, policy=policy_default
-        )
-        assert created3 is False
-        assert exec3 is exec2
-        exec4, created4 = SESSIONS.get_or_create(sid, timeout_sec=10, policy=None)
-        assert created4 is False
-        assert exec4 is exec2
-    finally:
-        reset_sandbox_session(sid)
+    policy_net = build_sandbox_policy(network=True)
+    policy_default = build_sandbox_policy()
+    exec1, created1 = store.get_or_create(sid, policy=policy_net)
+    assert created1 is True
+    exec1.send_variables({"MARKER": 42})
+    exec2, created2 = store.get_or_create(
+        sid, policy=policy_default
+    )
+    assert created2 is True
+    assert exec2 is not exec1
+    assert exec2.state.get("MARKER") is None
+    exec3, created3 = store.get_or_create(
+        sid, policy=policy_default
+    )
+    assert created3 is False
+    assert exec3 is exec2
 
 
-def test_shared_policy_change_reruns_init_before_seed() -> None:
+def test_shared_policy_change_reruns_init_before_seed(fresh_sandbox_sessions) -> None:
+    store = fresh_sandbox_sessions
     sid = "calc:policy-init-rerun"
     init_sid = f"{sid}:init"
     init_hash = "h-policy-fixed"
-    try:
-        first = run_sandboxed_code(
-            "cell_only = 1\nresult = HELPER",
-            session_id=sid,
-            init_script="HELPER = 1",
-            init_session_id=init_sid,
-            init_script_hash=init_hash,
-            sandbox_policy={"network": True},
-        )
-        assert first["status"] == "ok", first
-        assert first["result"] == 1
-        cell_exec = SESSIONS.executor(sid)
-        assert cell_exec is not None
-        assert cell_exec.state.get("cell_only") == 1
+    first = sandbox_run(
+        "cell_only = 1\nresult = HELPER",
+        session_id=sid,
+        init_script="HELPER = 1",
+        init_session_id=init_sid,
+        init_script_hash=init_hash,
+        sandbox_policy={"network": True},
+    )
+    assert first["status"] == "ok", first
+    assert first["result"] == 1
+    cell_exec = store.executor(sid)
+    assert cell_exec is not None
+    assert cell_exec.state.get("cell_only") == 1
 
-        second = run_sandboxed_code(
-            "result = HELPER",
-            session_id=sid,
-            init_script="HELPER = 2",
-            init_session_id=init_sid,
-            init_script_hash=init_hash,
-            sandbox_policy=None,
-        )
-        assert second["status"] == "ok", second
-        assert second["result"] == 2
-        cell_exec_after = SESSIONS.executor(sid)
-        assert cell_exec_after is not None
-        assert cell_exec_after.state.get("cell_only") is None
-    finally:
-        reset_sandbox_session(sid)
+    second = sandbox_run(
+        "result = HELPER",
+        session_id=sid,
+        init_script="HELPER = 2",
+        init_session_id=init_sid,
+        init_script_hash=init_hash,
+        sandbox_policy=None,
+    )
+    assert second["status"] == "ok", second
+    assert second["result"] == 2
+    cell_exec_after = store.executor(sid)
+    assert cell_exec_after is not None
+    assert cell_exec_after.state.get("cell_only") is None
+
+
+def test_shared_policy_change_drops_cell_before_first_init(fresh_sandbox_sessions) -> None:
+    sid = "calc:policy-cell-drop"
+    r1 = sandbox_run(
+        "cell_only = 1\nresult = 1",
+        session_id=sid,
+        sandbox_policy={"network": True},
+    )
+    assert r1["status"] == "ok"
+    r2 = sandbox_run(
+        "result = HELPER",
+        session_id=sid,
+        init_script="HELPER = 5",
+        init_session_id=sid + ":init",
+        init_script_hash="h",
+    )
+    assert r2["status"] == "ok"
+    assert r2["result"] == 5
+
+
+def test_arm_alarm_is_the_alarm_writer() -> None:
+    import time as time_mod
+    from plugin.scripting.venv.venv_sandbox import _arm_alarm, _new_executor
+
+    exe = _new_executor(build_sandbox_policy())
+    assert _arm_alarm(exe, time_mod.monotonic() + 2.2, 7) is None
+    assert exe.timeout_seconds == 3
+    assert _arm_alarm(exe, time_mod.monotonic() + 0.1, 7) is None
+    assert exe.timeout_seconds == 1
+    res = _arm_alarm(exe, time_mod.monotonic() - 1, 7)
+    assert res == {
+        "status": "error",
+        "code": "EXECUTION_TIMEOUT",
+        "message": "Code execution exceeded the maximum execution time of 7 seconds",
+    }
+    assert exe.timeout_seconds == 1
+
+
+def test_run_sandboxed_code_arms_the_cell_from_the_request_budget(fresh_sandbox_sessions) -> None:
+    sid = "calc:budget-arm-test"
+    res = sandbox_run(
+        "result = 123",
+        session_id=sid,
+        timeout_sec=3,
+        init_script="import time\ntime.sleep(1)",
+        init_session_id=sid + ":init",
+        init_script_hash="h",
+    )
+    assert res["status"] == "ok"
+    assert res["result"] == 123
+    exe = fresh_sandbox_sessions.executor(sid)
+    assert exe is not None
+    assert exe.timeout_seconds <= 2
+
+
+def test_run_sandboxed_code_timeout_carries_execution_timeout_code(fresh_sandbox_sessions) -> None:
+    sid = "calc:timeout-code-test"
+    res = sandbox_run("import time\ntime.sleep(5)\nresult = 1", session_id=sid, timeout_sec=1)
+    assert res["status"] == "error"
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert "exceeded the maximum execution time" in res.get("message", "")
+
+    follow = sandbox_run("result = 7", session_id=sid, timeout_sec=5)
+    assert follow["status"] == "ok"
+    assert follow["result"] == 7
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import writeragent as wa\nresult = dir(wa)",
+        "import writeragent as wa\nresult = dir(wa.shape)",
+        "import writeragent as wa\nresult = wa.__doc__",
+        "import writeragent as wa\nresult = wa.shape.upsert.__doc__",
+        "import writeragent as wa\nresult = getattr(wa, '__doc__')",
+    ],
+)
+def test_blocked_introspection_suggests_wa_help(fresh_sandbox_sessions, code: str) -> None:
+    """dir() and __doc__ remain blocked in the sandbox and point the model to wa.help(name)."""
+    res = sandbox_run(code, session_id="calc:help-hint-test", timeout_sec=5)
+    assert res["status"] == "error", res
+    assert "wa.help(name)" in res["message"]
+
+
+def test_sandbox_wa_help_executes_and_returns_signature(fresh_sandbox_sessions) -> None:
+    """Inside the sandbox, import writeragent as wa; wa.help('shape.upsert') returns the API signature."""
+    res = sandbox_run(
+        "import writeragent as wa\nresult = wa.help('shape.upsert')",
+        session_id="calc:wa-help-exec-test",
+        timeout_sec=5,
+    )
+    assert res["status"] == "ok", res
+    assert isinstance(res["result"], str)
+    assert res["result"].startswith("wa.shape.upsert(")
+    assert "Args:" in res["result"]
+

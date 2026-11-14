@@ -368,4 +368,6 @@ def test_frame_delete_unknown_hints_frame_list():
     ctx = MagicMock(doc=doc)
     res = FrameDelete().execute(ctx, name="Missing")
     assert res["status"] == "error"
-    assert "frame_list" in res.get("message", "").lower() or res.get("details")
+    assert res["code"] == "UNO_OBJECT_ERROR"
+    assert res["details"]["available"] == []
+    assert "frame_list" in res["details"]["hint"].lower()

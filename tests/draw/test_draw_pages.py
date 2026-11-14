@@ -56,7 +56,7 @@ def test_add_slide_impress_defaults_to_text_layout():
     assert out["status"] == "ok"
     assert out["layout"] == "text"
     assert out["active_page_index"] == 1
-    assert "list_placeholders" in out["placeholders_hint"]
+    assert "placeholders_hint" in out
     assert page.Layout == 1
 
 

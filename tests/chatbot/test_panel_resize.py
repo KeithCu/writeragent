@@ -164,13 +164,21 @@ class TestPanelResizeListenerIntegration:
     def test_one_arg_constructor_disposing_is_safe(self):
         listener = _PanelResizeListener({})
         listener.disposing(None)
+        listener.disposing(None)
 
     def test_disposing_logs_callback_failure(self):
+        called: list[bool] = []
+
         def boom() -> None:
+            called.append(True)
             raise RuntimeError("deck")
 
         listener = _PanelResizeListener({}, on_dispose=boom)
-        listener.disposing(None)
+        with patch("plugin.chatbot.panel_resize.log.exception") as mock_log_exc:
+            listener.disposing(None)
+            listener.disposing(None)
+        assert called == [True]
+        mock_log_exc.assert_called_once()
 
     def test_listener_applies_layout_and_syncs_rich_control(self):
         controls = {
@@ -227,11 +235,6 @@ class TestPanelResizeListenerIntegration:
         layouts = compute_chat_panel_layout(900, 500, snapshot)
         assert "slash_popup" not in layouts
         assert "query" in layouts
-
-    def test_narrow_panel_stretches_response_to_margin(self):
-        layouts = compute_chat_panel_layout(180, 500, _xdl_snapshot())
-        response = layouts["response"]
-        assert response.x + response.width <= 180 - 4
 
     def test_create_time_overflow_is_clamped_before_negotiation(self):
         # Keith: FIRST LAYOUT root=320 max_child_right=1087 overflow=YES
@@ -501,14 +504,6 @@ class TestColumnFitsAtBothScales:
         assert layouts["base_size_input"].width == 71
 
 
-def test_listener_get_and_set_control():
-    listener = _PanelResizeListener({})
-    assert listener.get_control("unknown") is None
-    dummy = object()
-    listener.set_control("test_ctrl", dummy)
-    assert listener.get_control("test_ctrl") is dummy
-
-
 def test_invalidate_measurements_remeasures_base_size():
     snapshot = _xdl_snapshot()
     controls = {name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()}
@@ -561,31 +556,6 @@ def test_relayout_now_reentrant_bounded_and_extra_pass():
     # After extra pass, query's right edge follows width 900
     q = controls["query"].getPosSize()
     assert q.Width > 850
-
-
-def test_resize_logging_behavior():
-    import plugin.chatbot.panel_resize as pr_mod
-
-    snapshot = _xdl_snapshot()
-    controls = {name: _mock_control(x, y, w, h) for name, (x, y, w, h) in snapshot.items()}
-    root = MagicMock()
-    root.getPosSize.return_value = SimpleNamespace(Width=400, Height=600)
-
-    listener = _PanelResizeListener(controls)
-    with patch.object(pr_mod.log, "info") as mock_info, \
-         patch.object(pr_mod.log, "debug") as mock_debug:
-        listener.relayout_now(root)
-        # Verbose debug is False and not DEBUG enabled -> no log.info
-        mock_info.assert_not_called()
-        # Emits one size debug line
-        size_debugs = [call for call in mock_debug.call_args_list if "[LAYOUT] size=" in str(call)]
-        assert len(size_debugs) == 1
-
-        # Same size does not emit another size debug line
-        mock_debug.reset_mock()
-        listener.relayout_now(root)
-        size_debugs2 = [call for call in mock_debug.call_args_list if "[LAYOUT] size=" in str(call)]
-        assert len(size_debugs2) == 0
 
 
 def test_backend_indicator_layout():

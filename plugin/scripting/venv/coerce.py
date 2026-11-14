@@ -16,12 +16,13 @@ import math
 import warnings
 import re
 from dataclasses import dataclass
-from typing import Any, cast, overload
+from typing import Any, cast
 
 from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
+from plugin.scripting.venv.results import HelperError
 
-_LO_ERROR_TOKENS = frozenset(
+LO_ERROR_TOKENS = frozenset(
     {
         "#N/A",
         "#DIV/0!",
@@ -77,7 +78,7 @@ def is_missing_value(value: Any) -> bool:
     if isinstance(value, str):
         stripped = value.strip()
         # Case-fold so lower/mixed case error tokens like "#n/a" and "#div/0!" match.
-        return stripped == "" or stripped.upper() in _LO_ERROR_TOKENS
+        return stripped == "" or stripped.upper() in LO_ERROR_TOKENS
     if isinstance(value, float):
         return math.isnan(value)
     try:
@@ -122,7 +123,7 @@ def _signed_magnitude(sign_a: str | None, sign_b: str | None, digits: str) -> fl
 
 def _parse_numeric_string(text: str) -> float | None:
     stripped = text.strip()
-    if not stripped or stripped in _LO_ERROR_TOKENS:
+    if not stripped or stripped in LO_ERROR_TOKENS:
         return None
     pct = _PERCENT_RE.match(stripped)
     if pct:
@@ -231,14 +232,13 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
 def _is_date_like_column_name(name: str) -> bool:
-    """Check if column name contains exact temporal indicator tokens.
+    """True when the column name has a whole temporal token (date, time, ...).
 
-    The substring 'or's matched 'candidate' / 'runtime'; a boundary regex
-    misses 'OrderDate' and 'datetime'.
+    Splitting camelCase humps and then matching whole tokens accepts
+    ``OrderDate`` and ``datetime`` and rejects ``candidate`` and ``runtime``.
+    A substring test would accept the last two; a word-boundary regex would
+    miss the first two.
     """
-    # Substring checks matched candidate, runtime, etc. A boundary regex
-    # missed OrderDate and datetime. Splitting on camelCase humps and extracting
-    # alphanumeric tokens matches exact temporal components.
     spaced = _CAMEL_CASE_RE.sub(" ", str(name))
     tokens = _TOKEN_RE.findall(spaced.lower())
     return any(tok in _DATE_NAME_TOKENS for tok in tokens)
@@ -302,8 +302,10 @@ def _coerce_column_types(
 
     for col in target_date_cols:
         series = out[col]
-        # A numeric dtype, including nullable Float64, must go through
-        # parse_date_column handles numeric and mixed string dates so serials and year integers are not misread as Excel day units only.
+        # Every date column, numeric dtypes included (nullable Float64 too),
+        # goes through parse_date_column, which reads Calc serials and bare
+        # years; pd.to_datetime alone would read a serial as nanoseconds
+        # since 1970.
         out[col] = parse_date_column(series, date_origin=date_origin)
 
     # 2. General string inference if requested
@@ -518,9 +520,9 @@ def _whole_number(value: Any) -> int | None:
 
 
 def coerce_int(value: Any, name: str = "value") -> int:
-    """Coerce *value* to int or raise ValueError."""
+    """Coerce *value* to int or raise HelperError (INVALID_PARAM)."""
     if isinstance(value, bool):
-        raise ValueError(f"{name} must be an integer, got {value!r}")
+        raise HelperError("INVALID_PARAM", f"{name} must be an integer, got {value!r}")
     int_types, float_types = _num_types()
 
     if isinstance(value, int_types):
@@ -536,7 +538,7 @@ def coerce_int(value: Any, name: str = "value") -> int:
                 return whole
         except (ValueError, TypeError):
             pass
-    raise ValueError(f"{name} must be an integer, got {value!r}")
+    raise HelperError("INVALID_PARAM", f"{name} must be an integer, got {value!r}")
 
 
 def coerce_optional_int(value: Any, name: str = "value") -> int | None:
@@ -566,11 +568,11 @@ def _coerce_number(value: Any) -> float | None:
 
 
 def coerce_float(value: Any, name: str = "value") -> float:
-    """Coerce *value* to float or raise ValueError."""
+    """Coerce *value* to float or raise HelperError (INVALID_PARAM)."""
     f = _coerce_number(value)
     if f is not None:
         return f
-    raise ValueError(f"{name} must be a float, got {value!r}")
+    raise HelperError("INVALID_PARAM", f"{name} must be a float, got {value!r}")
 
 
 def coerce_optional_float(value: Any, name: str = "value") -> float | None:
@@ -580,7 +582,7 @@ def coerce_optional_float(value: Any, name: str = "value") -> float | None:
 
 
 def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bool:
-    """Coerce *value* to bool or raise ValueError."""
+    """Coerce *value* to bool or raise HelperError (INVALID_PARAM)."""
     if value is None:
         return default
     if isinstance(value, bool):
@@ -608,21 +610,26 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
         if stripped in ("0", "false", "no", "n"):
             return False
 
-    raise ValueError(f"{name} must be a boolean, got {value!r}")
+    raise HelperError("INVALID_PARAM", f"{name} must be a boolean, got {value!r}")
 
 
 def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
-    """Coerce *value* to a list of column names or raise ValueError."""
+    """Coerce *value* to a list of column names or raise HelperError (INVALID_PARAM).
+
+    Callers pass column-list parameters through this so a bare string such as
+    ``"Sales"`` becomes ``["Sales"]`` instead of being iterated
+    character-by-character (``S,a,l,e,s``) by pandas indexing or ``groupby``.
+    """
     if value is None:
         return None
     if isinstance(value, str):
         stripped = value.strip()
         if not stripped:
-            raise ValueError(f"{name} must be a column list, got {value!r}")
+            raise HelperError("INVALID_PARAM", f"{name} must be a column list, got {value!r}")
         if "," in value:
             parts = [p.strip() for p in value.split(",") if p.strip()]
             if not parts:
-                raise ValueError(f"{name} must be a column list, got {value!r}")
+                raise HelperError("INVALID_PARAM", f"{name} must be a column list, got {value!r}")
             return parts
         return [stripped]
     if isinstance(value, (list, tuple)):
@@ -635,7 +642,7 @@ def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
             if s:
                 result.append(s)
         return result
-    raise ValueError(f"{name} must be a column list, got {value!r}")
+    raise HelperError("INVALID_PARAM", f"{name} must be a column list, got {value!r}")
 
 
 def _id_like(series: Any) -> bool:
@@ -668,10 +675,7 @@ def auto_numeric(
     flags: list[str] | None = None,
 ) -> list[Any]:
     if requested is not None:
-        resolved = resolve_columns(df, requested, numeric=False)
-        if isinstance(resolved, dict):
-            raise ValueError(resolved["message"])
-        return resolved
+        return resolve_columns(df, requested, numeric=False)
     # Labels are returned as-is (int column 0 stays int) because df[str(0)] raises KeyError.
     # Date/id-like columns are skipped unless the caller passes an explicit column list.
     cols = list(df.select_dtypes(include="number").columns)
@@ -706,38 +710,17 @@ def column_by_label(df: Any, name: Any) -> Any:
     return None
 
 
-@overload
-def resolve_columns(
-    df: Any,
-    requested: None = None,
-    *,
-    numeric: bool = False,
-    helper: str | None = None,
-) -> list[Any]: ...
-
-
-@overload
-def resolve_columns(
-    df: Any,
-    requested: Any,
-    *,
-    numeric: bool = False,
-    helper: str | None = None,
-) -> list[Any] | dict[str, Any]: ...
-
-
 def resolve_columns(
     df: Any,
     requested: Any = None,
     *,
     numeric: bool = False,
-    helper: str | None = None,
-) -> list[Any] | dict[str, Any]:
+) -> list[Any]:
     """Resolve requested column names against *df*.
 
     Matches by exact label first, then by str(col) == str(name).
     When numeric=True, rejects non-numeric columns.
-    Returns a list of matching column labels in *df*, or an error dict.
+    Returns matching labels; raises HelperError (UNKNOWN_COLUMN / NON_NUMERIC_COLUMN).
     """
     if requested is None:
         if numeric:
@@ -764,17 +747,13 @@ def resolve_columns(
             matched.append(col)
 
     if missing:
-        from plugin.scripting.venv.results import error_result
-
-        return error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper=helper)
+        raise HelperError("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}")
 
     if numeric:
         num_set = set(df.select_dtypes(include="number").columns)
         bad = [str(c) for c in matched if c not in num_set]
         if bad:
-            from plugin.scripting.venv.results import error_result
-
-            return error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
+            raise HelperError("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}")
 
     return matched
 
@@ -866,8 +845,8 @@ def grid_to_dataframe(
 
 def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:
     limited = df.head(max_rows)
-    # where(..., None) on a float column stores NaN again, so decomposition edges
-    # became the JSON token NaN and Calc error cells.
+    # Cast to object first: where(..., None) on a float column stores NaN
+    # again, and NaN reaches JSON as the token NaN and Calc as error cells.
     obj_df = limited.astype(object).where(limited.notna(), None)
     return {
         "name": name,

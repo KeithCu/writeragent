@@ -332,10 +332,6 @@ def test_selection_target_wraps_span_failure_in_valueerror():
         resolve_target_cursor(ctx, "selection", None)
 
 
-def test_set_selection_is_core_read_only():
-    assert SetSelection.tier == "core" and SetSelection.is_mutation is False
-
-
 def test_apply_document_content_selection_failure_not_silent():
     from plugin.framework.config import save
     save({'doc.agent_edit_review_mode': 'none'})
@@ -350,8 +346,7 @@ def test_apply_document_content_selection_failure_not_silent():
          patch.object(html_import, "insert_content_at_position",
                       side_effect=ToolExecutionError("Could not resolve the current selection")):
         # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP
-        # see status=error (nested-table follow-up). Raising here was the old contract
-        # and failed PR CI 35451880001 after that change.
+        # see status=error.
         result = ApplyDocumentContent().execute(ctx, content="x", target="selection")
     assert result["status"] == "error"
     assert "selection" in result.get("message", "")

@@ -26,7 +26,14 @@ from plugin.scripting.sandbox import install_alias_authorizer
 register_alias_importer()
 install_alias_authorizer()
 
-from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS, SilenceDetectorConfig
+from plugin.scripting.audio_silence_detector import (
+    DEFAULT_SILENCE_STOP_MS,
+    RECORDER_COMMAND_STOP,
+    RECORDER_STATUS_ERROR,
+    RECORDER_STATUS_OK,
+    RECORDER_STATUS_READY,
+    SilenceDetectorConfig,
+)
 from plugin.scripting.venv.audio_recorder import record_to_wav
 from plugin.framework.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
 
@@ -42,13 +49,11 @@ def _emit(payload: dict[str, object]) -> None:
 
 def _is_stop_command(line: str) -> bool:
     stripped = line.strip()
-    if stripped.lower() == "stop":
-        return True
     try:
         payload = json.loads(stripped)
     except json.JSONDecodeError:
         return False
-    return isinstance(payload, dict) and payload.get("command") == "stop"
+    return isinstance(payload, dict) and payload.get("command") == RECORDER_COMMAND_STOP
 
 
 def _stdin_stop_reader(stop_event: threading.Event) -> None:
@@ -88,15 +93,15 @@ def main(argv: list[str] | None = None) -> int:
         auto_stopped = record_to_wav(
             output_path,
             stop_event,
-            on_stream_started=lambda: _emit({"status": "ready"}),
+            on_stream_started=lambda: _emit({"status": RECORDER_STATUS_READY}),
             silence_config=silence_config,
             on_ipc_emit=_emit,
         )
-        _emit({"status": "ok", "path": output_path, "auto_stopped": auto_stopped})
+        _emit({"status": RECORDER_STATUS_OK, "path": output_path, "auto_stopped": auto_stopped})
         return 0
     except Exception as exc:
         message = str(exc) if isinstance(exc, RuntimeError) else f"Audio recording failed: {exc}"
-        _emit({"status": "error", "message": message})
+        _emit({"status": RECORDER_STATUS_ERROR, "message": message})
         return 1
 
 

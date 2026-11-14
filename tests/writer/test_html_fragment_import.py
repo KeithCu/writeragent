@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 from plugin.writer.html_export import HTML_FILTER
 from plugin.writer.html_import import (
-    content_has_block_markup,
     _wrap_html_fragment,
     insert_html_fragment_at_cursor,
 )
@@ -19,20 +18,6 @@ def _capture_temp_buffer(content_holder):
 
     with patch("plugin.writer.html_import.with_temp_buffer", side_effect=fake_with_temp_buffer):
         yield
-
-
-def test_wrap_html_fragment_adds_doctype_and_body():
-    wrapped = _wrap_html_fragment("<p>Hi</p>")
-    assert "<!DOCTYPE html>" in wrapped
-    assert "<body>" in wrapped
-    assert "<p>Hi</p>" in wrapped
-
-
-def test_wrap_html_fragment_extra_css_in_head():
-    css = "ul, ol { margin-left: 0.2cm; }"
-    wrapped = _wrap_html_fragment("<p>Hi</p>", extra_css=css)
-    assert "<style>%s</style>" % css in wrapped
-    assert "<meta charset=\"UTF-8\">" in wrapped
 
 
 def test_wrap_html_fragment_skips_full_document():
@@ -92,20 +77,6 @@ def test_insert_html_fragment_at_cursor_advance_false_leaves_cursor():
 
     cursor.getText.return_value.createTextCursorByRange.assert_not_called()
     cursor.gotoRange.assert_not_called()
-
-
-def test_content_has_block_markup_inline_span():
-    assert content_has_block_markup('<span style="background: transparent">Title</span>') is False
-    assert content_has_block_markup("<b>Title</b>") is False
-    assert content_has_block_markup("") is False
-    assert content_has_block_markup(None) is False
-
-
-def test_content_has_block_markup_block_tags():
-    assert content_has_block_markup("<p>x</p>") is True
-    assert content_has_block_markup("<h3>x</h3>") is True
-    assert content_has_block_markup("<ul><li>x</li></ul>") is True
-    assert content_has_block_markup("<P>X</P>") is True
 
 
 def test_filter_name_starwriter():

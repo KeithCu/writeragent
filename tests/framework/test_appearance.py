@@ -6,6 +6,7 @@
 
 from unittest.mock import MagicMock
 
+import pytest
 
 from plugin.framework import appearance
 
@@ -55,11 +56,19 @@ def test_get_theme_colors_uses_shared_logic():
     win.StyleSettings.FieldColor = 0x222222
     win.StyleSettings.DialogColor = 0x111111
     bg, user, assistant = appearance.get_theme_colors(style_window=win)
-    assert isinstance(bg, int)
-    # For dark we return field_color as first
-    assert bg == 0x222222
+    # For dark we return field_color as first, plus dark user/assistant colors
+    assert (bg, user, assistant) == (0x222222, appearance._DARK_USER, appearance._DARK_ASSISTANT)
 
 
-def test_get_style_window_prefers_explicit():
-    explicit = object()
-    assert appearance.get_style_window(style_window=explicit) is explicit
+def test_luminance_pre_rejects_unbounded_and_bool() -> None:
+    import deal
+    from tests.harness.strip_bundle import deal_pre_present
+
+    if not deal_pre_present(appearance._luminance):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        appearance._luminance(0x1000000)
+    with pytest.raises(deal.PreContractError):
+        appearance._luminance(True)  # type: ignore[arg-type]
+    assert 0.0 <= appearance._luminance(0xFFFFFF) <= 255.0
+    assert appearance._luminance(0) == 0.0

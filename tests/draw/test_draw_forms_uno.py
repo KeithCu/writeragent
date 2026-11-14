@@ -137,14 +137,3 @@ def test_fill_draw_fields_happy_and_miss(ctx, doc):
             break
     assert found is not None
     assert found.getString() == "LOT-42"
-
-
-@native_test
-@with_native_doc("draw")
-def test_generate_form_draw(ctx, doc):
-    # Test that generate_form is registered for Draw
-    from plugin.app import get_tools
-    tools = get_tools()
-    gen_tool = tools.get("form_generate")
-    assert gen_tool is not None
-    assert "com.sun.star.drawing.DrawingDocument" in gen_tool.uno_services

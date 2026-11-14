@@ -84,10 +84,10 @@ def test_merge_forecast_plot_data_unpacks_calc_range_envelope():
     assert all(not isinstance(cell, dict) for row in merged for cell in row)
 
 
-@patch("plugin.scripting.viz.insert_viz_result_into_doc")
-@patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
+@patch("plugin.calc.viz_auto_plot.insert_viz_result_into_doc")
+@patch("plugin.calc.forecast.run_auto_plot_after_forecast")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_data_auto_plot_inserts_chart(
     mock_run_trusted,
     mock_main_thread,
@@ -124,10 +124,10 @@ def test_forecast_data_auto_plot_inserts_chart(
     mock_insert.assert_called_once()
 
 
-@patch("plugin.scripting.viz.insert_viz_result_into_doc")
-@patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
+@patch("plugin.calc.viz_auto_plot.insert_viz_result_into_doc")
+@patch("plugin.calc.forecast.run_auto_plot_after_forecast")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_data_auto_plot_marshals_viz_read(
     mock_run_trusted,
     mock_main_thread,
@@ -220,8 +220,8 @@ def test_auto_plot_reads_sheet_on_main_and_passes_doc():
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.queue_executor.main.call", side_effect=exec_main),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)) as mock_resolve,
-        patch("plugin.scripting.helper_domain.run_domain", side_effect=viz) as mock_viz,
+        patch("plugin.calc.forecast_auto_plot.resolve_python_data", return_value=(envelope, None)) as mock_resolve,
+        patch("plugin.calc.forecast_auto_plot.run_domain", side_effect=viz) as mock_viz,
     ):
         result = run_auto_plot_after_forecast(
             MagicMock(),
@@ -251,8 +251,8 @@ def test_auto_plot_viz_failure_is_non_fatal():
         ],
     }
     with (
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(envelope, None)),
-        patch("plugin.scripting.helper_domain.run_domain", side_effect=RuntimeError("viz ipc down")),
+        patch("plugin.calc.forecast_auto_plot.resolve_python_data", return_value=(envelope, None)),
+        patch("plugin.calc.forecast_auto_plot.run_domain", side_effect=RuntimeError("viz ipc down")),
     ):
         result = run_auto_plot_after_forecast(
             MagicMock(),
@@ -270,7 +270,7 @@ def test_auto_plot_viz_failure_is_non_fatal():
 
 
 def test_auto_plot_sheet_read_failure_returns_reason():
-    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=(None, "bad range")):
+    with patch("plugin.calc.forecast_auto_plot.resolve_python_data", return_value=(None, "bad range")):
         result = run_auto_plot_after_forecast(
             MagicMock(),
             MagicMock(),
@@ -283,11 +283,12 @@ def test_auto_plot_sheet_read_failure_returns_reason():
 
     assert result is not None
     assert result["status"] == "error"
+    assert result["code"] == "VIZ_ERROR"
     assert result["message"] == "Could not read forecast history: bad range"
 
 
 def test_auto_plot_merge_failure_returns_reason():
-    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([["Nope", "Other"], [1, 2]], None)):
+    with patch("plugin.calc.forecast_auto_plot.resolve_python_data", return_value=([["Nope", "Other"], [1, 2]], None)):
         result = run_auto_plot_after_forecast(
             MagicMock(),
             MagicMock(),
@@ -314,10 +315,10 @@ def test_auto_plot_merge_failure_returns_reason():
         ("forecast_time_series", False, None),
     ],
 )
-@patch("plugin.scripting.viz.insert_viz_result_into_doc")
-@patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
+@patch("plugin.calc.viz_auto_plot.insert_viz_result_into_doc")
+@patch("plugin.calc.forecast.run_auto_plot_after_forecast")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_data_auto_plot_gating_negatives(
     mock_run_trusted,
     mock_main_thread,
@@ -347,10 +348,10 @@ def test_forecast_data_auto_plot_gating_negatives(
     assert not result.get("image_inserted")
 
 
-@patch("plugin.scripting.viz.insert_viz_result_into_doc")
-@patch("plugin.calc.forecast_auto_plot.run_auto_plot_after_forecast")
+@patch("plugin.calc.viz_auto_plot.insert_viz_result_into_doc")
+@patch("plugin.calc.forecast.run_auto_plot_after_forecast")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.scripting.helper_domain.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_forecast_data_auto_plot_task_hint_alone_triggers(
     mock_run_trusted, mock_main_thread, mock_auto_plot, mock_insert, calc_ctx
 ):

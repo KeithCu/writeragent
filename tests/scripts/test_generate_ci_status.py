@@ -33,10 +33,6 @@ from scripts.generate_ci_status import (
     suite_specs,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci-status-pages.yml"
-_GENERATOR = _REPO_ROOT / "scripts" / "generate_ci_status.py"
-
 
 def _spec(*needles: str, suite: str = "x", os: str = "", workflow: str = "pr-ci.yml") -> SuiteSpec:
     return SuiteSpec(suite=suite, os=os, workflow=workflow, name_contains=needles)
@@ -217,38 +213,15 @@ def _sample_rows() -> list[StatusRow]:
     ]
 
 
-def test_render_svg_contains_suite_names() -> None:
+def test_render_svg_produces_valid_svg_for_rows_and_empty() -> None:
     svg = render_svg(_sample_rows(), repo="KeithCu/writeragent", generated_at="2026-09-03T19:01:48Z")
     assert svg.startswith("<?xml")
     assert "<svg" in svg
-    assert "CrossHair check-all" in svg
-    assert "CrossHair cover-all" in svg
-    assert "Test &amp; Typecheck" in svg
-    assert "Mock LLM Sidebar" in svg
-    assert "ubuntu-latest" in svg
-    assert "macos-latest" in svg
-    assert "windows-latest" in svg
-    assert "success" in svg
-    assert "failure" in svg
-    assert "cancelled" in svg
-    assert "ce0da96" in svg
-    assert "2026-09-03T19:01:48Z" in svg
-    assert "ghs_" not in svg
+    assert "</svg>" in svg
 
-
-def test_render_svg_empty_runs_does_not_crash() -> None:
-    empty_rows = [
-        StatusRow(spec.suite, spec.os, "no run", "", "", "") for spec in suite_specs()
-    ]
-    svg = render_svg(empty_rows, repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
-    assert "<svg" in svg
-    assert "CrossHair check-all" in svg
-    assert "Test &amp; Typecheck" in svg
-    assert "Mock LLM Sidebar" in svg
-    assert "no run" in svg
-    header_only = render_svg([], repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
-    assert "<svg" in header_only
-    assert "</svg>" in header_only
+    empty_svg = render_svg([], repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
+    assert "<svg" in empty_svg
+    assert "</svg>" in empty_svg
 
 
 def test_render_svg_escapes_xml() -> None:
@@ -265,12 +238,6 @@ def test_render_svg_escapes_xml() -> None:
     svg = render_svg(rows, repo="KeithCu/writeragent", generated_at="2026-09-03T18:30:00Z")
     assert "<script>alert(1)</script>" not in svg
     assert "&lt;script&gt;" in svg
-
-
-def test_readme_embeds_pages_svg() -> None:
-    text = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "![CI status](https://keithcu.github.io/writeragent/status.svg)" in text
-    assert "[CI status page](https://keithcu.github.io/writeragent/)" in text
 
 
 def test_render_html_escapes_and_omits_token() -> None:
@@ -335,36 +302,6 @@ def test_main_writes_index_and_never_embeds_token(tmp_path: Path, monkeypatch: p
     assert "CrossHair check-all" in svg
     assert "no run" in text
     assert "no run" in svg
-
-
-def test_workflow_deploys_pages_from_actions_api() -> None:
-    text = _WORKFLOW.read_text(encoding="utf-8")
-    assert "workflow_dispatch:" in text
-    assert "workflow_run:" in text
-    assert "PR CI" in text
-    assert "CrossHair Verification (Deep / On-Demand)" in text
-    assert "pages: write" in text
-    assert "id-token: write" in text
-    assert "actions: read" in text
-    assert "name: github-pages" in text
-    assert "actions/upload-pages-artifact" in text
-    assert "actions/deploy-pages" in text
-    assert "secrets.GITHUB_TOKEN" in text
-    assert "scripts/generate_ci_status.py" in text
-    assert "status.svg" in text
-    assert "docs/" not in text
-
-
-def test_generator_and_workflow_live_outside_docs() -> None:
-    from scripts.generate_ci_status import SUITE_SPECS
-
-    assert "docs" not in _GENERATOR.parts
-    assert "docs" not in _WORKFLOW.parts
-    suites = [item[0] for item in SUITE_SPECS]
-    assert suites.count("CrossHair check-all") == 1
-    assert suites.count("CrossHair cover-all") == 1
-    assert suites.count("Test & Typecheck") == 3
-    assert suites.count("Mock LLM Sidebar") == 3
 
 
 def test_is_expired_within_and_outside_window() -> None:
@@ -876,60 +813,6 @@ def test_collect_status_pr_ci_beats_older_release_verify_windows() -> None:
     assert win.run_id == 700
 
 
-def test_render_json_omits_source() -> None:
-    rows = [
-        StatusRow(
-            "Test & Typecheck",
-            "windows-latest",
-            "success",
-            "96912c4",
-            "2026-09-03T18:15:33Z",
-            "url",
-            run_id=1,
-            source="Release Verify",
-        ),
-    ]
-    raw = render_json(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
-    import json
-
-    data = json.loads(raw)
-    assert "source" not in data["rows"][0]
-
-
-def test_render_html_omits_source_column() -> None:
-    rows = [
-        StatusRow(
-            "Test & Typecheck",
-            "windows-latest",
-            "success",
-            "96912c4",
-            "2026-09-03T18:15:33Z",
-            "",
-            source="PR CI",
-        ),
-    ]
-    page = render_html(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
-    assert "<th>Source</th>" not in page
-    assert ">PR CI</td>" not in page
-
-
-def test_render_svg_omits_source_column() -> None:
-    rows = [
-        StatusRow(
-            "Test & Typecheck",
-            "windows-latest",
-            "success",
-            "96912c4",
-            "2026-09-03T18:15:33Z",
-            "",
-            source="Release Verify",
-        ),
-    ]
-    svg = render_svg(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
-    assert ">Source</text>" not in svg
-    assert "Release Verify" not in svg
-
-
 def test_collect_status_re_evaluates_in_progress_cached_hint() -> None:
     """When a previous cache contains an in_progress run, it must not be treated as a checkpoint.
 
@@ -1038,13 +921,6 @@ def test_collect_status_re_evaluates_on_higher_run_attempt() -> None:
     by_key = {(r.suite, r.os): r for r in rows}
     assert by_key[("Test & Typecheck", "macos-latest")].conclusion == "success"
     assert by_key[("Test & Typecheck", "macos-latest")].run_attempt == 2
-
-
-def test_workflow_restores_and_saves_cache() -> None:
-    text = _WORKFLOW.read_text(encoding="utf-8")
-    assert "actions/cache/restore" in text
-    assert "actions/cache/save" in text
-    assert "--cache .cache/ci-status/status.json" in text
 
 
 class _FakeHTTPResponse:

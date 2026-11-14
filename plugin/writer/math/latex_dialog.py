@@ -203,7 +203,7 @@ def insert_latex_math_dialog(ctx: Any) -> None:
         target_name, last_latex = prefill
 
         # Check if Monaco editor is available
-        exe, available = monaco_editor_available(ctx)
+        exe, available = monaco_editor_available()
         if available and exe:
             log.info("insert_latex_math_dialog: using Monaco editor")
 

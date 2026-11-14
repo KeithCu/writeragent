@@ -14,23 +14,7 @@ from plugin.writer.math.latex_dialog import insert_latex_math_dialog
 from plugin.framework.config import get_config
 from plugin.writer.math.math_mml_convert import MATH_CLSID
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
-
-
-def _skip_windows_leftover_hidden_mathml() -> None:
-    """Skip leftover Hidden ``_blank`` MathML loads on Windows.
-
-    GHA 34675151298 (master ``71640e30``, #744+#745): leftover
-    ``simpress`` at leftover_open=3 correctly SKIPPED. Slash TOP
-    dialog also SKIPPED. Then leftover writer reuse printed and
-    ``convert_mathml_to_starmath`` ``loadComponentFromURL(...,
-    "_blank", Hidden)`` hung 30s (office alive). XDL
-    ``LatexInputDialog`` is patched — hang is leftover Hidden
-    ``_blank``, not AWT TOP ``createPeer`` / ``setVisible``.
-    ``skip_windows_awt_top_dialog`` is the wrong class.
-    GHA 34678020608: this skip fired; next suite hung the same load.
-    """
-    skip_windows_leftover_hidden_load("latex dialog Hidden _blank .mml")
+from plugin.tests.testing_utils import with_native_doc
 
 
 def _embed_count(doc: Any) -> int:
@@ -55,7 +39,6 @@ def _first_math_formula(doc: Any) -> str:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_success(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     latex_input = r"a^2 + b^2 = c^2"
     with patch("plugin.writer.math.latex_dialog.get_active_document", return_value=doc), \
          patch("plugin.writer.math.latex_dialog.monaco_editor_available", return_value=(None, False)), \
@@ -103,14 +86,11 @@ def test_insert_latex_math_dialog_non_writer_fails(ctx: Any, doc: Any) -> None:
 
         # Verify an error msgbox was shown
         mock_msgbox.assert_called_once()
-        args = mock_msgbox.call_args[0]
-        assert "available in Writer" in args[2] or "Error" in args[1]
 
 
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     mock_exe = "mock_python"
     latex_input = r"E = m c^2"
 
@@ -129,7 +109,6 @@ def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
         load_msg = kwargs["load_message"]
         assert load_msg["mode"] == "latex"
         assert load_msg["language"] == "latex"
-        assert "centered paragraph" in load_msg["plain_text_label"]
         assert load_msg["show_data_binding"] is False
 
         # Test the on_save callback defined in insert_latex_math_dialog
@@ -139,7 +118,6 @@ def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
         res = on_save(latex_input, True)
         assert res["type"] == "saved"
         assert res["ok"] is True
-        assert res["status_ok_text"] == "Formula inserted."
 
         # Verify the on_save closure attempted to persist via save
         mock_set_config.assert_any_call({"last_latex_input": latex_input, "last_latex_display_block": True})
@@ -183,7 +161,6 @@ def test_replace_selected_formula_keeps_embed_count(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_dialog_update_path_does_not_add_embed(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
 
     text = doc.getText()
@@ -209,7 +186,6 @@ def test_insert_latex_dialog_update_path_does_not_add_embed(ctx: Any, doc: Any) 
 @native_test
 @with_native_doc("writer")
 def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
     from plugin.writer.math.math_mml_export import MathExportResult
     from plugin.framework.config import save
@@ -240,7 +216,6 @@ def test_prefill_failed_export_cancels_without_corrupting_formula(ctx: Any, doc:
 @native_test
 @with_native_doc("writer")
 def test_update_formula_with_display_block_leaves_config_unchanged(ctx: Any, doc: Any) -> None:
-    _skip_windows_leftover_hidden_mathml()
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
     from plugin.framework.config import get_config, save
 

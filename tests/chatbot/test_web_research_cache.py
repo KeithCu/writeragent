@@ -260,18 +260,6 @@ def test_research_cache_similarity_beats_union_jaccard_for_longer_repeat_query()
     assert research_cache_similarity(a, b) >= 0.40
 
 
-def test_translated_research_cache_fluff_returns_gettext_strings():
-    from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
-
-    fluff = translated_research_cache_fluff()
-    assert len(fluff) >= 50
-    assert all(isinstance(s, str) and s for s in fluff)
-    for topical in ("awards", "features", "ratings", "reviews", "signature", "trends", "depth", "notable"):
-        assert topical not in fluff
-    assert "please" in fluff
-    assert "summary" in fluff
-
-
 def test_get_research_fluff_words_includes_gettext_tokens(monkeypatch):
     from plugin.chatbot.web_research_cache import clear_research_fluff_words_cache, get_research_fluff_words
 
@@ -626,8 +614,7 @@ def test_fluff_keeps_topical_words_after_normalization():
     assert "historia" not in fluff
 
 
-def test_get_stemmer_unknown_language_falls_back_to_english(monkeypatch, caplog):
-    import logging
+def test_get_stemmer_unknown_language_falls_back_to_english(monkeypatch):
     import sys
     import types
 
@@ -642,6 +629,4 @@ def test_get_stemmer_unknown_language_falls_back_to_english(monkeypatch, caplog)
 
     monkeypatch.setitem(sys.modules, "snowballstemmer", types.SimpleNamespace(stemmer=_stemmer))
     monkeypatch.setattr(wrc, "_STEMMER_CACHE", {})
-    with caplog.at_level(logging.WARNING):
-        assert wrc._get_stemmer("klingon") is english
-    assert "falling back to english" in caplog.text
+    assert wrc._get_stemmer("klingon") is english

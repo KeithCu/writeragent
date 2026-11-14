@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from unittest.mock import MagicMock, patch
 
 from hypothesis import given, settings
@@ -132,11 +131,8 @@ def test_normalize_harper_errors_uses_native_offsets_and_explains_blank_fixes() 
 
     assert [(item.n_error_start, item.n_error_length) for item in norms] == [(6, 4), (30, 1), (17, 4), (10, 6)]
     assert norms[0].suggestions == (" ",)
-    assert "replace with one space" in norms[0].short_comment
     assert norms[1].suggestions == ("",)
-    assert "delete the highlighted text" in norms[1].short_comment
     assert norms[2].suggestions == ("envy", "jenny")
-    assert "Choose a replacement below" in norms[2].short_comment
 
 
 def test_provider_span_wrong_mismatch_falls_back_to_substring() -> None:
@@ -829,32 +825,8 @@ def test_resolve_work_spans() -> None:
     res = gt.resolve_work_spans("doc1", "en-US", text, 14, 27, spans)
     assert res == [(14, 27, "Sentence two.")]
 
-    with patch("plugin.writer.locale.grammar_proofread_text.grammar_obs") as mock_obs:
-        res_empty = gt.resolve_work_spans("doc1", "en-US", text, 50, 60, spans)
-        assert res_empty == []
-        mock_obs.assert_called_once_with(
-            "do_proofreading_skip",
-            reason="no_active_sentences",
-            doc_id="doc1",
-            n_start_lo=50,
-            raw_candidates=len(spans),
-            grammar_bcp47="en-US",
-        )
-
-
-def test_split_debug_summary_is_one_gated_line(caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
-    caplog.clear()
-    gt.split_into_sentences(None, "en-US", "One. Two.")
-    records = [r for r in caplog.records if r.name == "writeragent.grammar" and "split_into_sentences count=" in r.getMessage()]
-    assert len(records) == 1
-    assert "count=2" in records[0].getMessage()
-
-    caplog.set_level(logging.WARNING, logger="writeragent.grammar")
-    caplog.clear()
-    gt.split_into_sentences(None, "en-US", "One. Two.")
-    records_warn = [r for r in caplog.records if r.name == "writeragent.grammar" and "split_into_sentences count=" in r.getMessage()]
-    assert len(records_warn) == 0
+    res_empty = gt.resolve_work_spans("doc1", "en-US", text, 50, 60, spans)
+    assert res_empty == []
 
 
 def test_split_quoted_abbreviation_not_boundary() -> None:

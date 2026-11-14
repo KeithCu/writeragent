@@ -18,7 +18,6 @@ from plugin.doc.text_helpers import normalize_linebreaks as _normalize
 from plugin.writer.html_export import document_to_content
 from plugin.writer.html_import import (
     insert_content_at_position as _insert_content_at_position,
-    content_has_markup as _content_has_markup,
     replace_preserving_format as _replace_text_preserving_format,
 )
 from plugin.writer.search import find_text_ranges
@@ -60,9 +59,6 @@ def _get_document_content(doc, ctx, params):
 
 def _apply_document_content(doc, ctx, params):
     """Call real apply_document_content tool; returns dict."""
-    # GHA 34683742049: leftover Hidden _default apply hung after the
-    # first apply-suite skips. Later apply UNO files skip the same load.
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     from plugin.app import get_tools
     content = params.get("content", "")
     if isinstance(content, list):
@@ -92,11 +88,7 @@ def _find_text(doc, params):
 
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import (
-    skip_windows_leftover_hidden_load,
-    skip_windows_pooled_writer_reuse,
-    with_native_doc,
-)
+from plugin.tests.testing_utils import with_native_doc
 
 
 def _read_doc_text(d):
@@ -109,8 +101,9 @@ def _read_doc_text(d):
 @native_test
 @with_native_doc("writer")
 def test_document_to_content(ctx, doc):
+    doc.getText().setString("Hello Writer")
     md = document_to_content(doc, ctx, scope="full")
-    assert isinstance(md, str), f"document_to_content did not return string: {type(md)}"
+    assert "Hello Writer" in md, f"document_to_content missed seeded text: {md!r}"
 
 
 @native_test
@@ -165,11 +158,11 @@ def test_search_and_replace(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_get_document_content_scope_range(ctx, doc):
-    full_text = _read_doc_text(doc)
-    if len(full_text) >= 10:
-        result = _get_document_content(doc, ctx, {"scope": "range", "start": 0, "end": 10})
-        assert result.get("status") == "ok", f"get_document_content scope=range failed: {result}"
-        assert result.get("start") == 0 and result.get("end") == 10 and "content" in result, "Malformed response"
+    doc.getText().setString("0123456789abcdef")
+    result = _get_document_content(doc, ctx, {"scope": "range", "start": 0, "end": 10})
+    assert result.get("status") == "ok", f"get_document_content scope=range failed: {result}"
+    assert result.get("start") == 0 and result.get("end") == 10, f"Malformed response: {result}"
+    assert "0123456789" in result.get("content", ""), f"Unexpected range content: {result}"
 
 
 @native_test
@@ -242,24 +235,6 @@ def test_crlf_normalization(ctx, doc):
     total_range_text = _read_doc_text(doc)[r_start["start"]:r["end"]]
     expected_norm = "Line A\nLine B\nUNIQUE_CRLF_TEST"
     assert total_range_text == expected_norm, f"Expected {repr(expected_norm)}, got {repr(total_range_text)}"
-
-
-@native_test
-def test_content_has_markup_auto_detection():
-    assert not _content_has_markup("**bold**")
-    assert not _content_has_markup("# Heading")
-    assert not _content_has_markup("| col1 | col2 |")
-    assert not _content_has_markup("Issue # 5")
-    assert not _content_has_markup("a | b")
-    assert not _content_has_markup("2**3")
-    assert not _content_has_markup("__init__")
-    assert _content_has_markup("<b>bold</b>")
-    assert _content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>")
-    assert _content_has_markup(r"\(x^2\)")
-    assert not _content_has_markup("Jane Doe")
-    assert not _content_has_markup("Hello world, this is plain text.")
-    assert not _content_has_markup("")
-    assert not _content_has_markup(None)
 
 
 # Helper: create text with per-character background colors and return the range
@@ -369,18 +344,6 @@ def _letter_colors_from_range(doc, range_cursor):
 @with_native_doc("writer")
 def test_cross_paragraph_same_length_replacement_preserves_colors(ctx, doc):
     """replace_preserving_format across a paragraph break keeps per-char background colors."""
-    # GHA 34685648395: leftover_open>0 reuse failed a bare color assert
-    # (empty AssertionError). Same leftover-pollution class as the
-    # apply-style origin canary — not a product color regression.
-    skip_windows_leftover_hidden_load("format_uno cross-paragraph color leftover reuse")
-    # GHA 35470191616 (master c4fdbee, #809): leftover_open=0 after
-    # impress recycle still printed native_doc leftover writer reuse.
-    # skip_windows_leftover_hidden_load did not fire. Sibling
-    # test_same_length_replacement_preserves_colors passed on that
-    # reuse path — leftover body/findFirst pollution, not html_import.py.
-    # #809's \r\n color filter was not enough. Do not factory-load a
-    # second Hidden _blank (34652644656 hung 30s at leftover_open=0).
-    skip_windows_pooled_writer_reuse("format_uno cross-paragraph color pooled reuse")
     text = doc.getText()
     sep = text.createTextCursor()
     sep.gotoEnd(False)
@@ -640,11 +603,6 @@ def test_apply_document_content_target_range_preserves_colors(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_target_full_preserves_colors(ctx, doc):
-    # GHA 34685648395: apply skip inside _apply_document_content fired,
-    # then finally small_doc.close(True) hung 30s. Leftover Hidden
-    # `_blank` + raw close (same family as document-scripts reopen).
-    # Skip before the factory load so finally never runs.
-    skip_windows_leftover_hidden_load("format_uno Hidden _blank small_doc")
     desktop = get_desktop(ctx)
     import uno
     hidden_prop = uno.createUnoStruct(

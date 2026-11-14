@@ -21,18 +21,23 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
-    _as_bool_flag,
-    _clean_paired_arrays,
-    _collect_a_values,
-    _extract_numeric_array,
-    _from_complex,
-    _is_calc_error,
-    _npf_result,
-    _serial_to_date,
+    as_bool_flag,
+    as_nonzero,
+    clean_paired_arrays,
+    collect_a_values,
+    extract_numeric_array,
+    finite_or_nan,
+    from_complex,
+    is_calc_error,
     is_number,
     match_criteria,
+    npf_result,
+    orient_columns,
+    serial_to_date,
     yearfrac,
 )
+from .calc_functions_d_h import duration
+from .calc_functions_n_s import slope
 from .coerce import is_blank_value
 
 
@@ -115,7 +120,7 @@ def _if_caught(f: Callable[[], Any], alt: Any, pred: Callable[[Any], bool]) -> A
 
 def iferror(f: Callable[[], Any], alt: Any) -> Any:
     # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
-    return _if_caught(f, alt, _is_calc_error)
+    return _if_caught(f, alt, is_calc_error)
 
 
 def ifna(f: Callable[[], Any], alt: Any) -> Any:
@@ -128,7 +133,7 @@ def _parse_complex(val: Any) -> tuple[complex, str]:
     ``suffix`` is ``"i"``, ``"j"``, or ``""`` when the text has no imaginary
     unit. ``Complex::Add`` / ``Mult`` (``analysishelper.hxx``) keep the first
     non-empty unit: a real number stores ``c == '\\0'`` and does not override
-    Preserve the first imaginary unit letter so ``IMSUM`` does not rewrite ``j`` results to ``i`` incorrectly.
+    it. Callers keep that first unit, so ``IMSUM`` of ``j`` values answers in ``j``, not ``i``.
 
     A bool is a number. It is an ``int`` subclass, and ``str(True)`` is not
     a complex literal.
@@ -161,7 +166,7 @@ def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], str]:
     def wrapper(inumber: Any) -> str:
         try:
             number, suffix = _parse_complex(inumber)
-            return _from_complex(fn(number), _im_suffix(suffix))
+            return from_complex(fn(number), _im_suffix(suffix))
         except _IM_ERRORS:
             return "#VALUE!"
 
@@ -173,7 +178,7 @@ def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any]
         try:
             left, left_suffix = _parse_complex(inumber1)
             right, right_suffix = _parse_complex(inumber2)
-            return _from_complex(fn(left, right), _im_suffix(left_suffix, right_suffix))
+            return from_complex(fn(left, right), _im_suffix(left_suffix, right_suffix))
         except _IM_ERRORS:
             return "#VALUE!"
 
@@ -184,10 +189,10 @@ def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
     def wrapper(inumber: Any) -> float:
         # getImabs / getImargument return finiteOrThrow(result). A
         # non-finite magnitude is NaN here. inf would not trip IFERROR:
-        # _is_calc_error(inf) is false. String IM functions still catch
+        # is_calc_error(inf) is false. String IM functions still catch
         # inside _im_unary and return "#VALUE!".
         result = float(fn(_parse_complex(inumber)[0]))
-        return result if math.isfinite(result) else float("nan")
+        return finite_or_nan(result)
 
     return wrapper
 
@@ -219,7 +224,7 @@ imlog10 = _im_unary(cmath.log10)
 
 @_im_unary
 def imlog2(c: complex) -> complex:
-    # cmath.log(0) raises. _from_complex rejects a non-finite log.
+    # cmath.log(0) raises. from_complex rejects a non-finite log.
     return cmath.log(c, 2)
 
 
@@ -227,7 +232,7 @@ def impower(inumber: Any, number: Any) -> str:
     try:
         number_c, suffix = _parse_complex(inumber)
         power = float(number)
-        return _from_complex(number_c**power, _im_suffix(suffix))
+        return from_complex(number_c**power, _im_suffix(suffix))
     except _IM_ERRORS:
         return "#VALUE!"
 
@@ -257,7 +262,7 @@ def _im_fold(args: tuple[Any, ...], op: Callable[[complex, complex], complex]) -
                         suffix = unit
         if acc is None:
             acc = complex(0)
-        return _from_complex(acc, _im_suffix(suffix))
+        return from_complex(acc, _im_suffix(suffix))
     except _IM_ERRORS:
         return "#VALUE!"
 
@@ -284,15 +289,10 @@ imtanh = _im_unary(cmath.tanh)
 
 
 def intercept(data_y: Any, data_x: Any) -> float:
-    # steyx imports intercept, so this import stays inside the function.
-    # A module-level import of n_s would cycle. The absolute import failed
-    # when the worker's package root was not the repo root.
-    from .calc_functions_n_s import slope
-
     # slope drops text pairs. Re-parsing the original arrays with
     # dtype=float raised ValueError once slope had already accepted the
     # numeric pairs (intercept([1, "text", 3], [1, 2, 3])).
-    cleaned = _clean_paired_arrays(data_y, data_x)
+    cleaned = clean_paired_arrays(data_y, data_x)
     if cleaned is None:
         return float("nan")
     y, x = cleaned
@@ -316,7 +316,7 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
         return float("nan")
     # Non-finite quotient is NaN (Excel/Calc INTRATE returns #NUM!).
     res = (red - inv) / inv / yf
-    return res if math.isfinite(res) else float("nan")
+    return finite_or_nan(res)
 
 
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
@@ -339,7 +339,7 @@ def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val:
     # 0 once per > nper (and NaN only for per < 1).
     if p < 1 or p > n:
         return float("nan")
-    return _npf_result("ipmt", r, p, n, pv_f, fv_f, t)
+    return npf_result("ipmt", r, p, n, pv_f, fv_f, t)
 
 
 def irr(values: Any, guess: Any = 0.1) -> float:
@@ -355,12 +355,12 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # below (#NUM!, not #DIV/0!). A huge (1+x)**i raises OverflowError,
     # which the worker returns as #NUM!.
     x = 0.1 if estimated == -1.0 else estimated
-    # The stop must not be abs(NPV) < 1e-7 for 100 steps. ScIRR stops when.
-    # the rate step drops below SCdEpsilon (1e-7), and it gives up after
-    # 20 steps (NoConvergence). At a 1e9 scale the NPV residual sticks
-    # near 1.2e-7 while the step is already ~1e-16, so the old test
-    # returned NaN for a rate Calc finds. A guess of exactly 0 that lands
-    # within 1e-7 of 0 is snapped to 0 before that check.
+    # ScIRR stops when the rate step drops below SCdEpsilon (1e-7), and it gives
+    # up after 20 steps (NoConvergence). The stop is the step, not
+    # abs(NPV) < 1e-7: at a 1e9 scale the NPV residual sticks near 1.2e-7 while
+    # the step is already ~1e-16, so an NPV test would return NaN for a rate
+    # Calc finds. A guess of exactly 0 that lands within 1e-7 of 0 is snapped
+    # to 0 before that check.
     eps = 1.0
     for _unused in range(20):
         if not math.isfinite(x) or x == -1.0:
@@ -393,12 +393,12 @@ def isblank(val: Any) -> bool:
 
 def iserr(val: Any) -> bool:
     # Real Calc error tokens, excluding #N/A. '#hashtag' is text.
-    return _is_calc_error(val) and not isna(val)
+    return is_calc_error(val) and not isna(val)
 
 
 def iserror(val: Any) -> bool:
     # Real Calc error tokens and NaN (NA()). '#hashtag' is text.
-    return _is_calc_error(val)
+    return is_calc_error(val)
 
 
 def _parity(val: Any) -> int | None:
@@ -447,7 +447,7 @@ def isodd(val: Any) -> bool:
 def isoweeknum(serial: Any) -> float:
     # Same ordinal as every other serial helper. The inline fromordinal
     # retyped 693594 and used except Exception.
-    d = _serial_to_date(serial)
+    d = serial_to_date(serial)
     if d is None:
         return float("nan")
     return float(d.isocalendar()[1])
@@ -458,7 +458,7 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
     p = float(per)
     n = float(nper)
     pv_f = float(pv_val)
-    # nper == 0 must not raise ZeroDivisionError (pv / nper). Excel/Calc are.
+    # nper == 0 must not raise ZeroDivisionError (pv / nper). Excel/Calc are
     # #NUM!; this module returns NaN. Same guard as pmt.
     if n == 0:
         return float("nan")
@@ -472,7 +472,7 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
 
 def istext(val: Any) -> bool:
     # Text, except a real Calc error token. '#hashtag' is text.
-    return isinstance(val, str) and not _is_calc_error(val)
+    return isinstance(val, str) and not is_calc_error(val)
 
 
 # A kana run is normalized together so ｶﾞ becomes ガ, not カ plus a mark.
@@ -498,10 +498,10 @@ def jis(text: Any) -> str:
 
 def kurt(*args: Any) -> float:
     # ScKurt (interpr3.cxx). Fewer than 4 numbers, or a zero sample stdev,
-    # is #DIV/0!. This is the unbiased excess kurtosis. scipy.stats.kurtosis
-    # (bias=False) is the same expression, and a missing scipy must not make.
-    # every call NaN.
-    arr = _extract_numeric_array(*args)
+    # is #DIV/0!. This is the unbiased excess kurtosis, the same expression as
+    # scipy.stats.kurtosis(bias=False), written out so a missing scipy does not
+    # make every call NaN.
+    arr = extract_numeric_array(*args)
     count = len(arr)
     if count < 4:
         return float("nan")
@@ -515,12 +515,12 @@ def kurt(*args: Any) -> float:
     with np.errstate(all="ignore"):  # overflow -> non-finite -> nan below
         centered = (arr - mean) / stdev
         res = float(np.sum(centered**4) * k_l - k_t)
-    return res if math.isfinite(res) else float("nan")
+    return finite_or_nan(res)
 
 
 def large(r: Any, k: Any) -> float:
     # Numbers only. Text such as '5', bools, and NaN are ignored, not sorted in.
-    arr = _extract_numeric_array(r, propagate_nan=False)
+    arr = extract_numeric_array(r, propagate_nan=False)
     # non-numeric k is left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
     ki = int(float(k))
     if not 0 < ki <= len(arr):
@@ -559,15 +559,11 @@ def _regression_inputs(
     elif args[1] is None:
         raise ValueError
     else:
-        data_x = _numeric_only(args[1])
-        if data_x.ndim == 1:
-            data_x = data_x[:, np.newaxis]
-        elif data_x.ndim == 2 and data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
-            data_x = data_x.T
+        data_x = orient_columns(_numeric_only(args[1]), len(data_y), axis=0)
     if data_x.shape[0] != len(data_y):
         raise ValueError
     raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
-    return data_y, data_x, _as_bool_flag(raw_const)
+    return data_y, data_x, as_bool_flag(raw_const)
 
 
 def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float]:
@@ -613,20 +609,20 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
     # IllegalArgument. gaussinv(0) is -inf and gaussinv(1) is +inf.
     if prob <= 0 or prob >= 1 or s <= 0:
         return float("nan")
-    # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that
-    # inverse CDF. scipy.stats must not be imported inside the call, so.
-    # a missing scipy made every probability NaN.
+    # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that inverse CDF,
+    # so a missing scipy does not make every probability NaN.
     # exp(1e308) raises OverflowError, which the worker returns as #NUM!.
     # exp(inf) returns inf, and IFERROR does not treat inf as an error.
     res = math.exp(m + s * statistics.NormalDist().inv_cdf(prob))
-    return res if math.isfinite(res) else float("nan")
+    return finite_or_nan(res)
 
 
 def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     x_val = float(x)
     m = float(mean)
     s = float(stdev)
-    cum = bool(float(c))
+    # ScLogNormDist reads the flag with GetBool (GetDouble() != 0), so a blank cell or an empty fourth argument is the density.
+    cum = as_nonzero(c)
     if s <= 0:
         return float("nan")
     # ScLogNormDist (interpr3.cxx): cumulative of x <= 0 is 0. The
@@ -640,7 +636,7 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         res = 0.5 * math.erfc(-z / math.sqrt(2.0))
     else:
         res = math.exp(-0.5 * z * z) / (x_val * s * math.sqrt(2.0 * math.pi))
-    return res if math.isfinite(res) else float("nan")
+    return finite_or_nan(res)
 
 
 def _lookup_number(val: Any) -> float | None:
@@ -677,9 +673,9 @@ def _lookup_keys(data: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
 
 def lookup(lookup_val: Any, *args: Any) -> Any:
     # dtype=object keeps numbers as numbers. Text compares case-insensitively.
-    # ScLookup (interpr1.cxx) requires data <= query and the same type. A
-    # number does not match text. str(None) must not be the text "None", so.
-    # lookup(20, ["10x"]) returned "10x". A miss is #N/A, not Python None.
+    # ScLookup (interpr1.cxx) requires data <= query and the same type, so a
+    # number does not match text: lookup(20, ["10x"]) is #N/A. str(None) must
+    # not become the text "None". A miss is #N/A, not Python None.
     if not args:
         return "#N/A"
     parsed = _lookup_keys(np.asarray(args[0], dtype=object))
@@ -712,7 +708,7 @@ def lookup(lookup_val: Any, *args: Any) -> Any:
 
 
 def _a_extreme(args: tuple[Any, ...], reduce: Callable[[np.ndarray], Any]) -> float:
-    vals = _collect_a_values(*args)
+    vals = collect_a_values(*args)
     if not vals.size:
         return 0.0
     return float(reduce(vals))
@@ -742,8 +738,6 @@ def mdeterm(matrix: Any) -> float:
 
 
 def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
-    from .calc_functions_d_h import duration
-
     macd = duration(settlement, maturity, coupon, yld, frequency, basis)
     if math.isnan(macd):
         return macd
@@ -768,10 +762,10 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
     vals = [float(x) for x in np.asarray(values).ravel()]
     fr = float(finance_rate)
     rr = float(reinvest_rate)
-    # rate == -1 must not divide by zero (later negative flows) or return a.
-    # finite number (reinvest rate -1). numpy-financial's NPV is undefined
+    # rate == -1 must not divide by zero (later negative flows) or return a
+    # finite number (reinvest rate -1). numpy-financial's MIRR is undefined
     # there and returns NaN, which is Excel #NUM!.
-    return _npf_result("mirr", vals, fr, rr)
+    return npf_result("mirr", vals, fr, rr)
 
 
 def mmult(array1: Any, array2: Any) -> Any:
@@ -785,10 +779,10 @@ def mmult(array1: Any, array2: Any) -> Any:
 
 def mode(*args: Any) -> Any:
     # ScModalValue (interpr3.cxx) takes one or more arguments and keeps
-    # numbers only. mode(1, 2, 2) must not raise TypeError. Text is not a.
-    # candidate. A Calc bool is a numeric cell, so True and 1 are the same
-    # value and must stay merged.
-    arr = _extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
+    # numbers only, so mode(1, 2, 2) works and text is not a candidate.
+    # A Calc bool is a numeric cell, so True and 1 are the same value and
+    # must stay merged.
+    arr = extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
     if not arr.size:
         return float("nan")
     counts = Counter(arr.tolist())
@@ -868,8 +862,8 @@ def multinomial(*args: Any) -> float:
 
 def munit(dimension: Any) -> Any:
     # ScEMat (interpr5.cxx): GetUInt32 truncates, then dimension 0 is
-    # IllegalArgument. np.eye(0) must not return []. Above 1024 the identity.
-    # is more than a million Python floats. Calc pushes MatrixSize when the
+    # IllegalArgument, so np.eye(0) must not return []. Above 1024 the identity
+    # is more than a million Python floats; Calc pushes MatrixSize when the
     # square is not allocatable instead of building it.
     try:
         size = int(dimension)

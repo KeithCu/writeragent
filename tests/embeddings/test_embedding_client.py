@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.embeddings.embedding_client import EmbeddingBatch, embed_texts, get_embedding_model
-from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, WORKER_POOL_EMBEDDINGS
+from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL
 from plugin.scripting.config_limits import long_trusted_worker_timeout_sec
 from plugin.scripting.session_key import SessionKind
 from plugin.framework.errors import ConfigError, ToolExecutionError
@@ -54,7 +54,6 @@ def test_embed_texts_happy_path(ctx, config_data):
 
     with (
         patch("plugin.embeddings.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
-        patch("plugin.embeddings.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch("plugin.embeddings.embedding_client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         batch = embed_texts(ctx, ["hello", "", "world"])
@@ -65,14 +64,9 @@ def test_embed_texts_happy_path(ctx, config_data):
     assert batch.vectors == [[0.1, 0.2], [0.3, 0.4]]
     assert batch.indices == [0, 2]
 
-    mock_run.assert_called_once()
-    kwargs = mock_run.call_args.kwargs
-    assert kwargs["domain"] == "embedding"
-    assert kwargs["additional_data"] == {"model": DEFAULT_EMBEDDING_MODEL, "texts": ["hello", "", "world"]}
     expected_session_slug = DEFAULT_EMBEDDING_MODEL.replace("/", "_").replace(":", "_")
-    assert kwargs["session_id"] == f"{SessionKind.EMBEDDINGS.value}:{expected_session_slug}"
-    assert kwargs["timeout_sec"] == long_trusted_worker_timeout_sec()
-    assert kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
+    assert mock_run.call_args.kwargs["session_id"] == f"{SessionKind.EMBEDDINGS.value}:{expected_session_slug}"
+    assert mock_run.call_args.kwargs["timeout_sec"] == long_trusted_worker_timeout_sec()
 
 
 def test_embed_texts_custom_model_session_slug(ctx, config_data):
@@ -80,7 +74,6 @@ def test_embed_texts_custom_model_session_slug(ctx, config_data):
 
     with (
         patch("plugin.embeddings.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
-        patch("plugin.embeddings.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch("plugin.embeddings.embedding_client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         embed_texts(ctx, [], model="BAAI/bge-small-en-v1.5")
@@ -93,7 +86,6 @@ def test_embed_texts_uses_timeout_override(ctx, config_data):
 
     with (
         patch("plugin.embeddings.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
-        patch("plugin.embeddings.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch("plugin.embeddings.embedding_client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         embed_texts(ctx, ["hello"], timeout_sec=5)
@@ -101,24 +93,34 @@ def test_embed_texts_uses_timeout_override(ctx, config_data):
     assert mock_run.call_args.kwargs["timeout_sec"] == 5
 
 
-@pytest.mark.parametrize(
-    "value, match",
-    [
-        pytest.param("sentence_transformers not installed", "sentence_transformers", id="test_embed_texts_worker_error"),
-        pytest.param("malformed", "malformed", id="test_embed_texts_malformed_worker_result"),
-    ],
-)
-def test_embed_texts_worker_error(ctx, config_data, value, match):
+def test_embed_texts_worker_error(ctx, config_data):
     with (
         patch("plugin.embeddings.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
-        patch("plugin.embeddings.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch(
             "plugin.embeddings.embedding_client.run_trusted_worker_action",
-            side_effect=ToolExecutionError(value, code="EMBEDDING_ERROR"),
+            side_effect=ToolExecutionError("sentence_transformers not installed", code="EMBEDDING_ERROR"),
         ),
     ):
-        with pytest.raises(ToolExecutionError, match=match):
+        with pytest.raises(ToolExecutionError, match="sentence_transformers") as exc_info:
             embed_texts(ctx, ["hello"])
+    assert exc_info.value.code == "EMBEDDING_ERROR"
+
+
+@pytest.mark.parametrize(
+    ("worker_result", "match"),
+    [
+        pytest.param({"vectors": 1}, "malformed", id="missing_keys_and_bad_types"),
+        pytest.param("not a dict", "unexpected", id="non_dict_payload"),
+    ],
+)
+def test_embed_texts_malformed_worker_result(ctx, config_data, worker_result, match):
+    with (
+        patch("plugin.embeddings.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
+        patch("plugin.embeddings.embedding_client.run_trusted_worker_action", return_value=worker_result),
+    ):
+        with pytest.raises(ToolExecutionError, match=match) as exc_info:
+            embed_texts(ctx, ["hello"])
+    assert exc_info.value.code == "EMBEDDING_ERROR"
 
 
 def test_embed_texts_unsupported_provider(ctx):

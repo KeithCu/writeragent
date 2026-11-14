@@ -1,4 +1,5 @@
-from tests.harness.strip_bundle import is_release_build
+from unittest.mock import patch
+
 import pytest
 import io
 import sys
@@ -38,17 +39,27 @@ class TestEnsureUtf8Stdio:
         old_stdout = sys.stdout
         try:
             sys.stdout = ascii_stdout
-            uno_bootstrap.ensure_utf8_stdio()
-            first_encoding = sys.stdout.encoding
-            uno_bootstrap.ensure_utf8_stdio()
+            with patch.object(ascii_stdout, "reconfigure", wraps=ascii_stdout.reconfigure) as reconfigure_spy:
+                uno_bootstrap.ensure_utf8_stdio()
+                first_encoding = sys.stdout.encoding
+                uno_bootstrap.ensure_utf8_stdio()
+            assert reconfigure_spy.call_count == 1
             assert (sys.stdout.encoding) == (first_encoding)
         finally:
             sys.stdout = old_stdout
 
 
-class TestEnsurePluginOnPathDoc:
-    def test_ensure_plugin_on_path_has_docstring(self) -> None:
-        assert (uno_bootstrap.ensure_plugin_on_path.__doc__)
+def test_ensure_plugin_on_path_is_idempotent() -> None:
+    """Calling the helper multiple times must not duplicate entries on sys.path."""
+    from plugin.framework.uno_bootstrap import ensure_plugin_on_path
+
+    before = list(sys.path)
+    root1 = ensure_plugin_on_path(__file__, levels_up=3)
+    root2 = ensure_plugin_on_path(__file__, levels_up=3)
+    after = list(sys.path)
+
+    assert root1 == root2
+    assert after.count(root1) == before.count(root1) + (1 if root1 not in before else 0)
 
 
 def test_alias_loader_preserves_real_module_spec_and_path(tmp_path) -> None:
@@ -112,9 +123,8 @@ def test_alias_loader_preserves_package_path(tmp_path) -> None:
             sys.path.remove(str(tmp_path))
 
 
-def test_find_spec_logs_error_and_returns_none(monkeypatch) -> None:
+def test_find_spec_failure_returns_none(monkeypatch) -> None:
     import importlib.util
-    from unittest.mock import patch
 
     monkeypatch.setattr("plugin.scripting.sandbox.import_authorized", lambda *args, **kwargs: True)
     uno_bootstrap.set_alias_authorizer(
@@ -128,14 +138,9 @@ def test_find_spec_logs_error_and_returns_none(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(importlib.util, "find_spec", fail_find)
-    with patch("logging.Logger.debug") as mock_debug:
-        importer = uno_bootstrap.AliasImporter()
-        spec = importer.find_spec("writeragent.missing")
-        assert spec is None
-        if is_release_build():  # log.debug call site is stripped in release bundles
-            return
-        assert mock_debug.called
-        assert any("writeragent.missing" in str(call) for call in mock_debug.call_args_list)
+    importer = uno_bootstrap.AliasImporter()
+    spec = importer.find_spec("writeragent.missing")
+    assert spec is None
 
 
 def test_writeragent_root_spec_falls_back_to_namespace_loader(monkeypatch) -> None:

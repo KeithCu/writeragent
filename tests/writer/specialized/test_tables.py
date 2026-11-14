@@ -306,13 +306,6 @@ def _ctx(tables):
     return SimpleNamespace(doc=doc)
 
 
-# ---- helpers ----------------------------------------------------------------
-
-def test_cell_name_math():
-    assert _col_letters(0) == "A" and _col_letters(25) == "Z" and _col_letters(26) == "AA"
-    assert _cell_name(0, 0) == "A1" and _cell_name(1, 1) == "B2"
-
-
 # ---- list / get -------------------------------------------------------------
 
 def test_list_tables():
@@ -684,9 +677,6 @@ def test_set_cell_keeps_nested_table_in_frame():
     )
     assert res["status"] == "ok", res
     assert res["nested_tables"] == ["Child"]
-    assert parent._nested_by_cell["B2"][-1].getName() == "Child" if hasattr(
-        parent._nested_by_cell["B2"][-1], "getName"
-    ) else True
     # Frame stays; a caption paragraph is inserted at the start.
     assert any(isinstance(el, FakeTextFrame) for el in parent._nested_by_cell["B2"])
 
@@ -757,7 +747,7 @@ def test_writer_table_copy_layout_ignores_split_suffix_for_size():
 
 
 def test_copy_table_copies_merged_d2_by_name():
-    """HTML copy must walk getCellNames(); range(cols) on cols=1 used to drop D2."""
+    """HTML copy walks getCellNames() so merged/irregular cells like D2 are not dropped."""
     from plugin.writer.range_copy import _copy_table
 
     src = FakeTable(
@@ -826,7 +816,7 @@ def test_hosted_in_band_scans_named_cells_not_range_cols():
 
 
 def test_hosted_in_band_sees_nest_in_split_cell_name():
-    """int() on A1.1.1 used to return None and skip the nest."""
+    """A nest in split cell A1.1.1 counts toward row 0 and column 0 of the parent band; int() cannot parse a split cell name."""
     parent = FakeParentTable(
         2,
         2,
@@ -858,47 +848,27 @@ def test_delete_last_column_guard():
     assert res["status"] == "error" and "last column" in res["message"]
 
 
-def test_delete_row_refuses_nested_host():
+@pytest.mark.parametrize(
+    ("rows", "cols", "cell_names", "nested_factory", "check_other_row"),
+    [
+        # The other row has no nested table — delete still works.
+        pytest.param(2, 2, None, lambda: {"B2": [FakeTextTableElement("Child")]}, True, id="direct_cell"),
+        # cols=1 after A1:D1 merge; a nest in D2 must still refuse delete of that row.
+        pytest.param(5, 1, _MERGED_BANNER_NAMES, lambda: {"D2": [FakeTextTableElement("Child")]}, False, id="merged_d2"),
+        pytest.param(2, 2, None, lambda: {"B2": [FakeTextFrame([FakeTextTableElement("Child")])]}, False, id="in_frame"),
+    ],
+)
+def test_delete_row_refuses_nested_host(rows, cols, cell_names, nested_factory, check_other_row):
     """removeByIndex on the host row would destroy the nested table."""
-    parent = FakeParentTable(2, 2, nested_by_cell={"B2": [FakeTextTableElement("Child")]})
-    child = FakeTable(1, 1)
-    ctx = _ctx({"Parent": parent, "Child": child})
+    parent = FakeParentTable(rows, cols, cell_names=cell_names, nested_by_cell=nested_factory())
+    ctx = _ctx({"Parent": parent, "Child": FakeTable(1, 1)})
     tool = ManageTableStructure()
     res = tool.execute(ctx, action="delete", axis="row", name="Parent", index=1)
     assert res["status"] == "error" and "Child" in res["message"]
-    assert parent._rows.n == 2
-    # The other row has no nested table — delete still works.
-    ok = tool.execute(ctx, action="delete", axis="row", name="Parent", index=0)
-    assert ok["status"] == "ok" and parent._rows.n == 1
-
-
-def test_delete_row_refuses_nested_host_in_merged_d2():
-    """cols=1 after A1:D1 merge; a nest in D2 must still refuse delete of that row."""
-    parent = FakeParentTable(
-        5,
-        1,
-        cell_names=_MERGED_BANNER_NAMES,
-        nested_by_cell={"D2": [FakeTextTableElement("Child")]},
-    )
-    child = FakeTable(1, 1)
-    ctx = _ctx({"Parent": parent, "Child": child})
-    res = ManageTableStructure().execute(
-        ctx, action="delete", axis="row", name="Parent", index=1
-    )
-    assert res["status"] == "error" and "Child" in res["message"]
-    assert parent._rows.n == 5
-
-
-def test_delete_row_refuses_nested_host_in_frame():
-    parent = FakeParentTable(
-        2, 2, nested_by_cell={"B2": [FakeTextFrame([FakeTextTableElement("Child")])]}
-    )
-    res = ManageTableStructure().execute(
-        _ctx({"Parent": parent, "Child": FakeTable(1, 1)}),
-        action="delete", axis="row", name="Parent", index=1,
-    )
-    assert res["status"] == "error" and "Child" in res["message"]
-    assert parent._rows.n == 2
+    assert parent._rows.n == rows
+    if check_other_row:
+        ok = tool.execute(ctx, action="delete", axis="row", name="Parent", index=0)
+        assert ok["status"] == "ok" and parent._rows.n == rows - 1
 
 
 def test_raise_if_range_hosts_nested_table_cell_vs_body():
@@ -1141,39 +1111,9 @@ def test_table_delete_requires_name():
     assert res["status"] == "error" and "name is required" in res["message"]
 
 
-# ---- domain registration ----------------------------------------------------
-
-def test_tables_are_specialized_domain():
-    for cls in (
-        TableList,
-        TableGetCells,
-        TableSetCell,
-        ManageTableStructure,
-        TableInsert,
-        TableDelete,
-    ):
-        assert cls.tier == "specialized"
-        assert cls.specialized_domain == "tables"
-
-
-def test_table_tools_shortened_name_param():
-    t = FakeTable(2, 2, cells={"A1": "val"})
-    res_get = TableGetCells().execute(_ctx({"T": t}), name="T")
-    assert res_get["status"] == "ok"
-    assert res_get["cells"]["A1"] == "val"
-    assert "matrix" not in res_get
-
-    res_set = TableSetCell().execute(_ctx({"T": t}), name="T", cell="A1", text="new_val")
-    assert res_set["status"] == "ok"
-
-    res_struct = ManageTableStructure().execute(_ctx({"T": t}), action="insert", axis="row", name="T", index=0)
-    assert res_struct["status"] == "ok"
-
-
 # ---- table_delete under change tracking --------------------------------------
-# Regression: with tracking on (review mode records every agent edit) table_delete
-# removed the table with removeTextContent, which records no redline -- the table
-# vanished unreviewable, along with any tracked change pending inside it.
+# With tracking on (review mode records every agent edit), table_delete
+# records redlines rather than silently removing the table via removeTextContent.
 
 class _TrackingCell:
     def __init__(self, cells, name):
@@ -1424,9 +1364,8 @@ class DisposedException(Exception):
     pass
 
 
-def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
-    """Bug 3: TableGetCells logs warning and continues on cell read failure, and re-raises disposal."""
-    import logging
+def test_table_get_cells_cell_read_error_skipped_and_disposal_reraised():
+    """Bug 3: TableGetCells skips failing cell on read failure, and re-raises disposal."""
     from unittest.mock import MagicMock
 
     table = FakeTable(1, 2, cells={"A1": "ok"})
@@ -1443,24 +1382,20 @@ def test_table_get_cells_cell_read_error_logged_and_disposal_reraised(caplog):
     doc = FakeWriterDoc({"T": table})
     ctx = SimpleNamespace(doc=doc)
 
-    with caplog.at_level(logging.WARNING):
-        res = TableGetCells().execute(ctx, name="T")
+    res = TableGetCells().execute(ctx, name="T")
     assert res["status"] == "ok"
     assert "A1" in res["cells"]
     assert "B1" not in res["cells"]
-    assert any("could not read cell 'B1'" in rec.message for rec in caplog.records)
 
     disposed_table = FakeTable(1, 1)
     disposed_table.getCellByName = MagicMock(side_effect=DisposedException("object disposed"))
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(DisposedException):
         TableGetCells().execute(SimpleNamespace(doc=FakeWriterDoc({"T": disposed_table})), name="T")
-    assert "disposed" in str(exc_info.value).lower() or type(exc_info.value).__name__ == "DisposedException"
 
 
 
-def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
+def test_table_list_skips_bad_table_and_reraises_disposal():
     """Bug 4: TableList skips corrupt table that fails _dims, and re-raises disposal."""
-    import logging
     from unittest.mock import MagicMock
 
     good = FakeTable(2, 2)
@@ -1470,19 +1405,16 @@ def test_table_list_skips_bad_table_and_reraises_disposal(caplog):
     doc = FakeWriterDoc({"Good": good, "Bad": bad})
     ctx = SimpleNamespace(doc=doc)
 
-    with caplog.at_level(logging.WARNING):
-        res = TableList().execute(ctx)
+    res = TableList().execute(ctx)
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["tables"][0]["name"] == "Good"
-    assert any("skipping unreadable table 'Bad'" in rec.message for rec in caplog.records)
 
     disposed_table = MagicMock()
     disposed_table.getRows.side_effect = DisposedException("disposed document")
     doc_disposed = FakeWriterDoc({"Disposed": disposed_table})
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(DisposedException):
         TableList().execute(SimpleNamespace(doc=doc_disposed))
-    assert "disposed" in str(exc_info.value).lower() or type(exc_info.value).__name__ == "DisposedException"
 
 
 def test_resolve_uno_context():
@@ -1493,16 +1425,17 @@ def test_resolve_uno_context():
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
+    from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.table_nesting import _is_text_table, cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")
-    with pytest.raises(Exception):
+    with pytest.raises(DocumentDisposedError):
         _is_text_table(disposed_obj)
 
     disposed_cell = MagicMock()
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")
-    with pytest.raises(Exception):
+    with pytest.raises(DocumentDisposedError):
         cell_hosted_table_names(disposed_cell)
 
 

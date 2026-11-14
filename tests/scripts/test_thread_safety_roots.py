@@ -12,7 +12,6 @@ import re
 
 import pytest
 
-from scripts import analyze_thread_deadlocks, lint_thread_safety, thread_safety_roots
 from scripts.thread_safety_roots import (
     SYNC_HOST_ENTRYPOINTS,
     sync_host_entrypoint_regex,
@@ -86,10 +85,3 @@ def test_write_opengrep_rules(tmp_path: Path) -> None:
     )
     with pytest.raises(SystemExit):
         write_opengrep_rules(bad_template2, tmp_path / "out2.yml")
-
-
-def test_checkers_use_canonical_entrypoints_object() -> None:
-    # Ensure both checkers use the exact same canonical set object rather than
-    # redefining or copying local sets.
-    assert lint_thread_safety.SYNC_HOST_ENTRYPOINTS is thread_safety_roots.SYNC_HOST_ENTRYPOINTS
-    assert analyze_thread_deadlocks.SYNC_HOST_ENTRYPOINTS is thread_safety_roots.SYNC_HOST_ENTRYPOINTS

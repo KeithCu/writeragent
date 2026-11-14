@@ -5,14 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import DocumentDisposedError
-import plugin.writer.outline as outline
 from plugin.writer.outline import GetDocumentTree, collect_document_stats
-
-
-def test_model_facing_docstring_uses_strategy_parameter():
-    doc = outline.__doc__ or ""
-    assert 'strategy="heading_only"' in doc
-    assert "content_strategy" not in doc
 
 
 class TestGetDocumentTreeMergedStats:

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from typing import Callable
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -12,15 +11,20 @@ import pytest
 
 from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
 from plugin.calc.excel_py_convert.auto_open import (
-    _doc_from_event,
     _issue_summary,
     has_excel_python_xlsx,
-    install_excel_py_auto_convert,
     maybe_convert_excel_py_document,
     maybe_export_excel_py_on_save,
 )
 from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
+from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
 from tests.testing_utils import CalcDocStub
+
+
+def _dag_cell(**kw) -> ConvertedCell:
+    cell = ConvertedCell(direction="dag", original_code="x", converted=True, **kw)
+    cell.dag_formula = formula_for_converted_cell(cell, separator=";")
+    return cell
 
 
 def _minimal_xlsx(path: Path, *, with_scripts: bool = False, with_xlws: bool = False) -> None:
@@ -76,14 +80,11 @@ def test_has_excel_python_detects_scripts_and_xlws(tmp_path: Path):
 
 def test_apply_dag_formulas_sets_calc_semicolon_formula():
     """Short scripts stay inline; no py_code_* sheet is created."""
-    cell = ConvertedCell(
+    cell = _dag_cell(
         sheet="Sheet1",
         cell="C1",
-        direction="dag",
-        original_code="x",
         converted_code="df = pd.DataFrame(data)",
         data_args=["A1:B2"],
-        converted=True,
         array_ref="C1:D2",
     )
     report = ConversionReport(direction="dag", cells=[cell])
@@ -104,14 +105,11 @@ def test_apply_dag_formulas_sets_calc_semicolon_formula():
 
 
 def test_apply_dag_formulas_invalid_array_ref_fails_preflight():
-    cell = ConvertedCell(
+    cell = _dag_cell(
         sheet="Sheet1",
         cell="C1",
-        direction="dag",
-        original_code="x",
         converted_code="df = pd.DataFrame(data)",
         data_args=["A1:B2"],
-        converted=True,
         array_ref="not-a-ref",
     )
     report = ConversionReport(direction="dag", cells=[cell])
@@ -129,14 +127,11 @@ def test_apply_dag_formulas_invalid_array_ref_fails_preflight():
 def test_apply_dag_formulas_banks_long_scripts():
     long_code = "x = data\n" + ("# pad\n" * 200)
     assert len(long_code) > 1000
-    cell = ConvertedCell(
+    cell = _dag_cell(
         sheet="Sheet1",
         cell="C1",
-        direction="dag",
-        original_code="x",
         converted_code=long_code,
         data_args=["A1:B2"],
-        converted=True,
     )
     report = ConversionReport(direction="dag", cells=[cell])
 
@@ -157,14 +152,11 @@ def test_apply_dag_formulas_defined_name_add_failure_rolls_back(monkeypatch):
 
     long_code = "x = data\n" + ("# pad\n" * 200)
     assert len(long_code) > 1000
-    cell = ConvertedCell(
+    cell = _dag_cell(
         sheet="Sheet1",
         cell="C1",
-        direction="dag",
-        original_code="x",
         converted_code=long_code,
         data_args=["A1:B2"],
-        converted=True,
     )
     report = ConversionReport(direction="dag", cells=[cell])
 
@@ -272,12 +264,12 @@ def test_should_inline_code_measures_escaped_formula():
 
 def test_maybe_convert_skips_non_candidate(tmp_path: Path):
     doc = CalcDocStub()
-    with patch("plugin.doc.text_helpers.get_document_path", return_value=None):
+    with patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=None):
         assert maybe_convert_excel_py_document(doc) is False
 
     plain = tmp_path / "plain.xlsx"
     _minimal_xlsx(plain)
-    with patch("plugin.doc.text_helpers.get_document_path", return_value=str(plain)):
+    with patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(plain)):
         assert maybe_convert_excel_py_document(doc) is False
 
 
@@ -309,7 +301,7 @@ def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
         ],
     )
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=bad),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc") as apply_uno,
     ):
@@ -318,10 +310,12 @@ def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
         assert doc._close_calls == []
 
 
-def test_maybe_convert_uno_applies_dag_and_ignores_stale_marker(tmp_path: Path):
+@pytest.mark.parametrize("modified_before", [False, True])
+def test_maybe_convert_uno_applies_dag_and_preserves_modified_flag(tmp_path: Path, modified_before: bool):
     src = tmp_path / "py.xlsx"
     _minimal_xlsx(src, with_scripts=True)
     doc = CalcDocStub()
+    doc.setModified(modified_before)
     ok_cell = ConvertedCell(
         sheet="Sheet1",
         cell="A1",
@@ -332,85 +326,36 @@ def test_maybe_convert_uno_applies_dag_and_ignores_stale_marker(tmp_path: Path):
         dag_formula='=PY("1")',
     )
     report = ConversionReport(direction="dag", cells=[ok_cell])
+
+    def _dirty_doc(target_doc, _report):
+        target_doc.setModified(True)
+        return []
+
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
         patch("plugin.doc.udprops.get_document_property", return_value="1"),
         patch("plugin.doc.udprops.set_document_property") as set_prop,
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]) as apply_uno,
+        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", side_effect=_dirty_doc) as apply_uno,
     ):
         assert maybe_convert_excel_py_document(doc) is True
         apply_uno.assert_called_once()
         assert [c.args[1] for c in set_prop.call_args_list] == ["ExcelPyDagMeta"]
+        assert doc.isModified() is modified_before
 
 
-def test_maybe_convert_restores_unmodified_flag(tmp_path: Path):
-    src = tmp_path / "py.xlsx"
-    _minimal_xlsx(src, with_scripts=True)
-    doc = CalcDocStub()
-    ok_cell = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code="1",
-        converted_code="1",
-        converted=True,
-        dag_formula='=PY("1")',
-    )
-    report = ConversionReport(direction="dag", cells=[ok_cell])
-    with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
-        patch("plugin.doc.udprops.get_document_property", return_value="1"),
-        patch("plugin.doc.udprops.set_document_property"),
-        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]),
-    ):
-        assert maybe_convert_excel_py_document(doc) is True
-        assert doc.isModified() is False
-
-
-def test_maybe_convert_keeps_already_modified_flag(tmp_path: Path):
-    src = tmp_path / "py.xlsx"
-    _minimal_xlsx(src, with_scripts=True)
-    doc = CalcDocStub()
-    doc.setModified(True)
-    ok_cell = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code="1",
-        converted_code="1",
-        converted=True,
-        dag_formula='=PY("1")',
-    )
-    report = ConversionReport(direction="dag", cells=[ok_cell])
-    with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
-        patch("plugin.doc.udprops.get_document_property", return_value="1"),
-        patch("plugin.doc.udprops.set_document_property"),
-        patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]),
-    ):
-        assert maybe_convert_excel_py_document(doc) is True
-        assert doc.isModified() is True
-
-
-def test_maybe_convert_logs_parse_issue_when_nothing_converts(tmp_path: Path):
+def test_maybe_convert_returns_false_when_nothing_converts(tmp_path: Path):
     src = tmp_path / "py.xlsx"
     _minimal_xlsx(src, with_scripts=True)
     doc = CalcDocStub()
     report = ConversionReport(direction="dag", cells=[], issues=["Sheet1!A1: _xlws.PY could not be parsed"])
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(src)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(src)),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc") as apply_uno,
-        patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
-        patch("plugin.calc.excel_py_convert.auto_open.log.info") as mock_info,
     ):
         assert maybe_convert_excel_py_document(doc) is False
         apply_uno.assert_not_called()
-        assert any("could not be parsed" in str(arg) for call in mock_warn.call_args_list for arg in call.args)
-        assert not any("no convertible PY cells" in str(arg) for call in mock_info.call_args_list for arg in call.args)
 
 
 def test_issue_summary_caps_long_issue_lists():
@@ -426,293 +371,13 @@ def test_issue_summary_caps_long_issue_lists():
     )
     assert _issue_summary(cell_only) == "S!A1: boom"
 
-def test_install_excel_py_auto_convert_once():
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
-    # Reset module listener between tests
-    import plugin.calc.excel_py_convert.auto_open as mod
-
-    mod._doc_listener = None
-    install_excel_py_auto_convert(ctx)
-    install_excel_py_auto_convert(ctx)
-    assert broadcaster.addDocumentEventListener.call_count == 1
-
-
-class _DisposedViewControllerEvent:
-    """Simulates UNO DocumentEvent where ViewController access raises (disposed)."""
-
-    def __init__(self, source=None):
-        self.Source = source
-        self.EventName = ""
-
-    def __getattr__(self, name: str):
-        if name == "ViewController":
-            raise RuntimeError("DrawController object has already been disposed")
-        raise AttributeError(name)
-
-
-def test_doc_from_event_disposed_view_controller_returns_none():
-    assert _doc_from_event(_DisposedViewControllerEvent()) is None
-
-
-def test_doc_from_event_disposed_view_controller_falls_back_to_calc_source():
-    source = CalcDocStub()
-    setattr(source, "CurrentController", None)
-    setattr(source, "_controller", None)
-    assert _doc_from_event(_DisposedViewControllerEvent(source=source)) is source
-
-
-def test_doc_from_event_onnew_controller_throw_still_returns_calc_source():
-    """Hidden factory OnNew: Source is the scalc, getCurrentController raises."""
-    source = CalcDocStub()
-
-    def _boom():
-        raise RuntimeError("no controller yet")
-
-    setattr(source, "getCurrentController", _boom)
-
-    class _OnNew:
-        EventName = "OnNew"
-        Source = source
-
-    assert _doc_from_event(_OnNew()) is source
-
-
-def test_onload_rewrites_collabora_py_via_call():
-    """OnLoadFinished marshals Collabora rewrite (doc only) then geometric open (ctx, doc)."""
-    import plugin.calc.excel_py_convert.auto_open as mod
-    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
-
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
-    mod._doc_listener = None
-    install_excel_py_auto_convert(ctx)
-    listener = broadcaster.addDocumentEventListener.call_args[0][0]
-    doc = CalcDocStub()
-
-    class _LoadEvent:
-        EventName = "OnLoadFinished"
-        Source = doc
-
-    event = _LoadEvent()
-    with (
-        patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.main.call") as marshal,
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-        patch.object(mod.log, "warning") as warn,
-    ):
-        listener.on_document_event(event)
-        convert.assert_called_once()
-        assert marshal.call_count == 2
-        assert marshal.call_args_list[0][0][0] is mod._geometric_open_job
-        assert marshal.call_args_list[0][0][1:] == (ctx, doc)
-        assert marshal.call_args_list[1][0][0] is maybe_rewrite_collabora_py_formulas
-        assert marshal.call_args_list[1][0][1:] == (doc,)
-        warn.assert_not_called()
-
-
-def _run_in_dummy_thread(fn: Callable[[], None], timeout: float = 5.0) -> None:
-    import _thread
-    import threading
-
-    done = threading.Event()
-    exc: list[BaseException] = []
-
-    def target() -> None:
-        try:
-            fn()
-        except BaseException as err:
-            exc.append(err)
-        finally:
-            done.set()
-
-    _thread.start_new_thread(target, ())
-    if not done.wait(timeout):
-        raise TimeoutError(f"Dummy thread failed to finish within {timeout} s")
-    if exc:
-        raise exc[0]
-
-
-def test_onload_collabora_rewrite_inlines_on_untagged_dummy():
-    """OnLoadFinished inlines Collabora rewrite on an untagged Dummy thread (dev UNTAGGED_DUMMY_IS_CURRENT)."""
-    import plugin.calc.excel_py_convert.auto_open as mod
-
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
-    mod._doc_listener = None
-    install_excel_py_auto_convert(ctx)
-    listener = broadcaster.addDocumentEventListener.call_args[0][0]
-    doc = CalcDocStub()
-
-    class _LoadEvent:
-        EventName = "OnLoadFinished"
-        Source = doc
-
-    event = _LoadEvent()
-    with (
-        patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch.object(mod, "_geometric_open_job"),
-        patch(
-            "plugin.calc.python.collabora_formula.maybe_rewrite_collabora_py_formulas"
-        ) as rewrite,
-        patch("plugin.framework.queue_executor.main.call", side_effect=TimeoutError("main.call should not be reached")) as marshal,
-        patch.object(mod.log, "warning") as warn,
-    ):
-        def _fire() -> None:
-            listener.on_document_event(event)
-
-        _run_in_dummy_thread(_fire)
-        convert.assert_called_once()
-        rewrite.assert_called_once_with(doc)
-        marshal.assert_not_called()
-        warn.assert_not_called()
-
-
-def test_onnew_records_geometric_session_inline_on_uno_thread():
-    """OnNew is already on the VCL thread — do not enqueue (30s leftover hang)."""
-    import plugin.calc.excel_py_convert.auto_open as mod
-
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
-    mod._doc_listener = None
-    install_excel_py_auto_convert(ctx)
-    listener = broadcaster.addDocumentEventListener.call_args[0][0]
-    doc = CalcDocStub()
-
-    class _NewEvent:
-        EventName = "OnNew"
-        Source = doc
-
-    with (
-        patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.main.call") as marshal,
-        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-        patch(
-            "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
-        ) as open_geo,
-    ):
-        listener.on_document_event(_NewEvent())
-        convert.assert_not_called()
-        marshal.assert_not_called()
-        open_geo.assert_called_once_with(ctx, doc)
-
-
-def test_oncreate_without_resolvable_doc_still_runs_geometric_open():
-    """Leftover OnCreate Source is often the Writer keeper — the open hook still runs."""
-    import plugin.calc.excel_py_convert.auto_open as mod
-
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
-    mod._doc_listener = None
-    install_excel_py_auto_convert(ctx)
-    listener = broadcaster.addDocumentEventListener.call_args[0][0]
-
-    class _CreateEvent:
-        EventName = "OnCreate"
-        Source = None
-
-    with (
-        patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.main.call") as marshal,
-        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
-        patch(
-            "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
-        ) as open_geo,
-    ):
-        listener.on_document_event(_CreateEvent())
-        convert.assert_not_called()
-        marshal.assert_not_called()
-        open_geo.assert_called_once_with(ctx, None)
-
-
-def test_geometric_open_job_wires_unload_listener():
-    """Closing the workbook is the soffice-side clear for its kernel and geometric state."""
-    import plugin.calc.excel_py_convert.auto_open as mod
-
-    doc = CalcDocStub()
-    ctx = MagicMock()
-    with (
-        patch("plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open") as open_geo,
-        patch(
-            "plugin.calc.python.workbook_state.WorkbookState.for_doc",
-        ) as for_doc_mock,
-    ):
-        mod._geometric_open_job(ctx, doc)
-    open_geo.assert_called_once_with(ctx, doc)
-    for_doc_mock.assert_called_once_with(doc)
-
-
-def test_onnew_records_geometric_session_via_call():
-    """Factory Calc fires OnNew off-main; leftover still needs a marshaled record."""
-    import plugin.calc.excel_py_convert.auto_open as mod
-
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
-    mod._doc_listener = None
-    install_excel_py_auto_convert(ctx)
-    listener = broadcaster.addDocumentEventListener.call_args[0][0]
-    doc = CalcDocStub()
-
-    class _NewEvent:
-        EventName = "OnNew"
-        Source = doc
-
-    with (
-        patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.main.call") as marshal,
-        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
-    ):
-        listener.on_document_event(_NewEvent())
-        convert.assert_not_called()
-        assert marshal.call_count == 1
-        assert marshal.call_args_list[0][0][0] is mod._geometric_open_job
-        assert marshal.call_args_list[0][0][1:] == (ctx, doc)
-
-
-def test_excel_py_listener_disposed_view_controller_does_not_warn():
-    """Listener must not hit the outer warning path when ViewController is disposed."""
-    import plugin.calc.excel_py_convert.auto_open as mod
-
-    ctx = MagicMock()
-    smgr = MagicMock()
-    broadcaster = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    smgr.createInstanceWithContext.return_value = broadcaster
-    mod._doc_listener = None
-    install_excel_py_auto_convert(ctx)
-    listener = broadcaster.addDocumentEventListener.call_args[0][0]
-    event = _DisposedViewControllerEvent()
-    event.EventName = "OnLoadFinished"
-    with patch.object(mod.log, "warning") as warn:
-        listener.on_document_event(event)
-        warn.assert_not_called()
-
-
 def test_maybe_export_skips_without_py_cells(tmp_path: Path):
     path = tmp_path / "plain.xlsx"
     _minimal_xlsx(path)
     doc = CalcDocStub()
     empty = ConversionReport(direction="excel", cells=[])
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=empty),
         patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as write_xlsx,
     ):
@@ -741,7 +406,7 @@ def test_maybe_export_writes_native_package(tmp_path: Path):
         ],
     )
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
         patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as write_xlsx,
         patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
@@ -776,7 +441,7 @@ def test_maybe_export_msgbox_on_failure(tmp_path: Path):
     set_package_extension_id(EXTENSION_ID_LIBREPY)
     try:
         with (
-            patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+            patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
             patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
             patch(
                 "plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx",
@@ -858,7 +523,7 @@ def test_convert_uno_doc_to_excel_max_scan_refuses_export(tmp_path: Path):
     path = tmp_path / "capped.xlsx"
     path.touch()
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
         patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as mock_write,
         patch("plugin.chatbot.dialogs.msgbox") as box,
@@ -924,7 +589,7 @@ def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
     path.touch()
     mock_report = ConversionReport(direction="to_excel", issues=["conversion error"])
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=mock_report),
         patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as mock_write,
         patch("plugin.chatbot.dialogs.msgbox") as box,
@@ -965,22 +630,8 @@ def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
     sheet.getCellRangeByName("B1").setFormula("=ORIGINAL_B1")
 
     long_code = "x = " + "a" * 1200
-    c1 = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code=long_code,
-        converted_code=long_code,
-        converted=True,
-    )
-    c2 = ConvertedCell(
-        sheet="Sheet1",
-        cell="B1",
-        direction="dag",
-        original_code="y = 2",
-        converted_code="y = 2",
-        converted=True,
-    )
+    c1 = _dag_cell(sheet="Sheet1", cell="A1", converted_code=long_code)
+    c2 = _dag_cell(sheet="Sheet1", cell="B1", converted_code="y = 2")
     report = ConversionReport(direction="dag", cells=[c1, c2])
 
     def _failing_set_formula(val: str):
@@ -992,7 +643,7 @@ def test_apply_dag_formulas_rollback_on_cell_failure(tmp_path: Path):
     path.touch()
 
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
     ):
@@ -1010,22 +661,8 @@ def test_apply_dag_formulas_rollback_failure_is_reported():
     a1_cell.setFormula("=ORIGINAL_A1")
     b1_cell.setFormula("=ORIGINAL_B1")
 
-    c1 = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code="x = 1",
-        converted_code="x = 1",
-        converted=True,
-    )
-    c2 = ConvertedCell(
-        sheet="Sheet1",
-        cell="B1",
-        direction="dag",
-        original_code="y = 2",
-        converted_code="y = 2",
-        converted=True,
-    )
+    c1 = _dag_cell(sheet="Sheet1", cell="A1", converted_code="x = 1")
+    c2 = _dag_cell(sheet="Sheet1", cell="B1", converted_code="y = 2")
     report = ConversionReport(direction="dag", cells=[c1, c2])
 
     orig_a1_set = a1_cell.setFormula
@@ -1051,14 +688,7 @@ def test_apply_dag_formulas_preflight_failure_writes_nothing():
     doc_a = CalcDocStub()
     sheet_a = doc_a.getSheets().getByName("Sheet1")
     sheet_a.getCellRangeByName("A1").setFormula("=ORIGINAL")
-    c_unknown = ConvertedCell(
-        sheet="NoSuchSheet",
-        cell="A1",
-        direction="dag",
-        original_code="1",
-        converted_code="1",
-        converted=True,
-    )
+    c_unknown = _dag_cell(sheet="NoSuchSheet", cell="A1", converted_code="1")
     report_a = ConversionReport(direction="dag", cells=[c_unknown])
     errors_a = apply_dag_formulas_to_calc_doc(doc_a, report_a)
     assert any("unmapped sheet" in err for err in errors_a)
@@ -1073,14 +703,7 @@ def test_apply_dag_formulas_preflight_failure_writes_nothing():
     fake_bank.getCellRangeByName("A1").setString("user data")
 
     long_code = "x = " + "b" * 1200
-    c_bank = ConvertedCell(
-        sheet="Sheet1",
-        cell="A1",
-        direction="dag",
-        original_code=long_code,
-        converted_code=long_code,
-        converted=True,
-    )
+    c_bank = _dag_cell(sheet="Sheet1", cell="A1", converted_code=long_code)
     report_b = ConversionReport(direction="dag", cells=[c_bank])
     errors_b = apply_dag_formulas_to_calc_doc(doc_b, report_b)
     assert any("Bank sheet collision" in err for err in errors_b)
@@ -1088,36 +711,30 @@ def test_apply_dag_formulas_preflight_failure_writes_nothing():
     assert fake_bank.getCellRangeByName("A1").getString() == "user data"
 
 
-def test_maybe_convert_excel_py_document_meta_store_warning(tmp_path: Path):
-    """Successful apply logs warning if ExcelPyDagMeta store fails, leaving open converted."""
+def test_maybe_convert_excel_py_document_meta_store_failure_still_converts(tmp_path: Path):
+    """Successful apply still succeeds if ExcelPyDagMeta store fails."""
 
     doc = CalcDocStub()
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getCellRangeByName("A1").setFormula('=PY("x = 1")')
 
-    c = ConvertedCell(
+    c = _dag_cell(
         sheet="Sheet1",
         cell="A1",
-        direction="dag",
-        original_code="x = 1",
         converted_code="x = 1",
-        converted=True,
     )
     report = ConversionReport(direction="dag", cells=[c])
     path = tmp_path / "valid.xlsx"
     path.touch()
 
     with (
-        patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
+        patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(path)),
         patch("plugin.calc.excel_py_convert.auto_open.has_excel_python_xlsx", return_value=True),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
         patch("plugin.calc.excel_py_convert.convert.store_dag_meta_on_doc", side_effect=RuntimeError("meta store failure")),
-        patch("plugin.calc.excel_py_convert.auto_open.log.warning") as mock_warn,
     ):
         result = maybe_convert_excel_py_document(doc)
         assert result is True
-        assert mock_warn.called
-        assert any("ExcelPyDagMeta" in str(arg) for call in mock_warn.call_args_list for arg in call.args)
 
 
 def test_collect_safety_warnings_nul_byte_does_not_raise(monkeypatch: pytest.MonkeyPatch):
@@ -1135,7 +752,7 @@ def test_collect_safety_warnings_nul_byte_does_not_raise(monkeypatch: pytest.Mon
     assert any("not parseable" in w for w in warns_val)
 
 
-def test_report_safety_warnings_parses_each_script_once(monkeypatch: pytest.MonkeyPatch):
+def test_add_safety_warnings_parses_each_script_once(monkeypatch: pytest.MonkeyPatch):
     from plugin.calc.excel_py_convert import script_bank
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
 
@@ -1150,8 +767,59 @@ def test_report_safety_warnings_parses_each_script_once(monkeypatch: pytest.Monk
     c1 = ConvertedCell(sheet="S1", cell="A1", direction="dag", original_code="c1", converted_code="code_a", converted=True)
     c2 = ConvertedCell(sheet="S1", cell="A2", direction="dag", original_code="c2", converted_code="code_b", converted=True)
     c3 = ConvertedCell(sheet="S1", cell="A3", direction="dag", original_code="c3", converted_code="code_a", converted=True)
-    report = ConversionReport(direction="dag", cells=[c1, c2, c3])
+    c4 = ConvertedCell(sheet="S1", cell="A4", direction="dag", original_code="c4", converted_code="code_c", converted=False)
+    report = ConversionReport(direction="dag", cells=[c1, c2, c3, c4])
 
-    out = script_bank.report_safety_warnings(report)
+    script_bank.add_safety_warnings(report)
     assert len(calls) == 2
-    assert out == ["S1!A1: warn", "S1!A2: warn", "S1!A3: warn"]
+    assert c1.issues == ["warn"]
+    assert c2.issues == ["warn"]
+    assert c3.issues == ["warn"]
+    assert c4.issues == []
+
+
+def test_apply_dag_formulas_writes_stored_dag_formula():
+    cell = ConvertedCell(
+        sheet="sheet1",
+        cell="C1",
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        dag_formula='=PY("stored")',
+        converted=True,
+    )
+    doc = CalcDocStub()
+    errors = apply_dag_formulas_to_calc_doc(doc, ConversionReport(direction="dag", cells=[cell]))
+    assert errors == []
+    assert doc.getSheets().getByName("Sheet1").getCellRangeByName("C1").getFormula() == '=PY("stored")'
+
+
+def test_apply_dag_formulas_missing_dag_formula_fails_preflight():
+    cell = ConvertedCell(
+        sheet="Sheet1",
+        cell="C1",
+        direction="dag",
+        original_code="x = 1",
+        converted_code="x = 1",
+        dag_formula="",
+        converted=True,
+    )
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("C1").setFormula("=ORIGINAL")
+    errors = apply_dag_formulas_to_calc_doc(doc, ConversionReport(direction="dag", cells=[cell]))
+    assert any("has no dag_formula" in e for e in errors)
+    assert sheet.getCellRangeByName("C1").getFormula() == "=ORIGINAL"
+
+
+def test_maybe_convert_excel_py_document_converts_despite_sandbox_advisory(tmp_path: Path):
+    xlsx = tmp_path / "advisory.xlsx"
+    _minimal_xlsx(xlsx, with_scripts=False, with_xlws=True)
+    with zipfile.ZipFile(xlsx, "a") as zf:
+        zf.writestr(
+            "xl/pythonScripts.xml",
+            '<?xml version="1.0"?><pythonScripts><pythonScript><code>import requests\nx = 1</code></pythonScript></pythonScripts>',
+        )
+    doc = CalcDocStub()
+    with patch("plugin.calc.excel_py_convert.auto_open.get_document_path", return_value=str(xlsx)):
+        assert maybe_convert_excel_py_document(doc) is True

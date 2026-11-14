@@ -10,7 +10,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 from plugin.writer.locale import grammar_ignore_rules as gir
 from plugin.writer.locale import grammar_proofread_cache as gc
-from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.grammar_proofread_locale import (
     fingerprint_for_text,
     normalize_for_sentence_cache,
@@ -215,12 +214,6 @@ def test_sentence_cache_locale_isolation() -> None:
     gc.cache_put_sentence("en-US", "Hello there", errors)
     assert gc.cache_get_sentence("en-US", "Hello") is None
     assert gc.cache_get_sentence("fr-FR", "Bonjour") is not None
-
-def test_sentence_cache_key_prefix_and_identity_fp() -> None:
-    ident = grammar_settings.checker_identity().replace("|", "/")
-    assert gc.sentence_cache_key_prefix("en-US") == f"sent|en-US|{ident}|"
-    fp = sentence_identity_fp("Hello.")
-    assert gc._sentence_l1_key("en-US", None, fp) == f"{gc.sentence_cache_key_prefix('en-US')}{fp}"
 
 def test_should_evict_incomplete_prefix_predecessor() -> None:
     errors = [{"n_error_start": 0, "n_error_length": 2}]

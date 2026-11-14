@@ -31,11 +31,12 @@ from plugin.scripting.session_key import (
     SessionKey,
 )
 from plugin.scripting.venv.coerce import (
-    table_from_df as _table_from_df,
+    resolve_df,
+    table_from_df,
 )
 from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    ok_result as _ok_result,
+    ok_result,
 )
 
 log = logging.getLogger(__name__)
@@ -191,16 +192,12 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
 
 
 def _sandbox_context() -> tuple[str | None, str | None, bool]:
-    # ImportError: no sandbox (LibrePy omits this stack, or a cycle). Same defaults as the three wrappers.
-    # Do not cache the failure. A later call must be able to import.
-    try:
-        from plugin.scripting.venv.venv_sandbox import (
-            current_sandbox_scoped_dir,
-            current_sandbox_session_id,
-            sandbox_execute_active,
-        )
-    except ImportError:
-        return None, None, False
+    # Lazy (boundary): the LibreOffice process imports this module for its constants (plugin/calc/duckdb_tools.py), and venv_sandbox would load the smolagents executor and patch its thread pool there. Outside run_sandboxed_code the three getters return None, None, False.
+    from plugin.scripting.venv.venv_sandbox import (
+        current_sandbox_scoped_dir,
+        current_sandbox_session_id,
+        sandbox_execute_active,
+    )
     return current_sandbox_session_id(), current_sandbox_scoped_dir(), sandbox_execute_active()
 
 
@@ -208,7 +205,8 @@ def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
     """Explicit id, else the current shared-kernel sandbox session (if persistable).
 
     Host callers (trusted SQL, tests) may name a workbook. A sandboxed cell
-    A sandboxed cell must not open another workbook's catalog when an explicit session id is passed.
+    that passes an explicit session id must not open another workbook's
+    catalog.
     """
     live_sid, _scoped, cell_active = _sandbox_context()
     current = persistable_duckdb_session_id(live_sid)
@@ -238,7 +236,7 @@ def _connection_alive(con: Any) -> bool:
 
 
 def reset_session_duckdb(session_id: str | None = None) -> None:
-    """Close cached connection(s). ``None`` drops every session (tests / worker wipe).
+    """Close cached connection(s). ``None`` closes every session's connection (the ``fresh_sandbox_sessions`` fixture in tests/conftest.py uses it; scripts can call it through the facade).
 
     Reset Python Session calls this for the workbook id so registered tables
     do not survive the namespace wipe.
@@ -408,10 +406,11 @@ def _register_relation(con: Any, name: str, rel: Any) -> None:
 # Match only at a statement boundary ((?:^|;)\s*). A bare identifier
 # anywhere would flag 'SELECT load, copy FROM t'. SET, PRAGMA, CALL,
 # CREATE SECRET, and DETACH are statements too.
-# FORCE INSTALL does not start with INSTALL, so the old alternative missed it
-# and DuckDB installed httpfs. UPDATE EXTENSIONS fetches extension updates; a
-# table UPDATE does not say EXTENSIONS. RESET clears settings on a connection
-# that is not lock_configuration'd; SET was already denied.
+# FORCE INSTALL does not start with INSTALL and needs its own alternative,
+# or a cell could install httpfs. UPDATE EXTENSIONS fetches extension
+# updates; a table UPDATE does not say EXTENSIONS. RESET would undo
+# settings on a connection that is not lock_configuration'd, the same
+# hole as SET.
 _BLOCKED_STMT_RE = re.compile(
     r"""(?isx)
     (?:^|;)\s*(?:\(\s*)*
@@ -463,9 +462,10 @@ _TOKEN_RE = re.compile(
 )
 
 
-# Methods a script may call on session_duckdb() besides execute/sql/close.
-# __getattr__ must not forward every connection method, and ``_con`` was public,.
-# so read_csv / ``con._con.execute`` skipped the read-only firewall.
+# __getattr__ forwards only these. Forwarding every connection method, or
+# a public raw-connection attribute (the class keeps it name-mangled as
+# ``__con``), would let read_csv or ``con._con.execute`` skip the
+# read-only firewall.
 _GUARDED_FORWARDED = frozenset({"register", "unregister", "df"})
 
 
@@ -643,7 +643,7 @@ def _ok_sql_result(
     files_used: list[str] | None = None,
 ) -> dict[str, Any]:
     """Shape a SQL DataFrame like analysis helpers: tables + flags + metrics."""
-    table = _table_from_df(df, name="sql_result", max_rows=MAX_TABLE_ROWS)
+    table = table_from_df(df, name="sql_result", max_rows=MAX_TABLE_ROWS)
     # table_from_df already sets truncated / total_rows; keep columns/rows at
     # top level so existing chat/tool callers keep working.
     total = table["total_rows"]
@@ -671,7 +671,7 @@ def _ok_sql_result(
         payload["warning"] = warning
         # ``message`` is a priority key in generic RPS HTML insert — bold, not a footnote.
         payload["message"] = warning
-    return _ok_result(helper, **payload)
+    return ok_result(helper, **payload)
 
 
 def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
@@ -688,7 +688,6 @@ def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
 def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
     if not preloaded:
         return
-    from plugin.scripting.venv.coerce import resolve_df
 
     registered_stems: set[str] = set()
     for orig_name, data in preloaded.items():
@@ -872,8 +871,9 @@ def _execute(
         if resolved_flat and base:
             stem_aliases = _register_flat_files(con, resolved_flat, scoped_dir=base)
 
-        # os.chdir raced other cells; FROM 'name.csv' reads the table created
-        # under that name, including with external access off.
+        # The worker never chdirs (another cell on this process would see the
+        # new cwd). FROM 'name.csv' reads the table registered under that
+        # name, so it works with external access off.
         df = con.execute(sql).df()
     except SqlError:
         raise
@@ -981,8 +981,9 @@ def query_folder_sql(
 
     - preloaded: dict table_name -> 2D grid data (from host LO reads for ranges/office files).
     - files: list or dict of basenames. Each basename is copied into an
-      in-memory table. A distinct stem becomes a view unless decision 3 skips
-      it. The worker does not chdir.
+      in-memory table, and its stem (``sales`` for ``sales.csv``) becomes a
+      view of it unless that name is already taken (logged and skipped, see
+      _register_flat_files). The worker does not chdir.
     - flat_files: dict name -> full validated path for direct DuckDB reads.
     - session_id: shared-kernel workbook id. When persistable (or the current
       ``=PY()`` sandbox session is), reuse one connection and keep tables

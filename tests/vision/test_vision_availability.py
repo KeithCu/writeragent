@@ -28,12 +28,21 @@ def test_vision_venv_configured_propagates_config_error():
             vision_venv_configured()
 
 
-def test_vision_venv_configured_success():
+@pytest.mark.parametrize(
+    ("config_value", "resolve_result", "expected"),
+    [
+        pytest.param("", "/fake/venv/bin/python", False, id="empty"),
+        pytest.param("   \t  ", "/fake/venv/bin/python", False, id="whitespace"),
+        pytest.param("/fake/venv", None, False, id="unresolvable_python"),
+        pytest.param("/fake/venv", "/fake/venv/bin/python", True, id="configured"),
+    ],
+)
+def test_vision_venv_configured(config_value: str, resolve_result: str | None, expected: bool):
     with (
-        patch("plugin.vision.vision_availability.get_config", return_value="/fake/venv"),
-        patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/fake/venv/bin/python"),
+        patch("plugin.vision.vision_availability.get_config", return_value=config_value),
+        patch("plugin.vision.vision_availability.resolve_venv_python", return_value=resolve_result),
     ):
-        assert vision_venv_configured() is True
+        assert vision_venv_configured() is expected
 
 
 def test_filter_vision_delegate_schemas_consistent_with_ctx_none():
@@ -128,4 +137,13 @@ def test_filter_vision_delegate_schemas_skips_odd_entries_and_does_not_mutate():
     assert schema["function"]["parameters"]["properties"]["domain"]["enum"] == ["writing", "vision"]
     assert filtered[0] == {**schema, "function": {**schema["function"], "parameters": {"type": "object", "properties": {"domain": {"type": "string", "enum": ["writing"]}}}}}
     assert filtered[1:] == ["junk", junk, {"type": "function"}]
+
+
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
+def test_get_vision_core_directive_writer_is_empty(_mock_avail):
+    from plugin.vision.vision_availability import get_vision_core_directive
+
+    writer_doc = MagicMock()
+    writer_doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+    assert get_vision_core_directive(writer_doc, MagicMock()) == ""
 

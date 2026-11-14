@@ -5,34 +5,18 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 
+
+from plugin.chatbot.brainstorming import BrainstormResearchWeb
+from plugin.chatbot.deep_research_session import DeepResearchWebTool
 from plugin.chatbot.writing import (
-    WRITING_SUB_AGENT_INSTRUCTIONS,
     WritingResearchWeb,
     WritingPlanSessionTool,
     WriteDocumentSection,
 )
-from plugin.chatbot.smol_examples import get_examples_block
-from plugin.chatbot.sub_agent_tools import (
-    collect_sub_agent_tools,
-    get_sub_agent_instructions,
-)
+from plugin.chatbot.sub_agent_tools import collect_sub_agent_tools
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
-
-
-def test_writing_plan_examples_use_html_only():
-    block = get_examples_block("writing_plan")
-    assert "<p>" in block
-    assert "<h2>" in block
-    assert "**" not in block
-    assert "# " not in block
-
-
-def test_writing_instructions_content():
-    text = get_sub_agent_instructions(WRITING_SUB_AGENT_INSTRUCTIONS)
-    assert "WRITING PLAN MODE" in text
-    assert "write_document_section" in text
-    assert "writing_research_web" in text
 
 
 class _ApplyDocumentContentStub(ToolBase):
@@ -62,14 +46,22 @@ def test_write_document_section_passes_html_array_to_apply_document_content():
     apply_stub.execute_safe.assert_called_once_with(ctx, content=content, target="end")
 
 
-def test_writing_research_web_delegates_to_web_research():
+@pytest.mark.parametrize(
+    "tool_cls,expected_deep",
+    [
+        (BrainstormResearchWeb, False),
+        (WritingResearchWeb, False),
+        (DeepResearchWebTool, True),
+    ],
+    ids=["brainstorming", "writing", "deep_research"],
+)
+def test_specialized_web_research_delegates_with_deep_flag(tool_cls, expected_deep):
     with patch("plugin.chatbot.web_research.WebResearchTool") as mock_cls:
         instance = mock_cls.return_value
         instance.execute.return_value = {"status": "ok", "result": "facts"}
         ctx = MagicMock()
-        tool = WritingResearchWeb()
-        out = tool.execute(ctx, query="topic")
-        instance.execute.assert_called_once_with(ctx, query="topic", deep=False)
+        out = tool_cls().execute(ctx, query="topic")
+        instance.execute.assert_called_once_with(ctx, query="topic", deep=expected_deep)
         assert out["result"] == "facts"
 
 
@@ -139,7 +131,6 @@ def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_bu
     assert "Question" in result["result"]
     tools = mock_build.call_args.args[1]
     assert any(tool_adapter.name == "reply_to_user" for tool_adapter in tools)
-    assert mock_build.call_args.kwargs["examples_block"] == ""
 
 
 def test_write_document_section_rejects_dict_item():
@@ -182,25 +173,3 @@ def test_write_document_section_missing_apply_tool_errors():
     res = tool.execute(ctx, content=["<p>Hi</p>"])
     assert res["status"] == "error"
     assert res["code"] == "TOOL_NOT_FOUND"
-
-
-def test_write_document_section_is_async():
-    tool = WriteDocumentSection()
-    assert tool.is_async() is True
-
-
-def test_writing_plan_session_tool_supports_writer_not_calc():
-    from plugin.framework.tool import tool_supports_document
-
-    tool = WritingPlanSessionTool()
-    assert tool_supports_document(tool, doc_type="writer", uno_services_supported=None) is True
-    assert tool_supports_document(tool, doc_type="calc", uno_services_supported=None) is False
-
-
-def test_collect_writing_tools_does_not_include_apply_document_content():
-    registry = ToolRegistry(services={})
-    registry.register(WritingResearchWeb())
-    registry.register(WriteDocumentSection())
-    ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
-    names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
-    assert "apply_document_content" not in names

@@ -180,7 +180,7 @@ def test_extract_text_unknown_ocr_backend():
         result = extract_text(b"png", {"ocr_backend": "nope"})
 
     assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAMS"
+    assert result["code"] == "INVALID_PARAM"
 
     with patch(
         "plugin.vision.venv.vision_docling._convert_image_bytes",
@@ -565,12 +565,10 @@ def test_export_docling_to_html_default():
     )
 
 
-def test_export_docling_to_html_logs_warning_when_no_export_method(caplog):
+def test_export_docling_to_html_returns_empty_when_no_export_method():
     obj = object()
-    with caplog.at_level(logging.WARNING):
-        out = export_docling_to_html(obj)
+    out = export_docling_to_html(obj)
     assert out == ""
-    assert "lacks export_to_html" in caplog.text
 
 
 def test_module_yaml_layout_models_supported_in_od_presets():

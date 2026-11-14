@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import unittest
+
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -39,7 +41,8 @@ def test_collabora_getpy_rewrites_and_evaluates(ctx, doc):
         # FIXME: testing_runner bootstraps with a throwaway profile (-env:UserInstallation in /tmp)
         # which does not inherit user-level extensions installed via `unopkg add` into ~/.config/libreoffice.
         # Once testing_runner uses a shared extension install or mounts the profile, require has_addin to be True.
-        print("Note: org.extension.writeragent.PythonFunction addin service not registered in throwaway profile; skipping calculation assertion")
-        return
+        raise unittest.SkipTest(
+            "org.extension.writeragent.PythonFunction addin service not registered in throwaway profile"
+        )
 
     assert float(value) == 2.0

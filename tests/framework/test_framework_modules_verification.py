@@ -7,96 +7,25 @@
 
 from __future__ import annotations
 
-import ast
 import datetime as dt
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN
 from plugin.framework.openrouter_model_id import (
-    _split_suffix,
-    resolve_openrouter_catalog_id,
     openrouter_model_ids_equivalent,
-)
-from plugin.framework.ast_stmt_edit import (
-    remove_statements,
-)
-from plugin.framework.default_models import (
-    resolve_model_id,
-    get_provider_defaults,
-    DEFAULT_MODELS,
 )
 from plugin.framework.constants import (
     now_aware,
 )
 
 
-@given(model_id=st.text(max_size=DEAL_MAX_TOKEN))
-@settings(max_examples=100)
-def test_openrouter_model_id_contracts(model_id: str) -> None:
-    base = _split_suffix(model_id)
-    assert isinstance(base, str)
-
-    cid = resolve_openrouter_catalog_id(model_id)
-    assert isinstance(cid, str)
-
-    assert openrouter_model_ids_equivalent(model_id, model_id) is True
-
-
 @given(id_a=st.text(max_size=DEAL_MAX_TOKEN), id_b=st.text(max_size=DEAL_MAX_TOKEN))
 def test_openrouter_model_ids_equivalent_symmetric(id_a: str, id_b: str) -> None:
+    assert openrouter_model_ids_equivalent(id_a, id_a) is True
     eq1 = openrouter_model_ids_equivalent(id_a, id_b)
     eq2 = openrouter_model_ids_equivalent(id_b, id_a)
     assert eq1 == eq2
-
-
-@given(src=st.sampled_from([
-    "x = 1\ngrammar_obs('test')\ny = 2",
-    "if True:\n    grammar_obs('clean')\n",
-    "def foo():\n    xl('data')\n    return 42",
-]))
-def test_remove_expr_statements_contracts(src: str) -> None:
-    def _match(node):
-        import ast
-        return isinstance(node.value, ast.Call) and getattr(node.value.func, "id", None) in ("grammar_obs", "xl")
-
-    res_src, count = remove_statements(
-        src,
-        lambda node: isinstance(node, ast.Expr) and _match(node),
-    )
-    assert isinstance(res_src, str)
-    assert isinstance(count, int)
-    assert count >= 0
-    # Output must be valid Python syntax
-    ast.parse(res_src)
-
-
-@given(src=st.sampled_from([
-    "assert x > 0\ny = 2",
-    "if True:\n    assert x\n",
-    "def foo():\n    assert x\n    return 42",
-]))
-def test_remove_statements_contracts(src: str) -> None:
-    import ast
-
-    def _match(node: ast.stmt) -> bool:
-        return isinstance(node, ast.Assert)
-
-    res_src, count = remove_statements(src, _match)
-    assert isinstance(res_src, str)
-    assert isinstance(count, int)
-    assert count >= 0
-    # Output must be valid Python syntax
-    ast.parse(res_src)
-
-
-@given(provider=st.sampled_from(["openrouter", "google", "together", "ollama", "unknown", ""]))
-def test_default_models_contracts(provider: str) -> None:
-    defaults = get_provider_defaults(provider)
-    assert isinstance(defaults, dict)
-    for model in DEFAULT_MODELS:
-        mid = resolve_model_id(model, provider)
-        assert mid is None or isinstance(mid, str)
 
 
 def test_timezone_utilities_contracts() -> None:

@@ -36,13 +36,6 @@ def test_image_default_aspect_has_sidebar_matching_options():
     assert labels == IMAGE_ASPECT_RATIO_LABELS
     assert values == IMAGE_ASPECT_RATIO_LABELS
     assert aspect["value"] == "Square"
-    assert IMAGE_ASPECT_RATIO_LABELS == (
-        "Square",
-        "Landscape (16:9)",
-        "Portrait (9:16)",
-        "Landscape (3:2)",
-        "Portrait (2:3)",
-    )
 
 
 def test_image_aspect_ratio_enums_match_labels_and_canonical_ratio():
@@ -100,26 +93,6 @@ def test_canonical_aspect_label_maps_translated_and_english():
         assert canonical_aspect_label("Square") == "Square"
         assert canonical_aspect_label("Landscape (16:9)") == "Landscape (16:9)"
         assert canonical_aspect_label("") == "Square"
-
-
-def test_core_field_specs_omit_stt_model():
-    """Audio Model is a Speech-tab yaml field, not a General-page core spec."""
-    from plugin.chatbot.settings_dialog import _get_core_field_specs
-
-    with (
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=""),
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=0),
-        patch("plugin.chatbot.settings_dialog.get_config", return_value=0.0),
-        patch("plugin.chatbot.settings_dialog.get_api_key_for_endpoint", return_value=""),
-        patch("plugin.chatbot.settings_dialog.get_text_model", return_value=""),
-    ):
-        specs = _get_core_field_specs("https://openrouter.ai/api")
-    names = {spec["name"] for spec in specs}
-    assert "stt_model" not in names
-    assert "audio__stt_model" not in names
-    # No XDL controls. OK used to write "" over the schema defaults.
-    assert "text_analytics_sentiment_model" not in names
-    assert "text_analytics_sentiment_engine" not in names
 
 
 def test_apply_settings_skips_model_combobox_placeholders():

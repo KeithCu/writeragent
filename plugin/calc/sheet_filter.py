@@ -30,12 +30,12 @@ import uno
 
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface as _query_interface, range_args
+from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.sheet_filter_criteria import (
     FILTER_OPERATOR2_LABELS,
     parse_sheet_filter_criterion,
 )
-from plugin.framework.errors import UnoObjectError, uno_read
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -53,24 +53,6 @@ _HAS_HEADER_PARAM_SCHEMA: dict[str, Any] = {
 }
 
 
-def _connection_name(cv: Any) -> str:
-    """Pure helper to decode FilterConnection to 'AND' or 'OR'."""
-    if cv is None:
-        return "AND"
-    val = getattr(cv, "value", None)
-    if val in ("OR", "AND"):
-        return str(val)
-    s = str(cv)
-    if s.endswith(".OR"):
-        return "OR"
-    if s.endswith(".AND"):
-        return "AND"
-    try:
-        return "OR" if int(cv) == 1 else "AND"
-    except (ValueError, TypeError):
-        return "AND"
-
-
 def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     out: dict[str, Any] = {"index": idx}
     op = uno_read(lambda: int(ff.Operator), None)
@@ -82,8 +64,10 @@ def _field_to_dict(ff: Any, idx: int) -> dict[str, Any]:
     if field is not None:
         out["field"] = field
 
-    cv = uno_read(lambda: ff.Connection, None)
-    out["connection"] = _connection_name(cv)
+    # LibreOffice fills Connection with a FilterConnection enum (convertQueryEntryToUno,
+    # sc/source/ui/unoobj/datauno.cxx); PyUNO hands back a uno.Enum whose value is
+    # "AND" or "OR". The first criterion's connection carries no meaning.
+    out["connection"] = uno_read(lambda: ff.Connection.value, "AND")
 
     is_num = uno_read(lambda: bool(ff.IsNumeric), None)
     if is_num is not None:
@@ -99,8 +83,9 @@ def _build_filter_fields2(uno_obj: Any, criteria: list[dict[str, Any]], range_wi
     for i, c_raw in enumerate(criteria):
         c = parse_sheet_filter_criterion(c_raw, i == 0)
         if c.field >= range_width:
-            raise UnoObjectError(
-                f"Filter criterion field index {c.field} is out of bounds (range has {range_width} columns)."
+            raise ToolExecutionError(
+                f"Filter criterion field index {c.field} is out of bounds (range has {range_width} columns).",
+                code="INVALID_PARAM",
             )
         st = uno_obj.createUnoStruct("com.sun.star.sheet.TableFilterField2")
         st.Field = c.field
@@ -120,16 +105,16 @@ def _filter_descriptor(
     has_header: bool | None,
     missing_msg: str,
 ) -> tuple[Any, Any, Any]:
-    xf = _query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
+    xf = query_interface(cell_range, "com.sun.star.sheet.XSheetFilterable")
     if xf is None:
         raise UnoObjectError("This range does not support filtering (XSheetFilterable missing).")
     fd = xf.createFilterDescriptor(empty)
     if has_header is not None:
-        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        ps = query_interface(fd, "com.sun.star.beans.XPropertySet")
         if ps is None:
             raise UnoObjectError("Cannot set ContainsHeader on this filter descriptor.")
         ps.setPropertyValue("ContainsHeader", has_header)
-    fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
+    fd2 = query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
     if fd2 is None:
         raise UnoObjectError(missing_msg)
     return xf, fd, fd2
@@ -198,7 +183,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         criteria = kwargs.get("criteria")
         if not isinstance(criteria, list) or not criteria:
-            raise UnoObjectError("criteria must be a non-empty list of filter conditions.")
+            raise ToolExecutionError("criteria must be a non-empty list of filter conditions.", code="INVALID_PARAM")
 
         range_name = _run_filter(ctx, kwargs, criteria=criteria)
         count = len(criteria)
@@ -249,7 +234,7 @@ class GetSheetFilter(ToolCalcSheetBase):
             _field_to_dict(fields_seq[i], i) for i in range(len(fields_seq))
         ]
 
-        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        ps = query_interface(fd, "com.sun.star.beans.XPropertySet")
         ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None) if ps is not None else None
 
         return {"status": "ok", "range": range_name, "has_header": ch, "criteria": crit, "count": len(crit)}

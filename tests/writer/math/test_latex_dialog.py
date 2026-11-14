@@ -3,7 +3,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -114,14 +113,3 @@ def test_apply_latex_replace_failure_reports_exception_type() -> None:
 
     assert ok is False
     assert message == "_EmptyMessageError"
-
-
-def test_latex_dialog_uno_skips_windows_leftover_hidden_mml() -> None:
-    """GHA 34675151298: leftover writer reuse then Hidden _blank .mml hung 30s."""
-    src = Path(__file__).with_name("test_latex_dialog_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "latex dialog Hidden _blank .mml" in src
-    assert "34675151298" in src
-    # AWT TOP is cited as the wrong class; leftover Hidden is the skip.
-    assert 'skip_windows_leftover_hidden_load("latex dialog Hidden _blank .mml")' in src
-    assert "is the wrong class" in src

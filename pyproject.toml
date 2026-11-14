@@ -27,10 +27,9 @@ addopts = "-p no:platformdirs --ignore=build --ignore-glob=*_uno.py --ignore=tes
 # Pytest's default norecursedirs includes "venv", which also hid tests/embeddings/venv
 # and tests/vision/venv. Drop only that basename. Real virtualenvs stay skipped:
 # ".*" covers .venv, and pytest ignores any directory with pyvenv.cfg (or conda-meta).
-# importlib mode: three parent/venv pairs share a basename (test_embeddings_index,
-# test_embeddings_folder_maintain, test_embeddings_ingest_graph). Prepend import
-# mode raises "import file mismatch" when both are collected. importlib gives each
-# path its own module name so both trees run. Do not merge those files here.
+# importlib mode: one parent/venv pair shares a basename (test_embeddings_index).
+# Prepend import mode raises "import file mismatch" when both are collected.
+# importlib gives each path its own module name so both trees run.
 norecursedirs = [
     "*.egg",
     ".*",
@@ -81,7 +80,10 @@ dev = [
     "types-unopy",
     "basedpyright>=1.39.0",
     "bandit[toml]>=1.8.0",
-    "pyspector>=0.2.1",
+    # No CPython 3.13 Windows wheel (0.2.x ships cp312 win_amd64 and Linux).
+    # The sdist builds a Rust extension and needs kernel32.lib from the
+    # Windows SDK, so a default uv sync must not try to compile it there.
+    "pyspector>=0.2.1; sys_platform != 'win32' or python_version < '3.13'",
     "ruff>=0.9.0",
     "pyrefly>=0.61.0",
     "openpyxl>=3.1.0",

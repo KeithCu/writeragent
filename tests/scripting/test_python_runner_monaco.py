@@ -21,15 +21,6 @@ def _patch_modeless_native():
     return patch.object(ui, "native_run_script_modeless_enabled", return_value=True)
 
 
-def test_native_run_script_modeless_enabled_reads_config():
-    with patch.object(ui, "get_config", return_value=True) as mock_get:
-        assert ui.native_run_script_modeless_enabled() is True
-        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
-    with patch.object(ui, "get_config", return_value=False) as mock_get:
-        assert ui.native_run_script_modeless_enabled() is False
-        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
-
-
 def test_run_python_dialog_uses_monaco_when_available():
     ctx = MagicMock()
     doc = MagicMock()
@@ -75,21 +66,62 @@ def test_run_python_dialog_falls_back_to_native_dialog():
     mock_execute.assert_not_called()
 
 
-def test_run_python_dialog_no_msgbox_when_monaco_succeeds():
+@pytest.mark.parametrize(
+    ("monaco", "native_result", "expect_report", "expect_native"),
+    [
+        pytest.param(True, (True, None), False, False, id="monaco_succeeds"),
+        pytest.param(False, (False, None), False, True, id="monaco_false_and_native_fails_no_duplicate_msgbox"),
+        pytest.param(None, (False, "Traceback (most recent call last):\n  XDL load failed"), True, True, id="native_only_fails_reports_detail"),
+        pytest.param(None, (True, None), False, True, id="native_only_opens_no_msgbox"),
+        pytest.param(ImportError("No module named 'plugin.framework.prompts'"), (False, None), True, True, id="monaco_raises_and_native_fails_reports_exc"),
+        pytest.param(ImportError("broken monaco path"), (True, None), True, True, id="monaco_raises_then_native_opens_reports_first"),
+    ],
+)
+def test_run_python_dialog_open_and_error_routing(
+    monaco,
+    native_result,
+    expect_report,
+    expect_native,
+):
     ctx = MagicMock()
     doc = MagicMock()
+    call_order: list[str] = []
 
-    with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "get_desktop") as mock_desktop:
-            mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
-                with patch.object(pr, "_run_python_monaco", return_value=True):
-                    with patch.object(pr, "show_python_input_dialog") as mock_native:
-                        with patch.object(pr, "_report_run_python_open_failed") as mock_report:
-                            pr.run_python_dialog()
+    def _report(*_args, **_kwargs):
+        call_order.append("report")
 
-    mock_native.assert_not_called()
-    mock_report.assert_not_called()
+    def _native(*_args, **_kwargs):
+        call_order.append("native")
+        return native_result
+
+    monaco_avail = (None, False) if monaco is None else ("/venv/bin/python", True)
+    monaco_kwargs = {"side_effect": monaco} if isinstance(monaco, Exception) else {"return_value": bool(monaco)}
+
+    with (
+        patch.object(pr, "get_ctx", return_value=ctx),
+        patch.object(pr, "get_desktop") as mock_desktop,
+        patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
+        patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
+        patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
+        patch.object(pr, "monaco_editor_available", return_value=monaco_avail),
+        patch.object(pr, "_run_python_monaco", **monaco_kwargs) as mock_monaco,
+        patch.object(pr, "show_python_input_dialog", side_effect=_native) as mock_native,
+        patch.object(pr, "_report_run_python_open_failed", side_effect=_report) as mock_report,
+    ):
+        mock_desktop.return_value.getCurrentComponent.return_value = doc
+        pr.run_python_dialog()
+
+    assert mock_monaco.called is (monaco is not None)
+    assert mock_native.called is expect_native
+    assert mock_report.called is expect_report
+    if expect_report:
+        mock_report.assert_called_once()
+        if isinstance(monaco, Exception):
+            assert mock_report.call_args.kwargs.get("exc") is monaco
+            if native_result[0]:
+                assert call_order == ["report", "native"]
+        else:
+            assert mock_report.call_args.kwargs.get("detail") == native_result[1]
 
 
 def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
@@ -99,7 +131,6 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
     ctx = MagicMock()
     doc = MagicMock()
     pe = launch_mod._PERSISTENT_EDITOR
-    launch_mod.set_active_session(None)
     pe.sessions.clear()
     pe.focused_id = None
     pe._proc = None
@@ -144,78 +175,12 @@ def test_run_python_dialog_cancel_keeps_dirty_cell_and_skips_native():
         assert pe.focused() is state
         assert state.dirty is True
     finally:
-        launch_mod.set_active_session(None)
         pe.sessions.clear()
         pe.focused_id = None
         pe._proc = None
         pe.run_script_doc = None
         if "send" in pe.__dict__:
             del pe.send
-
-
-def test_run_python_dialog_msgbox_when_monaco_and_native_fail():
-    ctx = MagicMock()
-    doc = MagicMock()
-
-    with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "get_desktop") as mock_desktop:
-            mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with (
-                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
-                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
-                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
-            ):
-                with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
-                    with patch.object(pr, "_run_python_monaco", return_value=False):
-                        with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
-                            with patch.object(pr, "_report_run_python_open_failed") as mock_report:
-                                pr.run_python_dialog()
-
-    mock_report.assert_not_called()
-
-
-def test_run_python_dialog_msgbox_when_native_only_path_fails():
-    ctx = MagicMock()
-    doc = MagicMock()
-
-    with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "get_desktop") as mock_desktop:
-            mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with (
-                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
-                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
-                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
-            ):
-                with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
-                    with patch.object(pr, "show_python_input_dialog", return_value=(False, "dialog load failed")):
-                        with patch.object(pr, "_report_run_python_open_failed") as mock_report:
-                            pr.run_python_dialog()
-
-    mock_report.assert_called_once()
-    assert "built-in script dialog" in mock_report.call_args.args[1]
-    assert mock_report.call_args.kwargs.get("detail") == "dialog load failed"
-
-
-def test_run_python_dialog_native_failure_detail_in_msgbox():
-    ctx = MagicMock()
-    doc = MagicMock()
-    native_detail = "Traceback (most recent call last):\n  XDL load failed"
-
-    with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "get_desktop") as mock_desktop:
-            mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with (
-                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
-                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
-                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
-            ):
-                with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
-                    with patch.object(pr, "show_python_input_dialog", return_value=(False, native_detail)):
-                        with patch.object(pr, "_report_run_python_open_failed") as mock_report:
-                            pr.run_python_dialog()
-
-    mock_report.assert_called_once()
-    assert mock_report.call_args.kwargs.get("detail") == native_detail
 
 
 def test_run_python_dialog_reports_setup_error_when_monaco_not_expected():
@@ -230,7 +195,6 @@ def test_run_python_dialog_reports_setup_error_when_monaco_not_expected():
                         pr.run_python_dialog()
 
     mock_report.assert_called_once()
-    assert "unexpected error" in mock_report.call_args.args[1].lower()
     assert mock_report.call_args.kwargs.get("exc") is err
     mock_native.assert_not_called()
 
@@ -246,88 +210,12 @@ def test_show_python_input_dialog_returns_false_when_xdl_missing():
             )
 
 
-def test_run_python_dialog_msgbox_includes_monaco_exception_when_native_fails():
-    ctx = MagicMock()
-    doc = MagicMock()
-    monaco_exc = ImportError("No module named 'plugin.framework.prompts'")
-
-    with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "get_desktop") as mock_desktop:
-            mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with (
-                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
-                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
-                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
-            ):
-                with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
-                    with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
-                        with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
-                            with patch.object(pr, "_report_run_python_open_failed") as mock_report:
-                                pr.run_python_dialog()
-
-    mock_report.assert_called_once()
-    assert mock_report.call_args.kwargs.get("exc") is monaco_exc
-    assert "open the editor" in mock_report.call_args.args[1]
-
-
-def test_run_python_dialog_immediate_msgbox_on_monaco_exception_then_native():
-    ctx = MagicMock()
-    doc = MagicMock()
-    monaco_exc = ImportError("broken monaco path")
-    call_order: list[str] = []
-
-    def report(*args, **kwargs):
-        call_order.append("report")
-
-    def native(*args, **kwargs):
-        call_order.append("native")
-        return True, None
-
-    with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "get_desktop") as mock_desktop:
-            mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with (
-                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
-                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
-                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
-            ):
-                with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
-                    with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
-                        with patch.object(pr, "show_python_input_dialog", side_effect=native):
-                            with patch.object(pr, "_report_run_python_open_failed", side_effect=report):
-                                pr.run_python_dialog()
-
-    assert call_order == ["report", "native"]
-
-
-def test_run_python_dialog_no_msgbox_when_monaco_not_expected_and_native_opens():
-    ctx = MagicMock()
-    doc = MagicMock()
-
-    with patch.object(pr, "get_ctx", return_value=ctx):
-        with patch.object(pr, "get_desktop") as mock_desktop:
-            mock_desktop.return_value.getCurrentComponent.return_value = doc
-            with (
-                patch("plugin.scripting.python_runner.resolve_run_script_selection", return_value=("script", "x=1", {})),
-                patch("plugin.scripting.document_scripts.build_xdl_script_picker_state", return_value=([], {}, {})),
-                patch("plugin.scripting.python_runner.build_xdl_script_picker_state", return_value=([], {}, {})),
-            ):
-                with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
-                    with patch.object(pr, "_run_python_monaco") as mock_monaco:
-                        with patch.object(pr, "show_python_input_dialog", return_value=(True, None)):
-                            with patch.object(pr, "_report_run_python_open_failed") as mock_report:
-                                pr.run_python_dialog()
-
-    mock_monaco.assert_not_called()
-    mock_report.assert_not_called()
-
-
-def test_run_python_monaco_writer_skips_calc_selection_import():
+def test_run_python_monaco_writer_skips_calc_selection():
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch.object(pr, "is_calc", return_value=False):
-        with patch("plugin.calc.bridge.calc_selection_to_a1") as mock_sel:
+        with patch.object(pr, "calc_selection_to_a1") as mock_sel:
             with patch.object(pr, "launch_monaco_editor", return_value=True):
                 ok = pr._run_python_monaco(
                     ctx,
@@ -702,14 +590,26 @@ def test_execute_and_insert_result_returns_error_on_failure():
     from tests.scripting.python_runner_test_support import execute_and_insert_result
 
     ctx = MagicMock()
-    with patch("plugin.scripting.python_runner._prepare_rps_execution", return_value={"early_outcome": None, "t0": 0.0, "py_data": None, "bindings": None, "doc": MagicMock(), "ctx": ctx, "code": "bad()"}):
+    with patch(
+        "plugin.scripting.python_runner._prepare_rps_execution",
+        return_value=pr.PreparedScript(
+            ctx=ctx,
+            doc=MagicMock(),
+            code="bad()",
+            t0=0.0,
+            bindings=None,
+            py_data=None,
+            session_id="rps:t",
+            script_session_id=None,
+        ),
+    ):
         with patch.object(pr, "_run_prepared_rps", return_value={"status": "error", "message": "boom"}):
             outcome = execute_and_insert_result(ctx, MagicMock(), "bad()")
     assert outcome["ok"] is False
     assert outcome["message"].startswith("boom")
 
 
-def test_show_python_input_dialog_run_button_keeps_dialog_open():
+def _build_native_dialog(*, code_text: str = "", button_name: str | None = None):
     ctx = MagicMock()
     desktop = MagicMock()
     frame = MagicMock()
@@ -721,7 +621,6 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
     dlg_model = MagicMock()
     dlg = MagicMock()
     toolkit = MagicMock()
-
     ctx.getServiceManager.return_value = smgr
 
     def fake_create(service, _ctx):
@@ -740,25 +639,24 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
     smgr.createInstanceWithContext.side_effect = fake_create
 
     code_edit_model = MagicMock()
-    code_edit_model.Text = "result = 42"
+    code_edit_model.Text = code_text
     code_edit = MagicMock()
     code_edit.getModel.return_value = code_edit_model
 
-    instruction_lbl_model = MagicMock()
     instruction_lbl = MagicMock()
-    instruction_lbl.getModel.return_value = instruction_lbl_model
+    instruction_lbl.getModel.return_value = MagicMock()
 
     script_select = MagicMock()
     script_select.getSelectedItemPos.return_value = 0
     script_select.getItems.return_value = ["Universal Sample"]
 
-    btn_run = MagicMock()
-    listeners = []
-    btn_run.addActionListener.side_effect = lambda listener: listeners.append(listener)
+    btn = MagicMock()
+    listeners: list = []
+    btn.addActionListener.side_effect = lambda listener: listeners.append(listener)
 
     def fake_get_control(name):
-        if name == "BtnRun":
-            return btn_run
+        if button_name and name == button_name:
+            return btn
         if name == "ScriptSelect":
             return script_select
         if name == "InstructionLbl":
@@ -766,109 +664,59 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
         return code_edit
 
     dlg.getControl.side_effect = fake_get_control
+    return ctx, desktop, dlg, code_edit, btn, instruction_lbl, listeners
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
-        with _patch_modal_native():
-            with patch.object(ui, "save") as mock_set:
-                with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}):
-                    with patch.object(ui, "save_user_script") as mock_save:
-                        with patch.object(ui, "get_config", return_value=""):
-                            scheduled = {}
 
-                            def _capture_background(func, *args, **kwargs):
-                                scheduled["func"] = func
-                                return MagicMock()
+def test_show_python_input_dialog_run_button_keeps_dialog_open():
+    ctx, desktop, dlg, code_edit, btn_run, instruction_lbl, listeners = _build_native_dialog(
+        code_text="result = 42", button_name="BtnRun"
+    )
 
-                            # start_native_script_run moved to python_runner (#2164) and
-                            # spawns from there. Patching only ui left a real worker that
-                            # outlived this test and ran under a later test's mocks.
-                            with patch.object(ui, "run_in_background", return_value=MagicMock()), \
-                                 patch.object(pr, "run_in_background", side_effect=_capture_background):
-                                def fake_execute_dialog():
-                                    assert code_edit.setFocus.called
-                                    listeners[0].actionPerformed(MagicMock())
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        _patch_modal_native(),
+        patch.object(ui, "save") as mock_set,
+        patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "result = 0"}),
+        patch.object(ui, "save_script_to_origin", return_value=None) as mock_save,
+        patch.object(ui, "get_config", return_value=""),
+        patch.object(pr, "start_native_script_run") as mock_start,
+    ):
+        def fake_execute_dialog():
+            assert code_edit.setFocus.called
+            listeners[0].actionPerformed(MagicMock())
 
-                                dlg.execute.side_effect = fake_execute_dialog
+        dlg.execute.side_effect = fake_execute_dialog
+        ui.show_python_input_dialog(ctx)
 
-                                ui.show_python_input_dialog(ctx)
-
-                                dlg.endDialog.assert_not_called()
-                                dlg.setVisible.assert_not_called()
-                                mock_set.assert_any_call({"last_python_script_name_writer": "Universal Sample"})
-                                mock_save.assert_called_with("Universal Sample", "result = 42")
-                                # Run returns before the venv wait. The dialog event
-                                # thread must not call execute_and_insert_result.
-                                assert scheduled["func"].__name__ == "_native_script_run_worker"
-                                btn_run.setEnable.assert_any_call(False)
-                                instruction_lbl.setText.assert_any_call("Running...")
+    dlg.endDialog.assert_not_called()
+    dlg.setVisible.assert_not_called()
+    mock_set.assert_any_call({"last_python_script_name_writer": "Universal Sample"})
+    mock_save.assert_called_with(None, "Universal Sample", ui.SCRIPT_ORIGIN_USER, "result = 42")
+    # Run hands off to start_native_script_run so the dialog thread never waits on the venv
+    # (see test_python_runner_ui::test_start_native_script_run_returns_before_venv_wait).
+    mock_start.assert_called_once()
+    assert mock_start.call_args.args[2] == "result = 42"
+    btn_run.setEnable.assert_any_call(False)
+    instruction_lbl.setText.assert_any_call("Running...")
 
 
 def test_show_python_input_dialog_save_button():
-    ctx = MagicMock()
-    desktop = MagicMock()
-    frame = MagicMock()
-    parent_window = MagicMock()
-    desktop.getCurrentFrame.return_value = frame
-    frame.getContainerWindow.return_value = parent_window
+    ctx, desktop, dlg, _code_edit, _btn, _lbl, listeners = _build_native_dialog(
+        code_text="print('hello world')", button_name="BtnSave"
+    )
 
-    smgr = MagicMock()
-    dlg_model = MagicMock()
-    dlg = MagicMock()
-    toolkit = MagicMock()
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        _patch_modal_native(),
+        patch.object(ui, "save"),
+        patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "print('hello')"}),
+        patch.object(ui, "save_script_to_origin", return_value=None) as mock_save,
+        patch.object(ui, "get_config", return_value=""),
+    ):
+        dlg.execute.side_effect = lambda: listeners[0].actionPerformed(MagicMock())
+        ui.show_python_input_dialog(ctx)
 
-    ctx.getServiceManager.return_value = smgr
-    
-    # Track calls to createInstanceWithContext to return our mocks
-    def fake_create(service, _ctx):
-        if "UnoControlDialogModel" in service:
-            return dlg_model
-        if "UnoControlDialog" in service:
-            return dlg
-        if "DialogProvider" in service:
-            dp = MagicMock()
-            dp.createDialog.return_value = dlg
-            return dp
-        if "Toolkit" in service:
-            return toolkit
-        return MagicMock()
-    smgr.createInstanceWithContext.side_effect = fake_create
-
-    # Mock elements in the dialog
-    code_edit_model = MagicMock()
-    code_edit_model.Text = "print('hello world')"
-    code_edit = MagicMock()
-    code_edit.getModel.return_value = code_edit_model
-    dlg.getControl.return_value = code_edit
-
-    script_select = MagicMock()
-    script_select.getSelectedItemPos.return_value = 0
-    script_select.getItems.return_value = ["Universal Sample"]
-
-    btn_save = MagicMock()
-    listeners = []
-    btn_save.addActionListener.side_effect = lambda listener: listeners.append(listener)
-    
-    def fake_get_control(name):
-        if name == "BtnSave":
-            return btn_save
-        if name == "ScriptSelect":
-            return script_select
-        return code_edit
-    dlg.getControl.side_effect = fake_get_control
-
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
-        with _patch_modal_native():
-            with patch.object(ui, "save"):
-                with patch.object(ui, "get_user_scripts", return_value={"Universal Sample": "print('hello')"}):
-                    with patch.object(ui, "save_user_script") as mock_save:
-                        with patch.object(ui, "get_config", return_value=""):
-                            def fake_execute():
-                                listeners[0].actionPerformed(MagicMock())
-                            dlg.execute.side_effect = fake_execute
-
-                            ui.show_python_input_dialog(ctx)
-
-                            mock_save.assert_called_with("Universal Sample", "print('hello world')")
+    mock_save.assert_called_with(None, "Universal Sample", ui.SCRIPT_ORIGIN_USER, "print('hello world')")
 
 
 def test_persistent_editor_dispatches_script_actions():
@@ -925,187 +773,64 @@ def test_persistent_editor_dispatches_script_actions():
 
 
 def test_show_python_input_dialog_save_as_button():
-    ctx = MagicMock()
-    desktop = MagicMock()
-    frame = MagicMock()
-    parent_window = MagicMock()
-    desktop.getCurrentFrame.return_value = frame
-    frame.getContainerWindow.return_value = parent_window
+    ctx, desktop, dlg, _code_edit, _btn, _lbl, listeners = _build_native_dialog(
+        code_text="print('hello world')", button_name="BtnSaveAs"
+    )
 
-    smgr = MagicMock()
-    dlg_model = MagicMock()
-    dlg = MagicMock()
-    toolkit = MagicMock()
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        _patch_modal_native(),
+        patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(ui, "get_config", return_value=""),
+        patch.object(ui, "save"),
+        patch.object(ui, "save_user_script") as mock_save,
+        patch.object(ui, "show_new_script_dialog", return_value=("scriptk", False)) as mock_input,
+    ):
+        dlg.execute.side_effect = lambda: listeners[0].actionPerformed(MagicMock())
+        ui.show_python_input_dialog(ctx)
 
-    ctx.getServiceManager.return_value = smgr
-    
-    def fake_create(service, _ctx):
-        if "UnoControlDialogModel" in service:
-            return dlg_model
-        if "UnoControlDialog" in service:
-            return dlg
-        if "DialogProvider" in service:
-            dp = MagicMock()
-            dp.createDialog.return_value = dlg
-            return dp
-        if "Toolkit" in service:
-            return toolkit
-        return MagicMock()
-    smgr.createInstanceWithContext.side_effect = fake_create
-
-    # Mock elements in the dialog
-    code_edit_model = MagicMock()
-    code_edit_model.Text = "print('hello world')"
-    code_edit = MagicMock()
-    code_edit.getModel.return_value = code_edit_model
-    
-    script_select = MagicMock()
-    script_select.getSelectedItemPos.return_value = 0
-    script_select.getItems.return_value = ["Universal Sample"]
-
-    btn_save_as = MagicMock()
-    listeners = []
-    btn_save_as.addActionListener.side_effect = lambda listener: listeners.append(listener)
-    
-    def fake_get_control(name):
-        if name == "ScriptSelect":
-            return script_select
-        if name == "BtnSaveAs":
-            return btn_save_as
-        return code_edit
-    dlg.getControl.side_effect = fake_get_control
-
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
-        with _patch_modal_native():
-            with patch.object(ui, "get_user_scripts", return_value={}):
-                with patch.object(ui, "get_config", return_value=""):
-                    with patch.object(ui, "save"):
-                        with patch.object(ui, "save_user_script") as mock_save:
-                            with patch.object(ui, "show_new_script_dialog", return_value=("scriptk", False)) as mock_input:
-                                def fake_execute():
-                                    listeners[0].actionPerformed(MagicMock())
-                                dlg.execute.side_effect = fake_execute
-
-                                ui.show_python_input_dialog(ctx)
-
-                                mock_input.assert_called_once()
-                                mock_save.assert_called_with("scriptk", "print('hello world')")
+    mock_input.assert_called_once()
+    mock_save.assert_called_with("scriptk", "print('hello world')")
 
 
 def test_native_dialog_btn_new_action_creates_script():
-    ctx = MagicMock()
-    desktop = MagicMock()
-    frame = MagicMock()
-    parent_window = MagicMock()
-    desktop.getCurrentFrame.return_value = frame
-    frame.getContainerWindow.return_value = parent_window
+    ctx, desktop, dlg, _code_edit, _btn, _lbl, listeners = _build_native_dialog(
+        code_text="", button_name="BtnNew"
+    )
 
-    smgr = MagicMock()
-    dlg_model = MagicMock()
-    dlg = MagicMock()
-    toolkit = MagicMock()
-    ctx.getServiceManager.return_value = smgr
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        _patch_modal_native(),
+        patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(ui, "get_config", return_value=""),
+        patch.object(ui, "save"),
+        patch.object(ui, "save_user_script") as mock_save,
+        patch.object(ui, "show_new_script_dialog", return_value=("BrandNewScript", False)) as mock_new_dlg,
+    ):
+        dlg.execute.side_effect = lambda: listeners[0].actionPerformed(MagicMock())
+        ui.show_python_input_dialog(ctx)
 
-    def fake_create(service, _ctx):
-        if "UnoControlDialogModel" in service:
-            return dlg_model
-        if "UnoControlDialog" in service:
-            return dlg
-        if "DialogProvider" in service:
-            dp = MagicMock()
-            dp.createDialog.return_value = dlg
-            return dp
-        if "Toolkit" in service:
-            return toolkit
-        return MagicMock()
-
-    smgr.createInstanceWithContext.side_effect = fake_create
-
-    code_edit_model = MagicMock()
-    code_edit_model.Text = ""
-    code_edit = MagicMock()
-    code_edit.getModel.return_value = code_edit_model
-
-    script_select = MagicMock()
-    script_select.getSelectedItemPos.return_value = 0
-    script_select.getItems.return_value = ["Universal Sample"]
-
-    btn_new = MagicMock()
-    listeners = []
-    btn_new.addActionListener.side_effect = lambda listener: listeners.append(listener)
-
-    def fake_get_control(name):
-        if name == "ScriptSelect":
-            return script_select
-        if name == "BtnNew":
-            return btn_new
-        return code_edit
-
-    dlg.getControl.side_effect = fake_get_control
-
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
-        with _patch_modal_native():
-            with patch.object(ui, "get_user_scripts", return_value={}):
-                with patch.object(ui, "get_config", return_value=""):
-                    with patch.object(ui, "save"):
-                        with patch.object(ui, "save_user_script") as mock_save:
-                            with patch.object(ui, "show_new_script_dialog", return_value=("BrandNewScript", False)) as mock_new_dlg:
-                                def fake_execute():
-                                    listeners[0].actionPerformed(MagicMock())
-
-                                dlg.execute.side_effect = fake_execute
-
-                                ui.show_python_input_dialog(ctx)
-
-                                mock_new_dlg.assert_called_once()
-                                mock_save.assert_called_with(
-                                    "BrandNewScript",
-                                    '# A simple script\nresult = "Hello from Python!"\n',
-                                )
+    mock_new_dlg.assert_called_once()
+    mock_save.assert_called_once()
+    assert mock_save.call_args.args[0] == "BrandNewScript"
+    assert mock_save.call_args.args[1].strip()
 
 
 def test_show_python_input_dialog_modeless_uses_set_visible():
-    ctx = MagicMock()
-    desktop = MagicMock()
-    frame = MagicMock()
-    parent_window = MagicMock()
-    desktop.getCurrentFrame.return_value = frame
-    frame.getContainerWindow.return_value = parent_window
-
-    smgr = MagicMock()
-    dlg_model = MagicMock()
-    dlg = MagicMock()
-    toolkit = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-
-    def fake_create(service, _ctx):
-        if "UnoControlDialogModel" in service:
-            return dlg_model
-        if "UnoControlDialog" in service:
-            return dlg
-        if "DialogProvider" in service:
-            dp = MagicMock()
-            dp.createDialog.return_value = dlg
-            return dp
-        if "Toolkit" in service:
-            return toolkit
-        return MagicMock()
-
-    smgr.createInstanceWithContext.side_effect = fake_create
-    code_edit = MagicMock()
-    script_select = MagicMock()
-    dlg.getControl.side_effect = lambda name: code_edit if name == "CodeEdit" else script_select
+    ctx, desktop, dlg, code_edit, _btn, _lbl, _listeners = _build_native_dialog()
 
     order = []
     dlg.setVisible.side_effect = lambda visible: order.append(("visible", visible))
     code_edit.setFocus.side_effect = lambda: order.append("focus")
 
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
-        with _patch_modeless_native():
-            with patch.object(ui, "get_user_scripts", return_value={}):
-                with patch.object(ui, "get_config", return_value=""):
-                    with patch.object(ui, "save"):
-                        ui.show_python_input_dialog(ctx)
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        _patch_modeless_native(),
+        patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(ui, "get_config", return_value=""),
+        patch.object(ui, "save"),
+    ):
+        ui.show_python_input_dialog(ctx)
 
     dlg.execute.assert_not_called()
     dlg.setVisible.assert_called_once_with(True)
@@ -1158,19 +883,18 @@ def test_picker_selected_name_listbox_uses_item_pos():
 
 def test_monaco_editor_available_respects_force_internal():
     from plugin.scripting.editor_host import _PROBE_CACHE, monaco_editor_available
-    ctx = MagicMock()
-    
-    with patch("plugin.framework.config.get_config", return_value=True) as mock_get:
-        exe, ok = monaco_editor_available(ctx)
+
+    with patch("plugin.scripting.editor_host.get_config", return_value=True) as mock_get:
+        exe, ok = monaco_editor_available()
         assert exe is None
         assert ok is False
         mock_get.assert_called_with("scripting.force_internal_script_editor")
- 
-    with patch("plugin.framework.config.get_config", return_value=False):
+
+    with patch("plugin.scripting.editor_host.get_config", return_value=False):
         with patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", None)):
             _PROBE_CACHE["/fake/python"] = (True, "")
             try:
-                exe, ok = monaco_editor_available(ctx)
+                exe, ok = monaco_editor_available()
                 assert exe == "/fake/python"
                 assert ok is True
             finally:
@@ -1197,7 +921,7 @@ def test_save_script_on_builtin_template():
                         res = on_save(code="print(1)", _save_as_plain=False, action="save")
 
     assert res["type"] == "error"
-    assert res["message"] == "Built-in helpers are read-only. Use Save As to copy one into My Scripts."
+    assert res["message"]
 
 
 def test_run_python_monaco_on_save_reports_save_user_script_failure():

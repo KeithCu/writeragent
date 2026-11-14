@@ -5,7 +5,6 @@ import pytest
 
 from plugin.framework import menu_icon_dpi as m
 from plugin.framework.menu_icon_dpi import (
-    image_type_for_pixel_size,
     interpolate_menu_icon_px,
     reset_menu_icon_dpi_cache,
 )
@@ -154,12 +153,6 @@ def test_probe_vcl_miss_walks_windows_once(monkeypatch):
     monkeypatch.setattr(m, "_ppm_scale", lambda win: None)
     assert m.probe_vcl_dpi_scale() is None
     assert calls["n"] == 1
-
-
-def test_image_type_for_pixel_size():
-    assert image_type_for_pixel_size(32) == 2
-    assert image_type_for_pixel_size(24) == 1
-    assert image_type_for_pixel_size(16) == 0
 
 
 def test_provider_icon_filename(monkeypatch, tmp_path):

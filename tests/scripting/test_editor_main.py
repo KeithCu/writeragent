@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import builtins
 import io
-import logging
 import queue
 import struct
 import sys
@@ -22,7 +21,7 @@ from plugin.scripting.venv import editor_main as em
 
 
 def _reset_state() -> None:
-    em.session.reset()
+    em.session = em.EditorSession()
     while True:
         try:
             em._ui_queue.get_nowait()
@@ -38,7 +37,7 @@ def test_reader_eof_before_gui_loop_skips_destroy_and_claim():
     em._pipe_reader_loop(io.BytesIO())
     mock_window.destroy.assert_not_called()
     assert em.session.shutting_down is True
-    assert em._claim_gui_loop() is False
+    assert em.session.claim_gui_loop() is False
     mock_window.destroy.assert_not_called()
 
 
@@ -46,7 +45,7 @@ def test_reader_eof_after_claim_destroys_the_window():
     _reset_state()
     mock_window = MagicMock()
     em.session.window = mock_window
-    assert em._claim_gui_loop() is True
+    assert em.session.claim_gui_loop() is True
     em._pipe_reader_loop(io.BytesIO())
     mock_window.destroy.assert_called_once()
 
@@ -142,18 +141,18 @@ def test_reader_bad_pickle_finishes_and_destroys_only_after_claim():
     em.session.gui_loop_entered = False
     em._pipe_reader_loop(io.BytesIO(bad_bytes))
     mock_window.destroy.assert_not_called()
-    assert em._claim_gui_loop() is False
+    assert em.session.claim_gui_loop() is False
 
     _reset_state()
     mock_window2 = MagicMock()
     em.session.window = mock_window2
-    assert em._claim_gui_loop() is True
+    assert em.session.claim_gui_loop() is True
     em._pipe_reader_loop(io.BytesIO(bad_bytes))
     mock_window2.destroy.assert_called_once()
     assert em.session.shutting_down is True
 
 
-def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch, caplog):
+def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch):
     _reset_state()
     index_file = tmp_path / "index.html"
     index_file.write_bytes(b"hi")
@@ -189,9 +188,7 @@ def test_wsgi_index_200_missing_404_and_read_500(tmp_path, monkeypatch, caplog):
 
     recorded.clear()
     monkeypatch.setattr(builtins, "open", fake_open)
-    caplog.set_level(logging.ERROR)
     body = em.wsgi_app({"PATH_INFO": "/"}, start_response)
-    assert "failed to serve" in caplog.text
     status = recorded["status"]
     assert isinstance(status, str)
     assert status.startswith("500")
@@ -203,7 +200,7 @@ def test_main_fails_fast_when_monaco_loader_is_missing(tmp_path, monkeypatch, ca
     monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(tmp_path))
     monkeypatch.setattr(em, "_ROCHER_ROOT", "")
     # Keep main() from claiming the real stdout fd when pytest runs with -s.
-    monkeypatch.setattr("plugin.framework.ipc.claim_ipc_channel", lambda: io.BytesIO())
+    monkeypatch.setattr(em, "claim_ipc_channel", lambda: io.BytesIO())
     with pytest.raises(SystemExit) as exc_info:
         em.main()
     assert exc_info.value.code == 1
@@ -297,7 +294,7 @@ def test_main_codemirror_backend_does_not_fatal_on_missing_rocher(tmp_path, monk
     monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(assets))
     monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", "codemirror")
     monkeypatch.setattr(em, "_ROCHER_ROOT", "")
-    monkeypatch.setattr("plugin.framework.ipc.claim_ipc_channel", lambda: io.BytesIO())
+    monkeypatch.setattr(em, "claim_ipc_channel", lambda: io.BytesIO())
 
     mock_webview = MagicMock()
     mock_webview.create_window.return_value = MagicMock()
@@ -317,7 +314,7 @@ def test_main_codemirror_backend_fatals_when_cm6_assets_missing(tmp_path, monkey
 
     monkeypatch.setenv("WRITERAGENT_EDITOR_ASSETS", str(assets))
     monkeypatch.setenv("WRITERAGENT_EDITOR_BACKEND", "codemirror")
-    monkeypatch.setattr("plugin.framework.ipc.claim_ipc_channel", lambda: io.BytesIO())
+    monkeypatch.setattr(em, "claim_ipc_channel", lambda: io.BytesIO())
 
     with pytest.raises(SystemExit) as exc_info:
         em.main()

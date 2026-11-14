@@ -7,24 +7,17 @@
 
 from __future__ import annotations
 
-from hypothesis import given, settings
+from unittest.mock import patch
+from hypothesis import given
 from hypothesis import strategies as st
 
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
 
-from plugin.scripting.import_policy import (
-    PYTHON_VENV_SANDBOX_CONTEXT_PREFIX,
-    format_venv_import_policy_for_prompt,
-)
-from plugin.scripting.sandbox import (
-    build_sandbox_policy,
-    policy_blocked_imports,
-)
 from plugin.scripting.config_limits import (
     _bounds,
     _clamp,
+    python_exec_timeout,
     python_exec_timeout_default,
-    resolve_python_exec_timeout,
 )
 from plugin.scripting.calc_range import (
     ensure_rectangular_2d,
@@ -35,52 +28,26 @@ from plugin.scripting.calc_range import (
 from plugin.scripting.venv.coerce import dedupe_column_names
 
 
-def test_import_policy_contracts() -> None:
-    blocked = tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
-    assert isinstance(blocked, tuple)
-    assert len(blocked) > 0
-    assert "subprocess" in blocked
-
-    prompt = format_venv_import_policy_for_prompt(compact=True)
-    assert isinstance(prompt, str)
-    assert prompt.startswith(PYTHON_VENV_SANDBOX_CONTEXT_PREFIX)
-
-
-@given(val=st.one_of(
-    st.none(), st.booleans(), st.integers(),
-    st.floats(allow_nan=True, allow_infinity=True),
-    st.text(max_size=DEAL_MAX_TOKEN),
-    st.lists(st.integers(), max_size=3),
-    st.dictionaries(st.text(max_size=5), st.integers(), max_size=3),
-))
-@settings(max_examples=100)
-def test_resolve_python_exec_timeout_clamping(val) -> None:
-    timeout = resolve_python_exec_timeout(val)
-    assert isinstance(timeout, int)
-    t_min, t_max = _bounds("python_exec_timeout")
-    assert t_min <= timeout <= t_max
-
-
 def test_clamp_timeout_overflow_clamps() -> None:
     """A timeout past DEAL_MAX_ARGV is user config. Clamp it; do not PreContract."""
     t_min, t_max = _bounds("python_exec_timeout")
     assert _clamp("python_exec_timeout", DEAL_MAX_ARGV + 1) == t_max
     assert t_min <= _clamp("python_exec_timeout", 1) <= t_max
+    assert python_exec_timeout(DEAL_MAX_ARGV + 1) == python_exec_timeout(10**9)
 
 
-def test_resolve_python_exec_timeout_is_total() -> None:
-    t_min, t_max = _bounds("python_exec_timeout")
-    assert resolve_python_exec_timeout(True) == 1
-    assert resolve_python_exec_timeout(False) == 1
-    assert resolve_python_exec_timeout(None, configured=True) == 1
-    assert resolve_python_exec_timeout(None, configured="20") == 20
-    assert resolve_python_exec_timeout(None, configured=float("nan")) == python_exec_timeout_default()
-    assert resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1) == t_max
-    assert resolve_python_exec_timeout(None, configured=33) == 33
-    assert resolve_python_exec_timeout(None, configured=None) == python_exec_timeout_default()
-    assert resolve_python_exec_timeout("100") == 100
-    assert resolve_python_exec_timeout("bad") == python_exec_timeout_default()
-    assert resolve_python_exec_timeout(str(DEAL_MAX_ARGV + 1)) == t_max
+def test_python_exec_timeout_is_total() -> None:
+    default = python_exec_timeout_default()
+    t_max = python_exec_timeout(10**9)
+    for raw, expected in (
+        ("20", 20),
+        (float("nan"), default),
+        (DEAL_MAX_ARGV + 1, t_max),
+        (33, 33),
+        (0, 1),
+    ):
+        with patch("plugin.framework.config.get_config", return_value=raw):
+            assert python_exec_timeout() == expected
 
 
 @given(grid=st.one_of(

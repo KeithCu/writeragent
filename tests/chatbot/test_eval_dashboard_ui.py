@@ -110,20 +110,11 @@ def test_opening_eval_does_not_fetch_a_catalog_already_in_memory() -> None:
         cfg.clear_settings_catalog_cache(endpoint)
 
 
-def test_importing_eval_dashboard_ui_does_not_load_eval_runner() -> None:
-    sys.modules.pop("tests.eval_runner", None)
-    import plugin.chatbot.eval_dashboard_ui as mod
-
-    assert mod is not None
-    assert "tests.eval_runner" not in sys.modules
-
-
 def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     # Posted status runs inline so the worker can finish the dialog update.
     from plugin.framework.queue_executor import Policy, main
 
     main.install(Policy.test_inline)
-    sys.modules.pop("tests.eval_runner", None)
     fake_mod = MagicMock()
     fake_mod.run_benchmark_suite.return_value = {
         "passed": 1,
@@ -131,7 +122,7 @@ def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatc
         "total_cost": 0.0,
         "results": [{"status": "ok", "name": "t", "latency": 0.1}],
     }
-    sys.modules["tests.eval_runner"] = fake_mod
+    monkeypatch.setitem(sys.modules, "tests.eval_runner", fake_mod)
 
     dialog, _controls = _dialog()
     dash = EvalDashboard(MagicMock())
@@ -142,15 +133,14 @@ def test_run_suite_imports_eval_runner_at_runtime(monkeypatch: pytest.MonkeyPatc
     ):
         job = listener.run_suite()
         assert job is not None
-        job.join(timeout=2)
+        job.join(timeout=30)
+        assert not job.is_alive()
     fake_mod.run_benchmark_suite.assert_called_once()
-    sys.modules.pop("tests.eval_runner", None)
 
 
-def test_run_suite_reports_when_eval_runner_is_missing() -> None:
+def test_run_suite_reports_when_eval_runner_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Release builds omit tests/. Run must say so instead of raising ImportError."""
-    saved = sys.modules.get("tests.eval_runner")
-    sys.modules["tests.eval_runner"] = None  # type: ignore[assignment]
+    monkeypatch.setitem(sys.modules, "tests.eval_runner", None)  # type: ignore[arg-type]
 
     class _Ctrl:
         def __init__(self) -> None:
@@ -174,20 +164,13 @@ def test_run_suite_reports_when_eval_runner_is_missing() -> None:
     dash = EvalDashboard(MagicMock())
     dash._dlg = dialog
     listener = EvalRunListener(dash)
-    try:
-        listener.run_suite()
-    finally:
-        if saved is None:
-            sys.modules.pop("tests.eval_runner", None)
-        else:
-            sys.modules["tests.eval_runner"] = saved
+    listener.run_suite()
     assert status.text == "Unavailable"
     assert "not in this extension build" in log_area.text
     assert "run_eval.py" in log_area.text
 
 
 def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    sys.modules.pop("tests.eval_runner", None)
     release = threading.Event()
     entered = threading.Event()
 
@@ -198,7 +181,7 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
 
     fake_mod = MagicMock()
     fake_mod.run_benchmark_suite.side_effect = _block
-    sys.modules["tests.eval_runner"] = fake_mod
+    monkeypatch.setitem(sys.modules, "tests.eval_runner", fake_mod)
     dialog, controls = _dialog()
     dash = EvalDashboard(MagicMock())
     dash._dlg = dialog
@@ -221,26 +204,24 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
             assert controls["status"].text == "Running..."
             release.set()
             assert job is not None
-            job.join(timeout=2)
+            job.join(timeout=30)
+            assert not job.is_alive()
             assert controls["status"].text == "Running..."
             _drain_posted_main_thread()
     finally:
         release.set()
         qe.main.install(qe.Policy.production)
         _drain_posted_main_thread()
-        sys.modules.pop("tests.eval_runner", None)
     assert controls["status"].text == "Finished"
 
 
 def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    sys.modules.pop("tests.eval_runner", None)
-
     def _boom(*_args: object, **_kwargs: object) -> dict[str, object]:
         raise RuntimeError("suite blew up before the summary")
 
     fake_mod = MagicMock()
     fake_mod.run_benchmark_suite.side_effect = _boom
-    sys.modules["tests.eval_runner"] = fake_mod
+    monkeypatch.setitem(sys.modules, "tests.eval_runner", fake_mod)
     dialog, controls = _dialog()
     dash = EvalDashboard(MagicMock())
     dash._dlg = dialog
@@ -254,7 +235,8 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
         ):
             job = listener.run_suite()
             assert job is not None
-            job.join(timeout=2)
+            job.join(timeout=30)
+            assert not job.is_alive()
             # Same contract as a clean summary: the worker posts _show_failure
             # and leaves the line on Running... until the main thread paints it.
             assert controls["status"].text == "Running..."
@@ -262,7 +244,6 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
     finally:
         qe.main.install(qe.Policy.production)
         _drain_posted_main_thread()
-        sys.modules.pop("tests.eval_runner", None)
     assert controls["status"].text == "Finished"
     assert "suite blew up before the summary" in controls["log_area"].text
 
@@ -383,7 +364,7 @@ def _drain_posted_main_thread() -> None:
     """Run callbacks the eval worker posted for the main thread."""
     from plugin.framework.queue_executor import main
 
-    for _unused in range(8):
+    for _unused in range(1000):
         if main._work_queue.empty():
             return
         main.process_queue()

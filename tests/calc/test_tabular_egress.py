@@ -12,6 +12,7 @@ import pytest
 
 from plugin.calc.tabular_egress import format_tabular_helper_for_calc, insert_tabular_result_into_calc
 from plugin.framework.errors import CalcError
+from plugin.tests.testing_utils import FakeUndoManager
 
 
 def test_truncated_table_shows_total_on_the_sheet():
@@ -166,9 +167,8 @@ def test_insert_pads_ragged_grid_and_uses_data_mode(mock_bridge, mock_manipulato
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     grid = [["title"], [], ["a", "b"]]
-    rows = insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+    rows = insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
     assert rows == 3
     manipulator.write_formula_range.assert_called_once()
     call_args = manipulator.write_formula_range.call_args
@@ -182,9 +182,8 @@ def test_insert_quotes_sheet_name(mock_bridge, mock_manipulator_cls):
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     grid = [["a"]]
-    insert_tabular_result_into_calc(doc, ctx, grid, sheet_name="O'Brien", start_col=0, start_row=0)
+    insert_tabular_result_into_calc(doc, grid, sheet_name="O'Brien", start_col=0, start_row=0)
     manipulator.write_formula_range.assert_called_once()
     addr = manipulator.write_formula_range.call_args.args[0]
     assert addr == "'O''Brien'.A1"
@@ -195,30 +194,24 @@ def test_insert_quotes_sheet_name(mock_bridge, mock_manipulator_cls):
 def test_insert_tabular_result_refuses_when_target_occupied(mock_bridge, mock_manipulator_cls):
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
+    fake_undo = FakeUndoManager()
     doc = MagicMock()
-    ctx = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
     sheet = MagicMock()
-    mock_bridge.return_value.get_active_sheet.return_value = sheet
+    mock_bridge.return_value.sheet_or_active.return_value = sheet
 
     # Cell at A1 is occupied with existing user data
-    def get_cell(c, r):
-        cell = MagicMock()
-        if (c, r) == (0, 0):
-            cell.getFormula.return_value = ""
-            cell.getString.return_value = "user data"
-        else:
-            cell.getFormula.return_value = ""
-            cell.getString.return_value = ""
-        return cell
-
-    sheet.getCellByPosition.side_effect = get_cell
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("user data", ""), ("", ""))
 
     grid = [["differentiate"], ["Result", "2*x"]]
     with pytest.raises(CalcError, match=r"The result needs A1:B2, but 1 cell\(s\) there are not empty \(first: A1\)\. Nothing was written; clear them or start elsewhere\."):
-        insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+        insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
 
+    sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 1)
+    sheet.getCellByPosition.assert_not_called()
     # Invariant: non-empty target must not be overwritten
     manipulator.write_formula_range.assert_not_called()
+    assert fake_undo.entered == []
 
 
 @patch("plugin.calc.tabular_egress.CellManipulator")
@@ -227,20 +220,37 @@ def test_insert_tabular_result_succeeds_when_target_empty(mock_bridge, mock_mani
     manipulator = MagicMock()
     mock_manipulator_cls.return_value = manipulator
     doc = MagicMock()
-    ctx = MagicMock()
     sheet = MagicMock()
-    mock_bridge.return_value.get_active_sheet.return_value = sheet
+    mock_bridge.return_value.sheet_or_active.return_value = sheet
 
-    def get_cell(c, r):
-        cell = MagicMock()
-        cell.getFormula.return_value = ""
-        cell.getString.return_value = ""
-        return cell
-
-    sheet.getCellByPosition.side_effect = get_cell
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("", ""), ("", ""))
 
     grid = [["differentiate"], ["Result", "2*x"]]
-    rows = insert_tabular_result_into_calc(doc, ctx, grid, start_col=0, start_row=0)
+    rows = insert_tabular_result_into_calc(doc, grid, start_col=0, start_row=0)
     assert rows == 2
     manipulator.write_formula_range.assert_called_once()
+
+
+@patch("plugin.calc.tabular_egress.CellManipulator")
+@patch("plugin.calc.tabular_egress.CalcBridge")
+def test_insert_failure_undoes_partial_grid(mock_bridge, mock_manipulator_cls):
+    manipulator = MagicMock()
+    manipulator.write_formula_range.side_effect = CalcError("write boom")
+    mock_manipulator_cls.return_value = manipulator
+    fake_undo = FakeUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = fake_undo
+    sheet = MagicMock()
+    mock_bridge.return_value.sheet_or_active.return_value = sheet
+
+    cell = MagicMock()
+    cell.getFormula.return_value = ""
+    cell.getString.return_value = ""
+    sheet.getCellByPosition.return_value = cell
+
+    with pytest.raises(CalcError, match="write boom"):
+        insert_tabular_result_into_calc(doc, [["a", "b"], [1, 2]], start_col=0, start_row=0)
+
+    assert fake_undo.entered == ["WriterAgent: Insert result"]
+    assert fake_undo.undone == 1
 

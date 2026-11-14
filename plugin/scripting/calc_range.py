@@ -26,9 +26,12 @@ from plugin.framework.deal_shim import (
 )
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
+    child_unpack_split_grid,
     is_calc_range_payload,
     is_dataframe_payload,
     is_multi_data,
+    is_split_grid,
+    numpy_scalar_item,
 )
 
 log = logging.getLogger(__name__)
@@ -179,11 +182,11 @@ class CalcRange:
 
     def __init__(self, values: Any, *, address: str | None = None) -> None:
         # crosshair: off
-        # ensure_rectangular_2d treats a non-list/tuple as a scalar, so an
-        # ndarray or DataFrame became a 1x1 range. _materialize_inner_grid
+        # ensure_rectangular_2d treats a non-list/tuple as a scalar and would
+        # make an ndarray or DataFrame a 1x1 range, so _materialize_inner_grid
         # unpacks those, and nested structures, into a rectangular 2D list.
-        # Calc numbers are doubles; whole numbers arrive as ints so scalar-only
-        # APIs like sp.prime(data) work (lost in ff217d9d4).
+        # Calc numbers are doubles; whole numbers become ints so scalar-only
+        # APIs such as sp.prime(data) accept them.
         self._values = _whole_floats_to_int(_materialize_inner_grid(values))
         _assert_rectangular(self._values)
         self._address = address
@@ -263,8 +266,8 @@ class CalcRange:
             dt = np.float64 if dtype is None else dtype
             return np.array([], dtype=dt, **kwargs).reshape(0, 0)
 
-        # Named dtypes are built from raw cells (None intact) so bool columns do not treat NaN as True and object columns keep None.
-        # Only the
+        # Named dtypes are built from raw cells (None intact), so bool columns
+        # do not read NaN as True and object columns keep None. Only the
         # default all-numeric path maps blanks to NaN.
         if dtype is not None:
             return np.array(self._values, dtype=dtype, **kwargs)
@@ -303,6 +306,7 @@ class CalcRange:
             date_origin: Base epoch for serial numbers (default '1899-12-30').
         """
         # crosshair: off
+        # Lazy (venv-only and a cycle): coerce imports this module at its top.
         from plugin.scripting.venv.coerce import grid_to_dataframe
 
         return grid_to_dataframe(
@@ -315,7 +319,7 @@ class CalcRange:
             sheet_hint=self._address,
         ).df
 
-    # --- Issue #412: Arithmetic, comparison, and scalar protocols ---
+    # --- Arithmetic, comparison, and scalar protocols ---
 
     __hash__: None = None  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType, reportGeneralTypeIssues, reportIncompatibleMethodOverride]  # CalcRange is mutable / unhashable like ndarray
 
@@ -452,7 +456,7 @@ def _deal_materialize_inner_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
 
-def _is_pandas_frame_or_series(obj: Any) -> bool:
+def is_pandas_frame_or_series(obj: Any) -> bool:
     """True for a pandas DataFrame or Series, including subclasses, without importing pandas.
 
     Host LibreOffice Python has no pandas.
@@ -467,24 +471,23 @@ def _is_pandas_frame_or_series(obj: Any) -> bool:
 
 @deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
-    """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``."""
-    # crosshair: off
-    from plugin.scripting.payload_codec import (
-        _numpy_scalar_item,
-        child_unpack_data,
-        is_split_grid,
-    )
+    """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``.
 
+    This is the child's only split_grid decode site. A numeric envelope arrives
+    as a float64 ndarray and a mixed one as nested lists, and the ndarray /
+    list / scalar arms below turn both into the rectangular grid.
+    """
+    # crosshair: off
     if isinstance(inner, CalcRange):
         return [list(row) for row in inner.values]
 
     if is_split_grid(inner):
-        unpacked = child_unpack_data(inner)
+        unpacked = child_unpack_split_grid(inner)
     else:
         unpacked = inner
 
     # Only pandas DataFrame/Series expand to grids; other objects stay single cells and to_numpy failures propagate.
-    if _is_pandas_frame_or_series(unpacked):
+    if is_pandas_frame_or_series(unpacked):
         unpacked = unpacked.to_numpy()
 
     np: Any = None
@@ -496,14 +499,14 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
         if unpacked.ndim == 0:
             val = unpacked.item()
             if unpacked.dtype == object:
-                val = _numpy_scalar_item(val)
+                val = numpy_scalar_item(val)
             return [[val]]
         raw = unpacked.tolist()
         if unpacked.dtype == object:
             if unpacked.ndim == 1:
-                raw = [_numpy_scalar_item(v) for v in raw]
+                raw = [numpy_scalar_item(v) for v in raw]
             else:
-                raw = [[_numpy_scalar_item(c) for c in row] for row in raw]
+                raw = [[numpy_scalar_item(c) for c in row] for row in raw]
         if unpacked.ndim == 1:
             return [raw]
         return raw

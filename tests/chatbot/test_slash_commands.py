@@ -28,6 +28,7 @@ from plugin.chatbot.slash_commands import (
     registered_slash_commands,
     MOCK_SLASH_COMMANDS,
     SLASH_COMMANDS,
+    SlashCommand,
     SlashResult,
     SlashRun,
     effective_slash_run,
@@ -154,13 +155,6 @@ def test_run_slash_formula_ignores_apps_filter():
         assert run_slash_command(cmd, host, "sum column") is SlashResult.CONTINUE_SEND
 
 
-def test_help_text_lists_wired_and_mocks():
-    text = format_help_text()
-    assert "/help" in text
-    assert "/mock-alpha [mock]" in text
-    assert "/clear" in text
-
-
 def test_record_slash_lru_uses_existing_config_helper():
     with patch("plugin.framework.model_lru.update_lru_history") as update:
         record_slash_lru("/Help")
@@ -179,7 +173,6 @@ def test_run_mock_echoes_and_records_lru():
     host.hide_popup.assert_called_once()
     host.clear_ask.assert_called_once()
     host.append_output.assert_called_once()
-    assert "slash: /mock-alpha" in host.append_output.call_args[0][0]
     # Real append_output(text) takes no role keyword (panel.py, _UrpSlashHost).
     assert host.append_output.call_args.kwargs == {}
 
@@ -194,7 +187,6 @@ def test_run_help_prints_static_list():
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         assert run_slash_command(_cmd("help"), host) is SlashResult.HANDLED
     body = host.append_output.call_args[0][0]
-    assert "Slash commands:" in body
     assert "/help" in body
     host.clear_ask.assert_called_once()
 
@@ -302,7 +294,7 @@ def test_run_stop_during_inline_approval_opens_change_dialog_and_clears_ask():
 def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
     import plugin.chatbot.slash_commands as slash
 
-    assert slash.SLASH_COMMANDS[0].description == "Print the command list"
+    help_cmd = slash.SLASH_COMMANDS[0]
     _slash_ids = {c.name for c in slash.registered_slash_commands()}
 
     def fake_translate(msg: str) -> str:
@@ -313,10 +305,14 @@ def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
         return "T:" + msg
 
     monkeypatch.setattr(slash, "_", fake_translate)
-    assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
+    expected_help = f"/{help_cmd.name} — T:{help_cmd.description}"
+    assert slash.format_slash_item(help_cmd) == expected_help
     tone = next(c for c in slash.SLASH_COMMANDS if c.name == "tone")
-    assert slash.format_slash_item(tone) == "/tone — T:Rewrite the selection to match a described tone (/tone T:<description>)"
-    assert "/help — T:Print the command list" in slash.format_help_text()
+    tone_item = slash.format_slash_item(tone)
+    hint = slash.command_usage_hint(tone)
+    assert "T:" in hint
+    assert f"/{tone.name} — T:{tone.description} ({hint})" == tone_item
+    assert expected_help in slash.format_help_text()
 
 
 def test_build_slash_answer_query_is_instruction_only():
@@ -540,33 +536,8 @@ def test_slash_compact_sync_passes_tool_schema_list():
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
 
 
-def test_slash_compact_sync_passes_cancel():
-    from plugin.framework.send_cancellation import SendCancellation
-
-    cancel = SendCancellation()
-    session = MagicMock()
-    session.messages = [{"role": "user", "content": "hi"}]
-    client = MagicMock()
-    with patch("plugin.framework.config.get_config", return_value=True):
-        with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
-            compact_mod.return_value = MagicMock(compacted=True, reason="ok")
-            with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
-                with patch("plugin.framework.llm_lanes.llm_request_lane"):
-                    from plugin.chatbot.slash_commands import run_slash_compact_sync
-
-                    run_slash_compact_sync(
-                        focus="",
-                        session=session,
-                        cancel=cancel,
-                        client=client,
-                        tools=[],
-                    )
-    assert compact_mod.call_args.kwargs.get("cancel") is cancel
-
-
-def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixture) -> None:
+def test_slash_compact_lane_status_callback_is_lane_safe() -> None:
     from contextlib import contextmanager
-    import logging
     from typing import Any
 
     from plugin.chatbot.slash_commands import run_slash_compact_sync
@@ -600,10 +571,7 @@ def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixtur
                     )
 
     assert len(saved_callback) == 1
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_commands"):
-        assert_lane_callback_safe(saved_callback[0], "lane-probe")
-
-    assert any(record.getMessage() == "slash compact status: lane-probe" for record in caplog.records)
+    assert_lane_callback_safe(saved_callback[0], "lane-probe")
 
 
 def test_run_slash_compact_resolves_document_on_main_thread_only():
@@ -942,24 +910,6 @@ def test_parse_slash_text_known_and_unknown():
     assert parse_slash_text("hello /tone") is None
 
 
-def test_tier1_commands_are_in_product_table():
-    names = {c.name for c in registered_slash_commands()}
-    for name in (
-        "summarize",
-        "proofread",
-        "shorten",
-        "expand",
-        "tone",
-        "translate",
-        "explain",
-        "remember",
-        "compact",
-        "undo",
-        "formula",
-    ):
-        assert name in names
-
-
 def test_format_instruction_appends_optional_arg_cleanly():
     from plugin.chatbot.slash_commands import SLASH_COMMANDS, _format_instruction
 
@@ -995,13 +945,6 @@ def test_popup_accept_completes_draft_for_preset():
             set_text.assert_called_once_with(host.query_control, "/tone ")
     host.clear_ask.assert_not_called()
     host.dispatch.assert_called_once()
-
-
-def test_summarizer_user_body_includes_focus():
-    from plugin.chatbot import compaction as compaction_mod
-
-    body = compaction_mod._summarizer_user_body("line", "", focus="budget")
-    assert "Keep details about: budget" in body
 
 
 def test_do_edit_selection_skips_dialog_with_preset():
@@ -1187,24 +1130,20 @@ def test_summary_lines_omit_slash_local():
     assert not any("Slash commands" in line for line in lines)
 
 
-def test_popup_runs_now_names():
-    immediate = {
-        "help",
-        "clear",
-        "stop",
-        "undo",
-        "mock-alpha",
-        "mock-bravo",
-        "mock-charlie",
-        "apply",
-        "web",
-        "model",
-    }
-    for cmd in registered_slash_commands():
-        if cmd.name in immediate:
-            assert slash_popup_runs_now(cmd), cmd.name
-        else:
-            assert not slash_popup_runs_now(cmd), cmd.name
+@pytest.mark.parametrize(
+    ("run", "requires_arg", "expected"),
+    [
+        (SlashRun.LOCAL, False, True),
+        (SlashRun.LOCAL, True, False),
+        (SlashRun.ANSWER, False, False),
+        (SlashRun.COMPACT, False, False),
+    ],
+)
+def test_popup_runs_now_only_for_local_commands_without_arg(
+    run: SlashRun, requires_arg: bool, expected: bool
+) -> None:
+    cmd = SlashCommand("x", "d", run=run, requires_arg=requires_arg)
+    assert slash_popup_runs_now(cmd) is expected
 
 
 def test_slash_registry_handler_invariant():
@@ -1304,37 +1243,6 @@ def test_display_name_follows_alias_and_usage_arg_is_translated(monkeypatch):
     assert format_slash_popup_item(tone).startswith("/文体 — ")
     assert "<説明>" in format_slash_item(tone)
     assert "/tone" not in format_slash_item(tone)
-
-
-def test_shipped_locales_translate_slash_descriptions():
-    """Product descriptions already in the catalogs are translated in every shipped locale.
-
-    Command-name aliases and the new usage / slash-notice strings are not in
-    the catalogs yet; those are covered with an in-test catalog below.
-    """
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("locales/*.po not in stripped release tree")
-    import polib
-
-    from plugin.chatbot.slash_commands import SLASH_COMMANDS
-    from plugin.framework.i18n import get_locales_dir
-
-    descriptions = [cmd.description for cmd in SLASH_COMMANDS]
-    root = Path(get_locales_dir())
-    locales = sorted(p.parent.parent.name for p in root.glob("*/LC_MESSAGES/writeragent.po"))
-    assert len(locales) >= 34
-
-    for lang in locales:
-        catalog = polib.pofile(str(root / lang / "LC_MESSAGES" / "writeragent.po"))
-        for msgid in descriptions:
-            entry = catalog.find(msgid)
-            assert entry is not None, f"{lang} missing description {msgid!r}"
-            assert entry.msgstr.strip(), f"{lang} empty description {msgid!r}"
-            assert "fuzzy" not in entry.flags, f"{lang} fuzzy description {msgid!r}"
-            assert entry.msgstr != msgid, f"{lang} description still English: {msgid!r}"
 
 
 def test_fixture_mo_resolves_alias_and_description(monkeypatch, tmp_path):

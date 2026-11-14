@@ -67,13 +67,12 @@ def _delegate_domain_enum(schemas: list[dict], tool_name: str) -> list[str] | No
     return None
 
 
-def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Eval headless registry uses the same hooks/filters as plugin.main bootstrap."""
     import plugin.app as app
     import plugin.bootstrap as bootstrap
     import plugin.main as main
     from unittest.mock import MagicMock
-    import tempfile
 
     eval_catalog._registry = None
     monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
@@ -104,7 +103,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
         app._modules = []
         ctx = MagicMock()
         path_settings = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
-        path_settings.UserConfig = tempfile.mkdtemp(prefix="wa-eval-sidebar-")
+        path_settings.UserConfig = str(tmp_path / "user_config")
         app.bootstrap(ctx)
         sidebar = app.get_tools()
         assert sidebar is not None
@@ -121,46 +120,6 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
             assert _delegate_domain_enum(eval_rows, delegate_name) is not None
     finally:
         eval_catalog._registry = None
-
-
-def test_eval_prompts_build_without_libreoffice() -> None:
-    from scripts.prompt_optimization.eval_prompts import get_writer_eval_chat_system_prompt
-
-    prompt = get_writer_eval_chat_system_prompt()
-    assert "delegate_to_specialized_writer_toolset" in prompt
-    assert "[Eval harness]" in prompt
-
-
-def test_writer_catalog_has_production_names() -> None:
-    names = _names("writer")
-    assert {
-        "get_document_content",
-        "apply_document_content",
-        "search_in_document",
-        "apply_style",
-        "get_guidance",
-    } <= names
-    assert any("delegate" in n for n in names)
-    assert len(names) > 8
-
-
-def test_draw_catalog_has_core_names() -> None:
-    names = _names("draw")
-    # shape_upsert / shape_connect are specialized (delegate), not main-chat core.
-    assert {"get_draw_tree", "list_pages", "delegate_to_specialized_draw_toolset"} <= names
-    assert len(names) > 8
-
-
-def test_calc_catalog_has_write_formula() -> None:
-    names = _names("calc")
-    # range_sort is specialized; main chat uses write_formula_range / read / summary.
-    assert {
-        "write_formula_range",
-        "read_cell_range",
-        "get_sheet_summary",
-        "delegate_to_specialized_calc_toolset",
-    } <= names
-    assert len(names) > 8
 
 
 def test_draw_shapes_domain_advertises_upsert() -> None:

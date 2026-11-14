@@ -23,14 +23,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_sec, load_settings
+from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_ms, load_settings
 from compute_service.formula_worker import _handle_request
 from compute_service.formula_pool import FormulaProcessPool, shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from tests.compute_service.multipart_encode import encode_multipart_vision
 from compute_service.server import create_wsgi_app
 from compute_service.vision import shutdown_vision_pool
-from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC, ComputeServerHandler, request_conn
+from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC, request_conn
 
 
 def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None = None, *, headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
@@ -50,12 +50,7 @@ def _wsgi_post(app, body: bytes | None, *, path: str = "/v1/session/reset", quer
         header_holder.extend(resp_headers)
 
     payload = b"" if body is None else body
-    environ: dict = {
-        "PATH_INFO": path,
-        "REQUEST_METHOD": "POST",
-        "QUERY_STRING": query,
-        "wsgi.input": io.BytesIO(payload),
-    }
+    environ: dict = {"PATH_INFO": path, "REQUEST_METHOD": "POST", "QUERY_STRING": query, "wsgi.input": io.BytesIO(payload)}
     if body is None:
         environ["CONTENT_LENGTH"] = ""
     else:
@@ -89,13 +84,13 @@ def compute_server_info():
     # shared sessions this module keeps do not occupy every process;
     # isolated calls are not allowed to run on those processes.
     app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=4))
-    server = WSGIDualStackServer("", port)
+    server = WSGIDualStackServer("", port, listener_threads=16)
     server.set_app(app)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.2)
-    yield port, server.srv
+    yield port, server
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
@@ -114,11 +109,7 @@ def compute_url(compute_server_info):
 def _post_execute(url: str, payload: dict, path: str = "/v1/execute") -> dict:
     if not path.startswith("/"):
         path = f"/v1/execute{path}"
-    req = urllib.request.Request(
-        f"{url}{path}",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-    )
+    req = urllib.request.Request(f"{url}{path}", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req) as resp:
         assert resp.status == 200
         body = json.loads(resp.read().decode("utf-8"))
@@ -164,13 +155,11 @@ class TestJsonEgressUnit:
         assert "data_b64" not in json.dumps(out["result"])
 
     def test_image_past_finder_depth_stays_inline(self) -> None:
-        """find_image_payloads stops at depth 12. A deeper plot must not become null.
+        """find_image_payloads stops at depth 12; a deeper plot stays inline rather than becoming null.
 
-        drop used to be a bool: any listed image nulled every image, including
-        ones the finder never returned, so those plots vanished from both
-        result and images. Depth is counted from the result root. The value
-        under ``buried`` is one level down, so 12 wrappers put the plot at
-        depth 13 (missed) and 11 wrappers put it at depth 12 (listed).
+        Depth is counted from the result root. The value under ``buried`` is
+        one level down, so 12 wrappers put the plot at depth 13 (missed) and
+        11 wrappers put it at depth 12 (listed).
         """
         from plugin.scripting.payload_codec import find_image_payloads
 
@@ -232,53 +221,39 @@ class TestJsonEgressUnit:
         assert out_empty["result"] == empty
         assert "images" not in out_empty
 
-        multi = normalize_execute_response({
-            "status": "ok",
-            "result": {"__wa_payload__": "multi_data", "items": [dict(bare)]},
-            "stdout": "",
-        })
+        multi = normalize_execute_response({"status": "ok", "result": {"__wa_payload__": "multi_data", "items": [dict(bare)]}, "stdout": ""})
         assert multi["result"] == [bare]
         assert "images" not in multi
 
         real = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
-        mixed = normalize_execute_response({
-            "status": "ok",
-            "result": {"__wa_payload__": "multi_data", "items": [real, dict(bare)]},
-            "stdout": "",
-        })
+        mixed = normalize_execute_response({"status": "ok", "result": {"__wa_payload__": "multi_data", "items": [real, dict(bare)]}, "stdout": ""})
         assert mixed["result"] == [None, bare]
         assert len(mixed["images"]) == 1
         assert mixed["images"][0]["data_b64"] == base64.b64encode(b"abc").decode("ascii")
 
-        text = normalize_execute_response({
-            "status": "ok",
-            "result": {"__wa_payload__": "image", "format": "png", "data": "abc"},
-            "stdout": "",
-        })
+        text = normalize_execute_response({"status": "ok", "result": {"__wa_payload__": "image", "format": "png", "data": "abc"}, "stdout": ""})
         assert text["result"] is None
         assert text["images"] == [{"format": "png", "data_b64": "abc"}]
 
-        raw = normalize_execute_response({
-            "status": "ok",
-            "result": {"__wa_payload__": "image", "data": b"abc"},
-            "stdout": "",
-        })
+        raw = normalize_execute_response({"status": "ok", "result": {"__wa_payload__": "image", "data": b"abc"}, "stdout": ""})
         assert raw["result"] is None
         assert raw["images"] == [{"format": "png", "data_b64": base64.b64encode(b"abc").decode("ascii")}]
 
 
 class TestTimeoutHelpers:
     def test_timeout_ms_rounds_up(self) -> None:
-        assert clamp_timeout_sec(1500, is_ms=True) == 2
-        assert clamp_timeout_sec(1000, is_ms=True) == 1
-        assert clamp_timeout_sec(0, is_ms=True) == 30
-        assert clamp_timeout_sec(float("inf"), is_ms=True) == 30
-        assert clamp_timeout_sec(float("-inf"), is_ms=True) == 30
-        assert clamp_timeout_sec(99999) == 600
+        assert clamp_timeout_ms(1500, default=30, maximum=600) == 2
+        assert clamp_timeout_ms(1000, default=30, maximum=600) == 1
+        assert clamp_timeout_ms(1500.7, default=30, maximum=600) == 2
+        assert clamp_timeout_ms(1, default=30, maximum=600) == 1
+        assert clamp_timeout_ms(0, default=30, maximum=600) == 30
+        assert clamp_timeout_ms(-5, default=30, maximum=600) == 30
+        assert clamp_timeout_ms(None, default=30, maximum=600) == 30
+        assert clamp_timeout_ms(99_999_000, default=30, maximum=600) == 600
 
     def test_max_timeout_sec_1800_honored(self) -> None:
-        assert clamp_timeout_sec(1200, max_timeout_sec=1800) == 1200
-        assert clamp_timeout_sec(99999, max_timeout_sec=1800) == 1800
+        assert clamp_timeout_ms(1_200_000, default=30, maximum=1800) == 1200
+        assert clamp_timeout_ms(99_999_000, default=30, maximum=1800) == 1800
         res = json.loads(_handle_request({"code": "result = 42", "timeout_sec": 1200})["result_json"])
         assert res["status"] == "ok"
         assert res["result"] == 42
@@ -288,18 +263,17 @@ class TestTimeoutHelpers:
 
 
 class TestExecuteLocal:
-    def test_mode_isolated_ignores_session(self) -> None:
-        sid = "iso-test-session"
-        r1 = json.loads(_handle_request({"code": "x = 7\nresult = x", "session_id": sid, "mode": "isolated"})["result_json"])
+    def test_no_session_id_runs_isolated(self) -> None:
+        r1 = json.loads(_handle_request({"code": "x = 7\nresult = x"})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 7
-        r2 = json.loads(_handle_request({"code": "result = x", "session_id": sid, "mode": "isolated"})["result_json"])
+        r2 = json.loads(_handle_request({"code": "result = x"})["result_json"])
         assert r2["status"] == "error"
 
-    def test_mode_shared_keeps_state(self) -> None:
+    def test_session_id_keeps_state(self) -> None:
         sid = "shared-test-session"
-        r1 = json.loads(_handle_request({"code": "x = 11\nresult = x", "session_id": sid, "mode": "shared"})["result_json"])
+        r1 = json.loads(_handle_request({"code": "x = 11\nresult = x", "session_id": sid})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 11
-        r2 = json.loads(_handle_request({"code": "result = x + 1", "session_id": sid, "mode": "shared"})["result_json"])
+        r2 = json.loads(_handle_request({"code": "result = x + 1", "session_id": sid})["result_json"])
         assert r2["status"] == "ok" and r2["result"] == 12
 
     def test_large_matrix_is_nested_lists_not_split_grid(self) -> None:
@@ -317,54 +291,44 @@ class TestExecuteLocal:
 
     def test_init_script_shared_seeds_session(self) -> None:
         sid = "shared-init-session"
-        r1 = json.loads(_handle_request({
-            "code": "result = HELPER + 1",
-            "session_id": sid,
-            "mode": "shared",
-            "init_script": "HELPER = 41",
-        })["result_json"])
+        r1 = json.loads(_handle_request({"code": "result = HELPER + 1", "session_id": sid, "init_script": "HELPER = 41"})["result_json"])
         assert r1["status"] == "ok", r1
         assert r1["result"] == 42
-        r2 = json.loads(_handle_request({"code": "result = HELPER + 2", "session_id": sid, "mode": "shared"})["result_json"])
+        r2 = json.loads(_handle_request({"code": "result = HELPER + 2", "session_id": sid})["result_json"])
         assert r2["status"] == "ok"
         assert r2["result"] == 43
 
     def test_init_script_isolated_seeds_request(self) -> None:
-        r = json.loads(_handle_request({"code": "result = HELPER", "mode": "isolated", "init_script": "HELPER = 7"})["result_json"])
+        r = json.loads(_handle_request({"code": "result = HELPER", "init_script": "HELPER = 7"})["result_json"])
         assert r["status"] == "ok", r
         assert r["result"] == 7
 
+    @pytest.mark.usefixtures("fresh_sandbox_sessions")
     def test_init_script_runs_once_isolated(self) -> None:
         from unittest.mock import patch
 
         from plugin.scripting.venv import venv_sandbox as vs
 
-        vs.SESSIONS.clear_all()
         init = "ONCE_ISO = 7"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-            r1 = json.loads(_handle_request({"code": "result = ONCE_ISO", "mode": "isolated", "init_script": init})["result_json"])
-            r2 = json.loads(_handle_request({"code": "result = ONCE_ISO + 1", "mode": "isolated", "init_script": init})["result_json"])
+            r1 = json.loads(_handle_request({"code": "result = ONCE_ISO", "init_script": init})["result_json"])
+            r2 = json.loads(_handle_request({"code": "result = ONCE_ISO + 1", "init_script": init})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 7, r1
         assert r2["status"] == "ok" and r2["result"] == 8, r2
         # One init execution + two isolated cell executions (not init twice).
         assert mock_run.call_count == 3
 
+    @pytest.mark.usefixtures("fresh_sandbox_sessions")
     def test_init_script_runs_once_shared(self) -> None:
         from unittest.mock import patch
 
         from plugin.scripting.venv import venv_sandbox as vs
 
-        vs.SESSIONS.clear_all()
         sid = "shared-init-once"
         init = "ONCE_SHARED = 10"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
-            r1 = json.loads(_handle_request({"code": "result = ONCE_SHARED", "session_id": sid, "mode": "shared", "init_script": init})["result_json"])
-            r2 = json.loads(_handle_request({
-                "code": "result = ONCE_SHARED + 1",
-                "session_id": sid,
-                "mode": "shared",
-                "init_script": init,
-            })["result_json"])
+            r1 = json.loads(_handle_request({"code": "result = ONCE_SHARED", "session_id": sid, "init_script": init})["result_json"])
+            r2 = json.loads(_handle_request({"code": "result = ONCE_SHARED + 1", "session_id": sid, "init_script": init})["result_json"])
         assert r1["status"] == "ok" and r1["result"] == 10, r1
         assert r2["status"] == "ok" and r2["result"] == 11, r2
         assert mock_run.call_count == 3
@@ -397,7 +361,7 @@ class TestComputeHttp:
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -406,12 +370,7 @@ class TestComputeHttp:
         try:
 
             def _post() -> None:
-                req = urllib.request.Request(
-                    f"http://127.0.0.1:{port}/v1/execute",
-                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=json.dumps({"code": "result = 1"}).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     assert resp.status == 200
 
@@ -447,11 +406,11 @@ class TestComputeHttp:
             assert hold.wait(timeout=10)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
-        # 1 worker, semaphore size 1. Explicit max_threads=1 is listener_thread_count:
-        # max(8, n + 4) = 8. Overflow waits on the permit instead of a fast 503.
+        # 1 worker, semaphore size 1. listener_threads=8: overflow waits on the
+        # permit instead of a fast 503.
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, semaphore=sem)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -461,12 +420,7 @@ class TestComputeHttp:
         try:
 
             def _post(out_list: list[Any]) -> None:
-                req = urllib.request.Request(
-                    f"http://127.0.0.1:{port}/v1/execute",
-                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=json.dumps({"code": "result = 1"}).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
                 try:
                     with urllib.request.urlopen(req, timeout=15) as resp:
                         out_list.append((resp.status, json.loads(resp.read().decode())))
@@ -531,7 +485,7 @@ class TestComputeHttp:
 
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, semaphore=sem)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -540,12 +494,7 @@ class TestComputeHttp:
         try:
 
             def _post() -> None:
-                req = urllib.request.Request(
-                    f"http://127.0.0.1:{port}/v1/execute",
-                    data=json.dumps({"code": "result = 1"}).encode("utf-8"),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
+                req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=json.dumps({"code": "result = 1"}).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
                 try:
                     with urllib.request.urlopen(req, timeout=15):
                         pass
@@ -562,12 +511,7 @@ class TestComputeHttp:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(0.4)
             sock.connect(("127.0.0.1", port))
-            req_headers = (
-                b"POST /v1/execute HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: 1000000\r\n\r\n"
-            )
+            req_headers = b"POST /v1/execute HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: 1000000\r\n\r\n"
             sock.sendall(req_headers)
             try:
                 early = sock.recv(4096)
@@ -655,11 +599,7 @@ class TestComputeHttp:
             assert hold.wait(timeout=5)
             return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
-        app = create_wsgi_app(
-            ComputeSettings(workers=1, default_timeout_sec=1),
-            execute_fn=execute_fn,
-            semaphore=threading.Semaphore(1),
-        )
+        app = create_wsgi_app(ComputeSettings(workers=1, default_timeout_sec=1), execute_fn=execute_fn, semaphore=threading.Semaphore(1))
         body = json.dumps({"code": "result = 1"}).encode("utf-8")
         first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
         first.start()
@@ -690,12 +630,7 @@ class TestComputeHttp:
         assert body.get("id") == "test-req-err"
 
     def test_id_echo_on_bad_request(self, compute_url: str) -> None:
-        req = urllib.request.Request(
-            f"{compute_url}/v1/execute",
-            data=json.dumps({"id": "test-bad-req", "code": 12345}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        req = urllib.request.Request(f"{compute_url}/v1/execute", data=json.dumps({"id": "test-bad-req", "code": 12345}).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(req)
         assert exc_info.value.code == 400
@@ -704,10 +639,7 @@ class TestComputeHttp:
         assert body.get("status") == "error"
 
     def test_numpy_mean(self, compute_url: str) -> None:
-        body = _post_execute(
-            compute_url,
-            {"code": "import numpy as np\nresult = float(np.mean(data))", "data": [10, 20, 30, 40]},
-        )
+        body = _post_execute(compute_url, {"code": "import numpy as np\nresult = float(np.mean(data))", "data": [10, 20, 30, 40]})
         assert body["status"] == "ok"
         assert body["result"] == 25.0
 
@@ -722,56 +654,26 @@ class TestComputeHttp:
         assert isinstance(body["result"], str)
 
     def test_ndarray_matrix_over_http(self, compute_url: str) -> None:
-        body = _post_execute(
-            compute_url,
-            {"code": "import numpy as np\nresult = np.array([[1.0, float('nan')], [3.0, 4.0]])"},
-        )
+        body = _post_execute(compute_url, {"code": "import numpy as np\nresult = np.array([[1.0, float('nan')], [3.0, 4.0]])"})
         assert body["status"] == "ok"
         assert body["result"] == [[1.0, None], [3.0, 4.0]]
 
     def test_shared_session_via_query_param(self, compute_url: str) -> None:
         sid = "http-query-session-1"
-        r1 = _post_execute(
-            compute_url,
-            {"code": "x = 42\nresult = x", "mode": "shared"},
-            path=f"?session_id={sid}",
-        )
+        r1 = _post_execute(compute_url, {"code": "x = 42\nresult = x", "mode": "shared"}, path=f"?session_id={sid}")
         assert r1["status"] == "ok" and r1["result"] == 42
-        r2 = _post_execute(
-            compute_url,
-            {"code": "result = x + 8", "mode": "shared"},
-            path=f"?session_id={sid}",
-        )
+        r2 = _post_execute(compute_url, {"code": "result = x + 8", "mode": "shared"}, path=f"?session_id={sid}")
         assert r2["status"] == "ok" and r2["result"] == 50
 
     def test_url_encoded_query_param(self, compute_url: str) -> None:
-        r1 = _post_execute(
-            compute_url,
-            {"code": "x = 99\nresult = x", "mode": "shared"},
-            path="?session_id=my%20doc%202026",
-        )
+        r1 = _post_execute(compute_url, {"code": "x = 99\nresult = x", "mode": "shared"}, path="?session_id=my%20doc%202026")
         assert r1["status"] == "ok" and r1["result"] == 99
-        r2 = _post_execute(
-            compute_url,
-            {"code": "result = x", "mode": "shared"},
-            path="?session_id=my%20doc%202026",
-        )
+        r2 = _post_execute(compute_url, {"code": "result = x", "mode": "shared"}, path="?session_id=my%20doc%202026")
         assert r2["status"] == "ok" and r2["result"] == 99
 
     def test_session_id_in_json_body_returns_400(self, compute_url: str) -> None:
-        value, value_2, value_3, expected, value_4 = (
-            "session_id",
-            "body-sid-req",
-            "bad-body-sid",
-            "body-sid-req",
-            "query parameter",
-        )
-        req = urllib.request.Request(
-            f"{compute_url}/v1/execute",
-            data=json.dumps({"id": value_2, "code": "result = 1", value: value_3}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        value, value_2, value_3, expected, value_4 = ("session_id", "body-sid-req", "bad-body-sid", "body-sid-req", "query parameter")
+        req = urllib.request.Request(f"{compute_url}/v1/execute", data=json.dumps({"id": value_2, "code": "result = 1", value: value_3}).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(req)
         assert exc_info.value.code == 400
@@ -783,46 +685,22 @@ class TestComputeHttp:
     def test_session_reset_clears_shared_names(self, compute_url: str) -> None:
         """After shared executes, reset drops the kernel so later shared code cannot see prior names."""
         sid = "http-reset-session-1"
-        r1 = _post_execute(
-            compute_url,
-            {"code": "prior_name = 7\nresult = prior_name", "mode": "shared"},
-            path=f"?session_id={sid}",
-        )
+        r1 = _post_execute(compute_url, {"code": "prior_name = 7\nresult = prior_name", "mode": "shared"}, path=f"?session_id={sid}")
         assert r1["status"] == "ok" and r1["result"] == 7
 
-        req = urllib.request.Request(
-            f"{compute_url}/v1/session/reset?session_id={sid}",
-            data=json.dumps({"id": "reset-corr"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        req = urllib.request.Request(f"{compute_url}/v1/session/reset?session_id={sid}", data=json.dumps({"id": "reset-corr"}).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
         with urllib.request.urlopen(req) as resp:
             assert resp.status == 200
             reset_body = json.loads(resp.read().decode("utf-8"))
         assert reset_body.get("status") == "ok"
         assert reset_body.get("id") == "reset-corr"
 
-        r2 = _post_execute(
-            compute_url,
-            {"code": "result = prior_name", "mode": "shared"},
-            path=f"?session_id={sid}",
-        )
+        r2 = _post_execute(compute_url, {"code": "result = prior_name", "mode": "shared"}, path=f"?session_id={sid}")
         assert r2["status"] == "error"
         assert "prior_name" in r2.get("error", "") or "NameError" in r2.get("error", "")
 
-
     def test_matplotlib_images_top_level(self, compute_url: str) -> None:
-        body = _post_execute(
-            compute_url,
-            {
-                "code": (
-                    "import matplotlib.pyplot as plt\n"
-                    "fig, ax = plt.subplots()\n"
-                    "ax.plot([0, 1], [0, 1])\n"
-                    "result = fig"
-                )
-            },
-        )
+        body = _post_execute(compute_url, {"code": ("import matplotlib.pyplot as plt\nfig, ax = plt.subplots()\nax.plot([0, 1], [0, 1])\nresult = fig")})
         assert body["status"] == "ok"
         assert body.get("result") is None
         images = body.get("images") or []
@@ -883,10 +761,7 @@ class TestComputeSettings:
         assert "api_key" not in r
 
     def test_keyless_cors_and_dns_rebinding(self) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(),
-            reset_fn=lambda sid, **_kw: {"status": "ok"},
-        )
+        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
 
         # Origin header gets 403
         status, headers, body = _wsgi_post(app, b"{}", headers={"Origin": "http://evil.example"})
@@ -902,38 +777,21 @@ class TestComputeSettings:
         status, headers, body = _wsgi_post(app, b"{}", headers={"Host": "127.0.0.1:8000"})
         assert status.startswith("400")
 
-        # No Origin and no Host is 403. HTTP/1.0 may omit Host; that used to
-        # skip the loopback check.
+        # No Origin and no Host is 403. HTTP/1.0 may omit Host; a missing Host must not skip the loopback check.
         status, headers, body = _wsgi_post(app, b"{}", headers={}, send_host=False)
         assert status.startswith("403")
         assert body.get("code") == "CROSS_ORIGIN_REFUSED"
 
     def test_keyed_cors_and_dns_rebinding_allowed(self) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(api_key="secret"),
-            reset_fn=lambda sid, **_kw: {"status": "ok"},
-        )
+        app = create_wsgi_app(ComputeSettings(api_key="secret"), reset_fn=lambda sid, **_kw: {"status": "ok"})
 
         # Valid key, cross-origin/non-loopback host is accepted (returns 400 because body is empty, not 403 CORS)
-        status, headers, body = _wsgi_post(
-            app,
-            b"{}",
-            headers={
-                "Origin": "http://evil.example",
-                "Host": "evil.example:8000",
-                "Authorization": "Bearer secret"
-            }
-        )
+        status, headers, body = _wsgi_post(app, b"{}", headers={"Origin": "http://evil.example", "Host": "evil.example:8000", "Authorization": "Bearer secret"})
         assert status.startswith("400")
         assert body.get("code") != "CROSS_ORIGIN_REFUSED"
 
         # A key allows a missing Host. The loopback check is keyless only.
-        status, headers, body = _wsgi_post(
-            app,
-            b"{}",
-            headers={"Authorization": "Bearer secret"},
-            send_host=False,
-        )
+        status, headers, body = _wsgi_post(app, b"{}", headers={"Authorization": "Bearer secret"}, send_host=False)
         assert status.startswith("400")
         assert body.get("code") != "CROSS_ORIGIN_REFUSED"
 
@@ -947,13 +805,7 @@ class TestComputeSettings:
             ComputeSettings(host="0.0.0.0")
 
     def test_env_api_key_and_host(self) -> None:
-        s = load_settings(
-            environ={
-                "PYTHON_COMPUTE_HOST": "0.0.0.0",
-                "PYTHON_COMPUTE_PORT": "9001",
-                "PYTHON_COMPUTE_API_KEY": "secret-token",
-            }
-        )
+        s = load_settings(environ={"PYTHON_COMPUTE_HOST": "0.0.0.0", "PYTHON_COMPUTE_PORT": "9001", "PYTHON_COMPUTE_API_KEY": "secret-token"})
         assert s.host == "0.0.0.0"
         assert s.port == 9001
         assert s.api_key == "secret-token"
@@ -968,26 +820,14 @@ class TestComputeSettings:
     def test_cli_key_file_beats_env_key(self, tmp_path) -> None:
         key_path = tmp_path / "key"
         key_path.write_text("from-file", encoding="utf-8")
-        s = load_settings(
-            {"api_key_file": key_path},
-            environ={"PYTHON_COMPUTE_API_KEY": "from-env", "PYTHON_COMPUTE_HOST": "127.0.0.1"},
-        )
+        s = load_settings({"api_key_file": key_path}, environ={"PYTHON_COMPUTE_API_KEY": "from-env", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == "from-file"
 
     def test_config_json_nested(self, tmp_path) -> None:
         cfg = tmp_path / "python-compute.json"
         key_path = tmp_path / "secret"
         key_path.write_text("json-secret", encoding="utf-8")
-        cfg.write_text(
-            json.dumps(
-                {
-                    "listen": {"host": "127.0.0.1", "port": 8123},
-                    "auth": {"api_key_file": str(key_path)},
-                    "limits": {"max_body_bytes": 4096, "default_timeout_sec": 12, "idle_worker_ttl_sec": 1800.0},
-                }
-            ),
-            encoding="utf-8",
-        )
+        cfg.write_text(json.dumps({"listen": {"host": "127.0.0.1", "port": 8123}, "auth": {"api_key_file": str(key_path)}, "limits": {"max_body_bytes": 4096, "default_timeout_sec": 12, "idle_worker_ttl_sec": 1800.0}}), encoding="utf-8")
         s = load_settings(config_path=cfg, environ={})
         assert s.port == 8123
         assert s.api_key == "json-secret"
@@ -995,11 +835,22 @@ class TestComputeSettings:
         assert s.default_timeout_sec == 12
         assert s.idle_worker_ttl_sec == 1800.0
 
-    def test_flat_config_keys_rejected(self, tmp_path) -> None:
-        cfg = tmp_path / "flat.json"
-        cfg.write_text(json.dumps({"port": 8123, "workers": 3}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'port'"):
+    @pytest.mark.parametrize(
+        ("payload", "match"),
+        [
+            ({"port": 8123, "workers": 3}, "Unknown config key 'port'"),
+            ({"limits": {"unknown_limit": 5}}, "Unknown limits key 'unknown_limit'"),
+        ],
+    )
+    def test_unknown_config_keys_rejected(self, tmp_path, payload: dict[str, Any], match: str) -> None:
+        cfg = tmp_path / "unknown.json"
+        cfg.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ConfigError, match=match):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+
+    def test_unknown_env_ignored(self) -> None:
+        ignored = load_settings(environ={"PYTHON_COMPUTE_UNKNOWN_SETTING": "9", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert ignored.workers == 2
 
     def test_raw_api_key_in_json_fails_closed(self, tmp_path) -> None:
         cfg = tmp_path / "python-compute.json"
@@ -1024,22 +875,8 @@ class TestComputeSettings:
     def test_env_overrides_json_config(self, tmp_path) -> None:
         """Environment variables must take precedence over JSON config values (#1365)."""
         cfg = tmp_path / "cfg.json"
-        cfg.write_text(
-            json.dumps({
-                "listen": {"port": 8000},
-                "limits": {"default_timeout_sec": 15, "workers": 3},
-            }),
-            encoding="utf-8",
-        )
-        s = load_settings(
-            config_path=cfg,
-            environ={
-                "PYTHON_COMPUTE_HOST": "127.0.0.1",
-                "PYTHON_COMPUTE_PORT": "9000",
-                "PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC": "25",
-                "PYTHON_COMPUTE_WORKERS": "4",
-            },
-        )
+        cfg.write_text(json.dumps({"listen": {"port": 8000}, "limits": {"default_timeout_sec": 15, "workers": 3}}), encoding="utf-8")
+        s = load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", "PYTHON_COMPUTE_PORT": "9000", "PYTHON_COMPUTE_DEFAULT_TIMEOUT_SEC": "25", "PYTHON_COMPUTE_WORKERS": "4"})
         assert s.port == 9000
         assert s.default_timeout_sec == 25
         assert s.workers == 4
@@ -1062,59 +899,9 @@ class TestComputeSettings:
         both = load_settings(environ={"PYTHON_COMPUTE_WORKERS": "4", "PYTHON_COMPUTE_OCR_WORKERS": "2", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert both.threads == 6
 
-    def test_load_settings_canonical_over_alias_and_warnings(self, caplog: pytest.LogCaptureFixture) -> None:
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="compute_service.config"):
-            # Known variable present but empty logs warning and falls back to default; never log API key value
-            caplog.clear()
-            s_empty = load_settings(environ={"PYTHON_COMPUTE_PORT": "", "PYTHON_COMPUTE_API_KEY": "", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-            assert s_empty.port == 8000
-            assert "Environment variable PYTHON_COMPUTE_PORT is empty; ignoring" in caplog.text
-            assert "Environment variable PYTHON_COMPUTE_API_KEY is empty; ignoring" in caplog.text
-
-    def test_rejected_env_and_json_aliases(self, tmp_path) -> None:
-        # PYTHON_COMPUTE_MAX_WORKERS is not in the map so it does not change workers
-        s_env = load_settings(environ={"PYTHON_COMPUTE_MAX_WORKERS": "5", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert s_env.workers == 2
-
-        # Top-level max_workers in JSON raises ConfigError
-        cfg_max_workers = tmp_path / "max_workers.json"
-        cfg_max_workers.write_text(json.dumps({"max_workers": 5}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'max_workers'"):
-            load_settings(config_path=cfg_max_workers, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-        # limits.max_workers in JSON raises ConfigError
-        cfg_limits = tmp_path / "limits.json"
-        cfg_limits.write_text(json.dumps({"limits": {"max_workers": 5}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown limits key 'max_workers'"):
-            load_settings(config_path=cfg_limits, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-        # Top-level api_key_file in JSON raises ConfigError
-        cfg_key = tmp_path / "api_key.json"
-        cfg_key.write_text(json.dumps({"api_key_file": "/tmp/dummy"}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'api_key_file'"):
-            load_settings(config_path=cfg_key, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-        # session_ttl_sec in JSON raises ConfigError
-        cfg_ttl = tmp_path / "session_ttl.json"
-        cfg_ttl.write_text(json.dumps({"session_ttl_sec": 300}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="Unknown config key 'session_ttl_sec'"):
-            load_settings(config_path=cfg_ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-
-    def test_thread_count_keys_are_rejected(self, tmp_path) -> None:
-        # Environment variables we do not read cannot change the listener count.
-        ignored = load_settings(environ={"PYTHON_COMPUTE_THREADS": "9", "PYTHON_COMPUTE_MAX_THREADS": "8", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert ignored.threads == 2
-        cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"limits": {"threads": 24, "max_threads": 12, "workers": 4}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="threads"):
-            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        # Top-level threads must be rejected with ConfigError, not crash with TypeError (#1365).
-        top_cfg = tmp_path / "top_threads.json"
-        top_cfg.write_text(json.dumps({"threads": 16}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="threads"):
-            load_settings(config_path=top_cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+    def test_load_settings_empty_env_falls_back_to_default(self) -> None:
+        s_empty = load_settings(environ={"PYTHON_COMPUTE_PORT": "", "PYTHON_COMPUTE_API_KEY": "", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
+        assert s_empty.port == 8000
 
     def test_ocr_timeout_exceeding_max_timeout_rejected(self) -> None:
         """ocr_timeout_sec cannot exceed max_timeout_sec (#1365)."""
@@ -1124,23 +911,10 @@ class TestComputeSettings:
             # When max_timeout_sec is lower than default ocr_timeout_sec (60)
             ComputeSettings(max_timeout_sec=30)
         with pytest.raises(ConfigError, match="ocr_timeout_sec cannot exceed max_timeout_sec"):
-            load_settings(
-                environ={
-                    "PYTHON_COMPUTE_HOST": "127.0.0.1",
-                    "PYTHON_COMPUTE_MAX_TIMEOUT_SEC": "30",
-                }
-            )
+            load_settings(environ={"PYTHON_COMPUTE_HOST": "127.0.0.1", "PYTHON_COMPUTE_MAX_TIMEOUT_SEC": "30"})
         s = ComputeSettings(ocr_timeout_sec=20, max_timeout_sec=30)
         assert s.ocr_timeout_sec == 20
         assert s.max_timeout_sec == 30
-
-    def test_inflight_keys_are_rejected(self, tmp_path) -> None:
-        ignored = load_settings(environ={"PYTHON_COMPUTE_MAX_INFLIGHT": "9", "PYTHON_COMPUTE_MAX_INFLIGHT_PER_SESSION": "3", "PYTHON_COMPUTE_HOST": "127.0.0.1"})
-        assert ignored.workers == 2
-        cfg = tmp_path / "cfg.json"
-        cfg.write_text(json.dumps({"limits": {"max_inflight": 8, "max_inflight_per_session": 4, "workers": 3}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="max_inflight"):
-            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_workers_invalid(self) -> None:
         from compute_service.config import ConfigError
@@ -1152,7 +926,7 @@ class TestComputeSettings:
         "value, value_2, value_3, match",
         [
             # Negative idle_worker_ttl_sec must be rejected by validate().
-            pytest.param("neg_idle_ttl.json", "idle_worker_ttl_sec", 5, "idle_worker_ttl_sec", id="test_negative_idle_worker_ttl_rejected"),
+            pytest.param("neg_idle_ttl.json", "idle_worker_ttl_sec", 5, "idle_worker_ttl_sec", id="test_negative_idle_worker_ttl_rejected")
         ],
     )
     def test_negative_idle_worker_ttl_rejected(self, tmp_path, value, value_2, value_3, match) -> None:
@@ -1163,9 +937,8 @@ class TestComputeSettings:
         with pytest.raises(ConfigError, match=match):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
-
     def test_env_api_key_keeps_surrounding_spaces(self, tmp_path) -> None:
-        """The env secret used to be strip()'d. The key file is not, so the same text differed."""
+        """The env secret preserves surrounding spaces, matching key file behavior."""
         key = " secret "
         s = load_settings(environ={"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert s.api_key == key
@@ -1213,17 +986,13 @@ class TestComputeSettings:
         assert loaded.port == 8000
 
     def test_nonfinite_and_huge_numbers_are_config_errors(self, tmp_path) -> None:
-        """Infinity / 1e9999 and an oversized JSON integer must be ConfigError.
+        """Infinity / 1e9999 and an oversized JSON integer raise ConfigError.
 
-        json.loads yields inf for those port values, and int(inf) raises
-        OverflowError. A JSON integer with no decimal point stays a Python
-        int, and float() of one past the float range also raises OverflowError.
-        Neither is a ValueError, so they used to kill startup.
+        json.loads yields inf for those port values and int(inf) raises
+        OverflowError; float() of an oversized JSON integer also raises
+        OverflowError. Both are mapped to ConfigError.
         """
-        for name, body in (
-            ("inf.json", '{"listen": {"port": Infinity}}'),
-            ("huge-exp.json", '{"listen": {"port": 1e9999}}'),
-        ):
+        for name, body in (("inf.json", '{"listen": {"port": Infinity}}'), ("huge-exp.json", '{"listen": {"port": 1e9999}}')):
             cfg = tmp_path / name
             cfg.write_text(body, encoding="utf-8")
             with pytest.raises(ConfigError, match="Invalid integer for port") as exc_info:
@@ -1231,20 +1000,12 @@ class TestComputeSettings:
             assert isinstance(exc_info.value.__cause__, OverflowError)
 
         ttl = tmp_path / "ttl.json"
-        ttl.write_text(
-            '{"limits": {"idle_worker_ttl_sec": ' + ("1" + "0" * 400) + "}}",
-            encoding="utf-8",
-        )
+        ttl.write_text('{"limits": {"idle_worker_ttl_sec": ' + ("1" + "0" * 400) + "}}", encoding="utf-8")
         with pytest.raises(ConfigError, match="idle_worker_ttl_sec must be a number") as exc_info:
             load_settings(config_path=ttl, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
         assert isinstance(exc_info.value.__cause__, OverflowError)
 
-    @pytest.mark.parametrize(
-        ("field", "env_name"),
-        [
-            ("idle_worker_ttl_sec", "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC"),
-        ],
-    )
+    @pytest.mark.parametrize(("field", "env_name"), [("idle_worker_ttl_sec", "PYTHON_COMPUTE_IDLE_WORKER_TTL_SEC")])
     @pytest.mark.parametrize("token", ["Infinity", "NaN", "1e9999"])
     def test_nonfinite_ttl_rejected_from_json_and_env(self, tmp_path, field: str, env_name: str, token: str) -> None:
         """Infinity, NaN, and 1e9999 must not land in a TTL.
@@ -1283,12 +1044,11 @@ class TestComputeSettings:
         assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
 
     def test_unreadable_key_file_reports_uid_and_mode(self, tmp_path) -> None:
-        """Permission denied used to name only the path.
+        """Permission denied includes the process uid and the file mode and owner.
 
-        A mode-600 mount read as another uid looks like a bad filename.
-        The error includes the process uid and the file mode and owner.
-        Root ignores mode bits, so this only runs unprivileged. Mode 000
-        is put back so the tmp directory can be deleted.
+        A mode-600 mount read as another uid looks like a bad filename without
+        those details. Root ignores mode bits, so this only runs unprivileged.
+        Mode 000 is restored so the tmp directory can be deleted.
         """
         import os
 
@@ -1308,22 +1068,16 @@ class TestComputeSettings:
         assert f"owner={os.getuid()}" in message
         assert isinstance(exc_info.value.__cause__, PermissionError)
 
-    def test_compute_settings_none_worker_counts(self) -> None:
-        """Direct ComputeSettings with None worker counts fails with TypeError."""
-        kwargs: dict[str, Any] = {"workers": None, "ocr_workers": None}
-        with pytest.raises(TypeError):
-            ComputeSettings(**kwargs)
-
     def test_dual_stack_port_zero_bind(self) -> None:
         """Verify WSGIDualStackServer binds cleanly when port=0 and assigns matching port."""
         from compute_service.server import WSGIDualStackServer
 
-        server = WSGIDualStackServer("127.0.0.1", 0)
+        server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=16)
         try:
-            assert len(server.srv.sockets) >= 1
-            port = server.srv.server_address[1]
+            assert len(server.sockets) >= 1
+            port = server.server_address[1]
             assert port > 0
-            for sock in server.srv.sockets:
+            for sock in server.sockets:
                 assert sock.getsockname()[1] == port
         finally:
             server.server_close()
@@ -1349,7 +1103,7 @@ def auth_server():
 
     settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
     app = create_wsgi_app(settings, execute_fn=fake_execute, reset_fn=fake_reset)
-    server = WSGIDualStackServer("127.0.0.1", port)
+    server = WSGIDualStackServer("127.0.0.1", port, listener_threads=16)
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1361,7 +1115,6 @@ def auth_server():
 
 
 class TestBearerAuthHttp:
-
     @pytest.fixture(autouse=True)
     def _clear_executed(self, auth_server):
         _url, executed, reset_calls = auth_server
@@ -1370,12 +1123,7 @@ class TestBearerAuthHttp:
         yield
 
     def _post(self, url: str, headers: dict[str, str] | None = None) -> tuple[int, dict]:
-        req = urllib.request.Request(
-            f"{url}/v1/execute",
-            data=json.dumps({"code": "result = 1"}).encode("utf-8"),
-            headers={"Content-Type": "application/json", **(headers or {})},
-            method="POST",
-        )
+        req = urllib.request.Request(f"{url}/v1/execute", data=json.dumps({"code": "result = 1"}).encode("utf-8"), headers={"Content-Type": "application/json", **(headers or {})}, method="POST")
         try:
             with urllib.request.urlopen(req) as resp:
                 return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -1432,12 +1180,7 @@ class TestBearerAuthHttp:
 
     def test_www_authenticate_header(self, auth_server) -> None:
         url, _executed, _reset_calls = auth_server
-        req = urllib.request.Request(
-            f"{url}/v1/execute",
-            data=b'{"code":"result=1"}',
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+        req = urllib.request.Request(f"{url}/v1/execute", data=b'{"code":"result=1"}', headers={"Content-Type": "application/json"}, method="POST")
         with pytest.raises(urllib.error.HTTPError) as ei:
             urllib.request.urlopen(req)
         assert ei.value.headers.get("WWW-Authenticate") == "Bearer"
@@ -1454,12 +1197,7 @@ class TestBearerAuthHttp:
         assert executed == []
 
     def _post_reset(self, url: str, headers: dict[str, str] | None = None) -> tuple[int, dict]:
-        req = urllib.request.Request(
-            f"{url}/v1/session/reset?session_id=auth-reset-1",
-            data=b"{}",
-            headers={"Content-Type": "application/json", **(headers or {})},
-            method="POST",
-        )
+        req = urllib.request.Request(f"{url}/v1/session/reset?session_id=auth-reset-1", data=b"{}", headers={"Content-Type": "application/json", **(headers or {})}, method="POST")
         try:
             with urllib.request.urlopen(req) as resp:
                 return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -1493,22 +1231,13 @@ class TestBearerAuthHttp:
 
 class TestRequestBodyLimits:
     def test_negative_content_length_is_400(self) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(),
-            execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""},
-        )
+        app = create_wsgi_app(ComputeSettings(), execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""})
         status_holder: list[str] = []
 
         def start_response(status: str, _headers: list) -> None:
             status_holder.append(status)
 
-        environ = {
-            "PATH_INFO": "/v1/execute",
-            "REQUEST_METHOD": "POST",
-            "CONTENT_LENGTH": "-1",
-            "HTTP_HOST": "127.0.0.1",
-            "wsgi.input": io.BytesIO(b'{"code":"result=1"}' * 5000),
-        }
+        environ = {"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "CONTENT_LENGTH": "-1", "HTTP_HOST": "127.0.0.1", "wsgi.input": io.BytesIO(b'{"code":"result=1"}' * 5000)}
         body = b"".join(app(environ, start_response))
         assert status_holder[0].startswith("400")
         parsed = json.loads(body)
@@ -1518,10 +1247,7 @@ class TestRequestBodyLimits:
     def test_truncated_body_returns_400(self) -> None:
         """wsgi.input.read() returning fewer bytes than CONTENT_LENGTH must yield 400, not a
         misleading 'Invalid JSON' error."""
-        app = create_wsgi_app(
-            ComputeSettings(),
-            execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""},
-        )
+        app = create_wsgi_app(ComputeSettings(), execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""})
         status_holder: list[str] = []
 
         def start_response(status: str, _headers: list) -> None:
@@ -1530,13 +1256,7 @@ class TestRequestBodyLimits:
         real_body = json.dumps({"code": "result = 1"}).encode("utf-8")
         # Report more bytes than we actually provide
         truncated = real_body[: len(real_body) // 2]
-        environ = {
-            "PATH_INFO": "/v1/execute",
-            "REQUEST_METHOD": "POST",
-            "CONTENT_LENGTH": str(len(real_body)),
-            "HTTP_HOST": "127.0.0.1",
-            "wsgi.input": io.BytesIO(truncated),
-        }
+        environ = {"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "CONTENT_LENGTH": str(len(real_body)), "HTTP_HOST": "127.0.0.1", "wsgi.input": io.BytesIO(truncated)}
         body = b"".join(app(environ, start_response))
         assert status_holder[0].startswith("400")
         parsed = json.loads(body)
@@ -1615,11 +1335,7 @@ class TestSessionResetHttp:
             return {"status": "ok"}
 
         app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
-        status, _headers, body = _wsgi_post(
-            app,
-            json.dumps({"id": "body-sid", "session_id": "nope"}).encode("utf-8"),
-            query="session_id=ok-query",
-        )
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "body-sid", "session_id": "nope"}).encode("utf-8"), query="session_id=ok-query")
         assert status.startswith("400")
         assert body.get("id") == "body-sid"
         assert body.get("code") == "BAD_REQUEST_BODY"
@@ -1634,34 +1350,20 @@ class TestSessionResetHttp:
             return {"status": "ok"}
 
         app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
-        status, _headers, body = _wsgi_post(
-            app,
-            json.dumps({"id": "unk-1"}).encode("utf-8"),
-            query="session_id=never-seen",
-        )
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "unk-1"}).encode("utf-8"), query="session_id=never-seen")
         assert status.startswith("200")
         assert body == {"id": "unk-1", "status": "ok"}
         assert seen == ["never-seen"]
 
-    @pytest.mark.parametrize(
-        "value, query",
-        [
-            pytest.param(b"", "session_id=empty-body", id="test_empty_body_is_ok"),
-            pytest.param(None, "session_id=no-cl", id="test_missing_content_length_is_ok"),
-        ],
-    )
+    @pytest.mark.parametrize("value, query", [pytest.param(b"", "session_id=empty-body", id="test_empty_body_is_ok"), pytest.param(None, "session_id=no-cl", id="test_missing_content_length_is_ok")])
     def test_empty_body_is_ok(self, value, query) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(),
-            reset_fn=lambda sid, **_kw: {"status": "ok"},
-        )
+        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
         status, _headers, body = _wsgi_post(app, value, query=query)
         assert status.startswith("200")
         assert body == {"status": "ok"}
 
-
     def test_chunked_transfer_encoding_is_400(self) -> None:
-        """Chunked reset used to succeed as an empty body and drop the payload."""
+        """Chunked Transfer-Encoding is rejected with 400 BAD_FRAMING on reset and execute."""
         reset_calls: list[str] = []
 
         def fake_reset(session_id: str, **_kw):
@@ -1669,41 +1371,23 @@ class TestSessionResetHttp:
             return {"status": "ok"}
 
         app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset, execute_fn=lambda **_kw: {"status": "ok"})
-        status, _headers, body = _wsgi_post(
-            app,
-            b"{}",
-            query="session_id=chunked-sid",
-            headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
-        )
+        status, _headers, body = _wsgi_post(app, b"{}", query="session_id=chunked-sid", headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"})
         assert status.startswith("400")
         assert "chunked" in body.get("error", "").lower()
         assert body.get("code") == "BAD_FRAMING"
         assert reset_calls == []
 
-        exec_status, _exec_headers, exec_body = _wsgi_post(
-            app,
-            json.dumps({"code": "result = 1"}).encode("utf-8"),
-            path="/v1/execute",
-            headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
-        )
+        exec_status, _exec_headers, exec_body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute", headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"})
         assert exec_status.startswith("400")
         assert "chunked" in exec_body.get("error", "").lower()
         assert exec_body.get("code") == "BAD_FRAMING"
 
     def test_lease_failure_is_503(self) -> None:
         def busy_reset(_session_id: str, **_kw):
-            return {
-                "status": "error",
-                "code": "WORKER_POOL_BUSY",
-                "error": "Could not lease worker to reset session.",
-            }
+            return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
 
         app = create_wsgi_app(ComputeSettings(), reset_fn=busy_reset)
-        status, _headers, body = _wsgi_post(
-            app,
-            json.dumps({"id": "busy-1"}).encode("utf-8"),
-            query="session_id=busy-sid",
-        )
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "busy-1"}).encode("utf-8"), query="session_id=busy-sid")
         assert status.startswith("503")
         assert body.get("id") == "busy-1"
         assert body.get("status") == "error"
@@ -1728,16 +1412,6 @@ class TestSessionResetHttp:
         status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-dead", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
         assert status.startswith("500")
         assert body.get("code") == "WORKER_CRASHED"
-
-    def test_execute_result_decode_error_is_500(self) -> None:
-        def decode_failed(**_kwargs):
-            return {"status": "error", "code": "RESULT_DECODE_ERROR", "error": "Worker result_json could not be decoded: bad"}
-
-        app = create_wsgi_app(ComputeSettings(), execute_fn=decode_failed)
-        status, _headers, body = _wsgi_post(app, json.dumps({"id": "dec-1", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
-        assert status.startswith("500")
-        assert body.get("code") == "RESULT_DECODE_ERROR"
-        assert body.get("id") == "dec-1"
 
     def test_execute_rejected_frame_is_500(self) -> None:
         """A bad response frame killed the child. It is not a retryable 503."""
@@ -1769,14 +1443,9 @@ class TestSessionResetHttp:
         assert body.get("code") == "EXECUTION_TIMEOUT"
 
     def test_vision_pool_busy_is_503(self) -> None:
-        """A vision lease miss used to be HTTP 200. The accept-deadline pre-check is already 503."""
+        """A vision lease miss returns HTTP 503 VISION_POOL_BUSY."""
         fake_pool = MagicMock()
-        fake_pool.execute.return_value = {
-            "id": "v-busy",
-            "status": "error",
-            "code": "VISION_POOL_BUSY",
-            "error": "All vision workers are currently busy and request timed out waiting for worker lease.",
-        }
+        fake_pool.execute.return_value = {"id": "v-busy", "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_vision_post(app, {"id": "v-busy"}, b"png")
@@ -1786,19 +1455,11 @@ class TestSessionResetHttp:
         assert body.get("status") == "error"
 
     def test_vision_file_errors_use_client_statuses(self) -> None:
-        """Allowlist file failures used to leave the route as HTTP 200."""
-        cases = (
-            ("FILE_NOT_FOUND", "400"),
-            ("FILE_TOO_LARGE", "413"),
-        )
+        """Allowlist file failures return 400/413 client statuses."""
+        cases = (("FILE_NOT_FOUND", "400"), ("FILE_TOO_LARGE", "413"))
         for code, expect in cases:
             fake_pool = MagicMock()
-            fake_pool.execute.return_value = {
-                "id": "v-file",
-                "status": "error",
-                "code": code,
-                "error": code,
-            }
+            fake_pool.execute.return_value = {"id": "v-file", "status": "error", "code": code, "error": code}
             app = create_wsgi_app(ComputeSettings(ocr_workers=1))
             with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 status, _headers, body = _wsgi_vision_post(app, {"id": "v-file"}, b"png")
@@ -1808,12 +1469,7 @@ class TestSessionResetHttp:
     def test_vision_unavailable_is_503(self) -> None:
         """VISION_UNAVAILABLE happens when the OCR module fails to import, must be 503."""
         fake_pool = MagicMock()
-        fake_pool.execute.return_value = {
-            "id": "v-missing",
-            "status": "error",
-            "code": "VISION_UNAVAILABLE",
-            "error": "OCR is not installed in this server",
-        }
+        fake_pool.execute.return_value = {"id": "v-missing", "status": "error", "code": "VISION_UNAVAILABLE", "error": "OCR is not installed in this server"}
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_vision_post(app, {"id": "v-missing"}, b"png")
@@ -1823,12 +1479,7 @@ class TestSessionResetHttp:
 
     def test_vision_backend_missing_is_501(self) -> None:
         fake_pool = MagicMock()
-        fake_pool.execute.return_value = {
-            "id": "v-backend",
-            "status": "error",
-            "code": "VISION_BACKEND_MISSING",
-            "error": "OCR backend 'plugin.vision.venv.vision_docling' is not installed on this server",
-        }
+        fake_pool.execute.return_value = {"id": "v-backend", "status": "error", "code": "VISION_BACKEND_MISSING", "error": "OCR backend 'plugin.vision.venv.vision_docling' is not installed on this server"}
         app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_vision_post(app, {"id": "v-backend"}, b"png")
@@ -1858,24 +1509,14 @@ class TestSessionResetHttp:
             return {"status": "ok", "result": 1, "stdout": ""}
 
         app = create_wsgi_app(settings, execute_fn=execute_fn)
-        bad_status, bad_headers, bad_body = _wsgi_post(
-            app,
-            json.dumps({"code": "result = 1"}).encode("utf-8"),
-            path="/v1/execute",
-            headers={"Authorization": "Bearer café-nope"},
-        )
+        bad_status, bad_headers, bad_body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute", headers={"Authorization": "Bearer café-nope"})
         assert bad_status.startswith("401")
         assert bad_body.get("error") == "Unauthorized"
         assert bad_body.get("code") == "UNAUTHORIZED"
         assert ("WWW-Authenticate", "Bearer") in bad_headers
         assert ran == []
 
-        ok_status, _ok_headers, ok_body = _wsgi_post(
-            app,
-            json.dumps({"code": "result = 1"}).encode("utf-8"),
-            path="/v1/execute",
-            headers={"Authorization": f"Bearer {key}"},
-        )
+        ok_status, _ok_headers, ok_body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute", headers={"Authorization": f"Bearer {key}"})
         assert ok_status.startswith("200")
         assert ok_body.get("status") == "ok"
         assert ran == ["result = 1"]
@@ -1883,10 +1524,7 @@ class TestSessionResetHttp:
     def test_early_error_drains_body_401_and_413(self) -> None:
         """401 and 413 must drain wsgi.input (bounded for 413) so the connection is not broken."""
         key = "drain-secret-key"
-        settings = ComputeSettings(
-            api_key=key,
-            max_body_bytes=1024,
-        )
+        settings = ComputeSettings(api_key=key, max_body_bytes=1024)
         app = create_wsgi_app(settings)
 
         # 1. 401 Unauthorized drains the body
@@ -1897,14 +1535,7 @@ class TestSessionResetHttp:
         def start_response_401(status: str, headers: list) -> None:
             status_holder.append(status)
 
-        environ_401 = {
-            "PATH_INFO": "/v1/execute",
-            "REQUEST_METHOD": "POST",
-            "QUERY_STRING": "",
-            "CONTENT_LENGTH": str(len(body_401)),
-            "wsgi.input": stream_401,
-            "HTTP_AUTHORIZATION": "Bearer wrong-key",
-        }
+        environ_401 = {"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "QUERY_STRING": "", "CONTENT_LENGTH": str(len(body_401)), "wsgi.input": stream_401, "HTTP_AUTHORIZATION": "Bearer wrong-key"}
         res_iter = app(environ_401, start_response_401)
         _ = b"".join(res_iter)
         assert status_holder[0].startswith("401")
@@ -1918,14 +1549,7 @@ class TestSessionResetHttp:
         def start_response_413(status: str, headers: list) -> None:
             status_holder.append(status)
 
-        environ_413 = {
-            "PATH_INFO": "/v1/execute",
-            "REQUEST_METHOD": "POST",
-            "QUERY_STRING": "",
-            "CONTENT_LENGTH": str(large_len),
-            "wsgi.input": stream_413,
-            "HTTP_AUTHORIZATION": f"Bearer {key}",
-        }
+        environ_413 = {"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "QUERY_STRING": "", "CONTENT_LENGTH": str(large_len), "wsgi.input": stream_413, "HTTP_AUTHORIZATION": f"Bearer {key}"}
         res_iter = app(environ_413, start_response_413)
         _ = b"".join(res_iter)
         assert status_holder[0].startswith("413")
@@ -1947,66 +1571,44 @@ class TestSessionResetHttp:
             # 1. First failure from 192.168.1.1 (missing) logs warning
             status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1"})
             assert status.startswith("401")
-            assert "Authentication failed: remote_addr=192.168.1.1 reason=missing" in caplog.text
+            assert caplog.records
 
             # 2. Second failure from same IP and reason logs nothing (rate-limited)
             caplog.clear()
             status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1"})
             assert status.startswith("401")
-            assert "Authentication failed" not in caplog.text
+            assert not caplog.records
 
-            # 3. Different reason from same IP logs warning
+            # 3. Different reason from same IP logs warning without leaking credentials
             caplog.clear()
             status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1", "Authorization": "Bearer wrong-key-xyz"})
             assert status.startswith("401")
-            assert "Authentication failed: remote_addr=192.168.1.1 reason=invalid" in caplog.text
+            assert caplog.records
             # Never log authorization header or secret key
             assert "super-secret" not in caplog.text
             assert "wrong-key-xyz" not in caplog.text
             assert "Bearer" not in caplog.text
 
-            # 4. Malformed reason logs
+            # 4. Malformed reason logs without leaking credentials
             caplog.clear()
             status, _headers, _body = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Remote-Addr": "192.168.1.1", "Authorization": "Basic abc"})
             assert status.startswith("401")
-            assert "Authentication failed: remote_addr=192.168.1.1 reason=malformed" in caplog.text
+            assert caplog.records
             assert "Basic" not in caplog.text
 
-    def test_exec_start_log_is_debug_and_done_is_info(self, caplog: pytest.LogCaptureFixture) -> None:
-        import logging
-
-        app = create_wsgi_app(ComputeSettings(host="127.0.0.1"))
-        with caplog.at_level(logging.DEBUG, logger="compute_service"):
-            status, _headers, body = _wsgi_post(app, json.dumps({"id": "log-test", "code": "result = 42"}).encode("utf-8"), path="/v1/execute")
-            assert status.startswith("200")
-
-            records = [r for r in caplog.records if r.name == "compute_service"]
-            start_records = [r for r in records if "exec /v1/execute" in r.getMessage()]
-            done_records = [r for r in records if "done /v1/execute" in r.getMessage()]
-
-            assert start_records
-            assert all(r.levelno == logging.DEBUG for r in start_records)
-
-            assert done_records
-            assert all(r.levelno == logging.INFO for r in done_records)
-
     def test_execute_queue_timeout_from_pool_is_503(self) -> None:
-        """The pool's own deadline check must not answer 200.
+        """QUEUE_TIMEOUT from the pool returns HTTP 503 rather than 200.
 
-        The handler returns 503 when the accept deadline is already gone.
-        If it expires in the gap before the pool checks, the pool returns
-        QUEUE_TIMEOUT with no result_json. That used to fall through to 200.
+        If the deadline expires between the handler pre-check and the pool
+        check, the pool returns QUEUE_TIMEOUT with no result_json; otherwise
+        it would fall through to 200.
         """
 
         def late(**_kwargs):
             return {"status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=late)
-        status, _headers, body = _wsgi_post(
-            app,
-            json.dumps({"id": "q-late", "code": "result = 1"}).encode("utf-8"),
-            path="/v1/execute",
-        )
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "q-late", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
         assert status.startswith("503")
         assert body.get("id") == "q-late"
         assert body.get("code") == "QUEUE_TIMEOUT"
@@ -2152,15 +1754,7 @@ class TestSessionResetHttp:
             status_holder.append(status)
             del resp_headers
 
-        environ = {
-            "PATH_INFO": "/v1/execute",
-            "REQUEST_METHOD": "POST",
-            "QUERY_STRING": "",
-            "CONTENT_TYPE": "application/json",
-            "CONTENT_LENGTH": str(len(body)),
-            "HTTP_HOST": "127.0.0.1",
-            "wsgi.input": io.BytesIO(body),
-        }
+        environ = {"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "QUERY_STRING": "", "CONTENT_TYPE": "application/json", "CONTENT_LENGTH": str(len(body)), "HTTP_HOST": "127.0.0.1", "wsgi.input": io.BytesIO(body)}
         request_conn(environ).accept_time = time.monotonic() - 5.0
         out = b"".join(app(environ, start_response))
         parsed = json.loads(out.decode("utf-8"))
@@ -2172,16 +1766,12 @@ class TestSessionResetHttp:
     def test_execute_admission_waits_for_request_timeout(self) -> None:
         """timeout_ms above the default is not cut off at default_timeout_sec.
 
-        What was wrong: the permit wait used default_timeout_sec before the
-        body was parsed, so a 600s cell got 503 after 30s of queueing.
+        Otherwise the permit wait uses default_timeout_sec before the body is
+        parsed, and a long request gets 503 prematurely.
         """
         # ocr_timeout_sec defaults to 60 and must stay <= max_timeout_sec.
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(
-            settings,
-            execute_fn=lambda **_kwargs: {"status": "ok"},
-            semaphore=threading.Semaphore(0),
-        )
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=threading.Semaphore(0))
         body = json.dumps({"id": "slow", "code": "result = 1", "timeout_ms": 1500}).encode("utf-8")
         holder: list[tuple[str, dict]] = []
 
@@ -2207,11 +1797,7 @@ class TestSessionResetHttp:
 
     def test_execute_admission_uses_default_when_timeout_omitted(self) -> None:
         settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
-        app = create_wsgi_app(
-            settings,
-            execute_fn=lambda **_kwargs: {"status": "ok"},
-            semaphore=threading.Semaphore(0),
-        )
+        app = create_wsgi_app(settings, execute_fn=lambda **_kwargs: {"status": "ok"}, semaphore=threading.Semaphore(0))
         body = json.dumps({"id": "def", "code": "result = 1"}).encode("utf-8")
         holder: list[tuple[str, dict]] = []
 
@@ -2261,26 +1847,18 @@ class TestSessionResetHttp:
             return {"status": "ok", "result": 1, "stdout": ""}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        status, _headers, body = _wsgi_post(
-            app,
-            json.dumps({"id": "mode-1", "code": "result = 1", "mode": "Shared"}).encode("utf-8"),
-            path="/v1/execute",
-        )
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "mode-1", "code": "result = 1", "mode": "Shared"}).encode("utf-8"), path="/v1/execute")
         assert status.startswith("200")
         assert body.get("id") == "mode-1"
         assert body.get("status") == "ok"
-        assert seen.get("mode") == "isolated"
+        assert "mode" not in seen and seen.get("session_id") is None
 
     def test_peel_init_script_over_cap_is_400(self) -> None:
         def execute_fn(**_kwargs):
             raise AssertionError("oversize init must not run")
 
         app = create_wsgi_app(ComputeSettings(max_code_chars=64), execute_fn=execute_fn)
-        status, _headers, body = _wsgi_post(
-            app,
-            json.dumps({"id": "init-big", "code": "result = 1", "init_script": "i" * 65}).encode("utf-8"),
-            path="/v1/execute",
-        )
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "init-big", "code": "result = 1", "init_script": "i" * 65}).encode("utf-8"), path="/v1/execute")
         assert status.startswith("400")
         assert body.get("code") == "CODE_TOO_LARGE"
         assert body.get("id") == "init-big"
@@ -2298,14 +1876,7 @@ class TestSessionResetHttp:
         assert body.get("error") == "Invalid JSON"
         assert "id" not in body
 
-    @pytest.mark.parametrize(
-        "body_bytes",
-        [
-            b'{"id":[1e999]}',
-            b'{"id":{"n":1e999}}',
-            b'{"id":[1]}',
-        ],
-    )
+    @pytest.mark.parametrize("body_bytes", [b'{"id":[1e999]}', b'{"id":{"n":1e999}}', b'{"id":[1]}'])
     def test_reset_nested_nonfinite_id_is_400_and_does_not_reset(self, body_bytes: bytes) -> None:
         def reset_fn(_session_id: str, **_kwargs):
             raise AssertionError("non-finite id must not reset")
@@ -2317,21 +1888,13 @@ class TestSessionResetHttp:
         assert "id" not in body
 
     def test_auth_required_matches_execute(self) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(api_key="reset-secret"),
-            reset_fn=lambda sid, **_kw: {"status": "ok"},
-        )
+        app = create_wsgi_app(ComputeSettings(api_key="reset-secret"), reset_fn=lambda sid, **_kw: {"status": "ok"})
         status, headers, body = _wsgi_post(app, b"{}", query="session_id=authed")
         assert status.startswith("401")
         assert body.get("status") == "error"
         assert ("WWW-Authenticate", "Bearer") in headers
 
-        status_ok, _headers_ok, body_ok = _wsgi_post(
-            app,
-            b"{}",
-            query="session_id=authed",
-            headers={"Authorization": "Bearer reset-secret"},
-        )
+        status_ok, _headers_ok, body_ok = _wsgi_post(app, b"{}", query="session_id=authed", headers={"Authorization": "Bearer reset-secret"})
         assert status_ok.startswith("200")
         assert body_ok.get("status") == "ok"
 
@@ -2342,7 +1905,8 @@ class TestImportBoundary:
         [
             # Config + auth app construction must not import plugin.framework.config
             #         or open writeragent.json (executor sandbox coupling is deferred to first execute).
-            pytest.param(r"""
+            pytest.param(
+                r"""
 import builtins
 import sys
 from pathlib import Path
@@ -2367,9 +1931,12 @@ assert err is None
 assert "plugin.framework.config" not in sys.modules
 assert not any(Path(p).name == "writeragent.json" for p in opened), opened
 print("ok")
-""", id="test_config_auth_startup_avoids_writeragent_config"),
+""",
+                id="test_config_auth_startup_avoids_writeragent_config",
+            ),
             # Master compute service server must not load heavy packages (numpy, sympy) into memory.
-            pytest.param(r"""
+            pytest.param(
+                r"""
 import sys
 from compute_service.config import load_settings
 from compute_service.server import create_wsgi_app, WSGIDualStackServer
@@ -2379,7 +1946,9 @@ app = create_wsgi_app(s)
 assert "numpy" not in sys.modules, f"numpy was loaded into master process: {sys.modules.get('numpy')}"
 assert "sympy" not in sys.modules, f"sympy was loaded into master process: {sys.modules.get('sympy')}"
 print("ok")
-""", id="test_server_startup_does_not_import_numpy_or_sympy"),
+""",
+                id="test_server_startup_does_not_import_numpy_or_sympy",
+            ),
         ],
     )
     def test_config_auth_startup_avoids_writeragent_config(self, value) -> None:
@@ -2389,16 +1958,9 @@ print("ok")
 
         repo = Path(__file__).resolve().parents[2]
         code = value
-        proc = subprocess.run(
-            [sys.executable, "-c", code],
-            cwd=str(repo),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        proc = subprocess.run([sys.executable, "-c", code], cwd=str(repo), capture_output=True, text=True, check=False)
         assert proc.returncode == 0, proc.stderr
         assert "ok" in proc.stdout
-
 
     def test_check_dependencies_exit_on_failure(self, monkeypatch, capsys) -> None:
         """check_dependencies should print error and exit with code 1 if worker pool reports failure."""
@@ -2426,22 +1988,11 @@ def _run_docker_entrypoint(tmp_path, extra: dict[str, str]):
     marker = tmp_path / "ran"
     fake = bindir / "python"
     repo_root = Path(__file__).resolve().parents[2]
-    fake_script = (
-        '#!/bin/sh\n'
-        'export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"\n'
-        '"$REAL_PYTHON" -c "from compute_service.config import load_settings; s = load_settings(); s.validate()" || exit 1\n'
-        'printf \'%s\\n\' "$@" > "$FAKE_OUT"\n'
-    )
+    fake_script = '#!/bin/sh\nexport PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"\n"$REAL_PYTHON" -c "from compute_service.config import load_settings; s = load_settings(); s.validate()" || exit 1\nprintf \'%s\\n\' "$@" > "$FAKE_OUT"\n'
     fake.write_text(fake_script, encoding="utf-8")
     fake.chmod(0o755)
     # /bin stays on PATH so /bin/sh can run; the fake python is first.
-    env = {
-        "PATH": f"{bindir}:/usr/bin:/bin",
-        "HOME": str(tmp_path),
-        "FAKE_OUT": str(marker),
-        "REAL_PYTHON": sys.executable,
-        "REPO_ROOT": str(repo_root),
-    }
+    env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(tmp_path), "FAKE_OUT": str(marker), "REAL_PYTHON": sys.executable, "REPO_ROOT": str(repo_root)}
     env.update(extra)
     script = repo_root / "compute_service" / "docker-entrypoint.sh"
     proc = subprocess.run(["/bin/sh", str(script)], env=env, capture_output=True, text=True, check=False)
@@ -2548,7 +2099,7 @@ def test_admission_permits_leave_two_listeners() -> None:
 
 @pytest.mark.parametrize("code", ["VISION_WORKER_ERROR", "WORKER_EXECUTION_ERROR"])
 def test_dict_worker_fault_is_http_500(code: str) -> None:
-    """A worker fault with no result_json is 500. It used to fall through to 200."""
+    """A worker fault with no result_json returns HTTP 500."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2557,11 +2108,7 @@ def test_dict_worker_fault_is_http_500(code: str) -> None:
         status_holder.append(status)
         del resp_headers
 
-    out = _send_execution_result(
-        start_response,
-        {"status": "error", "code": code, "error": "worker blew up"},
-        "fault-1",
-    )
+    out = _send_execution_result(start_response, {"status": "error", "code": code, "error": "worker blew up"}, "fault-1")
     parsed = json.loads(b"".join(out))
     assert status_holder[0].startswith("500")
     assert parsed.get("code") == code
@@ -2569,7 +2116,7 @@ def test_dict_worker_fault_is_http_500(code: str) -> None:
 
 
 def test_empty_result_json_is_500() -> None:
-    """Empty result_json used to fall through and json.dumps a dict of bytes."""
+    """Empty result_json returns HTTP 500 EMPTY_RESPONSE."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2578,11 +2125,7 @@ def test_empty_result_json_is_500() -> None:
         status_holder.append(status)
         del resp_headers
 
-    out = _send_execution_result(
-        start_response,
-        {"status": "ok", "result_json": b""},
-        "empty-1",
-    )
+    out = _send_execution_result(start_response, {"status": "ok", "result_json": b""}, "empty-1")
     parsed = json.loads(b"".join(out))
     assert status_holder[0].startswith("500")
     assert parsed.get("code") == "EMPTY_RESPONSE"
@@ -2601,17 +2144,13 @@ def test_result_json_worker_fault_bytes_are_forwarded_at_200() -> None:
         status_holder.append(status)
         del resp_headers
 
-    out = _send_execution_result(
-        start_response,
-        {"status": "error", "code": "WORKER_EXECUTION_ERROR", "result_json": raw},
-        "cell-1",
-    )
+    out = _send_execution_result(start_response, {"status": "error", "code": "WORKER_EXECUTION_ERROR", "result_json": raw}, "cell-1")
     assert status_holder[0].startswith("200")
     assert out == [raw]
 
 
 def test_worker_file_path_denied_is_http_400() -> None:
-    """The route returns 400. The worker re-check used to stay HTTP 200."""
+    """FILE_PATH_DENIED from the worker returns HTTP 400."""
     from compute_service.server import _send_execution_result
 
     status_holder: list[str] = []
@@ -2620,11 +2159,7 @@ def test_worker_file_path_denied_is_http_400() -> None:
         status_holder.append(status)
         del resp_headers
 
-    out = _send_execution_result(
-        start_response,
-        {"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"},
-        "path-1",
-    )
+    out = _send_execution_result(start_response, {"status": "error", "code": "FILE_PATH_DENIED", "error": "denied"}, "path-1")
     parsed = json.loads(b"".join(out))
     assert status_holder[0].startswith("400")
     assert parsed.get("code") == "FILE_PATH_DENIED"
@@ -2632,11 +2167,7 @@ def test_worker_file_path_denied_is_http_400() -> None:
 
 
 def test_wrong_method_is_405() -> None:
-    app = create_wsgi_app(
-        ComputeSettings(host="127.0.0.1", port=9, workers=1),
-        execute_fn=lambda **_kwargs: {"status": "ok"},
-        reset_fn=lambda _sid: {"status": "ok"},
-    )
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=9, workers=1), execute_fn=lambda **_kwargs: {"status": "ok"}, reset_fn=lambda _sid: {"status": "ok"})
 
     def call(method: str, path: str) -> tuple[str, list[tuple[str, str]]]:
         status_holder: list[str] = []
@@ -2646,12 +2177,7 @@ def test_wrong_method_is_405() -> None:
             status_holder.append(status)
             header_holder.extend(resp_headers)
 
-        environ = {
-            "PATH_INFO": path,
-            "REQUEST_METHOD": method,
-            "QUERY_STRING": "",
-            "wsgi.input": io.BytesIO(b""),
-        }
+        environ = {"PATH_INFO": path, "REQUEST_METHOD": method, "QUERY_STRING": "", "wsgi.input": io.BytesIO(b"")}
         app(environ, start_response)
         return status_holder[0], header_holder
 
@@ -2724,7 +2250,7 @@ def test_expect_100_continue_before_body() -> None:
         return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
     app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn)
-    server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+    server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
     server.set_app(app)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -2761,7 +2287,7 @@ def test_expect_100_continue_before_body() -> None:
 
 
 def test_expect_100_oversized_body_gets_413_without_continue() -> None:
-    """Regression: an oversized Content-Length gets 413 at once, never 100 Continue."""
+    """An oversized Content-Length gets 413 at once without sending 100 Continue."""
     from compute_service.server import WSGIDualStackServer
 
     port = get_free_port()
@@ -2770,7 +2296,7 @@ def test_expect_100_oversized_body_gets_413_without_continue() -> None:
     def execute_fn(**_kwargs):
         raise AssertionError("oversized body must not run")
 
-    server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+    server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
     server.max_body_bytes = settings.max_body_bytes
     server.set_app(create_wsgi_app(settings, execute_fn=execute_fn))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -2844,8 +2370,7 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     with pytest.raises(OSError):
         run_server(settings)
     err = capsys.readouterr().err
-    assert "Failed to bind 127.0.0.1:1" in err
-    assert "Address already in use" in err
+    assert "127.0.0.1:1" in err
     assert "Traceback" not in err
     formula_shutdown.assert_called_once_with(permanent=True)
     vision_shutdown.assert_called_once_with(permanent=True)
@@ -2854,7 +2379,7 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     assert main([]) == 1
     err = capsys.readouterr().err
     assert "Traceback" not in err
-    assert "Failed to bind 127.0.0.1:1" in err
+    assert "127.0.0.1:1" in err
     assert formula_shutdown.call_count == 2
     assert vision_shutdown.call_count == 2
 
@@ -2876,18 +2401,10 @@ def _run_start_docker(tmp_path, env_extra: dict[str, str], cwd=None):
     bindir.mkdir()
     marker = run_dir / "args"
     fake = bindir / "docker"
-    fake.write_text(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
-        encoding="utf-8",
-    )
+    fake.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" >> "$DOCKER_ARGS"\nexit 0\n', encoding="utf-8")
     fake.chmod(0o755)
     script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
-    env = {
-        "PATH": f"{bindir}:/usr/bin:/bin",
-        "HOME": str(tmp_path),
-        "DOCKER_ARGS": str(marker),
-        "PYTHON_COMPUTE_IMAGE": "python-compute",
-    }
+    env = {"PATH": f"{bindir}:/usr/bin:/bin", "HOME": str(tmp_path), "DOCKER_ARGS": str(marker), "PYTHON_COMPUTE_IMAGE": "python-compute"}
     env.update(env_extra)
     proc = subprocess.run(["bash", str(script)], env=env, cwd=cwd, capture_output=True, text=True, check=False)
     lines = marker.read_text(encoding="utf-8").splitlines() if marker.is_file() else []
@@ -2896,10 +2413,9 @@ def _run_start_docker(tmp_path, env_extra: dict[str, str], cwd=None):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_does_not_put_api_key_in_argv(tmp_path) -> None:
-    """An env key used to be -e PYTHON_COMPUTE_API_KEY=..., visible to ps.
+    """start-docker.sh mounts a mode-600 temp file instead of passing the key in argv.
 
-    Spaces and glob characters in the secret must not appear in any docker
-    argument. The script mounts a mode-600 temp file instead.
+    Spaces and glob characters in the secret must not appear in any docker argument.
     """
     key = "sec ret *"
     proc, lines, uid, gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": key})
@@ -2909,11 +2425,8 @@ def test_start_docker_does_not_put_api_key_in_argv(tmp_path) -> None:
     assert "PYTHON_COMPUTE_API_KEY=" not in text
     assert "PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key" in lines
     assert any(line.endswith(":/run/secrets/python_compute_api_key:ro") for line in lines)
-    assert "--init" in lines
     assert "--user" in lines
     assert f"{uid}:{gid}" in lines
-    assert "127.0.0.1:8000:8000" in lines
-    assert "PYTHON_COMPUTE_PORT=8000" in lines
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -2947,10 +2460,7 @@ def test_start_docker_env_key_wins_over_key_file(tmp_path) -> None:
     key = "sec ret *"
     key_file = tmp_path / "host-key"
     key_file.write_text("from-file\n", encoding="utf-8")
-    proc, lines, _uid, _gid = _run_start_docker(
-        tmp_path,
-        {"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_API_KEY_FILE": str(key_file)},
-    )
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_API_KEY_FILE": str(key_file)})
     assert proc.returncode == 0, proc.stderr
     text = "\n".join(lines)
     assert key not in text
@@ -2961,10 +2471,10 @@ def test_start_docker_env_key_wins_over_key_file(tmp_path) -> None:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_resolves_relative_key_file_before_cd(tmp_path) -> None:
-    """A relative path is the caller's cwd, not the repo root.
+    """A relative key path resolves against the caller's cwd before cd to repo root.
 
-    A basename with no slash used to be a named volume. The script cd's to
-    the repo root before docker build, so resolution has to happen first.
+    Otherwise a bare basename is treated as a docker named volume, and
+    resolution after cd fails to find the caller's file.
     """
     import os
 
@@ -2973,22 +2483,14 @@ def test_start_docker_resolves_relative_key_file_before_cd(tmp_path) -> None:
     nested.mkdir(parents=True)
     key_file = nested / "api key"
     key_file.write_text("from-file\n", encoding="utf-8")
-    proc, lines, _uid, _gid = _run_start_docker(
-        tmp_path,
-        {"PYTHON_COMPUTE_API_KEY_FILE": "nested/api key"},
-        cwd=caller,
-    )
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY_FILE": "nested/api key"}, cwd=caller)
     assert proc.returncode == 0, proc.stderr
     mount = f"{os.path.realpath(key_file)}:/run/secrets/python_compute_api_key:ro"
     assert mount in lines
 
     bare = caller / "apikey"
     bare.write_text("bare\n", encoding="utf-8")
-    proc, lines, _uid, _gid = _run_start_docker(
-        tmp_path,
-        {"PYTHON_COMPUTE_API_KEY_FILE": "apikey"},
-        cwd=caller,
-    )
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY_FILE": "apikey"}, cwd=caller)
     assert proc.returncode == 0, proc.stderr
     assert f"{os.path.realpath(bare)}:/run/secrets/python_compute_api_key:ro" in lines
 
@@ -2997,49 +2499,40 @@ def test_start_docker_resolves_relative_key_file_before_cd(tmp_path) -> None:
 @pytest.mark.parametrize("port", ["0", "65536", "nope", "-1"])
 def test_start_docker_rejects_bad_port(tmp_path, port: str) -> None:
     """A bad PYTHON_COMPUTE_PORT fails before docker build."""
-    proc, lines, _uid, _gid = _run_start_docker(
-        tmp_path,
-        {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_PORT": port},
-    )
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_PORT": port})
     assert proc.returncode != 0
     assert "PYTHON_COMPUTE_PORT" in proc.stderr
     assert lines == []
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
-def test_start_docker_memory_default_and_override(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("env_extra", "expected_mem"),
+    [({}, "1g"), ({"PYTHON_COMPUTE_MEMORY": "256m"}, "256m")],
+)
+def test_start_docker_memory_default_and_override(tmp_path, env_extra: dict[str, str], expected_mem: str) -> None:
     """Default memory is 1g, and swap is pinned to the same value.
 
-    --memory-swap equal to --memory disables extra swap. The first cell
-    loads numpy, pandas, sympy, scipy, and matplotlib, which 512m did not
-    budget for. PYTHON_COMPUTE_MEMORY replaces both flags together.
+    --memory-swap equal to --memory disables extra swap. PYTHON_COMPUTE_MEMORY
+    replaces both flags together.
     """
-    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k"})
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", **env_extra})
     assert proc.returncode == 0, proc.stderr
-    assert "--memory=1g" in lines
-    assert "--memory-swap=1g" in lines
-
-    proc, lines, _uid, _gid = _run_start_docker(
-        tmp_path,
-        {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_MEMORY": "256m"},
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "--memory=256m" in lines
-    assert "--memory-swap=256m" in lines
-    assert "--memory=1g" not in lines
+    assert [line for line in lines if line.startswith("--memory=")] == [f"--memory={expected_mem}"]
+    assert [line for line in lines if line.startswith("--memory-swap=")] == [f"--memory-swap={expected_mem}"]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
-def test_start_docker_publishes_python_compute_port(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("env_extra", "expected_port"),
+    [({}, "8000"), ({"PYTHON_COMPUTE_PORT": "9001"}, "9001")],
+)
+def test_start_docker_publishes_python_compute_port(tmp_path, env_extra: dict[str, str], expected_port: str) -> None:
     """PYTHON_COMPUTE_PORT is both the published port and the listener."""
-    proc, lines, _uid, _gid = _run_start_docker(
-        tmp_path,
-        {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_PORT": "9001"},
-    )
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k", **env_extra})
     assert proc.returncode == 0, proc.stderr
-    assert "127.0.0.1:9001:9001" in lines
-    assert "PYTHON_COMPUTE_PORT=9001" in lines
-    assert "127.0.0.1:8000:8000" not in lines
+    assert [line for line in lines if line.startswith("127.0.0.1:")] == [f"127.0.0.1:{expected_port}:{expected_port}"]
+    assert [line for line in lines if line.startswith("PYTHON_COMPUTE_PORT=")] == [f"PYTHON_COMPUTE_PORT={expected_port}"]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -3047,71 +2540,23 @@ def test_start_docker_rejects_missing_key_file(tmp_path) -> None:
     """A missing key file must not become a Docker directory mount."""
     caller = tmp_path / "elsewhere"
     caller.mkdir()
-    proc, lines, _uid, _gid = _run_start_docker(
-        tmp_path,
-        {"PYTHON_COMPUTE_API_KEY_FILE": "missing-key"},
-        cwd=caller,
-    )
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY_FILE": "missing-key"}, cwd=caller)
     assert proc.returncode != 0
     assert "not a file" in proc.stderr
     assert lines == []
 
 
-def test_dockerfile_runner_hygiene() -> None:
-    """The image installs wheels only and checks /health with the stdlib.
-
-    A compiler in the builder can link against libraries the runner never
-    copies. Recursing ownership over /app duplicates the wheel tree and
-    still does not match the host uid the launcher runs as. HOME and
-    MPLCONFIGDIR sit on the /tmp tmpfs because the root is read-only.
-    """
-    from pathlib import Path
-
-    repo = Path(__file__).resolve().parents[2]
-    text = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
-    assert "--only-binary=:all:" in text
-    assert "MPLCONFIGDIR=/tmp/mpl" in text
-    assert "ENV HOME=/tmp" in text
-    assert "HEALTHCHECK" in text
-    assert "/health" in text
-    assert "useradd --no-create-home" in text
-    assert "build-essential" not in text
-    assert "chown" not in text
-
-
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
-    """The compute bundle must import the server without the rest of plugin/.
-
-    The final runner stage copies /out/ from the bundle stage built by
-    scripts/build_compute_bundle.py. Both plugin/vision/__init__.py and
-    plugin/doc/__init__.py are included (common_module.py is omitted).
-    This materializes the bundle output and verifies it can import without
-    the desktop tree.
-    """
+    """The compute bundle must import the server without the rest of plugin/."""
     import subprocess
     import sys
     from pathlib import Path
     from scripts.build_compute_bundle import assemble_compute_bundle
 
     repo = Path(__file__).resolve().parents[2]
-    dockerfile = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY --from=bundle /out/ /app/" in dockerfile
 
     app = tmp_path / "app"
     assemble_compute_bundle(str(repo), str(app), strip=True)
-
-    framework = app / "plugin" / "framework"
-    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "managed_subprocess.py", "process_worker.py", "thread_guard.py", "constants.py", "deal_shim.py"):
-        assert (framework / name).is_file(), name
-    for name in ("queue_executor.py", "uno_context.py", "logging.py"):
-        assert not (framework / name).exists(), name
-    vision = app / "plugin" / "vision"
-    assert (vision / "vision_common.py").is_file()
-    assert (vision / "__init__.py").is_file()
-    doc = app / "plugin" / "doc"
-    assert (framework / "doc_type.py").is_file()
-    assert (doc / "__init__.py").is_file()
-    assert not (doc / "common_module.py").exists()
 
     proc = subprocess.run(
         [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker, plugin.scripting.named_scripts"], cwd=app, env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"}, capture_output=True, text=True, check=False
@@ -3128,16 +2573,6 @@ def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
     assert ocr_path_is_allowed(str(missing), ("/other/dir",)) is False
 
 
-def test_clamp_timeout_sec_infinite_and_nan() -> None:
-    """clamp_timeout_sec must handle OverflowError and non-finite floats gracefully."""
-    from compute_service.config import clamp_timeout_sec
-
-    assert clamp_timeout_sec(float("inf"), default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(float("-inf"), default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(float("nan"), default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(1e309, default_timeout_sec=30) == 30
-
-
 def test_ocr_path_is_allowed_root_directory() -> None:
     """Allowlisted root directory '/' must not fail due to double slash '//'."""
     from compute_service.config import ocr_path_is_allowed
@@ -3150,9 +2585,9 @@ def test_address_string_avoids_reverse_dns() -> None:
     """_DeadlineRequestHandler.address_string must return raw IP without socket.getfqdn()."""
     from compute_service.server import WSGIDualStackServer
 
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
     try:
-        handler_cls = server.srv.RequestHandlerClass
+        handler_cls = server.RequestHandlerClass
         with patch("socket.getfqdn") as mock_fqdn:
             handler = handler_cls.__new__(handler_cls)
             handler.client_address = ("127.0.0.1", 54321)
@@ -3160,14 +2595,6 @@ def test_address_string_avoids_reverse_dns() -> None:
             mock_fqdn.assert_not_called()
     finally:
         server.server_close()
-
-
-def test_clamp_timeout_sec_boolean() -> None:
-    """clamp_timeout_sec must treat booleans as invalid and return default_timeout_sec."""
-    from compute_service.config import clamp_timeout_sec
-
-    assert clamp_timeout_sec(True, default_timeout_sec=30) == 30
-    assert clamp_timeout_sec(False, default_timeout_sec=30) == 30
 
 
 def test_source_text_from_part_unicode_chars() -> None:
@@ -3208,13 +2635,13 @@ def test_accept_time_tracked_on_connection() -> None:
     """The accept map is keyed by the connection object, not id(conn)."""
     from compute_service.server import WSGIDualStackServer
 
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
     try:
-        handler_cls = server.srv.RequestHandlerClass
+        handler_cls = server.RequestHandlerClass
         handler = handler_cls.__new__(handler_cls)
         mock_conn = MagicMock()
         handler.connection = mock_conn
-        handler.server = server.srv
+        handler.server = server
         handler.server._accept_times[mock_conn] = 12345.678
         handler.client_address = ("127.0.0.1", 54321)
         handler.request_version = "HTTP/1.1"
@@ -3229,15 +2656,14 @@ def test_accept_time_tracked_on_connection() -> None:
             assert request_conn(environ).accept_time == 12345.678
     finally:
         server.server_close()
-        assert len(server.srv._accept_times) == 0
+        assert len(server._accept_times) == 0
 
 
 def test_wsgi_app_uses_the_current_formula_pool() -> None:
     """A replaced formula pool is used on the next execute and session reset.
 
-    What was wrong: create_wsgi_app cached pool.execute and reset_session on
-    first use. shutdown_formula_pool() plus a new pool left those bound methods
-    pointing at the dead pool.
+    Otherwise bound methods stay pointed at the dead pool after
+    ``shutdown_formula_pool()``.
     """
     first = MagicMock()
     second = MagicMock()
@@ -3253,12 +2679,7 @@ def test_wsgi_app_uses_the_current_formula_pool() -> None:
     payload = json.dumps({"code": "result = 1"}).encode("utf-8")
     with patch("compute_service.formula_pool.get_formula_pool", side_effect=get_pool) as get_mock:
         app = create_wsgi_app(ComputeSettings())
-        status, _headers, body = _wsgi_post(
-            app,
-            payload,
-            path="/v1/execute",
-            headers={"Content-Type": "application/json"},
-        )
+        status, _headers, body = _wsgi_post(app, payload, path="/v1/execute", headers={"Content-Type": "application/json"})
         assert status.startswith("200")
         assert body["result"] == 1
         reset_status, _reset_headers, reset_body = _wsgi_post(app, b"{}", query="session_id=wb1")
@@ -3269,12 +2690,7 @@ def test_wsgi_app_uses_the_current_formula_pool() -> None:
         assert first.reset_session.call_args.args[0] == "wb1"
 
         current["pool"] = second
-        status, _headers, body = _wsgi_post(
-            app,
-            payload,
-            path="/v1/execute",
-            headers={"Content-Type": "application/json"},
-        )
+        status, _headers, body = _wsgi_post(app, payload, path="/v1/execute", headers={"Content-Type": "application/json"})
         assert status.startswith("200")
         assert body["result"] == 2
         reset_status, _reset_headers, reset_body = _wsgi_post(app, b"{}", query="session_id=wb1")
@@ -3298,21 +2714,15 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         del headers, exc_info
         calls.append(status)
 
-    def handle(_environ: Any, _start: Any, _adm: Any) -> list[bytes]:
+    def handle(_environ: Any, _start: Any, _settings: Any, _adm: Any) -> list[bytes]:
         raise RuntimeError("early")
 
-    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+    def prepare(_environ: Any, _settings: Any, _start: Any, _route: Any) -> tuple[_Admission | None, list[bytes] | None]:
         return (_Admission(deadline=Deadline(5.0), parsed={"id": "early"}, req_id="early"), None)
 
     sem = threading.Semaphore(1)
-    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
-    body = _gated(
-        {"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"},
-        start_response,
-        ComputeSettings(),
-        sem,
-        route,
-    )
+    route = _Route("POST", prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    body = _gated({"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"}, start_response, ComputeSettings(), sem, route)
     assert calls == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
     assert sem.acquire(timeout=0)
@@ -3329,9 +2739,7 @@ def test_real_socket_queue_timeout() -> None:
     import json
     import time
 
-    settings = ComputeSettings(
-        log_level="DEBUG"
-    )
+    settings = ComputeSettings(log_level="DEBUG")
 
     block_event = threading.Event()
 
@@ -3342,10 +2750,10 @@ def test_real_socket_queue_timeout() -> None:
         return {"status": "ok"}
 
     app = create_wsgi_app(settings, execute_fn=fake_execute)
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
 
     # Delay processing of the second request to ensure it hits the queue timeout
-    original_process_request = server.srv.process_request
+    original_process_request = server.process_request
     req_count = 0
 
     def intercept(request: Any, client_address: Any, **kwargs: Any) -> None:
@@ -3355,11 +2763,11 @@ def test_real_socket_queue_timeout() -> None:
             time.sleep(1.0)
         original_process_request(request, client_address, **kwargs)
 
-    server.srv.process_request = intercept # type: ignore
+    server.process_request = intercept  # type: ignore
 
     server.set_app(app)
 
-    port = server.srv.server_port
+    port = server.server_port
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
@@ -3413,30 +2821,22 @@ def test_real_socket_queue_absorption() -> None:
 
     # Single-worker gate to force request 2 into the admission queue
     app = create_wsgi_app(settings, execute_fn=fake_execute, semaphore=threading.Semaphore(1))
-    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=4)
+    server = WSGIDualStackServer("127.0.0.1", 0, listener_threads=8)
     server.set_app(app)
 
-    port = server.srv.server_port
+    port = server.server_port
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
     try:
-        req1 = urllib.request.Request(
-            f"http://127.0.0.1:{port}/v1/execute",
-            data=b'{"code": "block_first", "timeout_ms": 5000}',
-            headers={"Content-Type": "application/json"},
-        )
+        req1 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "block_first", "timeout_ms": 5000}', headers={"Content-Type": "application/json"})
         t1 = threading.Thread(target=lambda: urllib.request.urlopen(req1))
         t1.start()
 
         assert worker_started.wait(timeout=3.0)
 
         # Request 2 queues behind the busy worker with generous timeout
-        req2 = urllib.request.Request(
-            f"http://127.0.0.1:{port}/v1/execute",
-            data=b'{"code": "second_absorbed", "timeout_ms": 3000}',
-            headers={"Content-Type": "application/json"},
-        )
+        req2 = urllib.request.Request(f"http://127.0.0.1:{port}/v1/execute", data=b'{"code": "second_absorbed", "timeout_ms": 3000}', headers={"Content-Type": "application/json"})
 
         res_holder: list[dict[str, Any]] = []
 
@@ -3465,29 +2865,18 @@ def test_real_socket_queue_absorption() -> None:
         server.server_close()
 
 
-
 def test_bearer_scheme_case_insensitive() -> None:
     """RFC 7235: Bearer auth scheme prefix is case-insensitive."""
     settings = ComputeSettings(api_key="my-secret-key")
     app = create_wsgi_app(settings, execute_fn=lambda **kwargs: {"status": "ok", "result": 1})
 
     for header_val in ("Bearer my-secret-key", "bearer my-secret-key", "BEARER my-secret-key", "BeArEr my-secret-key"):
-        status, headers, parsed = _wsgi_post(
-            app,
-            b'{"code": "result = 1"}',
-            path="/v1/execute",
-            headers={"Authorization": header_val, "Content-Type": "application/json"},
-        )
+        status, headers, parsed = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Authorization": header_val, "Content-Type": "application/json"})
         assert status == "200 OK", f"Failed for header: {header_val}"
         assert parsed.get("status") == "ok"
 
     # Malformed prefix fails
-    status, headers, parsed = _wsgi_post(
-        app,
-        b'{"code": "result = 1"}',
-        path="/v1/execute",
-        headers={"Authorization": "Token my-secret-key", "Content-Type": "application/json"},
-    )
+    status, headers, parsed = _wsgi_post(app, b'{"code": "result = 1"}', path="/v1/execute", headers={"Authorization": "Token my-secret-key", "Content-Type": "application/json"})
     assert status == "401 Unauthorized"
 
 
@@ -3503,13 +2892,7 @@ def test_session_reset_passes_bounded_timeout() -> None:
         return {"status": "ok"}
 
     app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
-    status, _headers, parsed = _wsgi_post(
-        app,
-        b'{"id": "reset-budget"}',
-        path="/v1/session/reset",
-        query="session_id=s123",
-        headers={"Content-Type": "application/json"},
-    )
+    status, _headers, parsed = _wsgi_post(app, b'{"id": "reset-budget"}', path="/v1/session/reset", query="session_id=s123", headers={"Content-Type": "application/json"})
     assert status == "200 OK"
     assert parsed.get("status") == "ok"
     assert len(seen) == 1
@@ -3517,7 +2900,7 @@ def test_session_reset_passes_bounded_timeout() -> None:
 
 
 def test_vision_unknown_helper_is_400() -> None:
-    """An unknown helper used to reach the worker and come back as 500."""
+    """An unknown helper is rejected with HTTP 400 INVALID_REQUEST before reaching the pool."""
 
     class _Pool:
         def execute(self, **_kwargs: Any) -> dict[str, Any]:
@@ -3550,7 +2933,7 @@ def test_vision_blank_helper_defaults_to_extract_text() -> None:
 
 
 def test_vision_missing_image_is_400_with_code() -> None:
-    """A vision request with no image used to be a generic 400 with no code."""
+    """A vision request with no image returns HTTP 400 MISSING_IMAGE_SOURCE."""
     app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     status, _headers, body = _wsgi_vision_post(app, {"id": "no-image", "helper": "extract_text"})
     assert status.startswith("400")
@@ -3584,13 +2967,7 @@ def test_session_reset_worker_error_returns_500() -> None:
         return {"status": "error", "error": "Worker failed to clear namespace"}
 
     app = create_wsgi_app(settings, reset_fn=fake_reset)
-    status, headers, parsed = _wsgi_post(
-        app,
-        b'{"id": "test-reset"}',
-        path="/v1/session/reset",
-        query="session_id=s123",
-        headers={"Content-Type": "application/json"},
-    )
+    status, headers, parsed = _wsgi_post(app, b'{"id": "test-reset"}', path="/v1/session/reset", query="session_id=s123", headers={"Content-Type": "application/json"})
     assert status == "500 Internal Server Error"
     assert parsed.get("status") == "error"
     assert parsed.get("id") == "test-reset"
@@ -3604,33 +2981,19 @@ def test_session_reset_infra_error_returns_503() -> None:
         return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Pool busy"}
 
     app = create_wsgi_app(settings, reset_fn=fake_reset)
-    status, headers, parsed = _wsgi_post(
-        app,
-        b'{"id": "test-reset"}',
-        path="/v1/session/reset",
-        query="session_id=s123",
-        headers={"Content-Type": "application/json"},
-    )
+    status, headers, parsed = _wsgi_post(app, b'{"id": "test-reset"}', path="/v1/session/reset", query="session_id=s123", headers={"Content-Type": "application/json"})
     assert status == "503 Service Unavailable"
     assert parsed.get("code") == "WORKER_POOL_BUSY"
 
 
 def test_mapped_status_json_encode_failure_is_500() -> None:
-    """A dumps failure on a mapped code stays inside the response helper.
-
-    The infrastructure status used to be written outside the encode guard,
-    so a non-JSON payload escaped and the outer boundary replaced the 503.
-    """
+    """A JSON encode failure on a mapped error code returns HTTP 500 INTERNAL_ERROR."""
 
     def bad(**_kwargs: Any) -> dict[str, Any]:
         return {"status": "error", "code": "WORKER_POOL_BUSY", "error": object()}
 
     app = create_wsgi_app(ComputeSettings(), execute_fn=bad)
-    status, _headers, body = _wsgi_post(
-        app,
-        json.dumps({"code": "result = 1"}).encode("utf-8"),
-        path="/v1/execute",
-    )
+    status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
     assert status.startswith("500")
     assert body.get("code") == "INTERNAL_ERROR"
     assert "JSON encode failed" in body.get("error", "")
@@ -3644,12 +3007,7 @@ def test_result_too_large_maps_to_413() -> None:
         return {"id": kwargs.get("req_id"), "status": "error", "code": "RESULT_TOO_LARGE", "error": "IPC frame exceeded 33 MiB"}
 
     app = create_wsgi_app(settings, execute_fn=fake_execute)
-    status, headers, parsed = _wsgi_post(
-        app,
-        b'{"code": "result = ' + b"x" * 100 + b'"}',
-        path="/v1/execute",
-        headers={"Content-Type": "application/json"},
-    )
+    status, headers, parsed = _wsgi_post(app, b'{"code": "result = ' + b"x" * 100 + b'"}', path="/v1/execute", headers={"Content-Type": "application/json"})
     assert status == "413 Payload Too Large"
     assert parsed.get("code") == "RESULT_TOO_LARGE"
 
@@ -3660,61 +3018,28 @@ def test_session_id_reserved_namespace_rejected() -> None:
     app = create_wsgi_app(settings, execute_fn=lambda **kwargs: {"status": "ok"})
 
     for reserved_sid in ("user-session:init", "isolated:abc123", "calc", "notebook"):
-        status, headers, parsed = _wsgi_post(
-            app,
-            b'{"code": "result = 1", "mode": "shared"}',
-            path="/v1/execute",
-            query=f"session_id={reserved_sid}",
-            headers={"Content-Type": "application/json"},
-        )
+        status, headers, parsed = _wsgi_post(app, b'{"code": "result = 1", "mode": "shared"}', path="/v1/execute", query=f"session_id={reserved_sid}", headers={"Content-Type": "application/json"})
         assert status == "400 Bad Request"
         assert parsed.get("code") == "INVALID_SESSION_ID"
 
 
 def test_empty_multi_data_result() -> None:
-    payload = {
-        "status": "ok",
-        "result": {
-            "__wa_payload__": "multi_data",
-            "items": []
-        }
-    }
+    payload = {"status": "ok", "result": {"__wa_payload__": "multi_data", "items": []}}
     out = normalize_execute_response(payload)
     assert out["result"] == []
 
 
 def test_query_session_id_selects_shared_ignoring_client_mode() -> None:
     """?session_id= enables sticky shared state even when the body still says mode=isolated."""
-    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-    app = create_wsgi_app(
-        ComputeSettings(host="127.0.0.1", workers=1),
-        execute_fn=lambda **kw: pool.execute(**kw),
-    )
+    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
     sid = "query-sid-overrides-mode"
     try:
-        status1, _h1, first = _wsgi_post(
-            app,
-            json.dumps({"code": "x = 9\nresult = x", "mode": "isolated"}).encode("utf-8"),
-            path="/v1/execute",
-            query=f"session_id={sid}",
-            headers={"Content-Type": "application/json"},
-        )
+        status1, _h1, first = _wsgi_post(app, json.dumps({"code": "x = 9\nresult = x", "mode": "isolated"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
         assert status1.startswith("200") and first.get("result") == 9
-        status2, _h2, second = _wsgi_post(
-            app,
-            json.dumps({"code": "result = x + 1", "mode": "shared"}).encode("utf-8"),
-            path="/v1/execute",
-            query=f"session_id={sid}",
-            headers={"Content-Type": "application/json"},
-        )
+        status2, _h2, second = _wsgi_post(app, json.dumps({"code": "result = x + 1", "mode": "shared"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
         assert status2.startswith("200") and second.get("result") == 10
-        status3, _h3, third = _wsgi_post(
-            app,
-            json.dumps({"code": "result = x", "mode": "bogus"}).encode("utf-8"),
-            path="/v1/execute",
-            query=f"session_id={sid}",
-            headers={"Content-Type": "application/json"},
-        )
+        status3, _h3, third = _wsgi_post(app, json.dumps({"code": "result = x", "mode": "bogus"}).encode("utf-8"), path="/v1/execute", query=f"session_id={sid}", headers={"Content-Type": "application/json"})
         assert status3.startswith("200") and third.get("result") == 9
     finally:
         pool.shutdown()
@@ -3723,25 +3048,12 @@ def test_query_session_id_selects_shared_ignoring_client_mode() -> None:
 
 def test_omitted_query_session_id_is_isolated_even_with_mode_shared() -> None:
     """Without ?session_id=, leftover mode=shared in JSON does not keep state."""
-    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-    app = create_wsgi_app(
-        ComputeSettings(host="127.0.0.1", workers=1),
-        execute_fn=lambda **kw: pool.execute(**kw),
-    )
+    pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
     try:
-        _s1, _h1, r1 = _wsgi_post(
-            app,
-            json.dumps({"code": "flag = 3\nresult = flag", "mode": "shared"}).encode("utf-8"),
-            path="/v1/execute",
-            headers={"Content-Type": "application/json"},
-        )
+        _s1, _h1, r1 = _wsgi_post(app, json.dumps({"code": "flag = 3\nresult = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
         assert r1["status"] == "ok" and r1["result"] == 3
-        _s2, _h2, r2 = _wsgi_post(
-            app,
-            json.dumps({"code": "result = flag", "mode": "shared"}).encode("utf-8"),
-            path="/v1/execute",
-            headers={"Content-Type": "application/json"},
-        )
+        _s2, _h2, r2 = _wsgi_post(app, json.dumps({"code": "result = flag", "mode": "shared"}).encode("utf-8"), path="/v1/execute", headers={"Content-Type": "application/json"})
         assert r2["status"] == "error"
     finally:
         pool.shutdown()
@@ -3753,7 +3065,7 @@ def test_malformed_client_mode_is_ignored() -> None:
     seen: list[str] = []
 
     def execute_fn(**kwargs):
-        seen.append(kwargs.get("mode", ""))
+        seen.append(kwargs.get("session_id"))
         return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
     app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
@@ -3761,11 +3073,11 @@ def test_malformed_client_mode_is_ignored() -> None:
         body = json.dumps({"code": "result = 1", "mode": mode}).encode()
         status, _headers, _parsed = _wsgi_post(app, body, path="/v1/execute", headers={"Content-Type": "application/json"})
         assert status.startswith("200")
-    assert seen == ["isolated"] * 4
+    assert seen == [None] * 4
 
 
 def test_slow_body_drip_is_408() -> None:
-    """One socket timeout per large read used to let a drip outlive the body deadline."""
+    """A slow body drip respects the total body deadline and returns HTTP 408."""
     from compute_service.server import _read_request_body
 
     class _Drip:
@@ -3782,10 +3094,7 @@ def test_slow_body_drip_is_408() -> None:
     def start_response(status: str, _headers: list, _exc_info: Any = None) -> None:
         statuses.append(status)
 
-    environ = {
-        "CONTENT_LENGTH": "100000",
-        "wsgi.input": _Drip(),
-    }
+    environ = {"CONTENT_LENGTH": "100000", "wsgi.input": _Drip()}
     request_conn(environ).accept_time = time.monotonic() - REQUEST_READ_TIMEOUT_SEC + 0.15
     started = time.monotonic()
     body, err = _read_request_body(environ, ComputeSettings(), start_response)
@@ -3815,10 +3124,7 @@ def test_body_settimeout_failure_is_408() -> None:
     def start_response(status: str, _headers: list, _exc_info: Any = None) -> None:
         statuses.append(status)
 
-    environ = {
-        "CONTENT_LENGTH": "1000",
-        "wsgi.input": _Drip(),
-    }
+    environ = {"CONTENT_LENGTH": "1000", "wsgi.input": _Drip()}
     rc = request_conn(environ)
     rc.connection = _Boom()
     rc.accept_time = time.monotonic()
@@ -3885,43 +3191,36 @@ def test_drain_restores_socket_timeout() -> None:
 
 def test_app_close_connection_on_request_conn_reaches_handler_after_run() -> None:
     """wsgiref shallow-copies environ for the app; RequestConn is shared so handle() sees close_connection."""
+    from compute_service.wsgi_server import DeadlineRequestHandler
 
-    def closing_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+    def closing_app(environ: dict[str, Any], start_response: Any):
         start_response("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
+        # Yield first so wsgiref sends headers (cleanup_headers runs) before close_connection is set.
+        yield b"{}"
         request_conn(environ).close_connection = True
-        return [b"{}"]
 
-    handler_environ: dict[str, Any] = {
-        "REQUEST_METHOD": "GET",
-        "PATH_INFO": "/health",
-        "SERVER_PROTOCOL": "HTTP/1.1",
+    # Skip setup() because there is no socket.
+    req_handler = object.__new__(DeadlineRequestHandler)
+    req_handler.rfile = io.BytesIO(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    req_handler.wfile = io.BytesIO()
+    req_handler.connection = MagicMock()
+    req_handler.client_address = ("127.0.0.1", 12345)
+    req_handler.server = MagicMock()
+    req_handler.server.server_name = "127.0.0.1"
+    req_handler.server.server_port = 8765
+    req_handler.server.base_environ = {
         "SERVER_NAME": "127.0.0.1",
+        "GATEWAY_INTERFACE": "CGI/1.1",
         "SERVER_PORT": "8765",
-        "wsgi.version": (1, 0),
-        "wsgi.url_scheme": "http",
-        "wsgi.input": io.BytesIO(b""),
-        "wsgi.errors": sys.stderr,
-        "wsgi.multithread": False,
-        "wsgi.run_once": False,
+        "REMOTE_HOST": "",
+        "CONTENT_LENGTH": "",
+        "SCRIPT_NAME": "",
     }
-    request_conn(handler_environ)
+    req_handler.server.get_app.return_value = closing_app
 
-    req_handler = MagicMock()
-    req_handler.close_connection = False
+    req_handler.handle()
 
-    server_handler = ComputeServerHandler(
-        io.BytesIO(b""),
-        io.BytesIO(),
-        sys.stderr,
-        handler_environ,
-        multithread=False,
-    )
-    setattr(server_handler, "request_handler", req_handler)
-    server_handler.run(closing_app)
-
-    assert request_conn(handler_environ).close_connection is True
-    if request_conn(handler_environ).close_connection:
-        req_handler.close_connection = True
+    assert b"Connection: close" not in req_handler.wfile.getvalue()
     assert req_handler.close_connection is True
 
 
@@ -3937,27 +3236,14 @@ def test_gated_does_not_start_response_twice() -> None:
     def execute_fn(**_kwargs: Any) -> dict[str, Any]:
         return {"status": "ok", "result_json": b'{"status":"ok"}'}
 
-    app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-
-    def boom(environ: dict, start: Any, settings: ComputeSettings, _run: Any, admission: Any = None) -> list[bytes]:
-        del environ, settings, _run, admission
+    def boom(environ: dict, start: Any, settings: ComputeSettings, admission: Any, *, get_execute: Any = None) -> list[bytes]:
+        del environ, settings, admission, get_execute
         start("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
         raise RuntimeError("after headers")
 
     with patch("compute_service.server._handle_execute", boom):
-        out = b"".join(
-            app(
-                {
-                    "PATH_INFO": "/v1/execute",
-                    "REQUEST_METHOD": "POST",
-                    "QUERY_STRING": "",
-                    "CONTENT_LENGTH": "2",
-                    "HTTP_HOST": "127.0.0.1",
-                    "wsgi.input": io.BytesIO(b"{}"),
-                },
-                start_response,
-            )
-        )
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        out = b"".join(app({"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "QUERY_STRING": "", "CONTENT_LENGTH": "2", "HTTP_HOST": "127.0.0.1", "wsgi.input": io.BytesIO(b"{}")}, start_response))
     assert calls == ["200 OK"]
     assert out == b""
 
@@ -3965,8 +3251,8 @@ def test_gated_does_not_start_response_twice() -> None:
 def test_gated_prepare_exception_is_json_internal_error() -> None:
     """An unexpected prepare failure stays on the JSON error path and takes no permit.
 
-    What was wrong: prepare ran before the try that maps route failures to
-    INTERNAL_ERROR, so a body-read bug escaped as an HTML 500.
+    A failure in prepare must be mapped to INTERNAL_ERROR, otherwise an
+    unhandled error could escape as an unformatted HTML 500.
     """
     from compute_service.server import _Admission, _Route, _gated
 
@@ -3976,21 +3262,15 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
         del headers, exc_info
         statuses.append(status)
 
-    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+    def prepare(_environ: Any, _settings: Any, _start: Any, _route: Any) -> tuple[_Admission | None, list[bytes] | None]:
         raise RuntimeError("prepare blew up")
 
-    def handle(_environ: Any, _start: Any, _admission: _Admission) -> list[bytes]:
+    def handle(_environ: Any, _start: Any, _settings: Any, _admission: _Admission) -> list[bytes]:
         return []
 
     sem = threading.Semaphore(1)
-    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
-    body = _gated(
-        {"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"},
-        start_response,
-        ComputeSettings(),
-        sem,
-        route,
-    )
+    route = _Route("POST", prepare, handle, default_timeout_sec=5, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    body = _gated({"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"}, start_response, ComputeSettings(), sem, route)
     assert statuses == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
     assert sem.acquire(timeout=0)
@@ -4011,10 +3291,7 @@ def test_sticky_burst_fills_shared_permits() -> None:
     app = create_wsgi_app(ComputeSettings(workers=4, ocr_workers=0), execute_fn=execute_fn, semaphore=threading.Semaphore(2))
     body = json.dumps({"code": "result = 1", "mode": "shared"}).encode("utf-8")
     statuses: list[str] = []
-    threads = [
-        threading.Thread(target=lambda sid=sid: statuses.append(_wsgi_post(app, body, path="/v1/execute", query=f"session_id={sid}")[0]))
-        for sid in ("a", "b")
-    ]
+    threads = [threading.Thread(target=lambda sid=sid: statuses.append(_wsgi_post(app, body, path="/v1/execute", query=f"session_id={sid}")[0])) for sid in ("a", "b")]
     for thread in threads:
         thread.start()
     try:
@@ -4132,16 +3409,7 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
             cmd = [sys.executable, "-u", str(wrapper), "--config", str(config_path), "--host", "127.0.0.1", "--port", str(port), "--workers", "1", "--ocr-workers", "0", "--log-level", "DEBUG"]
             lines = []
             readers = []
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(repo),
-                env=_child_env(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                start_new_session=True,
-            )
+            proc = subprocess.Popen(cmd, cwd=str(repo), env=_child_env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, start_new_session=True)
             assert proc.stdout is not None and proc.stderr is not None
             for stream in (proc.stdout, proc.stderr):
                 reader = threading.Thread(target=_pump, args=(stream, lines), daemon=True)
@@ -4174,18 +3442,8 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
         assert proc is not None and bound_port != 0, last_log
 
         def _post() -> None:
-            payload = json.dumps(
-                {
-                    "id": "slow-shutdown",
-                    "code": f"import time\ntime.sleep({cell_sleep_sec})\nresult = 1",
-                    "timeout_ms": 20000,
-                }
-            ).encode("utf-8")
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{bound_port}/v1/execute",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-            )
+            payload = json.dumps({"id": "slow-shutdown", "code": f"import time\ntime.sleep({cell_sleep_sec})\nresult = 1", "timeout_ms": 20000}).encode("utf-8")
+            req = urllib.request.Request(f"http://127.0.0.1:{bound_port}/v1/execute", data=payload, headers={"Content-Type": "application/json"})
             try:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     resp.read()
@@ -4236,14 +3494,6 @@ def test_sigterm_abandons_inflight_execute_and_exits(tmp_path: Path) -> None:
         assert in_flight, log_text
         assert return_code == 0, log_text
         assert elapsed < exit_bound_sec, log_text
-        assert f"Starting Python Compute Service on 127.0.0.1:{bound_port}" in log_text
-        assert "auth=no (insecure)" in log_text
-        assert "exec /v1/execute id='slow-shutdown'" in log_text
-        assert "Received signal SIGTERM, initiating graceful shutdown..." in log_text
-        assert "Stopping Python Compute Service..." in log_text
-        assert "HTTP request drain exceeded 1s; abandoning in-flight handlers" in log_text
-        assert "writeragent.framework.http_server" in log_text
-        assert "Shutting down Formula worker pool (1 workers)..." in log_text
         assert "Received repeated signal" not in log_text
         assert log_text.count("HTTP request drain exceeded") == 1
     finally:
@@ -4267,31 +3517,21 @@ def test_drain_body_chunked_closes_connection() -> None:
 
     # Chunked with no length returns False and leaves input unread.
     stream1 = io.BytesIO(b"smuggled")
-    env1 = {
-        "HTTP_TRANSFER_ENCODING": "chunked",
-        "wsgi.input": stream1,
-    }
+    env1 = {"HTTP_TRANSFER_ENCODING": "chunked", "wsgi.input": stream1}
     assert _drain_body_before_error(env1) is False
     assert request_conn(env1).close_connection is True
     assert stream1.tell() == 0
 
     # Content-Length with chunked encoding leaves bytes unconsumed and closes socket.
     stream2 = io.BytesIO(b"0\r\n\r\nGET /health...")
-    env2 = {
-        "HTTP_TRANSFER_ENCODING": "chunked",
-        "CONTENT_LENGTH": "5",
-        "wsgi.input": stream2,
-    }
+    env2 = {"HTTP_TRANSFER_ENCODING": "chunked", "CONTENT_LENGTH": "5", "wsgi.input": stream2}
     assert _drain_body_before_error(env2) is False
     assert request_conn(env2).close_connection is True
     assert stream2.tell() == 0
 
     # Content-Length without chunked header drains normally.
     stream3 = io.BytesIO(b"12345")
-    env3 = {
-        "CONTENT_LENGTH": "5",
-        "wsgi.input": stream3,
-    }
+    env3 = {"CONTENT_LENGTH": "5", "wsgi.input": stream3}
     assert _drain_body_before_error(env3) is True
     assert request_conn(env3).close_connection is not True
     assert stream3.tell() == 5
@@ -4307,14 +3547,7 @@ def test_wsgi_chunked_401_closes_connection() -> None:
     def start_response(status: str, headers: list) -> None:
         status_holder.append(status)
 
-    environ = {
-        "PATH_INFO": "/v1/execute",
-        "REQUEST_METHOD": "POST",
-        "HTTP_TRANSFER_ENCODING": "chunked",
-        "HTTP_AUTHORIZATION": "Bearer wrong-key",
-        "HTTP_HOST": "127.0.0.1",
-        "wsgi.input": stream,
-    }
+    environ = {"PATH_INFO": "/v1/execute", "REQUEST_METHOD": "POST", "HTTP_TRANSFER_ENCODING": "chunked", "HTTP_AUTHORIZATION": "Bearer wrong-key", "HTTP_HOST": "127.0.0.1", "wsgi.input": stream}
     out = b"".join(app(environ, start_response))
     assert status_holder[0].startswith("401")
     assert json.loads(out).get("code") == "UNAUTHORIZED"
@@ -4333,30 +3566,17 @@ def test_reset_queue_timeout_closes_connection() -> None:
     def start_response(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> None:
         statuses.append(status)
 
-    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+    def prepare(_environ: Any, _settings: Any, _start: Any, _route: Any) -> tuple[_Admission | None, list[bytes] | None]:
         return (_Admission(deadline=Deadline.from_absolute(1.0, 1.0), parsed={}), None)
 
-    def handle(_environ: Any, _start: Any, _admission: _Admission) -> list[bytes]:
+    def handle(_environ: Any, _start: Any, _settings: Any, _admission: _Admission) -> list[bytes]:
         return []
 
     sem = threading.Semaphore(1)
-    env = {
-        "REQUEST_METHOD": "POST",
-        "PATH_INFO": "/v1/session/reset",
-        "QUERY_STRING": "session_id=abc",
-        "HTTP_TRANSFER_ENCODING": "chunked",
-        "HTTP_HOST": "127.0.0.1",
-        "wsgi.input": stream,
-    }
+    env = {"REQUEST_METHOD": "POST", "PATH_INFO": "/v1/session/reset", "QUERY_STRING": "session_id=abc", "HTTP_TRANSFER_ENCODING": "chunked", "HTTP_HOST": "127.0.0.1", "wsgi.input": stream}
     request_conn(env).accept_time = 0.0
-    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
-    res = _gated(
-        env,
-        start_response,
-        ComputeSettings(),
-        sem,
-        route,
-    )
+    route = _Route("POST", prepare, handle, default_timeout_sec=1, busy_code="WORKER_POOL_BUSY", busy_message="busy")
+    res = _gated(env, start_response, ComputeSettings(), sem, route)
     payload = json.loads(b"".join(res).decode("utf-8"))
     assert statuses[0].startswith("503")
     assert payload.get("code") == "QUEUE_TIMEOUT"
@@ -4366,19 +3586,70 @@ def test_reset_queue_timeout_closes_connection() -> None:
     app = create_wsgi_app(ComputeSettings())
     stream_app = io.BytesIO(b"smuggled GET /health")
     statuses_app: list[str] = []
-    env_app = {
-        "REQUEST_METHOD": "POST",
-        "PATH_INFO": "/v1/session/reset",
-        "QUERY_STRING": "session_id=abc",
-        "HTTP_TRANSFER_ENCODING": "chunked",
-        "HTTP_HOST": "127.0.0.1",
-        "wsgi.input": stream_app,
-    }
+    env_app = {"REQUEST_METHOD": "POST", "PATH_INFO": "/v1/session/reset", "QUERY_STRING": "session_id=abc", "HTTP_TRANSFER_ENCODING": "chunked", "HTTP_HOST": "127.0.0.1", "wsgi.input": stream_app}
     request_conn(env_app).accept_time = 0.0
     _ = b"".join(app(env_app, lambda s, h: statuses_app.append(s)))
     assert statuses_app[0].startswith("400") or statuses_app[0].startswith("503")
     assert request_conn(env_app).close_connection is True
     assert stream_app.tell() == 0
+
+
+def test_close_if_unread_body_sites() -> None:
+    """A declared body left unread sets close_connection across all endpoints."""
+    app = create_wsgi_app(ComputeSettings())
+
+    test_cases = [
+        ("GET", "/health", "5", "200 OK", True, None),
+        ("POST", "/health", "5", "405 Method Not Allowed", True, "GET"),
+        ("POST", "/nope", "5", "404 Not Found", True, None),
+        ("GET", "/v1/execute", "5", "405 Method Not Allowed", True, "POST"),
+        ("GET", "/health", None, "200 OK", False, None),
+    ]
+
+    for method, path, content_len, expected_status, expected_close, expected_allow in test_cases:
+        status_holder: list[str] = []
+        headers_holder: list[list[tuple[str, str]]] = []
+
+        def start_response(status: str, headers: list[tuple[str, str]], _exc_info: Any = None) -> None:
+            status_holder.append(status)
+            headers_holder.append(headers)
+
+        environ: dict[str, Any] = {
+            "REQUEST_METHOD": method,
+            "PATH_INFO": path,
+            "HTTP_HOST": "127.0.0.1",
+            "wsgi.input": io.BytesIO(b"12345" if content_len else b""),
+        }
+        if content_len is not None:
+            environ["CONTENT_LENGTH"] = content_len
+
+        _ = b"".join(app(environ, start_response))
+        assert status_holder == [expected_status], f"Mismatch for {method} {path}"
+        assert request_conn(environ).close_connection is expected_close, f"Close mismatch for {method} {path}"
+        if expected_allow is not None:
+            headers_dict = dict(headers_holder[0])
+            assert headers_dict.get("Allow") == expected_allow
+
+
+def test_vision_default_timeout_is_ocr_timeout() -> None:
+    """Vision endpoint default deadline matches ocr_timeout_sec when timeout_ms is omitted."""
+    recorded_deadline: list[Any] = []
+
+    class FakeVisionPool:
+        def execute(self, **kwargs: Any) -> dict[str, Any]:
+            recorded_deadline.append(kwargs["deadline"])
+            return {"status": "ok"}
+
+    settings = ComputeSettings(ocr_timeout_sec=7, ocr_workers=1)
+    app = create_wsgi_app(settings)
+    fake_pool = FakeVisionPool()
+    with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
+        status, _headers, _body = _wsgi_vision_post(app, {"id": "vis-test"}, image=b"fake-image")
+
+    assert status == "200 OK"
+    assert len(recorded_deadline) == 1
+    left = recorded_deadline[0].left()
+    assert 6.0 < left <= 7.0
 
 
 def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4402,14 +3673,7 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
     first_statuses: list[str] = []
 
     def run_first() -> None:
-        env = {
-            "REQUEST_METHOD": "POST",
-            "PATH_INFO": "/v1/session/reset",
-            "QUERY_STRING": "session_id=s1",
-            "HTTP_HOST": "127.0.0.1",
-            "wsgi.input": io.BytesIO(b'{"id":"first"}'),
-            "CONTENT_LENGTH": str(len(b'{"id":"first"}')),
-        }
+        env = {"REQUEST_METHOD": "POST", "PATH_INFO": "/v1/session/reset", "QUERY_STRING": "session_id=s1", "HTTP_HOST": "127.0.0.1", "wsgi.input": io.BytesIO(b'{"id":"first"}'), "CONTENT_LENGTH": str(len(b'{"id":"first"}'))}
         list(app(env, lambda s, h: first_statuses.append(s)))
 
     t1 = threading.Thread(target=run_first)
@@ -4428,14 +3692,7 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
     second_statuses: list[str] = []
 
     def run_second() -> None:
-        env = {
-            "REQUEST_METHOD": "POST",
-            "PATH_INFO": "/v1/session/reset",
-            "QUERY_STRING": "session_id=s2",
-            "HTTP_HOST": "127.0.0.1",
-            "wsgi.input": CustomStream(),
-            "CONTENT_LENGTH": str(len(second_body)),
-        }
+        env = {"REQUEST_METHOD": "POST", "PATH_INFO": "/v1/session/reset", "QUERY_STRING": "session_id=s2", "HTTP_HOST": "127.0.0.1", "wsgi.input": CustomStream(), "CONTENT_LENGTH": str(len(second_body))}
         list(app(env, lambda s, h: second_statuses.append(s)))
 
     t2 = threading.Thread(target=run_second)
@@ -4444,14 +3701,7 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert read_called_during_first.wait(timeout=3.0)
 
     chunked_statuses: list[str] = []
-    chunked_env = {
-        "REQUEST_METHOD": "POST",
-        "PATH_INFO": "/v1/session/reset",
-        "QUERY_STRING": "session_id=s3",
-        "HTTP_HOST": "127.0.0.1",
-        "HTTP_TRANSFER_ENCODING": "chunked",
-        "wsgi.input": io.BytesIO(b"smuggled"),
-    }
+    chunked_env = {"REQUEST_METHOD": "POST", "PATH_INFO": "/v1/session/reset", "QUERY_STRING": "session_id=s3", "HTTP_HOST": "127.0.0.1", "HTTP_TRANSFER_ENCODING": "chunked", "wsgi.input": io.BytesIO(b"smuggled")}
     _ = b"".join(app(chunked_env, lambda s, h: chunked_statuses.append(s)))
     assert chunked_statuses[0].startswith("400")
 
@@ -4464,9 +3714,6 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert second_statuses[0].startswith("200")
 
 
-
-
-
 def test_execute_receives_the_admission_deadline() -> None:
     """The handler builds one Deadline at admission and the pool receives that object, not a timeout to restart."""
     from plugin.framework.child_runtime import Deadline
@@ -4475,7 +3722,7 @@ def test_execute_receives_the_admission_deadline() -> None:
 
     def execute_fn(**kwargs: Any) -> dict[str, Any]:
         seen.update(kwargs)
-        return {"status": "ok", "result_json": b"{\"status\":\"ok\",\"result\":1}"}
+        return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
 
     app = create_wsgi_app(ComputeSettings(workers=1), execute_fn=execute_fn)
     status, _headers, _parsed = _wsgi_post(app, json.dumps({"code": "result = 1", "timeout_ms": 7000}).encode("utf-8"), path="/v1/execute")

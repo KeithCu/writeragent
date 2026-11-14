@@ -56,7 +56,7 @@ def _list_one_comment(date_value):
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
 
-    # cell_comment_list resolves sheet via resolve_sheet
+    # cell_comment_list resolves sheet via CalcBridge.sheet_or_active
     def get_sheet_by_name(name):
         return sheet
 
@@ -132,18 +132,26 @@ def test_annotation_date_string_struct_and_empty():
     assert _annotation_date(None) == ""
 
 
+def _doc_with_active_sheet(sheet: MagicMock) -> MagicMock:
+    doc = MagicMock()
+    doc.NamedRanges.hasByName.return_value = False
+    sheet.NamedRanges.hasByName.return_value = False
+    sheets = doc.getSheets.return_value
+    sheets.hasByName.return_value = True
+    sheets.getByName.return_value = sheet
+    sheets.getCount.return_value = 0
+    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
+    return doc
+
+
 def test_cell_comment_add_updates_lazy_xlsx_note():
     from plugin.calc.comments import AddCellComment
 
     ctx = MagicMock()
-    doc = MagicMock()
-    ctx.doc = doc
-
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
-    doc.getSheets.return_value.hasByName.return_value = True
-    doc.getSheets.return_value.getByName.return_value = sheet
-    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
+    doc = _doc_with_active_sheet(sheet)
+    ctx.doc = doc
 
     cell = MagicMock()
     cell_ann = MagicMock()
@@ -164,14 +172,10 @@ def test_cell_comment_add_inserts_new_when_no_note():
     from plugin.calc.comments import AddCellComment
 
     ctx = MagicMock()
-    doc = MagicMock()
-    ctx.doc = doc
-
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
-    doc.getSheets.return_value.hasByName.return_value = True
-    doc.getSheets.return_value.getByName.return_value = sheet
-    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
+    doc = _doc_with_active_sheet(sheet)
+    ctx.doc = doc
 
     cell = MagicMock()
     cell_addr = MagicMock()
@@ -191,14 +195,10 @@ def test_cell_comment_delete_found_and_not_found():
     from plugin.calc.comments import DeleteCellComment
 
     ctx = MagicMock()
-    doc = MagicMock()
-    ctx.doc = doc
-
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
-    doc.getSheets.return_value.hasByName.return_value = True
-    doc.getSheets.return_value.getByName.return_value = sheet
-    doc.getCurrentController.return_value.getActiveSheet.return_value = sheet
+    doc = _doc_with_active_sheet(sheet)
+    ctx.doc = doc
 
     ann1 = MagicMock()
     ann1.getPosition.return_value = SimpleNamespace(Column=1, Row=2)
@@ -224,7 +224,7 @@ def test_cell_comment_delete_found_and_not_found():
 
 
 def test_cell_comment_add_validation_and_resolution():
-    from plugin.calc.comments import AddCellComment
+    from plugin.calc.comments import AddCellComment, DeleteCellComment
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -246,6 +246,10 @@ def test_cell_comment_add_validation_and_resolution():
     sheets.hasByName.side_effect = lambda n: n in ("Sheet1", "Data Sheet")
     sheets.getByName.side_effect = get_sheet
     sheets.getElementNames.return_value = ("Sheet1", "Data Sheet")
+    sheets.getCount.return_value = 0
+    doc.NamedRanges.hasByName.return_value = False
+    sheet1.NamedRanges.hasByName.return_value = False
+    data_sheet.NamedRanges.hasByName.return_value = False
     doc.getSheets.return_value = sheets
     doc.getCurrentController.return_value.getActiveSheet.return_value = sheet1
 
@@ -274,9 +278,17 @@ def test_cell_comment_add_validation_and_resolution():
     assert res_disagree["status"] == "error"
 
     # Missing sheet
-    res_missing = AddCellComment().execute(ctx, cell="NoSheet.A1", text="note")
+    res_missing = AddCellComment().execute_safe(ctx, cell="NoSheet.A1", text="note")
     assert res_missing["status"] == "error"
+    assert res_missing["code"] == "UNO_OBJECT_ERROR"
     assert "Sheet1, Data Sheet" in res_missing["message"]
+    assert "sheet_list" in res_missing["details"]["hint"]
+
+    res_del_missing = DeleteCellComment().execute_safe(ctx, cell="NoSheet.A1")
+    assert res_del_missing["status"] == "error"
+    assert res_del_missing["code"] == "UNO_OBJECT_ERROR"
+    assert "Sheet1, Data Sheet" in res_del_missing["message"]
+    assert "sheet_list" in res_del_missing["details"]["hint"]
 
 
 def test_cell_comment_list_sorted_by_row_col():
@@ -311,3 +323,21 @@ def test_cell_comment_list_sorted_by_row_col():
     cells = [c["cell"] for c in res["comments"]]
     # A1 (0, 0), C1 (2, 0), B2 (1, 1)
     assert cells == ["A1", "C1", "B2"]
+
+
+def test_cell_comment_add_bad_address_is_invalid_param():
+    from unittest.mock import patch
+
+    from plugin.app import get_tools
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    bridge = MagicMock()
+    bridge.resolve_cell.side_effect = ValueError("Invalid cell address")
+    with (
+        patch("plugin.calc.comments.CalcBridge", return_value=bridge),
+        patch("plugin.calc.comments._annotation_text") as mock_ann,
+    ):
+        res = get_tools().get("cell_comment_add").execute_safe(ctx, cell="not an address", text="hi")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    mock_ann.assert_not_called()

@@ -16,7 +16,7 @@ from plugin.tests.testing_utils import with_native_doc
 
 def _assert_undefined_name_error(val: object) -> None:
     # Undefined =PY() names raise InterpreterError in the sandbox, then
-    # _addin_result_for_worker_status maps that to #VALUE! (519). The cell
+    # addin_result_for_worker_status maps that to #VALUE! (519). The cell
     # value is a quiet-NaN double; the "not defined" sentence is the log line.
     assert isinstance(val, float)
     assert not math.isfinite(val)
@@ -44,7 +44,7 @@ def test_shared_kernel_reset_session_uno(ctx, doc):
 
         func = PythonFunction(ctx)
 
-        sid = sm.workbook_session_id(ctx, doc=doc)
+        sid = sm.workbook_session_id(doc=doc)
         assert sid is not None
         assert sid.startswith("calc:")
 

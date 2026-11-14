@@ -4,7 +4,6 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc spill array tracking, collision detection, and orphan cleanup."""
-# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 
@@ -15,20 +14,28 @@ import logging
 import math
 from typing import Any
 
-from plugin.calc.calc_utils import EMPTY
+from plugin.calc.calc_utils import EMPTY, NumberFormatCategories, resolve_document_locale, standard_temporal_format_keys
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
-    format_category_from_type,
     should_preserve_temporal_format,
 )
 from plugin.calc.python.addin_values import (
-    _ERR_NA,
-    _coerce_spill_value,
-    _spill_value_from_json,
+    ERR_NA,
+    SpillValue,
+    coerce_spill_value,
+    spill_value_from_json,
 )
-from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
+from plugin.calc.python.cell_discovery import is_py_formula_text
+from plugin.calc.python.formula_locator_cache import (
+    FormulaOrigin,
+    is_matching_py_formula,
+    locate_formula_cell_in_doc,
+    search_sheet_for_formula,
+)
+from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, migrate_sheet_rename, sheet_modify_scope
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
+from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.errors import uno_read
 from plugin.framework.queue_executor import main
 
@@ -37,7 +44,7 @@ log = logging.getLogger(__name__)
 # CellFlags bitmask: VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16) | HARDATTR (32) = 55.
 # Clears values, formulas, and direct hard cell formatting/number formats without removing
 # annotations, styles, or draw objects.
-_SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
+SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
 
 
 @dataclass(frozen=True)
@@ -95,38 +102,22 @@ def _cell_is_formula(cell: Any) -> bool:
 
 
 def cleanup_orphans(
-    state: WorkbookState | None,
+    state: WorkbookState,
     sheet: Any,
     *,
-    doc: Any | None = None,
-    ctx: Any | None = None,
-    sheet_name: str = "",
+    doc: Any,
+    sheet_name: str,
 ) -> None:
     """Orphaned-spill cleanup: remap moved formula cells or clear deleted spill cells."""
     try:
         if not main.is_current():
             return
-        if sheet is None:
-            return
-
-        from plugin.calc.python.sheet_modify import _owning_calc_doc, sheet_modify_scope
-
-        target_doc = doc or _owning_calc_doc(sheet)
-        st = state or (WorkbookState.for_doc(target_doc) if target_doc is not None else None)
-        if st is None:
-            return
-
-        effective_sheet_name = sheet_name or (sheet.getName() if hasattr(sheet, "getName") else "")
-        if not effective_sheet_name:
-            return
-
-        from plugin.calc.python.cell_discovery import is_py_formula_text
 
         with sheet_modify_scope():
             to_remove: list[tuple[str, int, int]] = []
             to_remap: list[tuple[tuple[str, int, int], tuple[str, int, int], SpillRecord]] = []
-            for (s_name, frow, fcol), record in list(st.spills.items()):
-                if s_name == effective_sheet_name:
+            for (s_name, frow, fcol), record in list(state.spills.items()):
+                if s_name == sheet_name:
                     try:
                         cell = sheet.getCellByPosition(fcol, frow)
                         formula = cell.getFormula()
@@ -141,7 +132,7 @@ def cleanup_orphans(
 
                         remapped = False
                         if record.code:
-                            loc = search_sheet_for_formula(sheet, record.code, doc=target_doc)
+                            loc = search_sheet_for_formula(sheet, record.code, doc=doc)
                             if loc is not None:
                                 _loc_cell, new_row, new_col = loc
                                 d_row = new_row - frow
@@ -156,19 +147,19 @@ def cleanup_orphans(
                                             SpillCell(c.row + d_row, c.col + d_col, c.kind, c.value)
                                             for c in record.cells
                                         ]
-                                        new_key = (effective_sheet_name, new_row, new_col)
-                                        to_remap.append(((effective_sheet_name, frow, fcol), new_key, SpillRecord(code=record.code, cells=new_cells)))
+                                        new_key = (sheet_name, new_row, new_col)
+                                        to_remap.append(((sheet_name, frow, fcol), new_key, SpillRecord(code=record.code, cells=new_cells)))
                                         remapped = True
 
                         if not remapped:
-                            to_remove.append((effective_sheet_name, frow, fcol))
+                            to_remove.append((sheet_name, frow, fcol))
                     except Exception:
-                        log.debug("Failed to inspect formula cell %r", (effective_sheet_name, frow, fcol), exc_info=True)
+                        log.debug("Failed to inspect formula cell %r", (sheet_name, frow, fcol), exc_info=True)
 
             if to_remove or to_remap:
-                with undo_lock(target_doc):
+                with undo_lock(doc):
                     for key in to_remove:
-                        removed_rec = st.spills.pop(key, None)
+                        removed_rec = state.spills.pop(key, None)
                         if removed_rec is not None:
                             frow, fcol = key[1], key[2]
                             for c in removed_rec.cells:
@@ -177,14 +168,13 @@ def cleanup_orphans(
                                         spill_cell = sheet.getCellByPosition(c.col, c.row)
                                         if not _cell_is_formula(spill_cell):
                                             if _cell_matches_stored_value(sheet, c.row, c.col, c):
-                                                spill_cell.clearContents(_SPILL_CLEAR_FLAGS)
+                                                spill_cell.clearContents(SPILL_CLEAR_FLAGS)
                                     except Exception:
                                         log.debug("cleanup_orphans: failed to clear cell (%d, %d)", c.row, c.col, exc_info=True)
                     for old_k, new_k, new_rec in to_remap:
-                        st.spills.pop(old_k, None)
-                        st.spills[new_k] = new_rec
-                    if target_doc is not None:
-                        save_spill_registry_for_doc(target_doc, st)
+                        state.spills.pop(old_k, None)
+                        state.spills[new_k] = new_rec
+                    save_spill_registry_for_doc(doc, state)
     except Exception:
         log.exception("Error in cleanup_orphans")
 
@@ -192,8 +182,6 @@ def cleanup_orphans(
 def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
-        from plugin.doc.udprops import get_document_property
-
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
         if not isinstance(raw, str) or not raw.strip():
             return
@@ -217,7 +205,7 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
                                     r = int(c["r"] or 0)
                                     col = int(c["c"] or 0)
                                     kind = str(c["t"])
-                                    v = _spill_value_from_json(kind, c.get("v"))
+                                    v = spill_value_from_json(kind, c.get("v"))
                                     cells.append(SpillCell(row=r, col=col, kind=kind, value=v))
                             state.spills[(sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
             except Exception:
@@ -230,8 +218,6 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
 def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
-        from plugin.doc.udprops import set_document_property
-
         if not state.key:
             return
         doc_spills: dict[str, Any] = {}
@@ -254,20 +240,92 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
         log.exception("Failed to save spill registry to document property")
 
 
+def _classify_spill_grid(grid: list[list[Any]], num_cols: int, null_dt: datetime.date) -> list[list[SpillValue]]:
+    return [
+        [coerce_spill_value(row[c] if c < len(row) else None, null_dt) for c in range(num_cols)]
+        for row in grid
+    ]
+
+
+def _write_spill_values(sheet: Any, formula_row: int, formula_col: int, values: list[list[SpillValue]]) -> None:
+    num_rows = len(values)
+    num_cols = len(values[0])
+    if num_cols > 1:
+        first_row_range = sheet.getCellRangeByPosition(formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row)
+        first_row_range.setDataArray((tuple(v.calc_value for v in values[0][1:]),))
+
+    if num_rows > 1:
+        remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
+        remaining_range.setDataArray(tuple(tuple(v.calc_value for v in row) for row in values[1:]))
+
+    for r_offset, row in enumerate(values):
+        for c_offset, v in enumerate(row):
+            if (r_offset, c_offset) != (0, 0) and v.kind == "err" and v.error_code is not None and v.error_code != ERR_NA:
+                sheet.getCellByPosition(formula_col + c_offset, formula_row + r_offset).setFormula(f"=#ERR{v.error_code}!")
+
+
+def _apply_spill_temporal_formats(
+    doc: Any, sheet: Any, formula_row: int, formula_col: int, values: list[list[SpillValue]]
+) -> None:
+    if not any(v.temporal_category is not None for row in values for v in row):
+        return
+    try:
+        formats = doc.getNumberFormats()
+        locale = resolve_document_locale(doc)
+        standard_keys = standard_temporal_format_keys(formats, locale)
+
+        categories = NumberFormatCategories(formats)
+        decisions: list[list[Any]] = []
+
+        for r_idx, row in enumerate(values):
+            row_dec: list[Any] = []
+            for c_idx, v in enumerate(row):
+                if v.temporal_category is not None:
+                    cell = sheet.getCellByPosition(formula_col + c_idx, formula_row + r_idx)
+                    dest_cat = categories.category(int(cell.getPropertyValue("NumberFormat")))
+                    if should_preserve_temporal_format(v.temporal_category, float(v.calc_value), dest_cat):
+                        row_dec.append(("preserve", None))
+                    else:
+                        apply_k = standard_keys.get(v.temporal_category, standard_keys["date"])
+                        row_dec.append(("apply", int(apply_k)))
+                elif v.kind == "e":
+                    row_dec.append("empty")
+                else:
+                    row_dec.append(None)
+            decisions.append(row_dec)
+
+        rects = coalesce_temporal_apply_rects(decisions)
+        for r0, r1, c0, c1, k in rects:
+            trange = sheet.getCellRangeByPosition(formula_col + c0, formula_row + r0, formula_col + c1, formula_row + r1)
+            trange.setPropertyValue("NumberFormat", int(k))
+    except Exception:
+        log.exception("Error applying temporal number formats during deferred spill")
+
+
 def perform_deferred_spill(
     sheet_name: str,
     formula_row: int,
     formula_col: int,
     grid: list[list[Any]],
     *,
-    doc: Any | None = None,
-    sheet: Any = None,
-    code: str = "",
-    key: str = "",
+    doc: Any,
+    sheet: Any,
+    code: str,
+    key: str,
 ) -> None:
-    """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
+    """Clear old spilled cells and write new values deferred (collision check is done synchronously).
+
+    After clearing old cells, this classifies the grid into ``SpillValue`` records,
+    writes neighbour values/errors and updates the spill registry, then applies
+    standard temporal number formats across coalesced blocks.
+
+    The caller passes the sheet it located, the code it located it by, and ``WorkbookState.key``.
+    The state key, the sheet looked up by name and the origin formula are checked again here
+    on purpose: 0.1 s has passed since ``prepare_auto_spill``, and the sheet may have been
+    renamed or the formula edited in between.
+    """
     try:
-        if not main.is_current() or doc is None:
+        if not main.is_current():
             return
 
         state = WorkbookState.for_doc(doc)
@@ -275,11 +333,7 @@ def perform_deferred_spill(
             return
 
         with undo_lock(doc):
-            scheduled = key
-            if scheduled:
-                if not state.scheduled_key_matches(scheduled):
-                    return
-            elif not state.key:
+            if not state.scheduled_key_matches(key):
                 return
 
             resolved_sheet = sheet
@@ -289,8 +343,6 @@ def perform_deferred_spill(
                     resolved_sheet = named
             except Exception:  # noqa: S110
                 pass
-            if resolved_sheet is None:
-                return
             sheet = resolved_sheet
             live_sheet_name = ""
             try:
@@ -300,25 +352,20 @@ def perform_deferred_spill(
                 return
             if live_sheet_name and live_sheet_name != sheet_name:
                 try:
-                    from plugin.calc.python.sheet_modify import migrate_sheet_rename
-
                     migrate_sheet_rename(doc, sheet_name, live_sheet_name)
                 except Exception:
                     log.debug("perform_deferred_spill: rename migration failed", exc_info=True)
                 sheet_name = live_sheet_name
 
-            if code:
-                try:
-                    origin_cell = sheet.getCellByPosition(formula_col, formula_row)
-                    if not is_matching_py_formula(origin_cell.getFormula(), code):
-                        return
-                except Exception:
-                    log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
+            try:
+                origin_cell = sheet.getCellByPosition(formula_col, formula_row)
+                if not is_matching_py_formula(origin_cell.getFormula(), code):
                     return
+            except Exception:
+                log.debug("perform_deferred_spill: origin formula check failed", exc_info=True)
+                return
 
             reg_key = (sheet_name, formula_row, formula_col)
-
-            from plugin.calc.python.sheet_modify import sheet_modify_scope
 
             with sheet_modify_scope():
                 previous_record = state.spills.get(reg_key)
@@ -328,7 +375,7 @@ def perform_deferred_spill(
                         if (r, c) != (formula_row, formula_col):
                             try:
                                 cell = sheet.getCellByPosition(c, r)
-                                cell.clearContents(_SPILL_CLEAR_FLAGS)
+                                cell.clearContents(SPILL_CLEAR_FLAGS)
                             except Exception:
                                 log.debug("perform_deferred_spill: failed to clear cell (%d, %d)", r, c, exc_info=True)
 
@@ -343,114 +390,23 @@ def perform_deferred_spill(
                 nd = settings.getPropertyValue("NullDate")
                 null_dt = datetime.date(nd.Year, nd.Month, nd.Day)
 
-                coerced_grid: list[list[Any]] = []
-                cell_metas: list[list[dict[str, Any]]] = []
-                has_any_temporal = False
-                new_cells: list[SpillCell] = []
-                error_writes: list[tuple[int, int, int]] = []
-
-                for r_offset, row in enumerate(grid):
-                    coerced_row: list[Any] = []
-                    meta_row: list[dict[str, Any]] = []
-                    for c_offset in range(num_cols):
-                        val = row[c_offset] if c_offset < len(row) else None
-                        calc_val, meta = _coerce_spill_value(val, null_dt)
-                        if meta.get("is_temporal"):
-                            has_any_temporal = True
-                        coerced_row.append(calc_val)
-                        meta_row.append(meta)
-                        if (r_offset, c_offset) == (0, 0):
-                            continue
-                        stored_val: float | str | int | None = None
-                        if meta.get("is_calc_error"):
-                            kind = "err"
-                            stored_val = int(meta["error_code"])
-                            if meta.get("error_code") != _ERR_NA:
-                                error_writes.append((formula_col + c_offset, formula_row + r_offset, int(meta["error_code"])))
-                        elif meta.get("is_empty"):
-                            kind = "e"
-                        elif isinstance(calc_val, float):
-                            kind = "n"
-                            stored_val = calc_val
-                        elif isinstance(calc_val, str):
-                            kind = "s"
-                            stored_val = calc_val
-                        else:
-                            kind = "e"
-                        new_cells.append(SpillCell(row=formula_row + r_offset, col=formula_col + c_offset, kind=kind, value=stored_val))
-                    coerced_grid.append(coerced_row)
-                    cell_metas.append(meta_row)
-
-                if num_cols > 1:
-                    first_row_range = sheet.getCellRangeByPosition(formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row)
-                    first_row_range.setDataArray((tuple(coerced_grid[0][1:]),))
-
-                if num_rows > 1:
-                    remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
-                    remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
-
-                for err_col, err_row, err_code in error_writes:
-                    sheet.getCellByPosition(err_col, err_row).setFormula(f"=#ERR{err_code}!")
+                values = _classify_spill_grid(grid, num_cols, null_dt)
+                new_cells = [
+                    SpillCell(row=formula_row + r, col=formula_col + c, kind=v.kind, value=v.registry_value)
+                    for r, row in enumerate(values)
+                    for c, v in enumerate(row)
+                    if (r, c) != (0, 0)
+                ]
+                _write_spill_values(sheet, formula_row, formula_col, values)
                 state.spills[reg_key] = SpillRecord(code=code, cells=new_cells)
                 save_spill_registry_for_doc(doc, state)
-
-                if has_any_temporal:
-                    try:
-                        formats = doc.getNumberFormats()
-                        locale = doc.getPropertyValue("CharLocale")
-                        if not getattr(locale, "Language", None):
-                            import uno
-
-                            locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
-
-                        standard_keys: dict[str, int] = {}
-                        standard_keys["date"] = int(formats.getStandardFormat(2, locale))
-                        standard_keys["time"] = int(formats.getStandardFormat(4, locale))
-                        standard_keys["datetime"] = int(formats.getStandardFormat(6, locale))
-                        dur_key = formats.getFormatIndex(43, locale)
-                        standard_keys["duration"] = int(dur_key) if dur_key != -1 else 43
-
-                        category_cache: dict[int, str | None] = {}
-                        decisions: list[list[Any]] = []
-
-                        for r_idx in range(num_rows):
-                            row_dec: list[Any] = []
-                            for c_idx in range(num_cols):
-                                meta = cell_metas[r_idx][c_idx]
-                                if meta.get("is_temporal"):
-                                    in_cat = meta["input_category"]
-                                    serial_val = meta["serial"]
-                                    target_c = formula_col + c_idx
-                                    target_r = formula_row + r_idx
-                                    cell = sheet.getCellByPosition(target_c, target_r)
-                                    k = int(cell.getPropertyValue("NumberFormat"))
-                                    if k not in category_cache:
-                                        props = formats.getByKey(k)
-                                        category_cache[k] = format_category_from_type(props.getPropertyValue("Type"))
-                                    dest_cat = category_cache[k]
-                                    if should_preserve_temporal_format(in_cat, float(serial_val), dest_cat):
-                                        row_dec.append(("preserve", None))
-                                    else:
-                                        apply_k = standard_keys.get(in_cat, standard_keys["date"])
-                                        row_dec.append(("apply", int(apply_k)))
-                                elif meta.get("is_empty"):
-                                    row_dec.append("empty")
-                                else:
-                                    row_dec.append(None)
-                            decisions.append(row_dec)
-
-                        rects = coalesce_temporal_apply_rects(decisions)
-                        for r0, r1, c0, c1, k in rects:
-                            trange = sheet.getCellRangeByPosition(formula_col + c0, formula_row + r0, formula_col + c1, formula_row + r1)
-                            trange.setPropertyValue("NumberFormat", int(k))
-                    except Exception:
-                        log.exception("Error applying temporal number formats during deferred spill")
+                _apply_spill_temporal_formats(doc, sheet, formula_row, formula_col, values)
 
     except Exception:
         log.exception("Error in perform_deferred_spill")
 
 
-def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
+def cell_is_matrix(sheet: Any, cell: Any) -> bool:
     """True when the located formula cell is part of a multi-cell array formula block."""
 
     def _probe() -> bool:
@@ -465,75 +421,50 @@ def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
     return bool(uno_read(_probe, False))
 
 
-def _selection_is_multi_cell(target_doc: Any) -> bool:
-    """True when the current UI selection spans more than one cell (matrix entry)."""
-    ctrl = target_doc.getCurrentController() if target_doc is not None else None
-    if ctrl is None:
-        return False
-    selection = ctrl.getSelection()
-    if selection is None or not hasattr(selection, "getRangeAddress"):
-        return False
-    addr = selection.getRangeAddress()
-    return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
-
-
+@dataclass(frozen=True, slots=True)
 class PreparedSpill:
+    """A located formula origin whose spill fits: prepare_auto_spill returns it on the UI thread and queue_deferred_spill_write writes the neighbors from it.
+
+    ``key`` is the workbook's ``WorkbookState.key``; ``code`` is what the origin was located by and what ``perform_deferred_spill`` re-matches.
+    """
+
     sheet_name: str
     formula_row: int
     formula_col: int
     sheet: Any
     key: str
-
-    def __init__(
-        self,
-        sheet_name: str,
-        formula_row: int,
-        formula_col: int,
-        *,
-        sheet: Any = None,
-        key: str = "",
-    ) -> None:
-        self.sheet_name = sheet_name
-        self.formula_row = formula_row
-        self.formula_col = formula_col
-        self.sheet = sheet
-        self.key = key
-
-    @property
-    def doc_key(self) -> str:
-        return self.key
+    code: str
 
 
-def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> PreparedSpill | str | None:
-    """Locate the unique formula origin and check spill collisions (UNO / UI thread).
+def prepare_auto_spill(
+    ctx: Any,
+    doc: Any,
+    state: WorkbookState,
+    origin: FormulaOrigin,
+    code: str,
+    grid_to_spill: list[list[Any]],
+) -> PreparedSpill | str | None:
+    """Check spill collisions for an already-located formula origin (UNO / UI thread).
 
-    Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the
-    neighbor write should proceed, or ``None`` when the origin is not unique.
-    The identity is state.key. An empty identity returns None.
+    Called with the origin already located and known not to be an array block
+    (``CellContext.is_matrix`` on the main path, ``cell_is_matrix`` in the off-main
+    callback). Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the neighbor
+    write should proceed, or ``None`` when ``state.key`` is empty.
     """
-    located = locate_formula_cell_in_doc(target_doc, code)
-    if located is None:
+    if not state.key:
         return None
-    state = WorkbookState.for_doc(target_doc)
-    if state is None or not state.key:
-        return None
-    sheet = located[0]
-    cell = located[1]
-    if _cell_is_matrix(sheet, cell):
-        return None
-    formula_coord = located[2]
-    sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
-    log.debug("Spill: located formula cell at %r on sheet %r for code %r", formula_coord, sheet_name, code)
-    formula_row, formula_col = formula_coord
+    sheet = origin.sheet
+    formula_row = origin.row
+    formula_col = origin.col
+    sheet_name = origin.sheet_name
+    log.debug("Spill: checking formula cell at %r on sheet %r for code %r", (formula_row, formula_col), sheet_name, code)
 
     if not state.loaded:
-        load_spill_registry_for_doc(target_doc, state)
+        load_spill_registry_for_doc(doc, state)
         state.loaded = True
 
     try:
-        from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
-
-        ensure_sheet_modify_listener(ctx, target_doc, sheet)
+        ensure_sheet_modify_listener(ctx, doc, sheet)
     except Exception:
         log.exception("Failed to register modify listener on sheet")
 
@@ -565,15 +496,11 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
-    return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key)
+    return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key, code=code)
 
 
-def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
+def queue_deferred_spill_write(state: WorkbookState, doc: Any, prepared: PreparedSpill, grid_to_spill: list[list[Any]]) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
-    state = WorkbookState.for_doc(target_doc)
-    if state is None:
-        log.warning("Spill: no workbook state for doc; skipping deferred spill write")
-        return
     token = f"spill:{prepared.sheet_name}:{prepared.formula_row}:{prepared.formula_col}"
 
     def _write() -> None:
@@ -582,27 +509,34 @@ def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], targe
             prepared.formula_row,
             prepared.formula_col,
             grid_to_spill,
-            doc=target_doc,
+            doc=doc,
             sheet=prepared.sheet,
-            code=code,
+            code=prepared.code,
             key=prepared.key,
         )
 
     state.debounce.schedule(token, 0.1, _write)
 
 
-def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
+def queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], doc: Any) -> None:
     """Locate and write the spill on the UI thread in the calling document.
 
-    Yellow/off-main finalize must not touch UNO: *doc* (the add-in caller) is
+    Off-main finalize must not touch UNO: *doc* (the add-in caller) is
     only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
-    def _on_main() -> None:
+    def _on_main(state: WorkbookState) -> None:
         try:
-            prepared = _prepare_auto_spill(ctx, code, grid_to_spill, doc)
+            # Locate on the UI thread because the off-main add-in call must not touch UNO on the document.
+            located = locate_formula_cell_in_doc(doc, code)
+            if located is None:
+                return
+            origin = FormulaOrigin.from_located(located)
+            if cell_is_matrix(origin.sheet, origin.cell):
+                return
+            prepared = prepare_auto_spill(ctx, doc, state, origin, code, grid_to_spill)
         except Exception:
             log.exception("Error checking spill collision or locating formula cell")
             return
@@ -616,7 +550,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
             grid_to_spill,
             doc=doc,
             sheet=prepared.sheet,
-            code=code,
+            code=prepared.code,
             key=prepared.key,
         )
 
@@ -626,6 +560,6 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
         if state is None or not state.key:
             log.debug("Spill: no workbook state on UI thread; skipping off-main auto-spill")
             return
-        state.debounce.schedule(f"code:{code}", 0.1, _on_main)
+        state.debounce.schedule(f"code:{code}", 0.1, lambda: _on_main(state))
 
     main.post(_arm_on_ui)

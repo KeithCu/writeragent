@@ -481,6 +481,7 @@ def test_parse_color_to_uno_int_hex_and_int() -> None:
     assert visual_helpers.parse_color_to_uno_int("#FF0000") == 0xFF0000
     assert visual_helpers.parse_color_to_uno_int("00FF00") == 0x00FF00
     assert visual_helpers.parse_color_to_uno_int("#0f0") == 0x00FF00
+    assert visual_helpers.parse_color_to_uno_int("#000") == 0x000000
     assert visual_helpers.parse_color_to_uno_int("0x0000FF") == 0x0000FF
     assert visual_helpers.parse_color_to_uno_int(0x112233) == 0x112233
     assert visual_helpers.parse_color_to_uno_int(0x1AABBCC) == 0xAABBCC
@@ -488,6 +489,7 @@ def test_parse_color_to_uno_int_hex_and_int() -> None:
 
 def test_parse_color_to_uno_int_names_rgb_tuple() -> None:
     assert visual_helpers.parse_color_to_uno_int("red") == 0xFF0000
+    assert visual_helpers.parse_color_to_uno_int("RED") == 0xFF0000
     assert visual_helpers.parse_color_to_uno_int("Dark Green") == 0x006400
     assert visual_helpers.parse_color_to_uno_int("rgb(1, 2, 3)") == 0x010203
     assert visual_helpers.parse_color_to_uno_int("rgba(10, 20, 30, 0.5)") == 0x0A141E
@@ -812,23 +814,30 @@ def test_position_on_draw_page():
     assert pos_x_only.Y == 0
 
 
-def test_is_graphic_object_checks_services_before_graphic_property():
-    class RecordingPropertyObject(FakePropertyObject):
-        def __init__(self, properties: dict[str, object], services: set[str] | None = None):
-            super().__init__(properties, services)
-            self.calls: list[str] = []
+@pytest.mark.parametrize(
+    ("obj", "expected"),
+    [
+        pytest.param(None, False, id="none"),
+        pytest.param(FakePropertyObject({}, {visual_helpers.WRITER_GRAPHIC_SERVICE}), True, id="writer-graphic-service"),
+        pytest.param(FakePropertyObject({}, {visual_helpers._TEXT_GRAPHIC_SERVICE}), True, id="text-graphic-service"),
+        pytest.param(FakePropertyObject({}, {visual_helpers.DRAW_GRAPHIC_SERVICE}), True, id="draw-graphic-service"),
+        pytest.param(FakePropertyObject({"Graphic": object()}), True, id="graphic-property"),
+        pytest.param(FakePropertyObject({}), False, id="neither"),
+    ],
+)
+def test_is_graphic_object(obj, expected):
+    assert visual_helpers.is_graphic_object(obj) is expected
 
-        def supportsService(self, service: str) -> bool:
-            self.calls.append("supportsService")
-            return super().supportsService(service)
 
+def test_is_graphic_object_service_succeeds_when_graphic_property_raises():
+    class _ServiceOnlyGraphic(FakePropertyObject):
         def getPropertyValue(self, name: str):
-            self.calls.append("getPropertyValue")
+            if name == "Graphic":
+                raise RuntimeError("property read failed")
             return super().getPropertyValue(name)
 
-    obj = RecordingPropertyObject({}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
+    obj = _ServiceOnlyGraphic({}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
     assert visual_helpers.is_graphic_object(obj) is True
-    assert obj.calls == ["supportsService"]
 
 
 def test_safe_property_helpers_reraise_disposed():
@@ -897,16 +906,3 @@ def test_graphic_objects_in_selection_reraise_disposed():
 
     with pytest.raises(DocumentDisposedError):
         visual_helpers.graphic_objects_in_selection(DisposedWriterDoc({}))
-
-
-def test_is_writer_like():
-    assert visual_helpers.is_writer_like("writer") is True
-    assert visual_helpers.is_writer_like("web") is True
-    assert visual_helpers.is_writer_like("calc") is False
-    assert visual_helpers.is_writer_like("draw") is False
-    assert visual_helpers.is_writer_like("impress") is False
-    assert visual_helpers.is_writer_like("unknown") is False
-
-
-
-

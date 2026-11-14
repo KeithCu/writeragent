@@ -30,16 +30,16 @@ from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_active_document, get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
+from plugin.scripting.helper_registry import is_text_diagnostics
 from plugin.scripting.python_runner_ui import (
     ModelessWindowClosingListener,
     close_modeless_dialog,
 )
 from plugin.scripting.text_analytics import (
-    _result_payload,
-    _result_to_html_table,
     get_doc_language,
     insert_text_analytics_result_into_doc,
     resolve_text_analytics_document_inputs,
+    text_analytics_report_html,
 )
 
 log = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ class TextAnalyticsDialog:
                 ctrl.addActionListener(_TextAnalyticsAction(handler))
 
     def _on_compute(self, helper: str) -> None:
-        scope = "whole" if helper == "diagnostics" else self._scope_from_dialog()
+        scope = "whole" if is_text_diagnostics(helper) else self._scope_from_dialog()
         if scope is None:
             return
         self._compute(helper, scope)
@@ -215,7 +215,7 @@ class TextAnalyticsDialog:
         ctx = self._ctx
         doc = get_active_document(ctx)
 
-        is_diag = helper in ("diagnostics", "check")
+        is_diag = is_text_diagnostics(helper)
         if is_diag:
             text: str | list[str] | None = None
             doc_lang = get_doc_language(doc) if doc else None
@@ -296,7 +296,7 @@ class TextAnalyticsDialog:
 
         if error is not None:
             self._clear_result()
-            if helper in ("diagnostics", "check"):
+            if is_text_diagnostics(helper):
                 text = _("Error from the Text Analytics worker:\n{err}").format(err=str(error))
             else:
                 # every non-diagnostics exception, including Python worker failed: timed out after …, used this package paragraph. The paragraph stays for messages that are failed imports. Other failures show only Error: plus the exception text.
@@ -312,11 +312,7 @@ class TextAnalyticsDialog:
             res_ctrl.getModel().Text = text
             return
 
-        if (
-            isinstance(result, dict)
-            and result.get("status") == "ok"
-            and _result_to_html_table(_result_payload(result))
-        ):
+        if text_analytics_report_html(result):
             self._last_result = result
         else:
             self._clear_result()
@@ -397,6 +393,165 @@ def _install_suffix_parts(data: dict[str, Any]) -> list[str]:
     return parts
 
 
+def _format_diagnostics(result: dict[str, Any], data: dict[str, Any]) -> str:
+    if result.get("status") == "error" and data.get("status") != "error":
+        return _text_analytics_error_line(result)
+
+    if data.get("status") == "error":
+        install = data.get("text_analytics_install", "")
+        py = data.get("python_used_by_worker", "unknown")
+        msg = f"Diagnostics Error (worker python: {py}):\n{data.get('message')}"
+        if install:
+            msg += f"\n\nFull requirements for Text Analytics features:\n  {install}"
+        return msg
+
+    lines = ["Text Analytics Diagnostics (inside the actual worker python):"]
+    py = data.get("python_used_by_worker", "unknown")
+    lines.append(f"  Python executable used: {py}")
+    lines.append(f"  spaCy version: {data.get('spacy_version', 'N/A')}")
+    lines.append(f"  textdescriptives: {'Installed' if data.get('has_textdescriptives') else 'Missing'}")
+
+    models = data.get("models") or []
+    if models:
+        lines.append(f"  Installed Models ({len(models)}):")
+        lines.extend(f"    - {m}" for m in models)
+    else:
+        lines.append("  No models detected/loaded.")
+
+    for label, flag, version_key in (
+        ("transformers", "has_transformers", "transformers_version"),
+        ("torch", "has_torch", "torch_version"),
+        ("scikit-learn", "has_sklearn", "sklearn_version"),
+    ):
+        installed = bool(data.get(flag))
+        lines.append(f"  {label}: {'Installed' if installed else 'Missing'}")
+        if installed:
+            lines.append(f"  {label} version: {data.get(version_key, 'N/A')}")
+
+    install = data.get("text_analytics_install")
+    if install:
+        lines.append("\nPackages needed for everything this dialog supports")
+        lines.append("(Readability with real scores, Entities, Key Phrases, Topics, Sentiment, etc.):")
+        lines.append(f"  {install}")
+
+    lines.append("\nInstall the packages listed above into the Python the worker is using.")
+    lines.append("Click Check Venv again after installing.")
+
+    return "\n".join(lines)
+
+
+def _format_readability(result: dict[str, Any], data: dict[str, Any]) -> str:
+    if result.get("status") != "ok":
+        return _text_analytics_error_line(result)
+
+    lines: list[str] = []
+    rd = data.get("readability") or {}
+    ds = data.get("descriptive_stats") or {}
+    if rd:
+        lines.append("Readability (via textdescriptives):")
+        lines.extend(_format_metric_lines(rd))
+    if ds:
+        lines.append("\nDescriptive stats:")
+        lines.extend(_format_metric_lines(ds))
+    meta = data.get("meta") or {}
+    if meta:
+        lines.append(f"\nModel: {meta.get('model')}  Lang: {meta.get('lang')}")
+    return "\n".join(lines) if lines else "No readability metrics returned."
+
+
+def _format_entities(result: dict[str, Any], data: dict[str, Any]) -> str:
+    if result.get("status") != "ok":
+        return _text_analytics_error_line(result)
+
+    ents = data.get("entities") or []
+    if not ents:
+        return "No entities found."
+    return _capped_list("Entities", ents, lambda e: f"  {e.get('text')} [{e.get('label')}]")
+
+
+def _format_key_phrases(result: dict[str, Any], data: dict[str, Any]) -> str:
+    if result.get("status") != "ok":
+        return _text_analytics_error_line(result)
+
+    kps = data.get("key_phrases") or []
+    if not kps:
+        return "No key phrases found."
+    return _capped_list("Key Phrases", kps, lambda kp: f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
+
+
+def _format_topics(result: dict[str, Any], data: dict[str, Any]) -> str:
+    tops = data.get("topics") or []
+    if result.get("status") == "ok" and tops:
+        lines = [f"Topics ({len(tops)}):"]
+        for t in tops:
+            tid = t.get("id")
+            terms = ", ".join(t.get("terms", [])[:6])
+            lines.append(f"  Topic {tid}: {terms}")
+        assigns = data.get("assignments") or []
+        if assigns:
+            lines.append(f"\nSection assignments ({len(assigns)}):")
+            cnt = Counter(a.get("dominant_topic") for a in assigns)
+            for tid, c in sorted(cnt.items()):
+                lines.append(f"  Topic {tid}: {c} section(s)")
+        meta = data.get("meta") or {}
+        if meta:
+            lines.append(f"\nMeta: {meta}")
+        return "\n".join(lines)
+
+    # Format MISSING_PACKAGE from payload fields even when status is error so install hints appear in the results pane.
+    err = data.get("error") or data.get("note")
+    if err and "MISSING_PACKAGE" in str(err):
+        return "\n\n".join(["Topics: MISSING_PACKAGE", *_install_suffix_parts(data)])
+    if err:
+        return f"Topics: {err}"
+    if result.get("status") != "ok":
+        return _text_analytics_error_line(result)
+    return "No topics found."
+
+
+def _format_sentiment(result: dict[str, Any], data: dict[str, Any]) -> str:
+    # Check payload error before scores so missing packages and load failures show install guidance instead of neutral 0.0.
+    err = data.get("error")
+    if result.get("status") != "ok" or err is not None:
+        if err is None:
+            return _text_analytics_error_line(result)
+        err_str = str(err)
+        if "MISSING_PACKAGE" in err_str:
+            msg = "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
+        elif "LOAD_FAILED" in err_str:
+            msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
+        else:
+            msg = f"Sentiment error: {err}"
+        parts = [msg, *_install_suffix_parts(data)]
+        detail = str(data.get("detail") or "").strip()
+        if detail:
+            parts.append(f"Real error details from the worker process:\n{detail}")
+        return "\n\n".join(parts)
+
+    sent = data.get("sentiment") or {}
+    if not sent or "score" not in sent:
+        return "No sentiment data."
+    lines = [f"Sentiment: {sent.get('label')} (score: {sent.get('score')})"]
+    per = data.get("per_section") or []
+    if per:
+        lines.append(f"\nBy section ({len(per)}):")
+        for p in per:
+            idx = p.get("section_index")
+            lines.append(f"  [{idx}] {p.get('label')} ({p.get('score')})")
+    return "\n".join(lines)
+
+
+# Each formatter decides what a non-ok status shows (topics and sentiment
+# check payload errors first so missing-package hints still surface).
+_DISPLAY_FORMATTERS: dict[str, Callable[[dict[str, Any], dict[str, Any]], str]] = {
+    "readability": _format_readability,
+    "entities": _format_entities,
+    "key_phrases": _format_key_phrases,
+    "topics": _format_topics,
+    "sentiment": _format_sentiment,
+}
+
+
 def format_text_analytics_result_for_display(helper: str, result: dict[str, Any] | None) -> str:
     """Format a text analytics result dict for UI display in the analytics dialog."""
     if not isinstance(result, dict):
@@ -405,143 +560,11 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
     raw_data = result.get("result")
     data = raw_data if isinstance(raw_data, dict) else {}
 
-    if helper in ("diagnostics", "check"):
-        if result.get("status") == "error" and data.get("status") != "error":
-            return _text_analytics_error_line(result)
-
-        if data.get("status") == "error":
-            install = data.get("text_analytics_install", "")
-            py = data.get("python_used_by_worker", "unknown")
-            msg = f"Diagnostics Error (worker python: {py}):\n{data.get('message')}"
-            if install:
-                msg += f"\n\nFull requirements for Text Analytics features:\n  {install}"
-            return msg
-
-        lines = ["Text Analytics Diagnostics (inside the actual worker python):"]
-        py = data.get("python_used_by_worker", "unknown")
-        lines.append(f"  Python executable used: {py}")
-        lines.append(f"  spaCy version: {data.get('spacy_version', 'N/A')}")
-        lines.append(f"  textdescriptives: {'Installed' if data.get('has_textdescriptives') else 'Missing'}")
-
-        models = data.get("models") or []
-        if models:
-            lines.append(f"  Installed Models ({len(models)}):")
-            lines.extend(f"    - {m}" for m in models)
-        else:
-            lines.append("  No models detected/loaded.")
-
-        for label, flag, version_key in (
-            ("transformers", "has_transformers", "transformers_version"),
-            ("torch", "has_torch", "torch_version"),
-            ("scikit-learn", "has_sklearn", "sklearn_version"),
-        ):
-            installed = bool(data.get(flag))
-            lines.append(f"  {label}: {'Installed' if installed else 'Missing'}")
-            if installed:
-                lines.append(f"  {label} version: {data.get(version_key, 'N/A')}")
-
-        install = data.get("text_analytics_install")
-        if install:
-            lines.append("\nPackages needed for everything this dialog supports")
-            lines.append("(Readability with real scores, Entities, Key Phrases, Topics, Sentiment, etc.):")
-            lines.append(f"  {install}")
-
-        lines.append("\nInstall the packages listed above into the Python the worker is using.")
-        lines.append("Click Check Venv again after installing.")
-
-        return "\n".join(lines)
-
-    if helper in ("readability", "entities", "key_phrases"):
-        if result.get("status") != "ok":
-            return _text_analytics_error_line(result)
-
-        if helper == "readability":
-            lines = []
-            rd = data.get("readability") or {}
-            ds = data.get("descriptive_stats") or {}
-            if rd:
-                lines.append("Readability (via textdescriptives):")
-                lines.extend(_format_metric_lines(rd))
-            if ds:
-                lines.append("\nDescriptive stats:")
-                lines.extend(_format_metric_lines(ds))
-            meta = data.get("meta") or {}
-            if meta:
-                lines.append(f"\nModel: {meta.get('model')}  Lang: {meta.get('lang')}")
-            return "\n".join(lines) if lines else "No readability metrics returned."
-
-        if helper == "entities":
-            ents = data.get("entities") or []
-            if not ents:
-                return "No entities found."
-            return _capped_list("Entities", ents, lambda e: f"  {e.get('text')} [{e.get('label')}]")
-
-        kps = data.get("key_phrases") or []
-        if not kps:
-            return "No key phrases found."
-        return _capped_list("Key Phrases", kps, lambda kp: f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
-
-    if helper == "topics":
-        tops = data.get("topics") or []
-        if result.get("status") == "ok" and tops:
-            lines = [f"Topics ({len(tops)}):"]
-            for t in tops:
-                tid = t.get("id")
-                terms = ", ".join(t.get("terms", [])[:6])
-                lines.append(f"  Topic {tid}: {terms}")
-            assigns = data.get("assignments") or []
-            if assigns:
-                lines.append(f"\nSection assignments ({len(assigns)}):")
-                cnt = Counter(a.get("dominant_topic") for a in assigns)
-                for tid, c in sorted(cnt.items()):
-                    lines.append(f"  Topic {tid}: {c} section(s)")
-            meta = data.get("meta") or {}
-            if meta:
-                lines.append(f"\nMeta: {meta}")
-            return "\n".join(lines)
-
-        # Format MISSING_PACKAGE from payload fields even when status is error so install hints appear in the results pane.
-        err = data.get("error") or data.get("note")
-        if err and "MISSING_PACKAGE" in str(err):
-            return "\n\n".join(["Topics: MISSING_PACKAGE", *_install_suffix_parts(data)])
-        if err:
-            return f"Topics: {err}"
-        if result.get("status") != "ok":
-            return _text_analytics_error_line(result)
-        return "No topics found."
-
-    if helper == "sentiment":
-        # Check payload error before scores so missing packages and load failures show install guidance instead of neutral 0.0.
-        err = data.get("error")
-        if result.get("status") != "ok" or err is not None:
-            if err is None:
-                return _text_analytics_error_line(result)
-            err_str = str(err)
-            if "MISSING_PACKAGE" in err_str:
-                msg = "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
-            elif "LOAD_FAILED" in err_str:
-                msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
-            else:
-                msg = f"Sentiment error: {err}"
-            parts = [msg, *_install_suffix_parts(data)]
-            detail = str(data.get("detail") or "").strip()
-            if detail:
-                parts.append(f"Real error details from the worker process:\n{detail}")
-            return "\n\n".join(parts)
-
-        sent = data.get("sentiment") or {}
-        if not sent or "score" not in sent:
-            return "No sentiment data."
-        lines = [f"Sentiment: {sent.get('label')} (score: {sent.get('score')})"]
-        per = data.get("per_section") or []
-        if per:
-            lines.append(f"\nBy section ({len(per)}):")
-            for p in per:
-                idx = p.get("section_index")
-                lines.append(f"  [{idx}] {p.get('label')} ({p.get('score')})")
-        return "\n".join(lines)
-
+    if is_text_diagnostics(helper):
+        return _format_diagnostics(result, data)
+    formatter = _DISPLAY_FORMATTERS.get(helper)
+    if formatter is not None:
+        return formatter(result, data)
     if result.get("status") != "ok":
         return _text_analytics_error_line(result)
-
     return "Error: Text analytics failed."

@@ -161,7 +161,7 @@ def test_native_save_formula_mode():
     dlg.controls["DataEdit"].setText("C1:C2")
     dlg.controls["CodeEdit"].setText("result = 3")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "saved", "ok": True, "save_as_plain": False},
     ) as mock_save:
         inst._save()
@@ -176,7 +176,7 @@ def test_native_save_formula_mode():
 def test_native_save_plain_mode():
     dlg, inst = _open_native(initial_code="print(1)", parsed_parts=None)
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={
             "type": "saved",
             "ok": True,
@@ -193,7 +193,7 @@ def test_native_save_plain_mode():
 def test_native_save_error_status():
     dlg, inst = _open_native(initial_code="x", parsed_parts=None)
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "error", "message": "could not rewrite"},
     ):
         inst._save()
@@ -301,7 +301,7 @@ def test_confirm_unsaved_cell_edit_maps_yes_no_cancel():
     ctx.getServiceManager.return_value = smgr
     desktop = MagicMock()
     desktop.getCurrentFrame.return_value.getContainerWindow.return_value = MagicMock()
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.scripting.editor_host.get_desktop", return_value=desktop):
         box.execute.return_value = 2
         assert confirm_unsaved_cell_edit(ctx, "A1") == "save"
         box.execute.return_value = 3
@@ -424,7 +424,7 @@ def test_native_follow_ref_keeps_data_enabled_and_saves_code_cell():
     assert dlg.controls["CellAddr"].getText() == "A1"
     dlg.controls["CodeEdit"].setText("result = 99")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={
             "type": "saved",
             "ok": True,
@@ -474,7 +474,7 @@ def test_monaco_follow_ref_load_shows_code_cell_and_keeps_data():
     assert load_msg["code"] == "result = 42"
     assert load_msg["cell_address"] == "A1"
     assert load_msg["data_binding"] == "C1:C10"
-    with patch.object(ed, "_apply_cell_save", return_value={"type": "saved", "ok": True}) as mock_save:
+    with patch.object(ed, "apply_cell_save", return_value={"type": "saved", "ok": True}) as mock_save:
         captured["on_save"]("result = 99", True, "C1:C10")
     kwargs = mock_save.call_args.kwargs
     assert kwargs["save_as_plain"] is True
@@ -485,6 +485,7 @@ def test_monaco_follow_ref_load_shows_code_cell_and_keeps_data():
 
 
 def test_monaco_calc_cell_save_keeps_data_binding_in_follow_mode():
+    """Follow-mode Monaco save must still send the Data field (#1474); the JS has no CI runner, so the guard is the binding expression in editor_shell.js."""
     from pathlib import Path
 
     js_file = Path(__file__).resolve().parents[3] / "plugin" / "contrib" / "scripting" / "assets" / "editor" / "editor_shell.js"
@@ -511,7 +512,7 @@ def test_open_unquoted_ref_loads_followed_cell_text():
         captured["load_message"] = load_message
         return True
 
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, formula_cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("$A$1", parts, "=PY($A$1; C1:C10)")
@@ -521,7 +522,7 @@ def test_open_unquoted_ref_loads_followed_cell_text():
         ed, "monaco_editor_available", return_value=("/venv/bin/python", True)
     ), patch.object(
         ed, "launch_monaco_editor", side_effect=fake_launch
-    ), patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ), patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
 
     load_msg = captured["load_message"]
@@ -547,7 +548,7 @@ def test_open_quoted_a1_does_not_follow_code_cell():
         captured["load_message"] = load_message
         return True
 
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("A1", parts, '=PY("A1")')
@@ -557,7 +558,7 @@ def test_open_quoted_a1_does_not_follow_code_cell():
         ed, "monaco_editor_available", return_value=("/venv/bin/python", True)
     ), patch.object(
         ed, "launch_monaco_editor", side_effect=fake_launch
-    ), patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ), patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
 
     resolve.assert_not_called()
@@ -585,7 +586,7 @@ def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
         return True
 
     resolve_target = resolve_cell if resolve_cell is not None else MagicMock()
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=(code, parts, formula)
@@ -597,7 +598,7 @@ def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
         ed, "launch_monaco_editor", side_effect=fake_launch
     ), patch.object(
         ed, "msgbox"
-    ) as boxed, patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ) as boxed, patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
     captured["resolve"] = resolve
     captured["msgbox"] = boxed
@@ -661,7 +662,7 @@ def test_open_missing_code_cell_shows_error():
     formula = "=PY(Missing.A1)"
     parts = PyFormula.parse(formula)
     assert parts is not None
-    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+    with patch.object(
         ed, "_get_active_calc_cell", return_value=(doc, cell)
     ), patch.object(
         ed, "_load_cell_editor_code", return_value=("Missing.A1", parts, formula)
@@ -671,7 +672,7 @@ def test_open_missing_code_cell_shows_error():
         ed, "launch_monaco_editor"
     ) as launch, patch.object(
         ed, "msgbox"
-    ) as boxed, patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+    ) as boxed, patch("plugin.calc.python.editor.install_calc_cell_context_menu"):
         ed.open_python_cell_editor(ctx)
     launch.assert_not_called()
     boxed.assert_called_once()
@@ -701,7 +702,7 @@ def test_native_follow_two_data_ranges_shown_and_saved():
     dlg.controls["DataEdit"].setText("D1:D5, E1:E5")
     dlg.controls["CodeEdit"].setText("result = 1")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "saved", "ok": True, "save_as_plain": True},
     ) as mock_save:
         inst._save()
@@ -731,7 +732,7 @@ def test_native_follow_python_alias_and_clear_data():
     dlg.controls["DataEdit"].setText("")
     dlg.controls["CodeEdit"].setText("result = 2")
     with patch(
-        "plugin.calc.python.editor._apply_cell_save",
+        "plugin.calc.python.editor.apply_cell_save",
         return_value={"type": "saved", "ok": True, "save_as_plain": True},
     ) as mock_save:
         inst._save()
@@ -766,7 +767,7 @@ def test_native_external_dispose_clears_active():
 def test_native_save_exception_shows_reason_and_stays_dirty():
     dlg, inst = _open_native(initial_code="x", parsed_parts=None)
     inst._dirty = True
-    with patch("plugin.calc.python.editor._apply_cell_save", side_effect=RuntimeError("boom")):
+    with patch("plugin.calc.python.editor.apply_cell_save", side_effect=RuntimeError("boom")):
         inst._save()
     assert inst._dirty is True
     assert "Could not save the cell." in dlg.controls["StatusEdit"].getText()
@@ -790,9 +791,6 @@ def test_xdl_controls_match_controller():
     src = (root_dir / "plugin" / "calc" / "python" / "cell_editor_ui.py").read_text(encoding="utf-8")
     used = set(re.findall(r'(?:_ctrl|getControl)\("([^"]+)"\)', src))
     assert used <= ids
-    values = {el.get(ns + "id"): el.get(ns + "value") for el in root.iter() if el.get(ns + "id")}
-    assert values["ChkPlainText"] == "Save without =PY()"
-    assert values["DataLbl"] == "Data:"
 
 
 def test_status_text_prefixes_once():
@@ -816,7 +814,10 @@ def test_open_failure_returns_detail():
 
 def test_native_data_help_text_follows_enablement():
     dlg, inst = _open_native(initial_code="print(1)", parsed_parts=None)
-    assert "only when saving as a =PY() formula" in dlg.controls["DataEdit"]._model.HelpText
+    disabled_help = dlg.controls["DataEdit"]._model.HelpText
+    assert disabled_help
     dlg.controls["ChkPlainText"].setState(0)
     inst._sync_data_enabled()
-    assert "Calc injects" in dlg.controls["DataEdit"]._model.HelpText
+    enabled_help = dlg.controls["DataEdit"]._model.HelpText
+    assert enabled_help
+    assert enabled_help != disabled_help

@@ -99,13 +99,23 @@ def test_ods_source_never_looks_up_cache(tmp_path: Path):
     assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
 
 
-def test_write_sidecar_meta_is_atomic(tmp_path: Path):
+def test_write_sidecar_meta_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     meta_path = tmp_path / "test.meta.json"
     write_sidecar_meta(meta_path, "/abs/file.xlsx", 1000, 200)
     write_sidecar_meta(meta_path, "/abs/file.xlsx", 2000, 300)
     data = json.loads(meta_path.read_text(encoding="utf-8"))
     assert data["mtime_ns"] == 2000
     assert data["size"] == 300
+
+    def _fail_replace(_src, _dst):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr("plugin.calc.ods_cache.os.replace", _fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        write_sidecar_meta(meta_path, "/abs/file.xlsx", 3000, 400)
+    data_after = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert data_after["mtime_ns"] == 2000
+    assert data_after["size"] == 300
     assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".partial")] == []
 
 

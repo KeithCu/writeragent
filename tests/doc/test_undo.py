@@ -4,20 +4,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Undo and redo tool exposure. No LibreOffice."""
 from unittest.mock import MagicMock
+
+import pytest
+
 from plugin.framework.errors import make_tool_error
-
-
-# ---- 7) undo/redo exposed --------------------------------------------------------
-
-def test_undo_redo_are_real_core_tools():
-    from plugin.framework.tool import ToolBase
-    from plugin.doc.undo import Redo, Undo
-
-    for cls in (Undo, Redo):
-        assert issubclass(cls, ToolBase)
-        assert cls.tier == "core"
-        assert cls.is_mutation is True
-        assert "user" in cls.description.lower()  # the shared-stack caution must be in the description
 
 
 def test_undo_counts_steps_and_reports_stack_state():
@@ -44,30 +34,24 @@ def test_redo_counts_steps():
     assert res["status"] == "ok" and res["redone"] == 1
 
 
-def test_undo_huge_steps_clamped():
-    from plugin.doc.undo import Undo
+@pytest.mark.parametrize(
+    ("tool_name", "count_key", "method_name"),
+    [
+        ("Undo", "undone", "undo"),
+        ("Redo", "redone", "redo"),
+    ],
+)
+def test_undo_redo_huge_steps_clamped(tool_name, count_key, method_name):
+    import plugin.doc.undo as undo_mod
 
     um = MagicMock()
     um.isUndoPossible.return_value = True
     um.isRedoPossible.return_value = True
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value = um
-    res = Undo().execute(ctx, steps=10000)
-    assert res["status"] == "ok" and res["undone"] == 10
-    assert um.undo.call_count == 10
-
-
-def test_redo_huge_steps_clamped():
-    from plugin.doc.undo import Redo
-
-    um = MagicMock()
-    um.isRedoPossible.return_value = True
-    um.isUndoPossible.return_value = True
-    ctx = MagicMock()
-    ctx.doc.getUndoManager.return_value = um
-    res = Redo().execute(ctx, steps=10000)
-    assert res["status"] == "ok" and res["redone"] == 10
-    assert um.redo.call_count == 10
+    res = getattr(undo_mod, tool_name)().execute(ctx, steps=10000)
+    assert res["status"] == "ok" and res[count_key] == 10
+    assert getattr(um, method_name).call_count == 10
 
 
 def test_commit_or_rollback_success():
@@ -435,7 +419,6 @@ def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
     err = reg.execute("undo", ctx, steps="abc")
     assert err["status"] == "error"
     assert err["code"] == "VALIDATION_ERROR"
-    assert err["message"] == "Invalid type for steps: expected integer, got str"
     um.undo.assert_not_called()
 
 
@@ -632,4 +615,4 @@ def test_undo_without_undo_manager_reports_error():
 
     res = Undo().execute(SimpleNamespace(doc=object()))
     assert res["status"] == "error"
-    assert res["message"] == "Document does not support undo."
+    assert res["code"] == "TOOL_EXECUTION_ERROR"

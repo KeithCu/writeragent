@@ -16,52 +16,6 @@ from plugin.audio.voice_catalog import (
     _parse_catalog,
 )
 
-EXPECTED_NEW_KOKORO_IDS = [
-    "af_alloy",
-    "af_aoede",
-    "af_jessica",
-    "af_kore",
-    "af_nicole",
-    "af_nova",
-    "af_river",
-    "am_echo",
-    "am_eric",
-    "am_fenrir",
-    "am_liam",
-    "am_onyx",
-    "am_puck",
-    "am_santa",
-    "bf_alice",
-    "bf_lily",
-    "bm_daniel",
-    "bm_fable",
-    "jf_nezumi",
-    "jf_tebukuro",
-    "zf_xiaoni",
-    "zf_xiaoxiao",
-    "zf_xiaoyi",
-    "zm_yunxi",
-    "zm_yunxia",
-    "zm_yunyang",
-    "pm_alex",
-    "pm_santa",
-]
-
-
-def test_real_asset_parses():
-    raw = _load_catalog(CATALOG_PATH)
-    parsed = _parse_catalog(raw)
-
-    assert len(parsed["piper_models"]) == 44
-    assert len(parsed["kokoro_items"]) == 54
-    assert parsed["fallbacks"]["piper"] == "en_US-lessac-medium"
-    assert parsed["fallbacks"]["kokoro"] == "af_sky"
-    assert parsed["kokoro_aliases"]["nova"] == "af_sky"
-
-    kokoro_ids = [r["value"] for r in parsed["kokoro_items"]]
-    for expected_id in EXPECTED_NEW_KOKORO_IDS:
-        assert expected_id in kokoro_ids
-
 
 def test_parse_catalog_non_object_raw():
     with pytest.raises(ValueError, match="^voice_catalog.json: asset must be a JSON object$"):

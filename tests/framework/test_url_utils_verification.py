@@ -10,11 +10,6 @@ CrossHair marked slow (excluded from default ``make test``).
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
-from pathlib import Path
-
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -24,9 +19,9 @@ from plugin.framework.url_utils import (
     get_url_hostname,
     normalize_endpoint_url,
 )
+from tests.harness.crosshair import assert_crosshair_clean
 
 CROSSHAIR_MODULE = "plugin/framework/url_utils.py"
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
 
 _urls = st.one_of(
     st.just(""),
@@ -64,16 +59,6 @@ _owu_urls = st.sampled_from(
 )
 
 
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
-
-
 def test_normalize_empty_and_non_str() -> None:
     assert normalize_endpoint_url("") == ""
     assert normalize_endpoint_url("  ") == ""
@@ -82,7 +67,7 @@ def test_normalize_empty_and_non_str() -> None:
 
 def test_url_helpers_long_and_odd_do_not_precontract() -> None:
     from plugin.framework.deal_shim import DEAL_MAX_URL
-    from plugin.framework.url_utils import get_url_hostname, is_pdf_url
+    from plugin.framework.url_utils import is_pdf_url
 
     too_long = "https://example.com/" + ("a" * DEAL_MAX_URL)
     assert normalize_endpoint_url(too_long).startswith("https://example.com/")
@@ -121,25 +106,9 @@ def test_hypothesis_openwebui_normalize_idempotent(url: str) -> None:
 @settings(max_examples=50)
 def test_hypothesis_api_suffix_shape(url: str) -> None:
     suffix = get_api_version_suffix(url)
-    assert suffix.startswith("/")
-    assert isinstance(get_url_hostname(url if url else "https://example.com"), str)
+    assert suffix in {"/v1", "/v4", "/api/paas/v4", "/v1beta/openai"}
 
 
 @pytest.mark.slow
 def test_crosshair_url_utils_if_available() -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", CROSSHAIR_MODULE],
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output:\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(CROSSHAIR_MODULE, timeout=600)

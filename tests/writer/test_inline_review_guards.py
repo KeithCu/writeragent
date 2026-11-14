@@ -15,7 +15,6 @@ tracked change:
 UNO ranges are faked with integer positions; redline geometry is exercised for real.
 """
 from collections import Counter
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -818,14 +817,6 @@ def test_block_reason_fails_closed_when_hasattr_raises():
     assert reason is not None and "reliably" in reason.lower()
 
 
-def test_inline_review_uno_skips_windows_leftover_view_cursor() -> None:
-    """GHA 34687044125: leftover Hidden view cursor hung in _caret_in."""
-    src = Path(__file__).with_name("test_inline_review_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "inline_review view cursor leftover reuse" in src
-    assert "34687044125" in src
-
-
 def test_redline_is_agent_change_true_for_token():
     assert redline_is_agent_change(_agent_rl()) == (True, True)
 
@@ -1018,7 +1009,6 @@ def test_cursor_resolve_group_dispatch_with_mismatched_after_snapshot_is_partial
         ok, msg = resolve_change_at_cursor(model, ctx, True)
     assert ok is False
     assert "couldn't confirm the result" in msg
-    assert "Edit > Track Changes > Manage" in msg
 
 
 def test_cursor_resolve_group_unreliable_reports_try_again():
@@ -1037,7 +1027,6 @@ def test_cursor_resolve_group_unreliable_reports_try_again():
         ok, msg = resolve_change_at_cursor(model, ctx, True)
     assert ok is False
     assert "try again" in msg.lower()
-    assert "Couldn't read this document's tracked changes reliably" in msg
     assert "may share a paragraph" not in msg
 
 

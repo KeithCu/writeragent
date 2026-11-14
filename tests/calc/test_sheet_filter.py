@@ -12,14 +12,14 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
 
-from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+from plugin.app import get_tools
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError
 from plugin.calc.calc_utils import range_args
 from plugin.calc.sheet_filter import (
     ApplySheetFilter,
     ClearSheetFilter,
     GetSheetFilter,
     _build_filter_fields2,
-    _connection_name,
     _field_to_dict,
 )
 
@@ -107,20 +107,28 @@ def test_field_to_dict_missing_operator_omits_key():
 
 
 def test_field_to_dict_enum_connection():
-    class EnumObj:
-        value = "OR"
-
-    class FieldObj:
+    class FieldObjOr:
         Operator = 1
         Field = 0
-        Connection = EnumObj()
+        Connection = SimpleNamespace(value="OR")
         IsNumeric = True
         NumericValue = 42.0
 
-    result = _field_to_dict(FieldObj(), 0)
-    assert result["connection"] == "OR"
-    assert result["operator_code"] == 1
-    assert result["value"] == 42.0
+    class FieldObjAnd:
+        Operator = 1
+        Field = 1
+        Connection = SimpleNamespace(value="AND")
+        IsNumeric = False
+        StringValue = "x"
+
+    result_or = _field_to_dict(FieldObjOr(), 0)
+    assert result_or["connection"] == "OR"
+    assert result_or["operator_code"] == 1
+    assert result_or["value"] == 42.0
+
+    result_and = _field_to_dict(FieldObjAnd(), 1)
+    assert result_and["connection"] == "AND"
+    assert result_and["value"] == "x"
 
 
 def test_get_sheet_filter_contains_header_disposal_propagates():
@@ -146,39 +154,22 @@ def test_get_sheet_filter_contains_header_disposal_propagates():
         return None
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface", side_effect=fake_query_interface):
+         patch("plugin.calc.sheet_filter.query_interface", side_effect=fake_query_interface):
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         tool = GetSheetFilter()
         with pytest.raises(DocumentDisposedError):
             tool.execute(ctx, range=["A1:B2"])
 
 
-def test_connection_name_decoding():
-    class EnumObj:
-        value = "OR"
-
-    class EnumAnd:
-        value = "AND"
-
-    assert _connection_name(EnumObj()) == "OR"
-    assert _connection_name(EnumAnd()) == "AND"
-    assert _connection_name("com.sun.star.sheet.FilterConnection.OR") == "OR"
-    assert _connection_name("com.sun.star.sheet.FilterConnection.AND") == "AND"
-    assert _connection_name(1) == "OR"
-    assert _connection_name(0) == "AND"
-    assert _connection_name("1") == "OR"
-    assert _connection_name("0") == "AND"
-    assert _connection_name(None) == "AND"
-
-
 def test_range_args_exactly_one_validation():
-    with pytest.raises(UnoObjectError, match="Pass exactly one range."):
+    with pytest.raises(ToolExecutionError, match="Pass exactly one range.") as exc:
         range_args([], exactly_one=True)
+    assert exc.value.code == "INVALID_PARAM"
 
-    with pytest.raises(UnoObjectError, match="Pass exactly one range."):
+    with pytest.raises(ToolExecutionError, match="Pass exactly one range."):
         range_args(["A1:B2", "C1:D2"], exactly_one=True)
 
-    with pytest.raises(UnoObjectError, match="Pass exactly one range."):
+    with pytest.raises(ToolExecutionError, match="Pass exactly one range."):
         range_args(["   "], exactly_one=True)
 
     assert range_args(["A1:B2"], exactly_one=True) == ["A1:B2"]
@@ -193,7 +184,7 @@ def test_contains_header_fails_loudly_when_property_set_missing():
     xf.createFilterDescriptor.return_value = fd
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface") as qi_mock:
+         patch("plugin.calc.sheet_filter.query_interface") as qi_mock:
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         def fake_qi(obj, iface):
             if iface == "com.sun.star.sheet.XSheetFilterable":
@@ -221,7 +212,7 @@ def test_field_greater_than_or_equal_range_width():
     xf.createFilterDescriptor.return_value = fd
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface") as qi_mock:
+         patch("plugin.calc.sheet_filter.query_interface") as qi_mock:
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         def fake_qi(obj, iface):
             if iface == "com.sun.star.sheet.XSheetFilterable":
@@ -234,8 +225,9 @@ def test_field_greater_than_or_equal_range_width():
         qi_mock.side_effect = fake_qi
 
         tool = ApplySheetFilter()
-        with pytest.raises(UnoObjectError, match="out of bounds"):
+        with pytest.raises(ToolExecutionError, match="out of bounds") as exc:
             tool.execute(ctx, range=["A1:B10"], criteria=[{"field": 2, "operator": "EQUAL", "value": "x"}])
+        assert exc.value.code == "INVALID_PARAM"
 
 
 def test_build_filter_fields2_and_readback():
@@ -263,12 +255,10 @@ def test_build_filter_fields2_and_readback():
     d0 = _field_to_dict(fields[0], 0)
     assert d0["field"] == 0
     assert d0["operator"] == "EQUAL"
-    assert d0["connection"] == "AND"
 
     d1 = _field_to_dict(fields[1], 1)
     assert d1["field"] == 1
     assert d1["operator"] == "GREATER"
-    assert d1["connection"] == "OR"
     assert d1["value"] == 10.0
 
 
@@ -282,7 +272,7 @@ def test_apply_and_clear_sheet_filter_success():
     xf.createFilterDescriptor.return_value = fd
 
     with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
-         patch("plugin.calc.sheet_filter._query_interface") as qi_mock, \
+         patch("plugin.calc.sheet_filter.query_interface") as qi_mock, \
          patch("plugin.calc.sheet_filter.uno") as uno_mock:
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
         uno_mock.createUnoStruct.side_effect = lambda name: SimpleNamespace()
@@ -313,3 +303,35 @@ def test_apply_and_clear_sheet_filter_success():
         clear_tool = ClearSheetFilter()
         res_clear = clear_tool.execute(ctx, range=["A1:D10"])
         assert res_clear == {"status": "ok", "range": "A1:D10", "cleared": True}
+
+
+def test_sheet_filter_registry_invalid_param_and_no_filter_call():
+    ctx = SimpleNamespace(doc=MagicMock())
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=1)
+    xf = MagicMock()
+    fd = MagicMock()
+    xf.createFilterDescriptor.return_value = fd
+
+    with patch("plugin.calc.sheet_filter.CalcBridge") as bridge_cls, \
+         patch("plugin.calc.sheet_filter.query_interface") as qi_mock:
+        bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
+        qi_mock.side_effect = lambda obj, iface: {
+            "com.sun.star.sheet.XSheetFilterable": xf,
+            "com.sun.star.beans.XPropertySet": MagicMock(),
+            "com.sun.star.sheet.XSheetFilterDescriptor2": MagicMock(),
+        }.get(iface)
+        res_apply = get_tools().get("sheet_filter_apply").execute_safe(
+            ctx,
+            range=["A1:B10"],
+            criteria=[{"field": 5, "operator": "EQUAL", "value": "x"}],
+        )
+    assert res_apply["status"] == "error"
+    assert res_apply["code"] == "INVALID_PARAM"
+    xf.filter.assert_not_called()
+
+    ctx_get = SimpleNamespace(doc=MagicMock())
+    res_get = get_tools().get("sheet_filter_get").execute_safe(ctx_get, range=["A1:B2", "C1:D2"])
+    assert res_get["status"] == "error"
+    assert res_get["code"] == "INVALID_PARAM"
+    ctx_get.doc.getSheets.assert_not_called()

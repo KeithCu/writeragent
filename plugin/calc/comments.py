@@ -10,10 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcCommentBase
-from plugin.calc.address_utils import format_address, parse_address
+from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import resolve_sheet
-from plugin.framework.errors import is_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -22,12 +20,12 @@ if TYPE_CHECKING:
 def _annotation_date(dt: Any) -> str:
     """Return a cell-comment date as text.
 
-    A string is the date LibreOffice already formatted.
-    ``XSheetAnnotation.getDate()`` returns that string
-    (``offapi/com/sun/star/sheet/XSheetAnnotation.idl``). Reading ``.Year``
-    on it raised, and both format attempts failed closed to empty text. A
-    struct is still formatted when an older bridge or a test double
-    provides one.
+    A string is the date LibreOffice already formatted:
+    ``XSheetAnnotation.getDate()`` returns ``string``
+    (``offapi/com/sun/star/sheet/XSheetAnnotation.idl``;
+    ``ScAnnotationObj::getDate`` in ``sc/source/ui/unoobj/notesuno.cxx``), and
+    reading ``.Year`` on it would raise. A struct with Year/Month/Day (a test
+    double) is still formatted.
     """
     if isinstance(dt, str):
         return dt
@@ -70,7 +68,7 @@ class ListCellComments(ToolCalcCommentBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        sheet = resolve_sheet(doc, kwargs.get("sheet"))
+        sheet = CalcBridge(doc).sheet_or_active(kwargs.get("sheet"))
         annotations = sheet.getAnnotations()
         positioned = [(ann.getPosition(), ann) for ann in (annotations.getByIndex(i) for i in range(annotations.getCount()))]
         positioned.sort(key=lambda item: (item[0].Row, item[0].Column))
@@ -103,7 +101,7 @@ class AddCellComment(ToolCalcCommentBase):
     description: str = "Add a comment (annotation) to a specific cell in a Calc sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3')."}, "text": {"type": "string", "description": "Comment text."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
+        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell."}, "text": {"type": "string", "description": "Comment text."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
         "required": ["cell", "text"],
     }
     is_mutation: bool | None = True
@@ -112,15 +110,14 @@ class AddCellComment(ToolCalcCommentBase):
         cell_ref = kwargs["cell"]
         text = kwargs["text"]
         if not cell_ref or not text:
-            return self._tool_error("cell and text are required.")
+            return self._tool_error("cell and text are required.", code="INVALID_PARAM")
 
         try:
-            sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
-            col, row = parse_address(address)
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            return self._tool_error(str(e))
+            sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
+        except ValueError as e:
+            # parse_address and a prefix/sheet disagreement raise ValueError; the
+            # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
+            return self._tool_error(str(e), code="INVALID_PARAM")
 
         cell_ann, existing_text = _annotation_text(sheet, col, row)
         if existing_text:
@@ -136,21 +133,20 @@ class DeleteCellComment(ToolCalcCommentBase):
 
     name: str | None = "cell_comment_delete"
     description: str = "Delete the comment (annotation) from a specific cell."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3')."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         cell_ref = kwargs["cell"]
         if not cell_ref:
-            return self._tool_error("cell is required.")
+            return self._tool_error("cell is required.", code="INVALID_PARAM")
 
         try:
-            sheet, address = CalcBridge(ctx.doc).resolve(cell_ref, kwargs.get("sheet"))
-            col, row = parse_address(address)
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            return self._tool_error(str(e))
+            sheet, col, row = CalcBridge(ctx.doc).resolve_cell(cell_ref, kwargs.get("sheet"))
+        except ValueError as e:
+            # parse_address and a prefix/sheet disagreement raise ValueError; the
+            # bridge's UnoObjectError (missing sheet, multi-cell name) reaches execute_safe.
+            return self._tool_error(str(e), code="INVALID_PARAM")
 
         annotations = sheet.getAnnotations()
         # Find and remove the annotation at this position

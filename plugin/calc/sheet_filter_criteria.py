@@ -19,7 +19,7 @@ import math
 from typing import Any, NamedTuple
 
 from plugin.framework.deal_shim import deal
-from plugin.framework.errors import UnoObjectError
+from plugin.framework.errors import ToolExecutionError
 
 # Stable table of FilterOperator2 labels (for tool JSON schemas); the IDL code is the index.
 FILTER_OPERATOR2_LABELS: tuple[str, ...] = (
@@ -54,10 +54,8 @@ class FilterCriterion(NamedTuple):
     string_value: str
 
 
-# Dual-profile: Closed FilterOperator2 labels under CrossHair.
 def _deal_filter_op_name_ok_pytest(name: object) -> bool:
-    # An unknown or non-ASCII operator from the model must raise
-    # UnoObjectError, not PreContractError. The body does that.
+    # The contract checks only the type: an unknown or non-ASCII name must reach the body so the model gets INVALID_PARAM, not PreContractError.
     return isinstance(name, str)
 
 
@@ -65,7 +63,7 @@ _deal_filter_op_name_ok = _deal_filter_op_name_ok_pytest
 
 
 def _deal_filter_connection_ok_pytest(name: object) -> bool:
-    # Same as operator names: a bad connection is UnoObjectError.
+    # Same as operator names: a bad connection is INVALID_PARAM.
     return name is None or isinstance(name, str)
 
 
@@ -82,7 +80,7 @@ _OPS_FORCE_NUMERIC = frozenset(("TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES", "B
 
 @deal.pre(lambda name: _deal_filter_connection_ok(name))
 @deal.post(lambda result: result in (0, 1))
-@deal.raises(UnoObjectError)
+@deal.raises(ToolExecutionError)
 def filter_connection_code(name: str | None) -> int:
     """Map ``AND`` / ``OR`` to UNO ``FilterConnection`` (0 / 1 per IDL)."""
     if not name:
@@ -92,27 +90,28 @@ def filter_connection_code(name: str | None) -> int:
         return 0
     if upper == "OR":
         return 1
-    raise UnoObjectError(f"Invalid filter connection: {name!r} (use AND or OR).")
+    raise ToolExecutionError(f"Invalid filter connection: {name!r} (use AND or OR).", code="INVALID_PARAM")
 
 
 @deal.pre(lambda operator: _deal_filter_op_name_ok(operator))
 @deal.post(lambda result: isinstance(result, int) and result >= 0)
-@deal.raises(UnoObjectError)
+@deal.raises(ToolExecutionError)
 def resolve_filter_operator_code(operator: str) -> int:
     """Resolve ``FilterOperator2`` name to numeric code."""
     code = _NAME_TO_CODE.get(_normalize_operator_name(operator))
     if code is None:
-        raise UnoObjectError(f"Unknown filter operator: {operator!r}")
+        raise ToolExecutionError(f"Unknown filter operator: {operator!r}", code="INVALID_PARAM")
     return code
 
 
+# Accepts every input: parse_sheet_filter_criterion's body raises ToolExecutionError(..., code="INVALID_PARAM") for a bad criterion, which @deal.raises declares.
 def _deal_filter_criterion_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
 
 @deal.pre(lambda raw, is_first: _deal_filter_criterion_ok(raw))
 @deal.post(lambda result: isinstance(result, FilterCriterion))
-@deal.raises(UnoObjectError)
+@deal.raises(ToolExecutionError)
 def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     """Return ``FilterCriterion`` (Field, Operator, Connection, IsNumeric, NumericValue, StringValue).
 
@@ -123,28 +122,38 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
     """
     # crosshair: off
     if not isinstance(raw, dict):
-        raise UnoObjectError("Each criterion must be an object.")
+        raise ToolExecutionError("Each criterion must be an object.", code="INVALID_PARAM")
 
     if "field" not in raw:
-        raise UnoObjectError("Each criterion needs 'field' (0-based column index within range).")
+        raise ToolExecutionError(
+            "Each criterion needs 'field' (0-based column index within range).", code="INVALID_PARAM"
+        )
     raw_field = raw["field"]
     if isinstance(raw_field, bool):
-        raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw_field!r}")
+        raise ToolExecutionError(
+            f"Invalid filter 'field' (need 0-based column index): {raw_field!r}", code="INVALID_PARAM"
+        )
     try:
         if (isinstance(raw_field, float) and not raw_field.is_integer()) or (
             isinstance(raw_field, str) and "." in raw_field
         ):
-            raise UnoObjectError(f"Invalid filter 'field' (need integer column index): {raw_field!r}")
+            raise ToolExecutionError(
+                f"Invalid filter 'field' (need integer column index): {raw_field!r}", code="INVALID_PARAM"
+            )
         field = int(raw_field)
     except (TypeError, ValueError) as e:
-        raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw_field!r}") from e
+        raise ToolExecutionError(
+            f"Invalid filter 'field' (need 0-based column index): {raw_field!r}", code="INVALID_PARAM"
+        ) from e
 
     if field < 0:
-        raise UnoObjectError(f"Invalid filter 'field' (column index cannot be negative): {field}")
+        raise ToolExecutionError(
+            f"Invalid filter 'field' (column index cannot be negative): {field}", code="INVALID_PARAM"
+        )
 
     op_name = str(raw.get("operator", "")).strip()
     if not op_name:
-        raise UnoObjectError("Each criterion needs 'operator' (FilterOperator2 name).")
+        raise ToolExecutionError("Each criterion needs 'operator' (FilterOperator2 name).", code="INVALID_PARAM")
     op_code = resolve_filter_operator_code(op_name)
     op_label = _normalize_operator_name(op_name)
     conn = filter_connection_code(
@@ -156,14 +165,14 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
 
     v = raw.get("value")
     if isinstance(v, (list, dict)):
-        raise UnoObjectError(f"Invalid filter 'value': {v!r}")
+        raise ToolExecutionError(f"Invalid filter 'value': {v!r}", code="INVALID_PARAM")
 
     force = op_label in _OPS_FORCE_NUMERIC
     if force:
         if v is None or str(v).strip() == "" or isinstance(v, bool):
-            raise UnoObjectError(f"Operator {op_label} requires numeric 'value'.")
+            raise ToolExecutionError(f"Operator {op_label} requires numeric 'value'.", code="INVALID_PARAM")
     elif v is None:
-        raise UnoObjectError(f"Operator {op_label} requires 'value'.")
+        raise ToolExecutionError(f"Operator {op_label} requires 'value'.", code="INVALID_PARAM")
 
     is_num = raw.get("is_numeric")
     if force or is_num is True or (is_num is None and isinstance(v, (int, float)) and not isinstance(v, bool)):
@@ -175,14 +184,14 @@ def parse_sheet_filter_criterion(raw: Any, is_first: bool) -> FilterCriterion:
                 if force
                 else f"Requires a valid numeric 'value', got {v!r}."
             )
-            raise UnoObjectError(msg) from e
+            raise ToolExecutionError(msg, code="INVALID_PARAM") from e
         if not math.isfinite(fv):
             msg = (
                 f"Operator {op_label} requires a finite numeric 'value', got {v!r}."
                 if force
                 else f"Numeric 'value' cannot be NaN or infinity, got {v!r}."
             )
-            raise UnoObjectError(msg)
+            raise ToolExecutionError(msg, code="INVALID_PARAM")
         return FilterCriterion(field, op_code, conn, True, fv, "")
 
     return FilterCriterion(field, op_code, conn, False, 0.0, str(v))

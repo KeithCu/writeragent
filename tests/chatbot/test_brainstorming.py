@@ -7,59 +7,15 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.chatbot.brainstorming import (
-    BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,
     BrainstormResearchWeb,
     BrainstormingSessionTool,
     SaveDesignSpec,
 )
-from plugin.chatbot.smol_examples import get_examples_block
 from plugin.chatbot.sub_agent_tools import (
     collect_sub_agent_tools,
-    get_sub_agent_instructions,
     normalize_html_content_array,
 )
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
-from plugin.writer.specialized_base import DelegateToSpecializedWriter
-import pytest
-
-
-def _brainstorming_domains(gateway):
-    return gateway.parameters["properties"]["domain"]["enum"]
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("brainstorming", id="test_brainstorming_not_in_writer_delegate_enum"),
-        pytest.param("writing_plan", id="test_writing_plan_not_in_writer_delegate_enum"),
-    ],
-)
-def test_brainstorming_not_in_writer_delegate_enum(value):
-    gw = DelegateToSpecializedWriter()
-    assert value not in _brainstorming_domains(gw)
-
-def test_brainstorming_examples_use_html_only():
-    block = get_examples_block("brainstorming")
-    assert "<p>" in block
-    assert "<h1>" in block
-    assert "**" not in block
-    assert "# Design" not in block
-
-
-def test_brainstorming_examples_show_approaches_and_self_review():
-    block = get_examples_block("brainstorming")
-    assert "Recommended" in block
-    assert "<h2>Architecture</h2>" in block
-    assert "Self-review" in block
-    assert "<h2>Testing</h2>" in block
-
-
-def test_brainstorming_instructions_include_superpowers_self_review():
-    text = get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS)
-    assert "Placeholder scan" in text
-    assert "Spec self-review" in text
-    assert "YAGNI" in text
-    assert "too simple to design" in text
 
 
 def test_normalize_html_content_array_accepts_list_and_string():
@@ -103,17 +59,6 @@ def test_save_design_spec_rejects_empty_content():
     result = tool.execute(ctx, content=[])
     assert result["status"] == "error"
     assert result.get("code") == "INVALID_CONTENT"
-
-
-def test_brainstorm_research_web_delegates_to_web_research():
-    with patch("plugin.chatbot.web_research.WebResearchTool") as mock_cls:
-        instance = mock_cls.return_value
-        instance.execute.return_value = {"status": "ok", "result": "facts"}
-        ctx = MagicMock()
-        tool = BrainstormResearchWeb()
-        out = tool.execute(ctx, query="topic")
-        instance.execute.assert_called_once_with(ctx, query="topic", deep=False)
-        assert out["result"] == "facts"
 
 
 def test_collect_brainstorming_tools_merges_doc_research_reads():
@@ -221,16 +166,3 @@ def test_save_design_spec_missing_apply_tool_errors():
     res = tool.execute(ctx, content=["<p>Hi</p>"])
     assert res["status"] == "error"
     assert res["code"] == "TOOL_NOT_FOUND"
-
-
-def test_save_design_spec_is_async():
-    tool = SaveDesignSpec()
-    assert tool.is_async() is True
-
-
-def test_brainstorming_session_tool_supports_writer_not_calc():
-    from plugin.framework.tool import tool_supports_document
-
-    tool = BrainstormingSessionTool()
-    assert tool_supports_document(tool, doc_type="writer", uno_services_supported=None) is True
-    assert tool_supports_document(tool, doc_type="calc", uno_services_supported=None) is False

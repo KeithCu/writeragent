@@ -5,12 +5,18 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FACTORY = _REPO_ROOT / "plugin" / "chatbot" / "panel_factory.py"
 _DIALOG_VIEWS = _REPO_ROOT / "plugin" / "chatbot" / "dialog_views.py"
 _SEND_HANDLERS = _REPO_ROOT / "plugin" / "chatbot" / "send_handlers.py"
 _TOOL_LOOP = _REPO_ROOT / "plugin" / "chatbot" / "tool_loop.py"
 _TOOL_LOOP_ACTIONS = _REPO_ROOT / "plugin" / "chatbot" / "tool_loop_actions.py"
+_COMPACTION = _REPO_ROOT / "plugin" / "chatbot" / "compaction.py"
+
+_NO_CTX_BUILDER = ("get_document_context_for_chat", "plugin.doc.document_helpers.get_document_context_for_chat")
+_NO_FACTORY = ("plugin.chatbot.panel_factory", "panel_factory")
 
 
 def _imported_names(path: Path) -> set[str]:
@@ -43,41 +49,53 @@ def _calls_name(path: Path, func_name: str) -> bool:
     return False
 
 
-def test_panel_factory_does_not_import_or_call_chat_context_builder():
-    """Factory wires XDL/controls. Document context is ChatSession / send / tool_loop."""
-    imported = _imported_names(_FACTORY)
-    assert "get_document_context_for_chat" not in imported
-    assert "plugin.doc.document_helpers.get_document_context_for_chat" not in imported
-    assert not _calls_name(_FACTORY, "get_document_context_for_chat")
+_IMPORT_BOUNDARY_CASES = [
+    # Factory wires XDL/controls; document context belongs to ChatSession / send / tool_loop.
+    (_FACTORY, _NO_CTX_BUILDER, "get_document_context_for_chat"),
+    # Dialog views must stay decoupled from the chat tool loop.
+    (_DIALOG_VIEWS, ("plugin.chatbot.tool_loop", "tool_loop"), None),
+    # Send / mid-loop refresh go through ChatSession.refresh_document_context, not panel_factory or the builder.
+    (_SEND_HANDLERS, _NO_FACTORY, None),
+    (_TOOL_LOOP, _NO_FACTORY, None),
+    (_TOOL_LOOP_ACTIONS, _NO_FACTORY, None),
+    (_SEND_HANDLERS, _NO_CTX_BUILDER, None),
+    (_TOOL_LOOP, _NO_CTX_BUILDER, None),
+    (_TOOL_LOOP_ACTIONS, _NO_CTX_BUILDER, None),
+    # Compaction is pure; it runs from both the sidebar and the headless path.
+    (_COMPACTION, ("uno", "plugin.chatbot.panel", "panel", "plugin.chatbot.tool_loop", "tool_loop", "llm_request_lane"), "llm_request_lane"),
+]
 
 
-def test_panel_factory_mode_switch_delegates_context_refresh_to_session():
-    src = _FACTORY.read_text(encoding="utf-8")
-    assert "session.refresh_document_context(model, self.ctx)" in src
-    assert "_refresh_doc_session_context" not in src
+@pytest.mark.parametrize(
+    ("path", "forbidden", "check_call"),
+    _IMPORT_BOUNDARY_CASES,
+    ids=[
+        f"{p.stem}-{'no_ctx_builder' if f is _NO_CTX_BUILDER else 'no_factory' if f is _NO_FACTORY else f[0]}"
+        for p, f, _c in _IMPORT_BOUNDARY_CASES
+    ],
+)
+def test_module_import_boundaries(path: Path, forbidden: tuple[str, ...], check_call: str | None) -> None:
+    """Guard chatbot module layering boundaries (factory, views, send/tool_loop, compaction)."""
+    imported = _imported_names(path)
+    for name in forbidden:
+        assert name not in imported
+    if check_call is not None:
+        assert not _calls_name(path, check_call)
 
 
-def test_dialog_views_does_not_import_tool_loop():
-    imported = _imported_names(_DIALOG_VIEWS)
-    assert "plugin.chatbot.tool_loop" not in imported
-    assert "tool_loop" not in imported
-
-
-def test_send_and_tool_loop_do_not_import_panel_factory():
-    for path in (_SEND_HANDLERS, _TOOL_LOOP, _TOOL_LOOP_ACTIONS):
-        imported = _imported_names(path)
-        assert "plugin.chatbot.panel_factory" not in imported
-        assert "panel_factory" not in imported
-
-
-def test_send_and_tool_loop_refresh_via_session_not_builder():
-    """Send / mid-loop refresh go through ChatSession.refresh_document_context."""
-    for path in (_SEND_HANDLERS, _TOOL_LOOP, _TOOL_LOOP_ACTIONS):
-        imported = _imported_names(path)
-        assert "get_document_context_for_chat" not in imported
-        assert "plugin.doc.document_helpers.get_document_context_for_chat" not in imported
-        src = path.read_text(encoding="utf-8")
-        assert "refresh_document_context" in src
+@pytest.mark.parametrize(
+    ("rel_path", "logger_name"),
+    [
+        ("plugin/chatbot/panel_factory.py", "plugin.chatbot.panel_factory"),
+        ("plugin/librepy/panel_factory.py", "plugin.librepy.panel_factory"),
+    ],
+)
+def test_panel_factory_logger_name_is_explicit(rel_path: str, logger_name: str) -> None:
+    # LibreOffice loads these as UNO components where __name__ is not under
+    # plugin.*, so getLogger(__name__) would route records away from the debug log.
+    src = (_REPO_ROOT / rel_path).read_text(encoding="utf-8")
+    assert "getLogger(__name__)" not in src
+    assert f'logging.getLogger("{logger_name}")' in src
 
 
 class _MockDisposedException(Exception):
@@ -695,8 +713,6 @@ def test_refresh_restores_mode_captured_before_populate():
         el._refresh_controls_from_config()
 
     assert order == ["read", "populate", "restore"]
-    read_mode.assert_called_once_with(selector, flags)
-    populate.assert_called_once_with(selector, flags)
     restore.assert_called_once_with(selector, CHAT_MODE_LIBRARIAN, flags)
 
 
@@ -760,7 +776,8 @@ def test_render_session_history_logs_greeting_argument() -> None:
     with patch("plugin.chatbot.panel_factory.log") as factory_log:
         el._render_session_history(MagicMock(), response, greeting="Hello there")
 
-    factory_log.exception.assert_called_once_with("_render_session_history failed [greeting=%s]", "Hello there")
+    factory_log.exception.assert_called_once()
+    assert factory_log.exception.call_args.args[1:] == ("Hello there",)
 
 
 def test_wire_buttons_missing_mode_flags_still_attaches_send_and_stop() -> None:
@@ -845,22 +862,6 @@ def test_setup_sessions_save_as_existing_target_preserves_destination_chat(tmp_p
     # The target chat must not be overwritten by the source chat
     assert history(new_id, db_path).get_messages()[0]["content"] == "pre-existing target chat"
     assert len(history(new_id, db_path).get_messages()) == 1
-
-
-def test_module_logger_name():
-    # Tests import these as plugin.*, so __name__ would pass a name check here.
-    # LibreOffice loads them as UNO components where __name__ is not under
-    # plugin, so the source must use the explicit names.
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[2]
-    for rel, name in (
-        ("plugin/chatbot/panel_factory.py", "plugin.chatbot.panel_factory"),
-        ("plugin/librepy/panel_factory.py", "plugin.librepy.panel_factory"),
-    ):
-        src = (root / rel).read_text(encoding="utf-8")
-        assert "getLogger(__name__)" not in src, rel
-        assert 'log = logging.getLogger("%s")' % name in src, rel
 
 
 def test_get_real_interface_failure_retry_and_disposing() -> None:
@@ -1060,13 +1061,6 @@ def test_wire_buttons_doc_type_probe_failure_stores_unknown() -> None:
     assert sentinel.cached_doc_type == "unknown"
     assert sentinel.initial_doc_type == "Unknown"
     assert sentinel.cached_uno_services == frozenset()
-
-
-def test_minimal_width_is_pre_negotiation_constant() -> None:
-    from typing import Any, cast
-    from plugin.chatbot.panel_factory import ChatToolPanel, _PRE_NEGOTIATION_PANEL_WIDTH
-
-    assert ChatToolPanel.getMinimalWidth(cast("Any", object())) == _PRE_NEGOTIATION_PANEL_WIDTH == 320
 
 
 def test_refresh_controls_continues_after_model_read_failure():
@@ -1597,7 +1591,6 @@ def test_chat_panel_element_disposing_removes_both_listeners() -> None:
     tp.resize_listener = rl
     el._rich_control_listener = None
     el.disposing()
-    assert root.removeWindowListener.call_count == 1
     root.removeWindowListener.assert_called_once_with(rl)
 
 

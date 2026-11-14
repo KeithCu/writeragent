@@ -16,60 +16,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 from plugin.writer.locale.grammar_settings import GrammarProfile
 
-# --- UNO Mocks for non-native tests ---
-
-def _ensure_module(name: str) -> types.ModuleType:
-    mod = sys.modules.get(name)
-    if mod is None:
-        mod = types.ModuleType(name)
-        sys.modules[name] = mod
-    return mod
-
-lang = _ensure_module("com.sun.star.lang")
-ling = _ensure_module("com.sun.star.linguistic2")
-text_mod = _ensure_module("com.sun.star.text")
-setattr(lang, "Locale", type("Locale", (), {}))
-setattr(lang, "XServiceDisplayName", type("XServiceDisplayName", (), {}))
-setattr(lang, "XServiceInfo", type("XServiceInfo", (), {}))
-setattr(lang, "XServiceName", type("XServiceName", (), {}))
-setattr(lang, "XComponent", type("XComponent", (), {}))
-setattr(ling, "XProofreader", type("XProofreader", (), {}))
-setattr(ling, "XSupportedLocales", type("XSupportedLocales", (), {}))
-setattr(ling, "XLinguServiceEventBroadcaster", type("XLinguServiceEventBroadcaster", (), {}))
-setattr(text_mod, "TextMarkupType", type("TextMarkupType", (), {}))
-unohelper_mod = _ensure_module("unohelper")
-setattr(unohelper_mod, "Base", type("UnohelperBase", (object,), {}))
-setattr(
-    unohelper_mod,
-    "ImplementationHelper",
-    type(
-        "ImplementationHelper",
-        (),
-        {"addImplementation": lambda self, *_args, **_kwargs: None},
-    ),
-)
-
-# Mock uno module. Distinct structs per call so multi-error aErrors can be
-uno_mod = _ensure_module("uno")
-setattr(uno_mod, "createUnoStruct", MagicMock(side_effect=lambda *_args, **_kwargs: types.SimpleNamespace()))
-_orig_getConstantByName = getattr(uno_mod, "getConstantByName", None)
+uno_mod = sys.modules["uno"]
 
 
-def _safe_get_constant(name: str) -> Any:
-    # Delegate to the real uno implementation when present so other test suites
-    # sharing this worker process (e.g. Calc FormulaResult constants) are not clobbered.
-    if _orig_getConstantByName is not None and not isinstance(_orig_getConstantByName, MagicMock):
-        try:
-            return _orig_getConstantByName(name)
-        except Exception:
-            pass
-    if "PROOFREADING" in name:
-        return 4
-    return 1
+def _safe_get_constant(name: str) -> int:
+    return 4 if "PROOFREADING" in name else 1
 
 
-setattr(uno_mod, "getConstantByName", MagicMock(side_effect=_safe_get_constant))
-setattr(uno_mod, "getComponentContext", MagicMock())
+@pytest.fixture(autouse=True)
+def _stub_uno_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(uno_mod, "createUnoStruct", MagicMock(side_effect=lambda *_a, **_k: types.SimpleNamespace()))
+    monkeypatch.setattr(uno_mod, "getConstantByName", MagicMock(side_effect=_safe_get_constant))
+    monkeypatch.setattr(uno_mod, "getComponentContext", MagicMock())
 
 
 def _proofreader_get_config_side_effect(
@@ -90,7 +48,6 @@ def _proofreader_get_config_side_effect(
 class FakeBI:
     def getWordBoundary(self, text, pos, locale, wordType, bDirection):
         import re
-        from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
 
         m_u16 = Utf16OffsetMap(text)
         py_pos = m_u16.utf16_to_py(pos)
@@ -106,7 +63,6 @@ class FakeBI:
 
     def endOfSentence(self, text, pos, locale):
         import re
-        from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
 
         m_u16 = Utf16OffsetMap(text)
         py_pos = m_u16.utf16_to_py(pos)
@@ -135,18 +91,6 @@ def _reset_grammar_worker_tls(monkeypatch: pytest.MonkeyPatch) -> None:
 from plugin.writer.locale import ai_grammar_proofreader as proofreader
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
-from tests.harness.strip_bundle import is_release_build, module_source_contains
-
-
-def _grammar_obs_call_sites_present() -> bool:
-    """True when ``grammar_obs(...)`` call sites exist in ai_grammar_proofreader.
-
-    ``make release`` runs pytest against a stripped bundle (``scripts/strip_code.py`` removes
-    only ``grammar_obs`` expression statements).
-    """
-    if is_release_build():
-        return False
-    return module_source_contains(proofreader, "grammar_obs(")
 
 from plugin.writer.locale.grammar_proofread_locale import (
     looks_complete_sentence,
@@ -183,28 +127,6 @@ def _run_llm_one(
 # =============================================================================
 # Worker Tests (Mocked)
 # =============================================================================
-
-def test_uno_setup_teardown_preserves_string_grammar_provider() -> None:
-    from tests.writer.locale import test_ai_grammar_proofreader_uno as uno_tests
-
-    key = "doc.grammar_proofreader_enabled"
-    set_calls: list[tuple[str, Any]] = []
-
-    with (
-        patch.object(uno_tests, "get_config", side_effect=lambda requested: "harper" if requested == key else None),
-        patch.object(
-            uno_tests,
-            "save",
-            side_effect=lambda patch, **kwargs: [set_calls.append((k, v)) for k, v in patch.items()],
-        ),
-        patch.object(uno_tests.gc.grammar_registry, "clear_all"),
-        patch.object(uno_tests.gir, "ignore_rules_clear"),
-    ):
-        saved = uno_tests.setup_grammar_proof_tests(MagicMock())
-        uno_tests.teardown_grammar_proof_tests(saved)
-
-    assert set_calls == [(key, "llm"), (key, "harper")]
-
 
 def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
     with (
@@ -266,79 +188,6 @@ def test_classify_errors_against_window_counts_before_in_after() -> None:
     assert cls["straddle"] == 1
 
 
-@pytest.mark.skipif(
-    not _grammar_obs_call_sites_present(),
-    reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-)
-def test_obs_result_window_emits_final_counts_and_rule_ids() -> None:
-    from plugin.writer.locale.ai_grammar_proofreader import _obs_result_window
-
-    a_res = types.SimpleNamespace(
-        nStartOfSentencePosition=0,
-        nBehindEndOfSentencePosition=20,
-        nStartOfNextSentencePosition=20,
-        aErrors=(object(), object()),
-    )
-    errors = [
-        {"n_error_start": 2, "n_error_length": 3, "rule_identifier": "harper||SpellCheck"},
-        {"n_error_start": 10, "n_error_length": 2, "rule_identifier": "harper||Agreement"},
-    ]
-    with patch.object(proofreader, "grammar_obs") as mock_obs:
-        _obs_result_window(
-            "doc-1",
-            "en-US",
-            a_res,
-            errors,
-            paragraph_span_count=2,
-            active_span_count=1,
-            uncached_active_count=1,
-            source="harper_fast",
-            py_start=0,
-            py_behind=20,
-        )
-    mock_obs.assert_called_once()
-    assert mock_obs.call_args[0][0] == "do_proofreading_result_window"
-    kwargs = mock_obs.call_args.kwargs
-    assert kwargs["stage"] == "final"
-    assert kwargs["source"] == "harper_fast"
-    assert kwargs["n_errors"] == 2
-    assert kwargs["n_aErrors"] == 2
-    assert kwargs["in_window"] == 2
-    assert kwargs["doc_id"] == "doc-1"
-
-
-@pytest.mark.skipif(
-    not _grammar_obs_call_sites_present(),
-    reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-)
-def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
-    from plugin.writer.locale.ai_grammar_proofreader import _obs_result_window
-
-    a_res = types.SimpleNamespace(
-        nStartOfSentencePosition=0,
-        nBehindEndOfSentencePosition=5,
-        nStartOfNextSentencePosition=5,
-        aErrors=(),
-    )
-    with patch.object(proofreader, "grammar_obs") as mock_obs:
-        _obs_result_window(
-            "doc-1",
-            "en-US",
-            a_res,
-            (),
-            paragraph_span_count=1,
-            active_span_count=1,
-            uncached_active_count=0,
-            source="cache",
-            py_start=0,
-            py_behind=5,
-        )
-    kwargs = mock_obs.call_args.kwargs
-    assert kwargs["stage"] == "final"
-    assert kwargs["n_errors"] == 0
-    assert kwargs["n_aErrors"] == 0
-
-
 @pytest.mark.parametrize(
     "value",
     [
@@ -348,7 +197,6 @@ def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
 )
 def test_apply_proofreading_end_positions_skips_space_after_sentence(value) -> None:
     from plugin.writer.locale.ai_grammar_proofreader import _apply_proofreading_end_positions
-    from plugin.writer.locale.grammar_proofread_text import Utf16OffsetMap
     class Res:
         nStartOfNextSentencePosition = 0
         nBehindEndOfSentencePosition = 0
@@ -365,28 +213,6 @@ def test_sentence_terminators_cover_multilingual_cases() -> None:
     assert looks_complete_sentence("これは文です。")
     assert looks_complete_sentence("यह एक वाक्य है।")
     assert not looks_complete_sentence("incomplete clause")
-
-def test_run_llm_skips_split_when_item_text_set() -> None:
-    def _split_must_not_run(*_a, **_k): raise AssertionError("split_into_sentences must not run")
-    with (
-        patch(
-            "plugin.framework.config.get_config",
-            side_effect=_proofreader_get_config_side_effect,
-        ),
-        patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"),
-        patch("plugin.framework.config.get_api_config", return_value={}),
-        patch("plugin.framework.send_cancellation.is_agent_active", return_value=False),
-        patch("plugin.framework.llm_lanes.grammar_llm_request_gate") as lane_ctx,
-        patch("plugin.framework.client.llm_client.LlmClient") as client_cls,
-        patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences", side_effect=_split_must_not_run),
-        patch("plugin.writer.locale.grammar_proofread_json.parse_grammar_json", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
-    ):
-        lane_ctx.return_value.__enter__ = MagicMock()
-        lane_ctx.return_value.__exit__ = MagicMock()
-        client_cls.return_value.chat_completion_sync.return_value = '{"errors":[]}'
-        _run_llm_one(None, "Hello.", 1, "d|en", "en-US")
 
 def test_partial_sentence_adds_prompt_note() -> None:
     with (
@@ -407,9 +233,11 @@ def test_partial_sentence_adds_prompt_note() -> None:
         lane_ctx.return_value.__exit__ = MagicMock()
         client = client_cls.return_value
         client.chat_completion_sync.return_value = '{"errors":[]}'
+        _run_llm_one(None, "This is long enough...", 0, "doc|en", "en-US", partial_sentence=False)
+        prompt_full = client.chat_completion_sync.call_args[0][0][0]["content"]
         _run_llm_one(None, "This is long enough...", 0, "doc|en", "en-US", partial_sentence=True)
-    args, _ = client.chat_completion_sync.call_args
-    assert "partial sentence" in args[0][0]["content"]
+        prompt_partial = client.chat_completion_sync.call_args[0][0][0]["content"]
+    assert prompt_partial != prompt_full
 
 # =============================================================================
 # Integration Tests (Mocked typing patterns)
@@ -701,14 +529,10 @@ class TestTypingIntegration:
             (off2, "harper||s2"),
         }
 
-    @pytest.mark.skipif(
-        not _grammar_obs_call_sites_present(),
-        reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-    )
-    def test_harper_fast_path_result_window_obs_is_final_after_lint(
+    def test_harper_fast_path_returns_lint_errors_without_enqueue(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
-        """Cache miss + Harper lint: result_window n_errors is post-path, not pre-path 0."""
+        """Cache miss + Harper lint: returns lint errors synchronously without enqueuing."""
         pr = _make_proofreader()
         pr._profile = GrammarProfile("harper", "harper", False)
         sentence = "This are an test."
@@ -730,7 +554,6 @@ class TestTypingIntegration:
         with (
             patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
             patch("plugin.writer.locale.harper.harper_try_lint", side_effect=_lint),
-            patch.object(proofreader, "grammar_obs") as mock_obs,
         ):
             mock_split.return_value = [(0, sentence)]
             res = pr.doProofreading("test-doc", sentence, mock_locale_fixture, 0, len(sentence), ())
@@ -738,28 +561,11 @@ class TestTypingIntegration:
         mock_queue_fixture.enqueue.assert_not_called()
         assert len(res.aErrors) == 1
         assert res.aErrors[0].aRuleIdentifier == "harper||Agreement"
-        window_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_result_window"]
-        assert len(window_calls) == 1
-        kwargs = window_calls[0].kwargs
-        assert kwargs["stage"] == "final"
-        assert kwargs["source"] == "harper_fast"
-        assert kwargs["n_errors"] == 1
-        assert kwargs["n_aErrors"] == 1
-        # Pre-path cache snapshot must not look like a final empty lint.
-        assert kwargs["n_errors"] != 0
-        partial = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_cache_partial_hit"]
-        assert len(partial) == 1
-        assert partial[0].kwargs["cache_error_count"] == 0
-        assert "errors_returned" not in partial[0].kwargs
 
-    @pytest.mark.skipif(
-        not _grammar_obs_call_sites_present(),
-        reason="Stripped release bundle removes grammar_obs(...) call sites (scripts/strip_code.py)",
-    )
-    def test_harper_fast_path_empty_lint_result_window_is_final_zero(
+    def test_harper_fast_path_empty_lint_returns_no_errors(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
-        """True empty Harper lint still reports final n_errors=0 (not a paint drop)."""
+        """True empty Harper lint returns empty aErrors."""
         pr = _make_proofreader()
         pr._profile = GrammarProfile("harper", "harper", False)
         sentence = "This is fine."
@@ -768,19 +574,11 @@ class TestTypingIntegration:
             patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
             patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
             patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
-            patch.object(proofreader, "grammar_obs") as mock_obs,
         ):
             mock_split.return_value = [(0, sentence)]
             res = pr.doProofreading("test-doc", sentence, mock_locale_fixture, 0, len(sentence), ())
 
         assert res.aErrors == ()
-        window_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_result_window"]
-        assert len(window_calls) == 1
-        kwargs = window_calls[0].kwargs
-        assert kwargs["stage"] == "final"
-        assert kwargs["source"] == "harper_fast"
-        assert kwargs["n_errors"] == 0
-        assert kwargs["n_aErrors"] == 0
 
     def test_harper_skips_non_english_locale_before_lint(
         self, mock_config_fixture, mock_queue_fixture
@@ -1223,9 +1021,15 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper")
     mock_status = mock_status_fn.return_value
-    mock_status.start.assert_called_once_with("This are an test.", result="Harper", routine=True)
-    mock_status.request.assert_called_once_with("This are an test.", result="Harper check", routine=True)
-    mock_status.done.assert_called_once_with("This are an test.", result="0 issues", routine=True)
+    mock_status.start.assert_called_once()
+    assert mock_status.start.call_args.args == ("This are an test.",)
+    assert mock_status.start.call_args.kwargs.get("routine") is True
+    mock_status.request.assert_called_once()
+    assert mock_status.request.call_args.args == ("This are an test.",)
+    assert mock_status.request.call_args.kwargs.get("routine") is True
+    mock_status.done.assert_called_once()
+    assert mock_status.done.call_args.args == ("This are an test.",)
+    assert mock_status.done.call_args.kwargs.get("routine") is True
 
 
 def test_try_harper_fast_path_emits_starting_when_ensure(
@@ -1247,8 +1051,12 @@ def test_try_harper_fast_path_emits_starting_when_ensure(
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], [], checker_identity="harper")
     mock_status = mock_status_fn.return_value
-    mock_status.start.assert_called_once_with("Hello.", result="Harper", routine=True)
-    mock_status.request.assert_called_once_with("Hello.", result="Starting Harper…")
+    mock_status.start.assert_called_once()
+    assert mock_status.start.call_args.args == ("Hello.",)
+    assert mock_status.start.call_args.kwargs.get("routine") is True
+    mock_status.request.assert_called_once()
+    assert mock_status.request.call_args.args == ("Hello.",)
+    assert mock_status.request.call_args.kwargs.get("routine") is None
     mock_status.done.assert_not_called()
 
     with (
@@ -1299,22 +1107,18 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
 def test_ignore_rule_fails_loudly_when_doc_id_unresolved(mock_config_fixture, mock_locale_fixture) -> None:
     pr = _make_proofreader()
     with patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore, \
-         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
          patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found") as exc_info:
+        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found"):
             pr.ignoreRule("test-rule", mock_locale_fixture)
     mock_ignore.assert_not_called()
-    mock_log.warning.assert_any_call("[grammar] ignoreRule: %s", exc_info.value, exc_info=True)
 
 def test_reset_ignore_rules_fails_loudly_when_doc_id_unresolved(mock_config_fixture) -> None:
     pr = _make_proofreader()
     with patch("plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main") as mock_reset, \
-         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
          patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found") as exc_info:
+        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found"):
             pr.resetIgnoreRules()
     mock_reset.assert_not_called()
-    mock_log.warning.assert_any_call("[grammar] resetIgnoreRules: %s", exc_info.value, exc_info=True)
 
 def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
     pr = _make_proofreader()
@@ -1513,51 +1317,6 @@ def test_harper_partial_hit_converts_uno_tuple_once(
     assert mock_convert.call_count == 1
 
 
-def test_get_constant_by_name_runs_once_per_conversion() -> None:
-    """Markup type constant is cached at module level and looked up at most once per conversion."""
-    cached = (
-        {"n_error_start": 0, "n_error_length": 1, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r1"},
-        {"n_error_start": 2, "n_error_length": 3, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r2"},
-        {"n_error_start": 4, "n_error_length": 5, "suggestions": (), "short_comment": "", "full_comment": "", "rule_identifier": "r3"},
-    )
-    fake_uno = MagicMock()
-    mock_get_const = fake_uno.getConstantByName
-    mock_get_const.return_value = 1
-    u16_map = Utf16OffsetMap("abcdefghijklmnop")
-    with patch.object(proofreader, "uno_mod", fake_uno):
-        proofreader._PROOFREADING_MARKUP_TYPE = None
-        res = proofreader._cached_errors_to_uno_tuple(cached, "doc-1", u16_map)
-        assert len(res) == 3
-        assert mock_get_const.call_count == 1
-        proofreader._cached_errors_to_uno_tuple(cached, "doc-1", u16_map)
-        assert mock_get_const.call_count == 1
-
-
-def test_doc_ignored_rules_runs_once_for_multi_sentence_harper(
-    mock_config_fixture, mock_locale_fixture, mock_queue_fixture
-) -> None:
-    """doc_ignored_rules is snapshotted once per batch in Harper fast path, not per sentence."""
-    pr = _make_proofreader()
-    pr._profile = GrammarProfile("harper", "harper", False)
-    work_spans = [
-        (0, 10, "Sentence 1."),
-        (11, 10, "Sentence 2."),
-        (22, 10, "Sentence 3."),
-    ]
-    combined: list[Any] = []
-    with (
-        patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
-        patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
-        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()) as mock_doc_ignored,
-        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=()),
-        patch("plugin.writer.locale.grammar_proofread_cache.normalize_errors_for_text", return_value=[]),
-        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
-        patch("plugin.writer.locale.ai_grammar_proofreader.get_grammar_status", return_value=MagicMock()),
-    ):
-        pr._try_harper_fast_path("test-doc", "en-US", work_spans, combined, checker_identity="harper")
-        assert mock_doc_ignored.call_count == 1
-
-
 def test_ignore_rule_resolves_doc_id_from_map(mock_config_fixture, mock_locale_fixture) -> None:
     """ignoreRule resolves doc_id from _doc_id_for_ignore map when RuntimeUID matches."""
     pr = _make_proofreader()
@@ -1655,8 +1414,10 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         # Raw error is stored in cache despite being ignored
         assert len(cached_payload) == 1
         assert cached_payload[0]["rule_identifier"] == "harper||agr"
-        # Status text reports 0 issues
-        mock_status_fn.return_value.done.assert_called_once_with(work_spans[-1][2], result="0 issues", routine=True)
+        mock_done = mock_status_fn.return_value.done
+        mock_done.assert_called_once()
+        assert mock_done.call_args.args == (work_spans[-1][2],)
+        assert mock_done.call_args.kwargs.get("routine") is True
 
 
 def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(
@@ -1714,39 +1475,6 @@ def test_reset_ignore_rules_with_no_listeners_sets_pending() -> None:
     assert pr._pending_proofread_again is True
 
 
-def test_paragraph_spans_memoized(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
-    # Tip: mock the queue; a real enqueue starts background LLM work that leaks persistence into later tests.
-    pr = _make_proofreader()
-    text1 = "This is a paragraph. Second sentence."
-    text2 = "This is a paragraph! Second sentence."
-    with patch(
-        "plugin.writer.locale.ai_grammar_proofreader.candidate_sentence_spans_for_proofreading",
-        wraps=proofreader.candidate_sentence_spans_for_proofreading,
-    ) as mock_split:
-        pr.doProofreading("doc-memo", text1, mock_locale_fixture, 0, len(text1), ())
-        assert mock_split.call_count == 1
-
-        # Second call with identical paragraph text reuses the memo
-        pr.doProofreading("doc-memo", text1, mock_locale_fixture, 0, len(text1), ())
-        assert mock_split.call_count == 1
-
-        # Changed text calls candidate_sentence_spans_for_proofreading again
-        pr.doProofreading("doc-memo", text2, mock_locale_fixture, 0, len(text2), ())
-        assert mock_split.call_count == 2
-
-
-def test_paragraph_spans_memo_is_one_tuple(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
-    pr = _make_proofreader()
-    text = "This is a paragraph. Second sentence."
-    pr.doProofreading("doc-memo", text, mock_locale_fixture, 0, len(text), ())
-    memo = pr._last_split
-    assert memo is not None
-    assert memo[0] == ("en-US", text)
-    assert isinstance(memo[1], list)
-    pr.doProofreading("doc-memo", text, mock_locale_fixture, 0, len(text), ())
-    assert pr._last_split is memo
-
-
 def test_bind_timeout_backs_off() -> None:
     pr = _make_proofreader()
     with (
@@ -1797,14 +1525,4 @@ def test_llm_cache_hits_use_checked_grammar_text_prefix(mock_config_fixture, moc
         assert len(harper_combined) == 1
         assert harper_combined[0]["rule_identifier"] == "r2"
         assert harper_uncached == []
-
-
-def test_cache_hits_read_max_chars_once_per_batch() -> None:
-    pr = _make_proofreader()
-    with (
-        patch("plugin.writer.locale.ai_grammar_proofreader.cache_get_sentence", return_value=None),
-        patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_chars", return_value=20) as mock_max_chars,
-    ):
-        pr._process_cache_hits("doc", "en-US", [(0, 5, "One."), (5, 10, "Two.")], "llm:model-x")
-        assert mock_max_chars.call_count == 1
 

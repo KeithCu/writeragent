@@ -9,6 +9,8 @@ import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.writer.locale.grammar_persistence import GRAMMAR_CACHE_VERSION
 
 _TEST_IDENT = "llm:test"
@@ -145,49 +147,28 @@ class TestGrammarPersistence:
         assert ("fp2") in (en.get("good", []))
         assert (en["bad"]["fp1"][0]["s"]) == (0)
 
-    def test_document_event_on_save_triggers_persist(self) -> None:
-        """documentEventOccured with OnSave should drive set_document_property."""
+    @pytest.mark.parametrize("event_name", ["OnSave", "OnCopyTo"])
+    def test_document_event_save_triggers_persist(self, event_name: str) -> None:
+        """documentEventOccured with OnSave or OnCopyTo should drive set_document_property."""
         from plugin.writer.locale import grammar_persistence as gp
 
         model = MagicMock()
         with patch("plugin.doc.udprops.get_document_property", return_value=None):
-            dp = gp.DocumentPersistence("doc-save", model=model)
+            dp = gp.DocumentPersistence(f"doc-{event_name}", model=model)
 
         dp.put("fp_save", "en-US", [])
         listener = gp._GrammarDocumentEventListener(dp)
-        save_event = MagicMock()
-        save_event.EventName = "OnSave"
+        event = MagicMock()
+        event.EventName = event_name
 
         with patch("plugin.doc.udprops.set_document_property") as mock_set:
-            listener.documentEventOccured(save_event)
+            listener.documentEventOccured(event)
 
-        assert (mock_set.called), "OnSave must call set_document_property"
-        args = mock_set.call_args[0]
-        assert (args[0]) is (model)
-        written = json.loads(str(args[2]))
-        assert ("fp_save") in (written["locales"]["en-US"].get("good", []))
-
-    def test_document_event_on_copy_to_triggers_persist(self) -> None:
-        """documentEventOccured with OnCopyTo should drive set_document_property."""
-        from plugin.writer.locale import grammar_persistence as gp
-
-        model = MagicMock()
-        with patch("plugin.doc.udprops.get_document_property", return_value=None):
-            dp = gp.DocumentPersistence("doc-copy", model=model)
-
-        dp.put("fp_copy", "en-US", [])
-        listener = gp._GrammarDocumentEventListener(dp)
-        copy_event = MagicMock()
-        copy_event.EventName = "OnCopyTo"
-
-        with patch("plugin.doc.udprops.set_document_property") as mock_set:
-            listener.documentEventOccured(copy_event)
-
-        assert mock_set.called, "OnCopyTo must call set_document_property"
+        assert mock_set.called, f"{event_name} must call set_document_property"
         args = mock_set.call_args[0]
         assert args[0] is model
         written = json.loads(str(args[2]))
-        assert "fp_copy" in written["locales"]["en-US"].get("good", [])
+        assert "fp_save" in written["locales"]["en-US"].get("good", [])
 
     def test_document_event_on_unload_triggers_teardown(self) -> None:
         """documentEventOccured with OnUnload should teardown and clear the cache."""
@@ -238,14 +219,6 @@ class TestGrammarPersistence:
         listener = gp._GrammarDocumentEventListener(dp)
         listener.disposing(MagicMock())
         assert (dp._teardown_done)
-
-    def test_document_event_listener_has_correct_uno_method_names(self) -> None:
-        """Guardrail: the listener must expose UNO IDL method names exactly."""
-        from plugin.writer.locale import grammar_persistence as gp
-
-        assert (hasattr(gp._GrammarDocumentEventListener, "documentEventOccured"))
-        assert (hasattr(gp._GrammarDocumentEventListener, "disposing"))
-        assert not (hasattr(gp._GrammarDocumentEventListener, "documentEvent")), "stale typo ``documentEvent`` must not be present"
 
     def test_document_persistence_entries_independent_of_sentence_cache(self) -> None:
         """DocumentPersistence._entries stores loaded/persisted data without touching grammar_registry.sentence_cache."""
@@ -682,8 +655,10 @@ class TestGrammarPersistence:
         orig_load = gp.DocumentPersistence._load_from_udprops
 
         def _slow_load(self_dp: Any) -> None:
+            # Only one thread loads; the other blocks on _load_done, so this barrier never fills;
+            # the timeout is the hold that keeps the race window open.
             try:
-                barrier.wait(timeout=2.0)
+                barrier.wait(timeout=0.2)
             except threading.BrokenBarrierError:
                 pass
             orig_load(self_dp)  # pyright: ignore[reportCallIssue,reportArgumentType]
@@ -758,8 +733,8 @@ class TestGrammarPersistence:
         finally:
             gp.grammar_registry.clear_all()
 
-    def test_save_compresses_only_accessed_rows(self) -> None:
-        """Save must compress only session-accessed rows outside the lock."""
+    def test_save_persists_only_accessed_rows(self) -> None:
+        """Save must persist only session-accessed rows."""
         from plugin.writer.locale import grammar_persistence as gp
 
         model = MagicMock()
@@ -769,14 +744,15 @@ class TestGrammarPersistence:
             dp._entries["fp_unaccessed"] = {"en-US": [{"s": 0, "l": 2, "g": ["a"]}]}
             dp.put("fp_accessed", "en-US", [{"s": 3, "l": 4, "g": ["b"]}])
 
-            with patch("plugin.writer.locale.grammar_persistence.compress_error", side_effect=lambda e: dict(e)) as mock_compress, \
-                 patch("plugin.doc.udprops.set_document_property") as mock_set, \
+            with patch("plugin.doc.udprops.set_document_property") as mock_set, \
                  patch("plugin.writer.locale.grammar_settings.checker_identity", return_value="test-checker"):
                 dp._persist_to_udprops()
 
             assert mock_set.called
-            assert mock_compress.call_count == 1
-            assert mock_compress.call_args[0][0] == {"s": 3, "l": 4, "g": ["b"]}
+            payload = json.loads(mock_set.call_args[0][2])
+            bad_rows = payload["locales"]["en-US"]["bad"]
+            assert "fp_accessed" in bad_rows
+            assert "fp_unaccessed" not in bad_rows
         finally:
             gp.grammar_registry.clear_all()
 

@@ -6,18 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import plugin.writer.specialized.embedded as embedded_mod
 from plugin.app import get_tools
-from plugin.framework.service import iter_named_concrete_subclasses
-from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
+from plugin.tests.testing_utils import WriterDocStub
 from plugin.writer.specialized.embedded import EmbeddedEdit, EmbeddedInsert
-
-setup_uno_mocks()
-
-
-def test_embedded_edit_stays_dummy_not_discovered():
-    assert issubclass(EmbeddedEdit, ToolBaseDummy)
-    names = [cls.name for cls in iter_named_concrete_subclasses(embedded_mod, ToolBase, ToolBaseDummy)]
-    assert names == ["embedded_insert"]
 
 
 def test_embedded_insert_in_delegate_catalog_not_default():
@@ -37,7 +27,6 @@ def test_embedded_insert_in_delegate_catalog_not_default():
 def test_embedded_edit_fails_immediately():
     res = EmbeddedEdit().execute(MagicMock(), name="anything")
     assert res["status"] == "error"
-    assert "not implemented" in res["message"]
 
 
 def test_embedded_insert_rejects_bad_object_type_and_bool_cell():

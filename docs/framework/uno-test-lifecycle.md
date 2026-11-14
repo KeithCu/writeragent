@@ -15,7 +15,7 @@ Windows CI harness cleanup notes (if present under `docs/archive/`).
 | Path | Reuse? | Open | Close |
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
-| Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; leftover notebook host uses `_wa_notebook_host`) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
+| Writer `@with_native_doc` | Yes (wipe-and-reuse pool by default across all platforms; pass `reuse=False` for fresh doc; notebook suites `test_notebook_runner_uno` and `test_writer_importer_uno` use a separate `notebook_host` pool on all platforms because `_reset_writer_doc` does not clear `WriterAgentNotebookJson` or form-run listeners, with win32 factory target `_wa_notebook_host`) | Factory on first use / dead pool | Close only if reset fails or `reuse=False` (Windows also skips Writer close while leftovers remain) |
 | Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | Windows leftover_open>0: skip close (`native_doc: teardown skip impress/draw close leftover_open=N`; suite-end recycle). Else `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`). Math OLE Draw still uses `close_doc` so that skip stays |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
@@ -317,20 +317,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
-`native_doc: leftover notebook host reuse`,
 `windows leftover skip: leftover simpress leftovers=`,
-`windows leftover skip: latex dialog Hidden _blank .mml leftovers=`,
-`windows leftover skip: math formula Hidden _blank .mml leftovers=`,
-`windows leftover skip: math export Hidden _blank smath leftovers=`,
-`windows leftover skip: document scripts Hidden _blank reopen leftovers=`,
-`windows leftover skip: apply_document_content Hidden _default swriter leftovers=`,
-`windows leftover skip: apply_style origin canary leftover reuse leftovers=`,
-`windows leftover skip: format_uno Hidden _blank small_doc leftovers=`,
-`windows leftover skip: format_uno cross-paragraph color leftover reuse leftovers=`,
-`windows pool skip: format_uno cross-paragraph color pooled reuse leftovers=`,
-`windows leftover skip: inline_review view cursor leftover reuse leftovers=`,
-`windows leftover skip: page_header Hidden _blank xtext_to_content leftovers=`,
-`windows leftover skip: ops_uno leftover text offsets leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -339,7 +326,6 @@ POSIX still `close_doc`. Breadcrumbs:
 `document_research_uno: open_document_for_read start/done`,
 `document_research_uno: store/list_nearby start/done`,
 `close_doc: start/done uid= leftovers=` (Windows Writer),
-`native_doc: leftover writer reuse`,
 `close_doc: skip writer close leftovers open=N uid=…`,
 `get_draw_tree: body start/execute done/body done`,
 `close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
@@ -424,7 +410,8 @@ closed notebook leftover uid=41 then hung 30s on the next Hidden
 docs. Unique leftover `_wa_notebook_2` is the same stacking family
 as leftover `_wa_factory_N`. The detect reload
 `skip_windows_leftover_hidden_load`s when leftovers are already
-open. Do **not** skip `document_research_uno` Hidden
+open (removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1
+run id). Do **not** skip `document_research_uno` Hidden
 `Budget_read.ods`.
 
 GHA 34648929578 / 34649699848 (`86279d14`): `#732`'s
@@ -448,6 +435,9 @@ returned; the next Hidden `_blank`
 `_blank` swriter is unsafe even without paste leftovers.
 `_windows_should_reuse_writer` now reuses the first Windows Writer
 without requiring leftover_open>0 (notebook host still isolated).
+(`_windows_should_reuse_writer` was later removed as redundant with
+default Writer pooling; the separate `notebook_host` pool stays on all
+platforms.)
 
 GHA 34655847157 (master `f88b8749`): leftover_open=0, paste suites
 deferred, slash OK, `test_list_nearby_excludes_active` OK. Hidden
@@ -511,7 +501,7 @@ Leftover `simpress` `target=_wa_simpress flags=63` then hung 30s in
 is **not** unique `_wa_factory_N` stacking. High leftover Writer
 count wedges a new app factory. Windows now (1) reuses leftover
 `_wa_notebook_host` so leftover_open does not climb
-(`native_doc: leftover notebook host reuse`) and (2) skips leftover
+(`native_doc: leftover notebook host reuse`, log line removed 2026-11, TSLOP-WIN) and (2) skips leftover
 Draw/Impress factory when leftover_open>2
 (`windows leftover skip: leftover simpress leftovers=N`). Leftover
 Writer / leftover Calc still load. Do not close leftover paste /
@@ -551,8 +541,9 @@ hung 30s in attach / storeAsURL / raw `doc.close(True)` / Hidden
 `_blank` reopen (office alive). 34678020608 returned here and died
 later on Hidden `.mml`. Same leftover Hidden family as import-filter
 detect. Windows now `skip_windows_leftover_hidden_load`s
-(`windows leftover skip: document scripts Hidden _blank reopen`).
-Do not raw-close leftover Writers. Not a product change.
+(`windows leftover skip: document scripts Hidden _blank reopen`;
+removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1 run
+id). Do not raw-close leftover Writers. Not a product change.
 
 GHA 34681661844 (PR #746 tip `5d5d1232`): document-scripts /
 MathML leftover Hidden skips fired (suites green). Then
@@ -565,7 +556,8 @@ Writer + close returned; the second hung. Same leftover Hidden
 family. Apply-content UNO tests now
 `skip_windows_leftover_hidden_load`
 (`windows leftover skip: apply_document_content Hidden _default
-swriter leftovers=N`). Not a product change.
+swriter leftovers=N`; removed 2026-11, TSLOP-WIN stage 2; pending
+Windows UNO round-1 run id). Not a product change.
 
 GHA 34683742049 (PR #746 tip `d6b6319a`): heading-rewrite /
 structured-return / table-cell / whitespace leftover Hidden apply
@@ -577,7 +569,8 @@ via `ApplyDocumentContent.execute` (office alive). Same leftover
 Hidden `_default` family as heading-rewrite `_b_uno`. Content-style
 write `_tool_ctx` plus later apply UNO files (`test_format_uno`,
 `test_track_changes_reviewable_uno`) now
-`skip_windows_leftover_hidden_load`. Not a product change.
+`skip_windows_leftover_hidden_load` (removed 2026-11, TSLOP-WIN stage 2;
+pending Windows UNO round-1 run id). Not a product change.
 Same run:
 `test_apply_style_known_limitation_direct_equals_old_default_uno`
 FAIL (`origin detection improved`) under leftover writer reuse;
@@ -608,8 +601,9 @@ small_doc + cross-paragraph leftover skips fired (suite green). Then
 (office alive). Hidden leftover Writers have no working view.
 Inline-review `_body` now
 `skip_windows_leftover_hidden_load`
-(`windows leftover skip: inline_review view cursor leftover reuse`).
-Not a product change.
+(`windows leftover skip: inline_review view cursor leftover reuse`;
+removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1 run
+id). Not a product change.
 
 GHA 34689136372 (PR #746 tip `4bdaa1b3`): inline-review leftover
 view-cursor skips fired (suite green). Then
@@ -778,8 +772,9 @@ failed a bare AssertionError; sibling
 reuse path. #809's `\\r\\n` color filter was not enough. Windows now
 `skip_windows_pooled_writer_reuse`s
 (`windows pool skip: format_uno cross-paragraph color pooled reuse`)
-when this test's Writer came from the pool, including leftover_open=0.
-Factory-fresh Windows Writer still runs the test. Not a product
+when this test's Writer came from the pool, including leftover_open=0
+(removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1 run
+id). Factory-fresh Windows Writer still runs the test. Not a product
 `replace_preserving_format` change. Same run: Pytest+UNO step timed
 out at 25m mid `test_insert_html_fragment_at_cursor` (body had
 returned). leftover_open=0 runs more tests + impress recycles;
@@ -802,6 +797,10 @@ and still raises a URP-shaped error). No office auto-restart. No skip/xfail.
 Headless/user-profile bootstrap now `PIPE`s soffice **stderr** and drains it
 on a dedicated thread so the SalAbort line is not only inherited onto the
 terminal. `TEST end … OK` also prints `exit=` (`-` while the child lives).
+
+### Patches reach only the test process
+
+`*_uno.py` tests run in a separate Python process over URP. Code that soffice runs itself uses the user-level installed OXT that `_seed_throwaway_profile_with_user_oxt` copies in, not the worktree—for example `=PY()` / `=PROMPT()` during `setFormula` or `calculateAll`, add-in calls, document event or modify listeners, and dispatches. `unittest.mock.patch` and monkeypatching in the test process therefore do nothing there. Drive real inputs instead (failing code, real tokens, or a real over-limit sleep). When soffice must see a setting, write the config file the way `_enable_geometric_flag` does, and put pure mapping checks in pytest (`tests/calc/python/test_function.py`). A patch in a UNO test is fine when the test calls the patched module's function directly in-process, for example `PythonFunction(ctx).py(doc, …)`.
 
 ## Findings: Unspecified Application Error
 
@@ -985,3 +984,23 @@ turn a green Ubuntu `test-uno` into make Error 134 (GHA 35527291175).
 `test_exit_after_summary_*` in `tests/framework/test_testing_runner.py`.
 
 A `*_uno.py` module that raises on import or exec (such as `ImportError`, `SyntaxError`, or any other `Exception`) is recorded as one suite with `failed: 1`, and `main()` returns 1. `SKIP_NATIVE_RUN_ALL` is still not a failure. Unit test: `test_uno_module_import_error_fails_the_run`.
+
+## 2026-11 Windows skip experiment (TSLOP-WIN)
+
+Stage 1 removed `_windows_should_reuse_writer` (redundant with default
+pooling). GHA run 43525041142 (`PR CI`, `os=windows-latest`) passed
+`UNO Tests (windows-latest)` as the stage 1 baseline (with all
+hidden-load and pooled-reuse skips still active). Stage 2 then removed
+`skip_windows_leftover_hidden_load`, `windows_leftover_hidden_load_unsafe`,
+`skip_windows_pooled_writer_reuse`, `windows_pooled_writer_reuse`,
+`writer_pool_reused`, the `skip_reason=` parameters on
+`native_writer_tool_context` / `writer_services_tool_context`, all 17
+hidden-load skip call sites, and their meta-tests ahead of the round-1
+Windows UNO and mock-sidebar dispatches (not yet dispatched because this
+branch tip is local/unpushed; update this section with the round run ids
+and per-class outcomes once Windows CI runs on stage 2).
+
+Later (not this PR): rename `set_windows_notebook_host` and
+`_windows_notebook_host` since the separate-pool flag applies on every
+platform rather than only Windows, and inline `native_writer_tool_context`
+(now a one-line `TestingFactory.create_context` wrapper).

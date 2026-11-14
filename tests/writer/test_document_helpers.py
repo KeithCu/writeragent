@@ -134,12 +134,11 @@ class _DocWithUserDefinedProperties:
         return _DocProps(self._props)
 
 
-def test_build_writer_rewrite_prompt_uses_direct_rewrite_format():
-    prompt = build_writer_rewrite_prompt("Original text", "Make it shorter")
-
-    assert "Rewrite the following text" in prompt
-    assert "Instructions: Make it shorter" in prompt
-    assert "Text to rewrite:\nOriginal text" in prompt
+def test_build_writer_rewrite_prompt_interpolates_args():
+    prompt = build_writer_rewrite_prompt("ORIG", "INSTR")
+    assert "ORIG" in prompt
+    assert "INSTR" in prompt
+    assert prompt.index("INSTR") < prompt.index("ORIG")
 
 
 def test_writer_streamed_rewrite_session_finishes_as_single_tracked_change():
@@ -395,9 +394,6 @@ def test_document_helpers_import_does_not_load_calc_analyzer():
         "assert 'plugin.calc.analyzer' not in sys.modules\n"
         "assert 'plugin.calc.bridge' not in sys.modules\n"
         "assert 'plugin.draw.bridge' not in sys.modules\n"
-        "assert not hasattr(plugin.doc.document_helpers, 'get_calc_context_for_chat')\n"
-        "assert not hasattr(plugin.doc.document_helpers, 'get_draw_context_for_chat')\n"
-        "assert not hasattr(plugin.doc.document_helpers, 'collect_tracked_changes')\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -407,15 +403,6 @@ def test_document_helpers_import_does_not_load_calc_analyzer():
         env={**os.environ, "PYTHONPATH": repo_root},
     )
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_document_helpers_uno_skips_windows_leftover_hidden_mml() -> None:
-    """GHA 34678020608: leftover Hidden _blank .mml hang after latex skip."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name("test_document_helpers_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "document helpers Hidden _blank .mml" in src
 
 
 # ── DocumentService.doc_key + cache invalidation (Nelson item 3) ──
@@ -821,7 +808,6 @@ def test_do_extend_selection_refuses_deletion_only_without_writing(monkeypatch):
 
     assert streams == []
     assert len(messages) == 1
-    assert "Extend Selection" in messages[0][1]
     assert messages[0][2] == TRACKED_SELECTION_MESSAGE
     assert text_range.set_calls == []
     assert doc.writes == []
@@ -849,7 +835,6 @@ def test_do_edit_selection_refuses_tracked_insert_before_prompt(monkeypatch):
     assert prompts == []
     assert streams == []
     assert len(messages) == 1
-    assert "Edit Selection" in messages[0][1]
     assert messages[0][2] == TRACKED_SELECTION_MESSAGE
     assert text_range.set_calls == []
     assert doc.writes == []
@@ -1041,22 +1026,14 @@ def test_document_helpers_unohelper_import_error():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_writer_has_math_ole_logs_exception(caplog):
-    import logging
+def test_writer_has_math_ole_returns_false_on_error():
     from unittest.mock import MagicMock
     from plugin.doc.document_helpers import _writer_has_math_ole
 
     doc = MagicMock()
     doc.getEmbeddedObjects.side_effect = RuntimeError("embedded objects boom")
-    with caplog.at_level(logging.DEBUG, logger="writeragent.document"):
-        has_math = _writer_has_math_ole(doc)
+    has_math = _writer_has_math_ole(doc)
     assert has_math is False
-    # Release strips log.debug; returning False is the behavior that must survive.
-    from plugin.doc import document_helpers as document_helpers_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if module_source_contains(document_helpers_mod, "Failed checking Math OLE"):
-        assert any("Failed checking Math OLE" in record.message for record in caplog.records)
 
 
 def test_get_document_context_for_chat_writer_uno_object_error():

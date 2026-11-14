@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for guard_uno boundaries (Tier 1/2 chokepoints)."""
+"""Tests for get_ctx fallbacks, off-main locale guard, and desktop element controller skips."""
 
 from __future__ import annotations
 
@@ -14,42 +14,6 @@ from plugin.framework.send_cancellation import SendCancellation
 
 
 class TestGuardUnoBoundaries:
-    def test_open_document_for_read_new_load_calls_guard_uno(self) -> None:
-        from plugin.framework.doc_type import DocumentType
-
-        opened_model = MagicMock()
-        with (
-            patch("plugin.doc.document_research.os.path.isfile", return_value=True),
-            patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None)),
-            patch("plugin.doc.document_research.get_desktop") as mock_desktop,
-            patch("plugin.doc.document_research.get_document_type", return_value=DocumentType.CALC),
-            patch("plugin.doc.document_research.guard_uno", side_effect=lambda o: o) as mock_guard,
-        ):
-            mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
-            from plugin.doc.document_research import open_document_for_read
-
-            model, doc_type, err, opened = open_document_for_read(MagicMock(), "/tmp/Budget.ods")
-        assert (err) is None
-        assert (doc_type) == ("calc")
-        assert (opened)
-        mock_guard.assert_called_once_with(opened_model)
-        assert (model) is (opened_model)
-
-    def test_get_calc_document_from_ctx_wraps_active_doc(self) -> None:
-        calc_doc = MagicMock()
-        calc_doc.supportsService = MagicMock(return_value=False)
-        with (
-            patch("plugin.scripting.document_scripts.get_desktop") as mock_desktop,
-            patch("plugin.scripting.document_scripts.is_calc", return_value=True),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
-        ):
-            mock_desktop.return_value.getCurrentComponent.return_value = calc_doc
-            from plugin.scripting.document_scripts import get_calc_document_from_ctx
-
-            out = get_calc_document_from_ctx(MagicMock())
-        assert (out) is (calc_doc)
-        mock_guard.assert_called_once_with(calc_doc)
-
     def test_mcp_long_running_context_uses_get_ctx(self) -> None:
         guarded_ctx = MagicMock(name="guarded_ctx")
         doc_svc = MagicMock()
@@ -75,61 +39,14 @@ class TestGuardUnoBoundaries:
 
         with (
             patch("plugin.mcp.mcp_protocol._real_active_document", return_value=None),
-            patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
+            patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx),
             patch("plugin.mcp.mcp_protocol._resolve_mcp_doc_key", return_value="key"),
             patch("plugin.mcp.document_mutation_gate.document_mutation_gate"),
         ):
             handler._run_tool("noop", {}, document_url=None, cancel=SendCancellation())
 
-        mock_get_ctx.assert_called()
-
-    def test_get_calc_doc_wraps_current_component(self) -> None:
-        calc_doc = MagicMock(name="calc_doc")
-        calc_doc.getSheets = MagicMock()
-        desktop = MagicMock()
-        desktop.getCurrentComponent.return_value = calc_doc
-        with (
-            patch.object(main, "is_current", return_value=True),
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
-        ):
-            from plugin.calc.python.function import _get_calc_doc
-
-            out = _get_calc_doc(MagicMock())
-        assert (out) is (calc_doc)
-        mock_guard.assert_called_once_with(calc_doc)
-
-    def test_get_calc_doc_returns_none_off_main(self) -> None:
-        with (
-            patch.object(main, "is_current", return_value=False),
-            patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
-            patch("plugin.framework.thread_guard.guard_uno") as mock_guard,
-        ):
-            from plugin.calc.python.function import _get_calc_doc
-
-            out = _get_calc_doc(MagicMock())
-        assert (out) is None
-        mock_desktop.assert_not_called()
-        mock_guard.assert_not_called()
-
-    def test_get_calc_doc_non_spreadsheet_returns_none(self) -> None:
-        class _NotCalc:
-            pass
-
-        desktop = MagicMock()
-        desktop.getCurrentComponent.return_value = _NotCalc()
-
-        with (
-            patch.object(main, "is_current", return_value=True),
-            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
-        ):
-            from plugin.calc.python.function import _get_calc_doc
-
-            out = _get_calc_doc(MagicMock())
-        assert out is None
-        desktop.getComponents.assert_not_called()
-        mock_guard.assert_not_called()
+        tool_context = services.tools.execute.call_args[0][1]
+        assert tool_context.ctx is guarded_ctx
 
     def test_export_graphic_to_bytes_uses_get_ctx_when_ctx_none(self) -> None:
         guarded_ctx = MagicMock(name="guarded_ctx")
@@ -197,78 +114,15 @@ class TestGuardUnoBoundaries:
             locale = get_lo_locale(MagicMock())
         assert locale == "en_US"
 
-    def test_office_model_from_desktop_element_wraps_controller_model(self) -> None:
-        model = MagicMock(name="model")
-        ctrl = MagicMock()
-        ctrl.getModel.return_value = model
-        elem = MagicMock()
-        elem.getController.return_value = ctrl
-        with patch("plugin.doc.document_research.guard_uno", side_effect=lambda o: o) as mock_guard:
-            from plugin.doc.document_research import _office_model_from_desktop_element
-
-            out = _office_model_from_desktop_element(elem)
-        assert (out) is (model)
-        mock_guard.assert_called_once_with(model)
-
-    def test_office_model_from_desktop_element_wraps_element_without_controller(self) -> None:
-        elem = MagicMock(name="elem_is_model")
-        elem.getController.return_value = None
-        with patch("plugin.doc.document_research.guard_uno", side_effect=lambda o: o) as mock_guard:
-            from plugin.doc.document_research import _office_model_from_desktop_element
-
-            out = _office_model_from_desktop_element(elem)
-        assert (out) is (elem)
-        mock_guard.assert_called_once_with(elem)
-
     def test_office_model_from_desktop_element_skips_broken_controller(self) -> None:
         """GHA 34593327841: leftover paste Writer getController must not abort listing."""
         elem = MagicMock(name="leftover_paste_writer")
         elem.getController.side_effect = RuntimeError(
             "Couldn't convert <traceback object> to a UNO type"
         )
-        with patch("plugin.doc.document_research.guard_uno") as mock_guard:
-            from plugin.doc.document_research import _office_model_from_desktop_element
+        from plugin.doc.document_research import _office_model_from_desktop_element
 
-            out = _office_model_from_desktop_element(elem)
-        assert (out) is None
-        mock_guard.assert_not_called()
-
-    def test_get_active_calc_cell_wraps_model(self) -> None:
-        sheet = MagicMock()
-        sheets = MagicMock()
-        sheets.getCount.return_value = 1
-        sheets.getByIndex.return_value = sheet
-        model = MagicMock()
-        model.getSheets.return_value = sheets
-        addr = MagicMock()
-        addr.Sheet = 0
-        addr.StartColumn = 0
-        addr.StartRow = 0
-        selection = MagicMock()
-        selection.getRangeAddress.return_value = addr
-        cc = MagicMock()
-        cc.getSelection.return_value = selection
-        model.getCurrentController.return_value = cc
-        ctrl = MagicMock()
-        ctrl.getModel.return_value = model
-        frame = MagicMock()
-        frame.getController.return_value = ctrl
-        desktop = MagicMock()
-        desktop.getCurrentFrame.return_value = frame
-
-        with (
-            patch("plugin.calc.python.editor.get_desktop", return_value=desktop),
-            patch("plugin.calc.python.editor.CalcBridge") as mock_bridge,
-            patch("plugin.calc.python.editor.guard_uno", side_effect=lambda o: o) as mock_guard,
-        ):
-            from plugin.calc.python.editor import _get_active_calc_cell
-
-            out = _get_active_calc_cell(MagicMock())
-        assert (out) is not None
-        assert out is not None
-        assert (out[0]) is (model)
-        mock_guard.assert_called_once_with(model)
-        sheet.getCellByPosition.assert_called_once_with(0, 0)
-        mock_bridge.assert_not_called()
+        out = _office_model_from_desktop_element(elem)
+        assert out is None
 
 

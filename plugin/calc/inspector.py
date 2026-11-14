@@ -15,38 +15,60 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Cell inspector — reads detailed information from LibreOffice Calc cells.
-
-Ported from core/calc_inspector.py for the plugin framework.
-"""
+"""Cell inspector — reads detailed information from LibreOffice Calc cells."""
 
 import logging
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from plugin.calc.address_utils import format_address, index_to_column, split_sheet_prefix
 from plugin.calc.datetime_wire import (
-    format_category_from_type,
     iso8601_from_serial,
     iso_duration_from_serial,
     is_elapsed_format_string,
 )
-from plugin.calc.calc_utils import cell_value_and_type
+from plugin.calc.calc_utils import FORMULA, NumberFormatCategories, classify_array_cell
 from plugin.framework.errors import CalcError, is_disposal
 from plugin.scripting.config_limits import configured_python_max_data_cells
+
+if TYPE_CHECKING:
+    from plugin.calc.bridge import CalcBridge
 
 log = logging.getLogger(__name__)
 
 _CELL_FLAG_DATETIME = 2
+_CELL_FLAG_FORMULA = 16
 FormatSpan: TypeAlias = tuple[int, int, str, str | None]
 TemporalRows: TypeAlias = dict[int, list[FormatSpan]]
+
+
+def _formula_cells(cell_range: Any, formula_array: Any) -> set[tuple[int, int]]:
+    """Sheet coordinates of formula cells in *cell_range*.
+
+    Only the cell type distinguishes a formula from text typed as ``=abc`` or an
+    array formula ``{=...}`` (``cellsuno.cxx`` ``ScCellRangesBase::queryContentCells``
+    ``CELLTYPE_FORMULA``). Plain value ranges with no ``=`` or ``{=`` entry skip
+    the UNO query and stay at two array reads.
+    """
+    if not any(
+        isinstance(entry, str) and entry.startswith(("=", "{="))
+        for row in formula_array
+        for entry in row
+    ):
+        return set()
+    coords: set[tuple[int, int]] = set()
+    for addr in cell_range.queryContentCells(_CELL_FLAG_FORMULA).getRangeAddresses() or ():
+        for r in range(addr.StartRow, addr.EndRow + 1):
+            for c in range(addr.StartColumn, addr.EndColumn + 1):
+                coords.add((c, r))
+    return coords
 
 
 class CellInspector:
     """Examines cell contents and properties."""
 
-    bridge: Any
+    bridge: "CalcBridge"
 
-    def __init__(self, bridge: Any) -> None:
+    def __init__(self, bridge: "CalcBridge") -> None:
         """
         Args:
             bridge: CalcBridge instance.
@@ -55,8 +77,9 @@ class CellInspector:
 
     # ── Internal helpers ───────────────────────────────────────────────
 
-    def _format_meta(self, format_key: Any, formats: Any, cache: dict[int, tuple[str | None, str | None]]) -> tuple[str | None, str | None]:
-        """Resolve one number-format key to (category, FormatString), caching across groups.
+    @staticmethod
+    def _format_meta(format_key: Any, categories: NumberFormatCategories) -> tuple[str | None, str | None]:
+        """Resolve one number-format key to (category, FormatString) through the caller's NumberFormatCategories; one instance per read shares the lookups across groups.
 
         Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
         Those enrich as ``duration`` (``PT30H``) so values >= 1.0 are not truncated.
@@ -66,15 +89,11 @@ class CellInspector:
             key = int(format_key)
         except (TypeError, ValueError):
             return None, None
-        if key not in cache:
-            props = formats.getByKey(key)
-            format_code = props.getPropertyValue("FormatString")
-            category = format_category_from_type(props.getPropertyValue("Type"))
-            # DURATION bit never appears on elapsed formats; FormatString is the signal.
-            if category == "time" and is_elapsed_format_string(format_code):
-                category = "duration"
-            cache[key] = (category, str(format_code) if format_code is not None else None)
-        return cache[key]
+        category, format_code = categories.lookup(key)
+        # DURATION bit never appears on elapsed formats; FormatString is the signal.
+        if category == "time" and is_elapsed_format_string(format_code):
+            category = "duration"
+        return category, format_code
 
     @staticmethod
     def _temporal_fields(
@@ -107,7 +126,7 @@ class CellInspector:
             return
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
-        category, format_code = self._format_meta(cell.getPropertyValue("NumberFormat"), formats, {})
+        category, format_code = self._format_meta(cell.getPropertyValue("NumberFormat"), NumberFormatCategories(formats))
         if category is None:
             return
         null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
@@ -140,7 +159,7 @@ class CellInspector:
 
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
-        cache: dict[int, tuple[str | None, str | None]] = {}
+        categories = NumberFormatCategories(formats)
         rows: TemporalRows = {}
 
         # Calc dates are numeric VALUE cells, so the normal content type loses their
@@ -153,7 +172,7 @@ class CellInspector:
                 if group.getCount() == 0:
                     continue
                 representative = group.getByIndex(0)
-                category, format_code = self._format_meta(representative.getPropertyValue("NumberFormat"), formats, cache)
+                category, format_code = self._format_meta(representative.getPropertyValue("NumberFormat"), categories)
                 if category is None:
                     continue
                 addresses = tuple(group.getRangeAddresses())
@@ -180,7 +199,7 @@ class CellInspector:
 
     # ── Public API ─────────────────────────────────────────────────────
 
-    def _resolve_single_cell(self, address: str) -> tuple[Any, str, Any, str]:
+    def _resolve_single_cell(self, address: str) -> tuple[Any, str]:
         _unused, bare_address = split_sheet_prefix(address)
         display_address = bare_address.upper()
         cell = self.bridge.resolve_range_or_address(address)
@@ -192,11 +211,12 @@ class CellInspector:
                 cell = cell.getCellByPosition(0, 0)
             display_address = format_address(addr.StartColumn, addr.StartRow)
 
-        value, type_name = cell_value_and_type(cell)
-        return cell, display_address, value, type_name
+        return cell, display_address
 
     def read_cell(self, address: str, *, include_format_info: bool = False) -> dict[str, Any]:
         """Read basic cell information.
+
+        An error formula reads as ``value: None``, ``type: "formula"``, and its formula text.
 
         Args:
             address: Cell address (e.g. "A1").
@@ -204,8 +224,10 @@ class CellInspector:
         Returns:
             dict with keys: address, value, formula, type.
         """
-        cell, bare_address, value, type_name = self._resolve_single_cell(address)
-        formula = cell.getFormula() if type_name == "formula" else None
+        cell, bare_address = self._resolve_single_cell(address)
+        value, type_name, formula = classify_array_cell(
+            cell.getDataArray()[0][0], cell.getFormulaArray()[0][0], cell.getType() == FORMULA
+        )
 
         info = {"address": bare_address.upper(), "value": value, "formula": formula, "type": type_name}
         if include_format_info:
@@ -220,6 +242,8 @@ class CellInspector:
 
     def read_range(self, range_name: str, *, include_format_info: bool = False) -> list[list[dict[str, Any]]]:
         """Read values and formulas in a cell range.
+
+        An error formula reads as ``value: None``, ``type: "formula"``, and its formula text.
 
         Args:
             range_name: Cell range (e.g. "A1:D10", "B2").
@@ -245,6 +269,7 @@ class CellInspector:
 
         data_array = cell_range.getDataArray()
         formula_array = cell_range.getFormulaArray()
+        formula_cells = _formula_cells(cell_range, formula_array)
         format_rows: TemporalRows = {}
         null_date = None
         if include_format_info:
@@ -253,8 +278,7 @@ class CellInspector:
             except Exception as e:
                 if is_disposal(e):
                     raise
-                # Some older/embedded Calc builds may not expose format-range queries.
-                # Preserve the old raw response instead of failing read_cell_range.
+                # Some Calc builds do not expose format-range queries; read_cell_range then returns the raw values without date/time enrichment.
                 log.exception("Date/time format enrichment failed for range %s; returning raw values", range_name)
 
         col_letters = [index_to_column(c) for c in range(addr.StartColumn, addr.EndColumn + 1)]
@@ -262,24 +286,11 @@ class CellInspector:
         for row_idx, row in enumerate(range(addr.StartRow, addr.EndRow + 1)):
             row_data = []
             for col_idx, col in enumerate(range(addr.StartColumn, addr.EndColumn + 1)):
-                # Extract raw data and formula strings from batch fetched arrays
-                raw_val = data_array[row_idx][col_idx]
-                raw_formula = formula_array[row_idx][col_idx]
-
-                value = raw_val
-                formula = None
-
-                if raw_formula and raw_formula.startswith("="):
-                    cell_type = "formula"
-                    formula = raw_formula
-                    # Keep value as raw_val which already contains the evaluated formula result
-                elif isinstance(raw_val, float):
-                    cell_type = "value"
-                elif isinstance(raw_val, str) and raw_val:
-                    cell_type = "text"
-                else:
-                    cell_type = "empty"
-                    value = None
+                value, cell_type, formula = classify_array_cell(
+                    data_array[row_idx][col_idx],
+                    formula_array[row_idx][col_idx],
+                    (col, row) in formula_cells,
+                )
 
                 cell_address = f"{col_letters[col_idx]}{row + 1}"
 

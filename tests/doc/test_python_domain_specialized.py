@@ -11,15 +11,11 @@ from plugin.calc.sheets import ListSheets
 from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.python_domain_specialized import (
     DelegateToolDomains,
-    allowed_specialized_domains,
     gather_domain_tools,
     normalize_domain_list,
     run_inner_domain_tool_agent,
-    script_only_llm_tool_names,
     validate_requested_domains,
 )
-from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.framework.prompts import DELEGATE_ANCHOR_RULE
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
@@ -117,93 +113,6 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     )
 
 
-def test_python_hint_and_examples_require_delegate_before_finish():
-    """Computing a layout is not placing shapes; finish only after delegate_tool_domains."""
-    from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
-    from plugin.framework.prompts import (
-        DRAW_CORE_DIRECTIVES,
-        WRITER_CORE_DIRECTIVES,
-        python_specialized_sub_agent_hint,
-    )
-
-    for label in ("Writer", "Calc", "Draw"):
-        hint = python_specialized_sub_agent_hint(label)
-        assert "does not place" in hint
-        assert "matplotlib" in hint
-        assert "MUST call delegate_tool_domains" in hint
-        assert "BEFORE specialized_workflow_finished" in hint
-        assert 'delegate_to_specialized_*(domain="shapes")' in hint
-        assert "page-scale absolute positions in HMM" in hint
-        assert "top-left" in hint
-        assert "origin-centered" in hint
-        assert "does not receive page size" in hint
-        assert "for-loop" in hint
-        assert "wa.shape.upsert" in hint
-    writer = python_specialized_sub_agent_hint("Writer")
-    assert "footnotes" in writer
-    assert "shapes" in writer
-
-    block = get_examples_block("writer:python")
-    assert block == PYTHON_SPECIALIZED_EXAMPLES
-    assert "PYTHON VENV SANDBOX:" not in block
-    assert (writer + "\n\n" + block).count("PYTHON VENV SANDBOX:") == 1
-    parts = block.split('Task: "')
-    assert "delegate_tool_domains" not in parts[1]
-    assert '"domains": ["footnotes"]' in parts[2]
-    ring = parts[3]
-    assert "ring of 8 blue circles" in ring
-    assert '"domains": ["shapes"]' in ring
-    assert "10500" in ring
-    assert "14000" in ring
-    assert "7000" in ring
-    assert "1600" in ring
-    assert "HMM" in ring
-    assert "top-left" in ring
-    assert "not (0,0)" in ring
-    assert ring.index("delegate_tool_domains") < ring.index("run_venv_python_script")
-    assert ring.index("run_venv_python_script") < ring.index("specialized_workflow_finished")
-    assert "wa.shape.upsert" in ring
-    assert "for-loop" in ring
-    assert "via the shapes domain" in ring
-    assert 'rather than domain="shapes"' in WRITER_CORE_DIRECTIVES
-    assert 'rather than domain="shapes"' in DRAW_CORE_DIRECTIVES
-    assert "draw a rectangle" in WRITER_CORE_DIRECTIVES
-
-
-def test_domain_loop_hints_include_footnotes_and_charts_lines():
-    """Cheap static suffixes match the single-domain specialized loop."""
-    from plugin.doc.python_domain_specialized import _domain_loop_hints
-
-    parent = MagicMock()
-    parent.doc = None
-    calc = _domain_loop_hints(parent, ["charts"], "Calc")
-    assert "data_range='A1:B10'" in calc
-    writer = _domain_loop_hints(parent, ["charts", "footnotes"], "Writer")
-    assert "headers" in writer
-    assert "rows" in writer
-    assert "insert_after" in writer
-    assert "Document canvas" not in writer
-
-
-def test_shapes_mutators_are_script_only_other_domains_keep_tools():
-    """Shapes LLM list drops proxy mutators; footnotes and sheets do not."""
-    hidden = script_only_llm_tool_names("shapes")
-    expected_mutators = frozenset({
-        "shape_upsert",
-        "shape_delete",
-        "shape_connect",
-        "shape_group",
-        "shape_align",
-        "shape_distribute",
-        "shape_diagram",
-        "shape_fill_fields",
-    })
-    assert expected_mutators <= hidden
-    assert "shape_summary" not in hidden
-    assert script_only_llm_tool_names("footnotes") == frozenset()
-    assert script_only_llm_tool_names("sheets") == frozenset()
-
-
 def test_normalize_domain_list_dedupes_and_parses_json_array():
     names, err = normalize_domain_list([" footnotes ", "shapes", "footnotes"])
     assert err is None
@@ -219,20 +128,6 @@ def test_normalize_domain_list_dedupes_and_parses_json_array():
 
 
 def test_validate_domains_by_app():
-    writer = allowed_specialized_domains("Writer")
-    calc = allowed_specialized_domains("Calc")
-    draw = allowed_specialized_domains("Draw")
-    assert "python" not in writer
-    assert "python" not in calc
-    assert "footnotes" in writer
-    assert "sheets" not in writer
-    assert "sheets" in calc
-    assert "ranges" in calc
-    assert "footnotes" not in calc
-    assert "speaker_notes" in draw
-    assert "page_comments" in draw
-    assert "ppt-master" not in draw
-
     message, code = validate_requested_domains(["footnotes", "shapes"], "Writer")
     assert message is None and code is None
     message, code = validate_requested_domains(["sheets"], "Writer")
@@ -270,8 +165,6 @@ def test_delegate_tool_domains_rejects_unknown_and_python_and_empty():
     nested = tool.execute(ctx, domains=["python"], task="compute a prime")
     assert nested["status"] == "error"
     assert nested.get("code") == "PYTHON_DOMAIN_NOT_NESTED"
-
-    assert not isinstance(tool, DelegateToSpecializedBase)
 
 
 def test_delegate_tool_domains_rejects_non_string_or_missing_task():
@@ -367,10 +260,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert tools_arg[-1].name == "specialized_workflow_finished"
     note = by_name["footnotes_insert"].inputs["note"]
     assert note["enum"] == ["footnote", "endnote"]
-    assert "footnote" in note["description"].lower()
     assert note["nullable"] is False
-    assert "Inserts a new footnote" in by_name["footnotes_insert"].description
-    assert "0-based page index" in by_name["shape_summary"].inputs["page"]["description"]
 
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.doc is parent.doc
@@ -383,7 +273,8 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert inner_ctx.set_active_domain_callback is None
     assert inner_ctx.read_only_target is False
     assert inner_ctx.python_tool_domain == "footnotes,shapes,core"
-    from plugin.scripting.host_rpc import resolve_allowed_tools
+    from plugin.chatbot.smol_examples import get_examples_block
+    from plugin.scripting.host_rpc import format_script_api_catalog, resolve_allowed_tools
     from plugin.scripting.writeragent_api import DOMAIN_TOOLS
 
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
@@ -395,24 +286,10 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "undo" in allowed
     assert "run_venv_python_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
-    assert DELEGATE_ANCHOR_RULE in instructions
-    assert "footnotes" in instructions
-    assert "shapes" in instructions
-    assert "wa.shape.upsert" in instructions
-    assert "for-loop" in instructions
-    assert "run_venv_python_script has access to the following APIs" in instructions
-    assert "wa.core.list_open_documents" in instructions
-    assert "action (required)" in instructions
-    assert "shape_type (optional)" in instructions
+    assert format_script_api_catalog(["footnotes", "shapes"]) in instructions
     assert mock_build.call_args.kwargs["final_answer_tool_name"] == "specialized_workflow_finished"
-    examples_key_block = mock_build.call_args.kwargs["examples_block"]
-    # Inner block is the script loop, not the outer *:python few-shot (that one calls DTD).
-    assert "run_venv_python_script" in examples_key_block
-    assert "wa.shape.upsert" in examples_key_block
-    assert "delegate_tool_domains" not in examples_key_block
-    assert "sp.prime" not in examples_key_block
-    assert "specialized_workflow_finished" in examples_key_block
-    assert "insert_after" in instructions
+    # Inner loop must use the script examples block, not the outer *:python block that calls delegate_tool_domains.
+    assert mock_build.call_args.kwargs["examples_block"] == get_examples_block("domain_tools:shapes")
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
@@ -446,12 +323,11 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     assert result["status"] == "ok"
     mock_canvas.assert_called_once_with(parent.doc)
     assert mock_main.called
+    from plugin.scripting.host_rpc import format_script_api_catalog
+
     instructions = mock_build.call_args.kwargs["instructions"]
-    assert "Document canvas (Writer)" in instructions
-    assert "210.0 x 297.0 mm" in instructions
-    assert "wa.shape.upsert" in instructions
-    assert "shape_type (optional)" in instructions
-    assert "run_venv_python_script has access to the following APIs" in instructions
+    assert mock_canvas.return_value.strip() in instructions
+    assert format_script_api_catalog(["shapes"]) in instructions
     shapes_ctx = mock_build.call_args[0][0]
     assert shapes_ctx.python_tool_domain == "shapes,core"
 
@@ -459,12 +335,9 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
     mock_canvas.assert_not_called()
     footnotes_instructions = mock_build.call_args.kwargs["instructions"]
-    assert "Document canvas" not in footnotes_instructions
-    assert "wa.shape.upsert" not in footnotes_instructions
-    assert "wa.footnote.insert" in footnotes_instructions
-    assert "insert_after (optional)" in footnotes_instructions
-    assert "wa.core.list_open_documents" in footnotes_instructions
-    assert "Those shape mutators are not LLM tools" not in footnotes_instructions
+    assert mock_canvas.return_value.strip() not in footnotes_instructions
+    assert format_script_api_catalog(["shapes"]) not in footnotes_instructions
+    assert format_script_api_catalog(["footnotes"]) in footnotes_instructions
     assert mock_build.call_args[0][0].python_tool_domain == "footnotes,core"
 
 
@@ -494,7 +367,6 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert "range_sort" in names
     assert "footnotes_insert" not in names
     by_name = {tool.name: tool for tool in tools_arg}
-    assert "labels" in by_name["range_sort"].inputs["has_header"]["description"]
     assert by_name["range_sort"].inputs["range"]["type"] == "array"
     assert "shape_upsert" not in names
     inner_ctx = mock_build.call_args[0][0]
@@ -730,25 +602,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     assert domains_input["items"]["type"] == "string"
     assert "task" in by_name["delegate_tool_domains"].inputs
     instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
-    assert "delegate_tool_domains" in instructions
-    assert "domains" in instructions
-    assert "task" in instructions
-    assert "BEFORE specialized_workflow_finished" in instructions
-    assert "does not place" in instructions
-    assert 'delegate_to_specialized_*(domain="shapes")' in instructions
     mock_canvas.assert_not_called()
     assert "Document canvas" not in instructions
-    assert "does not receive page size" in instructions
-    examples = mock_agent_class.call_args.kwargs.get("system_prompt_examples") or ""
-    assert "delegate_tool_domains" in examples
-    assert '"domains"' in examples
-    assert '"task"' in examples
-    assert '"domains": ["shapes"]' in examples
-    ring = examples.split('Task: "Use python to place a ring', 1)[1]
-    assert ring.index("delegate_tool_domains") < ring.index("specialized_workflow_finished")
-    assert "via the shapes domain" in ring
-    assert "10500" in ring
-    assert "HMM" in ring
-    assert "top-left" in ring
 
 

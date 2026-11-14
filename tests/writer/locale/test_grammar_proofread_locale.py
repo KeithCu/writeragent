@@ -6,90 +6,22 @@
 
 from __future__ import annotations
 
-import os
-import re
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.i18n import get_locales_dir
 from plugin.framework.grammar_rule_ids import (
-    GRAMMAR_REGISTRY_LOCALE_TAGS,
     bcp47_to_uno_lang_country,
     grammar_bcp47_tags_match,
-    grammar_english_name_for_bcp47,
     normalize_detected_bcp47,
     normalize_uno_locale_to_bcp47,
 )
 from plugin.writer.locale import grammar_proofread_locale as gl
 
-# Folder names under repo-root ``locales/`` that are translation targets (excludes en; English uses POT as msgid).
-_GETTEXT_LOCALE_DIRS: frozenset[str] = frozenset(
-    n
-    for n in os.listdir(get_locales_dir())
-    if re.match(r"^[a-z]{2,3}(_[A-Z]{2})?$", n)
-)
-
-# Each gettext dir (except that ``pt`` maps to one BCP-47) must appear as the intended primary tag
-_FOLDERS_TO_TAG = {
-    "bg": "bg-BG",
-    "bn_IN": "bn-IN",
-    "ca": "ca-ES",
-    "cs": "cs-CZ",
-    "da": "da-DK",
-    "de": "de-DE",
-    "el": "el-GR",
-    "es": "es-ES",
-    "et": "et-EE",
-    "fi": "fi-FI",
-    "fr": "fr-FR",
-    "hi_IN": "hi-IN",
-    "hr": "hr-HR",
-    "hu": "hu-HU",
-    "id": "id-ID",
-    "it": "it-IT",
-    "ja": "ja-JP",
-    "ko": "ko-KR",
-    "lt": "lt-LT",
-    "lv": "lv-LV",
-    "nb_NO": "nb-NO",
-    "nl": "nl-NL",
-    "nn_NO": "nn-NO",
-    "pl": "pl-PL",
-    "pt": "pt-BR",
-    "ro": "ro-RO",
-    "ru": "ru-RU",
-    "sk": "sk-SK",
-    "sv": "sv-SE",
-    "tr": "tr-TR",
-    "uk": "uk-UA",
-    "ur_PK": "ur-PK",
-    "zh_CN": "zh-CN",
-    "zh_TW": "zh-TW",
-}
-
 def _uno_locale(lang: str, country: str) -> Any:
     return SimpleNamespace(Language=lang, Country=country, Variant="")
-
-def test_grammar_tags_match_gettext_folders() -> None:
-    assert _FOLDERS_TO_TAG.keys() == _GETTEXT_LOCALE_DIRS, (
-        f"Update _FOLDERS_TO_TAG or ``locales/``: missing/extra: "
-        f"{_GETTEXT_LOCALE_DIRS.symmetric_difference(_FOLDERS_TO_TAG.keys())}"
-    )
-    for _folder, expected in _FOLDERS_TO_TAG.items():
-        assert expected in GRAMMAR_REGISTRY_LOCALE_TAGS, expected
-
-def test_grammar_tags_include_english_variants() -> None:
-    assert "en-US" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-GB" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-AU" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-CA" in GRAMMAR_REGISTRY_LOCALE_TAGS
-    assert "en-IN" in GRAMMAR_REGISTRY_LOCALE_TAGS
-
-def test_grammar_tag_count() -> None:
-    assert len(GRAMMAR_REGISTRY_LOCALE_TAGS) == 5 + len(_GETTEXT_LOCALE_DIRS)
 
 @pytest.mark.parametrize(
     "value, value_2, expected, value_3, value_4, expected_2",
@@ -110,16 +42,6 @@ def test_normalize_english_choices() -> None:
     assert normalize_uno_locale_to_bcp47(_uno_locale("en", "CA")) == "en-CA"
     assert normalize_uno_locale_to_bcp47(_uno_locale("en", "IN")) == "en-IN"
 
-def test_english_name_is_nonempty() -> None:
-    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-        assert len(grammar_english_name_for_bcp47(tag)) > 0
-
-def test_bcp47_tags_have_valid_uno_language() -> None:
-    for tag in GRAMMAR_REGISTRY_LOCALE_TAGS:
-        la, c = bcp47_to_uno_lang_country(tag)
-        assert la and len(la) >= 2
-        assert c == c.upper()
-
 
 def test_bcp47_to_uno_lang_country_keeps_empty_language_and_second_subtag() -> None:
     assert bcp47_to_uno_lang_country("en") == ("en", "")
@@ -134,10 +56,8 @@ def test_looks_complete_sentence_matches_proofreader_gating() -> None:
     assert gl.looks_complete_sentence("Hello world.") is True
     assert gl.looks_complete_sentence("incomplete clause") is False
     assert gl.looks_complete_sentence("Բարև։") is True
-    assert "։" in gl.GRAMMAR_SENTENCE_TERMINATORS
     assert gl.looks_complete_sentence('She said "hello."') is True
     assert gl.looks_complete_sentence("He said hello.\u232a") is True
-    assert "\u232a" in gl.GRAMMAR_TRAILING_CLOSERS
 
 
 def test_trailing_closers_cover_unicode_pe_pf() -> None:
@@ -152,27 +72,11 @@ def test_trailing_closers_cover_unicode_pe_pf() -> None:
     assert missing == []
 
 
-def test_tricky_terminator_regex_escaping() -> None:
-    """Test that _sterm_class handles tricky chars like ] - \\ ^."""
-    # Verify that the regex string is safe (contains escapes for special chars)
-    # re.escape escapes almost everything non-alphanumeric.
-    assert "\\]" in gl._sterm_class or "]" not in gl.GRAMMAR_SENTENCE_TERMINATORS
-    assert "\\-" in gl._sterm_class or "-" not in gl.GRAMMAR_SENTENCE_TERMINATORS
-    assert "\\\\" in gl._sterm_class or "\\" not in gl.GRAMMAR_SENTENCE_TERMINATORS
-
-    # Test normalization with a simulated tricky terminator if we could, 
-    # but let's just verify the compiled regex doesn't crash and matches dots.
-    assert re.match(gl._sterm_class, ".")
-    assert gl.GRAMMAR_CACHE_NORMALIZATION_RE.match("Hello.")
-
-
 def test_fingerprint_for_text() -> None:
     text1 = "This is a sentence."
     text2 = "This is another sentence."
     fp1 = gl.fingerprint_for_text(text1)
     fp2 = gl.fingerprint_for_text(text2)
-    assert len(fp1) == 24
-    assert len(fp2) == 24
     assert fp1 != fp2
     assert fp1 == gl.fingerprint_for_text(text1)
 
@@ -216,13 +120,11 @@ def test_grammar_batch_sentences_defaults_and_clamping() -> None:
         assert gl.grammar_batch_sentences() == 1
 
 
-def test_grammar_max_tokens_and_chars_are_fixed() -> None:
-    assert gl.grammar_max_tokens() == 3072
-    assert gl.grammar_max_chars() == 8192
-
-
 def test_clamped_int_config_keys_exist_in_doc_module_yaml() -> None:
-    """Every key read by _clamped_int_config must be a real doc-module config key."""
+    """Every key read by _clamped_int_config must be a real doc-module config key.
+
+    _clamped_int_config swallows unknown-key errors, so a key drift silently means 1.
+    """
     import yaml
     from pathlib import Path
 

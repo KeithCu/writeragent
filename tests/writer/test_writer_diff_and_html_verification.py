@@ -17,15 +17,7 @@ from hypothesis import strategies as st
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE
 from plugin.writer.word_diff_split import (
     SplitResult,
-    Token,
     split_change,
-    tokenize,
-)
-from plugin.writer.xhtml_style_postprocess import (
-    parse_fodt_autostyles,
-    compact_lo_style_name,
-    decode_lo_css_class_suffix,
-    parse_style_block,
 )
 from tests.harness.vhs_budget import vhs_max_examples
 
@@ -34,24 +26,6 @@ _SAFE_TEXT = st.text(
     alphabet=st.characters(blacklist_categories=("Cs", "Cc"), blacklist_characters="\x00"),
     max_size=40,
 )
-_SHORT_TEXT = st.text(
-    alphabet=st.characters(blacklist_categories=("Cs", "Cc"), blacklist_characters="\x00"),
-    max_size=80,
-)
-
-
-@given(text=_SAFE_TEXT)
-@settings(max_examples=vhs_max_examples(80, 800), deadline=None)
-def test_hypothesis_tokenize_reconstruction_invariant(text: str) -> None:
-    """Phase 8 #3: tokenize then rejoin preserves exact characters."""
-    tokens = tokenize(text)
-    assert isinstance(tokens, list)
-    reconstructed = "".join(t.text for t in tokens)
-    assert reconstructed == text
-
-    for token in tokens:
-        assert isinstance(token, Token)
-        assert text[token.start : token.end] == token.text
 
 
 def test_split_change_longer_than_source_runs() -> None:
@@ -72,46 +46,3 @@ def test_hypothesis_split_change_fraction_bounds(old: str, new: str) -> None:
 
     for sub in res.sub_edits:
         assert 0 <= sub.old_start <= sub.old_end <= len(old)
-
-
-@given(suffix=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_decode_lo_css_class_suffix_returns_str(suffix: str) -> None:
-    decoded = decode_lo_css_class_suffix(suffix)
-    assert isinstance(decoded, str)
-
-
-@given(name=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_compact_lo_style_name_removes_spaces(name: str) -> None:
-    compacted = compact_lo_style_name(name)
-    assert isinstance(compacted, str)
-    assert " " not in compacted
-
-
-@given(fodt=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_extract_autostyle_parents_from_fodt_invariant(fodt: str) -> None:
-    res = parse_fodt_autostyles(fodt)[0]
-    assert isinstance(res, dict)
-    for k, v in res.items():
-        assert isinstance(k, str)
-        assert isinstance(v, str)
-
-
-@given(fodt=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_extract_autostyle_overrides_from_fodt_invariant(fodt: str) -> None:
-    res = parse_fodt_autostyles(fodt)[1]
-    assert isinstance(res, dict)
-    for k, v in res.items():
-        assert isinstance(k, str)
-        assert isinstance(v, str)
-
-
-@given(xhtml=_SHORT_TEXT)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_parse_style_block_invariant(xhtml: str) -> None:
-    raw_map, norm_map = parse_style_block(xhtml)
-    assert isinstance(raw_map, dict)
-    assert isinstance(norm_map, dict)

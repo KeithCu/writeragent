@@ -29,7 +29,7 @@ from plugin.calc.base import ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
-from plugin.calc.error_detector import ErrorDetector, _MAX_EXPLAINED_ERRORS
+from plugin.calc.error_detector import ErrorDetector, truncation_hint
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -47,12 +47,12 @@ class DetectErrors(ToolCalcErrorBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         raw = kwargs.get("range")
         if raw is not None and not isinstance(raw, (str, list)):
-            return self._tool_error("range must be a string or a list of strings", code="INVALID_RANGE")
+            return self._tool_error("range must be a string or a list of strings", code="INVALID_PARAM")
         entries = [raw] if isinstance(raw, str) else list(raw or [])
         ranges: list[str] = []
         for idx, entry in enumerate(entries):
             if not isinstance(entry, str) or not entry.strip():
-                return self._tool_error(f"Invalid range entry {idx}: {entry!r}", code="INVALID_RANGE")
+                return self._tool_error(f"Invalid range entry {idx}: {entry!r}", code="INVALID_PARAM")
             ranges.append(entry.strip())
 
         bridge = CalcBridge(ctx.doc)
@@ -76,10 +76,7 @@ class DetectErrors(ToolCalcErrorBase):
             "errors": combined_errors,
         }
         if truncated:
-            combined["hint"] = (
-                "First %d of %d. Pass a range that starts after the last address in errors."
-                % (_MAX_EXPLAINED_ERRORS, total)
-            )
+            combined["hint"] = truncation_hint(len(combined_errors), total)
         return {
             "status": "ok",
             "result": combined,

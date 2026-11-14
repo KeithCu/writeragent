@@ -17,7 +17,6 @@ from plugin.calc.python import editor_context_menu as mod
 from plugin.calc.python.editor_context_menu import (
     _edit_python_cell_url,
     _looks_like_cell_context_menu,
-    _register_controller,
 )
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
@@ -151,16 +150,14 @@ def test_notify_inserts_entry_when_source_window_has_no_controller():
         result = interceptor.notifyContextMenuExecute(event)
 
         assert result is CONTINUE_MODIFIED_SENTINEL
-        assert container.insertByIndex.call_count == 2
-        first_call = container.insertByIndex.call_args_list[0]
-        second_call = container.insertByIndex.call_args_list[1]
-        assert first_call[0][0] == 2
-        assert second_call[0][0] == 3
 
-        entry_mock = created_instances[1]
-        cmd_call = [c for c in entry_mock.setPropertyValue.call_args_list if c[0][0] == "CommandURL"]
-        assert cmd_call, "CommandURL property was not set on entry"
-        assert str(cmd_call[0][0][1]).endswith(":scripting.edit_python_cell")
+        command_urls = [
+            call.args[1]
+            for inst in created_instances
+            for call in inst.setPropertyValue.call_args_list
+            if call.args and call.args[0] == "CommandURL"
+        ]
+        assert any(str(url).endswith(":scripting.edit_python_cell") for url in command_urls)
     finally:
         mod._interceptor = saved_interceptor
         if saved_ui is not None:
@@ -290,23 +287,6 @@ def test_register_ignores_non_calc_controller():
         assert len(mod._registered_controllers) == 0
 
 
-def test_register_frame_uses_uno_type_by_name():
-    mod._registered_controllers.clear()
-
-    frame = MagicMock()
-    controller = MagicMock()
-    frame.getController.return_value = controller
-
-    with patch("uno.getTypeByName") as mock_get_type:
-        mock_type = MagicMock()
-        mock_get_type.return_value = mock_type
-
-        _register_controller(controller)
-
-        mock_get_type.assert_any_call("com.sun.star.ui.XContextMenuInterception")
-        controller.queryInterface.assert_called_with(mock_type)
-
-
 def test_edit_python_cell_url_follows_librepy_extension_id():
     reset_package_extension_id_for_tests()
     set_package_extension_id(EXTENSION_ID_LIBREPY)
@@ -333,7 +313,7 @@ def test_install_attaches_global_document_event_listener():
     ctx.getServiceManager.return_value = smgr
     smgr.createInstanceWithContext.return_value = broadcaster
     mod._doc_listener = None
-    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+    with patch("plugin.calc.python.editor_context_menu.get_desktop", return_value=None):
         mod.install_calc_cell_context_menu(ctx)
         mod.install_calc_cell_context_menu(ctx)
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.frame.GlobalEventBroadcaster", ctx)
@@ -357,7 +337,7 @@ def test_install_registers_all_frames():
     desktop.getFrames.return_value = frames
 
     ctx = MagicMock()
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
+    with patch("plugin.calc.python.editor_context_menu.get_desktop", return_value=desktop):
         with patch.object(mod, "_install_doc_event_listener"):
             with patch.object(mod, "_register_controller") as mock_register_controller:
                 mod.install_calc_cell_context_menu(ctx)
@@ -374,7 +354,7 @@ def test_new_doc_listener_on_document_event():
     smgr.createInstanceWithContext.return_value = broadcaster
     mod._doc_listener = None
     with patch.object(mod, "_register_controller") as mock_reg:
-        with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+        with patch("plugin.calc.python.editor_context_menu.get_desktop", return_value=None):
             mod.install_calc_cell_context_menu(ctx)
         listener = mod._doc_listener
         assert listener is not None

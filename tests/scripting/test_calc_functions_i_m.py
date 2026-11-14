@@ -7,7 +7,7 @@
 Each row is text, blank (None), zero, or out of range, and only when that
 call is not already asserted elsewhere. Helpers report a spreadsheet error
 either as NaN (#NUM! / #DIV/0! / #VALUE!, depending on the function) or as a
-``#...`` token. Rows in ``_BAD_INPUTS`` still return NaN or a ``#...`` token. Rows in ``_RAISES`` used to return NaN and now propagate. A
+``#...`` token. Rows in ``_BAD_INPUTS`` return NaN or a ``#...`` token. Rows in ``_RAISES`` propagate exceptions. A
 finite number or a boolean is the accepted result for that input.
 """
 
@@ -148,7 +148,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imsub-blank", "imsub", (None, "1"), "#VALUE!"),
     ("imsub-zero", "imsub", ("1", 0), 1.0),
     ("imsub-inf", "imsub", ("1", _INF), "#VALUE!"),
-    # 0**negative and a finite base to inf used to raise ZeroDivisionError.
+    # 0**negative and a finite base to inf return #VALUE! instead of raising ZeroDivisionError.
     ("impower-text", "impower", ("text", 2), "#VALUE!"),
     ("impower-blank", "impower", (None, 2), "#VALUE!"),
     ("impower-zero-neg", "impower", (0, -1), "#VALUE!"),
@@ -244,6 +244,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("lognormdist-zero", "lognormdist", (0, 0, 1), 0.0),
     ("lognormdist-inf", "lognormdist", (_INF, 0, 1), 1.0),
     ("lognormdist-sd-zero", "lognormdist", (1, 0, 0), _NAN),
+    ("lognormdist-blank-flag", "lognormdist", (1, 0, 1, None), 1 / math.sqrt(2 * math.pi)),
     ("lookup-text", "lookup", ("text", [1, 2, 3]), "#N/A"),
     ("lookup-blank", "lookup", (None, [1, 2, 3]), "#N/A"),
     ("lookup-oor", "lookup", (99, [1, 2, 3]), 3),
@@ -280,7 +281,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("mode-blank", "mode", ([None, None],), _NAN),
     ("mode-zero", "mode", ([0, 0, 1],), 0),
     ("mode-inf", "mode", ([_INF, _INF, 1],), _INF),
-    # Non-finite MROUND used to raise from math.floor. Zero multiple is already tested.
+    # Non-finite MROUND returns NaN without raising from math.floor. Zero multiple is already tested.
     ("mround-inf", "mround", (_INF, 1), _NAN),
     ("mround-nan", "mround", (float("nan"), 1), _NAN),
     ("mtrans-text", "mtrans", ([["text", "b"], ["c", "d"]],), [["text", "c"], ["b", "d"]]),
@@ -330,6 +331,7 @@ _RAISES: list[tuple[str, str, tuple[object, ...], type[BaseException]]] = [
     ("loginv-blank", "loginv", (None, 0, 1), TypeError),
     ("lognormdist-text", "lognormdist", ("text", 0, 1), ValueError),
     ("lognormdist-blank", "lognormdist", (None, 0, 1), TypeError),
+    ("lognormdist-text-flag", "lognormdist", (1, 0, 1, "abc"), ValueError),
     ("mdeterm-text", "mdeterm", ([["text", "b"], ["c", "d"]],), ValueError),
     ("mduration-text", "mduration", ("text", _DATE[1], 0.08, 0.09, 2), ValueError),
     ("mduration-blank", "mduration", (None, _DATE[1], 0.08, 0.09, 2), TypeError),
@@ -478,8 +480,7 @@ def test_loginv_bounds_and_lognormdist_nonpositive():
     assert calc.lognormdist(0, 0, 1) == 0.0
     assert calc.lognormdist(-1, 0, 1) == 0.0
     assert math.isnan(calc.lognormdist(0, 0, 1, False))
-    # ScLogNormDist uses integralPhi((ln x - mean) / sd). A huge mean is the
-    # far tail, 0. scipy's exp(mean) used to overflow into NaN.
+    # ScLogNormDist uses integralPhi((ln x - mean) / sd), so a huge mean is 0 rather than NaN.
     assert calc.lognormdist(1, 1e308, 1) == 0.0
     assert calc.lognormdist(1, 0, 1) == pytest.approx(0.5)
     assert calc.lognormdist(1, 0, 1, False) == pytest.approx(1.0 / math.sqrt(2.0 * math.pi))
@@ -517,7 +518,7 @@ def test_lookup_rejects_cross_type_and_miss_is_na():
 def test_linest_const_text_and_blank_known_x():
     y = [6, 7, 8]
     x = [1, 2, 3]
-    # "0" and "FALSE" used to stay truthy, so the intercept stayed 5.
+    # "0" and "FALSE" coerce to falsy, forcing the intercept to 0.0.
     assert np.allclose(calc.linest(y, x, "0"), [3.1428571428571423, 0.0], atol=1e-9)
     assert np.allclose(calc.linest(y, x, "FALSE"), [3.1428571428571423, 0.0], atol=1e-9)
     assert np.allclose(calc.linest(y, x, "TRUE"), [1.0, 5.0], atol=1e-9)
@@ -552,7 +553,7 @@ def test_jis_integral_float_has_no_decimal():
 
 
 def test_ipmt_any_nonzero_type_is_beginning():
-    # GetBool() is GetDouble() != 0. int(type) == 1 used to treat these as end.
+    # GetBool() is GetDouble() != 0, so any non-zero type means beginning-of-period.
     beginning = calc.ipmt(0.1, 1, 3, 8000, 0, 1)
     assert beginning == 0.0
     assert calc.ipmt(0.1, 1, 3, 8000, 0, 2) == beginning

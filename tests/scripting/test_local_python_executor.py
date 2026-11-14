@@ -162,19 +162,10 @@ def test_executor_allows_repr_builtin():
 
 def test_local_python_executor_does_not_import_tools():
     """LibrePy ships LPE without the smolagents Tool chain."""
-    from pathlib import Path
-
     import plugin.contrib.smolagents.local_python_executor as lpe
+    from tests.harness.import_guards import assert_no_toplevel_import
 
-    tree = ast.parse(Path(lpe.__file__).read_text(encoding="utf-8"))
-    mods: list[str] = []
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module:
-            mods.append(node.module)
-        elif isinstance(node, ast.Import):
-            mods.extend(alias.name for alias in node.names)
-    assert ".tools" not in mods
-    assert "tools" not in mods
+    assert_no_toplevel_import(lpe, {"tools"})
 
 
 def test_direct_import_os_still_forbidden():
@@ -1285,17 +1276,17 @@ def test_slice9_timeout_validation_and_unwinding():
     finally:
         lpe.abandoned_timeout = False
 
-    # 3. Outer timeout(3) with inner timeout(1) finishing immediately, outer sleeps
-    @timeout(3)
+    # 3. Outer timeout(2) with inner timeout(1) finishing immediately, outer sleeps
+    @timeout(2)
     def outer_run():
         evaluate_python_code("x = 1", timeout_seconds=1)
-        time.sleep(4.0)
+        time.sleep(3.0)
 
     t0 = time.monotonic()
     with pytest.raises(ExecutionTimeoutError):
         outer_run()
     elapsed = time.monotonic() - t0
-    assert 2.5 <= elapsed <= 3.8
+    assert 1.5 <= elapsed <= 2.8
 
     # 4. Inverse: outer timeout(2) with inner timeout(5) finishing immediately, outer sleeps
     @timeout(2)
@@ -1881,9 +1872,9 @@ def test_executor_default_static_tools_has_sum():
 
 def test_except_handler_as_result_egress():
     # Tip: except Exception as result does not leave the exception object as the cell result.
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
-    r = run_sandboxed_code(
+    r = sandbox_run(
         """
 try:
     1 / 0
@@ -2181,7 +2172,7 @@ def test_operator_and_string_star_imports():
 
 
 
-def test_numpy_pickle_policy_enforcement(tmp_path):
+def test_numpy_pickle_policy_enforcement(monkeypatch):
     executor = LocalPythonExecutor(additional_authorized_imports=["numpy", "pandas", "functools"])
     executor.send_tools({})
 
@@ -2271,47 +2262,36 @@ def test_numpy_pickle_policy_enforcement(tmp_path):
     # from numpy import save as s with fake.
     import sys
     import types
-    orig_np = sys.modules.get("numpy")
     fake_mod = types.ModuleType("numpy")
     setattr(fake_mod, "save", fake_save)
-    sys.modules["numpy"] = fake_mod
-    try:
-        executor_import = LocalPythonExecutor(additional_authorized_imports=["numpy"])
-        with pytest.raises(InterpreterError) as exc:
-            executor_import("from numpy import save as s\ns('file', [1, 2], allow_pickle=True)")
-        assert "allow_pickle=True" in str(exc.value)
-    finally:
-        if orig_np is not None:
-            sys.modules["numpy"] = orig_np
-        else:
-            sys.modules.pop("numpy", None)
+    monkeypatch.setitem(sys.modules, "numpy", fake_mod)
+    executor_import = LocalPythonExecutor(additional_authorized_imports=["numpy"])
+    with pytest.raises(InterpreterError) as exc:
+        executor_import("from numpy import save as s\ns('file', [1, 2], allow_pickle=True)")
+    assert "allow_pickle=True" in str(exc.value)
 
-    # If NumPy imports, numeric np.save succeeds and object-array save raises.
-    try:
-        import importlib.util
-        if importlib.util.find_spec("numpy") is None:
-            return
-        executor_real = LocalPythonExecutor(additional_authorized_imports=["numpy"])
-        executor_real.send_variables({"path_num": str(tmp_path / "num.npy"), "path_obj": str(tmp_path / "obj.npy")})
-        real_code = """
+
+def test_numpy_pickle_policy_enforcement_real_numpy(tmp_path):
+    pytest.importorskip("numpy")
+    executor_real = LocalPythonExecutor(additional_authorized_imports=["numpy"])
+    executor_real.send_variables({"path_num": str(tmp_path / "num.npy"), "path_obj": str(tmp_path / "obj.npy")})
+    real_code = """
 import numpy as np
 arr_num = np.array([1, 2, 3])
 np.save(path_num, arr_num)
 """
-        executor_real(real_code)
+    executor_real(real_code)
 
-        real_obj_code = """
+    real_obj_code = """
 import numpy as np
 class Dummy:
     pass
 arr_obj = np.array([Dummy()])
 np.save(path_obj, arr_obj)
 """
-        with pytest.raises(InterpreterError) as exc:
-            executor_real(real_obj_code)
-        assert "cannot be saved when allow_pickle=False" in str(exc.value)
-    except ImportError:
-        pass
+    with pytest.raises(InterpreterError) as exc:
+        executor_real(real_obj_code)
+    assert "cannot be saved when allow_pickle=False" in str(exc.value)
 
 
 def test_bounded_print_container_during_execution():

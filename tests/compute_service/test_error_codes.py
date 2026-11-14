@@ -23,18 +23,6 @@ def _readme_codes_by_status() -> dict[str, set[str]]:
     return rows
 
 
-def test_constants_name_their_own_code() -> None:
-    for code in error_codes.HTTP_STATUS:
-        assert getattr(error_codes, code) == code
-
-
-def test_compute_emitted_codes_are_tabulated() -> None:
-    """Worker-only codes at 200 use route default HTTP status; WarmChild lease codes are not tabulated."""
-    for name in ("REQUEST_NOT_SERIALIZABLE", "MISSING_DEPENDENCIES", "MISSING_CODE"):
-        assert error_codes.HTTP_STATUS[name] == "200 OK"
-    # CANCELLED and PIPE_LOCK_BUSY come from WarmChild.lease only, not compute HTTP.
-
-
 def test_config_import_does_not_load_warm_child() -> None:
     script = (
         "import compute_service.config\n"
@@ -54,7 +42,3 @@ def test_readme_status_table_matches_error_codes() -> None:
         assert rows.get(status, set()) == codes, status
     for status, codes in rows.items():
         assert not codes or status in expected, (status, codes)
-    assert "BAD_REQUEST_BODY" in rows["400"]
-    assert "BAD_FRAMING" in rows["400"]
-    assert "UNAUTHORIZED" in rows["401"]
-    assert "READ_TIMEOUT" in rows["408"]

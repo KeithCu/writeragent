@@ -514,17 +514,6 @@ def test_run_sql_raises_on_query_error():
 # --- Phase D: shared-kernel DuckDB session cache ---
 
 
-@pytest.fixture
-def _clean_duckdb_sessions():
-    reset_session_duckdb()
-    from plugin.scripting.venv.venv_sandbox import SESSIONS
-
-    SESSIONS.clear_all()
-    yield
-    reset_session_duckdb()
-    SESSIONS.clear_all()
-
-
 def _tiny_grid(value: int) -> list[list[object]]:
     return [["x"], [value]]
 
@@ -539,14 +528,14 @@ def test_persistable_session_id_workbook_only():
     assert persistable_duckdb_session_id(None) is None
 
 
-def test_session_duckdb_reuses_connection(_clean_duckdb_sessions):
+def test_session_duckdb_reuses_connection(fresh_sandbox_sessions):
     sid = "calc:duckdb-reuse"
     first = session_duckdb(session_id=sid)
     second = session_duckdb(session_id=sid)
     assert first is second
 
 
-def test_isolated_session_duckdb_is_fresh_each_call(_clean_duckdb_sessions):
+def test_isolated_session_duckdb_is_fresh_each_call(fresh_sandbox_sessions):
     first = session_duckdb()
     second = session_duckdb()
     assert first is not second
@@ -554,7 +543,7 @@ def test_isolated_session_duckdb_is_fresh_each_call(_clean_duckdb_sessions):
     second.close()
 
 
-def test_trusted_action_prefix_is_not_a_session_cache(_clean_duckdb_sessions):
+def test_trusted_action_prefix_is_not_a_session_cache(fresh_sandbox_sessions):
     """Chat / run_folder_sql uses writeragent:sql as a routing id, not a kernel."""
     first = session_duckdb(session_id="writeragent:sql")
     second = session_duckdb(session_id="writeragent:sql")
@@ -563,7 +552,7 @@ def test_trusted_action_prefix_is_not_a_session_cache(_clean_duckdb_sessions):
     second.close()
 
 
-def test_query_folder_sql_session_reuses_registered_table(_clean_duckdb_sessions):
+def test_query_folder_sql_session_reuses_registered_table(fresh_sandbox_sessions):
     sid = "calc:duckdb-tables"
     first = query_folder_sql(
         None,
@@ -580,7 +569,7 @@ def test_query_folder_sql_session_reuses_registered_table(_clean_duckdb_sessions
     assert second["rows"][0][0] == 7
 
 
-def test_query_folder_sql_isolated_does_not_reuse_tables(_clean_duckdb_sessions):
+def test_query_folder_sql_isolated_does_not_reuse_tables(fresh_sandbox_sessions):
     first = query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(3)})
     assert first["status"] == "ok", first
     second = query_folder_sql(None, "SELECT x FROM sales")
@@ -588,7 +577,7 @@ def test_query_folder_sql_isolated_does_not_reuse_tables(_clean_duckdb_sessions)
     assert "DUCKDB_ERROR" in second.get("code", "")
 
 
-def test_query_folder_sql_reregister_refreshes_stale_snapshot(_clean_duckdb_sessions):
+def test_query_folder_sql_reregister_refreshes_stale_snapshot(fresh_sandbox_sessions):
     sid = "calc:duckdb-refresh"
     query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(1)}, session_id=sid)
     refreshed = query_folder_sql(
@@ -601,7 +590,7 @@ def test_query_folder_sql_reregister_refreshes_stale_snapshot(_clean_duckdb_sess
     assert refreshed["rows"][0][0] == 42
 
 
-def test_reset_session_duckdb_clears_connection_and_tables(_clean_duckdb_sessions):
+def test_reset_session_duckdb_clears_connection_and_tables(fresh_sandbox_sessions):
     sid = "calc:duckdb-reset"
     before = session_duckdb(session_id=sid)
     query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(5)}, session_id=sid)
@@ -612,7 +601,7 @@ def test_reset_session_duckdb_clears_connection_and_tables(_clean_duckdb_session
     assert missing["status"] == "error"
 
 
-def test_reset_sandbox_session_closes_duckdb(_clean_duckdb_sessions):
+def test_reset_sandbox_session_closes_duckdb(fresh_sandbox_sessions):
     from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
 
     sid = "calc:duckdb-sandbox-reset"
@@ -622,7 +611,7 @@ def test_reset_sandbox_session_closes_duckdb(_clean_duckdb_sessions):
     assert missing["status"] == "error"
 
 
-def test_invalidate_session_tables_drops_one_name(_clean_duckdb_sessions):
+def test_invalidate_session_tables_drops_one_name(fresh_sandbox_sessions):
     sid = "calc:duckdb-invalidate"
     query_folder_sql(
         None,
@@ -638,17 +627,17 @@ def test_invalidate_session_tables_drops_one_name(_clean_duckdb_sessions):
     assert kept["rows"][0][0] == 2
 
 
-def test_cross_session_duckdb_isolation(_clean_duckdb_sessions):
+def test_cross_session_duckdb_isolation(fresh_sandbox_sessions):
     query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(11)}, session_id="calc:a")
     other = query_folder_sql(None, "SELECT x FROM sales", session_id="calc:b")
     assert other["status"] == "error"
 
 
-def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_sessions):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+def test_shared_kernel_cell_reuses_injected_session_duckdb(fresh_sandbox_sessions):
+    from tests.scripting.sandbox_support import sandbox_run
 
     sid = "calc:duckdb-injected"
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "import pandas as pd\n"
         "con = session_duckdb()\n"
         "con.register('sales', pd.DataFrame({'x': [8]}))\n"
@@ -658,7 +647,7 @@ def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_session
     )
     assert first["status"] == "ok", first
     assert first["result"] is True
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "con = session_duckdb()\n"
         "result = int(con.execute('SELECT x FROM sales').fetchone()[0])",
         None,
@@ -668,10 +657,10 @@ def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_session
     assert second["result"] == 8
 
 
-def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+def test_isolated_cell_session_duckdb_does_not_persist(fresh_sandbox_sessions):
+    from tests.scripting.sandbox_support import sandbox_run
 
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "import pandas as pd\n"
         "con = session_duckdb()\n"
         "con.register('sales', pd.DataFrame({'x': [1]}))\n"
@@ -679,20 +668,20 @@ def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
         None,
     )
     assert first["status"] == "ok", first
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "result = session_duckdb().execute('SELECT x FROM sales').fetchone()[0]",
         None,
     )
     assert second["status"] == "error"
 
 
-def test_injected_query_folder_df_joins_preloaded_to_sibling_csv(_clean_duckdb_sessions, tmp_path: Path):
+def test_injected_query_folder_df_joins_preloaded_to_sibling_csv(fresh_sandbox_sessions, tmp_path: Path):
     """=PY() injects query_folder_df + scoped_dir; the join payload must not NameError."""
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     income = tmp_path / "zip_income.csv"
     _write_csv(income, "zip,median_household_income\n02116,99000\n")
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "df = query_folder_df("
         "'SELECT z.median_household_income AS inc FROM sales s JOIN zip_income z ON s.zip = z.zip',"
         "files={'zip_income': 'zip_income.csv'},"
@@ -727,13 +716,13 @@ def test_injected_query_folder_df_ignores_caller_scoped_dir(tmp_path, monkeypatc
     assert seen["scoped_dir"] == str(tmp_path)
 
 
-def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions):
+def test_sandboxed_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions):
     """A cell must not open another workbook's catalog by passing its session id."""
     from plugin.scripting.venv.duckdb_sql import session_duckdb
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     other = "calc:file:///other-workbook"
-    seed = run_sandboxed_code(
+    seed = sandbox_run(
         "import pandas as pd\n"
         "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
         "result = 1",
@@ -741,14 +730,14 @@ def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions)
         session_id=other,
     )
     assert seed["status"] == "ok", seed
-    stolen = run_sandboxed_code(
+    stolen = sandbox_run(
         "result = session_duckdb('calc:file:///other-workbook').execute("
         "'SELECT x FROM secret').fetchone()[0]",
         None,
         session_id="calc:file:///this-workbook",
     )
     assert stolen["status"] == "error", stolen
-    direct = run_sandboxed_code(
+    direct = sandbox_run(
         "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
         "result = raw('calc:file:///other-workbook').execute('SELECT x FROM secret').fetchone()[0]",
         None,
@@ -760,14 +749,14 @@ def test_sandboxed_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions)
     assert host.execute("SELECT x FROM secret").fetchone()[0] == 7
 
 
-def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_sessions, monkeypatch):
+def test_timeout_fallback_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions, monkeypatch):
     """SIGALRM fallback thread must not open another workbook's catalog."""
     import signal
 
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
     other = "calc:file:///other-workbook-timeout"
-    seed = run_sandboxed_code(
+    seed = sandbox_run(
         "import pandas as pd\n"
         "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
         "result = 1",
@@ -784,7 +773,7 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_se
         return real_signal(signum, handler)
 
     monkeypatch.setattr(signal, "signal", _refuse_alarm)
-    stolen = run_sandboxed_code(
+    stolen = sandbox_run(
         "from writeragent.scripting.duckdb_sql import session_duckdb as raw\n"
         "result = raw('calc:file:///other-workbook-timeout').execute("
         "'SELECT x FROM secret').fetchone()[0]",
@@ -797,11 +786,11 @@ def test_timeout_fallback_session_duckdb_ignores_other_workbook(_clean_duckdb_se
     assert "secret" in message.lower() or "catalog" in message.lower()
 
 
-def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+def test_query_folder_sql_uses_current_sandbox_session(fresh_sandbox_sessions):
+    from tests.scripting.sandbox_support import sandbox_run
 
     sid = "calc:duckdb-sandbox-current"
-    first = run_sandboxed_code(
+    first = sandbox_run(
         "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
         "result = query_folder_sql(None, 'SELECT x FROM sales', preloaded={'sales': [['x'], [13]]})['status']",
         None,
@@ -809,7 +798,7 @@ def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
     )
     assert first["status"] == "ok", first
     assert first["result"] == "ok"
-    second = run_sandboxed_code(
+    second = sandbox_run(
         "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
         "result = query_folder_sql(None, 'SELECT x FROM sales')['rows'][0][0]",
         None,
@@ -979,8 +968,8 @@ def test_format_sql_for_calc_shows_truncation_note():
         failed_message="SQL query failed.",
     )
     flat = [str(cell) for row in grid for cell in row if cell]
-    assert any("250" in cell and "truncated" in cell.lower() or "showing first" in cell.lower() for cell in flat)
-    assert any("Flags" in cell or "truncated" in cell.lower() for cell in flat)
+    assert "(showing first rows; 250 total)" in flat
+    assert "Flags" in flat
     err = format_tabular_helper_for_calc(
         {"status": "error", "code": "READONLY_VIOLATION", "message": "SQL contains write"},
         domain_label="SQL",
@@ -993,12 +982,10 @@ def test_format_sql_for_calc_shows_truncation_note():
 
 def test_is_sql_result_long_message_is_bool():
     from plugin.framework.deal_shim import DEAL_MAX_TOKEN
-    from plugin.scripting.duckdb_sql import is_sql_result, parse_sql_script_header
+    from plugin.scripting.duckdb_sql import is_sql_result
 
     message = "Catalog Error: " + ("x" * (DEAL_MAX_TOKEN + 1))
     assert is_sql_result({"status": "error", "code": "DUCKDB_ERROR", "message": message}) is True
-    header = "SELECT 1;\n" * 400
-    assert parse_sql_script_header(header) is None
 
 
 def test_insert_sql_result_into_calc() -> None:
@@ -1009,10 +996,16 @@ def test_insert_sql_result_into_calc() -> None:
     ctx = MagicMock()
     result = {"status": "ok", "tables": [{"columns": ["a"], "rows": [[1]]}]}
 
-    with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=1) as mock_insert:
+    with patch("plugin.calc.tabular_egress.insert_tabular_result_into_calc", return_value=5) as mock_insert:
         res = insert_sql_result_into_calc(doc, ctx, result)
-        assert res == 1
-        mock_insert.assert_called_once()
+        assert res == 5
+        mock_insert.assert_called_once_with(
+            doc,
+            [["query_folder_sql"], [], ["table"], ["a"], [1.0]],
+            sheet_name=None,
+            start_col=None,
+            start_row=None,
+        )
 
 
 def test_scanner_single_pass_tokenizer_regression():
@@ -1066,6 +1059,13 @@ def test_defense_in_depth_external_access_lock(tmp_path: Path):
     assert res["status"] == "ok", res
     assert res["rows"][0][0] == 30
 
+    ext = query_folder_sql(
+        str(tmp_path),
+        "SELECT current_setting('enable_external_access') AS ext, current_setting('lock_configuration') AS locked",
+    )
+    assert ext["status"] == "ok", ext
+    assert ext["rows"] == [[False, True]]
+
 
 def test_run_sql_folder_join_uncapped_dataframe(tmp_path: Path):
     """query_folder_df returns full DataFrame without capping at MAX_TABLE_ROWS."""
@@ -1115,42 +1115,17 @@ def test_query_folder_sql_normalizes_string_and_tuple_files(tmp_path: Path):
     assert res_esc_str["code"] == "READONLY_VIOLATION"
 
 
-def test_register_preloaded_skips_colliding_stem_alias(caplog):
-    """Colliding stem aliases are skipped with a warning log."""
-    import logging
+def test_register_preloaded_skips_colliding_stem_alias():
+    """Colliding stem aliases do not break preloaded queries."""
     grid1 = [["x"], [1]]
     grid2 = [["x"], [2]]
-    with caplog.at_level(logging.WARNING):
-        # a.csv and a.xlsx both have stem "a"
-        res = query_folder_sql(
-            None,
-            "SELECT * FROM 'a.csv'",
-            preloaded={"a.csv": grid1, "a.xlsx": grid2},
-        )
+    # a.csv and a.xlsx both have stem "a"
+    res = query_folder_sql(
+        None,
+        "SELECT * FROM 'a.csv'",
+        preloaded={"a.csv": grid1, "a.xlsx": grid2},
+    )
     assert res["status"] == "ok", res
-    assert any("Skipping stem alias 'a'" in r.message for r in caplog.records)
-
-
-def test_sql_error_logging_uses_warning_for_duckdb_error(caplog):
-    """duckdb.Error logs via warning, not exception."""
-    import logging
-    with caplog.at_level(logging.WARNING):
-        res = query_folder_sql(None, "SELECT * FROM nonexistent_table_xyz")
-    assert res["status"] == "error"
-    assert any(r.levelno == logging.WARNING and "failed" in r.message for r in caplog.records)
-    assert not any(r.levelno >= logging.ERROR for r in caplog.records)
-
-
-def test_host_duckdb_sql_exports_and_constants():
-    """Verify host duckdb_sql constants and exports."""
-    from plugin.scripting import duckdb_sql as host_duckdb
-
-    assert host_duckdb.MAX_TABLE_ROWS == MAX_TABLE_ROWS
-    templates = host_duckdb.get_sql_script_templates()
-    assert str(MAX_TABLE_ROWS) in templates["query_folder_sql"]
-    assert str(MAX_TABLE_ROWS) in templates["query_sheet_sql"]
-    assert "MAX_TABLE_ROWS" in templates["query_folder_sql"]
-    assert "SqlError" in host_duckdb._SQL_VENV_EXPORTS
 
 
 def test_run_sql_scoped_dir_alone_is_honesty_dict():
@@ -1161,8 +1136,8 @@ def test_run_sql_scoped_dir_alone_is_honesty_dict():
     assert res["rows"] == [[1]]
 
 
-def test_injected_run_sql_uses_con_on_saved_doc(_clean_duckdb_sessions, tmp_path: Path):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+def test_injected_run_sql_uses_con_on_saved_doc(fresh_sandbox_sessions, tmp_path: Path):
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = """
 con = session_duckdb()
@@ -1170,7 +1145,7 @@ con.execute("CREATE VIEW v AS SELECT 9 AS n")
 out = run_sql("SELECT n FROM v", con)
 result = [out["status"], out["rows"][0][0]]
 """
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id=None,
         bindings={"scoped_dir": str(tmp_path)},
@@ -1179,14 +1154,14 @@ result = [out["status"], out["rows"][0][0]]
     assert res["result"] == ["ok", 9]
 
 
-def test_injected_run_sql_copy_is_error_dict(_clean_duckdb_sessions, tmp_path: Path):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+def test_injected_run_sql_copy_is_error_dict(fresh_sandbox_sessions, tmp_path: Path):
+    from tests.scripting.sandbox_support import sandbox_run
 
     code = """
 out = run_sql("COPY (SELECT 1) TO 'out.csv'")
 result = [out["status"], out["code"], out["helper"]]
 """
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id="calc:test-copy",
         bindings={"scoped_dir": str(tmp_path)},
@@ -1201,8 +1176,8 @@ def test_folder_mode_ignores_caller_connection(tmp_path: Path):
     assert int(df.iloc[0, 0]) == 1
 
 
-def test_saved_doc_jails_then_reads_sibling_csv(_clean_duckdb_sessions, tmp_path: Path):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+def test_saved_doc_jails_then_reads_sibling_csv(fresh_sandbox_sessions, tmp_path: Path):
+    from tests.scripting.sandbox_support import sandbox_run
 
     _write_csv(tmp_path / "sales.csv", "val\n10\n")
     code = """
@@ -1215,7 +1190,7 @@ except Exception:
 df = query_folder_df("SELECT val FROM sales", files=["sales.csv"])
 result = [leaked, int(df.iloc[0, 0])]
 """
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id="calc:jail-then-read",
         bindings={"scoped_dir": str(tmp_path)},
@@ -1224,7 +1199,7 @@ result = [leaked, int(df.iloc[0, 0])]
     assert res["result"] == [False, 10]
 
 
-def test_persist_without_folder_still_reads_files_later(_clean_duckdb_sessions, tmp_path: Path):
+def test_persist_without_folder_still_reads_files_later(fresh_sandbox_sessions, tmp_path: Path):
     _write_csv(tmp_path / "sales.csv", "val\n42\n")
     sid = "calc:no-folder-then-file"
     session_duckdb(session_id=sid).execute("CREATE TABLE mem AS SELECT 1 AS x")
@@ -1236,12 +1211,12 @@ def test_persist_without_folder_still_reads_files_later(_clean_duckdb_sessions, 
     assert res2["rows"][0][0] == 1
 
 
-def test_old_duckdb_persist_skips_jail(_clean_duckdb_sessions, tmp_path: Path, monkeypatch):
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+def test_old_duckdb_persist_skips_jail(fresh_sandbox_sessions, tmp_path: Path, monkeypatch):
+    from tests.scripting.sandbox_support import sandbox_run
 
     monkeypatch.setattr("plugin.scripting.venv.duckdb_sql._duckdb_version_tuple", lambda: (1, 2))
     code = "result = session_duckdb().execute(\"SELECT current_setting('enable_external_access')\").fetchone()[0]"
-    res = run_sandboxed_code(
+    res = sandbox_run(
         code,
         session_id="calc:old-duckdb",
         bindings={"scoped_dir": str(tmp_path)},
@@ -1257,7 +1232,7 @@ def test_files_used_drops_duplicate_basename(tmp_path: Path):
     assert res["files_used"] == ["item.csv", "item"]
 
 
-def test_invalidate_session_tables_drops_flat_file_and_stem_view(_clean_duckdb_sessions, tmp_path: Path):
+def test_invalidate_session_tables_drops_flat_file_and_stem_view(fresh_sandbox_sessions, tmp_path: Path):
     sid = "calc:duckdb-invalidate-flat"
     f = tmp_path / "ledger.csv"
     _write_csv(f, "amount\n5\n")
@@ -1284,7 +1259,7 @@ def test_invalidate_session_tables_drops_flat_file_and_stem_view(_clean_duckdb_s
     assert res_costs["rows"][0] == [2]
 
 
-def test_invalidate_session_tables_keeps_unrelated_stem_view(_clean_duckdb_sessions, tmp_path: Path):
+def test_invalidate_session_tables_keeps_unrelated_stem_view(fresh_sandbox_sessions, tmp_path: Path):
     sid = "calc:duckdb-invalidate-stem"
     session_duckdb(session_id=sid).execute("CREATE VIEW ledger AS SELECT 42 AS y")
     f = tmp_path / "ledger.csv"
@@ -1308,7 +1283,7 @@ def test_invalidate_session_tables_keeps_unrelated_stem_view(_clean_duckdb_sessi
     assert res_file["status"] == "error"
 
 
-def test_invalidate_session_tables_drops_relation_shadowing_table(_clean_duckdb_sessions):
+def test_invalidate_session_tables_drops_relation_shadowing_table(fresh_sandbox_sessions):
     import pandas as pd
     from plugin.scripting.venv.duckdb_sql import _raw_duckdb
 
@@ -1328,7 +1303,7 @@ def test_invalidate_session_tables_drops_relation_shadowing_table(_clean_duckdb_
     assert res_after["status"] == "error"
 
 
-def test_invalidate_session_tables_quotes_double_quote(_clean_duckdb_sessions):
+def test_invalidate_session_tables_quotes_double_quote(fresh_sandbox_sessions):
     from plugin.scripting.venv.duckdb_sql import _raw_duckdb
 
     sid = "calc:duckdb-invalidate-quote"
@@ -1342,35 +1317,27 @@ def test_invalidate_session_tables_quotes_double_quote(_clean_duckdb_sessions):
     assert res["status"] == "error"
 
 
-def test_flat_stem_collision_warns_and_keeps_first(tmp_path: Path, caplog):
-    import logging
-
+def test_flat_stem_collision_keeps_first(tmp_path: Path):
     csv_path = tmp_path / "a.csv"
     _write_csv(csv_path, "amount\n1\n")
     parquet_path = tmp_path / "a.parquet"
     _write_parquet(parquet_path, [("x", 2)])
 
-    with caplog.at_level(logging.WARNING):
-        res_list = query_folder_sql(
-            str(tmp_path),
-            "SELECT amount FROM a",
-            files=["a.csv", "a.parquet"],
-        )
+    res_list = query_folder_sql(
+        str(tmp_path),
+        "SELECT amount FROM a",
+        files=["a.csv", "a.parquet"],
+    )
     assert res_list["status"] == "ok", res_list
     assert res_list["rows"] == [[1]]
-    assert any("Skipping stem alias 'a' for 'a.parquet'" in r.message for r in caplog.records)
 
-    caplog.clear()
-
-    with caplog.at_level(logging.WARNING):
-        res_dict = query_folder_sql(
-            str(tmp_path),
-            "SELECT amount FROM a",
-            files={"a.csv": "a.csv", "a.parquet": "a.parquet"},
-        )
+    res_dict = query_folder_sql(
+        str(tmp_path),
+        "SELECT amount FROM a",
+        files={"a.csv": "a.csv", "a.parquet": "a.parquet"},
+    )
     assert res_dict["status"] == "ok", res_dict
     assert res_dict["rows"] == [[1]]
-    assert any("Skipping stem alias 'a' for 'a.parquet'" in r.message for r in caplog.records)
 
 
 

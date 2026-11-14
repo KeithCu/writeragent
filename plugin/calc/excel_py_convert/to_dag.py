@@ -57,7 +57,7 @@ from plugin.calc.excel_py_convert.models import (
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_dep
 from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
-from plugin.calc.python.xl_static_rewrite import iter_xl_calls
+from plugin.calc.python.xl_static_rewrite import P_TOKEN_RE, iter_xl_calls
 from plugin.framework.ast_stmt_edit import ast_source_offset, line_starts_exact
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
@@ -70,12 +70,11 @@ from plugin.framework.deal_shim import (
     str_bounded,
 )
 
-_P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 # Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
 _P_BARE_RE = re.compile(r"%P(\d+)%", re.IGNORECASE)
 # Equal-length stand-in so ``ast.parse`` accepts Excel scripts: ``%P2%`` → ``_P2_``.
 _P_SENTINEL_RE = re.compile(r"^_P(\d+)_$", re.IGNORECASE)
-_OBJECT_SUPPRESS = "\n# excel_py: returnType=1 (Object) — cell value egress suppressed until object cards ship\nresult = None"
+OBJECT_SUPPRESS = "\n# excel_py: returnType=1 (Object) — cell value egress suppressed until object cards ship\nresult = None"
 
 
 @dataclass
@@ -134,9 +133,7 @@ def _xl_binding_expr(index: int, header_mode: str) -> str:
 
 def _header_mode_from_keywords(node: ast.Call) -> tuple[HeaderMode, str | None]:
     """Extract HeaderMode from call keywords or return an error issue if invalid."""
-    # A non-constant headers argument (headers=flag, headers=1) and any
-    # extra keyword are fatal. Looking only for a constant headers= and
-    # returning "omit" strips the rest of the call.
+    # Only a constant headers=True/False is accepted. A non-constant headers (headers=flag, headers=1) or any other keyword is fatal: the rewrite would drop it from the call.
     header_mode: HeaderMode = "omit"
     for kw in node.keywords:
         if kw.arg is None:
@@ -182,7 +179,7 @@ def _skip_string(src: str, i: int) -> int:
 
 @deal.pre(lambda src, *_unused, **__: _deal_excel_src_ok(src))
 @inverse_ensure(lambda *args, result="", **kwargs: len(result) == len(args[0]))
-def _normalize_excel_placeholders(src: str) -> str:
+def normalize_excel_placeholders(src: str) -> str:
     # crosshair: off
     """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.
 
@@ -222,7 +219,7 @@ def _p_num_from_arg(arg0: ast.AST) -> int | None:
     if isinstance(arg0, ast.Name):
         text, pattern = arg0.id, _P_SENTINEL_RE
     elif isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
-        text, pattern = arg0.value, _P_TOKEN_RE
+        text, pattern = arg0.value, P_TOKEN_RE
     else:
         return None
     matched = pattern.match(text)
@@ -246,7 +243,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     issues: list[str] = []
     src = code or ""
     # Excel ``%Pn%`` is not valid Python; equal-length ``_Pn_`` lets us parse with AST.
-    normalized = _normalize_excel_placeholders(src)
+    normalized = normalize_excel_placeholders(src)
     try:
         tree = ast.parse(normalized)
     except (SyntaxError, TypeError, MemoryError, RecursionError) as exc:
@@ -318,9 +315,7 @@ def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
             fatal = True
             continue
         idx = _placeholder_to_data_index(call.p_num)
-        # idx >= num_deps is fatal even when num_deps is 0. Guarding that
-        # test with ``if num_deps`` skipped the empty-deps case, and
-        # convert_cell_to_dag never marked a missing formula dep fatal.
+        # idx >= num_deps is fatal even when num_deps is 0, so a missing formula dep is always fatal.
         if idx >= num_deps:
             issues.append(f"%P{call.p_num}% has no matching formula dep (need {idx + 1} deps, have {num_deps})")
             fatal = True
@@ -462,16 +457,15 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_pri
 
     fatal = analysis.fatal or bool(bind_issues)
 
-    # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
-    # Merge every analysis issue. When deps are unresolved, dropping
-    # analyze_xl_calls issues hides syntax errors and bad placeholders.
-    # In best_effort mode say that placeholder remapping was skipped. The
-    # old warning claimed shifted data indices were refused in both modes.
+    # Keep every analysis issue: dropping analyze_xl_calls issues when deps are
+    # unresolved would hide syntax errors and bad placeholders. Best-effort
+    # mode says it skipped placeholder remapping; strict mode says it refused.
     if bind_issues:
         if best_effort:
             issues.append("unresolved or dropped dependency; skipped placeholder remapping in best-effort mode")
         else:
             issues.append("unresolved or dropped dependency; refusing to emit shifted data indices")
+    # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
     if fatal:
         new_code = original
     else:
@@ -484,7 +478,7 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_pri
         issues.append("shared-kernel workbook: enable shared session; converter does not add order edges")
 
     if cell.return_type == 1:
-        new_code = new_code + _OBJECT_SUPPRESS
+        new_code = new_code + OBJECT_SUPPRESS
         issues.append("returnType=1 (Object): suppressed cell value egress (shared object kept in script)")
 
     failed = fatal and not best_effort

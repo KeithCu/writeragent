@@ -1,6 +1,8 @@
 import sys
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import pytest
 
 from plugin.scripting.optimize import (
     linear_programming,
@@ -143,6 +145,38 @@ def test_insert_optimize_result_into_calc() -> None:
         res = insert_optimize_result_into_calc(doc, ctx, result)
         assert res == 1
         mock_insert.assert_called_once()
+
+
+def test_insert_optimize_result_qualifies_sheet_on_the_anchor() -> None:
+    """A sheet-qualified anchor must reach write_formula_range, which uses CalcBridge.resolve."""
+    from unittest.mock import MagicMock, patch
+    from plugin.scripting.optimize import insert_optimize_result_into_calc
+
+    manipulator = MagicMock()
+    result = {"status": "ok", "helper": "linear_programming", "metrics": {"objective": 1}}
+
+    cases = (
+        ("Q1.Sales", 1, 1, "'Q1.Sales'.B2"),
+        ("Report", 5, 0, "Report.F1"),
+        ("Data Sheet", 2, 2, "'Data Sheet'.C3"),
+        ("O'Brien", 0, 0, "'O''Brien'.A1"),
+        (None, 0, 0, "A1"),
+    )
+    with (
+        patch("plugin.calc.tabular_egress.CalcBridge"),
+        patch("plugin.calc.tabular_egress.CellManipulator", return_value=manipulator),
+    ):
+        for sheet_name, col, row, expected in cases:
+            manipulator.reset_mock()
+            insert_optimize_result_into_calc(
+                MagicMock(),
+                MagicMock(),
+                result,
+                sheet_name=sheet_name,
+                start_col=col,
+                start_row=row,
+            )
+            assert manipulator.write_formula_range.call_args.args[0] == expected
 
 
 def test_portfolio_daily_returns_are_not_equal_weight():
@@ -449,31 +483,19 @@ def test_linear_programming_rejects_duplicate_columns():
 
 
 def test_optimize_facade_does_not_import_client_at_module_scope():
-    import ast
     from pathlib import Path
 
+    from tests.harness.import_guards import assert_no_toplevel_import
+
     facade_path = Path(__file__).resolve().parents[2] / "plugin" / "scripting" / "optimize.py"
-    tree = ast.parse(facade_path.read_text(encoding="utf-8"))
-
-    forbidden = {
-        "plugin.scripting.client",
-        "plugin.scripting.trusted_rpc",
-        "plugin.scripting.venv_worker",
-    }
-
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                for f in forbidden:
-                    assert alias.name != f and not alias.name.startswith(f + "."), (
-                        f"Module-level import of {alias.name} forbidden in optimize facade"
-                    )
-        elif isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            for f in forbidden:
-                assert mod != f and not mod.startswith(f + "."), (
-                    f"Module-level import from {mod} forbidden in optimize facade"
-                )
+    assert_no_toplevel_import(
+        facade_path,
+        {
+            "plugin.scripting.client",
+            "plugin.scripting.trusted_rpc",
+            "plugin.scripting.venv_worker",
+        },
+    )
 
 
 def test_optimize_facade_import_does_not_load_host_worker():
@@ -662,6 +684,53 @@ def test_lp_solution_table_caps_at_200():
     assert len(res["tables"][0]["rows"]) == 200
     assert res["tables"][0]["truncated"] is True
     assert res["tables"][0]["total_rows"] == 250
+
+
+_LP_GRID = [["c", "a1", "b"], [1, 1, 4], [2, 1, 4]]
+_PIN_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E", 30, 3], ["W", 40, 4]]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_code", "expected_message", "expected_helper"),
+    [
+        (
+            lambda: linear_programming(_LP_GRID, c_col="c", a_cols=["a1"], b_col="b", bounds="x"),
+            "INVALID_PARAM",
+            "bounds must be one [low, high] pair or a list of one pair per variable",
+            "linear_programming",
+        ),
+        (
+            lambda: linear_programming(_LP_GRID, c_col="c", a_cols=["a1"], b_col="b", maximize="maybe"),
+            "INVALID_PARAM",
+            "maximize must be a boolean, got 'maybe'",
+            "linear_programming",
+        ),
+        (
+            lambda: optimize_portfolio(_PIN_GRID, returns_col=["Nope"]),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "optimize_portfolio",
+        ),
+        (
+            lambda: solve_scheduling_problem(_PIN_GRID, cost_cols=5),
+            "INVALID_PARAM",
+            "cost_cols must be a column list, got 5",
+            "solve_scheduling_problem",
+        ),
+    ],
+)
+def test_optimize_helper_errors_keep_code_message_helper(
+    call,
+    expected_code: str,
+    expected_message: str,
+    expected_helper: str,
+):
+    assert call() == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
 
 
 

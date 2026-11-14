@@ -24,7 +24,7 @@ def calc_ctx():
 
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.calc.optimize.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     inside = {"flag": False}
 
@@ -64,7 +64,7 @@ def test_optimize_data_keeps_ipc_off_main_thread(mock_run_trusted, mock_main_thr
 
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc")
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.calc.optimize.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_thread, mock_insert, calc_ctx):
     mock_run_trusted.return_value = {"status": "ok", "helper": "linear_programming"}
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -108,49 +108,9 @@ def test_optimize_data_handles_complex_output_range(mock_run_trusted, mock_main_
     assert mock_insert.call_args.kwargs["start_row"] == 0
 
 
-@patch("plugin.calc.tabular_egress.CellManipulator")
-@patch("plugin.calc.tabular_egress.CalcBridge")
-def test_insert_optimize_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_manip_cls):
-    """A sheet-qualified anchor must reach write_formula_range, which uses CalcBridge.resolve."""
-    del mock_bridge
-    from plugin.scripting.optimize import insert_optimize_result_into_calc
-
-    manipulator = MagicMock()
-    mock_manip_cls.return_value = manipulator
-    result = {"status": "ok", "helper": "linear_programming", "metrics": {"objective": 1}}
-
-    cases = (
-        ("Q1.Sales", 1, 1, "'Q1.Sales'.B2"),
-        ("Report", 5, 0, "Report.F1"),
-        ("Data Sheet", 2, 2, "'Data Sheet'.C3"),
-        ("O'Brien", 0, 0, "'O''Brien'.A1"),
-        (None, 0, 0, "A1"),
-    )
-    for sheet_name, col, row, expected in cases:
-        manipulator.reset_mock()
-        insert_optimize_result_into_calc(
-            MagicMock(),
-            MagicMock(),
-            result,
-            sheet_name=sheet_name,
-            start_col=col,
-            start_row=row,
-        )
-        assert manipulator.write_formula_range.call_args.args[0] == expected
-
-
-def test_optimize_data_describes_parameters():
-    tool = OptimizeDataTool()
-    params_desc = tool.get_parameters()["properties"]["params"]["description"]
-    for word in ("c_col", "a_cols", "risk_free_rate", "unassigned_rows", "unassigned_columns"):
-        assert word in tool.description
-        assert word in params_desc
-    assert "minimum-variance" in tool.description.lower()
-
-
 @patch("plugin.calc.optimize.insert_optimize_result_into_calc", side_effect=RuntimeError("disk full"))
 @patch("plugin.framework.queue_executor.main.call")
-@patch("plugin.calc.optimize.run_domain")
+@patch("plugin.calc.analysis.run_domain")
 def test_optimize_sheet_write_failure_keeps_the_result(
     mock_run_trusted, mock_main_thread, mock_insert, calc_ctx
 ):

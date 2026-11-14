@@ -16,7 +16,7 @@ from plugin.framework.thread_guard import unwrap_uno
 @final
 class undo_lock:
     """Temporarily hide or lock undo recording during background spill operations
-    (named lowercase for call-site compatibility).
+    (lowercase because callers use it like a function: ``with undo_lock(doc):``).
 
     If an undo action exists (e.g. user just typed =PY()), enterHiddenUndoContext()
     hides the spill mutations under the formula's undo action so the spill does not

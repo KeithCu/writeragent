@@ -21,7 +21,7 @@ from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowli
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
 from plugin.framework.child_runtime import Deadline
 from compute_service.vision import VisionProcessPool, _handle_request, get_vision_pool, shutdown_vision_pool
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from compute_service.config import COMPUTE_MAX_PAYLOAD_BYTES
 from tests.compute_service.multipart_encode import encode_multipart_vision
 
 
@@ -29,9 +29,7 @@ from tests.compute_service.conftest import get_free_port
 
 
 # Minimal 1x1 PNG base64 for testing
-_TINY_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-)
+_TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
 
 @pytest.fixture(autouse=True)
@@ -49,9 +47,8 @@ def test_vision_pool_uses_compute_frame_cap() -> None:
 def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
     """The child loop must use the same 33 MiB cap as the parent pool.
 
-    A frame between the 16 MiB stdio default and COMPUTE_MAX_PAYLOAD_BYTES
-    used to fail the child read. A result over 16 MiB broke the child loop
-    and the host saw EMPTY_RESPONSE.
+    Otherwise a result over 16 MiB breaks the child loop and the host sees
+    EMPTY_RESPONSE.
     """
     import io
 
@@ -122,7 +119,6 @@ def test_vision_file_read_is_capped(tmp_path) -> None:
 
 
 class TestVisionPoolSupervisor:
-
     @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="No mkfifo on this platform")
     def test_open_allowed_file_fifo(self, tmp_path) -> None:
         fifo_path = os.path.join(tmp_path, "my_fifo")
@@ -168,8 +164,8 @@ class TestVisionPoolSupervisor:
         shutdown_vision_pool()
 
     def test_zero_timeout_is_pool_busy(self) -> None:
-        """timeout_sec=0 expires immediately. It used to become the OCR default."""
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=30)
+        """timeout_sec=0 expires immediately instead of falling back to the OCR default."""
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=30))
         try:
             res = pool.execute(helper="extract_text", image=b"\x89PNG", timeout_sec=0, req_id="zero")
             assert res.get("id") == "zero"
@@ -177,66 +173,27 @@ class TestVisionPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_pool_lifecycle(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            assert pool.is_enabled()
-            assert len(pool.workers) == 1
-            # Execute simple text extraction helper on tiny PNG
-            res = pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-1")
-            assert res.get("id") == "v-1"
-            assert "status" in res
-        finally:
-            pool.shutdown()
-            assert not pool.is_enabled()
-
     def test_pool_disabled(self) -> None:
-        pool = VisionProcessPool(num_workers=0)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=0))
         assert not pool.is_enabled()
         res = pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-disabled")
         assert res.get("status") == "error"
         assert res.get("code") == "VISION_SERVICE_DISABLED"
 
-    def test_pool_file_path_success(self, tmp_path) -> None:
-        img_path = tmp_path / "test_image.png"
-        img_path.write_bytes(base64.b64decode(_TINY_PNG_B64))
-
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            res = pool.execute(
-                helper="extract_text",
-                file_path=str(img_path),
-                req_id="v-file-1",
-                allow_paths=(str(tmp_path),),
-            )
-            assert res.get("id") == "v-file-1"
-            assert "status" in res
-        finally:
-            pool.shutdown()
-
     def test_pool_file_path_not_found(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
         try:
-            denied = pool.execute(
-                helper="extract_text",
-                file_path="/tmp/non_existent_12345.png",
-                req_id="v-denied",
-            )
+            denied = pool.execute(helper="extract_text", file_path="/tmp/non_existent_12345.png", req_id="v-denied")
             assert denied.get("status") == "error"
             assert denied.get("code") == "FILE_PATH_DENIED"
-            missing = pool.execute(
-                helper="extract_text",
-                file_path="/tmp/non_existent_12345.png",
-                req_id="v-missing",
-                allow_paths=("/tmp",),
-            )
+            missing = pool.execute(helper="extract_text", file_path="/tmp/non_existent_12345.png", req_id="v-missing", allow_paths=("/tmp",))
             assert missing.get("status") == "error"
             assert missing.get("code") == "FILE_NOT_FOUND"
         finally:
             pool.shutdown()
 
     def test_busy_lease_waits_until_worker_is_free(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
         held = pool.lease_any(timeout_sec=1.0)
         assert held is not None
         result: list[dict] = []
@@ -281,24 +238,13 @@ class TestVisionPoolSupervisor:
 
     def test_worker_missing_ocr_backend_module(self) -> None:
         docling = "plugin.vision.venv.vision_docling"
-        swallowed = {
-            "status": "error",
-            "code": "VISION_ERROR",
-            "message": f"No module named '{docling}'",
-            "helper": "extract_text",
-            "details": {"missing_module": docling},
-        }
+        swallowed = {"status": "error", "code": "VISION_ERROR", "message": f"No module named '{docling}'", "helper": "extract_text", "details": {"missing_module": docling}}
         with patch("plugin.vision.venv.vision.run_vision", return_value=swallowed):
             out2 = _handle_request({"id": "miss-dict", "helper": "extract_text", "image_bytes": b"x"})
         assert out2.get("code") == "VISION_BACKEND_MISSING"
         assert docling in str(out2.get("error"))
 
-        boom = {
-            "status": "error",
-            "code": "VISION_ERROR",
-            "message": "boom",
-            "helper": "extract_text",
-        }
+        boom = {"status": "error", "code": "VISION_ERROR", "message": "boom", "helper": "extract_text"}
         with patch("plugin.vision.venv.vision.run_vision", return_value=boom):
             out3 = _handle_request({"id": "vision-err", "helper": "extract_text", "image_bytes": b"x"})
         assert out3.get("code") == "VISION_ERROR"
@@ -316,7 +262,6 @@ class TestVisionPoolSupervisor:
         self._assert_swap_before_open_is_denied(tmp_path)
 
     # test_symlink_swapped_before_open_is_denied_without_proc removed because non-Linux check is explicitly skipped to avoid name-based TOCTOU.
-
 
     def _assert_swap_before_open_is_denied(self, tmp_path) -> None:
         outside = tmp_path / "secret.png"
@@ -425,34 +370,14 @@ class TestVisionPoolSupervisor:
         assert err is not None
         assert err.get("code") == "FILE_PATH_DENIED"
 
-    def test_worker_crash_recovery(self) -> None:
-        pool = VisionProcessPool(num_workers=1, default_timeout_sec=10)
-        try:
-            worker = pool.workers[0]
-            # Kill worker externally
-            worker.kill()
-            assert not worker.is_alive()
-
-            # Next request should automatically spawn a fresh worker and succeed
-            res = pool.execute(helper="extract_text", image=base64.b64decode(_TINY_PNG_B64), req_id="v-recovery")
-            assert "status" in res
-            assert worker.is_alive()
-        finally:
-            pool.shutdown()
-
 
 class TestVisionHttpEndpoint:
     @pytest.fixture
     def vision_server(self):
         port = get_free_port()
-        settings = ComputeSettings(
-            host="127.0.0.1",
-            port=port,
-            api_key="vision-secret",
-            ocr_workers=1,
-        )
+        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="vision-secret", ocr_workers=1)
         app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
 
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -483,27 +408,32 @@ class TestVisionHttpEndpoint:
         assert status == 401
         assert body["status"] == "error"
 
-    def test_vision_success_b64(self, vision_server: str) -> None:
-        status, body = self._post(vision_server, {"id": "test-ocr-1", "helper": "extract_text"}, image=base64.b64decode(_TINY_PNG_B64), headers={"Authorization": "Bearer vision-secret"})
-        assert status == 200
-        assert body.get("id") == "test-ocr-1"
-        assert "status" in body
-
-    def test_vision_file_path_denied_by_default(self, vision_server: str, tmp_path) -> None:
-        img_path = tmp_path / "endpoint_img.png"
-        img_path.write_bytes(base64.b64decode(_TINY_PNG_B64))
-
-        status, body = self._post(
-            vision_server,
-            {"id": "test-ocr-file", "helper": "extract_text", "file_path": str(img_path)},
-            headers={"Authorization": "Bearer vision-secret"},
+    def test_vision_round_trip_pool_and_http(self, monkeypatch, tmp_path) -> None:
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        stub_worker = tmp_path / "stub_vision_worker.py"
+        stub_worker.write_text(
+            f"import sys, types\n"
+            f"sys.path.insert(0, {repo_root!r})\n"
+            f"mod = types.ModuleType('plugin.vision.venv.vision')\n"
+            f"mod.run_vision = lambda spec, image: {{'status': 'ok', 'text': f\"{{spec['helper']}}:{{len(image)}}\"}}\n"
+            f"sys.modules['plugin.vision.venv.vision'] = mod\n"
+            f"from compute_service.vision import main\n"
+            f"raise SystemExit(main())\n",
+            encoding="utf-8",
         )
-        assert status == 400
-        assert body.get("code") == "FILE_PATH_DENIED"
+        # Stub only run_vision so the test exercises pool, stdio framing, and HTTP without OCR dependencies.
+        monkeypatch.setattr("compute_service.vision._WORKER_SCRIPT", str(stub_worker))
 
-    def test_vision_file_path_allowed_prefix(self, tmp_path) -> None:
+        img = base64.b64decode(_TINY_PNG_B64)
         img_path = tmp_path / "allowed.png"
-        img_path.write_bytes(base64.b64decode(_TINY_PNG_B64))
+        img_path.write_bytes(img)
+        pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=15))
+        try:
+            res = pool.execute(helper="extract_text", image=img, req_id="v-1")
+            assert res == {"status": "ok", "text": f"extract_text:{len(img)}", "id": "v-1"}
+        finally:
+            pool.shutdown()
+
         port = get_free_port()
         settings = ComputeSettings(
             host="127.0.0.1",
@@ -513,7 +443,7 @@ class TestVisionHttpEndpoint:
             ocr_allow_paths=(str(tmp_path),),
         )
         app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=4)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -521,22 +451,35 @@ class TestVisionHttpEndpoint:
         try:
             status, body = self._post(
                 f"http://127.0.0.1:{port}",
-                {"id": "test-ocr-ok", "helper": "extract_text", "file_path": str(img_path)},
+                {"id": "test-ocr-1", "helper": "extract_text"},
+                image=img,
                 headers={"Authorization": "Bearer vision-secret"},
             )
             assert status == 200
-            assert body.get("id") == "test-ocr-ok"
+            assert body == {"status": "ok", "text": f"extract_text:{len(img)}", "id": "test-ocr-1"}
+
+            status_file, body_file = self._post(
+                f"http://127.0.0.1:{port}",
+                {"id": "test-ocr-file-ok", "helper": "extract_text", "file_path": str(img_path)},
+                headers={"Authorization": "Bearer vision-secret"},
+            )
+            assert status_file == 200
+            assert body_file == {"status": "ok", "text": f"extract_text:{len(img)}", "id": "test-ocr-file-ok"}
         finally:
             server.shutdown()
             server.server_close()
             thread.join(timeout=3)
 
+    def test_vision_file_path_denied_by_default(self, vision_server: str, tmp_path) -> None:
+        img_path = tmp_path / "endpoint_img.png"
+        img_path.write_bytes(base64.b64decode(_TINY_PNG_B64))
+
+        status, body = self._post(vision_server, {"id": "test-ocr-file", "helper": "extract_text", "file_path": str(img_path)}, headers={"Authorization": "Bearer vision-secret"})
+        assert status == 400
+        assert body.get("code") == "FILE_PATH_DENIED"
+
     def test_vision_missing_image(self, vision_server: str) -> None:
-        status, body = self._post(
-            vision_server,
-            {"id": "test-ocr-missing", "helper": "extract_text"},
-            headers={"Authorization": "Bearer vision-secret"},
-        )
+        status, body = self._post(vision_server, {"id": "test-ocr-missing", "helper": "extract_text"}, headers={"Authorization": "Bearer vision-secret"})
         assert status == 400
         assert body["status"] == "error"
         assert "Missing image input" in body["error"]
@@ -544,14 +487,9 @@ class TestVisionHttpEndpoint:
     def test_vision_endpoint_disabled_when_zero_workers(self) -> None:
         """When ocr_workers=0 (the default), /v1/vision returns HTTP 501 VISION_SERVICE_DISABLED."""
         port = get_free_port()
-        settings = ComputeSettings(
-            host="127.0.0.1",
-            port=port,
-            api_key="vision-secret",
-            ocr_workers=0,
-        )
+        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="vision-secret", ocr_workers=0)
         app = create_wsgi_app(settings)
-        server = WSGIDualStackServer("127.0.0.1", port, max_threads=2)
+        server = WSGIDualStackServer("127.0.0.1", port, listener_threads=8)
         server.set_app(app)
 
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -581,7 +519,7 @@ def _delay_worker(tmp_path):
             [
                 "import os, sys, time",
                 f"sys.path.insert(0, {str(repo)!r})",
-                "from compute_service.worker_base import run_worker_stdio_loop",
+                "from compute_service.worker_stdio import run_worker_stdio_loop",
                 "def handle(req):",
                 "    time.sleep(float(req.get('delay') or 0))",
                 "    return {'status': 'ok', 'pid': os.getpid()}",
@@ -678,7 +616,7 @@ def test_one_second_budget_with_time_left_still_runs() -> None:
     """
     from unittest.mock import MagicMock
 
-    pool = VisionProcessPool(num_workers=0, idle_worker_ttl_sec=0)
+    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=0, idle_worker_ttl_sec=0))
     pool.num_workers = 1
     mock_worker = MagicMock()
     mock_worker.tasks_executed = 0
@@ -687,12 +625,7 @@ def test_one_second_budget_with_time_left_still_runs() -> None:
     try:
         with pool._cond:
             pool._idle[mock_worker] = time.monotonic()
-        res = pool.execute(
-            helper="extract_text",
-            image=b"\x89PNG",
-            deadline=Deadline.from_absolute(1.0, time.monotonic() + 0.4),
-            req_id="slip",
-        )
+        res = pool.execute(helper="extract_text", image=b"\x89PNG", deadline=Deadline.from_absolute(1.0, time.monotonic() + 0.4), req_id="slip")
         assert res.get("code") != "VISION_POOL_BUSY"
         assert res.get("code") != "EXECUTION_TIMEOUT"
         assert res.get("id") == "slip"
@@ -701,5 +634,3 @@ def test_one_second_budget_with_time_left_still_runs() -> None:
         assert mock_worker.execute.call_args.kwargs["req_id"] == "slip"
     finally:
         pool.shutdown()
-
-

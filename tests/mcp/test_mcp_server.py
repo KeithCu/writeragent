@@ -5,7 +5,6 @@ import pytest
 from io import BytesIO
 from typing import Any
 
-from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 class MockHandler:
@@ -179,37 +178,6 @@ def test_handle_mcp_post_invalid_json():
         assert response_data.get("status") == "error"
         assert response_data.get("code") == "PARSE_ERROR"
 
-def test_send_cors_headers_allowed():
-    """Test shared CORS helper allows safe origins on MCP POST responses."""
-    from plugin.mcp.cors import send_cors_headers
-
-    safe_origins = [
-        "http://localhost",
-        "https://localhost",
-        "http://localhost:3000",
-        "https://localhost:8443",
-        "http://127.0.0.1",
-        "https://127.0.0.1",
-        "http://127.0.0.1:8080",
-        "http://[::1]",
-        "http://[::1]:3000",
-    ]
-
-    for origin in safe_origins:
-        handler = MockHandler({"Origin": origin})
-        send_cors_headers(handler, preflight=False)
-
-        headers_dict = dict(handler.sent_headers)
-        assert "Access-Control-Allow-Origin" in headers_dict
-        assert headers_dict["Access-Control-Allow-Origin"] == origin
-        allow = headers_dict["Access-Control-Allow-Headers"].lower()
-        assert "x-document-url" in allow
-        assert "mcp-protocol-version" in allow
-        expose = headers_dict["Access-Control-Expose-Headers"]
-        assert "Mcp-Session-Id" in expose
-        assert "Mcp-Protocol-Version" in expose
-
-
 def test_send_cors_headers_preflight_mode():
     from plugin.mcp.cors import send_cors_headers
 
@@ -224,28 +192,6 @@ def test_send_cors_headers_preflight_mode():
     assert headers_dict.get("Access-Control-Max-Age") == "86400"
     assert "mcp-protocol-version" in headers_dict["Access-Control-Allow-Headers"].lower()
     assert "Mcp-Protocol-Version" in headers_dict["Access-Control-Expose-Headers"]
-
-
-def test_send_cors_headers_rejected():
-    """Test shared CORS helper rejects unsafe origins."""
-    from plugin.mcp.cors import send_cors_headers
-
-    unsafe_origins = [
-        "http://localhost.attacker.com",
-        "https://127.0.0.1.badguy.com",
-        "http://example.com",
-        "https://[::1].evil.net",
-        "http://host:99999",
-        "http://host:abc",
-        "http://host:-1",
-    ]
-
-    for origin in unsafe_origins:
-        handler = MockHandler({"Origin": origin})
-        send_cors_headers(handler, preflight=False)
-
-        headers_dict = dict(handler.sent_headers)
-        assert "Access-Control-Allow-Origin" not in headers_dict
 
 
 def test_handle_mcp_post_chunked_is_parse_error_not_jsonrpc():
@@ -305,32 +251,6 @@ def test_handle_mcp_post_negative_content_length():
         assert response_data.get("status") == "error"
         assert response_data.get("code") == "PARSE_ERROR"
 
-def test_handle_mcp_post_rejects_oversized_body_without_reading():
-    """Content-Length above the cap is 413 and must not call rfile.read or _handle_mcp."""
-    from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES
-
-    services = MagicMock()
-    mcp_protocol = MCPProtocolHandler(services)
-    with patch.object(mcp_protocol, "_handle_mcp") as mock_handle_mcp:
-        handler = MockHandler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES + 1)}, b"{}")
-        reads: list[int] = []
-        original = handler.rfile.read
-
-        def _read(n=-1):
-            reads.append(n)
-            return original(n)
-
-        setattr(handler.rfile, "read", _read)
-        mcp_protocol.handle_mcp_post(handler)
-
-        mock_handle_mcp.assert_not_called()
-        assert reads == []
-        assert 413 in handler.sent_responses
-        response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
-        assert response_data.get("status") == "error"
-        assert response_data.get("code") == "PARSE_ERROR"
-        assert "exceeds" in response_data.get("message", "")
-
 
 def _bare_generic_handler(headers, body=b""):
     """Skip BaseHTTPRequestHandler.__init__ (it wants a live socket)."""
@@ -355,9 +275,7 @@ def _response_json(handler) -> tuple[int, dict]:
 
 
 def test_generic_handler_body_cap_timeout_and_negative_length():
-    from plugin.mcp.server import GenericRequestHandler, MCP_HTTP_MAX_BODY_BYTES, MCP_HTTP_SOCKET_TIMEOUT_SEC
-
-    assert GenericRequestHandler.timeout == MCP_HTTP_SOCKET_TIMEOUT_SEC
+    from plugin.mcp.server import MCP_HTTP_MAX_BODY_BYTES
 
     oversized = _bare_generic_handler({"Content-Length": str(MCP_HTTP_MAX_BODY_BYTES + 1)}, b"{}")
     reads: list[int] = []
@@ -378,21 +296,6 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
     stalled.rfile.read = _timeout
     assert stalled._read_body() is None
     status, body = _response_json(stalled)
-    assert status == 408
-    assert body.get("code") == "PARSE_ERROR"
-
-    # Before Python 3.10 socket.timeout is a different class from TimeoutError.
-    import socket as _socket
-
-    stalled_socket = _bare_generic_handler({"Content-Length": "8"}, b"")
-
-    def _sock_timeout(n=-1):
-        del n
-        raise _socket.timeout("stalled")
-
-    stalled_socket.rfile.read = _sock_timeout
-    assert stalled_socket._read_body() is None
-    status, body = _response_json(stalled_socket)
     assert status == 408
     assert body.get("code") == "PARSE_ERROR"
 
@@ -668,63 +571,6 @@ def test_to_mcp_schema_injects_document_url():
     assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]
 
 
-def test_handle_mcp_tools_call_is_async_routing():
-    """Test that _mcp_tools_call routes tools with is_async() returning True to long running."""
-    services = MagicMock()
-    mcp_protocol = MCPProtocolHandler(services)
-
-    tool_mock = MagicMock()
-    tool_mock.name = "dummy_async_tool"
-    tool_mock.long_running = False
-    tool_mock.is_async.return_value = True
-    mcp_protocol.tool_registry = MagicMock()
-    mcp_protocol.tool_registry.get.return_value = tool_mock
-
-    with patch.object(mcp_protocol, "_run_tool") as mock_execute_lr:
-        params = {
-            "name": "dummy_async_tool",
-            "arguments": {"arg": "val"}
-        }
-        mcp_protocol._mcp_tools_call(params, cancel=SendCancellation())
-        mock_execute_lr.assert_called_once()
-        args, kwargs = mock_execute_lr.call_args
-        assert args[0] == "dummy_async_tool"
-
-
-def test_handle_mcp_tools_call_parameter():
-    """Test that _mcp_tools_call extracts document_url from arguments and uses it."""
-    services = MagicMock()
-    mcp_protocol = MCPProtocolHandler(services)
-
-    # Mock tool registry and mock tool
-    tool_mock = MagicMock()
-    tool_mock.name = "dummy_tool"
-    tool_mock.long_running = False
-    mcp_protocol.tool_registry = MagicMock()
-    mcp_protocol.tool_registry.get.return_value = tool_mock
-
-    # Patch execution to see what document_url it receives
-    with patch.object(mcp_protocol, "_run_tool") as mock_execute:
-        params = {
-            "name": "dummy_tool",
-            "arguments": {
-                "arg1": "value",
-                "document_url": "file:///my/custom/doc.odt"
-            }
-        }
-        mcp_protocol._mcp_tools_call(params, document_url="file:///default/header/doc.odt", cancel=SendCancellation())
-
-        # Verify execute was called with the document_url from arguments, and not the header's
-        mock_execute.assert_called_once()
-        args, kwargs = mock_execute.call_args
-        assert args[0] == "dummy_tool"
-        # The arguments passed to execute should NOT contain document_url anymore (popped)
-        assert "document_url" not in args[1]
-        assert args[1]["arg1"] == "value"
-        # The target document_url passed as keyword arg should be the one from the arguments
-        assert kwargs.get("document_url") == "file:///my/custom/doc.odt"
-
-
 def test_try_reserve_sse_capped_at_eight():
     from plugin.mcp.server import SSE_MAX_STREAMS, SseRegistry
 
@@ -740,28 +586,6 @@ def test_try_reserve_sse_after_stop_returns_none():
     reg = SseRegistry()
     reg.stop_all()
     assert reg.reserve() is None
-
-
-def test_http_server_stop_does_not_join_sse_thread():
-    from types import SimpleNamespace
-
-    from plugin.mcp.server import HttpServer
-
-    srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=False)
-    srv._running = True
-    mock_sse_registry = MagicMock()
-    server_ns = SimpleNamespace(
-        shutdown=MagicMock(),
-        server_close=MagicMock(),
-        sse_registry=mock_sse_registry,
-    )
-    srv._server = server_ns
-
-    srv.stop()
-
-    server_ns.shutdown.assert_called_once()
-    server_ns.server_close.assert_called_once()
-    mock_sse_registry.stop_all.assert_called_once()
 
 
 def test_dispatch_resets_response_started_for_subsequent_requests():

@@ -65,11 +65,9 @@ Examples:
 
 **Expressivity:** The filter is **not** a general boolean formula with arbitrary parentheses (e.g. `(A OR B) AND (C OR D)` is not necessarily the same as any single left-associative chain of four OR/AND links). If the needed logic does not match a linear chain, use **helper columns**, **multiple filter steps**, or **different tools**—not something missing from the `connection` field itself.
 
-### Warning — `sheet_filter_get` / `getFilterFields2` and `Connection` (future work)
+### `sheet_filter_get` and `connection`
 
-In practice (including in-LO UNO tests), **`sheet_filter_apply` with `"connection": "OR"` can behave correctly** (rows match OR semantics), but **`sheet_filter_get` may still report `connection`: `"AND"`** on later criteria when reading the active descriptor via `createFilterDescriptor(false)` / `getFilterFields2()`. Do not rely on `connection` round-trip alone to prove OR; validate behavior (e.g. which rows stay visible, or the Standard Filter dialog in Calc) or extend tooling to surface ground truth.
-
-**Future work:** Investigate whether this is a LibreOffice bug or an alternate internal encoding of OR in `ScQueryParam` vs what `convertQueryEntryToUno` emits in `sc/source/ui/unoobj/datauno.cxx` (`getFilterFields2`), file upstream if confirmed; until then, treat **`sheet_filter_get` as best-effort for operators/fields/values**, not as a faithful boolean connector audit for every build.
+`sheet_filter_get` reports `connection` from the `FilterConnection` enum's value (`"AND"` or `"OR"`). An OR chain reads back as `"OR"`, which `tests/calc/test_sheet_filter_uno.py` pins. The first criterion's `connection` value is meaningless.
 
 ---
 
@@ -118,7 +116,7 @@ Implementation split: criteria parsing + operator labels in [`plugin/calc/sheet_
 | Area | Status |
 |------|--------|
 | `TableFilterField2.Field` | Mapped as JSON `field` (0-based within range). |
-| `FilterOperator2` | Mapped by name via [`sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py); unknown names fall back to `com.sun.star.sheet.FilterOperator2` enum if present. |
+| `FilterOperator2` | Mapped by name via [`sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py); unknown names raise `ToolExecutionError` (`INVALID_PARAM`) (`resolve_filter_operator_code`). |
 | `FilterConnection` (AND/OR) | Mapped as JSON `connection` from the **second** criterion onward; first row always AND (ignored in JSON, matches LO convention). |
 | `IsNumeric` / `NumericValue` / `StringValue` | Via `is_numeric` + `value` heuristics and operator classes (e.g. TOP_*, EMPTY). |
 | `ContainsHeader` | `has_header` on apply/clear. |

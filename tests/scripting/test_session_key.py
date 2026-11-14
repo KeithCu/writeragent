@@ -9,16 +9,15 @@ from __future__ import annotations
 import pytest
 
 from plugin.scripting.session_key import (
-    DOCUMENT_KINDS,
-    PERSISTABLE_KINDS,
     SessionKey,
     SessionKind,
     is_reserved_caller_id,
     is_unsaved_document_key,
     new_unsaved_document_key,
 )
+from plugin.scripting.sandbox import build_sandbox_policy
 from plugin.scripting.venv.duckdb_sql import persistable_duckdb_session_id
-from plugin.scripting.venv.venv_sandbox import SESSIONS
+from plugin.scripting.venv.venv_sandbox import SessionStore
 
 
 @pytest.mark.parametrize(
@@ -107,12 +106,11 @@ def test_empty_rest_calc_and_init_lookup_and_duckdb_none() -> None:
     assert persistable_duckdb_session_id(":init") is None
 
     # :init pops no sandbox cell
-    exe, _ = SESSIONS.get_or_create("", 5)
-    try:
-        assert SESSIONS.reset(":init")["status"] == "ok"
-        assert SESSIONS.executor("") is exe
-    finally:
-        SESSIONS.clear_all()
+    store = SessionStore()
+    exe, created = store.get_or_create("", policy=build_sandbox_policy())
+    assert created is True
+    assert store.reset(":init")["status"] == "ok"
+    assert store.executor("") is exe
 
 
 def test_ppt_master_active_lookup_not_persistable_default_wire() -> None:
@@ -212,15 +210,7 @@ def test_isolated_with_init_suffix() -> None:
     assert SessionKey.parse("isolated:ab:init").init is True
 
 
-def test_from_host_behavior() -> None:
-    assert SessionKey.from_host("") is None
-    assert SessionKey.from_host(None) is None
-    whitespace_key = SessionKey.from_host(" ")
-    assert whitespace_key is not None
-    assert whitespace_key.wire() == " "
-
-
-def test_other_raises_hash_and_document_kinds() -> None:
+def test_other_raises_and_hash_equality() -> None:
     with pytest.raises(ValueError, match="OTHER is parse-only"):
         SessionKey.of(SessionKind.OTHER, "x")
 
@@ -229,18 +219,6 @@ def test_other_raises_hash_and_document_kinds() -> None:
     assert hash(k1) == hash(k2)
     assert k1 == k2
     assert len({k1, k2}) == 1
-
-    assert DOCUMENT_KINDS == (
-        SessionKind.CALC,
-        SessionKind.RPS,
-        SessionKind.NOTEBOOK,
-        SessionKind.PPT_MASTER,
-    )
-    assert PERSISTABLE_KINDS == (
-        SessionKind.CALC,
-        SessionKind.RPS,
-        SessionKind.NOTEBOOK,
-    )
 
 
 def test_unsaved_document_key_helpers() -> None:

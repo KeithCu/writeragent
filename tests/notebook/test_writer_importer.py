@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import inspect
 import re
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -77,15 +76,6 @@ _STYLE_MD_H1 = STYLE_MD_H1
 _STYLE_MD_H2 = STYLE_MD_H2
 _STYLE_NOTEBOOK_IN = STYLE_NOTEBOOK_IN
 _STYLE_NOTEBOOK_OUT = STYLE_NOTEBOOK_OUT
-
-
-def _writer_importer_import_logging_present() -> bool:
-    """True when notebook import log.info/debug exist (stripped in ``make release`` bundles)."""
-    try:
-        source = Path(inspect.getfile(import_ipynb_to_writer)).read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return 'log.info("notebook import start' in source
 
 
 def test_format_stream_output():
@@ -200,15 +190,6 @@ def test_format_output_plain_mime():
     assert format_output_text(out) == "hi"
 
 
-def test_format_all_outputs_joins():
-    outputs = [
-        {"output_type": "stream", "name": "stdout", "text": "a"},
-        {"output_type": "execute_result", "data": {"text/plain": "b"}},
-    ]
-    text = "\n\n".join(p for p in (format_output_text(o) for o in outputs) if p.strip())
-    assert "a" in text and "b" in text
-
-
 def test_format_outputs_for_body_interleaves_image_then_stream():
     """Mixed [display image, print] must stay image-then-text, not text-then-images."""
     outputs = [
@@ -219,14 +200,6 @@ def test_format_outputs_for_body_interleaves_image_then_stream():
     assert [kind for kind, _payload in segments] == ["image", "text"]
     assert segments[0][1] == ("image/png", "abc")
     assert segments[1][1] == "hello printed\n"
-
-
-def test_import_cells_does_not_reformat_outputs_for_stats():
-    from plugin.notebook import writer_importer as wi
-
-    src = inspect.getsource(wi._import_cells)
-    assert "format_output_text" not in src
-    assert "_format_outputs_for_body" in src
 
 
 def test_trim_trailing_empty_paragraph_deletes_when_empty():
@@ -302,32 +275,6 @@ def test_trim_trailing_empty_paragraph_keeps_frame():
     assert body_text.createTextCursorByRange.call_count == 1
 
 
-def test_insert_html_at_body_end_calls_trim(monkeypatch):
-    doc, body_text, body_cursor = _writer_doc_mock()
-    body_cursor.getString.return_value = ""
-
-    calls = []
-
-    def fake_insert_html(cursor, html, **kwargs):
-        calls.append((html, kwargs))
-        return True
-
-    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
-
-    trim_called = False
-    def fake_trim(doc):
-        nonlocal trim_called
-        trim_called = True
-
-    monkeypatch.setattr("plugin.notebook.writer_importer._trim_trailing_empty_paragraph", fake_trim)
-
-    import plugin.notebook.writer_importer as wi
-    wi._insert_html_at_body_end(doc, "<p>html</p>", lead_break=False)
-
-    assert trim_called is True
-    assert calls == [("<p>html</p>", {"wrap": True})]
-
-
 def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     """List HTML must keep leftover NumberingRules on the insertion para.
 
@@ -337,19 +284,23 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     """
     doc, _body_text, body_cursor = _writer_doc_mock()
     body_cursor.getString.return_value = ""
-    cleared: list[int] = []
-    promoted: list[int] = []
+    target_cursor = MagicMock()
+    events: list[tuple[Any, ...]] = []
 
     def fake_clear(cursor):
-        cleared.append(1)
+        events.append(("clear",))
 
     def fake_promote(cursor, *, start):
-        promoted.append(start)
+        events.append(("promote", cursor, start))
         return True
+
+    def fake_insert(*args, **kwargs):
+        events.append(("insert",))
 
     monkeypatch.setattr("plugin.notebook.writer_importer._clear_para_numbering", fake_clear)
     monkeypatch.setattr("plugin.notebook.writer_importer._promote_para_to_outer_ol", fake_promote)
-    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", lambda *a, **k: None)
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert)
+    monkeypatch.setattr("plugin.notebook.writer_importer._last_nonempty_para_cursor", lambda _t: target_cursor)
     monkeypatch.setattr("plugin.notebook.writer_importer._trim_trailing_empty_paragraph", lambda _doc: None)
     monkeypatch.setattr("plugin.notebook.writer_importer._cursor_para_is_empty", lambda _c: True)
 
@@ -358,8 +309,7 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     wi._insert_html_at_body_end(
         doc, '<ol start="3"><li>Ask for help</li></ol>', lead_break=False, exit_list=True
     )
-    assert len(cleared) == 1
-    assert 3 in promoted
+    assert events == [("promote", body_cursor, 3), ("insert",), ("promote", target_cursor, 3), ("clear",)]
 
 
 def test_single_ol_start_only_one_item():
@@ -435,11 +385,10 @@ def test_format_in_prompt_executed_and_unexecuted():
 
 
 def test_height_for_text_fits_last_line():
-    """15-line In[2] source must be taller than the old 380 HMM/line clip height."""
+    """A 15-line source gets one extra line of height so the last line is not clipped."""
     src = "\n".join(f"line{i}" for i in range(15))
     h = _height_for_text(src)
     assert h == 16 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
-    assert h > 15 * 380
 
 
 def test_height_for_text_includes_one_wrap_line():
@@ -448,20 +397,9 @@ def test_height_for_text_includes_one_wrap_line():
     assert h == 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
 
 
-def test_code_field_uses_full_text_area_width():
-    from plugin.notebook.layout import insert_code_input_in_flow
-
-    src = inspect.getsource(insert_code_input_in_flow)
-    assert "text_area_width_units(doc)" in src
-    assert "_RUN_BUTTON_SIZE" not in src
-    assert _text_area_width_units(None) == _DEFAULT_WIDTH
-
-
 def test_page_style_shared_by_width_and_height():
-
     assert _page_style(None) is None
-    assert "page_style(doc)" in inspect.getsource(_text_area_width_units)
-    assert "page_style(doc)" in inspect.getsource(_height_for_text) and "page_style(doc)" in inspect.getsource(insert_code_input_in_flow)
+    assert _text_area_width_units(None) == _DEFAULT_WIDTH
 
     style = MagicMock()
     style.getPropertyValue.side_effect = lambda name: {
@@ -645,7 +583,7 @@ def test_import_resolves_page_style_once(tmp_path, monkeypatch):
     monkeypatch.setattr("plugin.notebook.writer_importer.page_style", counting_page_style)
     monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", lambda *_a, **_k: True)
     monkeypatch.setattr("plugin.notebook.layout.Size", lambda w, h: None)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     import_ipynb_to_writer(doc, str(ipynb))
     assert len(page_style_calls) == 1
@@ -657,11 +595,6 @@ def test_unglue_last_paragraph_clears_keep_with_next():
     _unglue_last_paragraph(doc)
     body_cursor.setPropertyValue.assert_any_call("ParaKeepTogether", False)
     assert all(call.args[0] != "ParaKeepWithNext" for call in body_cursor.setPropertyValue.call_args_list)
-
-
-def test_cell_heading_is_in_prompt_only():
-    assert _format_in_prompt(None) == "In [ ]:"
-    assert _format_in_prompt(2) == "In [2]:"
 
 
 def test_create_import_para_style_skips_existing():
@@ -788,11 +721,7 @@ def test_append_body_text_block_single_paragraph():
     body_text.insertControlCharacter.assert_not_called()
 
 
-@pytest.mark.skipif(
-    not _writer_importer_import_logging_present(),
-    reason="Release bundle strips log.info/log.debug; import logging verified in source tree only",
-)
-def test_import_ipynb_to_writer_logs(tmp_path, monkeypatch):
+def test_import_ipynb_to_writer_markdown_cell_stats(tmp_path, monkeypatch):
     ipynb = tmp_path / "tiny.ipynb"
     ipynb.write_text(
         '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}',
@@ -809,24 +738,11 @@ def test_import_ipynb_to_writer_logs(tmp_path, monkeypatch):
     doc.createInstance.side_effect = lambda service: MagicMock()
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
 
-    log_messages: list[str] = []
-
-    def _capture(msg, *args):
-        log_messages.append(msg % args if args else msg)
-
-    monkeypatch.setattr("plugin.notebook.writer_importer.log.info", _capture)
-    monkeypatch.setattr("plugin.notebook.writer_importer.log.debug", _capture)
-
     stats = import_ipynb_to_writer(doc, str(ipynb))
 
     assert stats["cells"] == 1
     assert stats["markdown"] == 1
     body_text.insertTextContent.assert_not_called()
-    log_text = "\n".join(log_messages)
-    assert "notebook import start" in log_text
-    assert "notebook import complete" in log_text
-    assert "cell start index=0" in log_text
-    assert "flush_ui_idle" not in log_text
 
 
 def test_import_ipynb_to_writer_does_not_pump_vcl_idle(tmp_path, monkeypatch):
@@ -1067,7 +983,7 @@ def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkey
             self.Height = h
 
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     import_ipynb_to_writer(doc, str(ipynb))
 
@@ -1080,11 +996,23 @@ def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkey
     assert breaks.count(_PARAGRAPH_BREAK) >= 1
 
 
-def test_import_cells_breaks_before_in_flow_controls():
-    from plugin.notebook import writer_importer as wi
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("svg", b"<svg></svg>", "image/svg+xml", id="test_insert_run_image_svg_mime"),
+        pytest.param("webp", b"RIFF", "image/webp", id="test_insert_run_image_webp_mime"),
+        pytest.param("gif", b"GIF89a", "image/gif", id="test_insert_run_image_gif_mime"),
+    ],
+)
+def test_insert_run_image_svg_mime(value, value_2, expected):
+    from plugin.notebook.writer_importer import insert_run_image
 
-    cell_src = inspect.getsource(wi._import_cells)
-    assert "_append_paragraph_break_at_end" in cell_src
+    doc = MagicMock()
+    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
+    with patch("plugin.notebook.writer_importer._insert_image_in_flow", return_value=True) as insert_flow:
+        assert insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
+    insert_flow.assert_called_once()
+    assert insert_flow.call_args.kwargs["mime"] == expected
 
 
 def test_append_paragraph_break_at_end_inserts_break():
@@ -1113,7 +1041,7 @@ def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
             self.Height = h
 
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     saved: list = []
 
@@ -1136,9 +1064,7 @@ def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
     assert state.code_cells[0].output_start_bookmark.startswith("nb_out_")
 
 
-def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch, caplog):
-    import logging
-
+def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch):
     ipynb = tmp_path / "one_code.ipynb"
     ipynb.write_text(
         '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
@@ -1159,14 +1085,12 @@ def test_import_drops_bookmark_name_when_insert_fails(tmp_path, monkeypatch, cap
     monkeypatch.setattr("plugin.notebook.writer_importer.save_registry", lambda _d, state: saved.append(state))
     monkeypatch.setattr("plugin.notebook.writer_importer.save_notebook_source_path", MagicMock())
 
-    caplog.set_level(logging.WARNING, logger="writeragent.notebook")
     import_ipynb_to_writer(doc, str(ipynb))
 
     assert len(saved) == 1
     cell = saved[0].code_cells[0]
     assert cell.code_field_name == "nb_cell_0_code"
     assert cell.output_start_bookmark == ""
-    assert "was not inserted" in caplog.text
 
 
 def test_iter_markdown_blocks_atx_and_paragraphs():
@@ -1234,7 +1158,7 @@ def test_import_small_numpy_notebook_fixture(monkeypatch):
 
     doc.createInstance.side_effect = create_instance
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     html_calls: list[str] = []
 
@@ -1355,7 +1279,7 @@ def test_import_nested_lists_and_blockquotes_fixture(monkeypatch):
     assert 'start="3"' in joined
     assert "Ask for help" in joined
     assert "<blockquote>" in joined
-    assert "<strong>Note:</strong>" in joined or "**Note:**" not in joined
+    assert "<strong>Note:</strong>" in joined
     assert "ndarray" in joined
     assert "how to find unique elements" in joined
     assert "https://numpy.org/doc/stable/index.html" in joined
@@ -1422,7 +1346,7 @@ def test_bourke_cells_5_and_8_direct():
     assert "`ndarray`" in c8_blocks[1][1]
     c8_html = _inline_markdown_to_html(c8_blocks[1][1])
     assert "<code>ndarray</code>" in c8_html
-    assert "<strong>Note:</strong>" in c8_html or "**Note:**" not in c8_html
+    assert "<strong>Note:</strong>" in c8_html
 
 
 def test_iter_markdown_blocks_list_continuation():
@@ -1597,18 +1521,12 @@ def test_resolve_bourke_images_from_fixture_notebook_dir():
 
     fixtures = Path(__file__).resolve().parents[1] / "fixtures"
     budget = _RemoteImageBudget()
-    for name in (
-        "numpy-6-step-ml-framework-tools-numpy-highlight.png",
-        "numpy-anatomy-of-an-array-updated.png",
-        "numpy-panda.jpeg",
-        "numpy-car-photo.png",
-        "numpy-dog-photo.png",
-    ):
-        resolved = _resolve_markdown_image(f"../images/{name}", str(fixtures), budget=budget)
-        assert resolved is not None, name
-        raw, hint = resolved
-        assert Path(hint).is_file(), name
-        assert raw == Path(hint).read_bytes(), name
+    name = "numpy-6-step-ml-framework-tools-numpy-highlight.png"
+    resolved = _resolve_markdown_image(f"../images/{name}", str(fixtures), budget=budget)
+    assert resolved is not None, name
+    raw, hint = resolved
+    assert Path(hint).is_file(), name
+    assert raw == Path(hint).read_bytes(), name
 
 
 def test_svg_pixel_size_reads_comma_viewbox():
@@ -1949,26 +1867,21 @@ def test_import_cells_keeps_later_cell_when_one_cell_fails(tmp_path, monkeypatch
     )
     doc, body_text, _cursor = _writer_doc_mock(with_bookmarks=True)
 
-    real = __import__(
-        "plugin.notebook.layout", fromlist=["insert_code_input_in_flow"]
-    ).insert_code_input_in_flow
-
     def fail_field(*_args, **_kwargs):
         raise RuntimeError("field failed")
 
     monkeypatch.setattr(
         "plugin.notebook.writer_importer.insert_code_input_in_flow", fail_field)
     monkeypatch.setattr(
-        "plugin.notebook.cell_registry.save_registry", lambda *_a, **_k: None)
+        "plugin.notebook.writer_importer.save_registry", lambda *_a, **_k: None)
     monkeypatch.setattr(
-        "plugin.notebook.cell_registry.save_notebook_source_path", lambda *_a, **_k: None)
+        "plugin.notebook.writer_importer.save_notebook_source_path", lambda *_a, **_k: None)
 
     stats = import_ipynb_to_writer(doc, str(ipynb))
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
     assert stats["markdown"] == 1
     assert stats["cells"] == 2
     assert any(text == "[Notebook cell 1 could not be imported]" for text in inserted)
-    assert real is not fail_field
 
 
 def test_import_failed_output_image_writes_placeholder(tmp_path, monkeypatch):

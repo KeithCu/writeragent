@@ -29,12 +29,13 @@ import threading
 import time
 import types
 from collections.abc import Callable
-from contextvars import ContextVar
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from typing import Any
 
 log = logging.getLogger(__name__)
 
-# ``LocalPythonExecutor.timeout()`` needs ``int | None`` (at least 1, or None when spent).
+# ``LocalPythonExecutor.timeout()`` needs an int ≥ 1.
 # ``child_runtime.Deadline.run_for()`` returns a float; ceil with a one-second floor matches alarm semantics.
 _EXECUTOR_ALARM_MIN_SEC = 1.0
 
@@ -47,6 +48,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     get_file_os_proxy,
     print_outputs_from_state,
 )
+from plugin.contrib.smolagents import local_python_executor as lpe
 from plugin.scripting.session_key import (
     SessionKey,
     SessionKind,
@@ -55,11 +57,20 @@ from plugin.scripting.payload_codec import (
     ForceBinary,
     describe_wire_value,
     find_image_payloads,
+    is_calc_range_payload,
+    is_multi_data,
     is_split_grid,
+    pack_multi_data_envelope,
 )
-from plugin.scripting.venv.to_wire import _figure_to_image_payload, to_wire
+from plugin.scripting.calc_range import materialize_inputs
+from plugin.scripting.excel_xl import make_xl
+from plugin.scripting.named_scripts import (
+    bind_named_scripts_executor,
+    reset_named_scripts_executor,
+)
+from plugin.scripting.venv.to_wire import figure_to_image_payload, to_wire
 from plugin.scripting.venv import optional_import
-from plugin.scripting.config_limits import python_exec_timeout_default
+from plugin.scripting.venv.sandbox_request import SandboxRequest
 from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
 from plugin.scripting.venv.results import error_result
@@ -97,16 +108,14 @@ class SessionStore:
         self._isolated_init_lru: OrderedDict[SessionKey, None] = OrderedDict()
 
     @staticmethod
-    def _policy_current(
-        rec: SessionRecord | None, policy: SandboxPolicy | None
-    ) -> bool:
-        # None policy means the caller does not care, so never drop for policy alone.
-        if rec is None or rec.executor is None or policy is None:
+    def _policy_current(rec: SessionRecord | None, policy: SandboxPolicy) -> bool:
+        # No cached executor means nothing was built under another policy.
+        if rec is None or rec.executor is None:
             return True
         return rec.executor._sandbox_policy == policy
 
     def _drop_if_policy_mismatch_unlocked(
-        self, key: SessionKey, policy: SandboxPolicy | None
+        self, key: SessionKey, policy: SandboxPolicy
     ) -> None:
         if not self._policy_current(self._records.get(key), policy):
             self._drop_unlocked(key)
@@ -134,29 +143,16 @@ class SessionStore:
             rec = self._records.get(SessionKey.parse(session_id))
             return rec.executor if rec else None
 
-    def init_script_hash(self, session_id: str) -> str | None:
-        with self._lock:
-            rec = self._records.get(SessionKey.parse(session_id))
-            return rec.init_script_hash if rec else None
-
     def seeded_digest(self, session_id: str) -> str | None:
         with self._lock:
             rec = self._records.get(SessionKey.parse(session_id))
             return rec.seeded_digest if rec else None
 
-    def isolated_lru_len(self) -> int:
-        with self._lock:
-            return len(self._isolated_init_lru)
-
-    def is_isolated_lru(self, session_id: str) -> bool:
-        with self._lock:
-            return SessionKey.parse(session_id) in self._isolated_init_lru
-
     def init_is_current(
         self,
         init_session_id: str,
         script_digest: str,
-        policy: SandboxPolicy | None,
+        policy: SandboxPolicy,
     ) -> bool:
         """Return True when init already ran for *script_digest* (refresh isolated LRU)."""
         with self._lock:
@@ -189,9 +185,8 @@ class SessionStore:
     def get_or_create(
         self,
         session_id: str,
-        timeout_sec: int,
         *,
-        policy: SandboxPolicy | None = None,
+        policy: SandboxPolicy,
     ) -> tuple[LocalPythonExecutor, bool]:
         with self._lock:
             key = SessionKey.parse(session_id)
@@ -201,23 +196,14 @@ class SessionStore:
 
             created = False
             if executor is None:
-                executor = _new_executor(timeout_sec, policy=policy)
-                if policy is not None:
-                    executor._sandbox_policy = policy
+                executor = _new_executor(policy=policy)
+                executor._sandbox_policy = policy
                 if rec is None:
                     rec = SessionRecord()
                     self._records[key] = rec
                 rec.executor = executor
                 created = True
-            else:
-                executor.timeout_seconds = timeout_sec
             return executor, created
-
-    def set_init_hash(self, session_id: str, digest: str) -> None:
-        with self._lock:
-            key = SessionKey.parse(session_id)
-            rec = self._records.setdefault(key, SessionRecord())
-            rec.init_script_hash = digest
 
     def set_seeded_digest(self, session_id: str, digest: str) -> None:
         with self._lock:
@@ -225,19 +211,15 @@ class SessionStore:
             rec = self._records.setdefault(key, SessionRecord())
             rec.seeded_digest = digest
 
-    def note_isolated_access(self, init_session_id: str) -> None:
-        with self._lock:
-            self._note_isolated_access_unlocked(SessionKey.parse(init_session_id))
-
     def _note_isolated_access_unlocked(self, key: SessionKey) -> None:
         self._isolated_init_lru[key] = None
         self._isolated_init_lru.move_to_end(key)
         while len(self._isolated_init_lru) > _MAX_ISOLATED_INIT_SNAPSHOTS:
-            oldest_key = next(iter(self._isolated_init_lru))
-            # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
-            # The pop after clear is what stops the loop if the id is not isolated.
+            # Take the least recently used slot out first, then drop what it
+            # cached through the same path as an explicit reset (executor,
+            # init digest, DuckDB catalog and the cell companion).
+            oldest_key = self._isolated_init_lru.popitem(last=False)[0]
             self._clear_init_unlocked(oldest_key)
-            self._isolated_init_lru.pop(oldest_key, None)
 
     def _clear_init_unlocked(self, key: SessionKey) -> None:
         cell_sid = key.without_init().wire() if key.init else None
@@ -271,18 +253,10 @@ class SessionStore:
         ``_clear_init_unlocked`` closes DuckDB for this id and for the
         :init companion. Do not close again after the lock.
         """
-        if not (session_id or "").strip():
-            return {"status": "error", "message": "No session_id provided."}
+        # The harness and the compute child refuse a blank id before calling.
         with self._lock:
             self._drop_unlocked(SessionKey.parse(session_id))
         return {"status": "ok"}
-
-    def clear_all(self) -> None:
-        """Clear every cached session (tests)."""
-        with self._lock:
-            self._records.clear()
-            self._isolated_init_lru.clear()
-        _reset_session_duckdb(None)
 
     def drop_if_policy_mismatch(self, session_id: str, policy: SandboxPolicy) -> None:
         with self._lock:
@@ -312,6 +286,8 @@ def current_sandbox_scoped_dir() -> str | None:
     A cell assignment to ``scoped_dir`` must not retarget the DuckDB jail.
     """
     return _CURRENT_SANDBOX_SCOPED_DIR.get()
+
+
 # Distinct from the session id: isolated executes set the id to None, and host
 # callers never enter run_sandboxed_code. DuckDB uses this to refuse a cell
 # that names another workbook's catalog.
@@ -346,14 +322,9 @@ def _install_timeout_context_pool() -> None:
     pure-Python AST execution on timeout, but a blocked C call in the thread
     still runs until it returns; host IPC kill remains the stop for a call that never returns.
     """
-    import contextvars
-    from concurrent.futures import Future, ThreadPoolExecutor
-
-    from plugin.contrib.smolagents import local_python_executor as lpe
-
     class _ContextThreadPoolExecutor(ThreadPoolExecutor):
         def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future[Any]:
-            ctx = contextvars.copy_context()
+            ctx = copy_context()
             return super().submit(ctx.run, fn, *args, **kwargs)
 
     # The vendored name is the stdlib class. This subclass is what timeout()
@@ -365,7 +336,7 @@ def _install_timeout_context_pool() -> None:
 _install_timeout_context_pool()
 
 
-def _reset_session_duckdb(session_id: str | None) -> None:
+def _reset_session_duckdb(session_id: str) -> None:
     """Close the Phase D DuckDB catalog for *session_id* (LibrePy has no module)."""
     try:
         from plugin.scripting.venv.duckdb_sql import reset_session_duckdb
@@ -387,7 +358,7 @@ def _inject_session_duckdb(
     executor: LocalPythonExecutor,
     host_scoped_dir: str | None,
 ) -> None:
-    """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship."""
+    """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship (LibrePy and the compute bundle ship this file without `venv/duckdb_sql.py`, hence the `ImportError` arm)."""
     try:
         from plugin.scripting.venv.duckdb_sql import (
             invalidate_session_tables,
@@ -474,10 +445,9 @@ class CellNamespace:
     @classmethod
     def fresh(
         cls,
-        policy: SandboxPolicy | None = None,
-        timeout_sec: int = 30,
+        policy: SandboxPolicy,
     ) -> CellNamespace:
-        return cls(_new_executor(timeout_sec, policy=policy))
+        return cls(_new_executor(policy=policy))
 
     def seed(self, init_session_id: str, *, copy: bool = False) -> None:
         _seed_executor_from_init(self.executor, init_session_id, copy_values=copy, skip_keys=self.SKIP_KEYS)
@@ -508,13 +478,14 @@ class CellNamespace:
         code: str = "",
         data: Any = None,
         bindings: dict[str, Any] | None = None,
+        scoped_dir: str | None,
     ) -> None:
         inject_auto_imports(self.executor, code)
         ranges = _inject_data(self.executor, data)
         _inject_excel_xl(self.executor, ranges)
         self.executor.state.pop("scoped_dir", None)
         _inject_bindings(self.executor, bindings)
-        _inject_session_duckdb(self.executor, _host_scoped_dir(bindings))
+        _inject_session_duckdb(self.executor, scoped_dir)
 
 
 def _code_says_imported(code: str, module_name: str) -> bool:
@@ -640,9 +611,8 @@ def serialize_result(
     """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays).
 
     DataFrames (and named Series) are returned as a dataframe envelope with 'columns' and 'data'
-    (the latter is a split_grid envelope when large enough, or nested lists). This replaces the
-    previous to_dict(orient="records") path which produced expensive list-of-dicts and bypassed
-    the binary grid fast path.
+    (a split_grid envelope when large enough, else nested lists), so a large frame takes the
+    binary grid fast path instead of a list of row dicts.
     """
     try:
         return to_wire(obj, target="pickle", force=force)
@@ -672,20 +642,16 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     try:
         figs = [plt_mod.figure(num) for num in fignums]
         if len(figs) > 1:
-            items = [_figure_to_image_payload(fig, fmt=fmt) for fig in figs]
-            payload = {
-                "__wa_payload__": "multi_data",
-                "items": items,
-            }
+            items = [figure_to_image_payload(fig, fmt=fmt) for fig in figs]
+            payload = pack_multi_data_envelope(items)
             note = f"Captured {len(figs)} open figures.\n"
         else:
-            payload = _figure_to_image_payload(figs[0], fmt=fmt)
+            payload = figure_to_image_payload(figs[0], fmt=fmt)
         return payload, note
     finally:
-        # Close even when rendering raises or figure(num) fails. A figure(num)
-        # close("all") runs in finally so a render failure still drops open figures; otherwise the next cell returns a stale pyplot figure.
-        # A close failure must
-        # not replace the payload or the original render error (same swallow as
+        # Close even when rendering raises or figure(num) fails; a figure left
+        # open would be what the next cell returns. A close failure must not
+        # replace the payload or the original render error (same swallow as
         # _close_open_figures).
         try:
             plt_mod.close("all")
@@ -694,17 +660,14 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
 
 
 def _new_executor(
-    timeout_sec: int,
-    policy: SandboxPolicy | None = None,
+    policy: SandboxPolicy,
 ) -> LocalPythonExecutor:
-    if policy is None:
-        policy = build_sandbox_policy()
     # open must be in static_tools; pass in additional_functions so send_tools keeps it.
     additional_functions = {"open": open} if policy.files else None
+    # timeout_seconds uses the vendored default until _arm_alarm writes it before each run.
     executor = LocalPythonExecutor(
         additional_authorized_imports=policy_allowlist(policy),
         additional_functions=additional_functions,
-        timeout_seconds=timeout_sec,
     )
     # Upstream only merges BASE_PYTHON_TOOLS (sum, len, …) after send_tools(); without this,
     # static_tools stays None and builtins like sum() are rejected.
@@ -774,10 +737,11 @@ def _seed_executor_from_init(
         bindings = {key: _copy_isolated_seed_value(value) for key, value in bindings.items()}
     if bindings:
         executor.send_variables(bindings)
+    # custom_tools go to executor.custom_tools only, not into executor state,
+    # so an init lambda in custom_tools does not become the next cell's printed result.
     custom_tools = _snapshot_init_custom_tools(init_session_id)
     if custom_tools:
         executor.custom_tools.update(custom_tools)
-        # custom_tools are not written back into executor state so init lambdas in custom_tools do not become the next cell's printed result.
 
 
 def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) -> str:
@@ -806,25 +770,16 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
     return SESSIONS.reset(session_id)
 
 
-def _executor_alarm_seconds(deadline_end: float) -> int | None:
-    """Whole seconds for ``LocalPythonExecutor.timeout()``, or None when the budget is spent.
-
-    The executor rejects non-int timeouts and values below 1; ``signal.alarm(0)`` cancels.
-    A one-second floor matches ``child_runtime.Deadline.run_for()`` without using its float API.
-    """
-    left = deadline_end - time.monotonic()
+def _arm_alarm(executor: LocalPythonExecutor, deadline: float, timeout_sec: int) -> dict[str, Any] | None:
+    """Sole writer of executor.timeout_seconds before each init and cell run; returns the budget-spent error when the deadline has passed."""
+    left = deadline - time.monotonic()
     if left <= 0:
-        return None
-    return math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
-
-
-def _budget_timeout_error(timeout_sec: int) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "message": (
-            f"Code execution exceeded the maximum execution time of {timeout_sec} seconds"
-        ),
-    }
+        return error_result(
+            "EXECUTION_TIMEOUT",
+            f"Code execution exceeded the maximum execution time of {timeout_sec} seconds",
+        )
+    executor.timeout_seconds = math.ceil(max(left, _EXECUTOR_ALARM_MIN_SEC))
+    return None
 
 
 def _ensure_init_executed(
@@ -834,7 +789,7 @@ def _ensure_init_executed(
     timeout_sec: int,
     deadline: float,
     init_script_hash: str | None = None,
-    policy: SandboxPolicy | None = None,
+    policy: SandboxPolicy,
 ) -> dict[str, Any] | None:
     """Run *init_script* once in the persistent init session. Returns error dict or None."""
     script = (init_script or "").strip()
@@ -845,14 +800,13 @@ def _ensure_init_executed(
     if SESSIONS.init_is_current(init_session_id, script_digest, policy):
         return None
 
-    init_executor, _ = SESSIONS.get_or_create(
-        init_session_id, timeout_sec, policy=policy
-    )
-    # Init shares the request deadline with the cell so init plus execution cannot exceed the host read budget and kill the worker for other workbooks.
-    left = _executor_alarm_seconds(deadline)
-    if left is None:
-        return _budget_timeout_error(timeout_sec)
-    init_executor.timeout_seconds = left
+    init_executor, _ = SESSIONS.get_or_create(init_session_id, policy=policy)
+    # Init shares the request deadline with the cell. A full budget for each
+    # could outlast the host's single read, and the host would then kill this
+    # worker and every other workbook's session on it.
+    spent = _arm_alarm(init_executor, deadline, timeout_sec)
+    if spent is not None:
+        return spent
     inject_auto_imports(init_executor, script)
     result = _run_on_executor(init_executor, script, result_optional=True)
     if result.get("status") != "ok":
@@ -865,8 +819,6 @@ def _ensure_init_executed(
 
 def _inject_excel_xl(executor: LocalPythonExecutor, ranges: tuple[Any, ...] | None = None) -> None:
     """Inject binding-only Excel ``xl()`` closed over *ranges* (may be empty)."""
-    from plugin.scripting.excel_xl import make_xl
-
     executor.send_variables({"xl": make_xl(ranges)})
 
 
@@ -882,8 +834,6 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, 
     if data is None:
         executor.send_variables({"data": None, "ranges": []})
         return ()
-    from plugin.scripting.calc_range import materialize_inputs
-    from plugin.scripting.payload_codec import describe_wire_value, is_calc_range_payload, is_multi_data, is_split_grid
 
     if is_split_grid(data) or is_calc_range_payload(data) or is_multi_data(data):
         log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
@@ -1043,6 +993,19 @@ def _serialize_cell_result(
     return serialized, extra_stdout
 
 
+def _with_help_hint(message: str) -> str:
+    """Append a wa.help(name) hint when the sandbox blocks dir() or __doc__."""
+    if "wa.help(" in message:
+        return message
+    if (
+        "Forbidden access to dunder attribute: __doc__" in message
+        or "Forbidden function evaluation: 'dir' " in message
+        or "name 'dir' is not defined" in message
+    ):
+        return f"{message.rstrip('.')} — use wa.help(name) instead (or wa.help() to list namespaces)."
+    return message
+
+
 def _fail_cell(
     executor: LocalPythonExecutor,
     prior_result: Any,
@@ -1088,11 +1051,6 @@ def _run_on_executor(
     prior_result = executor.state.get("result", _RESULT_MISSING)
     token = None
     try:
-        from plugin.scripting.named_scripts import (
-            bind_named_scripts_executor,
-            reset_named_scripts_executor,
-        )
-
         token = bind_named_scripts_executor(executor)
         try:
             code_output = executor(code)
@@ -1115,8 +1073,9 @@ def _run_on_executor(
         except Exception:
             if not result_optional:
                 raise
-            # The init result is discarded. The executor had already stored the
-            # Dropping an unpickleable init result must not abort the init session or the first cell loses helpers the init script already bound.
+            # The init result is discarded; the executor has already stored the
+            # script's names. Failing here would make _ensure_init_executed abort the
+            # init session, and the first cell would lose helpers the script bound.
             log.debug(
                 "dropping unpickleable init result %s.%s",
                 type(result).__module__,
@@ -1141,25 +1100,29 @@ def _run_on_executor(
         # issuing wa.* calls after Stop.
         return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
     except ExecutionTimeoutError as e:
-        # ExecutionTimeoutError is BaseException; catch it before the broad
-        # BaseException handler so timeout errors return without traceback.
+        # ExecutionTimeoutError is BaseException; this arm must stay above
+        # except BaseException. The child is still alive, so the code is
+        # EXECUTION_TIMEOUT (budget spent), not the host's VENV_TIMEOUT
+        # (child killed); Calc shows the same timeout guidance for both.
         finalize_thread_pool_timeout()
         return _fail_cell(
             executor,
             prior_result,
             str(e),
+            code="EXECUTION_TIMEOUT",
             stdout=print_outputs_from_state(executor.state),
         )
     except InterpreterError as e:
         return _fail_cell(
             executor,
             prior_result,
-            str(e),
+            _with_help_hint(str(e)),
             stdout=print_outputs_from_state(executor.state),
         )
     except Exception as e:
         # A pickle-boundary failure is raised after the executor returns, so
-        # prints are already in _print_outputs and were dropped.
+        # the cell's prints are already in _print_outputs; pass them as
+        # stdout or they are lost.
         return _fail_cell(
             executor,
             prior_result,
@@ -1198,39 +1161,28 @@ def _restore_prior_result(executor: LocalPythonExecutor, prior_result: Any) -> N
 
 
 def run_sandboxed_code(
-    code: str,
-    data: Any | None = None,
+    req: SandboxRequest,
     *,
     force: ForceBinary = "auto",
-    bindings: dict[str, Any] | None = None,
-    timeout_sec: int | None = None,
-    session_id: str | None = None,
-    init_script: str | None = None,
-    init_session_id: str | None = None,
-    init_script_hash: str | None = None,
-    sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run *code* in LocalPythonExecutor.
+    """Run ``req.code`` in LocalPythonExecutor.
 
-    Without *session_id*, each call uses a new namespace. With *session_id*, reuse one
-    executor per id (shared kernel / workbook session).
+    Without ``req.session_id``, each call uses a new namespace. With ``req.session_id``,
+    reuse one executor per id (shared kernel / workbook session).
 
-    When *init_script* is set, it runs once in *init_session_id* (typically ``calc:…:init``).
-    Isolated cell runs seed a fresh executor from a copy of that snapshot; shared kernel
-    seeds the workbook session executor once, then reuses it for cell code.
-    A missing *init_script_hash* is filled from the stripped script text in this process.
+    When ``req.init_script`` is set, it runs once in ``req.init_session_id``
+    (typically ``calc:…:init``). Isolated cell runs seed a fresh executor from a
+    copy of that snapshot; shared kernel seeds the workbook session executor once,
+    then reuses it for cell code. A missing ``req.init_script_hash`` is filled from
+    the stripped script text in this process. ``req.timeout_sec`` is already bounded
+    by the sender; ``req.data``, ``req.bindings``, and ``req.sandbox_policy`` supply
+    the cell payload, extra bindings, and sandbox import/capability flags.
     """
-    if timeout_sec is None:
-        timeout_sec = python_exec_timeout_default()
-    try:
-        timeout_sec = int(timeout_sec)
-    except (TypeError, ValueError, OverflowError):
-        return error_result(message=f"Invalid timeout_sec: {timeout_sec!r}", stdout="")
-    deadline = time.monotonic() + float(timeout_sec)
+    deadline = time.monotonic() + float(req.timeout_sec)
 
-    if sandbox_policy is not None and not isinstance(sandbox_policy, dict):
+    if req.sandbox_policy is not None and not isinstance(req.sandbox_policy, dict):
         return error_result(message="sandbox_policy must be a dict", stdout="")
-    policy_dict = sandbox_policy or {}
+    policy_dict = req.sandbox_policy or {}
     try:
         raw_extra = policy_dict.get("extra_modules") or ""
         if not isinstance(raw_extra, str):
@@ -1255,11 +1207,11 @@ def run_sandboxed_code(
     # Only the cell / RPS session_id is persistable. Isolated cells still have
     # init_session_id (calc:…:init); binding that would share DuckDB across cells.
     active_token = _SANDBOX_EXECUTE.set(True)
-    token = _CURRENT_SANDBOX_SESSION.set(session_id)
+    token = _CURRENT_SANDBOX_SESSION.set(req.session_id)
     # session_duckdb().execute does not receive scoped_dir; the jail reads
     # this variable. It is set before _ensure_init_executed and _run_on_executor,
     # so the timeout fallback's copy_context() already carries it.
-    host_folder = _host_scoped_dir(bindings)
+    host_folder = _host_scoped_dir(req.bindings)
     dir_token = _CURRENT_SANDBOX_SCOPED_DIR.set(host_folder)
 
     relaxed_roots = policy_relaxed_roots(policy)
@@ -1269,17 +1221,17 @@ def run_sandboxed_code(
     extra_token = SANDBOX_EXTRA_MODULES.set(frozenset(policy_allowlist(policy)))
 
     try:
-        init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
-        init_digest = _resolve_init_digest(init_script, init_script_hash)
+        init_sid = req.init_session_id if isinstance(req.init_session_id, str) and req.init_session_id.strip() else None
+        init_digest = _resolve_init_digest(req.init_script, req.init_script_hash)
 
-        if session_id:
-            SESSIONS.drop_if_policy_mismatch(session_id, policy)
+        if req.session_id:
+            SESSIONS.drop_if_policy_mismatch(req.session_id, policy)
 
-        if init_sid and (init_script or "").strip():
+        if init_sid and (req.init_script or "").strip():
             init_err = _ensure_init_executed(
                 init_sid,
-                init_script or "",
-                timeout_sec=timeout_sec,
+                req.init_script or "",
+                timeout_sec=req.timeout_sec,
                 deadline=deadline,
                 init_script_hash=init_digest,
                 policy=policy,
@@ -1287,31 +1239,29 @@ def run_sandboxed_code(
             if init_err is not None:
                 return init_err
 
-        if session_id:
+        if req.session_id:
             executor, created = SESSIONS.get_or_create(
-                session_id, timeout_sec, policy=policy
+                req.session_id, policy=policy
             )
             ns = CellNamespace(executor)
             if init_sid:
-                ns.seed_shared(session_id, init_sid, init_digest)
+                ns.seed_shared(req.session_id, init_sid, init_digest)
         else:
-            ns = CellNamespace.fresh(policy, timeout_sec)
+            ns = CellNamespace.fresh(policy)
             executor = ns.executor
             created = False
             if init_sid:
                 ns.seed(init_sid, copy=True)
 
-        left = _executor_alarm_seconds(deadline)
-        if left is None:
-            err = _budget_timeout_error(timeout_sec)
-            if session_id:
-                err["namespace_created"] = created
-            return err
-        executor.timeout_seconds = left
+        spent = _arm_alarm(executor, deadline, req.timeout_sec)
+        if spent is not None:
+            if req.session_id:
+                spent["namespace_created"] = created
+            return spent
 
-        ns.bind(code=code, data=data, bindings=bindings)
-        raw = _run_on_executor(executor, code, force=force)
-        if session_id:
+        ns.bind(code=req.code, data=req.data, bindings=req.bindings, scoped_dir=host_folder)
+        raw = _run_on_executor(executor, req.code, force=force)
+        if req.session_id:
             raw["namespace_created"] = created
         return raw
     finally:

@@ -51,7 +51,7 @@ The native runner should focus on the "physics" of LibreOffice.
 #### 3.3 UI & State Machine Testing (Pytest + Mocks)
 Testing the LibreOffice UI directly is notoriously difficult. Instead, test the *state management* behind the UI.
 *   **ChatSession history:** Pure pytest for [`ChatSession`](../plugin/chatbot/panel.py) message/`[DOCUMENT CONTENT]`/history-DB rules — see [`tests/chatbot/test_chat_session.py`](../tests/chatbot/test_chat_session.py). No UNO.
-*   **Send/Stop busy flags:** Pure `next_state` coverage in [`tests/chatbot/test_send_state.py`](../tests/chatbot/test_send_state.py) and [`tests/chatbot/test_sidebar_state.py`](../tests/chatbot/test_sidebar_state.py) (`SendButtonState` / `SidebarCompositeState`). Do not mock the sidebar UNO controls just to assert `_send_busy`.
+*   **Send/Stop busy flags:** Pure `next_state` coverage in [`tests/chatbot/test_send_state.py`](../tests/chatbot/test_send_state.py) (`SendButtonState`). Do not mock the sidebar UNO controls just to assert `_send_busy`.
 *   **Config Synchronization:** Verify that changes to the configuration schema correctly notify listeners and update the LRU caches without requiring a live UNO dialog instance.
 
 #### 3.4 Expanding Evaluation Metrics

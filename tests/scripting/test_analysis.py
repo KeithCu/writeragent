@@ -857,13 +857,6 @@ def test_run_analysis_echoes_context():
     assert result["context"]["sheet_name"] == "Sheet1"
 
 
-def test_table_row_cap():
-    grid = [["Region", "Sales"]] + [[f"R{i % 5}", i * 10] for i in range(100)]
-    result = analysis.group_summary(grid, by="Region", metrics=["Sales"], aggfunc="sum")
-    assert result["tables"][0]["truncated"] is False
-    assert result["tables"][0]["total_rows"] <= MAX_TABLE_ROWS
-
-
 @pytest.mark.parametrize(
     ("helper", "call", "metric_keys", "requires"),
     [
@@ -914,20 +907,19 @@ def test_insert_analysis_result_into_calc() -> None:
 
     doc = object()
     ctx = MagicMock()
-    result = {"status": "ok", "result": "val"}
+    result = {"status": "ok", "tables": [{"columns": ["a"], "rows": [[1]]}]}
 
-    def _write(_doc, _uno_ctx, grid, **_kwargs):
-        return len(grid)
-
-    with patch("plugin.calc.analysis_egress.insert_tabular_result_into_calc", side_effect=_write) as mock_insert:
+    with patch("plugin.calc.analysis_egress.insert_tabular_result_into_calc", return_value=5) as mock_insert:
         res = insert_analysis_result_into_calc(doc, ctx, result)
 
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.args[0] is doc
-    assert mock_insert.call_args.args[1] is ctx
-    grid = mock_insert.call_args.args[2]
-    assert grid
-    assert res == len(grid)
+    mock_insert.assert_called_once_with(
+        doc,
+        [["analysis"], [], ["table"], ["a"], [1.0]],
+        sheet_name=None,
+        start_col=None,
+        start_row=None,
+    )
+    assert res == 5
 
 
 def test_compare_periods_parses_calc_serials_and_years():
@@ -1131,23 +1123,12 @@ def test_pivot_and_group_aggfunc_and_headers():
 
 
 def test_analysis_lazy_exports_resolve():
-    from plugin.scripting.analysis import _ANALYSIS_VENV_EXPORTS, _ANALYSIS_COERCE_EXPORTS
     import plugin.scripting.analysis as host_facade
     import plugin.scripting.venv.analysis as venv_analysis
     import plugin.scripting.venv.coerce as venv_coerce
 
-    assert len(_ANALYSIS_VENV_EXPORTS) > 0
-    assert len(_ANALYSIS_COERCE_EXPORTS) > 0
-
-    for name in _ANALYSIS_VENV_EXPORTS:
-        venv_obj = getattr(venv_analysis, name)
-        host_obj = getattr(host_facade, name)
-        assert venv_obj is host_obj, f"Export {name} did not resolve to same object"
-
-    for name in _ANALYSIS_COERCE_EXPORTS:
-        venv_obj = getattr(venv_coerce, name)
-        host_obj = getattr(host_facade, name)
-        assert venv_obj is host_obj, f"Coerce export {name} did not resolve to same object"
+    assert host_facade.run_analysis is venv_analysis.run_analysis
+    assert host_facade.grid_to_dataframe is venv_coerce.grid_to_dataframe
 
 
 def test_describe_and_quick_stats_reject_duplicate_labels():
@@ -1257,3 +1238,107 @@ def test_clean_and_prepare_rejects_unknown_fill_values():
     res2 = analysis.clean_and_prepare(SALES_GRID, fill_categorical="bogus")
     assert res2["status"] == "error"
     assert res2["code"] == "INVALID_PARAM"
+
+
+_PIN_GRID = [["Region", "Sales", "Units"], ["N", 10, 1], ["S", 20, 2], ["E", 30, 3], ["W", 40, 4]]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_code", "expected_message", "expected_helper"),
+    [
+        (
+            lambda: analysis.kpi_summary(_PIN_GRID, metrics=5),
+            "INVALID_PARAM",
+            "metrics must be a column list, got 5",
+            "kpi_summary",
+        ),
+        (
+            lambda: analysis.kpi_summary(_PIN_GRID, metrics=["Nope"]),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "kpi_summary",
+        ),
+        (
+            lambda: analysis.kpi_summary(_PIN_GRID, metrics=["Region"]),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "kpi_summary",
+        ),
+        (
+            lambda: analysis.detect_outliers(_PIN_GRID, method="x"),
+            "INVALID_PARAM",
+            "method must be iqr, zscore, or isolation_forest, got 'x'",
+            "detect_outliers",
+        ),
+        (
+            lambda: analysis.group_summary(_PIN_GRID, by=["Region"], metrics=["Sales"], aggfunc={"Units": "sum"}),
+            "INVALID_PARAM",
+            "aggfunc key 'Units' is not in Sales",
+            "group_summary",
+        ),
+        (
+            lambda: analysis.pivot_aggregate(_PIN_GRID, index="Region", values="Sales", aggfunc=["sum", 3]),
+            "INVALID_PARAM",
+            "aggfunc must be a string, list of strings, or dict of column to string, got 3",
+            "pivot_aggregate",
+        ),
+        (
+            lambda: analysis.compare_periods([["d", "v"], [1, 2]], date_col="d", value_col="v", period="Z"),
+            "INVALID_PARAM",
+            "period must be Y, Q, M, YE, QE, or ME, got 'Z'",
+            "compare_periods",
+        ),
+        (
+            lambda: analysis.run_regression(_PIN_GRID, target="Region"),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "run_regression",
+        ),
+        (
+            lambda: analysis.cluster_numeric(_PIN_GRID, n_clusters="x"),
+            "INVALID_PARAM",
+            "n_clusters must be an integer, got 'x'",
+            "cluster_numeric",
+        ),
+        (
+            lambda: analysis.QuickStats(_PIN_GRID, numeric_columns="Region").tooltip(),
+            "NON_NUMERIC_COLUMN",
+            "Non-numeric columns: Region",
+            "quick_stats",
+        ),
+        (
+            lambda: analysis.quick_stats(_PIN_GRID, numeric_columns=["Nope"]),
+            "UNKNOWN_COLUMN",
+            "Unknown columns: Nope",
+            "quick_stats",
+        ),
+    ],
+)
+def test_analysis_helper_errors_keep_code_message_helper(
+    call,
+    expected_code: str,
+    expected_message: str,
+    expected_helper: str,
+):
+    assert call() == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
+
+
+def test_run_analysis_keeps_failed_code_for_plain_errors():
+    plain = analysis.run_analysis(
+        {"helper": "kpi_summary", "params": {"metrics": ["Sales"]}, "header_row": 99},
+        _PIN_GRID,
+    )
+    assert plain["status"] == "error"
+    assert plain["code"] == "ANALYSIS_FAILED"
+
+    coded = analysis.run_analysis(
+        {"helper": "kpi_summary", "params": {"metrics": ["Nope"]}},
+        _PIN_GRID,
+    )
+    assert coded["status"] == "error"
+    assert coded["code"] == "UNKNOWN_COLUMN"

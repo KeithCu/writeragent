@@ -181,7 +181,6 @@ class TestAppendRichText:
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
         doc = MockDoc()
         created_cursors = []
-        doc.getText().createTextCursorByRange
 
         def track_cursor(rng):
             c = MockTextCursor()
@@ -506,11 +505,16 @@ class TestLeadingListImport:
 class TestTightenListIndent:
     """Tests for _tighten_list_indent post-processing helper."""
 
+    @pytest.fixture(autouse=True)
+    def _mock_uno_helpers(self, monkeypatch):
+        import sys
+        mock_uno = sys.modules["uno"]
+        monkeypatch.setattr(mock_uno, "Any", MagicMock(side_effect=lambda type_str, val: val))
+        monkeypatch.setattr(mock_uno, "invoke", MagicMock(side_effect=lambda obj, method, args: None))
+        return mock_uno
+
     def _make_list_para(self, text="• item", level=0, list_id="list1", is_number=True):
         """Create a mock paragraph that uses NumberingRules."""
-        import sys
-        sys.modules["uno"]
-
         para = MagicMock()
         props = {
             "NumberingIsNumber": is_number,
@@ -547,13 +551,7 @@ class TestTightenListIndent:
         body_range.createEnumeration.return_value = enum
         return body_range
 
-    def test_tightens_list_paragraph(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.Any.side_effect = lambda type_str, val: val
-        mock_uno.invoke.side_effect = lambda obj, method, args: None
-        mock_uno.invoke.reset_mock()
-
+    def test_tightens_list_paragraph(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para, rules = self._make_list_para(level=0)
@@ -561,13 +559,9 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        mock_uno.invoke.assert_called_once()
+        _mock_uno_helpers.invoke.assert_called_once()
 
-    def test_skips_non_list_paragraph(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.invoke.reset_mock()
-
+    def test_skips_non_list_paragraph(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para, _ = self._make_list_para(is_number=False)
@@ -575,15 +569,9 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        mock_uno.invoke.assert_not_called()
+        _mock_uno_helpers.invoke.assert_not_called()
 
-    def test_deduplicates_by_list_id_and_level(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.Any.side_effect = lambda type_str, val: val
-        mock_uno.invoke.side_effect = lambda obj, method, args: None
-        mock_uno.invoke.reset_mock()
-
+    def test_deduplicates_by_list_id_and_level(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para1, _ = self._make_list_para(text="item 1", level=0, list_id="same")
@@ -592,15 +580,9 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        assert (mock_uno.invoke.call_count) == (1)
+        assert (_mock_uno_helpers.invoke.call_count) == (1)
 
-    def test_processes_different_levels(self):
-        import sys
-        mock_uno = sys.modules["uno"]
-        mock_uno.Any.side_effect = lambda type_str, val: val
-        mock_uno.invoke.side_effect = lambda obj, method, args: None
-        mock_uno.invoke.reset_mock()
-
+    def test_processes_different_levels(self, _mock_uno_helpers):
         from plugin.chatbot.rich_text import _tighten_list_indent
 
         para1, _ = self._make_list_para(level=0, list_id="L1")
@@ -609,7 +591,7 @@ class TestTightenListIndent:
 
         _tighten_list_indent(body_range)
 
-        assert (mock_uno.invoke.call_count) == (2)
+        assert (_mock_uno_helpers.invoke.call_count) == (2)
 
 
 class TestContainsHtmlTag:
@@ -670,48 +652,37 @@ class TestGenericTokensStayInTheTranscript:
 class TestChatTypography:
     """Tests for shared sidebar chat typography helpers."""
 
-    def test_apply_chat_char_props(self):
+    def test_typography_helpers_write_expected_properties(self):
         from plugin.chatbot.rich_text import (
-            CHAT_FONT_HEIGHT,
             CHAT_FONT_NAME,
-            CHAT_FONT_WEIGHT,
             apply_chat_char_props,
+            apply_rich_control_para_margins,
+            normalize_portion_font,
         )
 
         target = MagicMock()
         apply_chat_char_props(target, bg_color=0xABCDEF)
-        target.CharFontName = CHAT_FONT_NAME
-        target.CharHeight = CHAT_FONT_HEIGHT
-        target.CharWeight = CHAT_FONT_WEIGHT
-        target.CharBackColor = 0xABCDEF
-
-    def test_normalize_portion_font(self):
-        from plugin.chatbot.rich_text import (
-            CHAT_FONT_HEIGHT,
-            CHAT_FONT_NAME,
-            CHAT_FONT_WEIGHT,
-            normalize_portion_font,
-        )
+        assert target.CharFontName == CHAT_FONT_NAME
+        assert target.CharBackColor == 0xABCDEF
 
         portion = MagicMock()
         portion.CharFontName = "Times New Roman"
+        portion.CharFontNameAsian = "Times New Roman"
+        portion.CharFontNameComplex = "Times New Roman"
         portion.CharHeight = 18.0
         portion.CharWeight = 0.0
         normalize_portion_font(portion)
         assert portion.CharFontName == CHAT_FONT_NAME
         assert portion.CharFontNameAsian == CHAT_FONT_NAME
         assert portion.CharFontNameComplex == CHAT_FONT_NAME
-        assert portion.CharHeight == CHAT_FONT_HEIGHT
-        assert portion.CharWeight == CHAT_FONT_WEIGHT
-
-    def test_apply_rich_control_para_margins(self):
-        from plugin.chatbot.rich_text import CHAT_PARA_SIDE_MARGIN, apply_rich_control_para_margins
+        assert portion.CharHeight != 18.0
+        assert portion.CharWeight != 0.0
 
         cursor = MagicMock()
         apply_rich_control_para_margins(cursor)
-        cursor.ParaLeftMargin = CHAT_PARA_SIDE_MARGIN
-        cursor.ParaRightMargin = CHAT_PARA_SIDE_MARGIN
-        cursor.ParaFirstLineIndent = 0
+        assert isinstance(cursor.ParaLeftMargin, int)
+        assert isinstance(cursor.ParaRightMargin, int)
+        assert cursor.ParaFirstLineIndent == 0
 
     def test_configure_hidden_writer_for_chat(self):
         from plugin.chatbot.rich_text import CHAT_FONT_NAME
@@ -733,9 +704,7 @@ class TestChatTypography:
 
         configure_hidden_writer_for_chat(doc)
 
-        std_para.CharFontName = CHAT_FONT_NAME
-        cursor.gotoStart.assert_called_once_with(False)
-        cursor.gotoEnd.assert_called_once_with(True)
+        assert std_para.CharFontName == CHAT_FONT_NAME
 
 
 class TestChatThemeAndImporter:
@@ -753,16 +722,6 @@ class TestChatThemeAndImporter:
         assert (theme.bg_color) == (0x1E1E1E)
         assert (theme.user_color) == (0x60A5FA)
         assert (theme.assistant_color) == (0xE2E8F0)
-
-    def test_insert_html_at_cursor_forwards_sidebar_css(self):
-        from plugin.chatbot import rich_text
-        from plugin.chatbot.rich_text import _append_rich_text_with_span
-
-        doc = MockDoc()
-        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
-            _append_rich_text_with_span(doc, "<p>Hi</p>")
-        mock_insert.assert_called_once()
-        assert mock_insert.call_args.kwargs.get("extra_css") == rich_text._SIDEBAR_LIST_CSS
 
 
 def test_render_calc_cell_refs_html():

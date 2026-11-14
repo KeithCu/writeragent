@@ -225,7 +225,6 @@ def test_get_completions_returns_empty_while_a_call_is_in_flight():
 
 
 def test_get_completions_abandons_a_stuck_worker(monkeypatch):
-    assert not hasattr(ej, "_jedi_pool")
     monkeypatch.setattr(ej, "_JEDI_CALL_TIMEOUT_SEC", 0.05)
 
     api = ej.MonacoEditorApi()

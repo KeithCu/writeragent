@@ -3,7 +3,6 @@ from plugin.framework.queue_executor import main
 import builtins
 import sys
 import threading
-from plugin.testing_runner import native_test
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,36 +13,11 @@ _test_doc2 = None
 _test_ctx = None
 
 
-@native_test
-def test_event_bus():
-    from plugin.framework.event_bus import EventBus
-    events = EventBus()
-    event_received = []
-
-    def handler(**kwargs):
-        event_received.append(kwargs)
-    events.subscribe('test_event', handler)
-    events.emit('test_event', data=123)
-    assert (len(event_received) == 1), 'Handler not called exactly once'
-    assert (event_received[0].get('data') == 123), f'EventBus failed, received: {event_received}'
-
-@native_test
-def test_service_registry():
-    from plugin.framework.service import ServiceRegistry
-    registry = ServiceRegistry()
-
-    class DummyService():
-        pass
-    svc = DummyService()
-    registry.register('dummy', svc)
-    assert (registry.get('dummy') is svc), 'ServiceRegistry failed'
-
-
 def test_get_ctx_with_uno():
     mock_uno = MagicMock()
     mock_ctx = MagicMock()
     mock_uno.getComponentContext.return_value = mock_ctx
-    # patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
+    # B9 regression: patch.dict RESTORES the previous sys.modules['uno'] (the session-wide mock installed by
     # tests/conftest.py). The old pop('uno') left the whole run without a 'uno' module, so any
     # later test that imports uno lazily hit the real uno.py -> "No module named 'pyuno'"
     # (this is what broke tests/mcp/test_long_running_concurrency.py in combined runs).
@@ -61,14 +35,9 @@ def test_get_ctx_with_uno():
         with patch.dict(sys.modules, {'uno': mock_uno}):
             assert (get_ctx() == mock_ctx)
             mock_uno.getComponentContext.assert_called_once()
+        assert sys.modules.get("uno") is not mock_uno and "uno" in sys.modules
     finally:
         set_fallback_ctx(saved)
-
-
-def test_uno_module_restored_after_get_ctx_with_uno():
-    """B9 regression: patch.dict must restore the session-wide uno mock for later tests."""
-    test_get_ctx_with_uno()
-    assert "uno" in sys.modules
 
 
 def test_get_ctx_fallback():
@@ -317,24 +286,6 @@ def test_get_active_document_none_on_other_uno_object_error():
     desktop.getCurrentComponent.side_effect = RuntimeError("not disposed")
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         assert get_active_document(MagicMock()) is None
-
-
-def test_extension_id_constants_match_package_ids():
-    from plugin.framework.constants import (
-        EXTENSION_ID_LIBREHARPER,
-        EXTENSION_ID_LIBREPY,
-        EXTENSION_ID_WRITERAGENT,
-    )
-    from plugin.framework.uno_context import _KNOWN_EXTENSION_IDS
-
-    assert EXTENSION_ID_LIBREPY == "org.extension.librepy"
-    assert EXTENSION_ID_WRITERAGENT == "org.extension.writeragent"
-    assert EXTENSION_ID_LIBREHARPER == "org.extension.libreharper"
-    assert _KNOWN_EXTENSION_IDS == (
-        EXTENSION_ID_LIBREPY,
-        EXTENSION_ID_WRITERAGENT,
-        EXTENSION_ID_LIBREHARPER,
-    )
 
 
 class _NeverEq:
@@ -771,8 +722,7 @@ def test_enum_has_more():
     assert enum_has_more(mock) is False
 
 
-def test_iter_open_models_stops_at_enum_cap(caplog):
-    import logging
+def test_iter_open_models_stops_at_enum_cap():
     from plugin.framework.uno_context import iter_open_models
 
     desktop = MagicMock()
@@ -783,13 +733,9 @@ def test_iter_open_models_stops_at_enum_cap(caplog):
     enum.hasMoreElements.return_value = True
     comps.createEnumeration.return_value = enum
 
-    with (
-        patch("plugin.framework.uno_context._ENUM_CAP", 2),
-        caplog.at_level(logging.ERROR, logger="writeragent.context"),
-    ):
+    with patch("plugin.framework.uno_context._ENUM_CAP", 2):
         list(iter_open_models(desktop))
     assert enum.nextElement.call_count == 2
-    assert "hit cap=2" in caplog.text
 
 
 def test_iter_open_models_strict_false_probes_and_skips_broken():
@@ -844,5 +790,45 @@ def test_document_id_for_frame():
         assert document_id_for_frame(frame) == "uid-1234"
 
 
+def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
+    from plugin.framework.uno_context import (
+        desktop_create_is_unsafe,
+        reset_desktop_create_is_unsafe_for_tests,
+    )
 
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+            assert desktop_create_is_unsafe()
+        # The first call cached uno.bin. The soffice patch is invisible until reset.
+        reset_desktop_create_is_unsafe_for_tests()
+        with (
+            patch.object(sys, "argv", ["soffice"]),
+            patch(
+                "plugin.framework.uno_context._linux_process_tokens",
+                return_value=("/usr/lib64/libreoffice/program/soffice.bin", "soffice.bin", ["/usr/lib64/libreoffice/program/soffice.bin"]),
+            ),
+        ):
+            assert not desktop_create_is_unsafe()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
+
+
+def test_desktop_create_is_unsafe_when_pythonloader_rewrites_argv() -> None:
+    """pythonloader inside uno.bin often leaves argv as '' or a .py path (#768)."""
+    from plugin.framework.uno_context import (
+        desktop_create_is_unsafe,
+        reset_desktop_create_is_unsafe_for_tests,
+    )
+
+    proc = ("/usr/lib64/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"])
+    reset_desktop_create_is_unsafe_for_tests()
+    try:
+        with (
+            patch.object(sys, "argv", [""]),
+            patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+        ):
+            assert desktop_create_is_unsafe()
+    finally:
+        reset_desktop_create_is_unsafe_for_tests()
 

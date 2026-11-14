@@ -178,6 +178,9 @@ def test_is_safe_origin_private_when_enabled():
 def test_is_safe_origin_private_when_disabled():
     set_allow_private_origins(False)
     assert not is_safe_origin("https://localai.local")
+    # Phase 8 #2: arbitrary public web origins must not bypass CORS when private/extra are off.
+    assert not is_safe_origin("https://evil.com")
+    assert not is_safe_origin("https://evil.com/")
     assert is_safe_origin("http://localhost:3000")
 
 
@@ -217,8 +220,23 @@ def test_merge_allow_headers_without_request():
     assert "x-document-url" in lower
 
 
-def test_is_safe_origin_localhost():
-    assert is_safe_origin("http://localhost:3000")
+def test_merge_allow_headers_accepts_long_or_odd_request():
+    assert "Content-Type" in merge_allow_headers("h" * (DEAL_MAX_ORIGIN + 1))
+    assert "Content-Type" in merge_allow_headers("Content-Type; X-Evil")
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://localhost",
+        "http://localhost:3000",
+        "http://127.0.0.1",
+        "https://127.0.0.1",
+        "http://[::1]",
+    ],
+)
+def test_is_safe_origin_localhost(origin):
+    assert is_safe_origin(origin)
     assert not is_safe_origin("http://localhost.attacker.com")
 
 
@@ -558,25 +576,6 @@ def read_http_error_body(err: urllib.error.HTTPError) -> bytes:
         if getattr(exc, "errno", None) in _HTTP_BODY_RESET_ERRNOS:
             return b""
         raise
-
-
-def test_read_http_error_body_survives_darwin_reset():
-    """Status 400 is enough; Darwin-style RST while reading the body is not a regression."""
-    err = urllib.error.HTTPError("http://127.0.0.1/mcp", 400, "Bad Request", hdrs={}, fp=None)
-
-    def _raise_reset() -> bytes:
-        raise ConnectionResetError(54, "Connection reset by peer")
-
-    err.read = _raise_reset  # type: ignore[method-assign]
-    assert err.code == 400
-    assert read_http_error_body(err) == b""
-
-
-def test_read_http_error_body_returns_json_when_available():
-    payload = b'{"jsonrpc":"2.0","error":{"code":-32600}}'
-    err = urllib.error.HTTPError("http://127.0.0.1/mcp", 400, "Bad Request", hdrs={}, fp=None)
-    err.read = lambda: payload  # type: ignore[method-assign]
-    assert json.loads(read_http_error_body(err).decode("utf-8"))["error"]["code"] == -32600
 
 
 def test_post_unsupported_protocol_version(mcp_server):

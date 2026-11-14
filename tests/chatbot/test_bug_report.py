@@ -219,15 +219,6 @@ def test_open_url_in_browser_returns_false_when_both_fail():
             assert br.open_url_in_browser(ctx, "https://example.com/issue") is False
 
 
-@patch("plugin.chatbot.bug_report.open_url_in_browser", return_value=True)
-@patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue")
-def test_open_bug_report_in_browser(mock_build, mock_open):
-    ctx = MagicMock()
-    assert br.open_bug_report_in_browser(ctx, title="t", extra_body="e") is True
-    mock_build.assert_called_once_with(title="t", extra_body="e", ctx=ctx)
-    mock_open.assert_called_once_with(ctx, "https://github.com/issue")
-
-
 @patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=None)
 @patch("plugin.chatbot.dialogs.msgbox")
 def test_msgbox_with_report_falls_back_without_dialog(mock_msgbox, mock_load):

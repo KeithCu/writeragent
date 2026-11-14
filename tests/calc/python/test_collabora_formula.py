@@ -342,3 +342,67 @@ def test_maybe_rewrite_disposal_reraises_document_disposed():
         maybe_rewrite_collabora_py_formulas(clean)
     assert clean.formula0.startswith("=PY(")
     assert clean.sets == [False]
+
+
+def test_maybe_rewrite_is_modified_disposal_raises():
+    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+
+    DisposedException = type("DisposedException", (Exception,), {})
+
+    class _DisposedIsModifiedDoc:
+        def __init__(self) -> None:
+            self.locked = False
+
+        def supportsService(self, name: str) -> bool:
+            return name == "com.sun.star.sheet.SpreadsheetDocument"
+
+        def isModified(self) -> bool:
+            raise DisposedException("gone")
+
+        def lockControllers(self) -> None:
+            self.locked = True
+
+    doc = _DisposedIsModifiedDoc()
+    with pytest.raises(DocumentDisposedError):
+        maybe_rewrite_collabora_py_formulas(doc)
+    assert doc.locked is False
+
+
+def test_maybe_rewrite_unlock_disposal_raises():
+    from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+
+    DisposedException = type("DisposedException", (Exception,), {})
+
+    class _EmptySheets:
+        def getCount(self) -> int:
+            return 0
+
+    class _DisposedUnlockDoc:
+        def supportsService(self, name: str) -> bool:
+            return name == "com.sun.star.sheet.SpreadsheetDocument"
+
+        def isModified(self) -> bool:
+            return False
+
+        def lockControllers(self) -> None:
+            pass
+
+        def getSheets(self) -> _EmptySheets:
+            return _EmptySheets()
+
+        def unlockControllers(self) -> None:
+            raise DisposedException("gone")
+
+    with pytest.raises(DocumentDisposedError):
+        maybe_rewrite_collabora_py_formulas(_DisposedUnlockDoc())
+
+
+def test_rewrite_edge_spellings_unchanged():
+    from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
+
+    g = "ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY"
+    assert rewrite_collabora_addin_prefix("= " + g + '  ("x")') == '= PY("x")'
+    assert rewrite_collabora_addin_prefix("=" + g + "X(1)") == "=" + g + "X(1)"
+    assert rewrite_collabora_addin_prefix("=" + g + "THONX(1)") == "=" + g + "THONX(1)"
+    assert rewrite_collabora_addin_prefix(" { =  " + g.lower() + 'thon ("y"; A1)}') == ' { =  PYTHON("y"; A1)}'
+    assert rewrite_collabora_addin_prefix("=" + g) == "=" + g

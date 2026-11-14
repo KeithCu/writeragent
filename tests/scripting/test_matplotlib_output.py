@@ -100,11 +100,11 @@ def test_host_unpack_data_passthrough():
 def test_figure_to_image_payload_svg_default():
     """Default format is SVG for crisp rendering in LibreOffice."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv.to_wire import _figure_to_image_payload
+    from plugin.scripting.venv.to_wire import figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
-    payload = _figure_to_image_payload(fig)
+    payload = figure_to_image_payload(fig)
     plt.close(fig)
 
     assert payload["__wa_payload__"] == PAYLOAD_IMAGE
@@ -117,11 +117,11 @@ def test_figure_to_image_payload_svg_default():
 def test_figure_to_image_payload_png_explicit():
     """Explicit fmt='png' produces a PNG raster."""
     plt = pytest.importorskip("matplotlib.pyplot")
-    from plugin.scripting.venv.to_wire import _figure_to_image_payload
+    from plugin.scripting.venv.to_wire import figure_to_image_payload
 
     fig, ax = plt.subplots()
     ax.plot([1, 2, 3])
-    payload = _figure_to_image_payload(fig, fmt="png")
+    payload = figure_to_image_payload(fig, fmt="png")
     plt.close(fig)
 
     assert payload["__wa_payload__"] == PAYLOAD_IMAGE
@@ -162,9 +162,9 @@ def test_serialize_result_figure():
 )
 def test_implicit_open_figure_capture(value):
     pytest.importorskip("matplotlib")
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
-    res = run_sandboxed_code(
+    res = sandbox_run(
         value,
         timeout_sec=30,
     )
@@ -175,9 +175,9 @@ def test_implicit_open_figure_capture(value):
 
 def test_non_matplotlib_code_unaffected():
     """Scalar results should not be wrapped in an image payload."""
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
-    res = run_sandboxed_code("result = 42", timeout_sec=10)
+    res = sandbox_run("result = 42", timeout_sec=10)
     assert res["status"] == "ok"
     assert res["result"] == 42
     assert not is_image_payload(res["result"])
@@ -186,7 +186,7 @@ def test_non_matplotlib_code_unaffected():
 def test_multiple_open_figures_captured_individually():
     """Two implicit figures should be captured individually as a multi_data envelope containing two SVG figures."""
     pytest.importorskip("matplotlib")
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
     from plugin.scripting.payload_codec import is_multi_data
 
     code = (
@@ -194,7 +194,7 @@ def test_multiple_open_figures_captured_individually():
         "plt.figure()\nplt.plot([1])\n"
         "plt.figure()\nplt.plot([2, 3])\n"
     )
-    res = run_sandboxed_code(code, timeout_sec=30)
+    res = sandbox_run(code, timeout_sec=30)
     assert res["status"] == "ok"
     assert is_multi_data(res["result"])
     items = res["result"]["items"]
@@ -231,9 +231,9 @@ def test_serialize_list_of_figures():
 def test_seaborn_implicit_figure():
     """Seaborn plotting should produce an image payload via open-figure capture."""
     pytest.importorskip("seaborn")
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
 
-    res = run_sandboxed_code(
+    res = sandbox_run(
         "import seaborn as sns\nsns.lineplot(x=[1, 2, 3], y=[1, 4, 9])\n",
         timeout_sec=30,
     )
@@ -279,11 +279,11 @@ def test_serialize_result_dataframe_mixed_and_roundtrip():
 def test_run_sandboxed_dataframe_produces_envelope():
     """End-to-end: code returning a DF yields the envelope in the worker response."""
     pytest.importorskip("pandas")
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+    from tests.scripting.sandbox_support import sandbox_run
     from plugin.scripting.payload_codec import is_dataframe_payload
 
     code = "import pandas as pd\ndf = pd.DataFrame({'x': [10, 20], 'y': ['p', 'q']})\nresult = df"
-    res = run_sandboxed_code(code, timeout_sec=30)
+    res = sandbox_run(code, timeout_sec=30)
     assert res["status"] == "ok"
     assert is_dataframe_payload(res["result"])
     assert res["result"]["columns"] == ["x", "y"]
@@ -585,7 +585,7 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
     def boom(fig, *, fmt="svg"):
         raise RuntimeError("bad figure")
 
-    monkeypatch.setattr(vs, "_figure_to_image_payload", boom)
+    monkeypatch.setattr(vs, "figure_to_image_payload", boom)
     # Capture skips work until pyplot is imported; don't depend on test order.
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", _Plt())
     with pytest.raises(RuntimeError, match="bad figure"):
@@ -603,12 +603,13 @@ def test_non_plot_cell_does_not_import_matplotlib():
     root = Path(__file__).resolve().parents[2]
     script = (
         "import sys\n"
+        "from plugin.scripting.venv.sandbox_request import SandboxRequest\n"
         "from plugin.scripting.venv.venv_sandbox import run_sandboxed_code\n"
-        "res = run_sandboxed_code('result = 6 * 7')\n"
+        "res = run_sandboxed_code(SandboxRequest(code='result = 6 * 7', timeout_sec=10))\n"
         "assert res.get('status') == 'ok', res\n"
         "assert res.get('result') == 42, res\n"
         "assert 'matplotlib' not in sys.modules\n"
-        "res = run_sandboxed_code('plt.plot([1, 2])')\n"
+        "res = run_sandboxed_code(SandboxRequest(code='plt.plot([1, 2])', timeout_sec=10))\n"
         "assert res.get('status') == 'ok', res\n"
         "assert 'matplotlib.pyplot' in sys.modules\n"
     )

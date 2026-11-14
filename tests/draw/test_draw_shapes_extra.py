@@ -87,25 +87,13 @@ def test_create_diagram_reuses_upsert(tmp_path=None):
     assert out["layout"] == "horizontal_flow"
     assert out["id_to_index"] == {"a": 0, "b": 1}
     assert len(out["connections"]) == 1
-
-
-def test_create_diagram_unknown_connection():
-    ctx = MagicMock()
-    ctx.active_page_index = 0
-    page = MagicMock()
-    page.Width = 28000
-    page.Height = 15750
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
-            mock_upsert.return_value = {"status": "ok", "index": 0}
-            out = CreateDiagram().execute(
-                ctx,
-                nodes=[{"id": "a", "text": "A"}],
-                connections=[{"from": "a", "to": "missing"}],
-            )
-    assert out["status"] == "error"
+    assert mock_upsert.call_count == 2
+    first_kw = mock_upsert.call_args_list[0].kwargs
+    second_kw = mock_upsert.call_args_list[1].kwargs
+    assert first_kw["width"] > 100 and first_kw["height"] > 100
+    assert second_kw["width"] > 100 and second_kw["height"] > 100
+    assert first_kw["x"] < second_kw["x"]
+    assert first_kw["y"] == second_kw["y"]
 
 
 def test_create_diagram_numeric_ids_pass_connection_check():

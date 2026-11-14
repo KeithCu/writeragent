@@ -192,7 +192,7 @@ def _run_text_dialog(
                 _outcome = (dlg.getControl(edit_name).getModel().Text or "").strip()
                 dlg.endDialog(1)
 
-        run_dialog_with_listeners(dlg, _OkListener(), _DismissDialogListener(dlg, 0))
+        run_dialog_with_listeners(dlg, _OkListener(), DismissDialogListener(dlg, 0))
         return _outcome
     except Exception:
         log.exception("%s failed", log_label)
@@ -301,7 +301,7 @@ class CopyListener(BaseActionListener):
             self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
 
 
-class _DismissDialogListener(BaseActionListener):
+class DismissDialogListener(BaseActionListener):
     """Dismiss a dialog with a status code."""
 
     _dlg: Any
@@ -364,7 +364,7 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         report_btn.addActionListener(_ReportListener(ctx, report_url))
 
         ok_btn = dlg.getControl("OKBtn")
-        ok_btn.addActionListener(_DismissDialogListener(dlg))
+        ok_btn.addActionListener(DismissDialogListener(dlg))
 
         dlg.execute()
         dlg.dispose()

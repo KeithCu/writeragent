@@ -71,11 +71,11 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 
 ### Current Implementation (as of latest increment)
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads). `run_sql` is the `=PY()` entry: honesty dict for `run_sql(sql)` and `run_sql(sql, con)`; DataFrame only when `preloaded` or `files` is passed. `scoped_dir` alone does not switch modes. The sandbox still passes the host folder on every call.
-- Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
+- Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (`{name: spec}`; a list is rejected by the schema), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
 - Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the calling document's folder on the UI thread. Off-main the doc is only passed through, so `scoped_dir` is `None` there. The helper captures that host path when it is injected; a cell assignment to `scoped_dir` or a `scoped_dir=` argument cannot point `run_sql` at another folder. That assignment is dropped at the start of the next execute, so a shared-kernel Run Python Script (which binds no folder) cannot inherit a cell-chosen path from an earlier `=PY()`. Inside a sandboxed execute, `session_duckdb(other_id)` cannot open another workbook's catalog. That guard still holds when the cell runs on the SIGALRM timeout-fallback thread (Windows, or any thread that cannot install the alarm): the sandbox copies its session context onto that thread.
 - Worker: registers preloaded via `coerce_to_dataframe`; flat files via suffix binders (`read_csv` / `read_parquet` / `read_json`, including `.jsonl` / `.ndjson`) under provided names. Unknown suffixes and missing files fail loud (`UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`) instead of falling through to CSV. Read-only guards (`COPY`/`EXPORT`/`ATTACH`/`INSTALL`/`LOAD` + path/URI escapes). In-memory `CREATE VIEW` / register stay allowed.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script (sheet egress shows truncation flags).
-- `=PY()`: prefer `run_sql` / `session_duckdb()` (same firewall + honesty fields) over raw `import duckdb`. Shared-kernel `=PY()` reuses one DuckDB connection per workbook until Reset; Isolated / chat tools stay per-request. See [Phase D](#phase-d--shared-kernel-session-cache). Default chat / `=PY` import-policy blurbs omit DuckDB (`query_folder_sql` / `session_duckdb` / allowed-package `duckdb`) until that path is product-ready (eval-2 §2.7). Helpers stay implemented.
+- `=PY()`: prefer `run_sql` / `session_duckdb()` (same firewall + honesty fields) over raw `import duckdb`. Shared-kernel `=PY()` reuses one DuckDB connection per workbook until Reset; Isolated / chat tools stay per-request. See [Phase D](#phase-d--shared-kernel-session-cache). Default chat / `=PY` import-policy blurbs omit DuckDB (`query_folder_sql` / `session_duckdb` / allowed-package `duckdb`) until that path is product-ready (see [`docs/eval/eval-2/first-principles-analysis-v4.md`](../eval/eval-2/first-principles-analysis-v4.md) §2.7). Helpers stay implemented.
 - Limitations: no write-back, default first sheet for office files when `#SheetName` is omitted. Sibling `.xlsx`/`.ods` now read the sheet **used range** (same `createCursor` / `gotoStartOfUsedArea` / `gotoEndOfUsedArea` path as `SheetAnalyzer` / ingest) — open / missing-sheet / empty-range failures are tool errors. Sibling `.xlsx`/`.xls` reuse `writeragent_ods_cache/` (mtime+size key; `calc.ods_cache_enabled`, default true). Native `.ods` and the live workbook are not cached. Result grids cap at **200 rows** (`MAX_TABLE_ROWS`); `truncated` / `warning` / `flags` / `message` are set when the query returned more.
 - Usage: Mix tables + files for joins, e.g. live sheet identity + sibling CSVs. See [Table source identity](#table-source-identity).
 
@@ -180,7 +180,7 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
 
 ### Engineering
 
-- **Reuses shipped bridge:** `read_range` → `host_pack_data` → `child_unpack_data` → `coerce_to_dataframe` ([`plugin/calc/inspector.py`](../../plugin/calc/inspector.py), [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py), [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py)).
+- **Reuses shipped bridge:** `read_range` → `host_pack_data` → `materialize_inputs` → `coerce_to_dataframe` ([`plugin/calc/inspector.py`](../../plugin/calc/inspector.py), [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py), [`plugin/scripting/venv/coerce.py`](../../plugin/scripting/venv/coerce.py)).
 - **Same execution shell as Analysis/Viz:** Warm venv worker, trusted module, no LLM-submitted arbitrary imports beyond sandbox blocklist (duckdb is not blocked; prompt omits it).
 - **No ABI risk:** DuckDB runs in the child interpreter only.
 - **Build-on mountain:** Future Parquet export ([pyarrow](../enabling_numpy_in_libreoffice.md), deferred) makes DuckDB faster; shared-kernel session cache (Phase D) reuses one connection across `=PY()` cells.
@@ -206,7 +206,7 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ User venv worker                                                │
-│  • child_unpack_data                                            │
+│  • materialize_inputs                                           │
 │  • coerce_to_dataframe (per table)                              │
 │  • session_duckdb() or duckdb.connect(); register(name, df)        │
 │  • read_csv_auto / read_parquet / JSON (scoped paths only)       │
@@ -281,7 +281,7 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 
 1. Tool or template accepts `data_range` (existing pattern from [`analyze_data`](analysis-tools.md)).
 2. Host: `read_range` → strip to values via [`calc_addin_data`](../../plugin/calc/calc_addin_data.py) → `host_pack_data`.
-3. Worker: `child_unpack_data` → `coerce_to_dataframe(..., headers=True)` → `con.register("data", df)`.
+3. Worker: `materialize_inputs` → `coerce_to_dataframe(..., headers=True)` → `con.register("data", df)`.
 4. Run user/LLM SQL; assign `result` for egress.
 
 **Parameters (mirror analysis):**

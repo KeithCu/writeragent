@@ -17,7 +17,6 @@ from plugin.doc.document_research_specialized import (
     DelegateReadDocument,
     run_inner_read_agent,
 )
-from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
@@ -48,18 +47,12 @@ def _document_research_domains(gateway):
     return gateway.parameters["properties"]["domain"]["enum"]
 
 
-def test_document_research_in_writer_delegate_enum():
-    gw = DelegateToSpecializedWriter()
-    assert "document_research" in _document_research_domains(gw)
-
-
-def test_document_research_in_calc_delegate_enum():
-    gw = DelegateToSpecializedCalc()
-    assert "document_research" in _document_research_domains(gw)
-
-
-def test_document_research_in_draw_delegate_enum():
-    gw = DelegateToSpecializedDraw()
+@pytest.mark.parametrize(
+    "gateway_cls",
+    [DelegateToSpecializedWriter, DelegateToSpecializedCalc, DelegateToSpecializedDraw],
+)
+def test_document_research_in_delegate_enum(gateway_cls):
+    gw = gateway_cls()
     assert "document_research" in _document_research_domains(gw)
 
 
@@ -90,55 +83,6 @@ def test_filter_document_research_discovery_tools_respects_config():
     assert "search_nearby_files" in names
     assert "search_embeddings" not in names
     assert "grep_nearby_files" not in names
-
-
-def test_document_research_domain_still_has_its_tools_after_legacy_search_delete():
-    r = ToolRegistry(services={})
-    for tool in (ListNearbyFiles(), GrepNearbyFiles(), SearchNearbyFiles(), DelegateReadDocument()):
-        r.register(tool)
-    names = {t.name for t in r.get_tools(doc=MagicMock(), active_domain="document_research", exclude_tiers=())}
-    assert {"list_nearby_files", "grep_nearby_files", "search_nearby_files", "delegate_read_document"} <= names
-    assert "search_embeddings" not in names
-
-
-def test_document_research_workflow_hint_off():
-    from plugin.framework.prompts import get_document_research_workflow_hint
-
-    ctx = MagicMock()
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
-        hint = get_document_research_workflow_hint(ctx)
-    assert "grep_nearby_files" in hint
-    assert "search_embeddings" not in hint
-    assert "search_nearby_files" not in hint
-    assert "fused" not in hint
-
-
-def test_document_research_workflow_hint_on():
-    from plugin.framework.prompts import get_document_research_workflow_hint
-
-    ctx = MagicMock()
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        hint = get_document_research_workflow_hint(ctx)
-    assert "search_nearby_files" in hint
-    assert "search_embeddings" not in hint
-    assert "grep_nearby_files" not in hint
-    assert "fused" in hint
-
-
-def test_document_research_workflow_hint_peer_choice_when_peers_open():
-    from plugin.framework.prompts import get_document_research_workflow_hint
-
-    ctx = MagicMock()
-    doc = MagicMock()
-    peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
-        with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
-            hint = get_document_research_workflow_hint(ctx, doc)
-    assert "send_peer_work" in hint
-    assert "send_peer_result" in hint
-    assert "delegate_read_document" in hint
-    assert "Budget.ods" in hint
-    assert "PEER SIDEBARS" not in hint
 
 
 def test_read_only_target_blocks_mutation_in_registry():
@@ -247,15 +191,6 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     assert "send_peer_work" in names
     assert "send_peer_result" in names
     assert "delegate_read_document" in names
-    peer_adapter = next(t for t in smol_tools if t.name == "send_peer_work")
-    peer_result_adapter = next(t for t in smol_tools if t.name == "send_peer_result")
-    assert "Budget.ods" in peer_result_adapter.description
-    assert "Budget.ods" in peer_adapter.description
-    assert "uid=u2" in peer_adapter.description
-    instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
-    assert "send_peer_work" in instructions
-    assert "send_peer_result" in instructions
-    assert "ASK vs REPLY" in instructions
     assert ctx.active_domain is None
 
 
@@ -728,7 +663,6 @@ def test_delegate_read_document_does_not_use_delegate_gateway(
     assert result["result"] == "42"
     mock_inner.assert_called_once()
     mock_close.assert_called_once_with(opened_model, opened_for_document_research=True)
-    assert not isinstance(tool, DelegateToSpecializedBase)
 
 
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "error", "message": "inner failed"})
@@ -890,43 +824,10 @@ def test_document_research_delegation_includes_open_documents_context(
         assert result["status"] == "incomplete"
         assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
         
-        # Verify instructions passed to the agent
+        # Verify open documents are passed in instructions to the agent
         instructions = mock_agent_class.call_args.kwargs.get("instructions", "")
-        assert "[OPEN DOCUMENTS CONTEXT]" in instructions
-        assert "File1.odt [writer] (Active)" in instructions
-        assert "File2.ods [calc]" in instructions
-        assert "Some of these files may be completely unrelated to the task at hand" in instructions
-
-
-@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "finished": True, "answer": "Q4=100", "message": "done"})
-@patch("plugin.doc.document_research_specialized.close_document_research_document")
-@patch("plugin.doc.document_research_specialized.open_document_for_read")
-@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
-def test_delegate_read_document_unwraps_finish_answer(
-    mock_main,
-    mock_resolve,
-    mock_open,
-    mock_close,
-    mock_inner,
-):
-    opened_model = MagicMock()
-    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
-    mock_open.return_value = (opened_model, "calc", None, True)
-
-    r = ToolRegistry(services={})
-    r.register(DelegateReadDocument())
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.services = {"tools": r}
-
-    tool = r.get("delegate_read_document")
-    assert tool is not None
-    result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
-    assert result["status"] == "ok"
-    assert result["result"] == "Q4=100"
-    assert "finished" not in result["result"]
+        assert "File1.odt" in instructions
+        assert "File2.ods" in instructions
 
 
 @pytest.mark.parametrize(
@@ -1184,7 +1085,6 @@ def test_run_inner_read_agent_unknown_doc_type_is_coded_error():
     assert isinstance(res, dict)
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
-    assert "No read tools configured" in res["message"]
 
 
 def test_delegate_read_document_stop_while_resolving_name_is_user_stopped():

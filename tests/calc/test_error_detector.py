@@ -14,29 +14,18 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.calc.error_detector import (
-    ERROR_TYPES,
     ErrorDetector,
-    _ERROR_PATTERN_BY_UPPER,
     is_calc_error_display,
+    truncation_hint,
 )
 
 
-def test_error_detector_data():
-    assert 502 in ERROR_TYPES
-    expected_tokens = frozenset({
-        "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
-        "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
-    })
-    assert set(_ERROR_PATTERN_BY_UPPER.values()) == expected_tokens
-    assert len(_ERROR_PATTERN_BY_UPPER) == len(expected_tokens)
+def test_is_calc_error_display_normalizes_known_tokens():
     assert is_calc_error_display("#div/0!") == "#DIV/0!"
     assert is_calc_error_display(" err:502 ") == "Err:502"
     assert is_calc_error_display("#ERROR!") == "#ERROR!"
     assert is_calc_error_display("#hashtag") is None
     assert is_calc_error_display(1) is None
-    for code, info in ERROR_TYPES.items():
-        assert "name" in info
-        assert "description" in info
 
 
 def test_get_error_type():
@@ -47,6 +36,7 @@ def test_get_error_type():
     cell.getError.return_value = 502
     res = ErrorDetector.get_error_type(cell)
     assert res["name"] == "Invalid argument"
+    assert res["code"] == "Err:502"
 
     cell.getError.return_value = 8888
     res = ErrorDetector.get_error_type(cell)
@@ -60,18 +50,35 @@ def test_get_error_type():
     cell.getError.return_value = 522
     res = ErrorDetector.get_error_type(cell)
     assert res["error_code"] == 522
+    assert res["code"] == "Err:522"
+    assert "suggestion" not in res
+
+    cell.getError.return_value = 530
+    res = ErrorDetector.get_error_type(cell)
+    assert res["code"] == "#ADDIN?"
 
 
 def test_generate_suggestion():
-    assert "circular" in ErrorDetector._generate_suggestion({"error_code": 522, "code": "#REF!", "description": ""}, []).lower()
-    assert "spelled" not in ErrorDetector._generate_suggestion({"error_code": 504, "code": "#NAME?", "description": "The function argument is invalid."}, [])
+    assert "circular" in ErrorDetector._generate_suggestion({"error_code": 522, "code": "Err:522", "description": ""}, []).lower()
+    assert "spelled" not in ErrorDetector._generate_suggestion({"error_code": 504, "code": "Err:504", "description": "The function argument is invalid."}, [])
     assert "#REF!" in ErrorDetector._generate_suggestion({"error_code": 524, "code": "#REF!", "description": ""}, [])
 
     sugg_532 = ErrorDetector._generate_suggestion({"error_code": 532, "code": "#DIV/0!", "description": ""}, [{"address": "B1", "value": 0}])
     assert "B1" in sugg_532
 
+    sugg_532_err_prec = ErrorDetector._generate_suggestion(
+        {"error_code": 532, "code": "#DIV/0!", "description": ""},
+        [{"address": "B2", "value": None, "type": "formula"}, {"address": "B3", "value": None, "type": "empty"}],
+    )
+    assert "B2" not in sugg_532_err_prec
+    assert "B3" in sugg_532_err_prec
+
     sugg_519 = ErrorDetector._generate_suggestion({"error_code": 519, "code": "#VALUE!", "description": ""}, [{"address": "C1", "type": "text"}])
     assert "C1" in sugg_519
+
+
+def test_truncation_hint():
+    assert truncation_hint(2, 5).startswith("First 2 of 5.")
 
 
 def test_explain_error_precedent_probe_fallback():
@@ -114,7 +121,7 @@ def test_explain_error_dep_chain_failure_is_swallowed():
     inspector.read_cell.return_value = {"address": "A1", "value": "0", "type": "number"}
 
     detector = ErrorDetector(bridge, inspector)
-    with patch("plugin.calc.formula_dep_chain.fetch_formula_dep_chain", side_effect=RuntimeError("no dep chain")):
+    with patch("plugin.calc.error_detector.fetch_formula_dep_chain", side_effect=RuntimeError("no dep chain")):
         res = detector.explain_error("B1")
         assert "dependency_chain" not in res
         assert res["error"]["code"] == "#DIV/0!"
@@ -172,7 +179,7 @@ def test_explain_error_reads_the_named_sheet():
     bridge.get_active_sheet.return_value = active_sheet
 
     detector = ErrorDetector(bridge, inspector)
-    with patch("plugin.calc.formula_dep_chain.fetch_formula_dep_chain", return_value=None):
+    with patch("plugin.calc.error_detector.fetch_formula_dep_chain", return_value=None):
         res = detector.explain_error("Sheet2.A1")
 
     assert res["address"] == "Sheet2.A1"

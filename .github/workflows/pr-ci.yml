@@ -59,7 +59,7 @@ jobs:
       run:
         shell: bash
 
-    # Windows runners default Python stdio to cp1252; pyspector prints U+1F4A1.
+    # Windows runners default Python stdio to cp1252; keep UTF-8 for Python tools and logs.
     # Do not set WRITERAGENT_CI_DEBUG_DIR here: runner is not available in
     # jobs.<job_id>.env (startup_failure 33452656845). Run steps export
     # $RUNNER_TEMP/pytest-ci-debug instead; upload-artifact path uses
@@ -225,7 +225,8 @@ jobs:
           if [ "$WRITERAGENT_CI_DEBUG" = "1" ]; then
             mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"
           fi
-          SKIP_UNO=1 make test
+          # Explicit TYPECHECK_FULL=1 (GitHub Actions also sets CI=true) so PR CI runs full typecheck + thread-safety-lint.
+          TYPECHECK_FULL=1 SKIP_UNO=1 make test
 
       - name: Dump leftover processes (CI debug)
         if: ${{ always() && inputs.ci_debug == true }}

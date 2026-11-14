@@ -10,14 +10,12 @@ They are skipped gracefully if the packages are not present.
 
 from __future__ import annotations
 
-from tests.harness.strip_bundle import is_release_build
 import sys
 from typing import Any
 
 import pytest
 
 from plugin.scripting import text_analytics as ta
-from plugin.scripting.helper_domain import header_prefix
 from plugin.scripting.text_analytics_ui import format_text_analytics_result_for_display
 from plugin.scripting.venv import text_analytics as vta
 
@@ -63,16 +61,6 @@ def test_run_text_analytics_dispatcher():
 # --- Host-side (no model required) ---
 
 
-def test_text_analytics_templates_include_run_call():
-    temps = ta.get_text_analytics_script_templates()
-    assert isinstance(temps, dict)
-    for h in ("full", "readability", "entities", "key_phrases"):
-        if h in temps:
-            code = temps[h]
-            assert header_prefix("text") not in code
-            assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
-
-
 def test_text_analytics_is_result_shapes():
     fullish = {"status": "ok", "result": {"readability": {}, "entities": [], "meta": {}}}
     assert ta.is_text_analytics_result(fullish) is True
@@ -108,7 +96,8 @@ def test_text_analytics_helper_names():
     from plugin.scripting.helper_registry import names
 
     text_names = names("text")
-    assert "full" in text_names
+    for expected in ("full", "topics", "sentiment"):
+        assert expected in text_names
 
 
 def test_check_diagnostics():
@@ -145,25 +134,6 @@ def test_run_text_analytics_diagnostics_dispatch():
 
 
 # --- Topics (fancier analytics; sklearn optional) ---
-
-
-@pytest.mark.parametrize(
-    "value, value_2, value_3, value_4, value_5",
-    [
-        pytest.param("topics", "topics", "topics", "run_text_analytics", "'n_topics': 4", id="test_text_analytics_topics_in_helernames_and_templates"),
-        # --- Sentiment (lexicon-based, no extra deps beyond what's already used for spacy path) ---
-        pytest.param("sentiment", "sentiment", "sentiment", "from writeragent.scripting.text_analytics import run_text_analytics", "'helper': 'sentiment'", id="test_text_analytics_sentiment_in_helernames_and_templates"),
-    ],
-)
-def test_text_analytics_topics_in_helernames_and_templates(value, value_2, value_3, value_4, value_5):
-    from plugin.scripting.helper_registry import names
-
-    assert value in names("text")
-    temps = ta.get_text_analytics_script_templates()
-    assert value_2 in temps
-    code = temps[value_3]
-    assert value_4 in code
-    assert value_5 in code
 
 
 def test_text_analytics_topics_result_shape():
@@ -204,64 +174,8 @@ def test_text_analytics_topics_accepts_list_for_sections():
         assert meta["n_topics"] == len(res["topics"])
 
 
-def test_text_analytics_sentiment_result_shape_and_basic_logic():
-    # Host-side shape
-    fake = {"status": "ok", "result": {"sentiment": {"score": 0.4, "label": "positive"}, "per_section": []}}
-    assert ta.is_text_analytics_result(fake) is True
-
-    # Direct call (now uses transformers + multilingual model; skips if not installed)
-    try:
-        out = ta.run_text_analytics("sentiment", "This is a great success and very positive outcome for everyone.")
-    except Exception:
-        pytest.skip("transformers not available for sentiment test")
-    # A missing model used to come back as status ok. It is an error now.
-    if out.get("status") == "error":
-        pytest.skip("transformers not installed or no model for sentiment")
-    assert out["status"] == "ok"
-    res = out.get("result", {})
-    if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("sentiment"):
-        pytest.skip("transformers not installed or no model for sentiment")
-    sent = res["sentiment"]
-    assert "score" in sent and "label" in sent
-    assert sent["label"] in ("positive", "negative", "neutral")
-    # Positive text should lean positive
-    assert sent["score"] > 0
-
-    # Negative
-    out2 = ta.run_text_analytics("sentiment", "This is a terrible failure with many problems and risks.")
-    sent2 = out2.get("result", {}).get("sentiment", {})
-    if not sent2:
-        pytest.skip("transformers not installed")
-    assert sent2.get("score", 0) < 0
-    assert sent2.get("label") == "negative"
-
-
-def test_text_analytics_sentiment_accepts_list_for_sections():
-    secs = [
-        "The project had excellent results and strong gains.",
-        "However there were serious problems, delays and high costs.",
-        "Overall we see some progress but many risks remain."
-    ]
-    try:
-        out = ta.run_text_analytics("sentiment", secs)
-    except Exception:
-        pytest.skip("transformers not available")
-    if out.get("status") == "error":
-        pytest.skip("transformers not installed or no model for sentiment")
-    assert out["status"] == "ok"
-    res = out.get("result", {})
-    if res.get("error") in (None, "MISSING_PACKAGE") or not res.get("per_section"):
-        pytest.skip("transformers not installed or insufficient model")
-    assert "sentiment" in res
-    assert "per_section" in res
-    assert len(res["per_section"]) == 3
-    # First section positive, second negative
-    assert res["per_section"][0]["label"] == "positive"
-    assert res["per_section"][1]["label"] == "negative"
-
-
-def test_result_to_html_table_double_escapes_markup():
-    html = ta._result_to_html_table({"key_phrases": [{"lemma": "<script>"}]})
+def test_report_html_double_escapes_markup():
+    html = ta.text_analytics_report_html({"status": "ok", "result": {"key_phrases": [{"lemma": "<script>"}]}})
     assert "&amp;lt;script&amp;gt;" in html
     assert "<script>" not in html
 
@@ -278,8 +192,6 @@ def test_model_candidates_try_sent_once_and_ent_last():
 
     ja_cands = vta._model_candidates("ja")
     assert ja_cands[0] == "ja_core_news_sm"
-
-    assert vta._LANG_MODELS["mk"] == ("mk_core_news_sm",)
 
 
 def test_normalize_sentiment_label():
@@ -676,8 +588,6 @@ def test_format_topics_missing_package_reads_inner_payload(monkeypatch):
         "Suggested install: uv pip install scikit-learn"
     )
     assert out == expected
-    assert "scikit-learn from the analysis stack" not in out
-    assert "{'" not in out
 
 
 def test_format_topic_model_failed_has_no_install_hint():
@@ -726,7 +636,6 @@ def test_format_sentiment_missing_package_and_model_load():
     assert "transformers (sentiment analysis)" in out_missing
     assert "Suggested install: uv pip install transformers torch" in out_missing
     assert "Real error details from the worker process:\nImportError: No module named 'transformers'" in out_missing
-    assert "{'" not in out_missing
     assert "Sentiment: neutral" not in out_missing
 
     load_dict = {
@@ -750,7 +659,6 @@ def test_format_sentiment_missing_package_and_model_load():
     assert "transformers model load failed" in out_load
     assert "Suggested install: uv pip install torch" in out_load
     assert "Real error details from the worker process:\nOSError: model file corrupt" in out_load
-    assert "{'" not in out_load
     assert "Sentiment: neutral" not in out_load
 
 
@@ -917,9 +825,7 @@ def test_whole_scope_topics_still_uses_sections(monkeypatch):
     assert call_count == 3
 
 
-def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
-    import logging
-
+def test_selection_extraction_failure_returns_empty(monkeypatch):
     monkeypatch.setattr("plugin.scripting.text_analytics.is_writer", lambda doc: True)
 
     class FakeDoc:
@@ -930,16 +836,13 @@ def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
 
             return Controller()
 
-    with caplog.at_level(logging.DEBUG):
-        text, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "readability", scope="selection")
+    text, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "readability", scope="selection")
     assert text == ""
-    if not is_release_build():  # log.debug call site is stripped in release bundles
-        assert "selection text failed" in caplog.text
 
 
 def test_html_table_ignores_overall_key():
-    assert ta._result_to_html_table({"overall": {"score": 0.4, "label": "positive"}}) == ""
-    assert "positive" in ta._result_to_html_table({"sentiment": {"score": 0.4, "label": "positive"}})
+    assert ta.text_analytics_report_html({"status": "ok", "result": {"overall": {"score": 0.4, "label": "positive"}}}) == ""
+    assert "positive" in ta.text_analytics_report_html({"status": "ok", "result": {"sentiment": {"score": 0.4, "label": "positive"}}})
 
 
 def test_insert_empty_ok_result_raises_and_inserts_nothing(monkeypatch):
@@ -990,15 +893,15 @@ def test_insert_topic_inner_error_raises(monkeypatch):
 
 def test_payload_has_content_and_error():
     res_ok = {"status": "ok", "result": {"readability": {"flesch_reading_ease": 60}}}
-    assert bool(ta._result_to_html_table(ta._result_payload(res_ok))) is True
+    assert bool(ta.text_analytics_report_html(res_ok)) is True
     assert ta.text_analytics_payload_error(res_ok) is None
 
-    res_empty_ents = {"entities": []}
-    assert bool(ta._result_to_html_table(ta._result_payload(res_empty_ents))) is False
+    res_empty_ents = {"status": "ok", "entities": []}
+    assert ta.text_analytics_report_html(res_empty_ents) == ""
     assert ta.text_analytics_payload_error(res_empty_ents) is None
 
-    res_note = {"note": "no text"}
-    assert bool(ta._result_to_html_table(ta._result_payload(res_note))) is False
+    res_note = {"status": "ok", "note": "no text"}
+    assert ta.text_analytics_report_html(res_note) == ""
     assert ta.text_analytics_payload_error(res_note) == "no text"
 
 

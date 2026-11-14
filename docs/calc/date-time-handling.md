@@ -10,6 +10,8 @@ This document covers PyUNO cell values, read-path format enrichment, MCP clock c
 
 ### LLM wire schema
 
+Each requested range has its own entry in `result`, with the range's payload at `result[i].result[0]`.
+
 For LLM tools (`read_cell_range` with format enrichment; the same strings are the write target), the default **`format=rows`** payload looks like:
 
 ```json
@@ -289,7 +291,7 @@ The algorithm looks at three pieces of information only — no display-string co
    
    Take this from the **gate**, never from the format key Calc detected. Detection may return an `en-US` AM/PM time key even when the input was a datetime; that must not reclassify the write.
 
-2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`format_category_from_type`](../../plugin/calc/datetime_wire.py):
+2. **Destination category** — what kind of format the cell **already** has, before we change anything. Read the cell’s current `NumberFormat` key, look up its `Type` bitmask, and map with [`format_category_from_type`](../../plugin/calc/datetime_wire.py) (the destination key → category and `FormatString` lookup is cached per operation by `NumberFormatCategories` in [`calc_utils.py`](../../plugin/calc/calc_utils.py), shared by the inspector, the chat write path, and the `=PY()` spill):
    - DATE → `"date"`
    - TIME → `"time"` (this includes both clock times and elapsed `[HH]:MM` styles — Calc does not report `DURATION` on those formats; see §1.1 / §8.3)
    - DATE\|TIME → `"datetime"`
@@ -429,7 +431,7 @@ Adopt the matrix and integer-second midnight predicate above. Existing playgroun
 
 #### M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`
 
-**Status: Settled and shipped.** Locale comes from `_resolve_document_locale` (document `CharLocale` + en-US fallback) once per `write_formula_range` / `set_style` number-format path.
+**Status: Settled and shipped.** Locale comes from `resolve_document_locale` in `plugin/calc/calc_utils.py` (document `CharLocale` + en-US fallback), shared by `write_formula_range`, `set_style`, and the `=PY()` deferred spill, which also takes its elapsed-time key from `elapsed_format_key` there.
 
 ##### What problem M2 solves
 
@@ -894,8 +896,8 @@ def test_write_and_read_date_time_cells():
     })
     assert res.get("status") == "ok"
 
-    read_res = _execute_calc_tool("read_cell_range", {"range": ["A26:B26"]})
-    row = read_res["result"][0][0]
+    read_res = _execute_calc_tool("read_cell_range", {"range": ["A26:B26"], "format": "cells"})
+    row = read_res["result"][0]["result"][0][0]
 
     assert row[0]["value"] == "2026-08-08"
     assert row[0]["type"] == "date"

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.app import get_tools
 from plugin.calc.errors import DetectErrors
 
 
@@ -22,7 +23,7 @@ def test_detect_errors_invalid_range(invalid_range):
         res = tool.execute(ctx, range=invalid_range)
 
     assert res["status"] == "error"
-    assert res.get("code") == "INVALID_RANGE"
+    assert res.get("code") == "INVALID_PARAM"
     mock_detector.assert_not_called()
 
 
@@ -42,11 +43,12 @@ def test_detect_errors_single_range():
             "errors": [{"address": "Sheet1.A1"}],
         }
 
-        res = tool.execute(ctx, range="A1:A2")
+        res = tool.execute(ctx, range=" A1:A2 ")
 
     assert res["status"] == "ok"
     instance.detect_and_explain.assert_called_once_with(range_str="A1:A2")
-    assert res["result"]["range"] == "A1:A2"
+    assert res["result"] is instance.detect_and_explain.return_value
+    assert "ranges" not in res["result"]
 
 
 def test_detect_errors_multi_range_aggregates():
@@ -82,4 +84,14 @@ def test_detect_errors_multi_range_aggregates():
     assert data["total_error_count"] == 5
     assert data["error_count"] == 2
     assert data["truncated"] is True
+    assert data["hint"].startswith("First 2 of 5.")
     assert data["errors"] == result1["errors"]
+
+
+def test_error_detect_registry_rejects_bad_range_as_invalid_param():
+    ctx = MagicMock()
+    with patch("plugin.calc.errors.ErrorDetector") as mock_detector:
+        res = get_tools().get("error_detect").execute_safe(ctx, range=[123])
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    mock_detector.assert_not_called()

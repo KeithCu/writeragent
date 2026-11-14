@@ -17,7 +17,7 @@ from typing import Any, Callable, NamedTuple
 
 from plugin.scripting.calc_range import (
     CalcRange,
-    _is_pandas_frame_or_series,
+    is_pandas_frame_or_series,
     ensure_rectangular_2d,
 )
 from plugin.scripting.venv.coerce import is_missing_value
@@ -56,7 +56,7 @@ def _to_plain_sequence(val: Any) -> Any:
     """Unwrap a CalcRange, pandas DataFrame/Series, or ndarray to plain Python values."""
     if isinstance(val, CalcRange):
         return val.values
-    if _is_pandas_frame_or_series(val):
+    if is_pandas_frame_or_series(val):
         val = val.to_numpy()
     try:
         import numpy as np

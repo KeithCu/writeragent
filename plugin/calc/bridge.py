@@ -18,8 +18,7 @@
 """In-process UNO bridge for Calc.
 
 Wraps a Calc document and provides convenience methods for accessing
-sheets, cells, and ranges. Ported from core/calc_bridge.py for the
-plugin framework.
+sheets, cells, and ranges.
 """
 
 from typing import Any, NamedTuple
@@ -41,7 +40,7 @@ def is_agent_visible_sheet(name: str) -> bool:
 
     Leading ``_`` covers ``__Anonymous_Sheet_DB__0`` (xlsx→ods database-range
     tab) and similar internals. The sheets stay in the document; agent-facing
-    lists omit them. Delete-at-trial-open is parked (eval-2 §2.7).
+    lists omit them. Delete-at-trial-open is parked (see ``docs/eval/eval-2/first-principles-analysis-v4.md`` §2.7).
     """
     return bool(name) and not str(name).startswith("_")
 
@@ -68,65 +67,10 @@ class NamedRangeHit(NamedTuple):
 
 def _named_range_hit(container: Any, name: str, scope: str, sheet: Any | None) -> NamedRangeHit | None:
     """Return the hit when *container* has a NamedRanges entry called *name*."""
-    nrs = getattr(container, "NamedRanges", None)
-    if nrs is None or not hasattr(nrs, "hasByName") or not nrs.hasByName(name):
+    nrs = container.NamedRanges
+    if not nrs.hasByName(name):
         return None
     return NamedRangeHit(nrs, scope, sheet, nrs.getByName(name))
-
-
-def find_named_range(doc: Any, name: str) -> NamedRangeHit | None:
-    """Resolve a Calc named range in documented priority order.
-
-    Order:
-    1. Sheet-prefixed (e.g. ``Sheet1.Name`` or ``'Sheet1'!Name``): if prefix
-       matches an existing sheet, look only in that sheet's NamedRanges.
-    2. Active sheet local NamedRanges.
-    3. Workbook global NamedRanges.
-    4. Other agent-visible (leading ``_`` skipped) sheets in index order.
-    """
-    clean_name = name.strip()
-    if not clean_name:
-        return None
-
-    prefix, bare_name = split_sheet_prefix(clean_name)
-    if ":" in bare_name:
-        return None
-
-    sheets = uno_read(lambda: doc.getSheets() if hasattr(doc, "getSheets") else None, None)
-
-    # 1. Sheet prefix
-    if prefix and sheets is not None and hasattr(sheets, "hasByName") and sheets.hasByName(prefix):
-        target_sheet = sheets.getByName(prefix)
-        return _named_range_hit(target_sheet, bare_name, prefix, target_sheet)
-
-    # 2. Active sheet
-    active_sheet = uno_read(lambda: CalcBridge(doc).get_active_sheet(), None)
-    active_name = active_sheet.getName() if active_sheet is not None else None
-    if active_sheet is not None:
-        hit = _named_range_hit(active_sheet, clean_name, active_name or "", active_sheet)
-        if hit is not None:
-            return hit
-
-    # 3. Workbook global
-    hit = _named_range_hit(doc, clean_name, "global", None)
-    if hit is not None:
-        return hit
-
-    # 4. Other agent-visible sheets in index order
-    if sheets is not None and hasattr(sheets, "getCount"):
-        for idx in range(sheets.getCount()):
-            sheet = sheets.getByIndex(idx)
-            s_name = sheet.getName() if hasattr(sheet, "getName") else ""
-            # Each pyuno call returns a new proxy, so identity never matches the active sheet.
-            if active_name is not None and s_name == active_name:
-                continue
-            if not is_agent_visible_sheet(s_name):
-                continue
-            hit = _named_range_hit(sheet, clean_name, s_name, sheet)
-            if hit is not None:
-                return hit
-
-    return None
 
 
 class CalcBridge:
@@ -176,6 +120,13 @@ class CalcBridge:
             )
         return sheets.getByName(name)
 
+    def sheet_or_active(self, name: str | None) -> Any:
+        """Return the sheet called *name*, or the active sheet when *name* is empty or None.
+
+        A missing *name* raises ``get_sheet``'s ``UnoObjectError``.
+        """
+        return self.get_sheet(name) if name else self.get_active_sheet()
+
     def resolve(self, ref: str, sheet_name: str | None = None) -> tuple[Any, str]:
         """Resolve a possibly sheet-qualified reference.
 
@@ -184,8 +135,83 @@ class CalcBridge:
         error rather than a silent choice.
         """
         address, name = split_sheet_and_name(ref, sheet_name)
-        sheet = self.get_sheet(name) if name else self.get_active_sheet()
+        sheet = self.sheet_or_active(name)
         return sheet, address
+
+    def find_named_range(self, name: str) -> NamedRangeHit | None:
+        """Resolve a Calc named range in documented priority order.
+
+        Order:
+        1. Sheet-prefixed (e.g. ``Sheet1.Name`` or ``'Sheet1'!Name``): if prefix
+           matches an existing sheet, look only in that sheet's NamedRanges.
+        2. Active sheet local NamedRanges.
+        3. Workbook global NamedRanges.
+        4. Other agent-visible (leading ``_`` skipped) sheets in index order.
+
+        Database ranges are not looked up here; ``duckdb_tools.resolve_table_source_a1``
+        is the only place they resolve.
+        """
+        clean_name = name.strip()
+        if not clean_name:
+            return None
+
+        prefix, bare_name = split_sheet_prefix(clean_name)
+        if ":" in bare_name:
+            return None
+
+        sheets = self.doc.getSheets()
+
+        # 1. Sheet prefix
+        if prefix and sheets.hasByName(prefix):
+            target_sheet = sheets.getByName(prefix)
+            return _named_range_hit(target_sheet, bare_name, prefix, target_sheet)
+
+        # 2. Active sheet
+        active_sheet = self.get_active_sheet()
+        active_name = active_sheet.getName()
+        hit = _named_range_hit(active_sheet, clean_name, active_name, active_sheet)
+        if hit is not None:
+            return hit
+
+        # 3. Workbook global
+        hit = _named_range_hit(self.doc, clean_name, "global", None)
+        if hit is not None:
+            return hit
+
+        # 4. Other agent-visible sheets in index order
+        for idx in range(sheets.getCount()):
+            sheet = sheets.getByIndex(idx)
+            s_name = sheet.getName()
+            # Each pyuno call returns a new proxy, so identity never matches the active sheet.
+            if s_name == active_name:
+                continue
+            if not is_agent_visible_sheet(s_name):
+                continue
+            hit = _named_range_hit(sheet, clean_name, s_name, sheet)
+            if hit is not None:
+                return hit
+
+        return None
+
+    def resolve_cell(self, ref: str, sheet_name: str | None = None) -> tuple[Any, int, int]:
+        """Resolve one cell from an A1 address, a sheet-qualified address, or a named range that refers to one cell.
+
+        *sheet_name* applies to bare A1 addresses only; a sheet prefix or named range ignores it.
+        """
+        hit = self.find_named_range(ref)
+        if hit is not None:
+            cells = hit.named_range.getReferredCells()
+            if cells is not None:
+                addr = cells.getRangeAddress()
+                if addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow:
+                    raise UnoObjectError(
+                        f"Named range '{ref}' covers {format_range_address(addr)}; this tool needs one cell."
+                    )
+                return cells.getSpreadsheet(), addr.StartColumn, addr.StartRow
+
+        sheet, address = self.resolve(ref, sheet_name)
+        col, row = parse_address(address)
+        return sheet, col, row
 
     def get_cell_by_address(self, address: str) -> Any:
         """Return the cell object for *address* (optionally sheet-qualified)."""
@@ -206,7 +232,7 @@ class CalcBridge:
         start, end = parse_range_string(range_str)
         return sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
 
-    def resolve_range_or_address(self, range_or_address: str) -> Any:
+    def resolve_range_or_address(self, range_or_address: str, sheet_name: str | None = None) -> Any:
         """Resolves a string identifier to a cell or cell range object.
 
         Supports:
@@ -217,15 +243,19 @@ class CalcBridge:
 
         An unqualified name defined both on the active sheet and in the
         workbook resolves to the sheet-local range, matching Calc.
+        *sheet_name* is the default sheet for an unprefixed A1 reference (e.g. a
+        chart's placement sheet, which is not where its data must live); a sheet
+        prefix on the reference wins without error, and a named range ignores it.
         """
         range_or_address = range_or_address.strip()
-        hit = find_named_range(self.doc, range_or_address)
-        if hit is not None and hasattr(hit.named_range, "getReferredCells"):
+        hit = self.find_named_range(range_or_address)
+        if hit is not None:
             cells = hit.named_range.getReferredCells()
             if cells is not None:
                 return cells
 
-        sheet, address = self.resolve(range_or_address)
+        prefix, _unused_bare = split_sheet_prefix(range_or_address)
+        sheet, address = self.resolve(range_or_address, None if prefix else sheet_name)
 
         if ":" in address:
             return self.get_cell_range(sheet, address)
@@ -234,6 +264,11 @@ class CalcBridge:
             col, row = parse_address(address)
             return sheet.getCellByPosition(col, row)
         except ValueError:
+            # Reached only by a colon-free token that is not an A1 address and that
+            # find_named_range did not match; Calc's own parser
+            # (ScCellRangeObj::getScCellRangeByName, cellsuno.cxx) then accepts a
+            # database range name and raises RuntimeException for anything else,
+            # including a named expression.
             return sheet.getCellRangeByName(address)
 
 

@@ -92,6 +92,10 @@ def test_forecast_moving_average_fallback():
         result = forecast_time_series(data, periods=4, model="auto")
     assert result["status"] == "ok"
     assert result["metrics"]["model"] == "moving_average"
+    assert result["flags"] == [
+        "statsmodels missing; used moving_average fallback",
+        "moving_average has no prediction interval",
+    ]
 
 
 def test_run_forecast_unknown_helper():
@@ -524,10 +528,11 @@ def test_prepare_does_not_mutate_caller_metadata():
 def test_known_nonseasonal_frequency_is_named():
     _require_statsmodels_installed()
 
+    # 8 rows is _MIN_FORECAST_POINTS (the forecast floor); length does not affect the frequency label.
     # Yearly
     yearly_frame = pd.DataFrame({
-        "Date": pd.date_range("2000-01-01", periods=12, freq="YS"),
-        "Value": [float(i) for i in range(12)],
+        "Date": pd.date_range("2000-01-01", periods=8, freq="YS"),
+        "Value": [float(i) for i in range(8)],
     })
     res_yearly = forecast_time_series(yearly_frame, periods=2, model="auto")
     assert res_yearly["status"] == "ok"
@@ -537,8 +542,8 @@ def test_known_nonseasonal_frequency_is_named():
 
     # Minutes
     min_frame = pd.DataFrame({
-        "Date": pd.date_range("2024-01-01", periods=30, freq="min"),
-        "Value": [float(i) for i in range(30)],
+        "Date": pd.date_range("2024-01-01", periods=8, freq="min"),
+        "Value": [float(i) for i in range(8)],
     })
     res_min = forecast_time_series(min_frame, periods=2, model="auto")
     assert res_min["status"] == "ok"
@@ -754,16 +759,115 @@ def test_default_params_match_venv_signatures():
     from plugin.scripting.helper_registry import specs
 
     for spec in specs("forecast"):
-        if spec.default_params is None:
-            continue
         fn = getattr(venv_forecast, spec.name)
         sig = inspect.signature(fn)
-        for param_name, expected_default in spec.default_params.items():
+        for param_name, expected_default in spec.defaults:
             assert param_name in sig.parameters, f"{param_name} not in {spec.name} signature"
             assert sig.parameters[param_name].default == expected_default, (
                 f"{spec.name}.{param_name} default {sig.parameters[param_name].default!r} != {expected_default!r}"
             )
 
 
+_PIN_TS = [["Date", "Value"]] + [[f"2024-{m:02d}-01", float(m)] for m in range(1, 13)]
+
+
+@pytest.mark.parametrize(
+    ("call", "expected_code", "expected_message", "expected_helper"),
+    [
+        (
+            lambda: forecast_time_series(_PIN_TS, periods="x"),
+            "INVALID_PARAM",
+            "periods must be an integer, got 'x'",
+            "forecast_time_series",
+        ),
+        (
+            lambda: forecast_time_series(_PIN_TS, value_col="Nope"),
+            "UNKNOWN_COLUMN",
+            "Column 'Nope' not found",
+            "forecast_time_series",
+        ),
+        (
+            lambda: anomaly_detection_time_series(_PIN_TS, include_all="maybe"),
+            "INVALID_PARAM",
+            "include_all must be a boolean, got 'maybe'",
+            "anomaly_detection_time_series",
+        ),
+    ],
+)
+def test_forecast_helper_errors_keep_code_message_helper(
+    call,
+    expected_code: str,
+    expected_message: str,
+    expected_helper: str,
+):
+    assert call() == {
+        "status": "error",
+        "code": expected_code,
+        "message": expected_message,
+        "helper": expected_helper,
+    }
+
+
+def test_decompose_helper_error_keeps_code_message_helper():
+    _require_statsmodels_installed()
+    assert decompose_time_series(_PIN_TS, period=1) == {
+        "status": "error",
+        "code": "INVALID_PARAM",
+        "message": "period must be an integer greater than 1",
+        "helper": "decompose_time_series",
+    }
+
+
+def _boom(message: str):
+    def _raise(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(message)
+
+    return _raise
+
+
+def test_auto_holt_winters_failure_falls_back_to_arima(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_holt_winters", _boom("hw-boom"))
+    result = forecast_time_series(_seasonal_series(), periods=3, model="auto")
+    assert result["status"] == "ok", result
+    assert result["metrics"]["model"] == "arima"
+    assert result["flags"] == ["primary model failed (hw-boom); used arima"]
+
+
+def test_auto_moving_average_fallback_names_the_first_failure(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_holt_winters", _boom("hw-boom"))
+    monkeypatch.setattr(venv_forecast, "_forecast_arima", _boom("arima-boom"))
+    result = forecast_time_series(_seasonal_series(), periods=3, model="auto")
+    assert result["status"] == "ok", result
+    assert result["metrics"]["model"] == "moving_average"
+    assert result["flags"] == [
+        "statsmodels forecast failed (hw-boom); used moving_average",
+        "moving_average has no prediction interval",
+    ]
+
+
+def test_trend_only_arima_failure_falls_back_to_moving_average(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_arima", _boom("arima-boom"))
+    result = forecast_time_series(_seasonal_series(10), periods=3, model="auto")
+    assert result["status"] == "ok", result
+    assert result["metrics"]["model"] == "moving_average"
+    assert result["flags"][0].startswith("not enough cycles")
+    assert result["flags"][-2:] == [
+        "statsmodels forecast failed (arima-boom); used moving_average",
+        "moving_average has no prediction interval",
+    ]
+
+
+def test_auto_every_model_failing_is_forecast_failed(monkeypatch):
+    _require_statsmodels_installed()
+    monkeypatch.setattr(venv_forecast, "_forecast_holt_winters", _boom("hw-boom"))
+    monkeypatch.setattr(venv_forecast, "_forecast_arima", _boom("arima-boom"))
+    monkeypatch.setattr(venv_forecast, "_forecast_moving_average", _boom("ma-boom"))
+    result = forecast_time_series(_seasonal_series(), periods=3, model="auto")
+    assert result["status"] == "error"
+    assert result["code"] == "FORECAST_FAILED"
+    assert result["message"] == "ma-boom"
 
 

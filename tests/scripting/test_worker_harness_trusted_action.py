@@ -197,7 +197,12 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     monkeypatch.setattr(worker_harness, "_handle_request", boom)
     monkeypatch.setattr(worker_harness.sys, "stdin", type("Stdin", (), {"buffer": stdin})())
 
-    worker_harness.main()
+    try:
+        worker_harness.main()
+    finally:
+        from plugin.scripting.host_tool_call import set_process_role
+
+        set_process_role(None)
 
     stdout.seek(0)
     ready = read_pickle_frame(stdout, require_dict=True)
@@ -404,19 +409,27 @@ def test_heartbeat_result_id_beats_resp_id() -> None:
 
 
 def test_action_execute_forwards_sandbox_policy() -> None:
+    from plugin.scripting.venv.sandbox_request import SandboxRequest
     from plugin.scripting.venv.worker_harness import _action_execute
+    from plugin.scripting.venv_worker import ExecRequest
 
     policy = {"network": True, "files": True, "os": False, "extra_modules": "requests"}
-    req = {
+    fields = {
         "code": "result = 42",
+        "session_id": "calc:x",
+        "init_script": "x = 1",
+        "init_session_id": "calc:x:init",
+        "init_script_hash": "h",
         "sandbox_policy": policy,
+        "bindings": {"a": 1},
         "timeout_sec": 15,
     }
+    req = ExecRequest(**fields).wire()
     with patch("plugin.scripting.venv.venv_sandbox.run_sandboxed_code", return_value={"status": "ok", "result": 42}) as mock_run:
         res = _action_execute(req)
         assert res == {"status": "ok", "result": 42}
         mock_run.assert_called_once()
-        assert mock_run.call_args.kwargs.get("sandbox_policy") == policy
+        assert mock_run.call_args.args[0] == SandboxRequest(**fields)
 
 
 def test_trusted_action_ignores_sandbox_policy() -> None:

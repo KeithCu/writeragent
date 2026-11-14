@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import inspect
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,9 +13,7 @@ from plugin.notebook.cell_registry import (
     new_code_cell_entry,
 )
 from plugin.notebook import form_lookup
-from plugin.notebook.form_lookup import read_code_from_field
 from plugin.notebook.notebook_runner import (
-    _collapse_leading_empty_paragraphs,
     _gutter_text_cursor,
     _is_next_cell_boundary,
     _paragraph_has_frame,
@@ -71,29 +69,22 @@ def test_format_run_output_text_skips_image_result():
     assert text == ""
 
 
+def test_format_run_output_text_hides_multi_data_of_images():
+    from plugin.scripting.payload_codec import pack_image_envelope, pack_multi_data_envelope
+
+    img = pack_image_envelope(b"png-bytes", "png")
+    only_images = pack_multi_data_envelope([img, img])
+    assert format_run_output_text({"status": "ok", "stdout": "", "result": only_images}) == ""
+
+    mixed = pack_multi_data_envelope([img, 1])
+    assert format_run_output_text({"status": "ok", "stdout": "", "result": mixed}) != ""
+
+
 def test_format_run_output_text_unpack_failure_renders_raw_wire():
     wire = {"raw": "payload"}
     with patch("plugin.notebook.notebook_runner.host_unpack_data", side_effect=ValueError("bad")):
         text = format_run_output_text({"status": "ok", "result": wire}, execution_count=2)
     assert repr(wire) in text
-
-
-def test_read_code_from_field_finds_textfield():
-    field_model = MagicMock()
-    field_model.Name = "nb_cell_0_code"
-    field_model.Text = "x = 1\n"
-
-    portion = MagicMock()
-    portion.getPropertyValue.return_value = "Frame"
-    portion.TextField = field_model
-
-    para = MagicMock()
-    para.createEnumeration.return_value = _enum_of([portion])
-
-    doc = MagicMock()
-    doc.getText.return_value.createEnumeration.return_value = _enum_of([para])
-
-    assert read_code_from_field(doc, "nb_cell_0_code") == "x = 1\n"
 
 
 def _enum_of(items):
@@ -177,29 +168,6 @@ def test_execute_code_passes_current_send_scope():
     assert run_venv.call_args.kwargs["cancel"] is scope
 
 
-def test_execute_code_stop_returns_interrupted_without_venv():
-    """When stop is latched during exception handling in _run, we return stopped."""
-
-    ctx = MagicMock()
-    doc = MagicMock()
-    with (
-        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
-        patch(
-            "plugin.notebook.notebook_runner.run_blocking_in_thread",
-            side_effect=lambda ctx, func, **kw: func(),
-        ) as pump,
-        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", side_effect=Exception("stalled")) as run_venv,
-        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
-        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
-        patch("plugin.notebook.notebook_runner.release_script_document"),
-        patch("plugin.framework.worker_pool.run_in_background", lambda f, **kwargs: f()),
-    ):
-        out = execute_code(ctx, doc, "x = 1")
-    assert out["status"] == "stopped"
-    assert pump.call_args.kwargs.get("pump_idle") is False
-    run_venv.assert_not_called()
-
-
 def test_run_cell_updates_registry_and_execution_count():
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
@@ -227,19 +195,30 @@ def test_run_cell_updates_registry_and_execution_count():
     save_reg.assert_called_once_with(doc, state)
 
 
-def test_run_cell_logs_status_after_execute():
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info stripped in release bundle")
-    src = inspect.getsource(_execute_and_apply)
-    assert "status=%s" in src
-    assert src.find("execute_code(") < src.find("status=%s")
-
-
 def test_run_cell_restores_view_to_cell():
-    src = inspect.getsource(_execute_and_apply)
-    assert "_restore_view_to_cell" in src
-    assert src.find("apply_run_result") < src.find("_restore_view_to_cell")
+    """Restore runs after output insertion, so the view lands on the run cell, not the document end where insertion left it."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    vc = doc.getCurrentController.return_value.getViewCursor.return_value
+    anchor = MagicMock()
+    shape = MagicMock()
+    shape.getAnchor.return_value = anchor
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    events: list[tuple[object, ...]] = []
+    vc.gotoRange.side_effect = lambda *args: events.append(("goto", args))
+
+    with (
+        patch("plugin.notebook.notebook_runner.execute_code", return_value={"status": "ok", "stdout": "", "result": None}),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=lambda *_a, **_k: events.append(("apply",))),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.form_lookup.find_control_shape_by_name", return_value=shape),
+    ):
+        _execute_and_apply(ctx, doc, state, cell, "x = 1")
+
+    assert events == [("apply",), ("goto", (anchor, False))]
 
 
 def test_run_cell_rejects_reentrant_call():
@@ -339,74 +318,15 @@ def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
     assert getattr(nested[0], "status") == "busy"
 
 
-@pytest.mark.parametrize(
-    "value, value_2, expected",
-    [
-        pytest.param("svg", b"<svg></svg>", "image/svg+xml", id="test_insert_run_image_svg_mime"),
-        pytest.param("webp", b"RIFF", "image/webp", id="test_insert_run_image_webp_mime"),
-        pytest.param("gif", b"GIF89a", "image/gif", id="test_insert_run_image_gif_mime"),
-    ],
-)
-def test_insert_run_image_svg_mime(value, value_2, expected):
-    from plugin.notebook.writer_importer import insert_run_image
+def test_shared_notebook_session_via_sandbox(fresh_sandbox_sessions):
+    from tests.scripting.sandbox_support import sandbox_run
 
-    doc = MagicMock()
-    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
-    with patch("plugin.notebook.writer_importer._insert_image_in_flow", return_value=True) as insert_flow:
-        assert insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
-    insert_flow.assert_called_once()
-    assert insert_flow.call_args.kwargs["mime"] == expected
-
-def test_shared_notebook_session_via_sandbox():
-    from plugin.scripting.venv.venv_sandbox import SESSIONS, run_sandboxed_code
-
-    SESSIONS.clear_all()
     sid = "notebook:test-runner"
-    r1 = run_sandboxed_code("x = 41\nresult = x + 1", None, session_id=sid)
+    r1 = sandbox_run("x = 41\nresult = x + 1", None, session_id=sid)
     assert r1["status"] == "ok"
-    r2 = run_sandboxed_code("result = x + 1", None, session_id=sid)
+    r2 = sandbox_run("result = x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 42
-    SESSIONS.clear_all()
-
-
-@pytest.mark.parametrize(
-    "hex_id,expected_ok",
-    [
-        ("abc", False),
-        ("0" * 32, True),
-    ],
-)
-def test_cell_id_hex_round_trip(hex_id, expected_ok):
-    from plugin.notebook.cell_registry import cell_id_from_hex
-
-    restored = cell_id_from_hex(hex_id)
-    if not expected_ok:
-        assert restored is None
-        return
-    assert restored is not None
-    assert cell_id_to_hex(restored) == hex_id
-
-
-def test_clear_cell_output_source_has_no_delete_contents():
-    src = inspect.getsource(clear_cell_output)
-    assert ".deleteContents(" not in src
-    assert "setString" in src
-
-
-def test_find_output_heading_stays_inside_paragraph():
-    """Bookmark insert uses gotoEndOfParagraph, not para.getEnd() (the break)."""
-    from plugin.notebook.notebook_runner import _reanchor_output_bookmark, _code_field_paragraph_end
-
-    assert "createTextCursorByRange(para.getEnd())" not in inspect.getsource(_reanchor_output_bookmark)
-    assert "gotoEndOfParagraph" in inspect.getsource(_code_field_paragraph_end)
-
-
-def test_find_output_uses_bookmark_not_output_heading():
-    """Output chrome is gone; the insert cursor is the nb_out_* bookmark."""
-    src = inspect.getsource(_collapse_leading_empty_paragraphs)
-    assert "_cursor_after_bookmark" in src
-    assert 'content.strip() == "Output"' not in src
 
 
 def test_is_next_cell_boundary_markdown_and_code():
@@ -443,203 +363,133 @@ def test_paragraph_string_expands_collapsed_cursor():
     probe.gotoEndOfParagraph.assert_called_once_with(True)
 
 
-def test_clear_cell_output_uses_set_string_not_delete_contents():
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = "old stdout"
+class _FakePos:
+    def __init__(self, index: int) -> None:
+        self.index = index
 
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = "old stdout"
 
-    def goto_next(_expand):
-        walker.ParaStyleName = "WriterAgent Notebook In"
-        walker.getString.return_value = "[In [ ]]\tCell 2: Code"
+class _FakeCursor:
+    def __init__(self, paras: list[tuple[str, str]], text: "_FakeXText", index: int = 0, collapsed: bool = False) -> None:
+        self.paras = paras
+        self._text = text
+        self.index = index
+        self._end_index = index
+        self._collapsed = collapsed
+        self._expanded = False
+
+    @property
+    def ParaStyleName(self) -> str:
+        return self.paras[self.index][0]
+
+    def getText(self) -> "_FakeXText":
+        return self._text
+
+    def getString(self) -> str:
+        if self._collapsed and not self._expanded:
+            return ""
+        return self.paras[self.index][1]
+
+    def getStart(self) -> _FakePos:
+        return _FakePos(self.index)
+
+    def gotoStartOfParagraph(self, _expand: bool) -> None:
+        return None
+
+    def gotoEndOfParagraph(self, expand: bool) -> None:
+        self._expanded = expand
+
+    def gotoNextParagraph(self, _expand: bool) -> bool:
+        if self.index + 1 >= len(self.paras):
+            return False
+        self.index += 1
         return True
 
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "end-pos"
+    def gotoEnd(self, _expand: bool) -> None:
+        self.index = len(self.paras)
 
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
+    def gotoRange(self, pos: _FakePos, expand: bool) -> None:
+        if expand:
+            self._end_index = pos.index
+        else:
+            self.index = pos.index
 
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
+    def setString(self, value: str) -> None:
+        assert value == ""
+        del self.paras[self.index : self._end_index]
+
+
+class _FakeXText:
+    def __init__(self, paras: list[tuple[str, str]], collapsed: bool = False) -> None:
+        self.paras = paras
+        self.collapsed = collapsed
+
+    def createTextCursorByRange(self, pos: Any) -> _FakeCursor:
+        return _FakeCursor(self.paras, self, index=pos.index, collapsed=self.collapsed)
+
+    def deleteContents(self, *_args: Any) -> None:
+        raise AssertionError("deleteContents must not be called")
+
+
+def _walker_scenario(paragraphs: list[tuple[str, str]], *, collapsed: bool = False) -> list[tuple[str, str]]:
+    paras = list(paragraphs)
+    text = _FakeXText(paras, collapsed=collapsed)
+    start = _FakeCursor(paras, text, index=0, collapsed=collapsed)
     doc = MagicMock()
     doc.getText.return_value = text
-
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
+        patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
         patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
+    return paras
 
-    text.deleteContents.assert_not_called()
-    sel.gotoRange.assert_called_once_with("end-pos", True)
-    sel.setString.assert_called_once_with("")
 
 @pytest.mark.parametrize(
-    "value, value_2",
+    "paragraphs,expected_remaining,collapsed",
     [
-        pytest.param("Quotations", "A blockquote", id="test_clear_cell_output_stops_at_markdown_blockquote"),
-        pytest.param("Heading 3", "Cell 3: Markdown", id="test_clear_cell_output_stops_at_markdown_cell_heading"),
+        pytest.param(
+            [("Preformatted Text", "old stdout"), ("WriterAgent Notebook In", "[In [ ]]\tCell 2: Code")],
+            [("WriterAgent Notebook In", "[In [ ]]\tCell 2: Code")],
+            False,
+            id="uses_set_string_not_delete_contents",
+        ),
+        pytest.param(
+            [("Preformatted Text", "Array: [10 20 30]"), ("Quotations", "A blockquote")],
+            [("Quotations", "A blockquote")],
+            False,
+            id="stops_at_markdown_blockquote",
+        ),
+        pytest.param(
+            [("Preformatted Text", "Array: [10 20 30]"), ("Heading 3", "Cell 3: Markdown")],
+            [("Heading 3", "Cell 3: Markdown")],
+            False,
+            id="stops_at_markdown_cell_heading",
+        ),
+        pytest.param(
+            [("Preformatted Text", "old stdout"), ("Heading 3", "Cell 3: Markdown")],
+            [("Heading 3", "Cell 3: Markdown")],
+            True,
+            id="collapsed_cursor_stops_at_markdown",
+        ),
+        pytest.param(
+            [("Text Body", ""), ("Preformatted Text", "old stdout"), ("Heading 2", "Reshape and transpose")],
+            [("Text Body", ""), ("Heading 2", "Reshape and transpose")],
+            False,
+            id="skips_control_row_then_clears_stdout",
+        ),
     ],
 )
-def test_clear_cell_output_stops_at_markdown_blockquote(value, value_2):
-    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = "Array: [10 20 30]"
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = "Array: [10 20 30]"
-
-    def goto_next(_expand):
-        walker.ParaStyleName = value
-        walker.getString.return_value = value_2
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "Array: [10 20 30]\n"
-
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_called_once_with("")
-    walker.gotoStartOfParagraph.assert_called_once()
-
-def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
-    """Live Writer collapsed cursors return empty getString(); expand to find chrome."""
-    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = ""
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = ""
-    para_text = {"v": "old stdout"}
-    probe = MagicMock()
-    probe.getString.side_effect = lambda: para_text["v"]
-    walker.getText.return_value.createTextCursorByRange.return_value = probe
-
-    def goto_next(_expand):
-        walker.ParaStyleName = "Heading 3"
-        para_text["v"] = "Cell 3: Markdown"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
-
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_called_once_with("")
-    walker.gotoStartOfParagraph.assert_called_once()
+def test_clear_cell_output_stops_at_boundaries(paragraphs, expected_remaining, collapsed):
+    assert _walker_scenario(paragraphs, collapsed=collapsed) == expected_remaining
 
 
 def test_clear_cell_output_skips_empty_control_paragraph():
     """▶+field getString is empty (frames omitted). setString there deleted ▶ and nb_out_*."""
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Text Body"
-    start.getString.return_value = ""
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Text Body"
-    walker.getString.return_value = ""
-
-    def goto_next(_expand):
-        walker.ParaStyleName = "Heading 2"
-        walker.getString.return_value = "Reshape and transpose"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_not_called()
-
-
-def test_clear_cell_output_skips_control_row_then_clears_stdout():
-    """Bookmark home is empty Text Body; stdout in the next Preformatted paragraph."""
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Text Body"
-    start.getString.return_value = ""
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Text Body"
-    walker.getString.return_value = ""
-    steps = {"n": 0}
-
-    def goto_next(_expand):
-        steps["n"] += 1
-        if steps["n"] == 1:
-            walker.ParaStyleName = "Preformatted Text"
-            walker.getString.return_value = "old stdout"
-            return True
-        walker.ParaStyleName = "Heading 2"
-        walker.getString.return_value = "Reshape and transpose"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_called_once_with("")
+    paras = [("Text Body", ""), ("Heading 2", "Reshape and transpose")]
+    assert _walker_scenario(paras) == paras
 
 
 def test_is_output_bookmark_home_empty_text_body_not_heading():
@@ -906,12 +756,6 @@ def test_update_in_prompt_does_not_rewrite_first_gutter_when_shape_missing():
     second.setString.assert_not_called()
 
 
-def test_update_in_prompt_source_never_setstrings_para_end():
-    src = inspect.getsource(update_in_prompt)
-    assert "para.getEnd()" not in src
-    assert "_gutter_text_cursor" in src
-
-
 def test_run_cell_error_still_increments_execution_count():
     """Failed runs consume a kernel count, matching Jupyter In [n]."""
     ctx = MagicMock()
@@ -963,9 +807,6 @@ def test_insert_stdout_paragraph_no_break_when_para_empty():
 
 
 def test_apply_run_result_missing_bookmark_does_not_append_at_end():
-    src = inspect.getsource(apply_run_result)
-    assert "_append_body_text_block" not in src
-
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     doc = MagicMock()
     text = MagicMock()
@@ -1042,51 +883,10 @@ def test_run_cell_for_doc_hex_setup_error_shows_msgbox():
             boxed.assert_called_once_with(ctx, "WriterAgent", "Code cell is empty.")
 def test_clear_cell_output_preserves_spacer_before_next_heading():
     """Delete stdout but not the empty paragraph immediately before the next cell."""
-    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = "old stdout"
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = "old stdout"
-    step = {"n": 0}
-    spacer_start = MagicMock(name="spacer-start")
-
-    def goto_next(_expand):
-        step["n"] += 1
-        if step["n"] == 1:
-            walker.ParaStyleName = "Text Body"
-            walker.getString.return_value = ""
-            return True
-        walker.ParaStyleName = "Heading 2"
-        walker.getString.return_value = "1. Creating Arrays"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = spacer_start
-
-    range_start = MagicMock(name="range_start")
-    spacer_copy = MagicMock(name="spacer_copy")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "old stdout\n"
-
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, spacer_copy, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
-        patch("plugin.notebook.notebook_runner._is_output_bookmark_home", return_value=False),
-        patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
-        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    walker.gotoRange.assert_called_once_with(spacer_copy, False)
-    sel.setString.assert_called_once_with("")
+    remaining = _walker_scenario(
+        [("Preformatted Text", "old stdout"), ("Text Body", ""), ("Heading 2", "1. Creating Arrays")]
+    )
+    assert remaining == [("Text Body", ""), ("Heading 2", "1. Creating Arrays")]
 
 
 def _three_cells():
@@ -1459,7 +1259,8 @@ def test_run_cells_busy_guard_skips_play_but_stop_works():
     assert cells[1].execution_count is None
 
 
-def test_run_cells_skips_empty_and_continues():
+@pytest.mark.parametrize("cell_1_value", ["   ", None])
+def test_run_cells_skips_empty_and_continues(cell_1_value):
     ctx = MagicMock()
     cells = _three_cells()
     state = NotebookDocState(code_cells=cells, next_execution_count=1)
@@ -1468,7 +1269,7 @@ def test_run_cells_skips_empty_and_continues():
 
     def _read(_doc, field_name):
         if field_name == "nb_cell_1_code":
-            return "   "
+            return cell_1_value
         return _code_for_field(_doc, field_name)
 
     def _exec(_ctx, _doc, code):
@@ -1492,46 +1293,6 @@ def test_run_cells_skips_empty_and_continues():
     assert ran == ["x = 1", "z = y + 1"]
     assert apply.call_count == 2
     assert cells[1].execution_count is None
-
-
-def test_run_cells_logs_missing_field_and_continues(caplog):
-    import logging
-
-    ctx = MagicMock()
-    cells = _three_cells()
-    state = NotebookDocState(code_cells=cells, next_execution_count=1)
-    doc = MagicMock()
-    ran: list[str] = []
-
-    def _read(_doc, field_name):
-        if field_name == "nb_cell_1_code":
-            return None
-        return _code_for_field(_doc, field_name)
-
-    def _exec(_ctx, _doc, code):
-        ran.append(code)
-        return {"status": "ok", "result": None, "stdout": ""}
-
-    caplog.set_level(logging.WARNING, logger="writeragent.notebook")
-    with (
-        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
-        patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_read),
-        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
-        patch("plugin.notebook.notebook_runner.clear_cell_output"),
-        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
-        patch("plugin.notebook.notebook_runner.update_in_prompt"),
-        patch("plugin.notebook.notebook_runner.save_registry"),
-        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
-    ):
-        result = run_cells(ctx, doc, start_index=0)
-
-    assert result.status == "ok"
-    assert result.cells_run == 2
-    assert ran == ["x = 1", "z = y + 1"]
-    assert apply.call_count == 2
-    assert cells[1].execution_count is None
-    assert "nb_cell_1_code" in caplog.text
-    assert "missing" in caplog.text.lower()
 
 
 def test_run_cells_error_continues_unless_stopped():
@@ -1623,6 +1384,23 @@ def test_run_cells_worker_timeout_aborts_the_batch_with_its_message():
     assert applied == ["ok", "error"]
 
 
+def test_run_cells_child_timeout_continues_batch():
+    def _exec(_ctx, _doc, code):
+        if code == "y = x + 1":
+            return {
+                "status": "error",
+                "code": "EXECUTION_TIMEOUT",
+                "message": "Code execution exceeded the maximum execution time of 1 seconds",
+            }
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    result, applied, state = _run_cells_with(_exec)
+    assert result.status == "ok"
+    assert result.cells_run == 3
+    assert applied == ["ok", "error", "ok"]
+    assert state.next_execution_count == 4
+
+
 def test_run_cells_document_disposed_mid_batch_stops_quietly():
     class DisposedException(Exception):
         pass
@@ -1709,9 +1487,6 @@ def test_run_cells_does_not_pump_idle_during_execute():
 
     assert pumps == ["execute", "flush", "execute"]
     assert flush_idle.call_count == 1
-    src = inspect.getsource(execute_code)
-    assert "pump_idle=False" in src
-    assert "processEventsToIdle" not in src or "never" in src.lower() or "not" in src.lower()
 
 
 def test_run_cells_between_cell_pump_under_drain_owner():

@@ -21,7 +21,7 @@ def _assert_lexer_safe_formula(formula: str | None) -> None:
 
 
 def test_corpus_sum_left_as_calc():
-    res = translate_formula("=SUM(C5:C6)")
+    res = translate_formula("=SUM(C5:C6)", "A1")
     assert not res.ok
     assert res.reason == "UNSUPPORTED_FUNCTION"
 
@@ -34,14 +34,14 @@ def test_corpus_sum_left_as_calc():
     ],
 )
 def test_corpus_text_month_emission(value, value_2):
-    res = translate_formula(value)
+    res = translate_formula(value, "A1")
     assert res.ok
     formula = emit_py_formula(res.code, res.data_ranges or [])
     _assert_lexer_safe_formula(formula)
     assert value_2 in formula
 
 def test_corpus_ratio_arithmetic_emission():
-    res = translate_formula("=C4/C5")
+    res = translate_formula("=C4/C5", "A1")
     assert res.ok
     formula = emit_py_formula(res.code, res.data_ranges or [])
     _assert_lexer_safe_formula(formula)
@@ -66,11 +66,12 @@ def test_vectorize_skipped_for_cross_sheet_sumifs():
     }
     model = SheetModel(sheet_name="Dashboard Finished", used_range="C8:C9", cells=cells)
     output, report = build_converted_output_model(model, vectorize=True)
+    non_vec, _non_vec_report = build_converted_output_model(model, vectorize=False)
     assert len(report.converted) == 2
     for addr in ("C8", "C9"):
         formula = output.cells[addr].formula
         _assert_lexer_safe_formula(formula)
-        assert ";0)" not in formula or formula.count(";") < 6
+        assert formula == non_vec.cells[addr].formula
 
 
 def test_clip_whole_column_data_ranges():
@@ -109,7 +110,7 @@ def test_income_statement_style_grid():
             ["", ""],
         ],
     )
-    output, report = build_converted_output_model(model)
+    output, report = build_converted_output_model(model, vectorize=False)
     assert len(report.converted) == 2
     for addr in report.converted:
         _assert_lexer_safe_formula(output.cells[addr].formula)

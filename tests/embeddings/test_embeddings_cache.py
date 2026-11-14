@@ -130,6 +130,29 @@ def test_clear_folder_cache_removes_wal_sidecars(tmp_path):
     assert not shm.exists()
 
 
+def test_clear_folder_cache_removes_vector_stores_and_evicts_only_this_zvec_handle(tmp_path, monkeypatch):
+    from plugin.embeddings.venv import embeddings_zvec
+
+    listing = str(tmp_path / "project")
+    Path(listing).mkdir()
+    zdir = embeddings_cache.zvec_collection_path(listing)
+    ldir = embeddings_cache.lancedb_collection_path(listing)
+    zdir.mkdir()
+    (zdir / "segment").write_text("z", encoding="utf-8")
+    (ldir / "data").write_text("l", encoding="utf-8")
+
+    other_key = str(tmp_path / "other" / "zvec")
+    monkeypatch.setitem(embeddings_zvec._COLL_CACHE, str(zdir), object())
+    monkeypatch.setitem(embeddings_zvec._COLL_CACHE, other_key, object())
+
+    embeddings_cache.clear_folder_cache(listing)
+
+    assert not zdir.exists()
+    assert not ldir.exists()
+    assert str(zdir) not in embeddings_zvec._COLL_CACHE
+    assert other_key in embeddings_zvec._COLL_CACHE
+
+
 def test_index_is_empty_missing_and_populated(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     db_path = tmp_path / "corpus.db"
@@ -285,7 +308,7 @@ def test_resolve_index_context_no_listing_root():
     assert key is None
     assert db_path is None
     assert meta is None
-    assert "Save the document" in err
+    assert isinstance(err, str) and err
 
 
 def test_resolve_index_context_ok(tmp_path):

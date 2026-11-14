@@ -22,31 +22,12 @@ def _domain_ids(catalog):
 # tool metadata + domain catalog
 # --------------------------------------------------------------------------- #
 
-def test_find_tools_properties():
-    tool = FindTools()
-    assert tool.name == "find_tools"
-    assert tool.tier == "mcp"
-    assert tool.is_mutation is False
-    assert tool.requires_document is False
 
-
-def test_get_domain_guidance():
-    assert "data range" in get_domain_guidance("charts", agent_label="Calc").lower()
-    assert "headers" in get_domain_guidance("charts", agent_label="Writer").lower()
-    assert "insert_after" in get_domain_guidance("footnotes")
-    images = get_domain_guidance("images")
-    assert "source_image" in images
-    assert "selection" in images
-    assert "image_generate" in images
+def test_get_domain_guidance_unknown_and_app_neutral_branch():
     assert get_domain_guidance("totally_unknown_domain") == ""
-
-
-def test_document_research_guidance_has_no_peer_tools():
-    from unittest.mock import patch
-    with patch("plugin.doc.find_tools_tool.get_document_research_workflow_hint", return_value="HINT") as hint:
-        assert get_domain_guidance("document_research") == "HINT"
-    hint.assert_called_once_with()
-    assert "send_peer" not in get_domain_guidance("document_research")
+    assert get_domain_guidance("python", agent_label=None) != get_domain_guidance(
+        "python", agent_label="Calc"
+    )
 
 
 def test_specialized_domain_catalog_writer_has_footnotes():
@@ -64,8 +45,11 @@ def test_specialized_domain_catalog_merged_when_no_app():
 
 
 def test_specialized_domain_catalog_excludes_sidebar_only():
-    catalog = get_specialized_domain_catalog(agent_label="Writer", ctx=MagicMock())
-    assert "brainstorming" not in _domain_ids(catalog)
+    writer_catalog = get_specialized_domain_catalog(agent_label="Writer", ctx=MagicMock())
+    assert "brainstorming" not in _domain_ids(writer_catalog)
+    # ppt-master needs the sidebar mode's session orchestration, so Draw delegate must not offer it.
+    draw_catalog = get_specialized_domain_catalog(agent_label="Draw", ctx=MagicMock())
+    assert "ppt-master" not in _domain_ids(draw_catalog)
 
 
 def test_specialized_domain_catalog_excludes_vision_without_venv():
@@ -111,7 +95,7 @@ def test_execute_domain_returns_domain_schemas_without_finish_tool():
         assert "inputSchema" in t
     registry.get_schemas.assert_called_once_with("mcp", doc=ctx.doc, active_domain="footnotes")
     assert "footnotes" in _domain_ids(result["available_domains"])
-    assert "insert_after" in result["domain_guidance"]["footnotes"]
+    assert result["domain_guidance"]["footnotes"]
 
 
 def test_execute_no_args_returns_catalog_only():
@@ -241,18 +225,6 @@ def test_tools_list_direct_flat_filters_sidebar_is_current():
         result = handler._mcp_tools_list({})
     assert any(t["name"] == "create_chart" for t in result["tools"])
     services.tools.get_schemas.assert_called()
-
-
-def test_initialize_instructions_mentions_find_tools_in_direct_discovery():
-    handler = _handler("direct_discovery", [])
-    result = handler._mcp_initialize({})
-    assert "find_tools" in result["instructions"].lower()
-
-
-def test_initialize_instructions_mentions_delegate_in_default_mode():
-    handler = _handler("delegate", [])
-    result = handler._mcp_initialize({})
-    assert "delegate_to_specialized" in result["instructions"]
 
 
 # --------------------------------------------------------------------------- #
@@ -576,7 +548,8 @@ def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
 
 def test_get_domain_guidance_is_app_neutral_when_app_unknown():
     g = get_domain_guidance("charts", agent_label=None)
-    assert "data_range" in g and "headers" in g
+    assert isinstance(g, str) and g.strip()
+    assert g != get_domain_guidance("charts", agent_label="Calc")
 
 
 def test_no_document_chart_guidance_is_app_neutral():
@@ -590,28 +563,13 @@ def test_no_document_chart_guidance_is_app_neutral():
     ctx.ctx = MagicMock()
     result = FindTools().execute(ctx, domain="charts")
     g = result["domain_guidance"]["charts"]
-    assert "data_range" in g and "headers" in g
-
-
-def test_get_domain_guidance_python_is_app_neutral_when_app_unknown():
-    g = get_domain_guidance("python", agent_label=None)
-    assert "data_range" in g
-    assert "document tools" in g.lower()
+    assert g == get_domain_guidance("charts", agent_label=None)
 
 
 def test_run_venv_python_advertises_superset_when_doc_unknown():
     from plugin.calc.python.venv import RunVenvPythonScript
     params = RunVenvPythonScript().get_parameters(None)
     assert "data_range" in params["properties"]
-
-
-def test_run_venv_python_description_neutral_when_doc_unknown():
-    from plugin.calc.python.venv import RunVenvPythonScript
-    desc = RunVenvPythonScript().get_description(None)
-    assert "data_range" in desc
-    assert "document tools" in desc.lower()
-    # The import-policy note is filled at description time, not at import.
-    assert "Pre-imported" in desc
 
 
 def test_execute_drops_schemas_with_unusable_names():

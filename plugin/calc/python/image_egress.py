@@ -17,6 +17,8 @@ import re
 import struct
 from typing import Any, NoReturn
 
+from plugin.calc.calc_utils import get_cell_geometry
+from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
 from plugin.scripting.payload_codec import write_image_payload_to_temp
@@ -35,7 +37,8 @@ MIN_CHART_PLACEHOLDER_WIDTH = 4000
 MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 
 # Only shapes we created for a plot are replaced on the next insert. A user
-# image is also a GraphicObjectShape; matching the anchor alone overwrote it.
+# image is also a GraphicObjectShape, so matching on the anchor alone would
+# overwrite it; the ``WriterAgentPlot`` name prefix is checked too.
 _DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 _PLOT_SHAPE_NAME_PREFIX = "WriterAgentPlot"
 _IMAGE_ANNOTATION_PREFIX = "WriterAgent image: "
@@ -374,8 +377,6 @@ def _located_image_cell(doc: Any, code: str | None) -> tuple[Any, Any, tuple[int
     if not code or doc is None:
         return None
     try:
-        from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
-
         return locate_formula_cell_in_doc(doc, code)
     except Exception:
         return None
@@ -492,7 +493,6 @@ def _unlink_temp_image(path: str) -> None:
 
 
 def insert_image_result_on_sheet(
-    ctx: Any,
     payload: dict[str, Any],
     *,
     code: str | None = None,
@@ -562,7 +562,6 @@ def _position_new_plot(
 ) -> None:
     """Anchor, size, position, and set initial visibility on a new plot shape."""
     from com.sun.star.awt import Point
-    from plugin.calc.calc_utils import get_cell_geometry
 
     cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
     try:
@@ -751,9 +750,9 @@ def _insert_image_result_on_sheet_impl(
     # Fall back to the active sheet and selection, and keep a minimum size
     # when the anchor is a merged range.
     #
-    # Raise ImageEgressError when the document, sheet, or draw page is
-    # missing, or when UNO throws. Logging and returning made =PY(), the
-    # venv, and plot_data report the picture as inserted.
+    # Raise ImageEgressError when the document, sheet, or draw page is missing,
+    # or when UNO throws: a silent return would let =PY(), the venv and
+    # plot_data report the picture as inserted.
     created_path: str | None = None
     try:
         # Callers pass the document (=PY() passes its caller argument). Do not
@@ -793,8 +792,6 @@ def _insert_image_result_on_sheet_impl(
 
         if image_path:
             tmp_path = image_path
-        elif payload.get("image_path"):
-            tmp_path = str(payload["image_path"])
         else:
             created_path = write_image_payload_to_temp(payload)
             tmp_path = created_path
@@ -818,10 +815,12 @@ def _insert_image_result_on_sheet_impl(
                 _refresh_existing_plot(shape, target_cell, file_url, data_sha, aspect, rtl)
         finally:
             # Only a caller that passes image_count owns the slot family. =PY() and
-            # run_venv_python_script pass it and enumerate image_index from 0, so the
-            # sweep runs once on index 0. Stale slots >= image_count and duplicate shapes
-            # for one slot are swept even when slot 0 raises, so they do not linger.
-            # Omitting image_count (chat plot_data / viz) must not remove sibling WriterAgentPlot_N shapes.
+            # insert_plots_and_report (run_venv_python_script, plot_data) pass it and
+            # enumerate image_index from 0, so the sweep runs once on index 0. Stale slots
+            # >= image_count and duplicate shapes for one slot are swept even when slot 0
+            # raises, so they do not linger. Omitting image_count (the viz domain's
+            # insert_viz_result_into_doc: Run Python Script viz results and analyze/forecast
+            # auto-plot) must not remove sibling WriterAgentPlot_N shapes.
             if image_count is not None and image_index == 0 and target_cell is not None:
                 _drop_extra_plot_slots(draw_page, slots, image_count)
     except ImageEgressError:

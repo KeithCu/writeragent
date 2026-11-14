@@ -13,20 +13,10 @@ from unittest.mock import patch
 import pytest
 
 from compute_service.config import ComputeSettings
-from compute_service.formula_pool import FormulaProcessPool, decode_worker_result, shutdown_formula_pool
-from compute_service.json_forward import (
-    ExecuteRequestError,
-    ExecuteRequestParts,
-    MAX_META_BYTES,
-    _disposition_name,
-    derive_execute_mode,
-    dumps_response,
-    is_multipart_content_type,
-    parse_execute_request,
-    parse_multipart_execute,
-    parse_multipart_vision,
-    validate_session_id,
-)
+from compute_service.formula_pool import FormulaProcessPool, shutdown_formula_pool
+from plugin.framework.child_runtime import Deadline
+from tests.compute_service.conftest import decode_result_json, run_cell
+from compute_service.json_forward import ExecuteRequestError, ExecuteRequestParts, MAX_META_BYTES, _disposition_name, dumps_response, is_multipart_content_type, parse_execute_request, parse_multipart_execute, parse_multipart_vision, validate_session_id
 from compute_service.json_peel import peel_execute_request
 from compute_service.server import create_wsgi_app
 from tests.compute_service.multipart_encode import encode_multipart_execute, encode_multipart_vision
@@ -38,42 +28,20 @@ def _cleanup_formula_pool():
     shutdown_formula_pool()
 
 
-def _wsgi_post(
-    app,
-    body: bytes,
-    *,
-    path: str = "/v1/execute",
-    query: str = "",
-    content_type: str | None = None,
-) -> tuple[str, bytes]:
+def _wsgi_post(app, body: bytes, *, path: str = "/v1/execute", query: str = "", content_type: str | None = None) -> tuple[str, bytes]:
     status_holder: list[str] = []
 
     def start_response(status: str, _headers: list) -> None:
         status_holder.append(status)
 
-    environ = {
-        "PATH_INFO": path,
-        "REQUEST_METHOD": "POST",
-        "QUERY_STRING": query,
-        "CONTENT_LENGTH": str(len(body)),
-        "HTTP_HOST": "127.0.0.1",
-        "wsgi.input": io.BytesIO(body),
-    }
+    environ = {"PATH_INFO": path, "REQUEST_METHOD": "POST", "QUERY_STRING": query, "CONTENT_LENGTH": str(len(body)), "HTTP_HOST": "127.0.0.1", "wsgi.input": io.BytesIO(body)}
     if content_type is not None:
         environ["CONTENT_TYPE"] = content_type
     out = b"".join(app(environ, start_response))
     return status_holder[0], out
 
 
-def _manual_multipart(
-    parts: list[tuple[str, bytes]],
-    *,
-    boundary: str = "wa-compute",
-    content_type: str | None = None,
-    line: str = "\r\n",
-    cte: str | None = None,
-    extra_header: str = "",
-) -> tuple[str, bytes]:
+def _manual_multipart(parts: list[tuple[str, bytes]], *, boundary: str = "wa-compute", content_type: str | None = None, line: str = "\r\n", cte: str | None = None, extra_header: str = "") -> tuple[str, bytes]:
     """Hand-built body for shapes the encoder refuses to emit."""
     nl = line.encode("ascii")
     chunks: list[bytes] = []
@@ -87,7 +55,6 @@ def _manual_multipart(
 
 
 class TestPeelExecuteRequest:
-
     def test_peel_skips_unknown_keys(self) -> None:
         payload = b'{"id": "1", "junk": [1,2,3], "code": "1"}'
         # Assert behavior: should parse without crashing and return the specified fields
@@ -100,13 +67,7 @@ class TestPeelExecuteRequest:
             payload = b'{"id": "\\u12",", "code": "1"}'
             parse_execute_request(payload, None)
 
-    @pytest.mark.parametrize(
-        "value",
-        [
-            pytest.param(b'{"id": [1e9999], "code": "1"}', id="test_nested_nonfinite_id_rejected"),
-            pytest.param(b'{"timeout_ms": [1000], "code": "1"}', id="test_non_scalar_timeout_ms_rejected"),
-        ],
-    )
+    @pytest.mark.parametrize("value", [pytest.param(b'{"id": [1e9999], "code": "1"}', id="test_nested_nonfinite_id_rejected"), pytest.param(b'{"timeout_ms": [1000], "code": "1"}', id="test_non_scalar_timeout_ms_rejected")])
     def test_nested_nonfinite_id_rejected(self, value) -> None:
         with pytest.raises(ExecuteRequestError):
             payload = value
@@ -118,7 +79,6 @@ class TestPeelExecuteRequest:
         parts = peel_execute_request(body)
         assert parts.req_id == "r1"
         assert parts.code == "result = data"
-        assert parts.mode == "isolated"
         assert parts.data_json == data_literal
         assert parts.has_session_id is False
 
@@ -132,7 +92,6 @@ class TestPeelExecuteRequest:
         body = b'{"code":"x = \\"data\\"\\nresult = 1","mode":"shared"}'
         parts = peel_execute_request(body)
         assert parts.data_json is None
-        assert parts.mode == "shared"
 
     def test_session_id_in_body_is_flagged(self) -> None:
         parts = peel_execute_request(b'{"code":"result=1","session_id":"nope"}')
@@ -159,14 +118,7 @@ class TestPeelExecuteRequest:
         assert parts.code == "result = 2"
         assert parts.timeout_ms == 1500
 
-    @pytest.mark.parametrize(
-        "value",
-        [
-            pytest.param(b"[1,2,3]", id="test_rejects_non_object"),
-            pytest.param(b'{"code":"result=1",}', id="test_rejects_trailing_comma"),
-            pytest.param(b'{"code":"result=1"}{"x":1}', id="test_rejects_trailing_junk"),
-        ],
-    )
+    @pytest.mark.parametrize("value", [pytest.param(b"[1,2,3]", id="test_rejects_non_object"), pytest.param(b'{"code":"result=1",}', id="test_rejects_trailing_comma"), pytest.param(b'{"code":"result=1"}{"x":1}', id="test_rejects_trailing_junk")])
     def test_rejects_non_object(self, value) -> None:
         with pytest.raises(ExecuteRequestError):
             peel_execute_request(value)
@@ -183,38 +135,24 @@ CUSTOM_RESULT_JSON = b'{"status":"ok","result":[[1,2,3],[4,5,6]],"stdout":""}'
 
 class TestMultipartExecute:
     def test_data_part_bytes_are_not_loaded(self) -> None:
-        content_type, body = encode_multipart_execute(
-            {"id": "p-1", "mode": "isolated"},
-            GRID_BYTES,
-            code="result = 1",
-        )
+        content_type, body = encode_multipart_execute({"id": "p-1", "mode": "isolated"}, GRID_BYTES, code="result = 1")
         with patch("email.parser.BytesParser") as parser:
             parts = parse_multipart_execute(body, content_type)
         assert parser.call_count == 0
         assert parts.req_id == "p-1"
         assert parts.code == b"result = 1"
         assert parts.init_script is None
-        assert parts.mode == "isolated"
         assert parts.data_json == GRID_BYTES
         assert parts.has_session_id is False
 
     def test_meta_must_not_embed_payload_fields(self) -> None:
-        for key, value in (
-            ("code", "result = 1"),
-            ("data", [1, 2]),
-            ("data_json", "[1]"),
-            ("init_script", "HELPER = 1"),
-        ):
+        for key, value in (("code", "result = 1"), ("data", [1, 2]), ("data_json", "[1]"), ("init_script", "HELPER = 1")):
             content_type, body = encode_multipart_execute({key: value}, GRID_BYTES, code="result = 1")
             with pytest.raises(ExecuteRequestError, match=key):
                 parse_multipart_execute(body, content_type)
 
     def test_session_id_in_meta_is_flagged(self) -> None:
-        content_type, body = encode_multipart_execute(
-            {"session_id": "nope"},
-            GRID_BYTES,
-            code="result = 1",
-        )
+        content_type, body = encode_multipart_execute({"session_id": "nope"}, GRID_BYTES, code="result = 1")
         parts = parse_multipart_execute(body, content_type)
         assert parts.has_session_id is True
         assert parts.code == b"result = 1"
@@ -223,12 +161,7 @@ class TestMultipartExecute:
     def test_source_parts_round_trip_without_json_unescape(self) -> None:
         code = 'x = "data"\nresult = "café\\n"'
         init = "HELPER = 'data'\n"
-        content_type, body = encode_multipart_execute(
-            {"id": "src", "timeout_ms": 1500},
-            GRID_BYTES,
-            code=code,
-            init_script=init,
-        )
+        content_type, body = encode_multipart_execute({"id": "src", "timeout_ms": 1500}, GRID_BYTES, code=code, init_script=init)
         parts = parse_multipart_execute(body, content_type)
         assert parts.code == code.encode("utf-8")
         assert parts.init_script == init.encode("utf-8")
@@ -238,17 +171,9 @@ class TestMultipartExecute:
     def test_parts_are_accepted_in_any_order(self) -> None:
         code = b'result = "data"'
         init = b"HELPER = 1\n"
-        content_type, body = _manual_multipart(
-            [
-                ("data", GRID_BYTES),
-                ("init_script", init),
-                ("code", code),
-                ("meta", b'{"id":"ord","mode":"shared"}'),
-            ]
-        )
+        content_type, body = _manual_multipart([("data", GRID_BYTES), ("init_script", init), ("code", code), ("meta", b'{"id":"ord","mode":"shared"}')])
         parts = parse_multipart_execute(body, content_type)
         assert parts.req_id == "ord"
-        assert parts.mode == "shared"
         assert parts.code == code
         assert parts.init_script == init
         assert parts.data_json == GRID_BYTES
@@ -270,31 +195,12 @@ class TestMultipartExecute:
     def test_rfc2046_empty_part_is_empty_bytes(self) -> None:
         """headers\\r\\n\\r\\n--boundary is an empty part, not a malformed body.
 
-        The CRLF before --boundary belongs to the delimiter. On an empty
-        part that CRLF is also the blank line that ended the headers.
-        Treating it only as the delimiter used to reject the part.
+        The CRLF before --boundary belongs to the delimiter, and on an empty
+        part it is also the blank line that ends the headers.
         """
         nl = b"\r\n"
         body = (
-            b"--wa-compute"
-            + nl
-            + b'Content-Disposition: form-data; name="meta"'
-            + nl
-            + nl
-            + b"{}"
-            + nl
-            + b"--wa-compute"
-            + nl
-            + b'Content-Disposition: form-data; name="code"'
-            + nl
-            + nl
-            + b"--wa-compute"
-            + nl
-            + b'Content-Disposition: form-data; name="init_script"'
-            + nl
-            + nl
-            + b"--wa-compute--"
-            + nl
+            b"--wa-compute" + nl + b'Content-Disposition: form-data; name="meta"' + nl + nl + b"{}" + nl + b"--wa-compute" + nl + b'Content-Disposition: form-data; name="code"' + nl + nl + b"--wa-compute" + nl + b'Content-Disposition: form-data; name="init_script"' + nl + nl + b"--wa-compute--" + nl
         )
         parts = parse_multipart_execute(body, "multipart/form-data; boundary=wa-compute")
         assert parts.code == b""
@@ -309,23 +215,7 @@ class TestMultipartExecute:
     def test_part_body_keeps_its_own_crlf(self) -> None:
         """Two CRLFs before the boundary: the first belongs to the body."""
         nl = b"\r\n"
-        body = (
-            b"--wa-compute"
-            + nl
-            + b'Content-Disposition: form-data; name="meta"'
-            + nl
-            + nl
-            + b"{}"
-            + nl
-            + b"--wa-compute"
-            + nl
-            + b'Content-Disposition: form-data; name="code"'
-            + nl
-            + nl
-            + b"\r\n\r\n"
-            + b"--wa-compute--"
-            + nl
-        )
+        body = b"--wa-compute" + nl + b'Content-Disposition: form-data; name="meta"' + nl + nl + b"{}" + nl + b"--wa-compute" + nl + b'Content-Disposition: form-data; name="code"' + nl + nl + b"\r\n\r\n" + b"--wa-compute--" + nl
         parts = parse_multipart_execute(body, "multipart/form-data; boundary=wa-compute")
         assert parts.code == b"\r\n"
 
@@ -338,16 +228,7 @@ class TestMultipartExecute:
 
     def test_lf_body_and_quoted_boundary(self) -> None:
         code = b"result = 1"
-        content_type, body = _manual_multipart(
-            [
-                ("meta", b'{"id":"lf"}'),
-                ("code", code),
-                ("data", b"[1]"),
-            ],
-            boundary="wa compute",
-            content_type='multipart/form-data; boundary="wa compute"',
-            line="\n",
-        )
+        content_type, body = _manual_multipart([("meta", b'{"id":"lf"}'), ("code", code), ("data", b"[1]")], boundary="wa compute", content_type='multipart/form-data; boundary="wa compute"', line="\n")
         body = b"preamble\n" + body + b"epilogue"
         parts = parse_multipart_execute(body, content_type)
         assert parts.req_id == "lf"
@@ -356,18 +237,7 @@ class TestMultipartExecute:
 
     def test_folded_disposition_name(self) -> None:
         nl = b"\r\n"
-        body = (
-            b"--wa-compute" + nl
-            + b'Content-Disposition: form-data;' + nl
-            + b' name="code"' + nl
-            + nl
-            + b"result = 1" + nl
-            + b"--wa-compute" + nl
-            + b'Content-Disposition: form-data; name="meta"' + nl
-            + nl
-            + b"{}" + nl
-            + b"--wa-compute--" + nl
-        )
+        body = b"--wa-compute" + nl + b"Content-Disposition: form-data;" + nl + b' name="code"' + nl + nl + b"result = 1" + nl + b"--wa-compute" + nl + b'Content-Disposition: form-data; name="meta"' + nl + nl + b"{}" + nl + b"--wa-compute--" + nl
         parts = parse_multipart_execute(body, "multipart/form-data; boundary=wa-compute")
         assert parts.code == b"result = 1"
         assert parts.req_id is None
@@ -378,15 +248,7 @@ class TestMultipartExecute:
         content_type = "multipart/form-data; boundary=wa-compute"
 
         def execute_with(meta_header: str) -> ExecuteRequestParts:
-            body = (
-                b"--wa-compute" + nl
-                + meta_header.encode() + nl + nl
-                + b'{"id":"m"}' + nl
-                + b"--wa-compute" + nl
-                + b'Content-Disposition: form-data; name="code"' + nl + nl
-                + b"result = 1" + nl
-                + b"--wa-compute--" + nl
-            )
+            body = b"--wa-compute" + nl + meta_header.encode() + nl + nl + b'{"id":"m"}' + nl + b"--wa-compute" + nl + b'Content-Disposition: form-data; name="code"' + nl + nl + b"result = 1" + nl + b"--wa-compute--" + nl
             return parse_multipart_execute(body, content_type)
 
         parts = execute_with('Content-Disposition: form-data; name="meta"; filename="x; name=data"')
@@ -397,15 +259,7 @@ class TestMultipartExecute:
         parts = execute_with('Content-Disposition: form-data; name="meta"; filename="shot.png"')
         assert parts.req_id == "m"
 
-        hijack = (
-            b"--wa-compute" + nl
-            + b'Content-Disposition: form-data; name="notes"; filename="x; name=meta; y"' + nl + nl
-            + b'{"id":"hijacked"}' + nl
-            + b"--wa-compute" + nl
-            + b'Content-Disposition: form-data; name="code"' + nl + nl
-            + b"result = 1" + nl
-            + b"--wa-compute--" + nl
-        )
+        hijack = b"--wa-compute" + nl + b'Content-Disposition: form-data; name="notes"; filename="x; name=meta; y"' + nl + nl + b'{"id":"hijacked"}' + nl + b"--wa-compute" + nl + b'Content-Disposition: form-data; name="code"' + nl + nl + b"result = 1" + nl + b"--wa-compute--" + nl
         with pytest.raises(ExecuteRequestError, match="unknown multipart part 'notes'"):
             parse_multipart_execute(hijack, content_type)
 
@@ -444,9 +298,7 @@ class TestMultipartExecute:
         with pytest.raises(ExecuteRequestError, match="meta"):
             parse_multipart_execute(missing_meta, "multipart/form-data; boundary=wa-compute")
 
-        duplicate = _manual_multipart(
-            [("meta", b"{}"), ("code", b"result = 1"), ("code", b"result = 2")]
-        )[1]
+        duplicate = _manual_multipart([("meta", b"{}"), ("code", b"result = 1"), ("code", b"result = 2")])[1]
         with pytest.raises(ExecuteRequestError, match="duplicate"):
             parse_multipart_execute(duplicate, "multipart/form-data; boundary=wa-compute")
 
@@ -454,10 +306,7 @@ class TestMultipartExecute:
         with pytest.raises(ExecuteRequestError, match="unknown"):
             parse_multipart_execute(unknown, "multipart/form-data; boundary=wa-compute")
 
-        content_type, encoded = _manual_multipart(
-            [("meta", b"{}"), ("code", b"result = 1")],
-            cte="base64",
-        )
+        content_type, encoded = _manual_multipart([("meta", b"{}"), ("code", b"result = 1")], cte="base64")
         with pytest.raises(ExecuteRequestError, match="content-transfer-encoding"):
             parse_multipart_execute(encoded, content_type)
 
@@ -494,7 +343,6 @@ class TestHttpBlobForward:
         assert status.startswith("200")
         assert seen["data_json"] == data_literal
         assert "data" not in seen
-        assert seen.get("decode_result") is False
         # Host forwarded the worker bytes — no second dumps of the result.
         assert out == result_json
 
@@ -519,18 +367,13 @@ class TestHttpBlobForward:
             return {"status": "ok", "result_json": CUSTOM_RESULT_JSON}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        content_type, body = encode_multipart_execute(
-            {"id": "m-1"},
-            GRID_BYTES,
-            code="result = float(np.sum(data))",
-        )
+        content_type, body = encode_multipart_execute({"id": "m-1"}, GRID_BYTES, code="result = float(np.sum(data))")
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("200")
         assert seen["code"] == "result = float(np.sum(data))"
         assert seen["init_script"] is None
         assert seen["data_json"] == GRID_BYTES
         assert "data" not in seen
-        assert seen.get("decode_result") is False
         assert out == CUSTOM_RESULT_JSON
 
     def test_multipart_host_does_not_json_loads_grid(self) -> None:
@@ -553,12 +396,7 @@ class TestHttpBlobForward:
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
         code = 'CODE_SENTINEL = "data"'
         init = "INIT_SENTINEL = 'data'"
-        content_type, body = encode_multipart_execute(
-            {},
-            GRID_BYTES,
-            code=code,
-            init_script=init,
-        )
+        content_type, body = encode_multipart_execute({}, GRID_BYTES, code=code, init_script=init)
         with patch("compute_service.json_forward.json.loads", side_effect=spy):
             status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("200")
@@ -580,15 +418,8 @@ class TestHttpBlobForward:
         assert out == CUSTOM_RESULT_JSON
 
     def test_bad_multipart_is_400(self) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(),
-            execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""},
-        )
-        status, out = _wsgi_post(
-            app,
-            b"not-actually-multipart",
-            content_type="multipart/form-data; boundary=wa-compute",
-        )
+        app = create_wsgi_app(ComputeSettings(), execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""})
+        status, out = _wsgi_post(app, b"not-actually-multipart", content_type="multipart/form-data; boundary=wa-compute")
         assert status.startswith("400")
         assert json.loads(out)["error"] == "Invalid multipart execute body"
 
@@ -602,12 +433,7 @@ class TestHttpBlobForward:
             return {"status": "ok", "result_json": CUSTOM_RESULT_JSON}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        content_type, body = encode_multipart_execute(
-            {"id": "src"},
-            GRID_BYTES,
-            code=code,
-            init_script=init,
-        )
+        content_type, body = encode_multipart_execute({"id": "src"}, GRID_BYTES, code=code, init_script=init)
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("200")
         assert out == CUSTOM_RESULT_JSON
@@ -623,9 +449,7 @@ class TestHttpBlobForward:
             return {"status": "ok", "result_json": CUSTOM_RESULT_JSON}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        content_type, body = _manual_multipart(
-            [("meta", b'{"id":"e"}'), ("code", b"result = 1"), ("init_script", b"")]
-        )
+        content_type, body = _manual_multipart([("meta", b'{"id":"e"}'), ("code", b"result = 1"), ("init_script", b"")])
         status, _out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("200")
         assert seen["init_script"] is None
@@ -644,7 +468,7 @@ class TestHttpBlobForward:
         assert payload["id"] == "c1"
 
     def test_field_validation_error_is_not_invalid_json(self) -> None:
-        """Regression: a bad field reports its own message, not the generic body error."""
+        """A bad field reports its own message, not the generic body error."""
 
         def execute_fn(**_kwargs):
             raise AssertionError("invalid fields must not lease a worker")
@@ -691,11 +515,7 @@ class TestHttpBlobForward:
         assert payload["error"].startswith("code exceeds")
         assert payload["id"] == "big"
 
-        content_type, body = encode_multipart_execute(
-            {"id": "big-init"},
-            code="result = 1",
-            init_script="b" * 65,
-        )
+        content_type, body = encode_multipart_execute({"id": "big-init"}, code="result = 1", init_script="b" * 65)
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("400")
         payload = json.loads(out)
@@ -740,10 +560,7 @@ class TestHttpBlobForward:
             raise AssertionError("session_id in meta must not lease a worker")
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
-        content_type, body = encode_multipart_execute(
-            {"id": "sid", "session_id": "nope"},
-            code="result = 1",
-        )
+        content_type, body = encode_multipart_execute({"id": "sid", "session_id": "nope"}, code="result = 1")
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("400")
         payload = json.loads(out)
@@ -766,29 +583,16 @@ class TestHttpBlobForward:
         assert seen["data_json"] == data_literal
         assert out == result_json
 
-    def test_mock_dict_result_still_dumps_for_compat(self) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(),
-            execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""},
-        )
-        status, out = _wsgi_post(app, b'{"id":"compat","code":"result = 1"}')
-        assert status.startswith("200")
-        assert json.loads(out) == {"status": "ok", "result": 1, "stdout": "", "id": "compat"}
-
 
 class TestFormulaPoolWire:
     def test_json_forward_does_not_host_pack(self) -> None:
         # 40×30 = 1200 cells (above compute pickle min_cells=1000) but under
         # DEAL_MAX_SHAPE_DIM so materialize_inputs' list-of-grids pre still holds.
         grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
             with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
-                res = pool.execute(
-                    code="result = [len(data.values), data.values[-1][-1]]",
-                    data=grid,
-                    req_id="jf-1",
-                )
+                res = run_cell(pool, code="result = [len(data.values), data.values[-1][-1]]", data=grid, req_id="jf-1")
             assert mock_pack.call_count == 0
             assert res.get("status") == "ok", res
             assert res.get("result") == [40, 1199.0]
@@ -798,7 +602,7 @@ class TestFormulaPoolWire:
     def test_data_json_bytes_reach_worker_unchanged(self) -> None:
         blob = b'[[1, 2], [3, "caf\xc3\xa9"]]'
         captured: dict = {}
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
             real_write = pool.workers[0].execute
 
@@ -809,11 +613,7 @@ class TestFormulaPoolWire:
                 return real_write(payload, timeout_sec, **kwargs)
 
             with patch.object(pool.workers[0], "execute", side_effect=spy):
-                res = pool.execute(
-                    code="result = data[1][1]",
-                    data_json=blob,
-                    req_id="blob-1",
-                )
+                res = run_cell(pool, code="result = data[1][1]", data_json=blob, req_id="blob-1")
             assert captured["data_json"] == blob
             assert captured["has_data"] is False
             assert res.get("status") == "ok"
@@ -821,16 +621,12 @@ class TestFormulaPoolWire:
         finally:
             pool.shutdown()
 
-    def test_decode_result_false_returns_result_json_bytes(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    def test_execute_returns_result_json_bytes(self) -> None:
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
-            raw = pool.execute(
-                code="result = [[1, 2], [3, 4]]",
-                req_id="raw-1",
-                decode_result=False,
-            )
+            raw = pool.execute(code="result = [[1, 2], [3, 4]]", req_id="raw-1", deadline=Deadline(15.0))
             assert isinstance(raw.get("result_json"), (bytes, bytearray))
-            parsed = decode_worker_result(raw)
+            parsed = decode_result_json(raw)
             assert parsed.get("status") == "ok"
             assert parsed.get("result") == [[1, 2], [3, 4]]
             assert parsed.get("id") == "raw-1"
@@ -841,15 +637,10 @@ class TestFormulaPoolWire:
         rows, cols = 40, 30  # 1200 cells
         grid = [[r * cols + c for c in range(cols)] for r in range(rows)]
         data_json = json.dumps(grid, allow_nan=False).encode("utf-8")
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
         try:
             with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
-                res = pool.execute(
-                    code="result = data",
-                    data_json=data_json,
-                    req_id="big-1",
-                    decode_result=False,
-                )
+                res = pool.execute(code="result = data", data_json=data_json, req_id="big-1", deadline=Deadline(15.0))
             assert mock_pack.call_count == 0
             body = res["result_json"]
             assert isinstance(body, (bytes, bytearray))
@@ -888,12 +679,12 @@ class TestPeelAndMultipartAgree:
         status_m, seen_m, _out_m = self._run(multipart, content_type, limit=limit)
         assert status_p.startswith("200"), _out_p
         assert status_m.startswith("200"), _out_m
-        for key in ("code", "init_script", "mode", "data_json", "session_id"):
+        for key in ("code", "init_script", "data_json", "session_id"):
             assert seen_p[key] == seen_m[key]
         assert seen_p["code"] == code
         assert seen_p["init_script"] == init
         assert seen_p["data_json"] == data
-        assert seen_p["mode"] == "isolated"
+        assert seen_p["session_id"] is None
 
     def test_over_cap_rejected_on_both(self) -> None:
         limit = 64
@@ -919,8 +710,24 @@ class TestPeelAndMultipartAgree:
             for body, ctype in ((peel_mode, "application/json"), (mp_body, mp_type)):
                 status, seen, _out = self._run(body, ctype, limit=64)
                 assert status.startswith("200"), (mode, ctype)
-                assert seen.get("mode") == "isolated"
+                assert "mode" not in seen
                 assert seen.get("session_id") is None
+
+    def test_bool_and_nonfinite_timeout_rejected_on_both(self) -> None:
+        peel_bool = b'{"code":"result = 1","timeout_ms":true}'
+        content_type_b, mp_bool = encode_multipart_execute({"timeout_ms": True}, code="result = 1")
+        for body, ctype in ((peel_bool, "application/json"), (mp_bool, content_type_b)):
+            status, seen, out = self._run(body, ctype, limit=64)
+            assert status.startswith("400"), (ctype, out)
+            assert seen == {}
+            payload = json.loads(out)
+            assert payload.get("error") == "timeout_ms must be a scalar"
+            assert payload.get("code") == "INVALID_REQUEST"
+
+        peel_inf = b'{"code":"result = 1","timeout_ms":1e9999}'
+        status_inf, seen_inf, _out_inf = self._run(peel_inf, "application/json", limit=64)
+        assert status_inf.startswith("400")
+        assert seen_inf == {}
 
     def test_empty_init_script_is_absent_on_both(self) -> None:
         peel = json.dumps({"id": "e", "code": "result = 1", "init_script": ""}).encode()
@@ -933,7 +740,7 @@ class TestPeelAndMultipartAgree:
         assert seen_m["init_script"] is None
 
     def test_non_text_init_script_is_not_dropped(self) -> None:
-        """A peel number used to be ignored and the cell ran with no init script."""
+        """A non-string init_script returns HTTP 400 instead of being dropped."""
 
         def execute_fn(**_kwargs):
             raise AssertionError("non-text init_script must not run")
@@ -951,22 +758,12 @@ class TestHttpLargeRoundTrip:
     def test_large_data_in_out_no_host_pack_or_result_dumps(self) -> None:
         rows, cols = 25, 40
         grid = [[float(r * cols + c) for c in range(cols)] for r in range(rows)]
-        payload = {
-            "id": "http-big",
-            "code": "result = data",
-            "data": grid,
-        }
+        payload = {"id": "http-big", "code": "result = data", "data": grid}
         body = json.dumps(payload, allow_nan=False).encode("utf-8")
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-        app = create_wsgi_app(
-            ComputeSettings(host="127.0.0.1", workers=1),
-            execute_fn=lambda **kw: pool.execute(**kw),
-        )
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
         try:
-            with (
-                patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack,
-                patch("compute_service.server._start_json") as mock_host_dumps,
-            ):
+            with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack, patch("compute_service.server._start_json") as mock_host_dumps:
                 mock_host_dumps.side_effect = AssertionError("host must not dumps the large result")
                 status, out = _wsgi_post(app, body)
         finally:
@@ -983,21 +780,11 @@ class TestHttpLargeRoundTrip:
         rows, cols = 25, 40
         grid = [[float(r * cols + c) for c in range(cols)] for r in range(rows)]
         data_json = json.dumps(grid, allow_nan=False).encode("utf-8")
-        content_type, body = encode_multipart_execute(
-            {"id": "http-mp-big"},
-            data_json,
-            code="result = data",
-        )
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-        app = create_wsgi_app(
-            ComputeSettings(host="127.0.0.1", workers=1),
-            execute_fn=lambda **kw: pool.execute(**kw),
-        )
+        content_type, body = encode_multipart_execute({"id": "http-mp-big"}, data_json, code="result = data")
+        pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=15))
+        app = create_wsgi_app(ComputeSettings(host="127.0.0.1", workers=1), execute_fn=lambda **kw: pool.execute(**kw))
         try:
-            with (
-                patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack,
-                patch("compute_service.server._start_json") as mock_host_dumps,
-            ):
+            with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack, patch("compute_service.server._start_json") as mock_host_dumps:
                 mock_host_dumps.side_effect = AssertionError("host must not dumps the large result")
                 status, out = _wsgi_post(app, body, content_type=content_type)
         finally:
@@ -1009,13 +796,6 @@ class TestHttpLargeRoundTrip:
         assert parsed["id"] == "http-mp-big"
         assert parsed["result"][0][0] == 0.0
         assert parsed["result"][-1][-1] == float(rows * cols - 1)
-
-
-def test_derive_execute_mode_from_session_id() -> None:
-    assert derive_execute_mode(None) == "isolated"
-    assert derive_execute_mode("") == "isolated"
-    assert derive_execute_mode("   ") == "isolated"
-    assert derive_execute_mode("doc-7") == "shared"
 
 
 def test_validate_session_id() -> None:

@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TypeGuard
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
+from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
+from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
 from plugin.calc.python.formula_edit import (
     CALC_PYTHON_FN,
     PyFormula,
@@ -31,19 +34,20 @@ from plugin.calc.python.formula_edit import (
     format_data_binding_text,
     parse_data_binding_text,
 )
+from plugin.calc.python.geometric_recalc import after_py_cell_save
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.config import get_config
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import guard_uno, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
+from plugin.scripting.document_scripts import document_scripts_identity
 from plugin.scripting.editor_host import (
     ask_save_discard_cancel,
-    get_active_session,
     launch_monaco_editor,
     monaco_editor_available,
-    set_active_session,
 )
 from plugin.scripting.editor_errors import editor_error_markers, failure_message
 
@@ -59,8 +63,6 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     content: bool | None = None
     if hasattr(cell, "getType"):
         kind = cell.getType()
-        from plugin.calc.calc_utils import EMPTY, FORMULA, TEXT, VALUE
-
         # Live getType() is a uno.Enum; uno.Enum != int (calc_utils). int 3 is the
         # stub/fallback FORMULA. Both checks are required.
         if kind == FORMULA or kind == 3:
@@ -86,6 +88,16 @@ def _same_calc_cell(left: Any, right: Any) -> bool:
     a = left.getCellAddress()
     b = right.getCellAddress()
     return int(a.Column) == int(b.Column) and int(a.Row) == int(b.Row) and int(a.Sheet) == int(b.Sheet)
+
+
+def is_follow(code_ref: str | None, code_cell: Any, cell: Any) -> TypeGuard[str]:
+    """True when saving into a separate referenced cell (``=PY($A$1)`` in B1).
+
+    A self-ref (``=PY(A1)`` in A1) is not a follow, because writing it as one
+    would overwrite the cell's own formula with the code text. The ``TypeGuard``
+    lets callers pass ``code_ref`` on as ``str``.
+    """
+    return bool(code_ref) and code_cell is not None and not _same_calc_cell(code_cell, cell)
 
 
 def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
@@ -158,10 +170,9 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     except Exception:
         log.warning("python_editor: selection has no RangeAddress", exc_info=True)
         return None
-    # Selection sheet and the active sheet can differ. Falling back to
-    # get_active_sheet() when getByIndex failed read a different sheet at
-    # the same column and row. Refuse; the caller already explains that
-    # no cell was selected.
+    # The selection's sheet can differ from the active sheet. Do not fall back
+    # to get_active_sheet(): it would read the same column and row on the wrong
+    # sheet. Refuse; the caller already explains that no cell was selected.
     sheet_idx = int(addr.Sheet)
     sheets = model.getSheets()
     sheet = uno_read(lambda: sheets.getByIndex(sheet_idx), None)
@@ -172,7 +183,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     return model, cell
 
 
-def _data_binding_display(parts: PyFormula | None) -> str:
+def data_binding_display(parts: PyFormula | None) -> str:
     return "" if parts is None else format_data_binding_display(parts.data_suffix)
 
 
@@ -221,8 +232,8 @@ def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
         old_args = _existing_data_args(parsed_parts)
-        # Leave the formula cell alone when only the code changed. Native follow
-        # Empty Data on save must not rewrite =PY($A$1) (Err:508) when ranges are unchanged.
+        # Leave the formula cell alone when only the code changed: save always
+        # sends Data, and rewriting =PY($A$1) when the ranges are unchanged gives Err:508.
         if data_args != old_args:
             # Keep the original ref token ($A$1). format_py_data_range strips $
             # which would make an absolute code ref relative after save.
@@ -240,14 +251,10 @@ def editor_load_save_as_plain(*, parsed_parts: PyFormula | None, initial_code: s
     return parsed_parts is None and bool(initial_code.strip())
 
 
-def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
+def apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
     # Follow saves touch code and formula cells plus geometric recalc; compound undo groups one undo step.
-    from plugin.doc.compound_undo import WriterCompoundUndo
-
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
-        # A self-ref (=PY(A1) in A1) is not a follow: writing it as one would
-        # overwrite the cell's own formula with the code text.
-        if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
+        if is_follow(code_ref, code_cell, cell):
             result = _apply_followed_ref_save(cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
         elif save_as_plain:
             cell.setString(new_code)
@@ -256,20 +263,18 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new
             result = _apply_formula_save(cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
         if result.get("type") == "saved":
             # Plain-text downgrades must run after_py_cell_save to prune stale geometric registry rows.
-            from plugin.calc.python.geometric_recalc import after_py_cell_save
-
             after_py_cell_save(doc, cell)
             best_effort(doc.calculateAll, "calculateAll after editor save")
         return result
 
 
 def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PyFormula | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
-    follow = bool(code_ref and code_cell is not None and not _same_calc_cell(code_cell, cell))
-    data_binding = _data_binding_display(parsed_parts)
+    follow = is_follow(code_ref, code_cell, cell)
+    data_binding = data_binding_display(parsed_parts)
     display_cell = code_cell if follow else cell
 
     def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
-        return _apply_cell_save(
+        return apply_cell_save(
             doc,
             cell,
             parsed_parts=parsed_parts,
@@ -281,8 +286,6 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         )
 
     label = format_cell_a1(display_cell)
-    from plugin.scripting.document_scripts import document_scripts_identity
-
     doc_url = best_effort(lambda: document_scripts_identity(doc), "doc_url for session target", "")
     load_msg: dict[str, Any] = {
         "type": "load",
@@ -301,16 +304,12 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         "doc_url": doc_url,
         "resource": label,
     }
-    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
-
     entry = best_effort(lambda: get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), initial_code), "diagnostics lookup for editor markers", None)
     if entry is not None and entry.is_error:
         found = editor_error_markers(entry.message, entry.traceback, initial_code)
         if found:
             load_msg["markers"] = found
-    # Unsaved calc-cell, Run Script, init-script, and LaTeX buffers are
-    # confirmed or flushed inside launch_monaco_editor before this load
-    # replaces the window. A calc-only check here dropped the other modes.
+    # launch_monaco_editor confirms or flushes every unsaved buffer (calc cell, Run Script, init script, LaTeX) before this load replaces the window.
     launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
 
@@ -318,8 +317,6 @@ def open_python_cell_editor(ctx: Any) -> None:
     """Launch Monaco or the native cell editor for the active Calc cell."""
     log.info("python_editor: open_python_cell_editor")
     try:
-        from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
-
         install_calc_cell_context_menu(ctx)
         _open_python_cell_editor_impl(ctx)
     except Exception as e:
@@ -329,10 +326,6 @@ def open_python_cell_editor(ctx: Any) -> None:
 
 
 def _open_python_cell_editor_impl(ctx: Any) -> None:
-    existing = get_active_session()
-    if existing is not None and not existing.is_running:
-        set_active_session(None)
-
     resolved = _get_active_calc_cell(ctx)
     if resolved is None:
         msgbox(ctx, product_display_name(ctx), _("Select a cell in a Calc spreadsheet to edit Python."))
@@ -340,9 +333,6 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
     doc, cell = resolved
 
     # Follow =PY($A$1) into A1 (plain code cell). Do not quote the ref on save.
-    # Prompting the LLM to emit this two-cell pattern is deferred: auto-imports
-    # and helpers usually fit in Calc MAXSTRLEN (1024). Revisit CALC_FORMULA_SYNTAX
-    # if Err:513 shows up for generated =PY("…").
     formulas = _cell_formula_strings(cell)
     initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell, formulas=formulas)
     code_cell: Any | None = None
@@ -359,8 +349,9 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
 
     log.info("python_editor: initial_code len=%s parsed=%s source=%r follow=%s", len(initial_code), parsed_parts is not None, (source_formula or "")[:80], code_ref)
 
-    exe, monaco_available = monaco_editor_available(ctx)
+    exe, monaco_available = monaco_editor_available()
     if not monaco_available or exe is None:
+        # Lazy: cell_editor_ui imports this module at its top.
         from plugin.calc.python.cell_editor_ui import show_native_python_cell_editor
 
         log.info("python_editor: editor unavailable; opening native cell editor")

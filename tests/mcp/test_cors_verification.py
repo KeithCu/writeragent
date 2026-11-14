@@ -17,47 +17,23 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.mcp.cors import (
-    is_private_browser_origin,
-    is_safe_origin,
-    merge_allow_headers,
     normalize_cors_origin,
     normalize_origins_list,
     set_allow_private_origins,
     set_extra_allowed_origins,
 )
-from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
 from tests.harness.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/mcp/cors.py"
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 
-_origin_candidates = st.one_of(
-    st.none(),
-    st.sampled_from(
-        [
-            "https://localai.local",
-            "https://localai.local/",
-            "http://127.0.0.1:3000",
-            "http://localhost",
-            "https://evil.com",
-            "ftp://x.com",
-        ]
-    ),
+_VALID_ORIGINS = st.builds(
+    lambda scheme, host, port, path: f"{scheme}://{host}{port}{path}",
+    scheme=st.sampled_from(("http", "https", "HTTP", "HTTPS")),
+    host=st.sampled_from(("localai.local", "127.0.0.1", "localhost", "App.Example.COM")),
+    port=st.sampled_from(("", ":3000", ":8080")),
+    path=st.sampled_from(("", "/", "/subpath")),
 )
-
-# Public hosts that must never pass is_safe_origin when private/extra allowlists are off.
-_PUBLIC_HOSTS = st.sampled_from(
-    [
-        "evil.com",
-        "example.org",
-        "attacker.net",
-        "google.com",
-        "cdn.example.com",
-        "api.github.com",
-    ]
-)
-_PUBLIC_SCHEMES = st.sampled_from(("http", "https"))
-_PUBLIC_PORTS = st.one_of(st.just(""), st.sampled_from((":80", ":443", ":8080", ":3000")))
 
 
 def _find_crosshair() -> str | None:
@@ -80,82 +56,21 @@ def teardown_function() -> None:
     set_allow_private_origins(True)
 
 
-@given(value=_origin_candidates)
-@settings(max_examples=vhs_max_examples(80, 800), deadline=None)
-def test_hypothesis_normalize_cors_origin_shape(value) -> None:
-    result = normalize_cors_origin(value)
-    if result is None:
-        return
-    assert result.startswith(("http://", "https://", "HTTP://", "HTTPS://")) or result.lower().startswith(("http://", "https://"))
-    assert not result.endswith("/")
-
-
-@given(
-    value=st.one_of(
-        st.none(),
-        st.just("https://a.com/"),
-        st.lists(st.sampled_from(["https://a.com", "https://a.com/", "https://b.com"]), max_size=5),
-    )
-)
+@given(origins=st.lists(_VALID_ORIGINS, min_size=1, max_size=5))
 @settings(max_examples=vhs_max_examples(60, 600), deadline=None)
-def test_hypothesis_normalize_origins_list_idempotent(value) -> None:
-    once = normalize_origins_list(value)
-    twice = normalize_origins_list(once)
-    assert twice == once
+def test_hypothesis_normalize_cors_origin_and_list(origins: list[str]) -> None:
+    """Valid http/https origins normalize to non-None canonical strings and dedupe idempotently."""
+    for origin in origins:
+        result = normalize_cors_origin(origin)
+        assert result is not None
+        assert result.startswith(("http://", "https://"))
+        assert not result.endswith("/")
+        assert normalize_cors_origin(result) == result
+
+    once = normalize_origins_list(origins)
+    assert len(once) >= 1
+    assert normalize_origins_list(once) == once
     assert len(once) == len(set(once))
-
-
-@given(scheme=_PUBLIC_SCHEMES, host=_PUBLIC_HOSTS, port=_PUBLIC_PORTS)
-@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
-def test_hypothesis_public_origins_unsafe_when_allowlists_off(scheme: str, host: str, port: str) -> None:
-    """Phase 8 #2: arbitrary public web origins must not bypass CORS when private/extra are off."""
-    set_extra_allowed_origins([])
-    set_allow_private_origins(False)
-    origin = f"{scheme}://{host}{port}"
-    assert is_safe_origin(origin) is False
-    assert is_safe_origin(origin + "/") is False
-
-
-def test_localhost_safe_origin() -> None:
-    assert is_safe_origin("http://localhost:3000")
-    assert is_safe_origin("http://127.0.0.1")
-    assert is_safe_origin("http://[::1]")
-    assert is_safe_origin("http://[::1]:3000")
-    assert is_private_browser_origin("http://192.168.1.50:3000") is True
-
-
-def test_normalize_origins_list_is_off_cover_all() -> None:
-    """CORS origin normalization and safe-origin checks stay off cover-all."""
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    fqns = cover_fqns_for_module(Path("plugin/mcp/cors.py"), require_deal=True)
-    offed = (
-        "normalize_origins_list",
-        "normalize_cors_origin",
-        "is_safe_origin",
-        "is_private_browser_origin",
-        "merge_allow_headers",
-        "set_extra_allowed_origins",
-        "is_extra_allowed_origin",
-    )
-    for name in offed:
-        assert not any(f.endswith(f".{name}") for f in fqns), name
-
-
-def test_cors_origin_overflow_returns_body_result() -> None:
-    """A long or odd Origin is not safe. It must not raise PreContractError."""
-    too_long = "h" * (DEAL_MAX_ORIGIN + 1)
-    assert is_safe_origin(too_long) is False
-    assert normalize_cors_origin(too_long) is None
-    merged = merge_allow_headers(too_long)
-    assert isinstance(merged, str) and "Content-Type" in merged
-    assert is_safe_origin("http://example.com/?x") is False
-    assert "Content-Type" in merge_allow_headers("Content-Type; X-Evil")
-    assert is_safe_origin("http://localhost:3000") is True
-    assert "Content-Type" in merge_allow_headers("X-Custom")
 
 
 @pytest.mark.slow

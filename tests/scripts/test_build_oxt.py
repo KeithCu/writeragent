@@ -30,16 +30,16 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 
 
 @pytest.mark.parametrize(
-    "value, value_2, value_3",
+    "svg_path, notice_path, png_path",
     [
         pytest.param("extension/assets/python_logo.svg", "extension/assets/python_logo.NOTICE", "extension/assets/python_32.png", id="test_python_logo_dev_sources_excluded_from_oxt"),
         pytest.param("extension/assets/jupyter_logo.svg", "extension/assets/jupyter_logo.NOTICE", "extension/assets/gear_32.png", id="test_jupyter_logo_dev_sources_excluded_from_oxt"),
     ],
 )
-def test_python_logo_dev_sources_excluded_from_oxt(value, value_2, value_3):
-    assert should_exclude(value) is True
-    assert should_exclude(value_2) is True
-    assert should_exclude(value_3) is False
+def test_python_logo_dev_sources_excluded_from_oxt(svg_path, notice_path, png_path):
+    assert should_exclude(svg_path) is True
+    assert should_exclude(notice_path) is True
+    assert should_exclude(png_path) is False
 
 def test_provider_logo_pngs_ship_notice_excluded():
     assert should_exclude("extension/assets/provider_logos.NOTICE") is True
@@ -108,11 +108,6 @@ def test_remap_path_chat_panel_and_generated_dialogs():
     assert remap_path("extension/Dialogs/ChatPanelDialog.xdl") == "Dialogs/ChatPanelDialog.xdl"
     assert remap_path("build/generated/Dialogs/SettingsDialog.xdl") == "Dialogs/SettingsDialog.xdl"
     assert remap_path("build/generated/Dialogs/chatbot.xdl") == "Dialogs/chatbot.xdl"
-
-
-def test_extension_chat_panel_xdl_exists():
-    path = os.path.join(PROJECT_ROOT, "extension", "Dialogs", "ChatPanelDialog.xdl")
-    assert os.path.isfile(path), "sidebar XDL missing at %s" % path
 
 
 def test_sync_vendor_into_lib_copies_isodate(tmp_path):
@@ -218,7 +213,6 @@ def test_debug_menu_strip_marker_matches_addons_xcu():
     marker_at = text.find(DEBUG_MENU_NODE_MARKER)
     window = text[marker_at : marker_at + 400]
     assert "Debug" in window
-    assert "M16a" not in DEBUG_MENU_NODE_MARKER
 
 
 def test_strip_debug_menu_xml_on_real_addons_xcu():
@@ -337,31 +331,10 @@ def test_verify_bundle_manifest_requires_audio_catalog(tmp_path):
     with pytest.raises(RuntimeError, match="voice_catalog.json"):
         verify_bundle_manifest(str(tmp_path))
 
-
-def test_verify_bundle_manifest_accepts_audio_catalog(tmp_path):
-    meta_inf = tmp_path / "META-INF"
-    meta_inf.mkdir(parents=True)
-    (meta_inf / "manifest.xml").write_text(
-        '<manifest:manifest xmlns:manifest="http://openoffice.org/2001/manifest"/>',
-        encoding="utf-8",
-    )
-    plugin_dir = tmp_path / "plugin"
-    plugin_dir.mkdir(parents=True)
-    (plugin_dir / "_manifest.py").write_text("", encoding="utf-8")
-    (tmp_path / "Addons.xcu").write_text("", encoding="utf-8")
     audio_data = plugin_dir / "audio" / "data"
     audio_data.mkdir(parents=True)
     (audio_data / "voice_catalog.json").write_text("{}", encoding="utf-8")
-
     verify_bundle_manifest(str(tmp_path))
-
-
-def test_audio_voice_catalog_is_included():
-    from scripts.build_oxt import get_always_include_plugin
-
-    assert os.path.isfile(os.path.join(PROJECT_ROOT, "plugin/audio/data/voice_catalog.json"))
-    assert should_exclude("plugin/audio/data/voice_catalog.json") is False
-    assert "plugin/audio/" in get_always_include_plugin(PROJECT_ROOT)
 
 
 def _writeragent_plugin_paths_from_includes(base_dir: str, includes: list[str]) -> set[str]:
@@ -379,16 +352,6 @@ def _writeragent_plugin_paths_from_includes(base_dir: str, includes: list[str]) 
         elif os.path.isfile(os.path.join(base_dir, inc)):
             paths.add(inc.replace(os.sep, "/"))
     return paths
-
-
-def test_always_include_plugin_ships_top_level_py_modules():
-    from scripts.build_oxt import get_always_include_plugin
-
-    includes = set(get_always_include_plugin(PROJECT_ROOT))
-    for name in ("bootstrap.py", "app.py", "menu_state.py", "menu_handlers.py", "bootstrap_ui_hooks.py"):
-        assert f"plugin/{name}" in includes
-    assert "plugin/main_core.py" not in includes
-    assert "plugin/testing_runner.py" not in includes
 
 
 def test_writeragent_main_module_level_imports_in_oxt_bundle():

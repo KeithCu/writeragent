@@ -36,16 +36,17 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
-from plugin.calc.calc_utils import cell_value_and_type, resolve_sheet
+from plugin.calc.bridge import CalcBridge
+from plugin.calc.calc_utils import cell_value_and_type
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
+from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 from plugin.calc.base import ToolCalcErrorBase
-from plugin.calc.manipulator import _quiet_probe_cleanup
+from plugin.calc.manipulator import quiet_probe_cleanup
 
 log = logging.getLogger(__name__)
 
@@ -81,12 +82,12 @@ class _EvaluationUndoGuard:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if self.hidden_context_entered and self.undo_mgr:
-            _quiet_probe_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
+            quiet_probe_cleanup(self.undo_mgr.leaveUndoContext, "leaveUndoContext")
         elif self.undo_mgr and not self.was_possible and self.sheet_removed:
-            _quiet_probe_cleanup(self.undo_mgr.clear, "clear")
+            quiet_probe_cleanup(self.undo_mgr.clear, "clear")
 
         if self.sheet_removed and not self.was_modified:
-            _quiet_probe_cleanup(lambda: self.doc.setModified(False), "setModified")
+            quiet_probe_cleanup(lambda: self.doc.setModified(False), "setModified")
 
 
 def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -> bool:
@@ -96,7 +97,8 @@ def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -
             sheets.removeByName(name)
         undo_guard.sheet_removed = True
         return True
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         log.exception("Failed to cleanup evaluation sheet")
         return False
 
@@ -143,37 +145,14 @@ class ListCalcFunctions(ToolBase):
         return {"status": "ok", "functions": matched_functions}
 
 
-_EVAL_ERROR_LABELS = {
-    503: "#NUM! (Invalid numeric value, code 503)",
-    532: "#DIV/0! (Division by zero, code 532)",
-    508: "Pair missing bracket (code 508)",
-    509: "Operator missing (code 509)",
-    510: "Variable missing (code 510)",
-    511: "Parameter missing (code 511)",
-    524: "#REF! (Invalid reference, code 524)",
-    525: "#NAME? (Invalid name, code 525)",
-}
-
-
 def formula_evaluation_error_message(error_code: int) -> str:
     """Human-readable evaluate_formula message for a Calc error code."""
-    if error_code in _EVAL_ERROR_LABELS:
-        label = _EVAL_ERROR_LABELS[error_code]
-    elif error_code in ERROR_TYPES:
-        info = ERROR_TYPES[error_code]
-        symbol = info.get("code", "")
-        name = info.get("name", "")
-        if symbol.startswith("#") and symbol != "#NULL!":
-            if name and name != symbol:
-                label = f"{symbol} ({name}, code {error_code})"
-            else:
-                label = f"{symbol} (code {error_code})"
-        elif name:
-            label = f"{name} (code {error_code})"
-        else:
-            label = f"code {error_code}"
-    else:
-        label = f"code {error_code}"
+    info = ERROR_TYPES.get(error_code)
+    if info is None:
+        return f"Formula evaluation error: code {error_code}"
+    token, name = info["code"], info["name"]
+    # A # token is what the cell shows, so it leads; an Err:NNN token only repeats the code.
+    label = f"{token} ({name}, code {error_code})" if token.startswith("#") else f"{name} (code {error_code})"
     return f"Formula evaluation error: {label}"
 
 
@@ -198,7 +177,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         formula_string = kwargs["formula"].strip()
         cell_address = (kwargs.get("cell") or "A1").strip()
         if not formula_string:
-            return self._tool_error("formula is required")
+            return self._tool_error("formula is required", code="INVALID_PARAM")
         if not formula_string.startswith("="):
             formula_string = "=" + formula_string
 
@@ -208,7 +187,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             _prefix, local = split_sheet_prefix(cell_address)
             col, row = parse_address(local.replace("$", ""))
         except ValueError as e:
-            return self._tool_error(f"Invalid cell context address '{cell_address}': {e}")
+            return self._tool_error(f"Invalid cell context address '{cell_address}': {e}", code="INVALID_PARAM")
 
         doc = ctx.doc
         if not doc:
@@ -217,7 +196,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         sheets = doc.getSheets()
 
         # Resolve the active sheet to copy from
-        active_sheet = resolve_sheet(doc)
+        active_sheet = CalcBridge(doc).get_active_sheet()
         active_name = active_sheet.getName()
 
         # Ensure name uniqueness
@@ -239,7 +218,8 @@ class EvaluateFormula(ToolCalcErrorBase):
                 cleaned = _drop_eval_sheet(sheets, temp_sheet_name, undo_guard)
                 # A failed cleanup turns an ordinary evaluation error into a
                 # tool error. A disposed document (or a BaseException such as
-                # KeyboardInterrupt) still propagates.
+                # KeyboardInterrupt) still propagates; a disposal during cleanup
+                # raises DocumentDisposedError instead.
                 if not cleaned and isinstance(exc, Exception) and not is_disposal(exc):
                     return self._tool_error(cleanup_msg)
                 raise
@@ -260,18 +240,22 @@ class EvaluateFormula(ToolCalcErrorBase):
         try:
             cell = sheet.getCellByPosition(col, row)
         except Exception as e:
-            return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}")
+            reraise_if_disposed(e)
+            return self._tool_error(f"Invalid cell context address '{cell_address}': {str(e)}", code="INVALID_PARAM")
 
         try:
             cell.setFormula(formula_string)
         except Exception as e:
-            if is_disposal(e):
-                raise
+            reraise_if_disposed(e)
             return self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
 
         error_code = cell.Error
         if error_code != 0:
-            return {"status": "error", "error_code": error_code, "message": formula_evaluation_error_message(error_code)}
+            return self._tool_error(
+                formula_evaluation_error_message(error_code),
+                code="CALC_ERROR",
+                top_level={"error_code": error_code},
+            )
 
         result, result_type_str = cell_value_and_type(
             cell, formula_error_as_string=False, empty_as_none=False

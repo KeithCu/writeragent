@@ -15,9 +15,7 @@ _NBSP = chr(0xA0)  # non-breaking space U+00A0 (ASCII-safe in source)
 
 
 def _tool_ctx(doc, ctx):
-    return native_writer_tool_context(
-        doc, ctx, skip_reason="apply_document_content Hidden _default swriter"
-    )
+    return native_writer_tool_context(doc, ctx)
 
 
 @native_test

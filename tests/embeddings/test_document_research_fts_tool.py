@@ -7,10 +7,15 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack, contextmanager
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.embeddings.document_research_fts_tool import SearchNearbyFiles
 from plugin.framework.send_cancellation import SendCancellation
+
+_UNSET = object()
 
 
 def _ctx():
@@ -19,8 +24,54 @@ def _ctx():
     ctx.doc = MagicMock()
     ctx.services = MagicMock()
     ctx.send_cancellation = None
-    ctx.send_cancellation = None
     return ctx
+
+
+def _run_inline(fn, *a, **k):
+    return fn()
+
+
+@contextmanager
+def _patched_fts_env(
+    *,
+    is_current: bool = True,
+    main_call_side_effect: Any = _run_inline,
+    listing_dir: str = "/tmp/folder",
+    index_context: Any = _UNSET,
+    search_mode: str = "sqlite",
+    index_empty: Any = False,
+    embedding_model: Any = "model",
+    hybrid_kwargs: Any = _UNSET,
+    grep_return: Any = _UNSET,
+):
+    """Patch FTS search dependencies; pass _UNSET for any optional target to leave it unpatched."""
+    if index_context is _UNSET:
+        index_context = ("key", "db_path", MagicMock(), listing_dir)
+    with ExitStack() as stack:
+        stack.enter_context(patch("plugin.framework.constants.folder_search_enabled", return_value=True))
+        if main_call_side_effect is not _UNSET:
+            stack.enter_context(patch("plugin.framework.queue_executor.main.call", side_effect=main_call_side_effect))
+        stack.enter_context(patch("plugin.framework.queue_executor.main.is_current", return_value=is_current))
+        stack.enter_context(patch("plugin.doc.document_research.resolve_listing_directory", return_value=listing_dir))
+        stack.enter_context(patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"))
+        collect_open_urls_mock = stack.enter_context(
+            patch("plugin.doc.document_research._collect_open_file_urls", return_value={})
+        )
+        stack.enter_context(patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=index_context))
+        stack.enter_context(patch("plugin.framework.config.get_config", return_value=search_mode))
+        if index_empty is not _UNSET:
+            stack.enter_context(patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=index_empty))
+        if embedding_model is not _UNSET:
+            stack.enter_context(patch("plugin.embeddings.embedding_client.get_embedding_model", return_value=embedding_model))
+        if grep_return is not _UNSET:
+            stack.enter_context(patch("plugin.doc.document_research_grep.resolve_grep_candidates", return_value=grep_return))
+        rpc_mock = (
+            stack.enter_context(patch("plugin.embeddings.embeddings_service.hybrid_search", **hybrid_kwargs))
+            if hybrid_kwargs is not _UNSET
+            else None
+        )
+        wakeup_mock = stack.enter_context(patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup"))
+        yield SimpleNamespace(rpc=rpc_mock, wakeup=wakeup_mock, collect_open_urls=collect_open_urls_mock)
 
 
 def test_search_nearby_files_disabled():
@@ -33,61 +84,48 @@ def test_search_nearby_files_disabled():
 
 def test_search_nearby_files_indexing_status():
     tool = SearchNearbyFiles()
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
-            with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
-                    with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
-                        with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                            with patch(
-                                "plugin.embeddings.embeddings_cache.resolve_index_context",
-                                return_value=("key", MagicMock(), MagicMock(), "/tmp/folder"),
-                            ):
-                                with patch("plugin.framework.config.get_config", return_value="sqlite"):
-                                    with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=True):
-                                        with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
-                                            result = tool.execute(MagicMock(), query="test")
+    with _patched_fts_env(is_current=False, index_empty=True, embedding_model=_UNSET) as env:
+        result = tool.execute(MagicMock(), query="test")
     assert result.get("status") == "indexing"
     assert result.get("hits") == []
-    wakeup_mock.assert_called_once()
+    env.wakeup.assert_called_once()
 
 
 def test_search_nearby_files_does_not_block_main_thread_for_rpc():
     tool = SearchNearbyFiles()
-
-    # We want to ensure call is NOT called for hybrid_search
-    # It SHOULD be called for _read_listing_state and _wakeup
-    execute_calls = []
+    call_depth = [0]
+    listing_inside_main_call: list[bool] = []
+    wakeup_inside_main_call: list[bool] = []
+    rpc_inside_main_call: list[bool] = []
 
     def fake_call(fn, *args, **kwargs):
-        execute_calls.append(fn.__name__)
-        return fn()
+        call_depth[0] += 1
+        try:
+            return fn()
+        finally:
+            call_depth[0] -= 1
 
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=fake_call):
-            with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
-                    with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
-                        with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                            with patch(
-                                "plugin.embeddings.embeddings_cache.resolve_index_context",
-                                return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
-                            ):
-                                with patch("plugin.framework.config.get_config", return_value="sqlite"):
-                                    with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                                        with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
-                                            with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": []}) as rpc_mock:
-                                                with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
-                                                    result = tool.execute(_ctx(), query="web search")
+    def fake_hybrid_search(*_args, **_kwargs):
+        rpc_inside_main_call.append(call_depth[0] > 0)
+        return {"hits": []}
+
+    with _patched_fts_env(
+        is_current=False,
+        main_call_side_effect=fake_call,
+        hybrid_kwargs={"side_effect": fake_hybrid_search},
+    ) as env:
+        env.collect_open_urls.side_effect = lambda *_a, **_k: (
+            listing_inside_main_call.append(call_depth[0] > 0) or {}
+        )
+        env.wakeup.side_effect = lambda *_a, **_k: wakeup_inside_main_call.append(call_depth[0] > 0)
+        result = tool.execute(_ctx(), query="web search")
 
     assert result.get("status") == "ok"
-    rpc_mock.assert_called_once()
-    wakeup_mock.assert_called_once()
-
-    # The RPC call should NOT be wrapped in call
-    assert "_read_listing_state" in execute_calls
-    assert "_wakeup" in execute_calls
-    assert len([c for c in execute_calls if c in ("_read_listing_state", "_wakeup")]) == 2
+    env.rpc.assert_called_once()
+    env.wakeup.assert_called_once()
+    assert listing_inside_main_call and all(listing_inside_main_call)
+    assert wakeup_inside_main_call and all(wakeup_inside_main_call)
+    assert rpc_inside_main_call == [False]
 
 
 def test_search_nearby_files_model_change_does_not_query(tmp_path):
@@ -107,23 +145,19 @@ def test_search_nearby_files_model_change_does_not_query(tmp_path):
         encoding="utf-8",
     )
 
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
-            with patch("plugin.framework.config.get_config", return_value="hybrid"):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value=str(tmp_path)):
-                    with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
-                        with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                            with patch(
-                                "plugin.embeddings.embeddings_cache.resolve_index_context",
-                                return_value=("key", db, meta, str(tmp_path)),
-                            ):
-                                with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="new-model"):
-                                    with patch("plugin.embeddings.embeddings_service.hybrid_search") as rpc_mock:
-                                        with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup") as wakeup_mock:
-                                            result = tool.execute(_ctx(), query="web search")
+    with _patched_fts_env(
+        main_call_side_effect=_UNSET,
+        listing_dir=str(tmp_path),
+        index_context=("key", db, meta, str(tmp_path)),
+        search_mode="hybrid",
+        index_empty=_UNSET,
+        embedding_model="new-model",
+        hybrid_kwargs={},
+    ) as env:
+        result = tool.execute(_ctx(), query="web search")
 
-    rpc_mock.assert_not_called()
-    wakeup_mock.assert_called_once()
+    env.rpc.assert_not_called()
+    env.wakeup.assert_called_once()
     assert result["status"] == "indexing"
     assert result["hits"] == []
     assert result["stale"] is True
@@ -131,28 +165,15 @@ def test_search_nearby_files_model_change_does_not_query(tmp_path):
 
 def test_search_nearby_files_backend_error_surfaced():
     tool = SearchNearbyFiles()
-    ctx = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.services = MagicMock()
-    ctx.send_cancellation = None
-
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
-            with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
-                with patch(
-                    "plugin.embeddings.embeddings_cache.resolve_index_context",
-                    return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
-                ):
-                    with patch("plugin.framework.config.get_config", return_value="sqlite"):
-                        with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                            with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
-                                # Simulate the backend returning an error dict (e.g. from LanceDB/zvec worker)
-                                with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": [], "error": "Backend timeout or failure"}):
-                                    result = tool.execute(ctx, query="budget figures")
+    # Simulate the backend returning an error dict (e.g. from LanceDB/zvec worker).
+    with _patched_fts_env(
+        hybrid_kwargs={"return_value": {"hits": [], "error": "Backend timeout or failure"}},
+    ):
+        result = tool.execute(_ctx(), query="budget figures")
 
     assert result.get("status") == "error", f"Expected error status, got {result.get('status')}"
     assert "Backend timeout or failure" in result.get("message", "")
+
 
 def test_search_nearby_files_passes_cancel_scope():
     tool = SearchNearbyFiles()
@@ -160,27 +181,13 @@ def test_search_nearby_files_passes_cancel_scope():
     scope = SendCancellation()
     ctx.send_cancellation = scope
 
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
-            with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
-                    with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
-                        with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                            with patch(
-                                "plugin.embeddings.embeddings_cache.resolve_index_context",
-                                return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
-                            ):
-                                with patch("plugin.framework.config.get_config", return_value="sqlite"):
-                                    with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                                        with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
-                                            with patch("plugin.embeddings.embeddings_service.hybrid_search", return_value={"hits": []}) as rpc_mock:
-                                                with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup"):
-                                                    result = tool.execute(ctx, query="test")
+    with _patched_fts_env(hybrid_kwargs={"return_value": {"hits": []}}) as env:
+        result = tool.execute(ctx, query="test")
 
     assert result.get("status") == "ok"
-    rpc_mock.assert_called_once()
-    assert rpc_mock.call_args.kwargs["cancel"] is scope
-    assert rpc_mock.call_args.kwargs.get("doc_url_filter") is None
+    env.rpc.assert_called_once()
+    assert env.rpc.call_args.kwargs["cancel"] is scope
+    assert env.rpc.call_args.kwargs.get("doc_url_filter") is None
 
 
 def _run_search_with_subset(*, grep_return, hybrid_side_effect=None, hybrid_return=None, file_subset="notes.odt"):
@@ -191,30 +198,9 @@ def _run_search_with_subset(*, grep_return, hybrid_side_effect=None, hybrid_retu
     hybrid_kwargs = {"return_value": hybrid_return or {"hits": []}}
     if hybrid_side_effect is not None:
         hybrid_kwargs = {"side_effect": hybrid_side_effect}
-    with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn()):
-            with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
-                with patch("plugin.doc.document_research.resolve_listing_directory", return_value="/tmp/folder"):
-                    with patch("plugin.doc.document_research.get_document_path", return_value="/tmp/folder/a.ods"):
-                        with patch("plugin.doc.document_research._collect_open_file_urls", return_value={}):
-                            with patch(
-                                "plugin.embeddings.embeddings_cache.resolve_index_context",
-                                return_value=("key", "db_path", MagicMock(), "/tmp/folder"),
-                            ):
-                                with patch("plugin.framework.config.get_config", return_value="sqlite"):
-                                    with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=False):
-                                        with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="model"):
-                                            with patch(
-                                                "plugin.doc.document_research_grep.resolve_grep_candidates",
-                                                return_value=grep_return,
-                                            ):
-                                                with patch(
-                                                    "plugin.embeddings.embeddings_service.hybrid_search",
-                                                    **hybrid_kwargs,
-                                                ) as rpc_mock:
-                                                    with patch("plugin.embeddings.embeddings_indexer.ensure_index_wakeup"):
-                                                        result = tool.execute(ctx, query="test", file_subset=file_subset)
-    return result, rpc_mock, scope
+    with _patched_fts_env(grep_return=grep_return, hybrid_kwargs=hybrid_kwargs) as env:
+        result = tool.execute(ctx, query="test", file_subset=file_subset)
+    return result, env.rpc, scope
 
 
 def test_search_nearby_files_single_subset_uses_doc_url_filter():

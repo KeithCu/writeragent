@@ -27,29 +27,27 @@ This is the reference implementation for Tier-0 (pure Python) contract + CrossHa
 3. `is_numeric_grid`
 4. `wire_cell_count` (`# crosshair: off` — envelope proxy limits)
 5. `grid_from_nested_list`
-6. `_cell_for_json`
-7. `_uniform_column_kind` / `envelope_column_kinds` (as decorated in module)
+6. `_uniform_column_kind` / `envelope_column_kinds` (as decorated in module)
 
 **Envelope detectors (public + private)**
 
-8. `is_split_grid` / `_is_split_grid_envelope`
-9. `is_multi_data` / `_is_multi_data_envelope`
-10. `is_image_payload` / `_is_image_payload_envelope`
-11. `is_dataframe_payload` / `_is_dataframe_envelope`
-12. `is_calc_range_payload` / `_is_calc_range_envelope` (canonical in the codec; `calc_range.py` re-exports)
-13. `_is_any_payload_envelope`
+7. `is_split_grid` / `_is_split_grid_envelope`
+8. `is_multi_data` / `_is_multi_data_envelope`
+9. `is_image_payload` / `_is_image_payload_envelope`
+10. `is_dataframe_payload` / `_is_dataframe_envelope`
+11. `is_calc_range_payload` / `_is_calc_range_envelope` (canonical in the codec; `calc_range.py` re-exports)
+12. `_is_any_payload_envelope`
 
 **Pack / unpack**
 
-14. `_flatten_grid_to_components`
-15. `host_pack_split_grid`
-16. `host_pack_data`
-17. `host_unpack_split_grid`
-18. `host_unpack_data`
-19. `child_unpack_split_grid`
-20. `_child_unpack_single_data` / `child_unpack_data`
-21. `child_pack_split_grid`
-22. `child_pack_result`
+13. `_flatten_grid_to_components`
+14. `host_pack_split_grid`
+15. `host_pack_data`
+16. `host_unpack_split_grid`
+17. `host_unpack_data`
+18. `child_unpack_split_grid`
+19. `child_pack_split_grid`
+20. `child_pack_result`
 
 Several pack/unpack entry points keep `# crosshair: off` (engine limits on buffers/ndarrays/JSON). Prefer FQN CrossHair on detectors and policy helpers; full-module `make crosshair-check` remains a long dive.
 
@@ -103,18 +101,17 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - `_is_ndarray(obj)` — NumPy ndarray type check without importing NumPy at module load
 - `_deal_return` / `_DEAL_RETURN` — keyword-only `result=` for CrossHair/deal ensure arity (see formal_verification §8.1 A)
 - Collection emptiness in `@deal` bodies/ensures: `len(shape) > 0` / `len(grid) == 0`, not `bool(shape)` / `if grid:` (CrossHair `SymbolicBool` TypeError)
-- Public envelope `is_*` keep `@deal.pre`/`@deal.post`; nested dict-shape posts use `inverse_ensure`. Private `_is_*` helpers are implementation (no duplicate ensure). `_deal_wire_dict_ok` is total on the pytest/production table: a plain dict larger than `DEAL_MAX_SHAPE_DIM` is not an envelope (`is_*` returns False; `host_unpack_data` accepts it). `host_unpack_data` and `child_unpack_data` are total on that profile, so a datetime, a long string, or a non-envelope comes back from the body. The CrossHair table keeps the shallow key-count cap. compute_service installs deal, so a raising pre there is a production crash (`PreContractError` is an `AssertionError`). Product pack/grid/`cell_count` dims follow Calc `DEAL_MAX_ROW_INDEX` / `DEAL_MAX_COL_INDEX` so live `=PY` ranges fit. `min_cells` on the pytest profile is a cell-count threshold up to `DEAL_MAX_ROW_INDEX + 1`, not `DEAL_MAX_SHAPE_DIM` (a side length; 256 rejected `scripts/bench_serialization.py --min-cells 1000`). CrossHair keeps the shape-dim cap. `envelope_column_kinds` uses that same column cap (`DEAL_MAX_COL_INDEX + 1`), not `DEAL_MAX_SHAPE_DIM`, so a wide sheet that packs also unpacks. CrossHair helpers stay on `_deal_grid_ok` / the short table.
+- Public envelope `is_*` keep `@deal.pre`/`@deal.post`; nested dict-shape posts use `inverse_ensure`. Private `_is_*` helpers are implementation (no duplicate ensure). `_deal_wire_dict_ok` is total on the pytest/production table: a plain dict larger than `DEAL_MAX_SHAPE_DIM` is not an envelope (`is_*` returns False; `host_unpack_data` accepts it). `host_unpack_data` is total on that profile, so a datetime, a long string, or a non-envelope comes back from the body. The CrossHair table keeps the shallow key-count cap. compute_service installs deal, so a raising pre there is a production crash (`PreContractError` is an `AssertionError`). Product pack/grid/`cell_count` dims follow Calc `DEAL_MAX_ROW_INDEX` / `DEAL_MAX_COL_INDEX` so live `=PY` ranges fit. `min_cells` on the pytest profile is a cell-count threshold up to `DEAL_MAX_ROW_INDEX + 1`, not `DEAL_MAX_SHAPE_DIM` (a side length; 256 rejected `scripts/bench_serialization.py --min-cells 1000`). CrossHair keeps the shape-dim cap. `envelope_column_kinds` uses that same column cap (`DEAL_MAX_COL_INDEX + 1`), not `DEAL_MAX_SHAPE_DIM`, so a wide sheet that packs also unpacks. CrossHair helpers stay on `_deal_grid_ok` / the short table.
 
 ### Key invariants encoded
 
 - Envelope detectors return `bool`; if `True`, payload tag and required fields match production rules. Shape extents are non-negative `int`s, not `bool` (`True` is an `int` subclass)
 - `strings` dict keys are integers; values are strings. Ingress keys that `int()` to the same index (`1` and `"1"`) raise `ValueError`. Egress `wire_str_key` is the same hard error: mixed int/str keys are not renamed
-- `child_unpack_data` walks a plain dict so a nested envelope unpacks. List values inside that dict stay lists
 - `float()` `OverflowError` is stored as text, matching Cython `_flatten_cell`. That covers a huge `Fraction` and a plain `int` such as `10**400` (the int branches used to raise, and under deal that became `RaisesContractError`). Integers `float()` accepts stay in the buffer, including values past the 53-bit mantissa. A NumPy complex scalar (`dtype.kind == "c"`, including `complex64` / `clongdouble`, which are not builtin `complex`) is text too: `float()` keeps only the real part. Builtin `complex` was already text. `np.full(..., dtype=object)` often unboxes `complex128` to builtin `complex` before pack; an object array that still holds the NumPy scalar hits the same helper
 - An unknown dtype kind that `float()` accepts (for example kind `"O"`) is a float column on the pure-Python and Cython packers. A text cell earlier in the row does not stringify it. Unicode (`np.str_`) stays text
 - An `int` subclass with no dtype (`enum.IntEnum`, `enum.IntFlag`, or a class whose `__name__` does not start with `int` or `uint`) is column kind `"int"` on the pure-Python packer and on Cython `PyLong_Check`. It used to be `"float"` only on the pure path, so the restored host cell was `float` or `int` depending on whether the accelerator loaded. Unpack restores a builtin `int`, not the subclass. `Decimal` and `Fraction` stay `"float"`. The name heuristic for a non-int object whose name starts with `int` is unchanged
-- A 2D row that is not a list or tuple raises `ValueError` on pack, child list materialization, `is_numeric_grid`, and `wire_cell_count`. The release path used to raise `TypeError` from `len()` or `list(row)`. Deal's pre hides that grid on `is_numeric_grid`; `_child_unpack_single_data` and `wire_cell_count` have no such pre
-- A legacy `b64` buffer that is non-alphabet, bad padding, or non-ASCII raises `ValueError` (`validate=True`). `binascii.Error` and `UnicodeEncodeError` used to escape `@deal.raises` as `RaisesContractError` because deal matches exact types. Production wire uses `buffer` bytes; `b64encode` output still decodes. `_decode_split_grid_buffer` accepts `bytes` only. A `bytearray` or `memoryview` raises `TypeError`. `is_split_grid`'s deal pre also rejects those types, but a release OXT strips deal, so the helper check is what a direct caller hits
+- A 2D row that is not a list or tuple raises `ValueError` on pack, `is_numeric_grid`, and `wire_cell_count`. The release path used to raise `TypeError` from `len()` or `list(row)`. Deal's pre hides that grid on `is_numeric_grid`; `wire_cell_count` has no such pre
+- A split_grid envelope must carry `buffer` bytes; `_decode_split_grid_buffer` accepts `bytes` only, and a `bytearray` or `memoryview` raises `TypeError`. `is_split_grid`'s deal pre also rejects those types, but a release OXT strips deal, so the helper check is what a direct caller hits. An envelope with only a `b64` string is not a split_grid.
 - A numeric `split_grid` with mixed `column_kinds` (int next to float, or a bool column next to an int column, empty `strings`) stays float64 in the child. Per-column Python types are restored on the host. The child casts only when every column is the same kind. `=PY()` therefore sees `1.0` where host unpack restores `True` (`data[0, 1] is True` only on the host). One column that mixes bool and int packs as kind `"int"`: split_grid host and child turn `True` into `1`. `force="never"` keeps `True`. The A/B oracle compares with `==` (`True == 1`), so this is pinned by an explicit `type` test
 - The row-count split_grid shortcut in `host_pack_data` requires a non-empty first row. Zero-width rows use `cell_count`
 - `column_kinds` length matches column count
@@ -123,7 +120,7 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - `host_unpack_data` keeps unrecognized dataframe keys (shallow copy, then replaces `data`). Rebuilding only `__wa_payload__` / `columns` / `data` used to drop them. `calc_range` uses the same shallow copy; rebuilding only `__wa_payload__` / `shape` / `data` / `address` used to drop other fields
 - A pure-float child ndarray, and a mixed-kind numeric grid with no strings, is the read-only `np.frombuffer` view. Uniform int and bool columns are writable because `astype` and `==` allocate. Do not `.copy()` the float path
 - A rectangular tuple-of-tuples egresses as a list-of-lists. `host_unpack_data` restores a tuple only when that container is still a tuple on the wire
-- DataFrame and Series object/extension bodies under `BINARY_MIN_CELLS` go through `to_wire` (depth 64) before `child_pack_result`, same as the container arm. `_cell_for_json` still only rewrites `None`
+- DataFrame and Series object/extension bodies under `BINARY_MIN_CELLS` go through `to_wire` (depth 64) before `child_pack_result`, same as the container arm.
 - A bare object ndarray does too: `to_wire` coerces `tolist()` before pack. Under the threshold, `np.int64` / `datetime` / `Decimal` / `Fraction` cells are converted to leaves before the pickle boundary; at or above it, split_grid already succeeded
 - timedelta64 arrays and `np.timedelta64` scalars become fractional days before pack. `to_wire` (depth 64) coerces them before pack. Rank 3+ converts one plane at a time. Direct `child_pack_result` on a timedelta64 ndarray still raises
 - A rectangular list whose cells are lists or tuples is packed element-wise. The outer shape used to qualify as one split_grid and stringify each inner row (`"[0]"`) once the cell count reached `BINARY_MIN_CELLS`
@@ -133,7 +130,7 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 
 ### Dispatch wrappers
 
-`host_pack_data`, `child_unpack_data`, and `child_pack_result` use **minimal** pre/post contracts. Branch-specific guarantees (ndarray vs list vs split_grid dict) live in pytest oracles.
+`host_pack_data` and `child_pack_result` use **minimal** pre/post contracts. Branch-specific guarantees (ndarray vs list vs split_grid dict) live in pytest oracles.
 
 Functions with keyword-only parameters use `@deal.pre(lambda arg, *_, **__: ...)` to avoid Deal/CrossHair `TypeError` on default-arg forwarding.
 

@@ -1,21 +1,13 @@
-"""Annotation lock for panel_wiring leftovers (reportMissingParameterType)."""
+"""Tests for panel wiring listener installation and control wiring."""
 
 from __future__ import annotations
 
-import logging
-from typing import Any, get_type_hints
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from plugin.chatbot.panel_wiring import _install_frame_session_listeners, _wireControls
-
-
-def test_wire_controls_annotates_self() -> None:
-    """Module-level `_wireControls(self, ...)` is not a method; `self` still needs a type."""
-    hints = get_type_hints(_wireControls)
-    assert hints["self"] is Any
-    assert hints["root_window"] is Any
 
 
 def test_install_thread_violation_propagates() -> None:
@@ -28,19 +20,13 @@ def test_install_thread_violation_propagates() -> None:
     session.set_focus_pin.assert_called_once_with(query)
 
 
-def test_install_other_errors_stay_a_debug_log(caplog: pytest.LogCaptureFixture) -> None:
-    """A normal attach failure is still logged and does not leave wiring."""
-    # Release bundles strip log.debug; skip this assertion there.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.debug stripped in release bundle")
+def test_install_other_errors_do_not_propagate() -> None:
+    """A normal attach failure is swallowed and does not leave wiring."""
     session = MagicMock()
     session.install.side_effect = RuntimeError("focus attach failed")
     query = object()
-    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.panel_wiring"):
-        _install_frame_session_listeners(session, {"query": query})
+    _install_frame_session_listeners(session, {"query": query})
     session.set_focus_pin.assert_called_once_with(query)
-    assert any("frame session focus install" in record.message for record in caplog.records)
 
 
 def test_measure_send_width_restores_label_when_pos_size_fails() -> None:

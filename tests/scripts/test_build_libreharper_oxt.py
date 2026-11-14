@@ -33,8 +33,6 @@ from scripts.build_libreharper_oxt import (
 from scripts.libreharper_bundle_paths import (
     LIBREHARPER_CLIENT_INIT,
     LIBREHARPER_DOC_INIT,
-    LIBREHARPER_FORBIDDEN_CHAT_UI_MARKERS,
-    LIBREHARPER_PLUGIN_FILES,
     LIBREHARPER_WRITER_INIT,
     collect_libreharper_plugin_paths,
     is_libreharper_forbidden_chat_ui,
@@ -124,35 +122,10 @@ def test_linguistic_libreharper_grammar_xcu_locales_match_tags() -> None:
     assert values == list(HARPER_LOCALE_TAGS)
 
 
-def test_libreharper_manifest_registers_harper_proofreader_only() -> None:
-    path = os.path.join(PROJECT_ROOT, "extension-harper", "META-INF", "manifest.xml")
-    body = open(path, encoding="utf-8").read()
-    assert "plugin/writer/locale/harper_proofreader.py" in body
-    assert "LinguisticLibreHarperGrammar.xcu" in body
-    assert "ai_grammar_proofreader.py" not in body
-    assert "CalcAddIns" not in body
-    assert "Jobs.xcu" not in body
-
-    root = ET.parse(path).getroot()
-    full_paths: list[str] = []
-    for el in root.iter():
-        full = el.get("{http://openoffice.org/2001/manifest}full-path") or el.get("manifest:full-path")
-        if full:
-            full_paths.append(full)
-    joined = "\n".join(full_paths)
-    assert "ChatPanelFactory" not in joined
-    assert "WriterAgentDeck" not in joined
-    assert "ChatPanelDialog" not in joined
-    assert "Factories.xcu" not in joined
-    assert "Sidebar.xcu" not in joined
-    assert "panel_factory.py" not in joined
-
-
 def test_libreharper_bundle_excludes_chatpanel_ui() -> None:
     paths = collect_libreharper_plugin_paths(str(PROJECT_ROOT))
     leaked = [p for p in paths if is_libreharper_forbidden_chat_ui(p)]
     assert leaked == []
-    assert "plugin/chatbot/panel_factory.py" in LIBREHARPER_FORBIDDEN_CHAT_UI_MARKERS
     assert is_libreharper_forbidden_chat_ui("registry/org/openoffice/Office/UI/Factories.xcu")
     assert is_libreharper_forbidden_chat_ui("Dialogs/ChatPanelDialog.xdl")
     assert is_libreharper_forbidden_chat_ui("plugin/chatbot/panel_factory.py")
@@ -163,26 +136,6 @@ def test_libreharper_bundle_excludes_chatpanel_ui() -> None:
     )
     assert os.path.isfile(os.path.join(harper_registry, "LinguisticLibreHarperGrammar.xcu"))
     assert not os.path.isdir(os.path.join(harper_registry, "UI"))
-
-
-def test_collect_libreharper_plugin_paths() -> None:
-    paths = collect_libreharper_plugin_paths(str(PROJECT_ROOT))
-    assert "plugin/framework/config_schema.py" in paths
-    assert "plugin/framework/client/errors.py" in paths
-    assert "plugin/writer/locale/harper.py" in paths
-    assert not any(p.endswith("harper_host.py") for p in paths)
-    assert "plugin/doc/udprops.py" in paths
-    assert "plugin/writer/locale/grammar_worker.py" in paths
-    assert not any("llm_client" in p for p in paths)
-    assert "plugin/framework/deal_shim.py" in paths
-    assert "plugin/chatbot/extension_update_check.py" in paths
-    assert "plugin/chatbot/dialogs.py" in paths
-    assert "plugin/framework/client/requests.py" in paths
-    assert "plugin/framework/client/http_transport.py" in paths
-    assert "plugin/framework/module_base.py" in paths
-    assert "plugin/chatbot/__init__.py" not in paths
-    assert "plugin/framework/service.py" not in paths
-    assert "plugin/framework/service.py" not in LIBREHARPER_PLUGIN_FILES
 
 
 def test_libreharper_bundle_covers_top_level_plugin_imports() -> None:

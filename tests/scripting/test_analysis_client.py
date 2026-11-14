@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.scripting.client import run_analysis
-from plugin.framework.errors import ToolExecutionError
 
 
 @pytest.fixture
@@ -30,12 +29,12 @@ def test_run_analysis_happy_path(ctx):
     context = {"sheet_name": "Sheet1"}
 
     with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.client.python_exec_timeout", return_value=30),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         result = run_analysis(ctx, spec, data, context=context)
 
-    assert result["helper"] == "describe_data"
+    assert result is worker_result
     mock_run.assert_called_once()
     kwargs = mock_run.call_args.kwargs
     assert kwargs["domain"] == "analysis"
@@ -44,24 +43,5 @@ def test_run_analysis_happy_path(ctx):
     assert kwargs["context"] == context
     assert kwargs.get("session_id") is None
     assert kwargs["timeout_sec"] == 30
-
-
-@pytest.mark.parametrize(
-    "value, match",
-    [
-        pytest.param("boom", "boom", id="test_run_analysis_worker_error"),
-        pytest.param("unexpected result", "unexpected result", id="test_run_analysis_malformed_result"),
-    ],
-)
-def test_run_analysis_worker_error(ctx, value, match):
-    with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=10),
-        patch(
-            "plugin.scripting.client.run_trusted_worker_action",
-            side_effect=ToolExecutionError(value, code="ANALYSIS_ERROR"),
-        ),
-    ):
-        with pytest.raises(ToolExecutionError, match=match):
-            run_analysis(ctx, "describe_data", [])
 
 

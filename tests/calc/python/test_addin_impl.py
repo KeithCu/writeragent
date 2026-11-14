@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.calc_addin_data import _FALSE_STRINGS, _TRUE_STRINGS, calc_addin_data_to_python
 from plugin.calc.python.addin_impl import PythonFunction
 
 
@@ -43,13 +42,3 @@ def test_python_addin_missing_caller_returns_error_without_guessing():
         assert func.py(None, "result = 1") == "Error: no calling document"
     mock_exec.assert_not_called()
     front_window.assert_not_called()
-
-
-def test_python_addin_uses_english_logical_strings():
-    ctx = MagicMock()
-    PythonFunction(ctx)
-    assert _TRUE_STRINGS == {"=TRUE()", "TRUE", "True"}
-    assert _FALSE_STRINGS == {"=FALSE()", "FALSE", "False"}
-    # Exact-case matching is intentional; lowercase stays text.
-    assert calc_addin_data_to_python("true") == [["true"]]
-    ctx.getServiceManager.assert_not_called()

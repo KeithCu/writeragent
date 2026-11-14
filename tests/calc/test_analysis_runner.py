@@ -20,7 +20,7 @@ def test_run_trusted_analysis_sheet_disposal_propagates():
 
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
         patch("plugin.scripting.client.run_analysis") as mock_run_analysis,
     ):
@@ -39,7 +39,7 @@ def test_run_trusted_analysis_sheet_disposal_propagates():
 def test_run_trusted_analysis_sheet_name_failure_is_best_effort():
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
         patch("plugin.scripting.client.run_analysis", return_value={"status": "ok"}) as mock_run_analysis,
     ):
@@ -66,7 +66,7 @@ def test_run_trusted_analysis_dummy_thread_routes_to_main_thread():
     with (
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.framework.queue_executor.main.call", side_effect=fake_execute),
-        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
+        patch("plugin.calc.calc_addin_data.resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
         patch("plugin.scripting.client.run_analysis", return_value={"status": "ok"}),
     ):

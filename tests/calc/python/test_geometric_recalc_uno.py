@@ -55,7 +55,6 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
         "quoted_range": _store(b1, '=PY("np.mean(data)"; B1:B10)'),
         "code_in_cell": _store(sheet.getCellByPosition(3, 0), "=PY($A$1; B1:B10)"),
     }
-    print("geometric getFormula probe:", samples)
 
     # 1) =PY("y"; $C$5) attach predecessor — $C$5 stays absolute.
     stored = samples["quoted_abs"]
@@ -77,14 +76,9 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     # Absolute user ref must survive setFormula+getFormula (Calc may keep $C$5
     # or add a sheet; do not accept a relative C5 if $ was stored).
     first_arg = after_args[0]
-    stored_first = old_args[0]
-    if "$" in stored_first:
-        assert "$" in first_arg, (stored, rebuilt, after)
-        assert first_arg.replace("$", "").upper().endswith("C5"), after
-    else:
-        # Calc itself dropped $ on first store — splice must not invent a
-        # different cell, and must still parse.
-        assert first_arg.replace("$", "").upper().endswith("C5"), after
+    assert "$" in old_args[0], stored
+    assert "$" in first_arg, (stored, rebuilt, after)
+    assert first_arg.replace("$", "").upper().endswith("C5"), after
 
     # 2) Quoted code + range: splice appends a pred; getFormula still parses.
     stored_range = samples["quoted_range"]
@@ -505,16 +499,16 @@ def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
         # 3) Undo restores the inserted cell and A3's ;A2 (hidden under the delete).
         um = doc.getUndoManager()
         assert um is not None
-        if um.isUndoPossible():
-            um.undo()
-            # Either one undo restores both (hidden) or the user cell is back.
-            restored = str(a2.getFormula() or "")
-            if "PY" in restored.upper() or "PYTHON" in restored.upper():
-                _flush(ctx, doc, sheet)
-                assert _pred(str(a3.getFormula() or "")) == "A2", (
-                    a2.getFormula(),
-                    a3.getFormula(),
-                )
+        assert um.isUndoPossible()
+        um.undo()
+        restored = str(a2.getFormula() or "")
+        assert "PY" in restored.upper() or "PYTHON" in restored.upper(), restored
+        # One undo may restore only A2; flush re-links A3 to it either way.
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) == "A2", (
+            a2.getFormula(),
+            a3.getFormula(),
+        )
 
         # Successor-becomes-first → remove-field.
         a2.setFormula("")
@@ -531,14 +525,14 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
     """Cap-hit: skip the whole sheet, do not chain the first 100, one msgbox."""
     from unittest.mock import patch
 
-    from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
+    from plugin.calc.python.cell_discovery import MAX_PYTHON_CELLS_FOUND
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
 
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
     try:
         sheet = doc.getSheets().getByIndex(0)
-        for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
+        for i in range(MAX_PYTHON_CELLS_FOUND + 1):
             sheet.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
         with patch("plugin.chatbot.dialogs.msgbox") as mock_box:
             _flush(ctx, doc, sheet)
@@ -546,7 +540,7 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
         # First successor stays unchained (whole sheet skipped).
         a2 = str(sheet.getCellByPosition(0, 1).getFormula() or "")
         assert _pred(a2) is None, a2
-        a101 = str(sheet.getCellByPosition(0, _MAX_PYTHON_CELLS_FOUND).getFormula() or "")
+        a101 = str(sheet.getCellByPosition(0, MAX_PYTHON_CELLS_FOUND).getFormula() or "")
         assert _pred(a101) is None, a101
     finally:
         _restore_geometric_flag(ctx, previous)
@@ -676,6 +670,7 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
             0,
             [[10, 20], [30, 40]],
             doc=doc,
+            sheet=sheet,
             code=spill_code,
             key=doc_url,
         )
@@ -892,18 +887,18 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
 def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     """§9.3 / §10: Isolated + flag on — no Shared globals; strip with the caller doc.
 
-    UI load/repair keys the map with ``geometric_workbook_key`` (``calc:`` +
+    UI load/repair keys the map with ``calc_workbook_base_session_id`` (``calc:`` +
     ``mint_document_key``, never empty); eval strips with the same key
     read from the caller document.
     """
+    from plugin.calc.python.function import build_cell_context
     from plugin.calc.python.geometric_recalc import (
         _RUNTIME,
-        geometric_workbook_key,
         maybe_geometric_on_document_open,
         maybe_strip_geometric_eval_args,
         reset_geometric_runtime_for_tests,
     )
-    from plugin.scripting.session_manager import workbook_session_id
+    from plugin.scripting.session_manager import calc_workbook_base_session_id, workbook_session_id
     from plugin.testing_runner import _progress_verbose as _progress
 
     reset_geometric_runtime_for_tests()
@@ -914,12 +909,12 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         _settle_soffice_config()
         # Isolated + no init: do not set an init script.
         maybe_geometric_on_document_open(ctx, doc)
-        sid = geometric_workbook_key(doc)
+        sid = calc_workbook_base_session_id(doc)
         _progress("geometric isolated sid=%r" % (sid,))
         assert sid.startswith("calc:"), sid
         assert sid != "calc:"
         assert sid[5:], sid
-        assert workbook_session_id(ctx, doc) is None
+        assert workbook_session_id(doc) is None
 
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
@@ -948,7 +943,9 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         ), safe
         col = ((10.0,), (20.0,), (30.0,))
         pred = ((0.0,),)
-        assert maybe_strip_geometric_eval_args(mean_code, [col, pred], doc=doc) == [col]
+        cell = build_cell_context(ctx, doc, mean_code, on_main=True)
+        assert cell.workbook_key == sid
+        assert maybe_strip_geometric_eval_args(mean_code, [col, pred], cell) == [col]
 
         # Isolated is a no-op for Python globals (Shared names do not appear).
         # Do not wait for 41 — that is the Shared leftover. One or two

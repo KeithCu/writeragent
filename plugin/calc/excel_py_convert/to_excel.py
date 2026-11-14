@@ -27,12 +27,14 @@ from plugin.calc.excel_py_convert.models import (
     BindingInfo,
     ConvertedCell,
     ConversionReport,
+    DagCellMeta,
+    DagFormulaItem,
     HeaderMode,
-    _as_header_mode,
+    as_header_mode,
 )
 from plugin.calc.excel_py_convert.to_dag import (
-    _OBJECT_SUPPRESS,
-    _normalize_excel_placeholders,
+    OBJECT_SUPPRESS,
+    normalize_excel_placeholders,
     analyze_xl_calls,
     format_python_syntax_issue,
 )
@@ -42,11 +44,6 @@ from plugin.framework.ast_stmt_edit import line_starts_exact, node_span
 # Calc ``Sheet.A1`` → Excel ``Sheet!A1`` for _xlws.PY deps (leave ranges without a sheet alone).
 _CALC_SHEET_REF_RE = re.compile(r"^((?:'[^']*(?:''[^']*)*')|[^'!.]+)\.(\$?[A-Za-z]+\$?\d+(?::\$?[A-Za-z]+\$?\d+)?)$")
 
-_IGNORED_ORDERING_DEPS_ISSUE = "ignored ordering-only deps on reverse export"
-
-# (sheet, cell, formula) or (sheet, cell, formula, report-cell-meta)
-DagFormulaItem = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
-
 
 def _xl_expr(index: int, header_mode: HeaderMode) -> str:
     # Match Microsoft samples: no space after the comma in ``headers=…``.
@@ -55,7 +52,7 @@ def _xl_expr(index: int, header_mode: HeaderMode) -> str:
 
 
 def _data_header_modes(bindings: Sequence[BindingInfo]) -> list[HeaderMode]:
-    return [_as_header_mode(b.header_mode) for b in bindings if b.role != "ordering"]
+    return [as_header_mode(b.header_mode) for b in bindings if b.role != "ordering"]
 
 
 def _data_index(node: ast.AST, names: tuple[str, ...]) -> int | None:
@@ -199,8 +196,7 @@ def rewrite_dag_code_to_excel(
 ) -> tuple[str, list[str], list[str], bool]:
     """Rewrite DAG code to Excel package ``xl(%Pn%)`` / ``xl(%Pn%, headers=…)``.
 
-    Returns ``(excel_code, deps, issues, fatal)``. Only *data* args are returned as deps
-    (ordering-only args must already be filtered by the caller).
+    Returns ``(excel_code, deps, issues, fatal)``. ``data_args`` are the formula's data ranges.
     """
     issues: list[str] = []
     deps = list(data_args)
@@ -208,14 +204,14 @@ def rewrite_dag_code_to_excel(
     while len(modes) < len(deps):
         modes.append("omit")
     text = code or ""
-    if text.endswith(_OBJECT_SUPPRESS):
-        text = text[:-len(_OBJECT_SUPPRESS)]
+    if text.endswith(OBJECT_SUPPRESS):
+        text = text[:-len(OBJECT_SUPPRESS)]
 
     if not text.strip():
         return text, deps, issues, False
 
     # Tip: the runnable DAG form quotes xl("%Pn%"); the Excel package uses bare %Pn%.
-    normalized = _normalize_excel_placeholders(text)
+    normalized = normalize_excel_placeholders(text)
     try:
         tree = ast.parse(normalized)
     except (SyntaxError, TypeError, MemoryError, RecursionError) as exc:
@@ -233,7 +229,7 @@ def rewrite_dag_code_to_excel(
     for call in analysis.calls:
         if call.p_num is not None:
             idx = call.p_num - 2
-            repl = _xl_expr(idx, _as_header_mode(call.header_mode))
+            repl = _xl_expr(idx, as_header_mode(call.header_mode))
             all_spans.append((call.start, call.end, repl))
 
     legacy_spans, legacy_issues, legacy_fatal = _collect_legacy_spans(tree, text, line_starts, deps, modes)
@@ -313,37 +309,21 @@ def assign_script_bank(cells: Sequence[ConvertedCell]) -> list[str]:
     return scripts
 
 
-def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: str = "A1", return_type: int = 0, meta: dict[str, Any] | None = None) -> ConvertedCell:
+def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: str = "A1", meta: DagCellMeta | None = None) -> ConvertedCell:
     """Convert one DAG-style ``=PY("…"; ranges)`` formula string to Excel shape."""
     parts = PyFormula.parse(formula)
     if parts is None:
-        return ConvertedCell(sheet=sheet, cell=cell, direction="excel", original_code=formula, converted_code="", issues=["not a =PY/=PYTHON formula"], converted=False, return_type=return_type)
+        return ConvertedCell(sheet=sheet, cell=cell, direction="excel", original_code=formula, converted_code="", issues=["not a =PY/=PYTHON formula"], converted=False)
 
-    meta = meta or {}
-    rt = int(meta.get("return_type", return_type) or 0)
-    all_args = parts.data_args()
+    if meta is None:
+        meta = DagCellMeta()
 
-    # Prefer explicit data_args / ordering_args from report metadata.
-    if "data_args" in meta or "ordering_args" in meta:
-        data_args = [str(a) for a in (meta.get("data_args") or [])]
-        ordering_args = [str(a) for a in (meta.get("ordering_args") or [])]
-    else:
-        # Without metadata, treat trailing args as data (cannot know ordering-only).
-        data_args = list(all_args)
-        ordering_args = []
-
-    bindings_raw = meta.get("bindings")
-    bindings = [BindingInfo.from_dict(b) for b in bindings_raw if isinstance(b, dict)] if isinstance(bindings_raw, list) else []
-
-    modes = _data_header_modes(bindings)
+    data_args = list(parts.data_args()) if meta.data_args is None else list(meta.data_args)
+    modes = _data_header_modes(meta.bindings)
 
     excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(parts.code, data_args, header_modes=modes)
-    if ordering_args:
-        issues.append(_IGNORED_ORDERING_DEPS_ISSUE)
-    array_ref = str(meta.get("array_ref") or "")
-    excel_deps_meta = [str(a) for a in (meta.get("excel_deps") or []) if a]
     # Keep export tokens aligned with rewritten data_args length.
-    excel_deps_out = excel_deps_meta if len(excel_deps_meta) == len(deps) else []
+    excel_deps_out = list(meta.excel_deps) if len(meta.excel_deps) == len(deps) else []
     out = ConvertedCell(
         sheet=sheet,
         cell=cell,
@@ -352,27 +332,24 @@ def convert_dag_formula_to_excel(formula: str, *, sheet: str = "Sheet1", cell: s
         converted_code=excel_code,
         data_args=deps,
         excel_deps=excel_deps_out,
-        ordering_args=ordering_args,
-        bindings=bindings,
+        bindings=list(meta.bindings),
         excel_formula="",  # filled by assign_script_bank
         issues=issues,
         shared_kernel=not deps and "data" not in parts.code,
-        return_type=rt,
+        return_type=meta.return_type,
         converted=not fatal,
-        array_ref=array_ref,
+        array_ref=meta.array_ref,
     )
     assign_script_bank([out])
     return out
 
 
-def convert_dag_cells_to_excel(formulas: Sequence[DagFormulaItem], *, return_type: int = 0, report_meta: dict[str, Any] | None = None) -> ConversionReport:
+def convert_dag_cells_to_excel(formulas: Sequence[DagFormulaItem], *, report_meta: dict[str, Any] | None = None) -> ConversionReport:
     """Convert DAG workbook formulas / report cells to Excel-shaped export."""
     report = ConversionReport(direction="excel")
     report.source_path = str((report_meta or {}).get("source_path") or "")
     for item in formulas:
-        sheet, cell, formula, *rest = item
-        meta: dict[str, Any] = rest[0] if rest else {}
-        report.cells.append(convert_dag_formula_to_excel(formula, sheet=sheet, cell=cell, return_type=return_type, meta=meta))
+        report.cells.append(convert_dag_formula_to_excel(item.formula, sheet=item.sheet, cell=item.cell, meta=item.meta))
     assign_script_bank(report.cells)
     return report
 
@@ -381,7 +358,7 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
     """Reverse a DAG ``ConversionReport`` to Excel shape (preserves return_type / excel_deps).
 
     ``_xlws.PY`` deps use ``deps_for_xlws_export`` (original Table/ANCHORARRAY tokens when
-    present — see models module doc). Legacy ``ordering_args`` are not emitted.
+    present — see models module doc).
     """
     out = ConversionReport(direction="excel", source_path=dag_report.source_path)
     for cell in dag_report.cells:
@@ -392,8 +369,6 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
             continue
         modes = _data_header_modes(cell.bindings)
         excel_code, deps, issues, fatal = rewrite_dag_code_to_excel(cell.converted_code, list(cell.data_args), header_modes=modes)
-        if cell.ordering_args:
-            issues.append(_IGNORED_ORDERING_DEPS_ISSUE)
         excel_deps = list(cell.excel_deps)
         if excel_deps and len(excel_deps) != len(deps):
             # data_args rewrite rarely changes length; if it does, fall back to A1.
@@ -407,7 +382,6 @@ def convert_dag_report_to_excel(dag_report: ConversionReport) -> ConversionRepor
                 converted_code=excel_code,
                 data_args=deps,
                 excel_deps=excel_deps,
-                ordering_args=list(cell.ordering_args),
                 bindings=list(cell.bindings),
                 issues=issues,
                 shared_kernel=cell.shared_kernel,

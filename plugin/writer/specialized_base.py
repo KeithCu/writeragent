@@ -27,9 +27,16 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
-from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+from plugin.framework.prompts import (
+    DELEGATION_PUBLIC_WEB_HINT,
+    DELEGATION_USER_FILE_DATA_HINT,
+    delegation_math_to_python_hint,
+    python_orchestrator_routing_line,
+)
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
+
+_WRITER_DELEGATE_TOOL = "delegate_to_specialized_writer_toolset"
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 
@@ -86,10 +93,12 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
     to focus on the user's specific request, preventing context pollution.
     """
 
-    name: str | None = "delegate_to_specialized_writer_toolset"
+    name: str | None = _WRITER_DELEGATE_TOOL
     description: str = (
         "Delegates a specialized task with a focused toolset. "
-        f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}."
+        "For document_research and web_research, describe what to research in task (topics, sections, depth). "
+        f"{delegation_math_to_python_hint(delegate_toolset=_WRITER_DELEGATE_TOOL)} "
+        f"{python_orchestrator_routing_line(delegate_toolset=_WRITER_DELEGATE_TOOL)}"
     )
 
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -149,7 +158,7 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "Extract text and structure (layout, tables) from embedded graphics; extract_structure_from_image."
+        "OCR: extract text and structure (layout, tables) from the selected graphic and insert it into the document (task is ignored). Use this call for OCR."
     )
 
 

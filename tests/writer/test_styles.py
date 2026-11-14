@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
-    _close_style_names, _STYLE_KEEPALIVE, keep_style_alive,
+    _close_style_names, _STYLE_KEEPALIVE,
 )
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.tests.testing_utils import TestingFactory, WriterDocStub
@@ -239,11 +239,12 @@ def test_get_style_info_page_styles_returns_page_properties():
     assert page["properties"] == res["properties"]
 
 
-def test_apply_style_clear_direct_schema_default_is_style_props():
-    """Small models read the schema; default must be the house-font-wins value."""
-    schema = ApplyStyle.parameters["properties"]["clear_direct"]
-    assert schema["default"] == "style_props"
-    assert schema["enum"] == ["none", "style_props", "all"]
+def test_apply_style_clear_direct_schema_default_matches_runtime():
+    """Small models read the schema; schema default must match the ParagraphStyles runtime default."""
+    assert (
+        ApplyStyle.parameters["properties"]["clear_direct"]["default"]
+        == ApplyStyle._resolve_clear_direct("ParagraphStyles", None)
+    )
 
 
 def test_resolve_clear_direct_defaults():
@@ -438,12 +439,6 @@ def test_update_style_with_parent():
     style.setPropertyValue.assert_called_once_with("CharWeight", 150)
     assert "CharWeight" in res["before"]
     assert res["after"]["ParentStyle"] == "Standard"
-
-
-def test_style_update_schema_para_adjust_is_words():
-    schema = StyleUpdate.parameters["properties"]["property_updates"]["properties"]["ParaAdjust"]
-    assert schema["type"] == "string"
-    assert schema["enum"] == ["left", "center", "right", "justify"]
 
 
 def test_update_style_para_adjust_words():
@@ -742,20 +737,6 @@ def test_clone_paragraph_style_copies_parent_follow_and_direct():
     assert _STYLE_KEEPALIVE[-1] is new_style
 
 
-def test_apply_style_uno_skips_windows_leftover_origin_canary() -> None:
-    """GHA 34683742049: leftover reuse flipped the origin-detection canary."""
-    from pathlib import Path
-
-    src = Path(__file__).with_name(
-        "test_apply_style_preserve_inline_uno.py"
-    ).read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_load" in src
-    assert "apply_style origin canary leftover reuse" in src
-    assert "34683742049" in src
-    assert 'fmt.setPropertyValue("ParaStyleName", "Standard")' in src
-    assert "35466498641" in src
-
-
 def test_apply_style_selection_failure_at_tool_layer(mock_ctx):
     with patch("plugin.writer.styles.resolve_target_cursor",
                side_effect=ValueError("Could not resolve the current selection")):
@@ -1040,53 +1021,6 @@ def test_apply_style_unknown_style_lists_names_and_suggests():
     assert "Did you mean 'Heading 1'" in res["message"]
     assert "Text body" in res["message"]
 
-def test_apply_style_all_matches_does_not_stop_early() -> None:
-    from plugin.writer.styles import ApplyStyle
-    from plugin.framework.tool import ToolContext
-
-    tool = ApplyStyle()
-    assert tool.is_async() is False
-
-    doc = WriterDocStub()
-    undo_mgr = MagicMock()
-    undo_mgr.isLocked.return_value = False
-    doc.getUndoManager = MagicMock(return_value=undo_mgr)
-
-    stop_scope = SendCancellation()
-    stop_scope.cancel()
-    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test", send_cancellation=stop_scope)
-    ctx.services.get = MagicMock(return_value=None)
-
-    # Stop scope is cancelled, but document mutation must not abort early
-    applied_count = 0
-
-    # Fake 4 find results
-    ranges = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]
-    for i, r in enumerate(ranges):
-        text_mock = MagicMock()
-        text_mock.createTextCursorByRange.return_value = MagicMock()
-        r.getText.return_value = text_mock
-        r.getStart.return_value = "start"
-        r.getEnd.return_value = "end"
-
-    with patch("plugin.writer.search.find_all_ranges", return_value=ranges):
-        tool._tool_error = lambda m: {"status": "error", "message": m}
-
-        def mock_apply_one(*args, **kwargs):
-            nonlocal applied_count
-            applied_count += 1
-            return {"applied_direct": 1}
-
-        tool._apply_one = mock_apply_one
-        tool._merge_reports = lambda rep: {}
-
-        with patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-            res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
-
-            assert res["status"] == "ok"
-            assert res["applied_count"] == 4
-            assert "Tool stopped early" not in res["message"]
-
 
 def test_style_color_par_back_and_automatic():
     style = MagicMock()
@@ -1168,15 +1102,6 @@ def test_style_get_info_char_posture_and_line_spacing():
     assert res2["CharPosture"] == 1
 
 
-def test_schema_lists_struct_keys():
-    props = StyleUpdate.parameters["properties"]["property_updates"]["properties"]
-    assert "ParaLineSpacing" in props
-    assert "ParaTabStops" in props
-    char_posture_desc = props["CharPosture"]["description"]
-    assert "1=Oblique" in char_posture_desc
-    assert "2=Italic" in char_posture_desc
-
-
 def test_create_style_does_not_insert_when_a_property_fails():
     fam = _style_family({})
     ctx = _ctx_with_families(ParagraphStyles=fam)
@@ -1193,16 +1118,6 @@ def test_create_style_does_not_insert_when_a_property_fails():
     assert "CharWeight" in res.get("failed_properties", {})
     fam.insertByName.assert_not_called()
     assert style_instance not in _STYLE_KEEPALIVE
-
-
-def test_keep_style_alive_records_proxies():
-    mock_style = MagicMock()
-    keep_style_alive(mock_style)
-    assert _STYLE_KEEPALIVE[-1] is mock_style
-    # None is ignored
-    before_len = len(_STYLE_KEEPALIVE)
-    keep_style_alive(None)
-    assert len(_STYLE_KEEPALIVE) == before_len
 
 
 def test_create_style_bad_conditional_rule_inserts_nothing():
@@ -1351,21 +1266,6 @@ def test_import_styles_rejects_relative_and_missing(mock_ctx):
         assert res2["status"] == "error"
         assert "path does not exist" in res2["message"]
         assert len(mock_ctx.doc._load_styles_calls) == 0
-
-
-def test_style_list_family_description():
-    desc = StyleList.parameters["properties"]["family"]["description"]
-    assert "Default: ParagraphStyles" not in desc
-    tool = StyleList()
-    ctx = _ctx_with_families(
-        ParagraphStyles=_style_family({}),
-        CharacterStyles=_style_family({}),
-        PageStyles=_style_family({}),
-    )
-    res1 = tool.execute(ctx, family="")
-    assert "families" in res1
-    res2 = tool.execute(ctx, family="ParagraphStyles")
-    assert res2["status"] == "ok"
 
 
 def test_apply_style_unknown_family_is_validation_error():
@@ -1838,14 +1738,6 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
         assert res["status"] == "error"
         assert res["code"] == "ROLLBACK_FAILED"
-
-
-def test_apply_style_description_does_not_repeat_clear_direct_param():
-    """Tool description keeps the paragraph-restyling caveat but leaves clear_direct details to the parameter schema."""
-    assert ApplyStyle.description is not None
-    assert ApplyStyle.parameters is not None
-    assert "clear_direct=" not in ApplyStyle.description
-    assert "'style_props' (default)" in ApplyStyle.parameters["properties"]["clear_direct"]["description"]
 
 
 

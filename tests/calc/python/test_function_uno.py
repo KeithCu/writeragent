@@ -124,7 +124,7 @@ def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         pump_main_thread_work_queue(max_items=20)
-        if st is None or len(st.debounce) == 0:
+        if st is None or len(st.debounce.pending_for_tests()) == 0:
             break
         time.sleep(0.05)
     # A timer that just fired may still have its write queued for the UI thread.
@@ -212,7 +212,7 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         try:
             from plugin.calc.python.function import build_cell_context
 
-            bindings = {"scoped_dir": build_cell_context(ctx, doc, "").scoped_dir}
+            bindings = {"scoped_dir": build_cell_context(ctx, doc, "", on_main=True).scoped_dir}
             folder = bindings.get("scoped_dir")
             assert folder, bindings
             assert os.path.samefile(folder, temp_dir), bindings
@@ -415,20 +415,41 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
 @native_test
 @with_native_doc("calc")
 def test_py_addin_worker_exception_formula_error(ctx, doc):
-    """Add-in bridge returns quiet-NaN formula error (519) on worker execution failure."""
-    import unittest.mock
+    """A failing =PY() run is a Calc formula error chosen from the exception name.
 
+    The code really runs in soffice's Python worker; a patch in this test
+    process cannot reach the add-in Calc calls. An exception with no
+    Calc-specific mapping is #VALUE! (519); ZeroDivisionError is #DIV/0! (532).
+    """
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
     try:
-        err_msg = "Code execution failed at line 'bad' due to: ValueError: bad"
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-            mock_run.return_value = {"status": "error", "message": err_msg}
-            cell = sheet.getCellByPosition(0, 0)
-            cell.setFormula('=PY("bad")')
-            doc.calculateAll()
-            assert cell.getError() == 519
-            assert "Error: Code execution failed" not in cell.getString()
+        value_cell = sheet.getCellByPosition(0, 0)
+        div_cell = sheet.getCellByPosition(0, 1)
+        value_cell.setFormula('=PY("raise ValueError(\'bad\')")')
+        div_cell.setFormula('=PY("result = 1/0")')
+        doc.calculateAll()
+        assert value_cell.getError() == 519, value_cell.getString()
+        assert "Error: Code execution failed" not in value_cell.getString()
+        assert div_cell.getError() == 532, div_cell.getString()
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
+    """Child in-process timeout (code EXECUTION_TIMEOUT) displays timeout guidance text in the cell."""
+    sheet = doc.getSheets().getByIndex(0)
+    clear_python_addin_cache()
+    try:
+        cell = sheet.getCellByPosition(0, 0)
+        cell.setFormula('=PY("import time; time.sleep(12); result = 1")')
+        doc.calculateAll()
+        assert cell.getError() == 0, cell.getError()
+        assert cell.getString().startswith("Error: Python timed out"), repr(cell.getString())
     finally:
         st = WorkbookState.known(doc)
         if st is not None:
@@ -438,18 +459,14 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_py_addin_div0_token_formula_error(ctx, doc):
-    """Add-in bridge maps #DIV/0! token to 532 formula error."""
-    import unittest.mock
-
+    """A real =PY() result of the #DIV/0! token is formula error 532 (computed in soffice's worker)."""
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-            mock_run.return_value = {"status": "ok", "result": "#DIV/0!"}
-            cell = sheet.getCellByPosition(0, 0)
-            cell.setFormula('=PY("result = \'#DIV/0!\'")')
-            doc.calculateAll()
-            assert cell.getError() == 532
+        cell = sheet.getCellByPosition(0, 0)
+        cell.setFormula('=PY("result = \'#DIV/0!\'")')
+        doc.calculateAll()
+        assert cell.getError() == 532
     finally:
         st = WorkbookState.known(doc)
         if st is not None:
@@ -459,18 +476,14 @@ def test_py_addin_div0_token_formula_error(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_py_addin_na_token_formula_error(ctx, doc):
-    """Add-in bridge maps #N/A token to 32767 formula error."""
-    import unittest.mock
-
+    """A real =PY() result of the #N/A token is formula error 32767 (computed in soffice's worker)."""
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-            mock_run.return_value = {"status": "ok", "result": "#N/A"}
-            cell = sheet.getCellByPosition(0, 0)
-            cell.setFormula('=PY("result = \'#N/A\'")')
-            doc.calculateAll()
-            assert cell.getError() == 32767
+        cell = sheet.getCellByPosition(0, 0)
+        cell.setFormula('=PY("result = \'#N/A\'")')
+        doc.calculateAll()
+        assert cell.getError() == 32767
     finally:
         st = WorkbookState.known(doc)
         if st is not None:
@@ -481,46 +494,95 @@ def test_py_addin_na_token_formula_error(ctx, doc):
 @with_native_doc("calc")
 def test_py_spill_neighbors_formula_error(ctx, doc):
     """Spill neighbors: #N/A is written as void (error 32767), others as =#ERRxxx!."""
-    import unittest.mock
-
     sheet = doc.getSheets().getByIndex(0)
     sheet_name = str(sheet.getName() or "Sheet1")
     clear_python_addin_cache()
     code = "result = [[1, '#VALUE!'], ['#N/A', '#DIV/0!']]"
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
-            mock_run.return_value = {"status": "ok", "result": [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]}
-            cell_a1 = sheet.getCellByPosition(0, 0)
-            cell_a1.setFormula(f'=PY("{code}")')
-            grid = [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]
-            perform_deferred_spill(
-                sheet_name,
-                0,
-                0,
-                grid,
-                doc=doc,
-                sheet=sheet,
-                code=code,
-                key=WorkbookState.for_doc(doc).key,
-            )
-            doc.calculateAll()
+        cell_a1 = sheet.getCellByPosition(0, 0)
+        cell_a1.setFormula(f'=PY("{code}")')
+        grid = [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            0,
+            grid,
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=WorkbookState.for_doc(doc).key,
+        )
+        doc.calculateAll()
 
-            # B1 is (col 1, row 0): #VALUE! -> getError() 519, getFormula() =#ERR519! or =#VALUE!
-            cell_b1 = sheet.getCellByPosition(1, 0)
-            assert cell_b1.getError() == 519
-            assert cell_b1.getFormula() in ("=#ERR519!", "=#VALUE!")
+        # B1 is (col 1, row 0): #VALUE! -> getError() 519, getFormula() =#ERR519! or =#VALUE!
+        cell_b1 = sheet.getCellByPosition(1, 0)
+        assert cell_b1.getError() == 519
+        assert cell_b1.getFormula() in ("=#ERR519!", "=#VALUE!")
 
-            # A2 is (col 0, row 1): #N/A -> getError() 32767
-            cell_a2 = sheet.getCellByPosition(0, 1)
-            assert cell_a2.getError() == 32767
+        # A2 is (col 0, row 1): #N/A -> getError() 32767
+        cell_a2 = sheet.getCellByPosition(0, 1)
+        assert cell_a2.getError() == 32767
 
-            # B2 is (col 1, row 1): #DIV/0! -> getError() 532, getFormula() =#ERR532! or =#DIV/0!
-            cell_b2 = sheet.getCellByPosition(1, 1)
-            assert cell_b2.getError() == 532
-            assert cell_b2.getFormula() in ("=#ERR532!", "=#DIV/0!")
+        # B2 is (col 1, row 1): #DIV/0! -> getError() 532, getFormula() =#ERR532! or =#DIV/0!
+        cell_b2 = sheet.getCellByPosition(1, 1)
+        assert cell_b2.getError() == 532
+        assert cell_b2.getFormula() in ("=#ERR532!", "=#DIV/0!")
 
-            # A1 is still the =PY() formula
-            assert "PY" in cell_a1.getFormula()
+        # A1 is still the =PY() formula
+        assert "PY" in cell_a1.getFormula()
+    finally:
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_neighbors_temporal_formats(ctx, doc):
+    """Spill neighbors: temporal values get numeric serials and standard date/time/duration formats."""
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    clear_python_addin_cache()
+    code = "result = [['2026-08-08', 'PT30H'], ['2026-08-08T12:00:00', '12:30:00']]"
+    try:
+        cell_a1 = sheet.getCellByPosition(0, 0)
+        cell_a1.setFormula(f'=PY("{code}")')
+        grid = [["2026-08-08", "PT30H"], ["2026-08-08T12:00:00", "12:30:00"]]
+        perform_deferred_spill(
+            sheet_name,
+            0,
+            0,
+            grid,
+            doc=doc,
+            sheet=sheet,
+            code=code,
+            key=WorkbookState.for_doc(doc).key,
+        )
+        doc.calculateAll()
+
+        formats = doc.getNumberFormats()
+        formatter = ctx.getServiceManager().createInstanceWithContext("com.sun.star.util.NumberFormatter", ctx)
+        formatter.attachNumberFormatsSupplier(doc)
+
+        # B1: duration PT30H -> 1.25 with [HH]:MM:SS formatting
+        cell_b1 = sheet.getCellByPosition(1, 0)
+        assert abs(cell_b1.getValue() - 1.25) < 1e-9
+        assert cell_b1.getString() == "30:00:00"
+
+        # A2: datetime 2026-08-08T12:00:00 -> 46242.5, Type == 6 (DATETIME)
+        cell_a2 = sheet.getCellByPosition(0, 1)
+        assert abs(cell_a2.getValue() - 46242.5) < 1e-9
+        nf_a2 = int(cell_a2.getPropertyValue("NumberFormat"))
+        assert formats.getByKey(nf_a2).Type == 6
+        assert cell_a2.getString() == formatter.convertNumberToString(nf_a2, 46242.5)
+
+        # B2: time 12:30:00 -> 45000/86400, Type == 4 (TIME)
+        cell_b2 = sheet.getCellByPosition(1, 1)
+        expected_time = 45000.0 / 86400.0
+        assert abs(cell_b2.getValue() - expected_time) < 1e-9
+        nf_b2 = int(cell_b2.getPropertyValue("NumberFormat"))
+        assert formats.getByKey(nf_b2).Type == 4
+        assert cell_b2.getString() == formatter.convertNumberToString(nf_b2, expected_time)
     finally:
         st = WorkbookState.known(doc)
         if st is not None:

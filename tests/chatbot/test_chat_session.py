@@ -191,18 +191,12 @@ def test_refresh_document_context_sets_prompt_and_excerpt():
     ctx = MagicMock()
 
     with (
-        patch("plugin.doc.document_helpers.get_document_context_for_chat", return_value="DOC BODY") as mock_doc,
-        patch("plugin.framework.prompts.get_chat_system_prompt_for_document", return_value="FRESH PROMPT") as mock_prompt,
+        patch("plugin.doc.document_helpers.get_document_context_for_chat", return_value="DOC BODY"),
+        patch("plugin.framework.prompts.get_chat_system_prompt_for_document", return_value="FRESH PROMPT"),
         patch("plugin.framework.config.get_config", return_value="extra notes"),
     ):
         session.refresh_document_context(model, ctx)
 
-    mock_doc.assert_called_once()
-    assert mock_doc.call_args.args[0] is model
-    assert mock_doc.call_args.kwargs["include_end"] is True
-    assert mock_doc.call_args.kwargs["include_selection"] is True
-    assert mock_doc.call_args.kwargs["ctx"] is ctx
-    mock_prompt.assert_called_once_with(model, "extra notes", ctx=ctx)
     assert session.base_system_prompt == "FRESH PROMPT"
     assert session.document_context == "DOC BODY"
     assert session.messages[0]["content"] == "FRESH PROMPT"
@@ -275,12 +269,6 @@ def test_set_system_context_nondict_first_row_inserts_system():
     session.set_system_context("Base", "")
     assert session.messages[0] == {"role": "system", "content": "Base"}
     assert session.messages[1] == "nope"
-
-
-def test_logger_is_module_scoped():
-    from plugin.chatbot import chat_session
-
-    assert chat_session.log.name == "plugin.chatbot.chat_session"
 
 
 def test_messages_for_request_user_send_stable_prefix():

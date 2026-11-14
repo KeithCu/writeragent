@@ -15,7 +15,6 @@ is not an error (text ignored, or a defined zero).
 
 from __future__ import annotations
 
-import inspect
 import math
 
 import numpy as np
@@ -51,6 +50,9 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("nominal", (_INF, 4), "nan", "nominal-inf-rate"),
     ("normdist", ("text", 0, 1), ValueError, "normdist-text"),
     ("normdist", ("", 0, 1), ValueError, "normdist-blank"),
+    ("normdist", (1, 0, 1, None), 0.24197072451914337, "normdist-blank-flag"),
+    ("normdist", (1, 0, 1, ""), 0.24197072451914337, "normdist-empty-flag"),
+    ("normdist", (1, 0, 1, "abc"), ValueError, "normdist-text-flag"),
     ("normdist", (0, 0, 0), "nan", "normdist-zero-stdev"),
     ("normdist", (0, 0, -1), "nan", "normdist-out-of-range"),
     ("norminv", ("text", 0, 1), ValueError, "norminv-text"),
@@ -80,7 +82,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("oddfprice", ("", 41000, 39900, 40100, 0.05, 0.06, 100, 2), "nan", "oddfprice-blank"),
     ("oddfyield", ("text", 41000, 39900, 40100, 0.05, 95, 100, 2), "nan", "oddfyield-text"),
     ("oddfyield", ("", 41000, 39900, 40100, 0.05, 95, 100, 2), "nan", "oddfyield-blank"),
-    # price + redemption == 0 used to raise ZeroDivisionError.
+    # price + redemption == 0 returns NaN instead of raising ZeroDivisionError.
     ("oddfyield", (40000, 41000, 39900, 40100, 0.05, -100, 100, 2), "nan", "oddfyield-zero-denom"),
     ("oddfyield", (40000, 40000, 39900, 40100, 0.05, 95, 100, 2), "nan", "oddfyield-out-of-range"),
     ("oddlprice", ("text", 41000, 39000, 0.05, 0.06, 100, 2), "nan", "oddlprice-text"),
@@ -353,17 +355,6 @@ def test_rsq_slope_steyx_paired_clean():
     assert calc.steyx([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 0.0
 
 
-def test_n_s_all_matches_public_functions():
-    import plugin.scripting.venv.calc_functions_n_s as n_s
-
-    public = {
-        name
-        for name, obj in inspect.getmembers(n_s, inspect.isfunction)
-        if not name.startswith("_") and obj.__module__ == n_s.__name__
-    }
-    assert public == set(n_s.__all__)
-
-
 def test_odd_rounds_away_from_zero():
     # ScOdd ceils away from zero, then steps off an even integer.
     assert calc.odd(1.5) == 3.0
@@ -377,8 +368,7 @@ def test_odd_rounds_away_from_zero():
 
 
 def test_regex_occurrence_and_whole_match():
-    # Search returns the whole match. An optional group that did not
-    # participate used to make group(1) None.
+    # Search returns the whole match even when an optional group did not participate.
     assert calc.regex("b", "(a)?b") == "b"
     assert calc.regex("abc-123", "([a-z]+)-([0-9]+)") == "abc-123"
     assert calc.regex("ababa", "a", None, 2) == "a"
@@ -476,7 +466,7 @@ def test_sort_order_is_only_one_or_minus_one():
 
 
 def test_oddf_frequency_and_basis():
-    # isFreqInvalid is {1, 2, 4}. 1e7 used to walk range(1, int(years * f) + 1).
+    # isFreqInvalid is {1, 2, 4}; non-member frequencies including 1e7 return NaN immediately.
     args = (40000, 41000, 39900, 40100, 0.05, 0.06, 100)
     for freq in (3, 1.5, 4.9, 1.9, 0, -1, 10_000_000):
         assert math.isnan(calc.oddfprice(*args, freq))

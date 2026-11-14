@@ -31,9 +31,9 @@ def test_other_formula_error_codes_keep_their_labels():
     assert "#VALUE!" in formula_evaluation_error_message(519)
     assert "Circular reference" in formula_evaluation_error_message(522)
     msg_538 = formula_evaluation_error_message(538)
-    assert "#VALUE!" in msg_538 and "Array or matrix size" in msg_538
+    assert "Err:" not in msg_538 and "#VALUE!" not in msg_538 and "Array or matrix size" in msg_538
     msg_539 = formula_evaluation_error_message(539)
-    assert "#VALUE!" in msg_539 and "Unsupported inline array content" in msg_539
+    assert "Err:" not in msg_539 and "#VALUE!" not in msg_539 and "Unsupported inline array content" in msg_539
     assert formula_evaluation_error_message(9999) == "Formula evaluation error: code 9999"
 
 
@@ -341,17 +341,17 @@ def test_evaluate_formula_set_formula_raising():
     assert "B2" in res["message"]
     assert "Unexpected syntax error" in res["message"]
 
+    from plugin.framework.errors import DocumentDisposedError
+
     disposed_doc = _EvalDoc()
     disposed_doc.temp_cell.raise_on_set_formula = DisposedException("Sheet disposed")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         EvaluateFormula().execute(_eval_ctx(disposed_doc), formula="=1+1")
 
 
-def test_evaluate_formula_document_lock_and_mutation():
-    tool = EvaluateFormula()
-    assert tool.requires_document_lock() is True
-    assert tool.detects_mutation() is False
-    assert tool.is_mutation is False
+def test_evaluate_formula_holds_doc_lock_despite_read_only():
+    """EvaluateFormula inserts and removes a temporary sheet, so it must hold the document lock."""
+    assert EvaluateFormula().requires_document_lock() is True
 
 
 def test_evaluate_formula_flags_array_results():
@@ -381,3 +381,44 @@ def test_evaluate_formula_cleanup_failure_still_propagates_disposed_document(mon
     monkeypatch.setattr(doc.sheets, "getByName", _disposed_get_by_name)
     with pytest.raises(DisposedException):
         EvaluateFormula().execute(_eval_ctx(doc), formula="=1+1")
+
+
+def test_evaluate_formula_cleanup_disposal_is_document_disposed():
+    DisposedException = type("DisposedException", (Exception,), {})
+    doc = _EvalDoc(undo_possible=False, modified=False)
+    doc.sheets.raise_on_remove = DisposedException("gone")
+
+    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1")
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_evaluate_formula_cell_lookup_disposal_is_document_disposed(monkeypatch):
+    DisposedException = type("DisposedException", (Exception,), {})
+    doc = _EvalDoc(undo_possible=False, modified=False)
+
+    def _disposed_cell(_col: int, _row: int):
+        raise DisposedException("gone")
+
+    monkeypatch.setattr(doc.temp, "getCellByPosition", _disposed_cell)
+    res = EvaluateFormula().execute_safe(_eval_ctx(doc), formula="=1+1")
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_evaluate_formula_empty_formula_and_calc_error_codes():
+    from plugin.app import get_tools
+    from plugin.calc.formulas import formula_evaluation_error_message
+
+    doc = _EvalDoc()
+    tool = get_tools().get("evaluate_formula")
+
+    res_empty = tool.execute_safe(_eval_ctx(doc), formula="  ")
+    assert res_empty["status"] == "error"
+    assert res_empty["code"] == "INVALID_PARAM"
+    assert doc.temp_cell.formulas == []
+
+    doc.temp_cell.Error = 532
+    res_err = tool.execute_safe(_eval_ctx(doc), formula="=1/0")
+    assert res_err["status"] == "error"
+    assert res_err["code"] == "CALC_ERROR"
+    assert res_err["error_code"] == 532
+    assert res_err["message"] == formula_evaluation_error_message(532)

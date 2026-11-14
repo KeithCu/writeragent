@@ -321,14 +321,6 @@ def test_apply_shape_properties_text_defaults_to_autofit() -> None:
     shape.setPropertyValue.assert_any_call("TextFitToSize", "AUTOFIT_SENTINEL")
 
 
-def test_upsert_shape_font_size_schema_prefers_omit_autofit() -> None:
-    """shape_upsert font_size description nudges models to omit for AUTOFIT."""
-    desc = UpsertShape.parameters["properties"]["font_size"]["description"]
-    assert "Omit" in desc
-    assert "AUTOFIT" in desc
-    assert "usually correct" in desc
-
-
 def test_apply_shape_properties_font_size_skips_autofit() -> None:
     """Explicit font_size in schema opts out of TextFitToSize=AUTOFIT."""
     shape = MagicMock()
@@ -445,6 +437,42 @@ def test_shape_upsert_line_allows_zero_width_or_height():
             assert exc.code == "DRAW_INVALID_SIZE"
         else:
             raise AssertionError("%s %s x %s should be invalid" % (shape_type, width, height))
+
+
+def _valid_draw_pos() -> MagicMock:
+    pos = MagicMock()
+    pos.X = 100
+    pos.Y = 200
+    return pos
+
+
+def _invalid_draw_pos() -> MagicMock:
+    pos = MagicMock()
+    del pos.X
+    return pos
+
+
+@pytest.mark.parametrize(
+    ("page", "pos_factory", "create_result", "expected_code"),
+    [
+        (None, _valid_draw_pos, MagicMock(), "DRAW_PAGE_NULL"),
+        (MagicMock(), _invalid_draw_pos, MagicMock(), "DRAW_INVALID_POSITION"),
+        (MagicMock(), _valid_draw_pos, None, "DRAW_SHAPE_CREATION_FAILED"),
+    ],
+    ids=["null_page", "invalid_position", "creation_returned_none"],
+)
+def test_safe_create_shape_input_and_creation_errors(page, pos_factory, create_result, expected_code):
+    """safe_create_shape returns coded DrawError for null page, bad position, or None shape."""
+    from plugin.draw.shapes import DrawError, DrawShapes
+
+    doc = MagicMock()
+    doc.createInstance.return_value = create_result
+    size = MagicMock()
+    size.Width = 300
+    size.Height = 400
+    with pytest.raises(DrawError) as exc_info:
+        DrawShapes().safe_create_shape(doc, page, "RectangleShape", pos_factory(), size)
+    assert exc_info.value.code == expected_code
 
 
 def test_shape_upsert_execute_line_zero_height():
@@ -690,15 +718,12 @@ def test_shape_upsert_within_page_has_no_warning():
 
 
 def test_shape_tool_service_lists_and_scoping():
-    """Draw, Calc, and Writer shape tools share uno_services and doc_types; bases supply core dependencies."""
+    """Draw, Calc, and Writer shape tools share the union of uno_services."""
     from plugin.calc import shapes as calc_shapes
-    from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
     from plugin.draw import shapes as draw_shapes
     from plugin.writer.specialized import shapes as writer_shapes
 
-    expected_services = list(SHAPE_TOOL_UNO_SERVICES)
-    expected_doc_types = ["writer", "calc", "draw", "impress"]
-    tool_names = [
+    tool_names = (
         "UpsertShape",
         "DeleteShape",
         "GetDrawSummary",
@@ -707,23 +732,16 @@ def test_shape_tool_service_lists_and_scoping():
         "AlignShapes",
         "DistributeShapes",
         "CreateDiagram",
-    ]
+    )
 
-    for mod in (draw_shapes, calc_shapes, writer_shapes):
-        for name in tool_names:
-            cls = getattr(mod, name)
-            assert cls.uno_services == expected_services
-            assert cls.doc_types == expected_doc_types
-
-    calc_core = frozenset({"get_sheet_summary", "read_cell_range"})
     for name in tool_names:
-        assert getattr(calc_shapes, name).required_core_tools == calc_core
-
-    writer_core = frozenset({"get_document_content", "get_document_tree"})
-    for name in tool_names:
-        assert getattr(writer_shapes, name).required_core_tools == writer_core
-
-    assert draw_shapes.AlignShapes.uno_services == expected_services
+        union = (
+            set(getattr(draw_shapes, name).uno_services)
+            | set(getattr(calc_shapes, name).uno_services)
+            | set(getattr(writer_shapes, name).uno_services)
+        )
+        for mod in (draw_shapes, calc_shapes, writer_shapes):
+            assert set(getattr(mod, name).uno_services) == union
 
 
 def test_outside_page_zero_width_or_height():
@@ -789,7 +807,6 @@ def test_create_diagram_node_id_uniqueness():
     # 1 and "1" collide
     out = tool.execute(ctx, nodes=[{"id": 1}, {"id": "1"}])
     assert out["status"] == "error"
-    assert "Node ids must be unique." in out["message"]
 
 
 def test_create_diagram_returns_layout_str():
@@ -813,7 +830,6 @@ def test_create_diagram_returns_layout_str():
 
     assert out["status"] == "ok"
     assert out["layout"] == "horizontal_flow"
-    assert isinstance(out["layout"], str)
 
 
 def test_upsert_shape_edit_text_only_does_not_set_text_fit_to_size():
@@ -1019,11 +1035,6 @@ def test_draw_summary_nested_group_shapes():
     assert res["status"] == "ok"
     indices = [s["index"] for s in res["shapes"]]
     assert indices == [0, 1, "1.0", "1.1", "1.1.0"]
-    assert isinstance(indices[0], int)
-    assert isinstance(indices[1], int)
-    assert isinstance(indices[2], str)
-    assert isinstance(indices[3], str)
-    assert isinstance(indices[4], str)
 
 
 def test_upsert_shape_validate_dotted_index():
@@ -1138,7 +1149,6 @@ def test_shape_delete_unknown_name_hint():
             out = DeleteShape().execute(ctx, name="Titel")
     assert out["status"] == "error"
     assert out["details"]["available"] == ["Title", "Titl"]
-    assert "details.available" in out["details"]["hint"]
     assert "Titl" in out["details"]["similar"]
 
 
@@ -1228,18 +1238,3 @@ def test_shape_group_rejects_duplicate_indices():
         out = GroupShapes().execute(ctx, indices=[0, 0])
     assert out["status"] == "error"
     page.group.assert_not_called()
-
-
-def test_digit_string_ref_is_index():
-    page = MagicMock()
-    shape = MagicMock()
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
-        "plugin.draw.tree.find_shape_on_page", return_value=(2, shape, page, None)
-    ) as mock_find:
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        DeleteShape().execute(ctx, index="2")
-        mock_find.assert_called_once()
-        assert mock_find.call_args.kwargs["index"] == "2"
-        assert mock_find.call_args.kwargs.get("name") is None

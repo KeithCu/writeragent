@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from plugin.calc.address_utils import format_address, format_range, qualify_a1
+from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.manipulator import CellManipulator
+from plugin.calc.manipulator import CellManipulator, refuse_occupied_cells
 from plugin.calc.python.addin_values import to_calc_compatible
-from plugin.framework.errors import CalcError
+from plugin.doc.compound_undo import UndoStepOrRollback
+from plugin.framework.i18n import _
 
 
 def pad_grid(grid: list[list[Any]]) -> list[list[Any]]:
@@ -124,17 +125,13 @@ def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str,
 
 def insert_tabular_result_into_calc(
     doc: Any,
-    _uno_ctx: Any,
     grid: list[list[Any]],
     *,
     sheet_name: str | None = None,
     start_col: int | None = None,
     start_row: int | None = None,
 ) -> int:
-    """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count.
-
-    The _uno_ctx parameter exists so Run Python Script can call (doc, ctx, result).
-    """
+    """Write *grid* starting at *start_col*/*start_row* (or selection). Returns row count."""
     if start_col is None or start_row is None:
         controller = doc.getCurrentController()
         selection = controller.getSelection()
@@ -156,23 +153,16 @@ def insert_tabular_result_into_calc(
     grid = pad_grid(grid)
     if grid and grid[0]:
         rows, cols = len(grid), len(grid[0])
-        # Refuse to overwrite user data, same as _write_array_formula in manipulator.py.
-        sheet = bridge.get_sheet(sheet_name) if sheet_name else bridge.get_active_sheet()
-        occupied: list[tuple[int, int]] = []
-        for r in range(start_row, start_row + rows):
-            for c in range(start_col, start_col + cols):
-                cell = sheet.getCellByPosition(c, r)
-                formula = cell.getFormula()
-                text = cell.getString()
-                if (isinstance(formula, str) and formula) or (isinstance(text, str) and text):
-                    occupied.append((c, r))
-        if occupied:
-            block_name = format_range(start_col, start_row, start_col + cols - 1, start_row + rows - 1, collapse_single=True)
-            block_c, block_r = occupied[0]
-            raise CalcError(
-                "The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere."
-                % (block_name, len(occupied), format_address(block_c, block_r))
-            )
+        # Refuse to overwrite user data, the same rule as the array-formula write.
+        refuse_occupied_cells(
+            bridge.sheet_or_active(sheet_name),
+            start_col,
+            start_row,
+            start_col + cols - 1,
+            start_row + rows - 1,
+        )
 
-    manipulator.write_formula_range(addr, grid, data_text=True)
+    # Group the entire grid into one Ctrl+Z step so a failed write removes any partial cells.
+    with UndoStepOrRollback(doc, _("WriterAgent: Insert result")):
+        manipulator.write_formula_range(addr, grid, data_text=True)
     return len(grid)

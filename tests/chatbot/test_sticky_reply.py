@@ -66,11 +66,6 @@ def test_stay_is_ok_dict():
     }
 
 
-def test_tool_is_async():
-    tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN))
-    assert tool.is_async() is True
-
-
 def test_spec_validation_asserts():
     # Empty leave_flag
     with pytest.raises(AssertionError):

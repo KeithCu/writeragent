@@ -6,11 +6,20 @@
 
 from __future__ import annotations
 
+import inspect
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.symbolic_math import SymbolicMathTool
+import plugin.scripting.venv.symbolic as symbolic_venv
+from plugin.app import get_tools
+from plugin.framework.errors import DocumentDisposedError
+from plugin.framework.tool import prepare_tool_call
+from plugin.scripting.helper_registry import names
+
+
+def _tool():
+    return get_tools().get("symbolic_math")
 
 
 @pytest.fixture
@@ -34,8 +43,8 @@ def test_symbolic_math_happy_path(mock_run, mock_main_thread, mock_insert, write
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "(x+1)**2-x**2-2*x"})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "(x+1)**2-x**2-2*x"})
 
     assert result["status"] == "ok"
     assert result.get("math_inserted") is True
@@ -43,14 +52,11 @@ def test_symbolic_math_happy_path(mock_run, mock_main_thread, mock_insert, write
 
 
 def test_symbolic_math_requires_helper(writer_ctx):
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="")
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="")
     assert result["status"] == "error"
-
-
-def test_symbolic_math_uno_services():
-    tool = SymbolicMathTool()
-    assert tool.uno_services == ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
+    assert result["code"] == "SYMBOLIC_ERROR"
+    assert result["message"] == "helper is required"
 
 
 def test_symbolic_math_in_python_domain():
@@ -91,9 +97,8 @@ def test_symbolic_math_keeps_ipc_off_main_thread(mock_run, mock_main_thread, moc
     mock_run.side_effect = run
     mock_insert.side_effect = write
 
-    from plugin.calc.symbolic_math import SymbolicMathTool
-    tool = SymbolicMathTool()
-    result = tool.execute(
+    tool = _tool()
+    result = tool.execute_safe(
         writer_ctx,
         helper="symbolic_simplify",
         params={"expression": "x"},
@@ -109,7 +114,7 @@ def test_symbolic_math_not_offered_on_draw():
     from plugin.framework.doc_type import uno_services_for_doc_type_label
     from plugin.framework.tool import tool_supports_document
 
-    tool = SymbolicMathTool()
+    tool = _tool()
     for label in ("draw", "impress"):
         assert not tool_supports_document(
             tool,
@@ -185,8 +190,8 @@ def test_run_trusted_symbolic_accepts_writer_without_hint(mock_client_run):
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_forwards_tool_context_for_stop(mock_run, writer_ctx):
     mock_run.return_value = {"status": "ok", "helper": "symbolic_simplify", "latex": "x", "text": "x"}
-    tool = SymbolicMathTool()
-    tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
+    tool = _tool()
+    tool.execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
     mock_run.assert_called_once()
     assert mock_run.call_args.args[0] == "math"
     assert mock_run.call_args.args[1] is writer_ctx
@@ -197,8 +202,8 @@ def test_symbolic_math_forwards_tool_context_for_stop(mock_run, writer_ctx):
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_does_not_insert_stopped_result(mock_run, mock_insert, writer_ctx):
     mock_run.return_value = {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped."}
     mock_insert.assert_not_called()
     assert "math_inserted" not in result
@@ -206,17 +211,17 @@ def test_symbolic_math_does_not_insert_stopped_result(mock_run, mock_insert, wri
 
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_rejects_non_object_params(mock_run, writer_ctx):
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="symbolic_simplify", params="x^2")
-    assert result["status"] == "error"
-    assert result["code"] == "INVALID_PARAM"
+    tool = _tool()
+    prep = prepare_tool_call(tool, writer_ctx, "symbolic_math", {"helper": "symbolic_simplify", "params": "x^2"})
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
     mock_run.assert_not_called()
 
 
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_rejects_unknown_param_key(mock_run, writer_ctx):
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="solve_equation", params={"variabel": "t"})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="solve_equation", params={"variabel": "t"})
     assert result["status"] == "error"
     assert result["code"] == "INVALID_PARAM"
     assert "variabel" in result["message"]
@@ -226,8 +231,8 @@ def test_symbolic_math_rejects_unknown_param_key(mock_run, writer_ctx):
 
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_rejects_extra_param_key(mock_run, writer_ctx):
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="integrate", params={"expression": "x", "constant": "C"})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="integrate", params={"expression": "x", "constant": "C"})
     assert result["status"] == "error"
     assert result["code"] == "INVALID_PARAM"
     assert "constant" in result["message"]
@@ -237,8 +242,8 @@ def test_symbolic_math_rejects_extra_param_key(mock_run, writer_ctx):
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_accepts_the_latex_expression_alias(mock_run, writer_ctx):
     mock_run.return_value = {"status": "ok", "helper": "latex_to_math_object", "latex": "x^2", "text": "x^2"}
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="latex_to_math_object", params={"expression": "x^2"})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="latex_to_math_object", params={"expression": "x^2"})
     assert result["status"] == "ok"
     mock_run.assert_called_once()
 
@@ -246,8 +251,8 @@ def test_symbolic_math_accepts_the_latex_expression_alias(mock_run, writer_ctx):
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_accepts_numeric_zero_param(mock_run, writer_ctx):
     mock_run.return_value = {"status": "ok", "helper": "integrate", "latex": "0", "text": "0"}
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="integrate", params={"expression": "x", "lower": 0, "upper": 1})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="integrate", params={"expression": "x", "lower": 0, "upper": 1})
     assert result["status"] == "ok"
     mock_run.assert_called_once()
 
@@ -265,8 +270,8 @@ def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thr
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
     writer_ctx.doc_type = "calc"
 
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="symbolic_simplify", params={"expression": "2"})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "2"})
 
     assert result["status"] == "ok"
     assert result["math_inserted"] is False
@@ -291,12 +296,47 @@ def test_symbolic_math_calc_refuses_when_target_occupied(mock_run, mock_main_thr
     )
     writer_ctx.doc_type = "calc"
 
-    tool = SymbolicMathTool()
-    result = tool.execute(writer_ctx, helper="differentiate", params={"expression": "x^2", "variable": "x"})
+    tool = _tool()
+    result = tool.execute_safe(writer_ctx, helper="differentiate", params={"expression": "x^2", "variable": "x"})
 
     assert result["status"] == "error"
     assert "not empty" in result["message"]
     assert "first: A1" in result["message"]
     assert "clear them or start elsewhere" in result["message"]
+
+
+def test_symbolic_math_unknown_helper_has_code(writer_ctx):
+    result = _tool().execute_safe(writer_ctx, helper="nope")
+    assert result == {"status": "error", "code": "SYMBOLIC_ERROR", "message": "Unknown helper 'nope'"}
+
+
+@patch("plugin.calc.symbolic_math.run_domain", side_effect=DocumentDisposedError("gone"))
+def test_symbolic_math_disposal_reports_document_disposed(_mock_run, writer_ctx):
+    result = _tool().execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
+    assert result["status"] == "error"
+    assert result["code"] == "DOCUMENT_DISPOSED"
+
+
+@patch("plugin.calc.symbolic_math.run_domain", side_effect=RuntimeError("boom"))
+def test_symbolic_math_unexpected_error_is_generic_tool_error(_mock_run, writer_ctx):
+    result = _tool().execute_safe(writer_ctx, helper="symbolic_simplify", params={"expression": "x"})
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+    assert result["message"].startswith("Tool execution failed: boom")
+
+
+@pytest.mark.parametrize("helper", sorted(names("symbolic")))
+@patch("plugin.calc.symbolic_math.run_domain")
+def test_symbolic_math_accepted_keys_match_child_signatures(mock_run, writer_ctx, helper):
+    expected = set(inspect.signature(getattr(symbolic_venv, helper)).parameters)
+    if helper == "latex_to_math_object":
+        expected.add("expression")
+
+    result = _tool().execute_safe(writer_ctx, helper=helper, params={"not_a_param": 1})
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAM"
+    accepted = set(result["message"].split("Accepted: ")[1].rstrip(".").split(", "))
+    assert accepted == expected
+    mock_run.assert_not_called()
 
 

@@ -355,14 +355,14 @@ def try_stub_initialize(recorder: Any) -> bool:
             if timeout_s > 0:
                 time.sleep(timeout_s)
             shown = timeout_s if timeout_s > 0 else 30
-            # Same wording as wait_for_recording_ready TimeoutExpired.
+            # Same wording as Recording.wait_ready TimeoutExpired.
             err_msg = f"Recording subprocess timed out after {shown:g} seconds."
         recorder._apply_event(ErrorOccurredEvent(err_msg))
         return True
 
     # Packet G: pretend the capture child said {"status":"ready"} without a mic.
     recorder._take_new_temp_wav(recorder._epoch)
-    recorder._proc = None
+    recorder._recording = None
     from plugin.chatbot.audio_recorder_state import DeviceReadyEvent
 
     recorder._apply_event(DeviceReadyEvent())
@@ -398,7 +398,7 @@ def try_stub_stop(recorder: Any) -> bool:
     else:
         # Packet G native tests: skip venv/PortAudio spawn and use inject_wav.
         _write_stub_injected_wav(recorder, flags.get("inject_wav"))
-    recorder._proc = None
+    recorder._recording = None
     recorder.stream = None
     recorder.wav_file = None
     recorder._silence_detector = None
@@ -2700,7 +2700,7 @@ def press_accept(*, listener: Any = None) -> None:
 
 
 def press_change(query_override: str | None = None, *, listener: Any = None) -> None:
-    """HITL Change without the modal edit dialog (Packet E9c). Not ``STOP_CLICKED``."""
+    """HITL Change without the modal edit dialog. Not ``STOP_CLICKED``."""
     _require_debug()
     sl = _require_listener(listener)
     if query_override is None:

@@ -7,29 +7,13 @@
 from __future__ import annotations
 
 import sys
-import zipfile
 from pathlib import Path
-
-import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts.librepy_bundle_paths import LIBREPY_SMOLAGENTS_INIT, slim_librepy_smolagents_init  # noqa: E402
-
-_ODS_SAMPLE = _REPO_ROOT / "testnewnamespace.ods"
-_BUNDLE = _REPO_ROOT / "build" / "bundle-librepy"
-
-
-def test_librepy_smolagents_init_does_not_import_agents():
-    init_path = _BUNDLE / "plugin" / "contrib" / "smolagents" / "__init__.py"
-    if not init_path.is_file():
-        # Do not write build/bundle-librepy from pytest workers (xdist races).
-        pytest.skip("LibrePy bundle missing (run make build-core)")
-    text = init_path.read_text(encoding="utf-8")
-    assert "from .agents import" not in text
-    assert "local_python_executor only" in text
 
 
 def test_slim_librepy_smolagents_init_replaces_init(tmp_path):
@@ -39,19 +23,3 @@ def test_slim_librepy_smolagents_init_replaces_init(tmp_path):
     init_path.write_text("from .agents import *\n", encoding="utf-8")
     slim_librepy_smolagents_init(str(tmp_path / "plugin"))
     assert init_path.read_text(encoding="utf-8") == LIBREPY_SMOLAGENTS_INIT
-
-
-def test_librepy_bundle_includes_sandbox_cache():
-    from scripts.librepy_bundle_paths import collect_librepy_plugin_paths
-
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/scripting/sandbox_cache.py" in paths
-
-
-def test_testnewnamespace_ods_uses_writeragent_pythonfunction_prefix():
-    if not _ODS_SAMPLE.is_file():
-        return
-    with zipfile.ZipFile(_ODS_SAMPLE) as zf:
-        content = zf.read("content.xml").decode("utf-8")
-    assert "ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY" in content.upper()
-    assert "ORG.EXTENSION.LIBREPY.PYTHONFUNCTION" not in content.upper()

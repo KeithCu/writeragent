@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 import plugin.doc.document_research as dr
 from plugin.framework.doc_type import DocumentType
 from plugin.doc.document_research import (
-    NEARBY_IMAGE_EXTENSIONS,
     _collect_open_file_urls,
     _is_same_document,
     system_path_from_url,
@@ -71,12 +70,6 @@ def test_file_entry_for_path():
     assert entry_missing["modified"] == 0.0
     assert entry_missing["doc_type_guess"] == "calc"
     assert entry_missing["is_open"] is False
-
-
-def test_path_to_file_url_uses_three_slashes_on_unix():
-    url = path_to_file_url("/home/user/Writing/Test.odt")
-    assert url.startswith("file:///")
-    assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
 
 
 def test_normalize_file_url_repairs_legacy_urljoin_form():
@@ -231,15 +224,6 @@ def test_get_work_directory_file_url():
             assert get_work_directory(ctx) == norm
 
 
-def test_get_work_directory_uses_singleton():
-    with tempfile.TemporaryDirectory() as tmp:
-        ctx = MagicMock()
-        path_settings = MagicMock()
-        path_settings.getPropertyValue.return_value = tmp
-        ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
-        assert get_work_directory(ctx) == os.path.normpath(tmp)
-
-
 def test_get_work_directory_none_when_singleton_missing():
     ctx = MagicMock()
     ctx.getValueByName.return_value = None
@@ -261,25 +245,6 @@ def test_resolve_listing_directory_work_fallback():
     with patch("plugin.doc.document_research.get_document_directory", return_value=None):
         with patch("plugin.doc.document_research.get_work_directory", return_value="/work/dir"):
             assert resolve_listing_directory(ctx, model) == "/work/dir"
-
-
-def test_nearby_extensions_constant():
-    assert ".ods" in ALL_INDEXABLE_EXTENSIONS
-    assert ".odt" in ALL_INDEXABLE_EXTENSIONS
-    assert ".xlsx" in ALL_INDEXABLE_EXTENSIONS
-    assert ".docx" in ALL_INDEXABLE_EXTENSIONS
-    assert ".pptx" in ALL_INDEXABLE_EXTENSIONS
-    assert ".txt" in ALL_INDEXABLE_EXTENSIONS
-    assert ".md" in ALL_INDEXABLE_EXTENSIONS
-    assert ".pdf" not in ALL_INDEXABLE_EXTENSIONS
-    assert ".tmp" not in ALL_INDEXABLE_EXTENSIONS
-    assert ".png" not in ALL_INDEXABLE_EXTENSIONS
-
-
-def test_nearby_image_extensions_constant():
-    assert ".png" in NEARBY_IMAGE_EXTENSIONS
-    assert ".jpg" in NEARBY_IMAGE_EXTENSIONS
-    assert ".ods" not in NEARBY_IMAGE_EXTENSIONS
 
 
 def test_list_nearby_files_excludes_images_by_default():
@@ -590,21 +555,6 @@ def test_open_document_for_read_closes_when_post_load_raises(mock_isfile, mock_r
     assert opened_for_document_research is False
     opened_model.close.assert_called_once_with(True)
 
-
-def test_nearby_uno_env_does_not_open_second_scalc_factory():
-    """GHA 34633295036: leftover unique scalc factory failed then hung."""
-    path = os.path.join(os.path.dirname(__file__), "test_document_research_uno.py")
-    with open(path, encoding="utf-8") as handle:
-        src = handle.read()
-    assert "create_native_doc" not in src
-    assert "store budget via active" in src
-    # GHA 34639913692: Hidden load of the storeAsURL path still raised
-    # system bitmap after ``_wa_doc_research``. Windows opens a copy.
-    assert "Budget_read.ods" in src
-    assert "shutil.copy2" in src
-    # GHA 34655847157: first Hidden copy bitmap-failed; next hung 30s.
-    assert "note_windows_hidden_open_bitmap" in src
-    assert "skip_windows_hidden_open_after_bitmap" in src
 
 def test_is_same_document_uses_uid_not_identity():
     class Doc:

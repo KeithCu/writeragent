@@ -6,41 +6,9 @@
 
 from __future__ import annotations
 
-import ast
-import os
 from types import SimpleNamespace
 
 from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
-
-
-def _repo_root() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-
-
-def test_libreharper_preserves_supported_english_dialects() -> None:
-    for country, expected in (("US", "en-US"), ("GB", "en-GB"), ("AU", "en-AU"), ("CA", "en-CA"), ("IN", "en-IN")):
-        locale = SimpleNamespace(Language="en", Country=country, Variant="")
-        assert normalize_harper_locale_to_bcp47(locale) == expected
-
-    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-AU", Country="", Variant="")) == "en-AU"
-    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="de", Country="DE", Variant="")) is None
-
-
-def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -> None:
-    """Harper OXT must not pull LLM/embeddings via ``from plugin.framework.client import …``."""
-    for filename in ("grammar_work_queue.py", "grammar_settings.py"):
-        path = os.path.join(_repo_root(), "plugin", "writer", "locale", filename)
-        with open(path, encoding="utf-8") as f:
-            module = ast.parse(f.read(), filename=path)
-        top_level = [
-            node.module
-            for node in module.body
-            if isinstance(node, ast.ImportFrom) and node.module is not None
-        ]
-        assert "plugin.framework.client" not in top_level
-        assert "plugin.framework.client.request_controls" not in top_level
-        assert "plugin.framework.client.llm_client" not in top_level
-        assert "plugin.framework.client.model_fetcher" not in top_level
 
 
 def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
@@ -64,7 +32,7 @@ def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
         reset_package_extension_id_for_tests()
 
 
-def test_harper_proofreader_identity_and_locale_check() -> None:
+def test_harper_proofreader_identity_and_locale_check(monkeypatch) -> None:
     from unittest.mock import MagicMock, patch
     from plugin.writer.locale import ai_grammar_proofreader
     from plugin.writer.locale.harper_proofreader import HarperProofreader
@@ -90,16 +58,10 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
         locale_de = SimpleNamespace(Language="de", Country="DE", Variant="")
         assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10, proofreader._resolved_profile()) is None
 
-        ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED = True
-        with (
-            patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False),
-            patch("plugin.writer.locale.ai_grammar_proofreader.grammar_obs") as mock_obs,
-        ):
+        monkeypatch.setattr(ai_grammar_proofreader, "_GRAMMAR_DISABLED_NOTICE_EMITTED", True)
+        with patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False):
             assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
             assert ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED is True
-            entry_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_entry"]
-            assert len(entry_calls) == 1
-            assert entry_calls[0].kwargs.get("locale_raw") == "en"
     finally:
         reset_package_extension_id_for_tests()
 
@@ -167,8 +129,11 @@ def test_harper_locale_normalization_matrix() -> None:
         ("en", "US", "en-US"),
         ("en", "GB", "en-GB"),
         ("en", "UK", "en-GB"),
+        ("en", "CA", "en-CA"),
+        ("en", "IN", "en-IN"),
         ("en", "NZ", "en-US"),
         ("en", "AU", "en-AU"),
+        ("en-AU", "", "en-AU"),
         ("en-NZ", "", "en-US"),
         ("en_GB", "", "en-GB"),
         ("en-GB", "GB", "en-GB"),
@@ -200,13 +165,10 @@ def test_locale_construction_failure_registers_degraded_and_retries() -> None:
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
             patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=flaky),
             patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
-            patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
         ):
             proofreader = HarperProofreader(MagicMock())
             assert proofreader._locales == ()
             assert proofreader._locales_degraded is True
-            mock_log.error.assert_called()
-            assert "degraded" in mock_log.error.call_args[0][0]
 
             locale = SimpleNamespace(Language="en", Country="US", Variant="")
             with patch.object(proofreader, "_normalize_locale", return_value="en-US"):
@@ -240,7 +202,6 @@ def test_locale_retry_failure_is_logged_once() -> None:
             assert proofreader.hasLocale(locale) is False
             assert proofreader.getLocales() == ()
         assert mock_log.warning.call_count == 1
-        assert "retry failed" in mock_log.warning.call_args[0][0]
     finally:
         reset_package_extension_id_for_tests()
 

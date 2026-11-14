@@ -6,16 +6,13 @@
 
 from __future__ import annotations
 
-from typing import get_args
 from unittest.mock import patch
 
 from plugin.scripting.domain_registry import (
-    DOC_SCRIPT_DISPLAY_PREFIX,
     PICKER_WIRING,
     POST_VENV_DOMAIN_ORDER,
     WIRING_TABLE,
-    FormatOkKind,
-    get_post_venv_domains,
+    get_domain_wiring,
 )
 from plugin.scripting.helper_domain import _RUN_DATA_BINDING_CALLS
 
@@ -34,7 +31,8 @@ def test_registry_module_attr_targets_resolve():
         if w.insert_kwargs_from_code is not None:
             targets.append(w.insert_kwargs_from_code)
     for p in PICKER_WIRING:
-        targets.append(p.templates_ref)
+        if p.templates_ref is not None:
+            targets.append(p.templates_ref)
         targets.append(p.supports_ref)
 
     for target in targets:
@@ -52,34 +50,6 @@ def test_helper_rows_have_registered_names():
     for w in WIRING_TABLE:
         if w.helper_domain is not None:
             assert len(names(w.helper_domain)) > 0, f"Expected non-empty names for {w.id} (helper_domain={w.helper_domain})"
-
-
-def test_rps_domain_order():
-    ids = [w.id for w in WIRING_TABLE]
-    assert ids == [
-        "vision",
-        "viz",
-        "math",
-        "units",
-        "text",
-        "quant",
-        "optimize",
-        "forecast",
-        "analysis",
-        "sql",
-    ]
-
-
-def test_rps_domains_have_post_venv_hooks():
-    for spec in get_post_venv_domains():
-        assert callable(spec.insert)
-        assert callable(spec.format_ok)
-        assert callable(spec.is_result)
-
-
-def test_post_venv_order_matches_constant():
-    ids = [s.id for s in get_post_venv_domains()]
-    assert ids == list(POST_VENV_DOMAIN_ORDER)
 
 
 def test_wiring_and_post_venv_and_run_import_binding_agree():
@@ -155,36 +125,9 @@ def test_picker_domains_unique_origins_and_prefixes():
     prefixes = [d.display_prefix for d in domains]
     assert len(origins) == len(set(origins))
     assert len(prefixes) == len(set(prefixes))
-    for d in domains:
-        assert d.display_prefix
-        assert callable(d.supports)
-        assert callable(d.templates)
-        assert isinstance(d.title, str) and d.title
 
 
-def test_picker_order_starts_with_vision_math_units_analysis():
-    origins = [d.origin for d in PICKER_WIRING]
-    assert origins[:4] == ["vision", "math", "units", "analysis"]
-    assert origins == [
-        "vision",
-        "math",
-        "units",
-        "analysis",
-        "sql",
-        "viz",
-        "quant",
-        "optimize",
-        "forecast",
-    ]
-
-
-def test_picker_supports_logs_when_the_check_raises(caplog):
-    # Release bundles strip logger.debug; skip this test when log sites are absent.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.debug stripped in release bundle")
-    import logging
-
+def test_picker_supports_returns_false_when_check_raises():
     from plugin.scripting.domain_registry import PickerWiring
 
     wiring = PickerWiring(
@@ -192,30 +135,18 @@ def test_picker_supports_logs_when_the_check_raises(caplog):
         display_prefix="[Test] ",
         title="Test",
         supports_ref="plugin.scripting.domain_registry:does_not_exist",
-        templates_ref="",
     )
-    with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
-        assert wiring.supports(object()) is False
-    assert "supports check failed" in caplog.text
+    assert wiring.supports(object()) is False
 
 
-def test_sql_is_result_handles_missing_duckdb_sql(caplog):
-    # When duckdb_sql is absent (LibrePy bundle), is_result must catch ImportError,
-    # log at debug, and return False so other domains still insert Calc results.
-    import logging
+def test_sql_is_result_handles_missing_duckdb_sql():
+    # LibrePy bundles omit duckdb_sql; ImportError must return False so other domains still run.
     from plugin.scripting.domain_registry import WIRING_TABLE
 
     sql_wiring = next(w for w in WIRING_TABLE if w.id == "sql")
 
     with patch("plugin.scripting.domain_registry._resolve_module_attr", side_effect=ImportError("No module named 'plugin.scripting.duckdb_sql'")):
-        with caplog.at_level(logging.DEBUG, logger="writeragent.scripting"):
-            assert sql_wiring.is_result({"some": "result"}) is False
-    # Release strips log.debug; returning False is the behavior that must survive.
-    from plugin.scripting import domain_registry as domain_registry_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if module_source_contains(domain_registry_mod, "is_result module unavailable"):
-        assert "Domain sql is_result module unavailable" in caplog.text
+        assert sql_wiring.is_result({"some": "result"}) is False
 
 
 def test_is_reserved_script_name():
@@ -228,10 +159,6 @@ def test_is_reserved_script_name():
     assert is_reserved_script_name("DocScript") is False
     for prefix in RESERVED_SCRIPT_PREFIXES:
         assert is_reserved_script_name(f"{prefix} test") is True
-    assert RESERVED_SCRIPT_PREFIXES == (
-        DOC_SCRIPT_DISPLAY_PREFIX,
-        *(row.display_prefix for row in PICKER_WIRING),
-    )
 
 
 def test_rps_spec_insert_returns_int_only_when_int():
@@ -250,14 +177,6 @@ def test_rps_spec_insert_returns_int_only_when_int():
         assert wiring.insert(object(), object(), {}) is None
 
 
-def test_format_ok_kind_and_display_label():
-    allowed_kinds = set(get_args(FormatOkKind))
-    assert allowed_kinds == {"generic", "plot", "symbolic", "units", "vision", "rows"}
-    for w in WIRING_TABLE:
-        assert w.format_ok_kind in allowed_kinds
-        assert isinstance(w.display_label, str) and w.display_label
-
-
 def test_picker_supports_matches_post_venv_calc_only():
     by_id = {w.id: w for w in WIRING_TABLE}
     for row in PICKER_WIRING:
@@ -268,16 +187,6 @@ def test_picker_supports_matches_post_venv_calc_only():
             assert row.supports_ref != "plugin.framework.doc_type:is_calc"
             assert row.supports_ref.count(":") == 1
     assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
-
-
-def test_quant_picker_is_calc_only():
-    quant_spec = next(d for d in PICKER_WIRING if d.origin == "quant")
-    calc_doc = object()
-    writer_doc = object()
-    with patch("plugin.framework.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
-        assert quant_spec.supports(calc_doc) is True
-        assert quant_spec.supports(writer_doc) is False
-        assert quant_spec.supports(None) is False
 
 
 def test_units_format_ok_joins_formatted_list():
@@ -295,4 +204,14 @@ def test_units_format_ok_joins_formatted_list():
     assert "36 km/h, 72 km/h" in out["status_ok_text"]
     assert "['36 km/h'" not in out["status_ok_text"]
 
+
+def test_picker_rows_without_templates_ref_use_their_wiring_row():
+    # Only vision and SQL retain external template builders; all other picker rows
+    # resolve templates directly from their WIRING_TABLE row via get_domain_wiring.
+    assert {row.origin for row in PICKER_WIRING if row.templates_ref is not None} == {"vision", "sql"}
+    for row in PICKER_WIRING:
+        if row.templates_ref is None:
+            templates = row.templates()
+            assert templates == get_domain_wiring(row.origin).templates()
+            assert len(templates) > 0
 

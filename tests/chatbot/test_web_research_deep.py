@@ -154,11 +154,6 @@ class TestDeepResearchParsers:
         assert url in branch["sources"]
         assert learning not in branch["sources"]
 
-    def test_research_progress_status_text(self):
-        p = ResearchProgress(current_round=2, max_rounds=3, started_queries=5, max_sub_queries=14, current_query="climate policy")
-        assert "round 2/3" in p.status_text()
-        assert "5/14" in p.status_text()
-
 
 class TestRunDeepResearch:
     def _llm_router(self, messages):
@@ -878,9 +873,7 @@ def test_generate_search_queries_includes_local_clock_stamp():
         out = generate_search_queries(fake_llm, "some topic", 2)
 
     assert len(out) == 2
-    assert "up-to-date" in captured["user"]
-    assert f"Current time: {stamp}" in captured["user"]
-    assert "Today's date is" not in captured["user"]
+    assert stamp in captured["user"]
 
 
 def test_chat_completion_sync_stop_checker_not_finish_reason():
@@ -953,7 +946,6 @@ def test_deep_preview_reject_stops_the_run():
         params = _deep_preview_params(lambda q, tool, args, decision=decision: decision)
         with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
              patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
-             patch("plugin.framework.config.get_config", return_value=1), \
              patch("plugin.framework.config.get_config", return_value=1):
             out = _run_deep_web_research(MagicMock(), "topic", params)
         answer, used_query = out
@@ -981,7 +973,6 @@ def test_deep_preview_approval_uses_edited_query():
 
     with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
          patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
-         patch("plugin.framework.config.get_config", return_value=1), \
          patch("plugin.framework.config.get_config", return_value=1), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
@@ -1208,12 +1199,12 @@ def test_stop_cancels_sub_query_that_has_not_started():
 
 
 def test_stop_loop_returns_promptly_when_checker_flips(monkeypatch):
-    import time
     monkeypatch.setattr("plugin.chatbot.web_research_deep._STOP_POOL_JOIN_SEC", 0.2)
 
     started = threading.Event()
     release = threading.Event()
     stop = {"on": False}
+    errors: list[ToolExecutionError] = []
 
     def slow_web_agent(query, _g):
         started.set()
@@ -1221,12 +1212,15 @@ def test_stop_loop_returns_promptly_when_checker_flips(monkeypatch):
         return "Slow"
 
     def worker_thread():
-        return _run_parallel(
-            [{"query": "q1", "researchGoal": "g1"}],
-            slow_web_agent,
-            lambda: {"code": "USER_STOPPED", "status": "error"} if stop["on"] else None,
-            concurrency=1,
-        )
+        try:
+            _run_parallel(
+                [{"query": "q1", "researchGoal": "g1"}],
+                slow_web_agent,
+                lambda: {"code": "USER_STOPPED", "status": "error"} if stop["on"] else None,
+                concurrency=1,
+            )
+        except ToolExecutionError as exc:
+            errors.append(exc)
 
     t = threading.Thread(target=worker_thread)
     t.start()
@@ -1234,13 +1228,12 @@ def test_stop_loop_returns_promptly_when_checker_flips(monkeypatch):
     started.wait(timeout=2.0)
     stop["on"] = True
 
-    t0 = time.monotonic()
     t.join(timeout=2.0)
-    elapsed = time.monotonic() - t0
 
     try:
         assert not t.is_alive(), "Run loop did not exit promptly"
-        assert elapsed < 1.5, "Wait loop took too long to notice stop_checker"
+        assert len(errors) == 1
+        assert errors[0].code == "USER_STOPPED"
     finally:
         # Release the worker so it exits immediately, then reap any remaining deep-research threads.
         release.set()

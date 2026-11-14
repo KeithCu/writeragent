@@ -30,26 +30,6 @@ def test_export_project_to_doc_no_svgs_does_not_set_data_root_env(monkeypatch, t
     assert os.environ.get("PPT_MASTER_DATA_ROOT") is None
 
 
-def test_apply_template_fill_forwards_to_adapter(tmp_path: Path) -> None:
-    doc = MagicMock()
-    plan = tmp_path / "fill_plan.json"
-    plan.write_text("{}", encoding="utf-8")
-    with patch.object(client, "apply_fill_plan_file", return_value={"status": "ok"}) as fill:
-        out = client.apply_template_fill(doc, plan)
-    fill.assert_called_once_with(doc, plan)
-    assert out == {"status": "ok"}
-
-
-def test_apply_native_enhance_forwards_to_adapter(tmp_path: Path) -> None:
-    doc = MagicMock()
-    project = tmp_path / "proj"
-    project.mkdir()
-    with patch.object(client, "apply_enhancement_project", return_value={"status": "ok"}) as enhance:
-        out = client.apply_native_enhance(doc, project)
-    enhance.assert_called_once_with(doc, project)
-    assert out == {"status": "ok"}
-
-
 def test_export_project_to_doc_forwards_cancel_and_returns_error_on_stop(tmp_path: Path) -> None:
     project = tmp_path / "proj"
     project.mkdir()

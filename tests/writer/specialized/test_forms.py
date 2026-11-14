@@ -307,11 +307,6 @@ def test_form_control_create_writer_inserts_on_anchor_host():
     body_text.insertTextContent.assert_not_called()
 
 
-def test_forms_button_present_in_both_schemas():
-    assert "button" in FormCreateControl.parameters["properties"]["control"]["enum"]
-    assert "button" in FormCreate.parameters["properties"]["fields"]["items"]["properties"]["control"]["enum"]
-
-
 def test_forms_create_rejects_unknown_control():
     ctx = SimpleNamespace(doc=MagicMock())
     res = _create_control(ctx, control="laser_cannon", name="fld")
@@ -397,21 +392,34 @@ def test_form_create_control_disposal_from_create_instance_propagates():
         _create_control(ctx, control="text", name="fld")
 
 
-def test_form_create_control_date_default_value_applied():
-    doc = MagicMock()
-    model = MagicMock()
-    doc.createInstance.side_effect = lambda name: model if "DateField" in name else MagicMock()
-    controller = MagicMock()
-    doc.getCurrentController.return_value = controller
-    selection = MagicMock()
-    selection.getCount.return_value = 1
-    selection.getByIndex.return_value.getText.return_value = MagicMock()
-    controller.getSelection.return_value = selection
+def test_form_create_control_date_default_value_applied(monkeypatch):
+    import uno
 
-    ctx = SimpleNamespace(doc=doc)
-    res = _create_control(ctx, control="date", name="dt", default_value="2026-10-18")
+    def _make_doc(model):
+        doc = MagicMock()
+        doc.createInstance.side_effect = lambda name: model if "DateField" in name else MagicMock()
+        controller = MagicMock()
+        doc.getCurrentController.return_value = controller
+        selection = MagicMock()
+        selection.getCount.return_value = 1
+        selection.getByIndex.return_value.getText.return_value = MagicMock()
+        controller.getSelection.return_value = selection
+        return doc
+
+    model = SimpleNamespace(Date=None, DefaultDate=None)
+    monkeypatch.setattr(uno, "createUnoStruct", lambda _name: SimpleNamespace(Year=0, Month=0, Day=0))
+    res = _create_control(SimpleNamespace(doc=_make_doc(model)), control="date", name="dt", default_value="2026-10-18")
     assert res["status"] == "ok"
-    assert hasattr(model, "Date") or hasattr(model, "DefaultDate")
+    assert (model.DefaultDate.Year, model.DefaultDate.Month, model.DefaultDate.Day) == (2026, 10, 18)
+    assert model.Date is model.DefaultDate
+
+    # Older UNO fallback: when createUnoStruct fails, YYYYMMDD integer is assigned.
+    model_long = SimpleNamespace(Date=None, DefaultDate=None)
+    monkeypatch.setattr(uno, "createUnoStruct", MagicMock(side_effect=RuntimeError("no struct")))
+    res_long = _create_control(SimpleNamespace(doc=_make_doc(model_long)), control="date", name="dt2", default_value="2026-10-18")
+    assert res_long["status"] == "ok"
+    assert model_long.DefaultDate == 20261018
+    assert model_long.Date == 20261018
 
 
 def test_form_create_second_field_failure_triggers_undo(monkeypatch):

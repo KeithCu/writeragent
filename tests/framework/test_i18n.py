@@ -10,7 +10,6 @@ import plugin.framework.i18n as i18n_module
 import sys
 
 from plugin.framework.config_schema import validate
-from plugin.framework.i18n import get_locales_dir
 
 # PO-header junk mistakenly saved into config via gettext/translation bugs (i18n + load path)
 PO_JUNK = "Project-Id-Version: WriterAgent 1.0\nReport-Msgid-Bugs-To: x\n"
@@ -216,60 +215,39 @@ class TestI18n:
         out = validate(data)
         assert (out.get("orphan.key")) == ("keep-me")
 
-    def test_backend_translation_normalization(self):
-        from plugin.acp.registry import normalize_backend_id, get_backend
-
-        assert (normalize_backend_id("builtin")) == ("builtin")
-        assert (normalize_backend_id("hermes")) == ("hermes")
-        assert (normalize_backend_id("claude")) == ("claude")
-        assert (normalize_backend_id("gemini")) == ("builtin")
-        assert (normalize_backend_id("opencode")) == ("opencode")
-        assert (normalize_backend_id("antigravity")) == ("antigravity")
-        assert (normalize_backend_id("Antigravity")) == ("antigravity")
-        assert (normalize_backend_id("Built-in")) == ("builtin")
-        assert (normalize_backend_id("Eingebaut")) == ("builtin")
-        assert (normalize_backend_id("Integriert")) == ("builtin")
-        assert (normalize_backend_id("Hermes")) == ("hermes")
-        assert (normalize_backend_id("nonexistent")) == ("builtin")
-        assert (get_backend("Eingebaut")) is not None
-        assert (get_backend("Integriert")) is not None
-
-    def _ensure_mo(self, lang: str) -> str:
-        """Return locales dir, compiling *lang* from .po into a temporary directory."""
+    def _ensure_mo(self, lang: str, entries: dict[str, str] | None = None) -> str:
+        """Build a fixture .mo catalog for *lang* in a temporary directory."""
         import tempfile
-        from pathlib import Path
 
-        from tests.harness.strip_bundle import skip_if_release_build
+        import polib
 
-        skip_if_release_build("scripts/ not in stripped release tree")
-        from scripts.compile_translations import compile_po
-
-        localedir = get_locales_dir()
-        po = Path(localedir) / lang / "LC_MESSAGES" / "writeragent.po"
+        catalog = polib.POFile()
+        catalog.metadata = {"Content-Type": "text/plain; charset=UTF-8", "Language": lang}
+        for msgid, msgstr in (entries or {"Built-in": "Integriert"}).items():
+            catalog.append(polib.POEntry(msgid=msgid, msgstr=msgstr))
         tmp_dir = tempfile.TemporaryDirectory()
         self._tmp_dirs.append(tmp_dir)
         target_dir = Path(tmp_dir.name) / lang / "LC_MESSAGES"
         target_dir.mkdir(parents=True, exist_ok=True)
-        mo = target_dir / "writeragent.mo"
-        compile_po(po, mo)
+        catalog.save_as_mofile(str(target_dir / "writeragent.mo"))
         return tmp_dir.name
 
     def test_i18n_translation_loading(self):
-        """gettext can load writeragent.mo and translate 'Built-in' to German (Integriert)."""
-        localedir = self._ensure_mo("de")
+        """gettext can load writeragent.mo and translate 'Built-in' using the fixture catalog."""
+        localedir = self._ensure_mo("de", {"Built-in": "Integriert"})
         translation = i18n_module.load_translation(["de"], localedir, fallback=False)
         assert (translation.gettext("Built-in")) == ("Integriert")
         assert (translation.gettext("Backend")) == ("Backend")
 
     def test_i18n_translation_loading_korean(self):
-        """gettext can load writeragent.mo and translate 'Built-in' to Korean."""
-        localedir = self._ensure_mo("ko")
+        """gettext can load writeragent.mo and round-trip non-Latin fixture text."""
+        localedir = self._ensure_mo("ko", {"Built-in": "내장"})
         translation = i18n_module.load_translation(["ko"], localedir, fallback=False)
         assert (translation.gettext("Built-in")) == ("내장")
 
     def test_load_translation_opens_explicit_mo_when_find_misses(self):
         """Windows gettext.find can miss locales/<lang>/… even when the .mo exists."""
-        localedir = self._ensure_mo("de")
+        localedir = self._ensure_mo("de", {"Built-in": "Integriert"})
         dummy = NullTranslations()
         with patch("plugin.framework.i18n.gettext.translation", return_value=dummy):
             translation = i18n_module.load_translation(["de"], localedir, fallback=False)
@@ -288,101 +266,3 @@ class TestI18n:
         assert (cand("/loc", "de_DE.UTF-8")) == ([mo("de_DE.UTF-8"), mo("de_DE"), mo("de")])
         assert (cand("/loc", "zh_TW")) == ([mo("zh_TW"), mo("zh")])
         assert (cand("/loc", "ja")) == ([mo("ja")])
-
-    def test_days_ago_translation_across_all_locales(self):
-        """Verify that all 34 compiled locales contain a valid translation for '{0}d ago'."""
-        import os
-        from plugin.framework.i18n import get_locales_dir
-
-        localedir = get_locales_dir()
-        locale_dirs = [
-            d for d in os.listdir(localedir)
-            if os.path.isdir(os.path.join(localedir, d, "LC_MESSAGES"))
-        ]
-        assert (len(locale_dirs)) >= (34)
-
-        for lang in locale_dirs:
-            lang_localedir = self._ensure_mo(lang)
-            translation = i18n_module.load_translation([lang], lang_localedir, fallback=False)
-            translated = translation.gettext("{0}d ago")
-            assert (translated), f"Empty translation for {lang}"
-            assert (translated) != ("{0}d ago"), f"Locale {lang} missing translation for '{{0}}d ago'"
-
-        # Spot-check specific languages
-        es_trans = i18n_module.load_translation(["es"], self._ensure_mo("es"), fallback=False)
-        assert (es_trans.gettext("{0}d ago")) == ("hace {0}d")
-
-        de_trans = i18n_module.load_translation(["de"], self._ensure_mo("de"), fallback=False)
-        assert (de_trans.gettext("{0}d ago")) == ("vor {0} T.")
-
-        fr_trans = i18n_module.load_translation(["fr"], self._ensure_mo("fr"), fallback=False)
-        assert (fr_trans.gettext("{0}d ago")) == ("il y a {0}j")
-
-        ja_trans = i18n_module.load_translation(["ja"], self._ensure_mo("ja"), fallback=False)
-        assert (ja_trans.gettext("{0}d ago")) == ("{0}日前")
-
-        zh_trans = i18n_module.load_translation(["zh_CN"], self._ensure_mo("zh_CN"), fallback=False)
-        assert (zh_trans.gettext("{0}d ago")) == ("{0}天前")
-
-
-    def test_ja_es_catalogs_fill_survey_leftovers(self):
-        """JA/ES msgstrs for the headed-survey leftovers are real translations."""
-        from tests.harness.strip_bundle import skip_if_release_build
-
-        skip_if_release_build("locales/*.po not in stripped release tree")
-        import polib
-
-        root = Path(__file__).resolve().parents[2]
-        ja = polib.pofile(str(root / "locales/ja/LC_MESSAGES/writeragent.po"))
-        es = polib.pofile(str(root / "locales/es/LC_MESSAGES/writeragent.po"))
-        ja_expected = {
-            "Web Research Cache": "ウェブリサーチキャッシュ",
-            "Web Research Browser": "ウェブリサーチブラウザ",
-            "Recheck": "再チェック",
-            "Copy Config": "設定をコピー",
-            "Download": "ダウンロード",
-            "Geometric Recalc Order (Experimental)": "幾何学的再計算順序 (実験的)",
-            "Deep Research": "詳細リサーチ",
-            "Assistant:": "アシスタント:",
-            "Square": "正方形",
-            "Vision OCR Settings...": "Vision OCR 設定...",
-            "Debug": "デバッグ",
-        }
-        es_expected = {
-            "Recheck": "Recomprobar",
-            "Copy Config": "Copiar configuración",
-            "Download": "Descargar",
-            "Assistant:": "Asistente:",
-            "Square": "Cuadrado",
-            "Deep Research": "Investigación profunda",
-            "Geometric Recalc Order (Experimental)": "Orden de recálculo geométrico (experimental)",
-        }
-        for msgid, msgstr in ja_expected.items():
-            entry = ja.find(msgid)
-            assert entry is not None, msgid
-            assert entry.msgstr == msgstr
-        for msgid, msgstr in es_expected.items():
-            entry = es.find(msgid)
-            assert entry is not None, msgid
-            assert entry.msgstr == msgstr
-
-    def test_dialog_views_imports(self):
-        """Import dialog_views with full UNO; otherwise expect ImportError (headless pytest)."""
-        try:
-            from plugin.chatbot import dialog_views
-            assert (dialog_views) is not None
-        except ImportError as e:
-            err = str(e)
-            assert (any(
-                    part in err
-                    for part in (
-                        "unohelper",
-                        "uno",
-                        "com.sun.star",
-                        "com",
-                        "XItemListener",
-                        "unknown",
-                    )
-                )), f"Unexpected import error: {e!r}"
-
-

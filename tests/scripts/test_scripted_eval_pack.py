@@ -23,7 +23,6 @@ if str(_REPO) not in sys.path:
 from dataset import ALL_EXAMPLES, to_eval_examples  # noqa: E402
 from eval_core import example_passed, run_eval_on_examples_llm  # noqa: E402
 from eval_scheduler import select_pack  # noqa: E402
-from scripted_student import SCRIPTS  # noqa: E402
 
 _RUN_EVAL = _PO / "run_eval.py"
 _LO_CMD = (
@@ -32,48 +31,9 @@ _LO_CMD = (
 )
 
 
-def test_scripts_cover_expanded_pack() -> None:
-    ids = {ex["task_id"] for ex in ALL_EXAMPLES}
-    assert len(ids) == 22
-    assert {
-        "style_consistency",
-        "smart_summarization",
-        "section_refactor",
-        "comment_management",
-        "py_refuse_overlap",
-        "py_no_bulk_read",
-        "org_chart_gen",
-        "solar_sld_gen",
-        "python_shapes_flag",
-        "toc_list_entries",
-        "toc_renumber_insert",
-    } <= ids
-    assert "py_unique_beside" not in ids
-    assert "py_inplace_reframe" not in ids
-    string_ids = {
-        ex["task_id"] for ex in ALL_EXAMPLES if ex.get("backend", "string") != "lo"
-    }
-    assert string_ids <= set(SCRIPTS)
-    # Flag is live-model LO only. org_chart/solar_sld/TOC have scripted LO replays.
-    assert "python_shapes_flag" not in SCRIPTS
-    assert "org_chart_gen" in SCRIPTS
-    assert "solar_sld_gen" in SCRIPTS
-    assert "toc_list_entries" in SCRIPTS
-    assert "toc_renumber_insert" in SCRIPTS
-    flag = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "python_shapes_flag")
-    assert flag.get("backend") == "lo"
-    org = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "org_chart_gen")
-    assert org.get("backend") == "lo"
-    sld = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "solar_sld_gen")
-    assert sld.get("backend") == "lo"
-    toc_list = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "toc_list_entries")
-    assert toc_list.get("backend") == "lo"
-    toc_renumber = next(ex for ex in ALL_EXAMPLES if ex["task_id"] == "toc_renumber_insert")
-    assert toc_renumber.get("backend") == "lo"
-
-
 def test_scripted_string_pack_all_pass() -> None:
-    # --backend string drops backend=lo rows (flag + org_chart + solar_sld). Replay the rest.
+    # --backend string drops backend=lo rows. Replay the rest.
+    lo_ids = {ex["task_id"] for ex in ALL_EXAMPLES if ex.get("backend") == "lo"}
     selected = select_pack(
         to_eval_examples(ALL_EXAMPLES),
         cli_backend="string",
@@ -82,8 +42,7 @@ def test_scripted_string_pack_all_pass() -> None:
     )
     assert selected.error is None
     examples = selected.examples
-    assert len(examples) == 17
-    lo_ids = {"python_shapes_flag", "org_chart_gen", "solar_sld_gen"}
+    assert len(examples) == len(ALL_EXAMPLES) - len(lo_ids)
     assert all(getattr(ex, "task_id", "") not in lo_ids for ex in examples)
     results = run_eval_on_examples_llm(
         examples,
@@ -115,24 +74,6 @@ def test_scripted_string_pack_all_pass() -> None:
         if r.agent_score != 1.0
     ]
     assert process_failed == [], process_failed
-
-
-def test_eval_task_banner_includes_model(capsys: pytest.CaptureFixture[str]) -> None:
-    one = [ex for ex in ALL_EXAMPLES if ex["task_id"] == "comment_management"]
-    assert one
-    run_eval_on_examples_llm(
-        to_eval_examples(one),
-        endpoint="https://openrouter.ai/api/v1",
-        api_key="",
-        model="openai/gpt-oss-120b",
-        backend="string",
-        student="scripted",
-        no_judge=True,
-        bust_cache=False,
-        quiet=False,
-    )
-    out = capsys.readouterr().out
-    assert "--- [1/1] comment_management  model=openai/gpt-oss-120b ---" in out
 
 
 def _lo_eval_available() -> str | None:

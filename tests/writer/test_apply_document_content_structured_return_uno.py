@@ -18,13 +18,11 @@ from plugin.writer.apply_document_content import ApplyDocumentContent
 from plugin.writer.math.math_mml_convert import MATH_CLSID
 from plugin.tests.testing_utils import (
     TestingFactory,
-    skip_windows_leftover_hidden_load,
     with_native_doc,
 )
 
 
 def _set_body(doc, text_value):
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     text = doc.getText()
     cur = text.createTextCursor()
     cur.gotoStart(False)
@@ -84,6 +82,7 @@ def test_insert_branch_succeeds_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="end", content="more")
     assert res.get("status") == "ok", res
+    assert doc.getText().getString() == "seed\nmore\n"
 
 
 @native_test
@@ -95,6 +94,9 @@ def test_empty_old_content_is_a_parameter_error_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="   ", content="BAR")
     assert res.get("status") == "error", res
+    assert res.get("code") == "INVALID_PARAM", res
+    assert "replaced_count" not in res, res
+    assert doc.getText().getString() == "some content here"
 
 
 @native_test
@@ -248,7 +250,6 @@ def test_dry_run_icu_only_regex_counts_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_end_display_tex_creates_math_object_uno(ctx, doc):
-    skip_windows_leftover_hidden_load("math formula Hidden _blank .mml")
     _set_body(doc, "Intro.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     content = r"<p>Q:</p>$$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$"
@@ -275,7 +276,6 @@ def test_end_display_tex_creates_math_object_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_end_invalid_tex_reports_math_import_failed_warning_uno(ctx, doc):
-    skip_windows_leftover_hidden_load("math formula Hidden _blank .mml")
     _set_body(doc, "Intro.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     content = r"<p>Bad:</p>$$\sqrt{$$"
