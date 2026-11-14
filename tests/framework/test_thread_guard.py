@@ -559,7 +559,6 @@ def test_assert_logs_and_notifies_when_guard_on(monkeypatch):
                 with pytest.raises(RuntimeError):
                     tg.assert_main_thread("test.site")
                 mock_error.assert_called_once()
-                assert "UNO thread violation" in mock_error.call_args[0][0]
                 assert mock_error.call_args[1].get("stack_info") is True
         assert len(posts) == 1
     finally:

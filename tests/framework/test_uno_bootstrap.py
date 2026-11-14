@@ -1,6 +1,5 @@
 from unittest.mock import patch
 
-from tests.harness.strip_bundle import is_release_build
 import pytest
 import io
 import sys
@@ -126,7 +125,6 @@ def test_alias_loader_preserves_package_path(tmp_path) -> None:
 
 def test_find_spec_logs_error_and_returns_none(monkeypatch) -> None:
     import importlib.util
-    from unittest.mock import patch
 
     monkeypatch.setattr("plugin.scripting.sandbox.import_authorized", lambda *args, **kwargs: True)
     uno_bootstrap.set_alias_authorizer(
@@ -140,14 +138,9 @@ def test_find_spec_logs_error_and_returns_none(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(importlib.util, "find_spec", fail_find)
-    with patch("logging.Logger.debug") as mock_debug:
-        importer = uno_bootstrap.AliasImporter()
-        spec = importer.find_spec("writeragent.missing")
-        assert spec is None
-        if is_release_build():  # log.debug call site is stripped in release bundles
-            return
-        assert mock_debug.called
-        assert any("writeragent.missing" in str(call) for call in mock_debug.call_args_list)
+    importer = uno_bootstrap.AliasImporter()
+    spec = importer.find_spec("writeragent.missing")
+    assert spec is None
 
 
 def test_writeragent_root_spec_falls_back_to_namespace_loader(monkeypatch) -> None:

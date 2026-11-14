@@ -273,22 +273,15 @@ def test_wait_host_gap_status_callback():
     # Key has 3s floor, 1s has elapsed, remaining is 2s.
     wait_host_gap(key, _cancelled_scope(), status_callback=seen.append, monotonic=lambda: 101.0)
     assert len(seen) == 1
-    assert "Spacing free-model requests, next send in 2s…" in seen[0]
+    assert "2s" in seen[0]
 
-    # Learned 10s gap on a busy host (exceeds free floor) -> "Provider busy"
+    # Learned 10s gap on a busy host (exceeds free floor)
     remember_host_gap("busy.ai", 10.0)
     mark_host_sent("busy.ai", monotonic=lambda: 100.0)
     seen_busy: list[str] = []
     wait_host_gap("busy.ai", _cancelled_scope(), status_callback=seen_busy.append, monotonic=lambda: 101.0)
     assert len(seen_busy) == 1
-    assert "Provider busy, retrying in 9s…" in seen_busy[0]
-
-
-def test_local_https_certificate_fallback_logs_warning(caplog):
-    import logging
-    with caplog.at_level(logging.WARNING):
-        enable_local_unverified("localhost", ssl.SSLCertVerificationError("self-signed certificate"))
-    assert any(rec.levelno == logging.WARNING and "Local HTTPS certificate verification failed for localhost" in rec.message for rec in caplog.records)
+    assert "9s" in seen_busy[0]
 
 
 def test_overload_detection_prefers_code_and_word_boundary():

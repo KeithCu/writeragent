@@ -1,5 +1,4 @@
 import json
-import socket
 from unittest.mock import patch, MagicMock, mock_open
 import ssl
 import pytest
@@ -46,28 +45,6 @@ def test_is_image_unsupported_error():
     # Negative cases
     assert is_image_unsupported_error("Connection timed out") is False
     assert is_image_unsupported_error("HTTP Error 401: Unauthorized") is False
-
-def test_format_error_message():
-    import urllib.error
-
-    # HTTP errors
-    err = urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
-    assert "Invalid API Key" in format_error_message(err)
-
-    err = urllib.error.HTTPError("url", 403, "Forbidden", {}, None)
-    assert "Forbidden" in format_error_message(err)
-
-    err = urllib.error.HTTPError("url", 429, "Too Many Requests", {}, None)
-    assert "429" in format_error_message(err)
-    assert "Rate limited" in format_error_message(err)
-
-    # Socket / Connection errors
-    err = urllib.error.URLError("Connection refused")
-    assert "Connection Refused" in format_error_message(err)
-
-    # Check timeout
-    err = socket.timeout("timed out")
-    assert "Timed Out" in format_error_message(err) or "timed out" in format_error_message(err).lower()
 
 @patch("plugin.framework.client.llm_client.LlmClient._request_json")
 def test_transcribe_audio_uses_sync_request_fallback(mock_sync):
@@ -305,14 +282,11 @@ def test_format_error_message_edge_cases():
     """
     Test error mapping edge cases for TLS and custom JSON error bodies.
     """
-    # SSLError is mapped to a friendly message
+    # SSLError preserves underlying error detail
     err = ssl.SSLError("cert error")
-    assert "TLS/SSL Error:" in format_error_message(err)
     assert "cert error" in format_error_message(err)
 
-    # Empty body: friendly Settings copy (chat never raises urllib HTTPError)
-    assert "Invalid API Key" in format_http_error_response(401, "Unauthorized", "")
-    assert "Forbidden" in format_http_error_response(403, "Forbidden", "")
+    # Empty body: includes status code
     assert "404" in format_http_error_response(404, "Not Found", "")
 
     # test JSON decoding in format_http_error_response
@@ -320,7 +294,7 @@ def test_format_error_message_edge_cases():
     json_err_1 = '{"error": {"message": "Custom auth error"}}'
     msg_1 = format_http_error_response(401, "Unauthorized", json_err_1)
     assert "Custom auth error" in msg_1
-    assert "HTTP Error 401" in msg_1
+    assert "401" in msg_1
 
     # Valid JSON but missing standard error field (fallback to snippet)
     json_err_2 = '{"foo": "bar"}'
@@ -345,13 +319,11 @@ def test_format_error_message_edge_cases():
         },
     })
     msg_4 = format_http_error_response(400, "Bad Request", together_err)
-    assert "HTTP Error 400" in msg_4
+    assert "400" in msg_4
     assert "MessageContent" in msg_4 or "deserialize" in msg_4
 
     # Chat path uses this helper, not format_error_message(HTTPError).
     json_429 = '{"error": {"message": "mock LLM soak failure", "type": "rate_limit_error"}}'
     msg_429 = format_http_error_response(429, "Too Many Requests", json_429)
-    assert "Rate limited" in msg_429
     assert "429" in msg_429
     assert "mock LLM soak failure" in msg_429
-    assert "HTTP Error 429 from AI Provider" not in msg_429

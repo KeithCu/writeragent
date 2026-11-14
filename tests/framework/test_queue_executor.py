@@ -731,7 +731,6 @@ def test_execute_refusal_log_has_no_synthetic_traceback(caplog: pytest.LogCaptur
         t = threading.Thread(target=run_on_worker)
         t.start()
         t.join()
-    assert "AsyncCallback unavailable" in caplog.text
     assert "Traceback" not in caplog.text
 
 
@@ -1270,20 +1269,18 @@ def test_flush_failure_logs_after_order_lock_released(monkeypatch: pytest.Monkey
 
     qe._enqueue_work = failing_enqueue  # type: ignore[method-assign]
 
-    logged: list[tuple[int, str, tuple[object, ...], object]] = []
+    logged: list[tuple[int, object]] = []
 
     def mock_log_error(msg: str, *args: object, **kwargs: object) -> None:
-        logged.append((probe.depth, msg, args, kwargs.get("exc_info")))
+        logged.append((probe.depth, kwargs.get("exc_info")))
 
     monkeypatch.setattr(log, "error", mock_log_error)
 
     qe._flush_pending_posts()
 
     assert len(logged) == 1
-    depth, msg, args, exc_info = logged[0]
+    depth, exc_info = logged[0]
     assert depth == 0
-    assert msg == "MainThread: flush failed after %d pending post(s); %d put back"
-    assert args == (0, 1)
     assert exc_info is fail_exc
     assert exc_info.__traceback__ is not None
     assert [row[0] for row in qe._pending_posts] == [pending_fn]

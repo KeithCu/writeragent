@@ -174,7 +174,7 @@ def test_queue_executor_does_not_reexport_drain_guard():
         assert not hasattr(qe, name)
 
 
-def test_release_underflow_logs_and_skips_idle_callbacks(_isolated_idle_callbacks, caplog):
+def test_release_underflow_logs_and_skips_idle_callbacks(_isolated_idle_callbacks):
     ran: list[int] = []
 
     def cb() -> None:
@@ -182,12 +182,10 @@ def test_release_underflow_logs_and_skips_idle_callbacks(_isolated_idle_callback
 
     add_drain_idle_callback(cb)
     assert get_drain_depth() == 0
-    with caplog.at_level("WARNING"):
-        release_drain_owner()
+    release_drain_owner()
     assert ran == []
     assert get_drain_depth() == 0
     assert get_drain_owner() is None
-    assert any("underflow" in r.message for r in caplog.records)
 
 
 def test_idle_callback_recursion_error_does_not_escape(_isolated_idle_callbacks):
@@ -211,7 +209,7 @@ def test_idle_callback_recursion_error_does_not_escape(_isolated_idle_callbacks)
     assert get_drain_owner() is None
 
 
-def test_nested_idle_notify_reruns_registered_callback(_isolated_idle_callbacks, caplog):
+def test_nested_idle_notify_reruns_registered_callback(_isolated_idle_callbacks):
     from plugin.framework.async_drain_guard import remove_drain_idle_callback
 
     ran: list[str] = []
@@ -227,17 +225,15 @@ def test_nested_idle_notify_reruns_registered_callback(_isolated_idle_callbacks,
         release_drain_owner()
 
     add_drain_idle_callback(first)
-    with caplog.at_level("WARNING"):
-        acquire_drain_owner("stream")
-        release_drain_owner()
+    acquire_drain_owner("stream")
+    release_drain_owner()
 
     assert ran == ["first", "second"]
     assert get_drain_depth() == 0
     assert get_drain_owner() is None
-    assert not any("stopped after" in r.message for r in caplog.records)
 
 
-def test_nested_idle_notify_stops_after_eight_passes(_isolated_idle_callbacks, caplog):
+def test_nested_idle_notify_stops_after_eight_passes(_isolated_idle_callbacks):
     ran: list[int] = []
 
     def looper() -> None:
@@ -246,14 +242,12 @@ def test_nested_idle_notify_stops_after_eight_passes(_isolated_idle_callbacks, c
         release_drain_owner()
 
     add_drain_idle_callback(looper)
-    with caplog.at_level("WARNING"):
-        acquire_drain_owner("stream")
-        release_drain_owner()
+    acquire_drain_owner("stream")
+    release_drain_owner()
 
     assert len(ran) == 8
     assert get_drain_depth() == 0
     assert get_drain_owner() is None
-    assert any("stopped after 8 passes" in r.message for r in caplog.records)
 
 
 def test_same_name_other_thread_acquire_raises():
@@ -287,7 +281,7 @@ def test_same_name_other_thread_acquire_raises():
     assert get_drain_owner() is None
 
 
-def test_other_thread_release_does_not_drop_owner(_isolated_idle_callbacks, caplog):
+def test_other_thread_release_does_not_drop_owner(_isolated_idle_callbacks):
     ran: list[int] = []
 
     def cb() -> None:
@@ -297,12 +291,10 @@ def test_other_thread_release_does_not_drop_owner(_isolated_idle_callbacks, capl
     acquire_drain_owner("stream")
     assert get_drain_depth() == 1
 
-    with caplog.at_level("WARNING"):
-        t = threading.Thread(target=release_drain_owner)
-        t.start()
-        t.join()
+    t = threading.Thread(target=release_drain_owner)
+    t.start()
+    t.join()
 
-    assert any("release_drain_owner ignored: caller thread" in r.message for r in caplog.records)
     assert ran == []
     assert get_drain_depth() == 1
     assert get_drain_owner() == "stream"

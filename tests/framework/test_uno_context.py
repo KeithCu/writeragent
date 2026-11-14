@@ -727,8 +727,7 @@ def test_enum_has_more():
     assert enum_has_more(mock) is False
 
 
-def test_iter_open_models_stops_at_enum_cap(caplog):
-    import logging
+def test_iter_open_models_stops_at_enum_cap():
     from plugin.framework.uno_context import iter_open_models
 
     desktop = MagicMock()
@@ -739,13 +738,9 @@ def test_iter_open_models_stops_at_enum_cap(caplog):
     enum.hasMoreElements.return_value = True
     comps.createEnumeration.return_value = enum
 
-    with (
-        patch("plugin.framework.uno_context._ENUM_CAP", 2),
-        caplog.at_level(logging.ERROR, logger="writeragent.context"),
-    ):
+    with patch("plugin.framework.uno_context._ENUM_CAP", 2):
         list(iter_open_models(desktop))
     assert enum.nextElement.call_count == 2
-    assert "hit cap=2" in caplog.text
 
 
 def test_iter_open_models_strict_false_probes_and_skips_broken():

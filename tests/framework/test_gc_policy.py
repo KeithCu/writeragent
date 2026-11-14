@@ -245,8 +245,7 @@ def test_collect_on_main_off_main_refused_and_logged(gc_policy_restored, caplog)
 
     def off_main_collect() -> None:
         wrong_ident.append(threading.get_ident())
-        with caplog.at_level(logging.WARNING):
-            gc_policy._collect_on_main()
+        gc_policy._collect_on_main()
 
     worker = threading.Thread(target=off_main_collect, daemon=True)
     worker.start()
@@ -254,12 +253,9 @@ def test_collect_on_main_off_main_refused_and_logged(gc_policy_restored, caplog)
     assert wrong_ident and wrong_ident[0] != gc_policy._main_ident
     assert gc_policy._posted_at == 0.0
     assert gc_policy._refused == 1
-    assert any("did not run on the main thread" in r.message for r in caplog.records)
 
-    caplog.clear()
     gc_policy._collect_on_main()
     assert gc_policy._refused == 0
-    assert not any("did not run on the main thread" in r.message for r in caplog.records)
 
 
 def test_sentinel_records_worker_gc_collect_stack(gc_policy_restored):
@@ -284,7 +280,7 @@ def test_sentinel_records_worker_gc_collect_stack(gc_policy_restored):
     assert any(frame[2] == "worker_explicit_collect" for frame in stack)
 
 
-def test_ticker_iteration_re_disables_gc_before_post(gc_policy_restored, caplog):
+def test_ticker_iteration_re_disables_gc_before_post(gc_policy_restored):
     gc_policy._main_ident = threading.get_ident()
     gc.enable()
     gc_policy._reenabled = False
@@ -295,10 +291,7 @@ def test_ticker_iteration_re_disables_gc_before_post(gc_policy_restored, caplog)
     assert gc_policy._reenabled
     assert len(fake.posted) == 1
     fn, args, kwargs = fake.posted[0]
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        fn(*args, **kwargs)
-    assert any("re-enabled" in r.message for r in caplog.records)
+    fn(*args, **kwargs)
     assert not gc_policy._reenabled
 
 

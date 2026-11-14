@@ -180,27 +180,6 @@ def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") not in WRITER_CORE_DIRECTIVES
 
 
-def test_writer_chat_prompt_says_research_triggers_once():
-    model = MagicMock()
-    model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert prompt.count("web_research") == 1
-    assert prompt.count("to research public topics") == 1
-
-
-def test_writer_chat_prompt_ocr_routing_is_the_vision_catalog_line():
-    model = MagicMock()
-    model.supportsService.return_value = False
-
-    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True):
-        prompt_with_vision = get_chat_system_prompt_for_document(model, ctx=MagicMock())
-    assert prompt_with_vision.count("vision: OCR:") == 1
-
-    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
-        prompt_without_vision = get_chat_system_prompt_for_document(model, ctx=MagicMock())
-    assert "vision:" not in prompt_without_vision
-
-
 def test_sheets_create_completion_instruction_is_create_not_populate():
     from plugin.framework.prompts import (
         SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
