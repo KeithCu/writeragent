@@ -15,15 +15,11 @@
 
 import contextlib
 import sys
-import types
 from typing import Any
 from unittest.mock import MagicMock
 
-# GHA 34595675515: ``python -m plugin.testing_runner`` imported
-# ``tests.testing_utils``; suites imported ``plugin.tests.testing_utils``
-# (``plugin/tests/__init__.py`` points ``__path__`` at ``tests/``). Same
-# file, second object — keeper stayed empty on the suite copy. Register
-# both names on first load so the second import hits sys.modules.
+# testing_runner imports tests.testing_utils while suites import
+# plugin.tests.testing_utils; alias both so keeper/pool state is shared.
 def _register_testing_utils_aliases() -> None:
     this = sys.modules[__name__]
     # Parent packages must exist before the dotted names are injected
@@ -81,9 +77,7 @@ _NATIVE_DOC_POOL: _NativeDocPool = _NativeDocPool()
 _BUILTIN_PARA_STYLES: set = set()
 _BUILTIN_CHAR_STYLES: set = set()
 
-# GHA 33703959362: hang after insert_cell_html execute-done, before TEST end.
-# When True, stderr breadcrumbs name reset_native_doc / _reset_calc_doc steps.
-# with_native_doc sets this only for test_insert_cell_html (keep suite noise low).
+# When True, stderr breadcrumbs trace reset_native_doc / _reset_calc_doc steps.
 _LOG_NATIVE_DOC_TEARDOWN = False
 
 
@@ -95,12 +89,11 @@ def _native_teardown_progress(msg: str) -> None:
     _progress(msg)
 
 
-# testing_runner keeper. insert_cell_html_rich leaves extra Writers open
-# (close skipped after paste). Never close those leftovers — GHA
-# 34556185752 hung 30s in leftover close(True). Reactivate this keeper
-# so a later Writer factory is not against a leftover current component.
 class _HarnessState:
-    """Process-wide leftover / keeper flags. One object (both import names)."""
+    """Process-wide leftover / keeper flags shared across both import aliases.
+
+    Leftover paste Writers are never closed because ``close(True)`` hangs 30s on Windows.
+    """
 
     __slots__ = (
         "keeper_uid",
@@ -123,35 +116,6 @@ class _HarnessState:
 
 
 _STATE = _HarnessState()
-
-# Tests still read/assign the old module names (tu._WINDOWS_LEFTOVER_OPEN).
-_STATE_MODULE_ATTRS = {
-    "_HARNESS_KEEPER_UID": "keeper_uid",
-    "_HARNESS_KEEPER_DOC": "keeper_doc",
-    "_WINDOWS_LEFTOVER_OPEN": "leftover_open",
-    "_WINDOWS_HIDDEN_OPEN_BITMAP": "hidden_open_bitmap",
-    "_WINDOWS_NOTEBOOK_HOST": "notebook_host",
-    "_WINDOWS_FACTORY_SEQ": "factory_seq",
-    "_WINDOWS_MATH_OLE_UIDS": "math_ole_uids",
-}
-
-
-class _TestingUtilsModule(types.ModuleType):
-    def __getattr__(self, name):
-        field = _STATE_MODULE_ATTRS.get(name)
-        if field is not None:
-            return getattr(_STATE, field)
-        raise AttributeError(f"module {self.__name__!r} has no attribute {name!r}")
-
-    def __setattr__(self, name, value):
-        field = _STATE_MODULE_ATTRS.get(name)
-        if field is not None:
-            setattr(_STATE, field, value)
-            return
-        super().__setattr__(name, value)
-
-
-sys.modules[__name__].__class__ = _TestingUtilsModule
 
 
 def set_harness_keeper_uid(uid: str, doc=None) -> None:
@@ -180,13 +144,7 @@ def _writer_frame_name(doc) -> str:
 
 
 def _native_doc_svc(doc) -> str:
-    """Harness breadcrumb: writer / calc / impress / draw. Impress first.
-
-    ``is True``: MagicMock.supportsService() is truthy and would classify
-    every mock as Writer. GHA 34609539461: leftover=1 from a prior prepare
-    test then skipped close on an untyped mock, so
-    ``test_close_doc_logs_urp_dispose`` never saw the dispose breadcrumb.
-    """
+    """Return writer / calc / impress / draw; ``is True`` avoids truthy MagicMock."""
     try:
         if doc.supportsService("com.sun.star.text.TextDocument") is True:
             return "writer"
@@ -224,14 +182,7 @@ def _iter_open_writer_docs(desktop):
 
 
 def reactivate_harness_keeper(desktop=None) -> bool:
-    """``setActiveFrame`` the keeper. Does not close leftover paste Writers.
-
-    GHA 34556185752: leftover ``close(True)`` hung 30s (uid=27). GHA
-    34554275072: first text_helpers Writer factory + ``close_doc``
-    returned; the *next* factory hung. After a test Writer close,
-    desktop current becomes a leftover paste Writer. Reactivate the
-    keeper so the next ``swriter`` load is not against that leftover.
-    """
+    """Reactivate the hidden keeper frame so factory loads do not target a leftover doc."""
     from plugin.testing_runner import _progress_verbose as _progress
 
     doc = _STATE.keeper_doc
@@ -285,10 +236,8 @@ def prepare_windows_writer_factory(ctx) -> int:
     return leftover_open
 
 
-# Last leftover count from prepare lives on _STATE. leftover_open.
-# close_doc / native_doc reuse read this instead of enumerating again
-# (getComponents after paste close can hang). leftover_open=0 still
-# reuses Writer on win32 (GHA 35470191616).
+# Last leftover count from prepare lives on _STATE.leftover_open;
+# close_doc and native_doc reuse read it because desktop.getComponents() can hang after paste close.
 
 
 def _set_windows_leftover_open(n: int) -> None:
@@ -301,39 +250,19 @@ def _windows_leftover_open() -> int:
 
 
 def _windows_should_reuse_calc(ctx) -> bool:
-    """True when a leftover scalc factory would hang.
-
-    GHA 34643210006: ``test_calc_reuse_false_still_empty`` loaded leftover
-    ``target=_wa_scalc`` at leftover_open=5 and hung 30s (office alive).
-    Unique leftover ``_wa_factory_N`` already failed then hung
-    (34633295036). Cached leftover count only — do not enumerate
-    (getComponents after paste close can hang). Do not close leftover
-    paste Writers (34556185752).
-    """
+    """True when leftover Writers are open on Windows, because a new scalc factory hangs."""
     if ctx is None or sys.platform != "win32":
         return False
     return _windows_leftover_open() > 0
 
 
-# Same CREATE|GLOBAL as insert_cell_html_rich (8|55=63). Named target with
-# flags 0 can search instead of creating. Do not reuse "_blank" / "_default"
-# while leftover paste Writers are open — see _windows_factory_load_args.
+# CREATE|GLOBAL flags (8|55=63) and stable target names so Windows leftover
+# factory loads reuse existing named frames instead of stacking or hanging on _blank.
 _WINDOWS_FACTORY_SEARCH_FLAGS = 8 | 55
-# Leftover Hidden swriter only. rich_html reuses one CREATE|GLOBAL name
-# (_wa_calc_html). Unique _wa_factory_N stacked empty frames after close
-# and the second leftover swriter hung (GHA 34602219973, _wa_factory_5).
 _WINDOWS_FACTORY_TARGET = "_wa_factory"
-# Leftover Calc uses one CREATE|GLOBAL name. The pooled @with_native_doc
-# Calc is opened at leftover_open=0 as Hidden ``_blank`` — ``_wa_scalc``
-# does not replace it. Unique ``_wa_factory_N`` stacked after a failed
-# leftover scalc load (GHA 34633295036). Leftover Draw / leftover
-# Impress use the same stable-name rule (GHA 34657826349).
 _WINDOWS_CALC_FACTORY_TARGET = "_wa_scalc"
 _WINDOWS_DRAW_FACTORY_TARGET = "_wa_sdraw"
 _WINDOWS_IMPRESS_FACTORY_TARGET = "_wa_simpress"
-# Unknown leftover factory URLs only (not sdraw / simpress). Unique
-# leftover Draw/Impress names hung after notebook leftovers
-# (GHA 34657826349, leftover_open=15, target=_wa_factory_10).
 _WINDOWS_FACTORY_TARGETS = {
     "private:factory/swriter": _WINDOWS_FACTORY_TARGET,
     "private:factory/scalc": _WINDOWS_CALC_FACTORY_TARGET,
@@ -343,59 +272,9 @@ _WINDOWS_FACTORY_TARGETS = {
 
 
 def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[str, int]:
-    """Target + FrameSearchFlag for a Windows factory load.
-
-    GHA 34597506651: keeper sync worked (``keeper=1``, reactivated).
-    First text_helpers ``_blank`` swriter + leftovers returned (uid=34,
-    close_doc OK). The *next* ``_blank`` swriter hung 30s after the same
-    leftover log + keeper reactivate.
-
-    GHA 34599838644: same leftovers + ``keeper=1``, but Calc ``_blank``
-    failed in ~1s (PyUNO traceback conversion on
-    ``loadComponentFromURL(scalc)``) and the next Calc ``_blank`` hung
-    30s — ``document_research_uno`` never finished, so the swriter-only
-    named target was never reached. ``setActiveFrame`` is not enough
-    for Hidden ``_blank`` while leftover ``_wa_calc_html`` frames exist
-    (rich_html.py: not ``_blank`` / ``_default``).
-
-    GHA 34602219973 (``ec40ed29``): unique ``_wa_factory_N`` loaded
-    leftover Calc (``document_research_uno`` passed=3, targets
-    ``_wa_factory_1/2/3``) and the first leftover Hidden swriter
-    (``doc.test_text_helpers_uno.test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline``,
-    ``target=_wa_factory_4``, uid=34, ``close_doc`` OK). The *next*
-    leftover Hidden swriter
-    (``…_multi_para_joins_with_newline``, ``target=_wa_factory_5``)
-    hung 30s in ``loadComponentFromURL`` — no RuntimeException. Unique
-    CREATE stacks empty named frames after harness Writer close; it
-    does not fix consecutive leftover Hidden swriter (same hang family
-    as 34597506651). Reuse one CREATE|GLOBAL name for leftover
-    ``swriter`` so CREATE replaces/reuses instead of stacking.
-
-    GHA 34633295036 (master ``bdb421bb``, post #724): same leftover
-    paste Writers (uids ``27``/``26``, ``frames=['-','-']``,
-    ``keeper=1``) then unique leftover ``scalc`` ``target=_wa_factory_1``
-    failed in ~766ms (PyUNO traceback wrap on
-    ``loadComponentFromURL``). The next unique ``_wa_factory_2`` hung
-    30s — same stacking family as leftover swriter unique names.
-    Pooled Calc is still the leftover_open=0 ``_blank`` workbook.
-    Leftover ``scalc`` now reuses one CREATE|GLOBAL name ``_wa_scalc``.
-    Do not close leftover paste Writers (34556185752).
-
-    GHA 34657826349 / 34657808315 (master ``0bf7d223``, tip of #734):
-    leftover Draw/Impress unique ``_wa_factory_1``–``_wa_factory_9``
-    succeeded at leftover_open=1. Notebook / importer suites then
-    skipped Writer close (``leftover_open`` 1→15). Stable leftover
-    ``swriter`` ``target=_wa_factory`` at leftover_open=15 returned.
-    Unique leftover ``simpress`` ``target=_wa_factory_10`` hung 30s
-    in ``loadComponentFromURL`` — same stacking family as leftover
-    swriter ``_wa_factory_5`` and leftover scalc ``_wa_factory_2``.
-    Leftover ``sdraw`` / ``simpress`` now reuse one CREATE|GLOBAL
-    name each (``_wa_sdraw`` / ``_wa_simpress``).
-    """
+    """Return (target, FrameSearchFlag) for a Windows factory load; reuse stable names when leftovers exist."""
     if leftover_open <= 0 or not factory_url.startswith("private:factory/"):
         return "_blank", 0
-    # One stable name, like rich_html._wa_calc_html. CREATE|GLOBAL finds
-    # the empty frame left by the previous leftover-mode Writer close.
     if factory_url == "private:factory/swriter" and _windows_notebook_host():
         return _WINDOWS_NOTEBOOK_HOST_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
     target = _WINDOWS_FACTORY_TARGETS.get(factory_url)
@@ -405,21 +284,12 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     return "_wa_factory_%s" % _STATE.factory_seq, _WINDOWS_FACTORY_SEARCH_FLAGS
 
 
-# Stable CREATE|GLOBAL name for Hidden .ipynb loads. Do not use "_blank"
-# after leftover Writers — consecutive Hidden _blank hung detect
-# (GHA 34619751330) the same way as leftover swriter (34597506651).
+# Stable CREATE|GLOBAL name for Hidden .ipynb loads on Windows.
 _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
 
 
 def note_windows_html_paste_leftover() -> None:
-    """Mark leftover_open after ``insert_cell_html_rich`` close skipped.
-
-    Paste can leave Writers open without updating the cached leftover count when
-    pooled Calc reuse skips ``prepare_windows_writer_factory``; downstream peer
-    loads then miss the skip path. Paste UNO tests call this after a successful
-    paste. Do not enum ``getComponents`` (can hang after paste close). Cached
-    count only. Do not close leftover paste Writers.
-    """
+    """Mark leftover_open after ``insert_cell_html_rich`` skips close on Windows."""
     if sys.platform != "win32":
         return
     if _windows_leftover_open() <= 0:
@@ -433,14 +303,7 @@ def note_windows_html_paste_leftover() -> None:
     )
 
 
-# GHA 34661915875 (master aa6bf058, #737 live): leftover _wa_factory
-# swriter at leftover_open=15 returned; leftover _wa_simpress hung 30s
-# in loadComponentFromURL. Leftover Draw/Impress unique names succeeded
-# at leftover_open=1 (34657826349). High leftover Writer count wedges
-# a new app factory — skip leftover Draw/Impress, do not close leftovers.
-# GHA 34672065355 (master #742+#743): leftover _wa_simpress hung 30s at
-# leftover_open=3 (uids 40/39/29 Writer leftovers from notebook/importer).
-# Old max=4 only skipped leftover_open>4, so leftover_open=3 still loaded.
+# >2 leftover Writers: a cross-app Draw/Impress factory load hangs 30s on Windows (3 hung; 4 was too loose).
 _WINDOWS_CROSS_APP_LEFTOVER_MAX = 2
 
 
@@ -460,17 +323,7 @@ def windows_cross_app_factory_unsafe(leftover_open: int | None = None) -> bool:
 
 
 def skip_windows_cross_app_factory(factory_url: str, leftover_open: int) -> None:
-    """Skip leftover Draw/Impress factory when leftover Writer count is high.
-
-    GHA 34661915875: leftover ``_wa_simpress`` at leftover_open=15 hung
-    30s (office alive). #737's stable name is live — hang is not unique
-    ``_wa_factory_N`` stacking. Leftover swriter at leftover_open=15
-    returned. GHA 34672065355: leftover ``_wa_simpress`` at
-    leftover_open=3 hung 30s — skip leftover_open>2. Do not close
-    leftover paste / notebook Writers (34556185752 / 34646877587).
-    Leftover Writer / leftover Calc still load. Cached leftover count
-    only.
-    """
+    """Skip leftover Draw/Impress factory when leftover Writer count exceeds the Windows limit."""
     if factory_url not in ("private:factory/sdraw", "private:factory/simpress"):
         return
     if not windows_cross_app_factory_unsafe(leftover_open):
@@ -480,12 +333,6 @@ def skip_windows_cross_app_factory(factory_url: str, leftover_open: int) -> None
         "windows leftover skip: leftover %s leftovers=%s" % (app, leftover_open),
         "Windows leftover Draw/Impress skip (%s, leftovers=%s)" % (app, leftover_open),
     )
-
-
-# GHA 34655847157 (master f88b8749, leftovers=0, paste deferred): first
-# Hidden Budget_read.ods raised ``Could not create system bitmap!`` in
-# ~20ms; the next sibling Hidden open hung 30s. 34652644656 was 3/3 on
-# the same copy path. After a bitmap, do not Hidden-open again.
 
 
 def _set_windows_hidden_open_bitmap(on: bool) -> None:
@@ -504,19 +351,7 @@ def windows_hidden_open_bitmap_err(err: str | None) -> bool:
 
 
 def skip_windows_hidden_open_after_bitmap(reason: str) -> None:
-    """Skip a later Hidden sibling open after a fast Windows bitmap fail.
-
-    GHA 34655847157: leftover_open=0, slash OK, list_nearby OK, then
-    Hidden ``Budget_read.ods`` bitmap-failed; the next
-    ``open_document_for_read`` hung 30s. Attempt the first Hidden-open
-    (34652644656 was 3/3). After bitmap, skip — do not hang.
-
-    GHA 34670295632 (PR #742): #734 skipped later document_research
-    Hidden siblings. Next suite ``text_helpers`` leftover writer reuse
-    then Hidden ``_blank`` (leftover_open=0) hung 30s. ``create_native_doc``
-    also skips Hidden ``_blank`` after bitmap. Named leftover factories
-    still load.
-    """
+    """Skip a later Hidden sibling open or Hidden ``_blank`` load, because the next Hidden open hangs 30s after a Windows system-bitmap failure."""
     if not _windows_hidden_open_bitmap():
         return
     _raise_windows_skip(
@@ -531,20 +366,7 @@ def windows_awt_top_dialog_unsafe() -> bool:
 
 
 def skip_windows_awt_top_dialog(reason: str) -> None:
-    """Skip TOP dialog ``createPeer`` / ``setVisible`` on Windows headless.
-
-    GHA 34671277292 (master ``dc3be8d6``): after full calc UNO suites
-    (all green, leftover_open not required),
-    ``test_slash_popup_listbox_filter_and_keys`` printed ``TEST call``
-    then hung 30s. Main thread was ``dlg.setVisible(True)`` after
-    ``createPeer(toolkit, None)``; office stayed alive (kill-libreoffice
-    later killed the same soffice PIDs). Worker threads were
-    ``worker_pool._loop`` / ``_drain_soffice_stderr``.
-
-    Overlay ``createWindow`` TOP + later ``setVisible`` is the same VCL map.
-    Overlay tests still map on Linux UNO. Do not map a TOP dialog on win32
-    CI, even when ``leftover_open`` is 0.
-    """
+    """Skip TOP dialog ``createPeer`` / ``setVisible`` on Windows headless to avoid VCL hang."""
     if not windows_awt_top_dialog_unsafe():
         return
     _raise_windows_skip(
@@ -565,22 +387,12 @@ def note_windows_hidden_open_bitmap(err: str | None) -> None:
     )
 
 
-# Win32 factory target for the separate notebook pool, distinct from
-# _wa_factory (would find leftover HTML-paste Writers) and _wa_notebook
-# (import-filter leftover listeners, GHA 34643210006).
+# Separate win32 factory target for the notebook Writer pool.
 _WINDOWS_NOTEBOOK_HOST_TARGET = "_wa_notebook_host"
 
 
 def set_windows_notebook_host(on: bool) -> None:
-    """Use a separate pooled Writer for test_notebook_runner_uno and
-    test_writer_importer_uno on every platform.
-
-    Without it, the shared Writer pool keeps WriterAgentNotebookJson and a
-    form-run listener because _reset_writer_doc does not clear them, so
-    later suites would see a notebook document
-    (session_manager.has_notebook_registry). Only the win32 factory target
-    _wa_notebook_host is Windows-specific.
-    """
+    """Use a separate pooled Writer for notebook UNO suites so form-run state does not leak."""
     _STATE.notebook_host = bool(on)
 
 
@@ -589,24 +401,7 @@ def _windows_notebook_host() -> bool:
 
 
 def windows_notebook_load_args() -> tuple[str, int]:
-    """Target + FrameSearchFlag for a Hidden Jupyter ``loadComponentFromURL``.
-
-    GHA 34619751330 (``5377a87e``, ``test_draw_uno`` already deferred):
-    leftover Math Draw had **not** run. ``test_import_filter_uno_load_component``
-    Hidden ``_blank`` + FilterName returned, then raw ``close(True)``.
-    ``test_import_filter_uno_detect_without_filtername`` Hidden ``_blank``
-    hung 30s (soffice still ``2444,5124``). Same consecutive leftover
-    Hidden ``_blank`` family as 34597506651. POSIX keeps ``_blank``.
-
-    GHA 34646877587: first Hidden ``_wa_notebook`` load+close notebook
-    leftover uid=41 returned; the next Hidden ``_wa_notebook`` hung 30s
-    (paste leftovers still open=3). Unique leftover ``_wa_notebook_2``
-    is the same stacking family as leftover ``_wa_factory_N``. Do not
-    close leftover notebook docs (same skip as paste Writers). On Windows,
-    use the dedicated ``_wa_notebook`` target; POSIX keeps ``_blank``.
-    (The detect-reload skip was removed in TSLOP-WIN stage 2, pending
-    round-1 Windows UNO verification.)
-    """
+    """Return (target, FrameSearchFlag) for Hidden Jupyter loads; reuse ``_wa_notebook`` on Windows because consecutive Hidden ``_blank`` hangs."""
     if sys.platform != "win32":
         return "_blank", 0
     return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
@@ -694,43 +489,15 @@ def _default_native_doc_reuse(doc_type: str) -> bool:
 # the SfxItemPool path. Measured 0/80 on the killer; post-close wait did not help.
 _CLOSE_DOC_URP_SETTLE_S = 0.05
 
-# GHA 34419828920 (master bf6c2ea2): peer test_peer_impress_rejected_on_resolved_model
-# raw-closed Impress via doc.close(True), then the *next* test hung 30s in
-# private:factory/swriter load (test_peer_message_uno.py:109). Office stayed
-# alive (kill-libreoffice.ps1 still found soffice PIDs). close_doc's 50 ms is
-# pre-close (release proxies before teardown). This is post-close: drop the
-# closed Impress/Draw proxy, GC, then let URP finish before the next factory
-# load. Do not put this inside close_doc — that would tax every Writer/Calc
-# close. Windows needs longer; POSIX is a short drain. Not a product fix.
-#
-# GHA 34518091151 (#710 path): the hang moved *into* close_doc at Impress
-# ``doc.close(True)`` (faulthandler 30s; office still alive). close_doc GCs
-# leftover ``resolve_document_by_url`` wrappers then close()s after only
-# 50 ms — too tight on Windows Draw-family. Pre-close settle uses the same
-# Windows-longer budget; still not inside close_doc. POSIX only: Windows
-# Draw-family close is a bare ``close(True)`` (see ``_draw_family_raw_close``).
+# Post-close and POSIX pre-close URP settle durations for Draw/Impress teardown.
+# Without this settle, the next factory load hangs; keep it out of close_doc so
+# Writer/Calc closes are not taxed, and keep the longer budget on Windows.
 _DRAW_FAMILY_POST_CLOSE_SETTLE_S = 0.75 if sys.platform == "win32" else 0.15
 _DRAW_FAMILY_PRE_CLOSE_SETTLE_S = _DRAW_FAMILY_POST_CLOSE_SETTLE_S
 
 
 def _draw_family_raw_close() -> bool:
-    """True when Impress must be closed with a bare ``close(True)``.
-
-    What the breadcrumbs showed:
-    - GHA 34419828920 / #710: raw ``doc.close(True)`` (no pre-close GC)
-      *returned* on Windows; the *next* Writer factory load then hung
-      until ``settle_after_draw_family_close`` was added.
-    - GHA 34518091151: ``close_doc`` (GC + 50 ms + ``close``) hung 30s
-      *inside* Impress close.
-    - GHA 34532953982 / 34535868114: GC + pre-close settle then
-      ``close(True)`` / ``dispose()`` hung the same way.
-    - GHA 34537826720: skipping close/dispose left Impress alive; the
-      next ``private:factory/swriter`` load hung 30s.
-
-    Skip is not a fix. Pre-close GC/sleep before close is the hung path.
-    Raw close + post-close settle is the only sequence that both returned
-    and (with #710's settle) was meant to unwedge the next Writer load.
-    """
+    """True on Windows where Impress/Draw must close via bare ``close(True)`` because pre-close GC/sleep hangs."""
     return sys.platform == "win32"
 
 
@@ -751,23 +518,12 @@ def _draw_family_doc_label(doc) -> str:
     return "unknown"
 
 
-# plugin/draw/math_insert.py MATH_CLSID. close_doc of a Draw that still
-# holds this OLE killed soffice (GHA 34607010446, exit 0).
+# plugin/draw/math_insert.py MATH_CLSID; closing a Draw doc holding this OLE can crash soffice on Windows.
 _MATH_OLE_CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
 
 
 def mark_windows_math_ole_doc(doc) -> None:
-    """Harness-only: this Draw/Impress still holds a Math OLE.
-
-    GHA 34607010446: ``test_insert_math_draw`` body returned, then
-    ``close_doc`` ``dispose`` of that Draw killed soffice (exit 0).
-    Nine earlier Draw ``close_doc`` calls in the same suite survived.
-    Remember the uid so teardown can skip the close. The runner then
-    defers ``test_draw_uno`` until just before the peer suite so this
-    leftover is not ``close(True)``'d (34607010446). Notebook detect
-    hang is leftover Hidden ``_blank`` (34619751330), not this Draw.
-    Not a product fix.
-    """
+    """Record a Draw/Impress doc holding a Math OLE so Windows teardown skips closing it."""
     if sys.platform != "win32" or not doc:
         return
     try:
@@ -923,13 +679,10 @@ def close_draw_family_doc(doc):
 
 
 def settle_after_draw_family_close() -> None:
-    """Harness-only: GC + sleep after closing Impress/Draw before the next factory load.
+    """GC and sleep after closing Impress/Draw so URP teardown finishes before the next factory load.
 
-    Call after ``close_draw_family_doc`` *and* after dropping the local
-    reference. The next ``loadComponentFromURL`` is the hang site if this
-    settle is skipped *or* if Impress was never actually closed
-    (GHA 34537826720 skip-teardown; see
-    ``tests/chatbot/test_peer_message_uno.py``).
+    Call after ``close_draw_family_doc`` and after dropping the local reference,
+    because the next factory load hangs if the proxy is still held or skipped.
     """
     import gc
     import time
@@ -993,14 +746,7 @@ def _remove_all_calc_charts(doc) -> None:
 
 
 def _probe_soffice_before_udprops(doc, _ctx=None) -> None:
-    """Name whether the Calc model is already wedged before the udprop write.
-
-    GHA 33763078357: sheet-level reset returned, then getDocumentProperties blocked.
-    GHA 33771766524 / 33772063173: #572's desktop.getComponents probe became
-    the Windows hang site after close+paste (deterministic). Product fix is in
-    rich_html.py (reuse Writer, do not enumerate after close). Test harness
-    keeps only a cheap RuntimeUID attribute read here.
-    """
+    """Cheap RuntimeUID read before clearing udprops; avoids desktop.getComponents() after paste close."""
     _native_teardown_progress("udprops probe: RuntimeUID start")
     try:
         uid = getattr(doc, "RuntimeUID", None)
@@ -1010,14 +756,8 @@ def _probe_soffice_before_udprops(doc, _ctx=None) -> None:
 
 
 def _clear_writeragent_udprops(doc, ctx=None) -> None:
-    # GHA 33707990007: after insert_cell_html, Windows hung in
-    # set_document_scripts → is_document_readonly_for_scripts → doc.isReadonly()
-    # during calc native-doc wipe (remove_charts + clearContents had already
-    # returned). A harness wipe is never a user-readonly save; write the
-    # scripts UDProp the same way as the session ids so we never call
-    # isReadonly(). Empty string is missing to get_document_scripts.
-    # GHA 33763078357: that workaround relocated the hang to
-    # getDocumentProperties() — do not skip this write; probe first.
+    # Write the scripts UDProp directly because doc.isReadonly() hung on Windows;
+    # do not skip this write, because skipping relocated the hang to getDocumentProperties().
     from plugin.doc import udprops as udprops_mod
 
     # Keep suite noise low: the desktop/clipboard probe runs only when
@@ -1144,14 +884,7 @@ def _reset_writer_style_families(doc) -> None:
 
 
 def _reset_writer_page_regions(doc) -> None:
-    """Clear leftover header/footer XText and restore shared-page defaults.
-
-    Body wipe does not touch page-style regions. Windows Writer reuse
-    (leftover_open=0) then left ``header_first`` / ``FirstIsShared=False``
-    from a prior letterhead test, so ``page_set_style_properties``
-    correctly refused disable (GHA 35466498641). Also reset
-    ``PageDescName`` so findFirst searches the Standard header we write.
-    """
+    """Clear leftover header/footer XText, restore FirstIsShared, and reset PageDescName to Standard."""
     try:
         styles = doc.getStyleFamilies().getByName("PageStyles")
     except Exception:
@@ -1435,14 +1168,9 @@ class TestingFactory:
 
         leftover_open = 0
         target, flags = "_blank", 0
-        # GHA 34593327841 / 34599838644 / 34602219973 / 34633295036:
-        # leftover paste Writers as desktop current hung the next factory
-        # (30s). #720 only prepared swriter. Reactivate the keeper.
-        # Leftover swriter reuses one CREATE|GLOBAL name (_wa_factory).
-        # Leftover Calc reuses _wa_scalc (unique _wa_factory_N failed
-        # then hung, 34633295036). Leftover Draw / leftover Impress
-        # reuse _wa_sdraw / _wa_simpress (unique _wa_factory_10 hung
-        # at leftover_open=15, 34657826349).
+        # On Windows, prepare the keeper frame and reuse stable CREATE|GLOBAL
+        # target names when leftover Writers exist; skip unsafe cross-app or
+        # post-bitmap Hidden _blank loads.
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
             target, flags = _windows_factory_load_args(factory_url, leftover_open)
@@ -1452,18 +1180,7 @@ class TestingFactory:
                 "create_native_doc: windows factory leftover_open=%s url=%s target=%s flags=%s"
                 % (leftover_open, factory_url, target, flags)
             )
-            # GHA 34661915875 / 34672065355: leftover _wa_simpress hung
-            # 30s at leftover_open=15 and leftover_open=3. Stable name
-            # is live. Skip leftover Draw/Impress when leftover Writer
-            # count is >2 — leftover swriter at leftover_open=15
-            # returned.
             skip_windows_cross_app_factory(factory_url, leftover_open)
-            # GHA 34670295632 (PR #742): #734 skipped later
-            # document_research Hidden siblings after Budget_read
-            # bitmap. Next suite text_helpers leftover writer reuse
-            # then Hidden _blank (leftover_open=0) hung 30s. After
-            # bitmap, Hidden _blank is unsafe. Named leftover
-            # factories still load.
             if target == "_blank":
                 skip_windows_hidden_open_after_bitmap(
                     "create_native_doc Hidden _blank"
@@ -1509,8 +1226,7 @@ class TestingFactory:
         """Safely closes a document instance if available."""
         if not doc:
             return
-        # Skip leftover-window Writer close *before* dropping the pool entry
-        # so reuse can still find the doc (34602219973).
+        # Skip leftover-window Writer close before dropping the pool entry so reuse still finds it.
         uid = ""
         is_writer = False
         leftover_open = 0
@@ -1519,10 +1235,7 @@ class TestingFactory:
                 uid = str(getattr(doc, "RuntimeUID", None) or "")
             except Exception:
                 uid = ""
-            # GHA 34612145495: _native_doc_svc + page walk before the first
-            # Draw forms close(True) killed soffice (exit 0). Master
-            # 34607010446 closed that same forms Draw. Check the Math
-            # mark from RuntimeUID only — no supportsService / getDrawPages.
+            # Check Math OLE mark from RuntimeUID only because supportsService/getDrawPages killed soffice.
             if _windows_should_skip_math_ole_close(uid):
                 from plugin.testing_runner import _progress_verbose as _progress, _soffice_pids
 
@@ -1553,15 +1266,8 @@ class TestingFactory:
                     "close_doc: start uid=%s leftovers=%s" % (uid or "-", leftover_open)
                 )
                 if leftover_open > 0:
-                    # GHA 34602219973: close uid=34 returned; next unique
-                    # _wa_factory_5 swriter hung 30s. Do not close a
-                    # harness Writer while paste leftovers remain (same
-                    # ban as leftover paste close, 34556185752).
-                    # GHA 34646877587: close notebook leftover uid=41
-                    # returned; next Hidden ``_wa_notebook`` hung 30s.
-                    # Per-doc listener counts + ``_wa_notebook_host``
-                    # isolate notebook_runner. Do not close leftover
-                    # notebook docs or leftover paste Writers.
+                    # Do not close Writers on Windows while leftover paste/notebook Writers remain open,
+                    # because closing them hangs the next factory load.
                     reactivate_harness_keeper()
                     _progress(
                         "close_doc: skip writer close leftovers open=%s uid=%s"
@@ -1571,8 +1277,7 @@ class TestingFactory:
         for key, pooled in list(_NATIVE_DOC_POOL.items()):
             if pooled is doc:
                 del _NATIVE_DOC_POOL[key]
-        if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-            _NATIVE_DOC_POOL.mark_clean(doc, False)
+        _NATIVE_DOC_POOL.mark_clean(doc, False)
         try:
             from plugin.calc.python.function import clear_python_addin_cache
 
@@ -1597,9 +1302,7 @@ class TestingFactory:
             if sys.platform == "win32" and is_writer:
                 from plugin.testing_runner import _progress_verbose as _progress
 
-                # Test Writer close returned (34554275072). Leftover close
-                # hangs (34556185752). Reactivate keeper so the next factory
-                # is not against a leftover paste Writer as current.
+                # Reactivate keeper so the next factory does not target a leftover Writer.
                 reactivate_harness_keeper()
                 _progress("close_doc: done uid=%s" % (uid or "-"))
         except Exception as exc:
@@ -1614,8 +1317,7 @@ class TestingFactory:
         """Yield a native LO document. Writer and Calc default to wipe-and-reuse pool (pass reuse=False for fresh doc)."""
         if reuse is None:
             reuse = _default_native_doc_reuse(doc_type)
-        # reuse=False still calls create_native_doc. Leftover _wa_scalc
-        # hung 30s (34643210006). Wipe-and-reuse the pooled Calc instead.
+        # Wipe-and-reuse the pooled Calc when leftover Writers make a new scalc factory unsafe.
         if doc_type == "calc" and not reuse and _windows_should_reuse_calc(ctx):
             from plugin.testing_runner import _progress_verbose as _progress
 
@@ -1633,20 +1335,17 @@ class TestingFactory:
             candidate = _NATIVE_DOC_POOL.get(key)
             if candidate is not None and _native_doc_alive(candidate):
                 try:
-                    if hasattr(_NATIVE_DOC_POOL, "is_clean") and not _NATIVE_DOC_POOL.is_clean(candidate):
+                    if not _NATIVE_DOC_POOL.is_clean(candidate):
                         reset_native_doc(candidate, doc_type, ctx)
-                        if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                            _NATIVE_DOC_POOL.mark_clean(candidate, True)
+                        _NATIVE_DOC_POOL.mark_clean(candidate, True)
                     if doc_type == "writer" and not _writer_pool_is_clean(candidate):
                         if sys.platform == "win32" and _windows_leftover_open() > 0:
                             from plugin.testing_runner import _progress_verbose as _progress
 
-                            # close + factory hangs (34602219973). Wipe again
-                            # and keep the leftover-window Writer.
+                            # Wipe again and keep the pooled Writer while leftovers remain.
                             _progress("native_doc: leftover writer pool dirty; keep")
                             reset_native_doc(candidate, doc_type, ctx)
-                            if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                                _NATIVE_DOC_POOL.mark_clean(candidate, True)
+                            _NATIVE_DOC_POOL.mark_clean(candidate, True)
                             doc = candidate
                             pooled = True
                         else:
@@ -1668,8 +1367,7 @@ class TestingFactory:
             if doc is None:
                 doc = TestingFactory.create_native_doc(ctx, doc_type=doc_type, hidden=hidden)
                 _NATIVE_DOC_POOL[key] = doc
-                if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                    _NATIVE_DOC_POOL.mark_clean(doc, True)
+                _NATIVE_DOC_POOL.mark_clean(doc, True)
                 pooled = True
         else:
             doc = TestingFactory.create_native_doc(ctx, doc_type=doc_type, hidden=hidden)
@@ -1682,8 +1380,7 @@ class TestingFactory:
                 pass
         body_exc: BaseException | None = None
         try:
-            if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                _NATIVE_DOC_POOL.mark_clean(doc, False)
+            _NATIVE_DOC_POOL.mark_clean(doc, False)
             yield doc
         except BaseException as exc:
             body_exc = _exception_leaving_native_doc(exc)
@@ -1698,11 +1395,9 @@ class TestingFactory:
                     )
                     try:
                         reset_native_doc(doc, doc_type, ctx)
-                        if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                            _NATIVE_DOC_POOL.mark_clean(doc, True)
+                        _NATIVE_DOC_POOL.mark_clean(doc, True)
                     except Exception:
-                        if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                            _NATIVE_DOC_POOL.mark_clean(doc, False)
+                        _NATIVE_DOC_POOL.mark_clean(doc, False)
                         # Do not return from finally: that swallows a failed test
                         # body and warns on 3.12+ (SyntaxWarning: return in finally).
                         _native_teardown_progress(
@@ -1718,21 +1413,8 @@ class TestingFactory:
                         except Exception:
                             pass
                 else:
-                    # GHA 35413789298 (master 609490ec) / 29079e14: first
-                    # designs_uno Impress @with_native_doc teardown called
-                    # close_doc (gc.collect + 50 ms + close(True)) after
-                    # leftover Writer reuse (leftover_open=1). soffice exited
-                    # 0; URP disposed; runner aborted remaining suites.
-                    # How: close_doc's pre-close GC/sleep is the Windows
-                    # Impress/Draw killer (34518091151 / 34532953982 /
-                    # 34535868114). Peer tests already use
-                    # close_draw_family_doc (bare close(True) on win32) +
-                    # settle_after_draw_family_close.
-                    # GHA 35450779692 (post-#803 cd9da961): that raw close
-                    # still killed soffice with leftover_open=1. Skip the
-                    # Draw-family close on win32 while leftovers remain
-                    # (peer skip-close family). Math OLE Draw still uses
-                    # close_doc so the existing skip stays (34607010446).
+                    # Non-pooled Draw/Impress use close_draw_family_doc + settle (or skip
+                    # close on Windows when leftovers remain); Math OLE Draw keeps close_doc.
                     uid = ""
                     try:
                         uid = str(getattr(doc, "RuntimeUID", None) or "")
@@ -1748,11 +1430,7 @@ class TestingFactory:
                         if _windows_should_skip_draw_family_close():
                             from plugin.testing_runner import current_office
 
-                            # Do not close(True) while leftover Writer is
-                            # open (35450779692). Drop the proxy; leftover
-                            # CREATE|GLOBAL _wa_simpress / _wa_sdraw reuse
-                            # replaces instead of stacking. Suite-end
-                            # recycle kills leftovers (34537826720).
+                            # Skip closing while leftover Writers are open; suite-end recycle tears down.
                             _progress(
                                 "native_doc: teardown skip impress/draw close leftover_open=%s"
                                 % leftover_open
@@ -1913,8 +1591,7 @@ def with_native_doc(doc_type="writer", hidden=True, reuse=None):
             if ctx is None and len(args) > 0:
                 ctx = args[0]
 
-            # GHA 33703959362: no TEST end after execute-done. Enter/exit here
-            # splits a body hang from wipe-and-reuse teardown after return.
+            # Split body execution from wipe-and-reuse teardown in verbose logs.
             log_teardown = func.__name__ == "test_insert_cell_html"
             global _LOG_NATIVE_DOC_TEARDOWN
             prev_teardown_log = _LOG_NATIVE_DOC_TEARDOWN
