@@ -7,6 +7,8 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
+# Writer tests record the pooled doc's RuntimeUID; reader tests assert they got the
+# *same* doc, so the emptiness checks prove reset-on-reuse rather than a fresh document.
 _calc_uids: list = []
 _writer_uids: list = []
 
@@ -34,7 +36,8 @@ def test_calc_reuse_writes_then_leaves_dirt(ctx, doc):
 def test_calc_reuse_next_test_sees_empty_sheet(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     assert sheet.getCellByPosition(0, 0).getString() == ""
-    assert _calc_uids and _runtime_uid(doc) == _calc_uids[0]
+    assert _calc_uids, "run test_calc_reuse_writes_then_leaves_dirt first (pairs share the pooled doc)"
+    assert _runtime_uid(doc) == _calc_uids[0], "expected reused Calc doc, got a different RuntimeUID"
     from plugin.scripting.document_scripts import get_calc_init_script
 
     assert (get_calc_init_script(doc) or "").strip() == ""
@@ -60,7 +63,8 @@ def test_writer_reuse_writes_then_leaves_dirt(ctx, doc):
 @with_native_doc("writer", reuse=True)
 def test_writer_reuse_next_test_sees_empty_text(ctx, doc):
     assert doc.getText().getString() == ""
-    assert _writer_uids and _runtime_uid(doc) == _writer_uids[0]
+    assert _writer_uids, "run test_writer_reuse_writes_then_leaves_dirt first (pairs share the pooled doc)"
+    assert _runtime_uid(doc) == _writer_uids[0], "expected reused Writer doc, got a different RuntimeUID"
     cursor = doc.getText().createTextCursor()
     cursor.gotoStart(False)
     weight = float(cursor.getPropertyValue("CharWeight"))
@@ -88,7 +92,8 @@ def test_writer_default_reuse_writes_then_leaves_dirt(ctx, doc):
 @with_native_doc("writer")
 def test_writer_default_reuse_next_test_sees_empty_text(ctx, doc):
     assert doc.getText().getString() == ""
-    assert _writer_uids and _runtime_uid(doc) == _writer_uids[-1]
+    assert _writer_uids, "run test_writer_default_reuse_writes_then_leaves_dirt first (pairs share the pooled doc)"
+    assert _runtime_uid(doc) == _writer_uids[-1], "expected reused Writer doc, got a different RuntimeUID"
     cursor = doc.getText().createTextCursor()
     cursor.gotoStart(False)
     weight = float(cursor.getPropertyValue("CharWeight"))
