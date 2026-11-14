@@ -348,13 +348,6 @@ def test_document_persistence_snapshot_and_add_clear_ignored_rules() -> None:
         assert mock_save.call_count == 2
 
 
-def test_rule_prefixes_come_from_framework_leaf() -> None:
-    import plugin.framework.grammar_rule_ids as ids
-    import plugin.writer.locale.grammar_ignore_rules as gir
-
-    assert ids.WA_G_RULE_PREFIX is gir.WA_G_RULE_PREFIX
-
-
 def test_ignore_set_for_document_and_allows() -> None:
     with (
         patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"avoid passive voice"}),

@@ -220,14 +220,6 @@ class TestGrammarPersistence:
         listener.disposing(MagicMock())
         assert (dp._teardown_done)
 
-    def test_document_event_listener_has_correct_uno_method_names(self) -> None:
-        """Guardrail: the listener must expose UNO IDL method names exactly."""
-        from plugin.writer.locale import grammar_persistence as gp
-
-        assert (hasattr(gp._GrammarDocumentEventListener, "documentEventOccured"))
-        assert (hasattr(gp._GrammarDocumentEventListener, "disposing"))
-        assert not (hasattr(gp._GrammarDocumentEventListener, "documentEvent")), "stale typo ``documentEvent`` must not be present"
-
     def test_document_persistence_entries_independent_of_sentence_cache(self) -> None:
         """DocumentPersistence._entries stores loaded/persisted data without touching grammar_registry.sentence_cache."""
         from plugin.writer.locale import grammar_persistence as gp

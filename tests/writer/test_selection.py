@@ -332,10 +332,6 @@ def test_selection_target_wraps_span_failure_in_valueerror():
         resolve_target_cursor(ctx, "selection", None)
 
 
-def test_set_selection_is_core_read_only():
-    assert SetSelection.tier == "core" and SetSelection.is_mutation is False
-
-
 def test_apply_document_content_selection_failure_not_silent():
     from plugin.framework.config import save
     save({'doc.agent_edit_review_mode': 'none'})

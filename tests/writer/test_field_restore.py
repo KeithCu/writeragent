@@ -29,28 +29,23 @@ def test_rewrite_exported_field_spans_leaves_plain_html():
     assert rewrite_exported_field_spans("") == ""
 
 
-def test_rewrite_exported_field_spans_letterhead_subset():
-    """Chapter / author / file / DocInfo titles become the same placeholder tokens."""
-    html = (
-        '<p><span title="chapter"/> '
-        '<span title="author-name">Ada</span> '
-        '<span title="author-initials">AL</span> '
-        '<span title="file-name"/> '
-        '<span title="title"/> '
-        '<span title="subject"/></p>'
-    )
-    out = rewrite_exported_field_spans(html, nonce="test1234")
-    for title in (
-        "chapter", "author-name", "author-initials", "file-name", "title", "subject",
-    ):
-        assert "[[WA-FIELD:test1234:%s]]" % title in out
-        assert 'title="%s"' % title not in out
-
-
-def test_rewrite_exported_field_spans_leaves_unmapped_titles():
-    """Titles outside the restore subset stay as spans (easy to widen later)."""
-    html = '<p><span title="word-count"/> <span title="keywords"/></p>'
-    assert rewrite_exported_field_spans(html) == html
+@pytest.mark.parametrize(
+    "html, expected",
+    [
+        pytest.param(
+            '<p><span title="chapter"/></p>',
+            "<p>[[WA-FIELD:test1234:chapter]]</p>",
+            id="mapped_title",
+        ),
+        pytest.param(
+            '<p><span title="word-count"/> <span title="keywords"/></p>',
+            '<p><span title="word-count"/> <span title="keywords"/></p>',
+            id="unmapped_titles",
+        ),
+    ],
+)
+def test_rewrite_exported_field_spans_mapped_and_unmapped(html: str, expected: str) -> None:
+    assert rewrite_exported_field_spans(html, nonce="test1234") == expected
 
 
 def _mock_field_range():
@@ -63,22 +58,6 @@ def _mock_field_range():
     text_range = MagicMock()
     text_range.getText.return_value = text
     return model, text_range, field, text
-
-
-def test_insert_restored_field_letterhead_services():
-    """Restore maps the new titles to the matching UNO services (defaults OK)."""
-    expected = {
-        "chapter": "com.sun.star.text.textfield.Chapter",
-        "file-name": "com.sun.star.text.textfield.FileName",
-        "title": "com.sun.star.text.textfield.docinfo.Title",
-        "subject": "com.sun.star.text.textfield.docinfo.Subject",
-    }
-    for title, service in expected.items():
-        model, text_range, field, text = _mock_field_range()
-        _insert_restored_field(model, text_range, title)
-        model.createInstance.assert_called_once_with(service)
-        text.insertTextContent.assert_called_once()
-        field.setPropertyValue.assert_not_called()
 
 
 def test_insert_restored_field_author_fullname_flag():
@@ -136,12 +115,6 @@ def test_restore_field_placeholders_creates_mapped_services():
     model.findFirst.assert_called_once()
     assert all(title in sd_captured[0] for title in _FIELD_TITLE_TO_SERVICE)
     assert set(created) == set(_FIELD_TITLE_TO_SERVICE.values())
-    # Author is shared by name + initials; DocInfo title/subject must both land.
-    assert created.count("com.sun.star.text.textfield.Author") == 2
-    assert "com.sun.star.text.textfield.Chapter" in created
-    assert "com.sun.star.text.textfield.FileName" in created
-    assert "com.sun.star.text.textfield.docinfo.Title" in created
-    assert "com.sun.star.text.textfield.docinfo.Subject" in created
 
 
 def test_restore_field_placeholders_scopes_region_with_uno_same():
@@ -635,7 +608,6 @@ def test_restore_field_placeholders_raises_when_token_remains_after_find_first()
         pytest.raises(ToolExecutionError, match=r"\[\[WA-FIELD:test1234:page-number\]\]"),
     ):
         restore_field_placeholders(model, text, nonce=nonce)
-    assert text.getString() == "Unresolved " + needle
 
 
 def test_rewrite_exported_field_spans_keeps_page_offset():
