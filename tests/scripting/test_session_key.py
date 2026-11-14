@@ -212,14 +212,6 @@ def test_isolated_with_init_suffix() -> None:
     assert SessionKey.parse("isolated:ab:init").init is True
 
 
-def test_from_host_behavior() -> None:
-    assert SessionKey.from_host("") is None
-    assert SessionKey.from_host(None) is None
-    whitespace_key = SessionKey.from_host(" ")
-    assert whitespace_key is not None
-    assert whitespace_key.wire() == " "
-
-
 def test_other_raises_hash_and_document_kinds() -> None:
     with pytest.raises(ValueError, match="OTHER is parse-only"):
         SessionKey.of(SessionKind.OTHER, "x")

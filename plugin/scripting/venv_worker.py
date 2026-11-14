@@ -726,6 +726,7 @@ class PythonWorkerManager:
             # Pin (chat ctx.doc) wins; else the worker namespace id; else None.
             # The child does not choose this value, and a pin is not written into
             # the request, so Isolated mode still gets a fresh namespace.
+            # Chat passes doc:… and leaves session_id unset; RPS / =PY() / PPT-Master omit the pin and keep the request id.
             resolved_script_session_id = req.pin or req.session_id
         except Exception as exc:
             log.warning("Python worker request preparation failed: %s", exc)
