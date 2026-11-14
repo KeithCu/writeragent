@@ -1247,13 +1247,16 @@ def test_spawn_editor_process_scrubs_env_and_does_not_register(monkeypatch: pyte
 
     mock_popen = MagicMock()
     mock_popen.poll.return_value = None
-    captured_env: list[dict[str, str]] = []
+    captured_calls: list[tuple[list[str], dict[str, str]]] = []
 
-    def fake_popen(*_args: Any, **kwargs: Any) -> MagicMock:
-        captured_env.append(kwargs["env"])
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_calls.append((cmd, kwargs["env"]))
         return mock_popen
 
     monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    drain_mock = MagicMock(side_effect=AssertionError("drain"))
+    monkeypatch.setattr(ms, "start_stderr_drain", drain_mock)
+    monkeypatch.setattr("plugin.scripting.sandbox.detect_sandbox", lambda: "flatpak")
     monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/lo/lib")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("PYTHONHOME", "/usr/lib/libreoffice/program")
@@ -1263,13 +1266,16 @@ def test_spawn_editor_process_scrubs_env_and_does_not_register(monkeypatch: pyte
     try:
         proc = launch_mod.spawn_editor_process("/venv/bin/python")
         assert proc is mock_popen
-        assert len(captured_env) == 1
-        env = captured_env[0]
+        assert len(captured_calls) == 1
+        argv, env = captured_calls[0]
+        assert argv[:2] == ["flatpak-spawn", "--host"]
+        assert argv[-1] == launch_mod._EDITOR_MAIN
         assert env["WRITERAGENT_EDITOR_ASSETS"] == launch_mod._ASSETS_DIR
         assert env["LD_LIBRARY_PATH"] == "/opt/lo/lib"
         assert "OPENAI_API_KEY" not in env
         assert "PYTHONHOME" not in env
         assert _instances == instances_before
+        drain_mock.assert_not_called()
     finally:
         for inst in list(_instances):
             if inst not in instances_before:

@@ -522,6 +522,27 @@ def test_graphic_clone_without_context_does_not_alias_live_graphic():
     assert all(name != "Graphic" or value is not live for name, value in dest.sets)
 
 
+def test_copy_shapes_to_page_reimports_graphics_with_context():
+    live = object()
+    owned = object()
+    source = _ScFakeShape(
+        "com.sun.star.drawing.GraphicObjectShape",
+        {"Graphic": live, "GraphicURL": "vnd.sun.star.GraphicObject:hidden-pool"},
+    )
+    dest = _ScFakeShape("com.sun.star.drawing.GraphicObjectShape")
+    doc = MagicMock()
+    doc.createInstance.return_value = dest
+    provider = MagicMock()
+    provider.queryGraphic.side_effect = [None, owned]
+    uno_ctx = MagicMock()
+    uno_ctx.ServiceManager.createInstanceWithContext.return_value = provider
+
+    copied = copy_shapes_to_page(_ScFakePage([source]), doc, _ScFakePage(), uno_ctx=uno_ctx)
+
+    assert copied == 1
+    assert dest.props.get("Graphic") is owned
+
+
 def test_clone_shape_copies_fill_gradient_and_hatch():
     doc = MagicMock()
     page = _ScFakePage()

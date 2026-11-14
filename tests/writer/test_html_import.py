@@ -461,6 +461,7 @@ def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>muito</b> ")
     text.insertString.assert_called_once_with(cursor, " ", False)
+    cursor.goLeft.assert_called_once_with(1, False)
     frag.assert_called_once()
     assert frag.call_args.args[1] == "<b>muito</b>"
     assert frag.call_args.kwargs["wrap"] is False
@@ -738,7 +739,9 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     assert dropped == ["margin-left"]
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
+    cursor.goLeft.assert_called_once_with(1, False)
     imp.assert_called_once()
+    leftover.goLeft.assert_called_once_with(1, True)
     leftover.setString.assert_called_once_with("")
 
 

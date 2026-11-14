@@ -69,15 +69,13 @@ def test_literal_zero_hits_stays_ok():
     ctx.ctx.ServiceManager.createInstanceWithContext.assert_not_called()
 
 
-def test_validate_icu_regex_wraps_pattern_and_reads_result():
-    import uno
+def test_validate_icu_regex_accepts_valid_and_rejects_invalid():
     from plugin.writer.search import ICU_REGEX_REJECTED, validate_icu_regex
 
     ctx = MagicMock()
     ts = ctx.ServiceManager.createInstanceWithContext.return_value
     ts.searchForward.return_value.subRegExpressions = 1
-    with patch.object(uno, "getConstantByName"):
-        assert validate_icu_regex(ctx, r"\p{Lu}+") is None
+    assert validate_icu_regex(ctx, r"\p{Lu}+") is None
 
     ts.searchForward.return_value.subRegExpressions = 0
     assert validate_icu_regex(ctx, "([a-") == ICU_REGEX_REJECTED

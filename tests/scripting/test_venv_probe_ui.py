@@ -17,7 +17,8 @@ from plugin.scripting.venv_probe_ui import (
 
 
 def test_python_test_uses_modal_incremental_probe() -> None:
-    order: list[str] = []
+    reload_flags: list[bool] = []
+    modal_ran = False
     fake_ctx = MagicMock()
     fake_dlg = MagicMock()
     probe_displays: list[str] = []
@@ -26,7 +27,6 @@ def test_python_test_uses_modal_incremental_probe() -> None:
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
-            order.append("progress_ctor")
             assert parent_dlg is fake_dlg
 
         def run_modal_probe(
@@ -38,7 +38,8 @@ def test_python_test_uses_modal_incremental_probe() -> None:
             failure_title=None,
             append_log=False,
         ):
-            order.append("progress_run_modal")
+            nonlocal modal_ran
+            modal_ran = True
             assert title is None
             assert success_title == "Venv OK"
             assert failure_title == "Venv check failed"
@@ -57,7 +58,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
         return True, "Python 3.12 responds OK."
 
     def fake_status(*, reload=False):
-        order.append(f"cython_status_reload={reload}")
+        reload_flags.append(reload)
         return "Cython Accelerator: Inactive (Pure Python)"
 
     listener = ScriptingVenvTestListener(fake_ctx, fake_dlg)
@@ -70,7 +71,8 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     ):
         listener.on_action_performed(MagicMock())
 
-    assert "progress_run_modal" in order
+    assert modal_ran is True
+    assert reload_flags == [True]
     assert captured_extra == [("Cython Accelerator: Inactive (Pure Python)",)]
     assert any("Scientific Libraries: numpy" in text for text in probe_displays)
     assert any("Cython Accelerator" in text for text in probe_displays)
@@ -133,7 +135,13 @@ def test_finish_leaves_title_when_msgid_missing() -> None:
     mock_dlg.getControl.side_effect = lambda name: status_ctrl if name == "StatusLbl" else close_ctrl
     progress._dlg = mock_dlg
 
-    with patch("plugin.scripting.venv_probe_ui.set_control_text"), patch(
+    status_texts: list[str] = []
+
+    def capture_status(ctrl, text):
+        if ctrl is status_ctrl:
+            status_texts.append(text)
+
+    with patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=capture_status), patch(
         "plugin.scripting.venv_probe_ui.set_control_enabled"
     ), patch("plugin.scripting.venv_probe_ui.process_events_to_idle"):
         progress.finish(None, True)
@@ -141,6 +149,9 @@ def test_finish_leaves_title_when_msgid_missing() -> None:
 
         progress.finish("", False)
         assert model.Title == "Audio Library Download"
+
+    assert len(status_texts) == 2
+    assert status_texts[0] != status_texts[1]
 
     with patch("plugin.scripting.venv_probe_ui._", side_effect=lambda msg: "T:" + msg), patch(
         "plugin.scripting.venv_probe_ui.set_control_text"
@@ -181,10 +192,15 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
         return True, ""
 
     log_area_texts: list[str] = []
+    close_enabled: list[bool] = []
 
     def fake_set_control_text(ctrl, text):
         if ctrl is log_area:
             log_area_texts.append(text)
+
+    def fake_set_control_enabled(ctrl, enabled):
+        if ctrl is btn_close:
+            close_enabled.append(enabled)
 
     with (
         patch("plugin.scripting.venv_probe_ui.load_writeragent_dialog_detail", return_value=(dlg, None)),
@@ -194,7 +210,7 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.scripting.venv_probe_ui.process_events_to_idle"),
-        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
+        patch("plugin.scripting.venv_probe_ui.set_control_enabled", side_effect=fake_set_control_enabled),
         patch("plugin.scripting.venv_probe_ui.set_control_text", side_effect=fake_set_control_text),
     ):
         progress.run_modal_probe(probe, title="Audio Library Download", append_log=True)
@@ -202,6 +218,7 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
     assert model.Title == _("Audio Library Download")
     assert model.Title != "Venv OK"
     assert log_area_texts[-1] == "Target directory: /tmp\nDownloading pack.so\n"
+    assert close_enabled[-1] is True
     dlg.execute.assert_called_once()
 
 

@@ -856,7 +856,7 @@ def test_thread_llm_client_not_reused_when_stopped() -> None:
         assert mock_cls.call_count == 2
 
 
-def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status() -> None:
+def test_process_grammar_results_caches_raw_ignored_rule() -> None:
     from plugin.writer.locale.grammar_worker import process_grammar_results
 
     item = _item("They is here.", doc_id="doc-1")
@@ -890,6 +890,8 @@ def test_process_grammar_results_caches_ignored_rules_and_excludes_from_status()
         assert payload2[0]["rule_identifier"] == "wa_g_rule||agr"
 
         mock_status.record_done_status.assert_called_once()
+
+
 def test_call_grammar_llm_and_cache_cap_prefix() -> None:
     """Keeper 1: LLM boundaries prompt and cache checked prefix while apply_language_change gets full text."""
     from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch

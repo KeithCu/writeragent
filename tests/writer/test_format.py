@@ -268,9 +268,9 @@ def test_insert_content_at_position_empty_selection_uses_doc_end():
 
 
 
-@pytest.mark.parametrize("position", ["beginning", "end"])
-def test_insert_content_at_position_extremes_apply_styles(position: str):
-    """beginning and end paths pass apply_styles=True."""
+@pytest.mark.parametrize(("position", "goto"), [("beginning", "gotoStart"), ("end", "gotoEnd")])
+def test_insert_content_at_position_extremes_apply_styles(position: str, goto: str):
+    """Beginning needs no PARAGRAPH_BREAK prep and end runs absorb prep; both pass apply_styles=True."""
     from unittest.mock import MagicMock, patch
 
     from plugin.writer.html_import import insert_content_at_position
@@ -287,6 +287,7 @@ def test_insert_content_at_position_extremes_apply_styles(position: str):
     ):
         insert_content_at_position(model, MagicMock(), '<p data-lo-style="Heading1">x</p>', position)
 
+    getattr(body_cursor, goto).assert_called_once_with(False)
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
 

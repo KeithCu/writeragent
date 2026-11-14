@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from unittest.mock import MagicMock
 
 import pytest
@@ -52,13 +53,22 @@ def test_probe_failure_exits_1_without_build_oxt(
     assert "build_oxt.py" not in " ".join(called_cmd)
 
 
+class _VerifyRun(NamedTuple):
+    code: int
+    run_calls: list[dict[str, Any]]
+    seed_mock: MagicMock
+    kill_mock: MagicMock
+    office_pids_mock: MagicMock
+    rmtree_mock: MagicMock
+
+
 def _run_verify_with_mocks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     *,
     platform: str,
     lo_python: str,
-) -> tuple[int, list[dict[str, Any]], MagicMock, MagicMock, MagicMock, MagicMock]:
+) -> _VerifyRun:
     monkeypatch.setattr(sys, "platform", platform)
     bundle_root = tmp_path / "bundle"
     monkeypatch.setattr(tempfile, "mkdtemp", lambda prefix: str(bundle_root))
@@ -82,7 +92,7 @@ def _run_verify_with_mocks(
     monkeypatch.setattr(shutil, "rmtree", rmtree_mock)
 
     code = release_verify.main(["--lo-python", lo_python])
-    return code, run_calls, seed_mock, kill_mock, office_pids_mock, rmtree_mock
+    return _VerifyRun(code, run_calls, seed_mock, kill_mock, office_pids_mock, rmtree_mock)
 
 
 @pytest.mark.parametrize(
@@ -105,23 +115,27 @@ def test_platform_profile_and_seed(
     profile_parts: tuple[str, ...],
 ) -> None:
     if platform == "darwin":
+        # The UNO vars come from lo_paths (derived from the .app), not from the caller's env.
         monkeypatch.delenv("LO_PYTHON_ENV", raising=False)
         monkeypatch.setenv("PYTHONPATH", "/somewhere/else")
     elif platform == "win32":
         monkeypatch.setattr(release_verify.lo_paths, "build_child_env", lambda _py: {})
 
-    code, run_calls, seed_mock, kill_mock, office_pids_mock, rmtree_mock = _run_verify_with_mocks(
-        monkeypatch, tmp_path, platform=platform, lo_python=lo_python
-    )
-    assert code == 0
+    run = _run_verify_with_mocks(monkeypatch, tmp_path, platform=platform, lo_python=lo_python)
+    assert run.code == 0
 
+    bundle_root = tmp_path / "bundle"
     seed_root = tmp_path / "bundle.seed"
     expected_profile = seed_root.joinpath(*profile_parts)
-    seed_mock.assert_called_once_with(seed_root / "WriterAgent.oxt", expected_profile)
+    run.seed_mock.assert_called_once_with(seed_root / "WriterAgent.oxt", expected_profile)
 
-    uno_env = run_calls[-1]["env"]
+    uno_call = run.run_calls[-1]
+    assert uno_call["cwd"] == str(bundle_root)
+    uno_env = uno_call["env"]
+    assert uno_env["PYTHONPATH"].split(os.pathsep)[0] == str(bundle_root)
     if platform == "darwin":
         contents = Path("/Applications/LibreOffice.app/Contents")
+        assert "/somewhere/else" not in uno_env["PYTHONPATH"]
         assert uno_env["UNO_PATH"] == str(contents / "MacOS")
         assert uno_env["URE_BOOTSTRAP"].startswith("vnd.sun.star.pathname:" + str(contents / "Resources"))
     elif platform == "win32":
@@ -130,35 +144,48 @@ def test_platform_profile_and_seed(
         assert uno_env["WRITERAGENT_UNO_SEED_PROFILE"] == str(expected_profile)
         assert uno_env["WRITERAGENT_PROJECT_ROOT"] == str(PROJECT_ROOT)
 
-    office_pids_mock.assert_called_once_with(None)
-    kill_mock.assert_called_once_with([1234])
-    assert rmtree_mock.call_count == 2
+    run.office_pids_mock.assert_called_once_with(None)
+    run.kill_mock.assert_called_once_with([1234])
+    assert run.rmtree_mock.call_count == 2
 
 
-def test_uno_env_isolation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_uno_env_isolation_and_pytest_bundle_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("VIRTUAL_ENV", "/fake/venv")
     monkeypatch.setenv("PYTHONHOME", "/fake/home")
     monkeypatch.setenv("__PYVENV_LAUNCHER__", "/fake/launcher")
     monkeypatch.delenv("PYTHONPATH", raising=False)
 
-    code, run_calls, _seed, _kill, _pids, _rmtree = _run_verify_with_mocks(
-        monkeypatch, tmp_path, platform="linux", lo_python="/usr/bin/python3"
-    )
-    assert code == 0
-    uno_env = run_calls[-1]["env"]
+    run = _run_verify_with_mocks(monkeypatch, tmp_path, platform="linux", lo_python="/usr/bin/python3")
+    assert run.code == 0
+
+    bundle_root = tmp_path / "bundle"
+    pytest_calls = [c for c in run.run_calls if "-m" in c["cmd"] and "pytest" in c["cmd"]]
+    assert len(pytest_calls) == 1
+    assert pytest_calls[0]["cwd"] == str(bundle_root)
+    assert pytest_calls[0]["env"]["PYTHONPATH"] == str(bundle_root)
+    assert pytest_calls[0]["env"]["VIRTUAL_ENV"] == "/fake/venv"
+
+    uno_env = run.run_calls[-1]["env"]
     assert "VIRTUAL_ENV" not in uno_env
     assert "PYTHONHOME" not in uno_env
     assert "__PYVENV_LAUNCHER__" not in uno_env
     assert uno_env["HOME"] == str(tmp_path / "bundle.seed" / "home")
     assert uno_env["XDG_CONFIG_HOME"] == str(tmp_path / "bundle.seed" / "home" / ".config")
 
+
+def test_windows_uno_env_uses_scratch_appdata(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(release_verify.lo_paths, "build_child_env", lambda _py: {})
-    code_win, run_calls_win, _seed, _kill, _pids, _rmtree = _run_verify_with_mocks(
-        monkeypatch, tmp_path / "win", platform="win32", lo_python=r"C:\Program Files\LibreOffice\program\python.exe"
+    run = _run_verify_with_mocks(
+        monkeypatch,
+        tmp_path,
+        platform="win32",
+        lo_python=r"C:\Program Files\LibreOffice\program\python.exe",
     )
-    assert code_win == 0
-    win_home = tmp_path / "win" / "bundle.seed" / "h"
-    win_env = run_calls_win[-1]["env"]
+    assert run.code == 0
+
+    # Seed and the UNO run both use the scratch %APPDATA%, never the real profile.
+    win_home = tmp_path / "bundle.seed" / "h"
+    win_env = run.run_calls[-1]["env"]
     assert win_env["APPDATA"] == str(win_home)
     assert win_env.get("USERPROFILE") != str(win_home)
 
