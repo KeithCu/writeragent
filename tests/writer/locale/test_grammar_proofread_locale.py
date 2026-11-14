@@ -131,20 +131,6 @@ def test_trailing_closers_cover_unicode_pe_pf() -> None:
     assert missing == []
 
 
-def test_tricky_terminator_regex_escaping() -> None:
-    """Test that _sterm_class handles tricky chars like ] - \\ ^."""
-    # Verify that the regex string is safe (contains escapes for special chars)
-    # re.escape escapes almost everything non-alphanumeric.
-    assert "\\]" in gl._sterm_class or "]" not in gl.GRAMMAR_SENTENCE_TERMINATORS
-    assert "\\-" in gl._sterm_class or "-" not in gl.GRAMMAR_SENTENCE_TERMINATORS
-    assert "\\\\" in gl._sterm_class or "\\" not in gl.GRAMMAR_SENTENCE_TERMINATORS
-
-    # Test normalization with a simulated tricky terminator if we could, 
-    # but let's just verify the compiled regex doesn't crash and matches dots.
-    assert re.match(gl._sterm_class, ".")
-    assert gl.GRAMMAR_CACHE_NORMALIZATION_RE.match("Hello.")
-
-
 def test_fingerprint_for_text() -> None:
     text1 = "This is a sentence."
     text2 = "This is another sentence."

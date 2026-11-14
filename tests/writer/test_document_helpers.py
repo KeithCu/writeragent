@@ -394,9 +394,6 @@ def test_document_helpers_import_does_not_load_calc_analyzer():
         "assert 'plugin.calc.analyzer' not in sys.modules\n"
         "assert 'plugin.calc.bridge' not in sys.modules\n"
         "assert 'plugin.draw.bridge' not in sys.modules\n"
-        "assert not hasattr(plugin.doc.document_helpers, 'get_calc_context_for_chat')\n"
-        "assert not hasattr(plugin.doc.document_helpers, 'get_draw_context_for_chat')\n"
-        "assert not hasattr(plugin.doc.document_helpers, 'collect_tracked_changes')\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],

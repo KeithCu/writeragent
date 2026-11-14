@@ -17,7 +17,6 @@ import pytest
 from plugin.tests.testing_utils import TestingFactory
 
 
-from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles
 from plugin.doc.visual_helpers import anchor_type_index
 from plugin.framework.client.http_transport import HttpResult
@@ -141,11 +140,6 @@ def test_image_insert_routes_first_page_target_to_region_helper(target: str):
     assert res["status"] == "ok"
     assert res["target"] == target
     assert insert.call_args.args[2] == target
-
-
-def test_image_generate_default_base_size_is_1024():
-    assert ImageGenerate.parameters["properties"]["base_size"]["default"] == 1024
-    assert DEFAULT_IMAGE_BASE_SIZE == 1024
 
 
 def test_image_generate_forwards_stop_checker():

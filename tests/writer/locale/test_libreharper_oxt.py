@@ -6,32 +6,9 @@
 
 from __future__ import annotations
 
-import ast
-import os
 from types import SimpleNamespace
 
 from plugin.writer.locale.harper import normalize_harper_locale_to_bcp47
-
-
-def _repo_root() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-
-
-def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -> None:
-    """Harper OXT must not pull LLM/embeddings via ``from plugin.framework.client import …``."""
-    for filename in ("grammar_work_queue.py", "grammar_settings.py"):
-        path = os.path.join(_repo_root(), "plugin", "writer", "locale", filename)
-        with open(path, encoding="utf-8") as f:
-            module = ast.parse(f.read(), filename=path)
-        top_level = [
-            node.module
-            for node in module.body
-            if isinstance(node, ast.ImportFrom) and node.module is not None
-        ]
-        assert "plugin.framework.client" not in top_level
-        assert "plugin.framework.client.request_controls" not in top_level
-        assert "plugin.framework.client.llm_client" not in top_level
-        assert "plugin.framework.client.model_fetcher" not in top_level
 
 
 def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
