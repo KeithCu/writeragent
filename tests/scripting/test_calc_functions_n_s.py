@@ -550,7 +550,7 @@ def test_n_text_returns_zero():
         calc.n(10**400)
 
 
-def test_item3_sumif_error_propagation_and_shapes():
+def test_sumif_error_propagation_and_shapes():
     assert math.isnan(calc.sumif(["a", "a"], "a", [1, "#VALUE!"]))
     assert math.isnan(calc.sumif(["a", "b"], "a", [1, 2, 3]))  # mismatched shapes
     assert calc.sumif(["a", "b"], "a", [1, "#VALUE!"]) == 1.0

@@ -1168,6 +1168,22 @@ def test_scripts_list_keys_document_by_display_name_and_user_by_raw_name():
     assert by_id["user"]["Regional"] == "user-code"
 
 
+def test_set_calc_init_script_returns_the_property_write_result() -> None:
+    """No host-side init cache to refresh: the result is the document write's."""
+
+    class _ReadOnlyProperties(_UserDefinedProperties):
+        def addProperty(self, name: str, attributes: int, value: object) -> None:
+            raise RuntimeError("read-only")
+
+        def setPropertyValue(self, name: str, value: object) -> None:
+            raise RuntimeError("read-only")
+
+    doc = _DocWithUserDefinedProperties(_ReadOnlyProperties())
+    err = set_calc_init_script(doc, "x = 1")
+    assert isinstance(err, DocumentScriptError)
+    assert err.code == DocumentScriptErrorCode.READONLY
+
+
 def test_calc_init_script_both_keys_present_roundtrip():
     """Bug 1: when both INIT and Init exist, set_calc_init_script normalizes to a single INIT."""
     props = _UserDefinedProperties()

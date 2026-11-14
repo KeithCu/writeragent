@@ -357,7 +357,11 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
     assert res is None
 
 
-@pytest.mark.parametrize(("cell_sid", "init_sid"), [("calc:wb-func-shared", "calc:wb-func-shared:init"), (None, "calc:wb-func-iso:init")])
+@pytest.mark.parametrize(
+    ("cell_sid", "init_sid"),
+    [("calc:wb-func-shared", "calc:wb-func-shared:init"), (None, "calc:wb-func-iso:init")],
+    ids=["shared", "isolated"],
+)
 def test_init_helper_function_callable(cell_sid, init_sid):
     """Functions defined via `def` in INIT scripts must be callable in shared and isolated cells."""
     init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
@@ -373,16 +377,21 @@ def test_init_helper_function_callable(cell_sid, init_sid):
     assert r1["status"] == "ok", r1.get("message")
     assert r1["result"] == 42
 
-    if cell_sid is not None:
-        r2 = sandbox_run(
-            "result = 3 * FACTOR",
-            session_id=cell_sid,
-            init_script=init_code,
-            init_session_id=init_sid,
-            init_script_hash=h,
-        )
-        assert r2["status"] == "ok", r2.get("message")
-        assert r2["result"] == 30
+
+def test_init_helper_globals_available_across_cells():
+    """Globals defined in INIT scripts remain available in shared-kernel cells."""
+    init_code = "def double(x):\n    return x * 2\nFACTOR = 10"
+    h = script_body_hash(init_code)
+
+    r = sandbox_run(
+        "result = 3 * FACTOR",
+        session_id="calc:wb-func-shared-globals",
+        init_script=init_code,
+        init_session_id="calc:wb-func-shared-globals:init",
+        init_script_hash=h,
+    )
+    assert r["status"] == "ok", r.get("message")
+    assert r["result"] == 30
 
 
 def test_reset_re_seeds_init_helper_function():

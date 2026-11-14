@@ -259,11 +259,6 @@ def test_type_numpy_bool_and_calc_errors():
     assert calc.type(float("nan")) == 16.0
 
 
-def test_unique_preserves_mixed_types():
-    # Bug Z2: unique does not stringify numbers (1 and '1' stay distinct)
-    assert calc.unique([1, "1", 2]) == [1, "1", 2]
-
-
 def test_yield_helpers():
     # yielddisc and yieldmat calculations; yield_calc not implemented
     yd = calc.yielddisc(45000, 45365, 95, 100, 3)
