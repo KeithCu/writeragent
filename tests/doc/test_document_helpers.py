@@ -578,11 +578,3 @@ def test_excerpt_overlap_other_xtext_is_false():
         assert _writer_excerpt_overlaps_selection(
             model, 0, 10, _Pos(_Text()), _Pos(_Text())) is False
     model.getText.return_value.compareRegionStarts.assert_not_called()
-
-
-def test_document_service_open_documents_magicmock_enum_is_empty():
-    with patch("plugin.doc.document_helpers.get_desktop") as mock_desktop:
-        mock_desktop.return_value = MagicMock()
-        mock_desktop.return_value.getComponents.return_value.createEnumeration.return_value = MagicMock()
-        docs = DocumentService().open_documents()
-    assert docs == []

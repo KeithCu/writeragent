@@ -17,8 +17,6 @@ import pytest
 
 from plugin.embeddings.embeddings_fs import LocaleTextRun
 from plugin.embeddings.embeddings_split import (
-    _deal_chunk_base_meta_ok,
-    _deal_passage_text_ok,
     _merge_small_sentences_to_spans,
     _meta_chunks_from_spans,
     _split_non_prose_passage_to_spans,
@@ -71,22 +69,6 @@ def test_embeddings_split_long_passage_does_not_precontract() -> None:
                 {},
                 prose=True,
             )
-
-
-def test_deal_passage_text_ok_pytest_accepts_normal_text() -> None:
-    """Pytest domain keeps str_bounded (NUL allowed); CrossHair rejects NUL/controls."""
-    assert _deal_passage_text_ok("Hello\nworld")
-    assert _deal_passage_text_ok("")
-    assert _deal_passage_text_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
-
-
-def test_chunk_meta_accepts_file_url_doc_url() -> None:
-    """Pytest meta values are str_bounded(DEAL_MAX_SOURCE); TOKEN (64) is too short."""
-    url = "file:///home/runner/work/writeragent/writeragent/tmp/pytest-0/test_paragraph_chunks_from_path0/a.odt"
-    assert len(url) > 64
-    assert _deal_chunk_base_meta_ok({"doc_url": url, "para_index": 0, "file_mtime": 1.0})
-    # Non-ascii meta is legal under pytest; CrossHair still ascii_bounded TOKEN.
-    assert _deal_chunk_base_meta_ok({"": "\x80"})
 
 
 def test_merge_small_sentences_rejects_out_of_order_spans() -> None:

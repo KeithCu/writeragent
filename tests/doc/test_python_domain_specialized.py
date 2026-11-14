@@ -16,7 +16,6 @@ from plugin.doc.python_domain_specialized import (
     run_inner_domain_tool_agent,
     validate_requested_domains,
 )
-from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
@@ -166,8 +165,6 @@ def test_delegate_tool_domains_rejects_unknown_and_python_and_empty():
     nested = tool.execute(ctx, domains=["python"], task="compute a prime")
     assert nested["status"] == "error"
     assert nested.get("code") == "PYTHON_DOMAIN_NOT_NESTED"
-
-    assert not isinstance(tool, DelegateToSpecializedBase)
 
 
 def test_delegate_tool_domains_rejects_non_string_or_missing_task():

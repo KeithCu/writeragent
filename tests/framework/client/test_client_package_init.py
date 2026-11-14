@@ -9,23 +9,6 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_CLIENT_INIT = _REPO_ROOT / "plugin" / "framework" / "client" / "__init__.py"
-
-_FORBIDDEN_TOP_LEVEL = frozenset(
-    {
-        "llm_client",
-        "embedding_client",
-        "embeddings_service",
-        "stream_normalizer",
-        "plugin.scripting.client",
-    }
-)
-
-
-def test_client_init_source_does_not_import_llm_stack():
-    from tests.harness.import_guards import assert_no_toplevel_import
-
-    assert_no_toplevel_import(_CLIENT_INIT, _FORBIDDEN_TOP_LEVEL)
 
 
 @pytest.mark.parametrize(

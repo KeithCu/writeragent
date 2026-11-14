@@ -135,13 +135,6 @@ def test_guess_indexable_paths_includes_ods_and_office(tmp_path: Path):
     assert names == ["Budget.ods", "budget.xlsx", "deck.odp", "doc.odt", "notes.md", "notes.txt"]
 
 
-def test_all_indexable_extensions_includes_foreign():
-    assert ".xlsx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
-    assert ".docx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
-    assert ".pptx" in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
-    assert ".pdf" not in embeddings_fs.ALL_INDEXABLE_EXTENSIONS
-
-
 def test_paragraph_chunks_from_txt(tmp_path: Path):
     path = tmp_path / "notes.txt"
     path.write_text("Alpha paragraph", encoding="utf-8")

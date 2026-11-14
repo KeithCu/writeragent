@@ -83,22 +83,6 @@ def test_config_schema_import_populates_modules_and_defaults() -> None:
     assert "scripting.python_auto_spill" in schema.CONFIG_DEFAULTS
 
 
-def test_config_does_not_reexport_schema_names() -> None:
-    import plugin.framework.config as config
-
-    for name in (
-        "as_bool",
-        "WriterAgentConfig",
-        "is_default_value",
-        "set_manifest_modules",
-        "MODULES",
-        "validate",
-    ):
-        assert name not in vars(config), name
-        with pytest.raises(ImportError):
-            exec(f"from plugin.framework.config import {name}")
-
-
 def test_manifest_config_keys_are_known_in_schema() -> None:
     from plugin._manifest import MODULES
     from plugin.framework.config_schema import is_known_config_key

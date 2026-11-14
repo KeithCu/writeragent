@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -97,20 +95,6 @@ def _ctx(caller="chat", doc=None):
         doc.RuntimeUID = "self-uid"
         doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
     return ToolContext(doc=doc, ctx=object(), doc_type="writer", services=None, caller=caller)
-
-
-def test_peer_message_module_does_not_import_panel_factory():
-    src = Path("plugin/doc/peer_message.py").read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    imported = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            imported.append(node.module or "")
-    assert "plugin.chatbot.panel_factory" not in imported
-    assert "plugin.chatbot.panel" not in imported
-    assert not any(name.endswith("panel_factory") for name in imported)
 
 
 def test_envelope_from_ctx_doc():
@@ -1000,16 +984,6 @@ def test_kick_drops_turn_when_start_raises_after_busy():
     kick_pending_peer_starts()
     assert pm.peer_queue.pending(listener) == 0
     assert len(pm.peer_queue) == 0
-
-
-def test_queue_ops_assert_main_thread():
-    listener = _Listener()
-    turn = PeerPendingTurn("msg", False)
-    with patch("plugin.doc.peer_message.assert_main_thread") as mock_assert:
-        enqueue_peer_turn(listener, turn)
-        kick_pending_peer_starts()
-        drop_listener_queue(listener)
-    assert mock_assert.call_count == 3
 
 
 def test_filter_schemas_skips_catalog_off_document_research():

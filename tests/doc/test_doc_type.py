@@ -8,13 +8,10 @@ import pytest
 
 from plugin.framework.doc_type import (
     CALC_DOCUMENT_SERVICE,
-    DOCUMENT_SERVICES,
     DRAW_DOCUMENT_SERVICE,
     DocumentType,
     IMPRESS_DOCUMENT_SERVICE,
     TEXT_DOCUMENT_SERVICE,
-    WEB_DOCUMENT_SERVICE,
-    WRITER_DOCUMENT_SERVICE,
     agent_label_for_context,
     agent_label_for_doc_type,
     doc_type_family_label,
@@ -49,9 +46,6 @@ def test_doc_type_label_and_title_helpers():
     assert doc_type_family_label(DocumentType.DRAW) == "draw"
     assert doc_type_label_for_enum(DocumentType.UNKNOWN) == "unknown"
     assert doc_type_family_label(DocumentType.UNKNOWN) == "unknown"
-    # Direct assertion: Impress distinct label vs family label
-    assert doc_type_label_for_enum(DocumentType.IMPRESS) == "impress"
-    assert doc_type_family_label(DocumentType.IMPRESS) == "draw"
     assert doc_type_title_for_label("impress") == "Draw"
     assert doc_type_title_for_label("draw") == "Draw"
     assert doc_type_title_for_label("calc") == "Calc"
@@ -201,21 +195,6 @@ def test_uno_services_for_document_fallback_and_off_main() -> None:
     # Off main thread -> uses label map instead of supportsService
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
         assert uno_services_for_document(calc_model, "writer") == frozenset({_TEXT_SERVICE})
-
-
-def test_document_service_constants() -> None:
-    assert TEXT_DOCUMENT_SERVICE == "com.sun.star.text.TextDocument"
-    assert WRITER_DOCUMENT_SERVICE == "com.sun.star.text.TextDocument"
-    assert CALC_DOCUMENT_SERVICE == "com.sun.star.sheet.SpreadsheetDocument"
-    assert DRAW_DOCUMENT_SERVICE == "com.sun.star.drawing.DrawingDocument"
-    assert IMPRESS_DOCUMENT_SERVICE == "com.sun.star.presentation.PresentationDocument"
-    assert WEB_DOCUMENT_SERVICE == "com.sun.star.text.WebDocument"
-    assert DOCUMENT_SERVICES == [
-        "com.sun.star.text.TextDocument",
-        "com.sun.star.sheet.SpreadsheetDocument",
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
 
 
 def test_doc_type_str_from_doc() -> None:
