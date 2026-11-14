@@ -28,6 +28,7 @@ import uno
 from com.sun.star.awt import Size
 from com.sun.star.beans import PropertyValue
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
+from plugin.calc.calc_utils import anchor_shape_at_cell, selection_top_left_cell
 from plugin.doc import visual_helpers
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.text_helpers import clone_text_range
@@ -555,6 +556,44 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
         frame_text.insertString(end, "\n" + title, False)
 
 
+def _calc_insert_cell(model: Any, page_index: int | None) -> tuple[Any, Any]:
+    """Return ``(sheet, cell)`` for anchoring an inserted picture in Calc.
+
+    Uses the top-left cell of the current selection on the active sheet, or A1
+    when the selection is not a range (shape or multi-range). Another sheet has
+    no selection reachable through UNO, so the picture goes to its A1.
+    """
+    controller = model.getCurrentController()
+    active = controller.getActiveSheet()
+    if page_index is None or page_index == active.getRangeAddress().Sheet:
+        sheet = active
+        cell = selection_top_left_cell(controller, sheet)
+    else:
+        sheet = model.getSheets().getByIndex(page_index)
+        cell = None
+    if cell is None:
+        cell = sheet.getCellByPosition(0, 0)
+    return sheet, cell
+
+
+def _ensure_embedded_calc_shape_name(model: Any, image: Any) -> None:
+    """Assign a ``Picture N`` name to an unnamed embedded Calc shape.
+
+    Linked Calc inserts get ``Picture N`` from LibreOffice's insert dispatch,
+    whereas UNO-created ``GraphicObjectShape`` instances start with ``""``.
+    """
+    existing_name = visual_helpers.uno_read(lambda: str(image.getName() or "").strip(), "")
+    if existing_name:
+        return
+    used = {name for name, _obj in visual_helpers.list_graphic_objects(model, doc_type="calc") if name}
+    index = 1
+    while f"Picture {index}" in used:
+        index += 1
+    name = f"Picture {index}"
+    if not visual_helpers.safe_try_method(image, "setName", name):
+        visual_helpers.safe_set_property(image, "Name", name)
+
+
 def _insert_image_to_drawpage(
     ctx: Any,
     model: Any,
@@ -569,6 +608,9 @@ def _insert_image_to_drawpage(
     y_mm: int | float | None = None,
 ) -> Any:
     draw_page = visual_helpers.draw_page_for_insert(model, inside, page_index)
+    # Capture the Calc target cell before .uno:InsertGraphic runs, so even if a
+    # linked insert selects the new graphic, it anchors to the cell that was selected.
+    calc_target = _calc_insert_cell(model, page_index) if inside == "calc" else None
 
     # When page_index is specified, do not dispatch .uno:InsertGraphic because
     # dispatch inserts on the currently active view page, then setPosition would
@@ -577,7 +619,14 @@ def _insert_image_to_drawpage(
     is_embedded = True
     if page_index is None and _should_link_image_path(img_path):
         file_url = _file_url_for_path(img_path)
+        count = draw_page.getCount()
         image = _dispatch_insert_linked_graphic(ctx, model, file_url)
+        # Calc's API insert does not select the new picture (fuins1.cxx lcl_InsertGraphic,
+        # SdrInsertFlags::DONTMARK when bApi), so it is taken as the shape the dispatch appended.
+        if image is None and inside == "calc" and draw_page.getCount() == count + 1:
+            candidate = draw_page.getByIndex(count)
+            if candidate.supportsService(visual_helpers.DRAW_GRAPHIC_SERVICE):
+                image = candidate
         if image is not None:
             is_embedded = False
         else:
@@ -589,7 +638,12 @@ def _insert_image_to_drawpage(
     _apply_graphic_properties(image, width=width, height=height, title=title, description=description, anchor_type=None)
     if is_embedded:
         draw_page.add(image)
-    if inside != "calc":
+        if inside == "calc":
+            _ensure_embedded_calc_shape_name(model, image)
+    if calc_target is not None:
+        sheet, cell = calc_target
+        anchor_shape_at_cell(sheet, image, cell)
+    else:
         pos = visual_helpers.position_on_draw_page(draw_page, width, height, x_mm, y_mm)
         if not visual_helpers.safe_try_method(image, "setPosition", pos):
             log.debug(

@@ -20,6 +20,7 @@ from plugin.calc.calc_utils import (
     query_interface,
     resolve_document_locale,
     resolve_sheet_and_cell,
+    selection_top_left_cell,
     standard_temporal_format_keys,
 )
 from plugin.framework.errors import DocumentDisposedError
@@ -292,3 +293,18 @@ def test_number_format_categories_does_not_remember_a_failed_read():
     assert formats.getByKey.call_count == 2
 
 
+def test_selection_top_left_cell():
+    target = MagicMock()
+    sheet = MagicMock()
+    sheet.getCellByPosition.return_value = target
+    controller = MagicMock()
+    controller.getSelection.return_value = SimpleNamespace(
+        getRangeAddress=lambda: SimpleNamespace(StartColumn=2, StartRow=4)
+    )
+
+    assert selection_top_left_cell(controller, sheet) is target
+    sheet.getCellByPosition.assert_called_once_with(2, 4)
+
+    shape_controller = MagicMock()
+    shape_controller.getSelection.return_value = SimpleNamespace()
+    assert selection_top_left_cell(shape_controller, sheet) is None

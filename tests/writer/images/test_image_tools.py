@@ -556,21 +556,6 @@ class TestWriterImageCursorConversion:
         create_embed.assert_called_once_with(model, "draw", "file:///" + os.path.abspath("/tmp/img.png"), ctx=ctx)
         assert call_order == ["add", "setPosition"]
 
-        # Calc: setPosition is not called
-        calc_image = MagicMock()
-        calc_draw_page = MagicMock()
-        with (
-            patch.object(visual_helpers, "draw_page_for_insert", return_value=calc_draw_page),
-            patch.object(image_tools, "_should_link_image_path", return_value=False),
-            patch.object(image_tools, "_create_embedded_graphic", return_value=calc_image),
-            patch.object(image_tools, "_apply_graphic_properties"),
-        ):
-            image_tools._insert_image_to_drawpage(
-                ctx, model, "calc", "/tmp/img.png", 1000, 1000, "t", "d", x_mm=10, y_mm=20,
-            )
-
-        calc_image.setPosition.assert_not_called()
-
     def test_draw_page_index_skips_dispatch(self):
         ctx = MagicMock()
         model = MagicMock()
@@ -629,6 +614,31 @@ class TestWriterImageCursorConversion:
         assert res is sentinel
         insert_dp.assert_called_once()
         sel_obj.assert_not_called()
+
+    def test_calc_embedded_insert_assigns_picture_name(self):
+        ctx = MagicMock()
+        model = MagicMock()
+        sheet = MagicMock()
+        cell = MagicMock()
+        draw_page = MagicMock()
+        image = MagicMock()
+        image.getName.return_value = ""
+
+        with (
+            patch.object(visual_helpers, "draw_page_for_insert", return_value=draw_page),
+            patch.object(image_tools, "_calc_insert_cell", return_value=(sheet, cell)),
+            patch.object(image_tools, "_should_link_image_path", return_value=False),
+            patch.object(image_tools, "_create_embedded_graphic", return_value=image),
+            patch.object(image_tools, "_apply_graphic_properties"),
+            patch.object(image_tools, "anchor_shape_at_cell"),
+            patch.object(visual_helpers, "list_graphic_objects", return_value=[("Picture 1", MagicMock())]),
+        ):
+            res = image_tools._insert_image_to_drawpage(
+                ctx, model, "calc", "/tmp/img.png", 1000, 1000, "", "",
+            )
+
+        assert res is image
+        image.setName.assert_called_once_with("Picture 2")
 
 
 class TestReplaceGraphicSource:
