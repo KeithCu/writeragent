@@ -55,6 +55,7 @@ def librepy_pot_msgids() -> set[str]:
     return {e.msgid for e in pot if e.msgid}
 
 
+@pytest.mark.integration
 def test_librepy_pot_smaller_than_full_catalog(librepy_pot_msgids: set[str]) -> None:
     if not FULL_POT.is_file():
         pytest.skip("writeragent.pot not present")
@@ -63,14 +64,17 @@ def test_librepy_pot_smaller_than_full_catalog(librepy_pot_msgids: set[str]) -> 
     assert len(librepy_pot_msgids) < full_count
 
 
+@pytest.mark.integration
 def test_librepy_pot_excludes_writeragent_only_string(librepy_pot_msgids: set[str]) -> None:
     assert "Accept" not in librepy_pot_msgids
 
 
+@pytest.mark.integration
 def test_librepy_pot_includes_core_string(librepy_pot_msgids: set[str]) -> None:
     assert "Python Settings" in librepy_pot_msgids
 
 
+@pytest.mark.integration
 def test_librepy_locales_compile_mo_files() -> None:
     _ensure_librepy_locales()
     mo_files = glob.glob(str(LIBREPY_LOCALES / "*" / "LC_MESSAGES" / "writeragent.mo"))

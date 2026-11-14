@@ -113,6 +113,7 @@ def test_env_scrubs_python_and_sets_scratch_home(monkeypatch: pytest.MonkeyPatch
     assert env["HOME"] == str(tmp_path)
 
 
+@pytest.mark.integration
 @needs_lo
 def test_seed_real_unopkg(tmp_path: Path) -> None:
     profile = tmp_path / "profile"
@@ -120,6 +121,7 @@ def test_seed_real_unopkg(tmp_path: Path) -> None:
     assert list(profile.glob("user/uno_packages/cache/uno_packages/*.tmp_/SeedTest.oxt"))
 
 
+@pytest.mark.integration
 @needs_lo
 def test_seed_refuses_while_an_office_runs_on_the_profile(tmp_path: Path) -> None:
     """Regression: with an office on the profile, unopkg silently installs into HOME's profile."""
