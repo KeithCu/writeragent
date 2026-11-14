@@ -709,6 +709,3 @@ class TestStripLegacyAiLabel:
         from plugin.chatbot.rich_text import strip_legacy_ai_label
 
         assert strip_legacy_ai_label("You: hi") == "You: hi"
-
-
-

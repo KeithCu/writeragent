@@ -1537,6 +1537,3 @@ def test_session_id_stability():
 
     stored_id_3 = unsaved_model.props.properties.get("WriterAgentSessionID")
     assert stored_id_3 == third_session_id
-
-
-

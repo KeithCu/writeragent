@@ -274,5 +274,3 @@ def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
     assert model.Label == "Stop"
     assert ctrl.pos_size_args is not None
     assert ctrl.pos_size_args[2] == len("ChangeXX")
-
-
