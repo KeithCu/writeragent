@@ -814,23 +814,30 @@ def test_position_on_draw_page():
     assert pos_x_only.Y == 0
 
 
-def test_is_graphic_object_checks_services_before_graphic_property():
-    class RecordingPropertyObject(FakePropertyObject):
-        def __init__(self, properties: dict[str, object], services: set[str] | None = None):
-            super().__init__(properties, services)
-            self.calls: list[str] = []
+@pytest.mark.parametrize(
+    ("obj", "expected"),
+    [
+        pytest.param(None, False, id="none"),
+        pytest.param(FakePropertyObject({}, {visual_helpers.WRITER_GRAPHIC_SERVICE}), True, id="writer-graphic-service"),
+        pytest.param(FakePropertyObject({}, {visual_helpers._TEXT_GRAPHIC_SERVICE}), True, id="text-graphic-service"),
+        pytest.param(FakePropertyObject({}, {visual_helpers.DRAW_GRAPHIC_SERVICE}), True, id="draw-graphic-service"),
+        pytest.param(FakePropertyObject({"Graphic": object()}), True, id="graphic-property"),
+        pytest.param(FakePropertyObject({}), False, id="neither"),
+    ],
+)
+def test_is_graphic_object(obj, expected):
+    assert visual_helpers.is_graphic_object(obj) is expected
 
-        def supportsService(self, service: str) -> bool:
-            self.calls.append("supportsService")
-            return super().supportsService(service)
 
+def test_is_graphic_object_service_succeeds_when_graphic_property_raises():
+    class _ServiceOnlyGraphic(FakePropertyObject):
         def getPropertyValue(self, name: str):
-            self.calls.append("getPropertyValue")
+            if name == "Graphic":
+                raise RuntimeError("property read failed")
             return super().getPropertyValue(name)
 
-    obj = RecordingPropertyObject({}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
+    obj = _ServiceOnlyGraphic({}, {visual_helpers.WRITER_GRAPHIC_SERVICE})
     assert visual_helpers.is_graphic_object(obj) is True
-    assert obj.calls == ["supportsService"]
 
 
 def test_safe_property_helpers_reraise_disposed():

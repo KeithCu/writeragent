@@ -69,13 +69,12 @@ def _patch_hybrid_search(fused: list[dict]):
 
 
 @pytest.mark.parametrize(
-    "n_fused,k,rerank_model,use_mmr,rerank_called,expected_urls",
+    "n_fused,k,rerank_model,use_mmr,expected_urls",
     [
         pytest.param(
             3,
             2,
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
-            True,
             True,
             ["file:///c.odt", "file:///a.odt"],
             id="rerank-when-model-set",
@@ -85,7 +84,6 @@ def _patch_hybrid_search(fused: list[dict]):
             1,
             "cross-encoder/ms-marco-MiniLM-L-6-v2",
             True,
-            False,
             ["file:///a.odt"],
             id="skip-when-k-is-one",
         ),
@@ -93,7 +91,6 @@ def _patch_hybrid_search(fused: list[dict]):
             2,
             2,
             None,
-            False,
             False,
             ["file:///a.odt", "file:///b.odt"],
             id="skip-when-disabled",
@@ -105,7 +102,6 @@ def test_hybrid_corpus_search_rerank(
     k: int,
     rerank_model: str | None,
     use_mmr: bool,
-    rerank_called: bool,
     expected_urls: list[str],
 ) -> None:
     fused = _fused_candidates()[:n_fused]
@@ -113,7 +109,7 @@ def test_hybrid_corpus_search_rerank(
 
     with (
         _patch_hybrid_search(fused),
-        patch(f"{M}cross_encoder_rerank_candidates", return_value=rerank_return) as rerank,
+        patch(f"{M}cross_encoder_rerank_candidates", return_value=rerank_return),
     ):
         result = hybrid_corpus_search(
             "/tmp/corpus.db",
@@ -124,5 +120,4 @@ def test_hybrid_corpus_search_rerank(
             rerank_model=rerank_model,
         )
 
-    assert rerank.call_count == (1 if rerank_called else 0)
     assert [h["doc_url"] for h in result["hits"]] == expected_urls

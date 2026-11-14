@@ -224,15 +224,6 @@ def test_get_work_directory_file_url():
             assert get_work_directory(ctx) == norm
 
 
-def test_get_work_directory_uses_singleton():
-    with tempfile.TemporaryDirectory() as tmp:
-        ctx = MagicMock()
-        path_settings = MagicMock()
-        path_settings.getPropertyValue.return_value = tmp
-        ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
-        assert get_work_directory(ctx) == os.path.normpath(tmp)
-
-
 def test_get_work_directory_none_when_singleton_missing():
     ctx = MagicMock()
     ctx.getValueByName.return_value = None

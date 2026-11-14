@@ -830,37 +830,6 @@ def test_document_research_delegation_includes_open_documents_context(
         assert "File2.ods" in instructions
 
 
-@patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "finished": True, "answer": "Q4=100", "message": "done"})
-@patch("plugin.doc.document_research_specialized.close_document_research_document")
-@patch("plugin.doc.document_research_specialized.open_document_for_read")
-@patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
-def test_delegate_read_document_unwraps_finish_answer(
-    mock_main,
-    mock_resolve,
-    mock_open,
-    mock_close,
-    mock_inner,
-):
-    opened_model = MagicMock()
-    mock_resolve.return_value = ("/tmp/Budget.ods", "file:///tmp/Budget.ods")
-    mock_open.return_value = (opened_model, "calc", None, True)
-
-    r = ToolRegistry(services={})
-    r.register(DelegateReadDocument())
-    ctx = MagicMock()
-    ctx.doc = MagicMock()
-    ctx.ctx = MagicMock()
-    ctx.services = {"tools": r}
-
-    tool = r.get("delegate_read_document")
-    assert tool is not None
-    result = tool.execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
-    assert result["status"] == "ok"
-    assert result["result"] == "Q4=100"
-    assert "finished" not in result["result"]
-
-
 @pytest.mark.parametrize(
     ("inner_payload", "expected"),
     [

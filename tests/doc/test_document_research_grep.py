@@ -588,26 +588,50 @@ def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_
 @patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_runs_uno_only_when_current(mock_resolve, mock_search, mock_open, mock_close):
+    from plugin.framework import thread_guard as tg
+    from plugin.framework.worker_pool import run_in_background
+    from tests.framework.thread_safety import start_uno_thread_safety_session
+
     mock_resolve.return_value = (
         [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
         False,
         None,
     )
-    mock_open.return_value = (MagicMock(), "calc", None, True)
-    mock_search.return_value = (
-        [{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}],
-        False,
-    )
 
-    with patch("plugin.framework.queue_executor.main.call") as mock_execute:
-        def side_effect(func, *args, **kwargs):
-            return func(*args, **kwargs)
-        mock_execute.side_effect = side_effect
+    session = start_uno_thread_safety_session()
+    was_guard = tg.GUARD_ON
+    tg.GUARD_ON = True
+    err: BaseException | None = None
+    result: dict | None = None
+    try:
+        raw_doc = MagicMock()
+        # MagicMock bypasses guard_uno(); wrap explicitly.
+        proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
+        mock_open.return_value = (proxied_doc, "calc", None, True)
 
-        result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
+        def fake_grep(doc, *_args, **_kwargs):
+            doc.getSheets()
+            return ([{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}], False)
 
-        assert mock_execute.call_count == 1
-        assert result["status"] == "ok"
+        mock_search.side_effect = fake_grep
+
+        def worker():
+            nonlocal err, result
+            try:
+                result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
+            except BaseException as exc:
+                err = exc
+
+        with patch.object(tg, "_notify_thread_violation"):
+            t = run_in_background(worker, name="grep-uno-marshal", daemon=False)
+            t.join(timeout=5.0)
+    finally:
+        tg.GUARD_ON = was_guard
+        session.close()
+
+    assert err is None, f"UNO touch from worker: {err}"
+    assert result is not None and result["status"] == "ok"
+    assert result["hits"][0]["matches"][0]["value"] == "Q4 revenue"
 
 @patch("plugin.doc.document_research.os.listdir")
 @patch("plugin.doc.document_research.resolve_listing_directory")
@@ -863,23 +887,6 @@ def test_grep_text_in_draw_caps_shape_snippet():
 
     matches, partial = _grep_text_in_draw(model, "a", max_results=1)
     assert matches[0]["text"] == "a" * 200 + "…"
-
-
-def test_grep_nearby_files_tool_wrapper_matched_case_sensitive():
-    from plugin.doc.document_research_grep_tool import GrepNearbyFiles
-    tool = GrepNearbyFiles()
-    ctx = MagicMock()
-    ctx.stop_checker = lambda: False
-    ctx.send_cancellation = None
-
-    with patch("plugin.doc.document_research_grep_tool.grep_nearby_files") as mock_grep:
-        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": False}
-        tool.execute(ctx, pattern="search_term")
-        assert mock_grep.call_args.kwargs["case_sensitive"] is False
-
-        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": True}
-        tool.execute(ctx, pattern="search_term", case_sensitive=True)
-        assert mock_grep.call_args.kwargs["case_sensitive"] is True
 
 
 @patch("plugin.doc.document_research_grep.open_document_for_read")

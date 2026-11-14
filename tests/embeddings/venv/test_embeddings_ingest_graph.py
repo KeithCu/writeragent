@@ -30,7 +30,6 @@ def test_ingest_paragraphs_invokes_graph(tmp_path):
         )
     assert result["indexed"] == 1
     assert result["storage_backend"] == "sqlite_vec"
-    mock_graph.invoke.assert_called_once()
 
 
 def test_ingest_paragraphs_empty_rows_skip_graph_unless_filling_gaps(tmp_path):

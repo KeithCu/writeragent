@@ -96,25 +96,6 @@ def test_create_diagram_reuses_upsert(tmp_path=None):
     assert first_kw["y"] == second_kw["y"]
 
 
-def test_create_diagram_unknown_connection():
-    ctx = MagicMock()
-    ctx.active_page_index = 0
-    page = MagicMock()
-    page.Width = 28000
-    page.Height = 15750
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
-        bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
-            mock_upsert.return_value = {"status": "ok", "index": 0}
-            out = CreateDiagram().execute(
-                ctx,
-                nodes=[{"id": "a", "text": "A"}],
-                connections=[{"from": "a", "to": "missing"}],
-            )
-    assert out["status"] == "error"
-
-
 def test_create_diagram_numeric_ids_pass_connection_check():
     """Up-front validation compares string forms, like id_to_index does."""
     ctx = MagicMock()

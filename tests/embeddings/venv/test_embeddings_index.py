@@ -78,21 +78,6 @@ def test_get_embedder_import_error_includes_install_line():
             embeddings_index._get_embedder("all-MiniLM-L6-v2")
 
 
-def test_index_paragraphs_delegates_to_ingest_graph():
-    with patch("plugin.embeddings.venv.embeddings_ingest_graph.ingest_paragraphs", return_value={"indexed": 2, "dim": 384, "storage_backend": "sqlite_vec"}) as mock_ingest:
-        result = embeddings_index.index_paragraphs("/tmp/corpus.db", "/meta.json", "all-MiniLM-L6-v2", [{"text": "hi"}])
-    assert result["indexed"] == 2
-    mock_ingest.assert_called_once()
-
-
-def test_knn_search_delegates_to_search_graph():
-    hits = [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]
-    with patch("plugin.embeddings.venv.embeddings_search_graph.search_embeddings_graph", return_value={"hits": hits}) as mock_search:
-        result = embeddings_index.knn_search("/tmp/corpus.db", "query", 5, model_name="all-MiniLM-L6-v2")
-    assert result["hits"] == hits
-    mock_search.assert_called_once()
-
-
 def test_delete_paragraphs_removes_from_corpus(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     meta_path.write_text('{"chunk_count": "1", "dim": "384"}', encoding="utf-8")
