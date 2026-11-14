@@ -120,6 +120,23 @@ def test_generate_module_domain_with_slash_is_a_valid_identifier():
     assert ns["TOOL_METHODS"]["query_folder_sql"] == ("python_sql", "query_folder_sql")
 
 
+def test_generator_script_runs_without_libreoffice(tmp_path):
+    """Outside LibreOffice bootstrap got a mock UNO context, init_config rejected its path and the
+    script died; `make proxy-stubs` then left writeragent_api.py empty."""
+    import subprocess
+
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    script = os.path.join(repo, "scripts", "generate_tool_proxies.py")
+    result = subprocess.run([sys.executable, script], capture_output=True, text=True, timeout=240, cwd=repo)
+    assert result.returncode == 0, result.stderr[-2000:]
+    compile(result.stdout, "<generated>", "exec")
+    assert "DOMAIN_TOOLS =" in result.stdout
+    api_path = os.path.join(repo, "plugin", "scripting", "writeragent_api.py")
+    with open(api_path, encoding="utf-8") as handle:
+        expected = handle.read()
+    assert result.stdout == expected
+
+
 def test_generate_module_escapes_python_keyword_method_names():
     tools = [
         _as_tool(
@@ -473,11 +490,6 @@ def test_main_fails_closed_when_core_missing_list_open_documents(monkeypatch, tm
 
 def test_main_check_flag(tmp_path):
     from scripts import generate_tool_proxies
-
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    committed_api = os.path.join(repo_root, "plugin", "scripting", "writeragent_api.py")
-
-    generate_tool_proxies.main(["--check", committed_api])
 
     bad_file = tmp_path / "bad_api.py"
     bad_file.write_text("# corrupted\n", encoding="utf-8")
