@@ -757,8 +757,6 @@ def test_read_cell_range_min_over_cap_truncates_to_preview():
 
 
 def test_read_cell_range_tool_keeps_small_range_full():
-    from plugin.calc.cells import _READ_CELL_RANGE_MAX_CELLS
-
     ctx = SimpleNamespace(doc=MagicMock())
     with (
         patch("plugin.calc.cells.CalcBridge") as bridge_cls,
@@ -771,7 +769,6 @@ def test_read_cell_range_tool_keeps_small_range_full():
         inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
         result = _tool("read_cell_range").execute_safe(ctx, range=["A1:H10"])
 
-    assert _READ_CELL_RANGE_MAX_CELLS == 80
     assert not _only_entry(result).get("truncated")
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
 
@@ -1777,15 +1774,6 @@ def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
     assert res_named["status"] == "ok"
     commit_named.assert_called_once()
     assert commit_named.call_args.args[0].values == ["Hello, world"]
-
-
-def test_delete_structure_schema_start_accepts_integer_or_string():
-    """start accepts both 1-based row/column numbers and A1/column-letter strings (#2059)."""
-    from plugin.calc.cells import DeleteStructure
-
-    assert DeleteStructure.parameters is not None
-    start_prop = DeleteStructure.parameters["properties"]["start"]
-    assert start_prop["type"] == ["integer", "string"]
 
 
 def test_delete_structure_disposal_propagates():

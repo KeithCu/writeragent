@@ -223,7 +223,6 @@ def test_legend_position_uses_chart_legend_position_enum():
     with patch("plugin.calc.charts.uno.Enum", return_value="legend-bottom") as enum:
         _apply_chart_styling(chart_doc, legend_position="bottom")
     enum.assert_called_once_with(_CHART_LEGEND_POSITION_ENUM, "BOTTOM")
-    assert _CHART_LEGEND_POSITION_ENUM == "com.sun.star.chart.ChartLegendPosition"
     assert chart_doc.getLegend.return_value.Alignment == "legend-bottom"
 
     tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()

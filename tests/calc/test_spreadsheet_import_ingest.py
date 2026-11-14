@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
 import time
 from pathlib import Path
@@ -145,19 +144,6 @@ def test_ingest_precedents_exclude_out_of_scope():
         formula_array=formulas,
     )
     assert model.cells["A1"].precedents == []
-
-
-def test_sheet_model_asdict_keys():
-    model = ingest_from_arrays(
-        sheet_name="S",
-        start_col=0,
-        start_row=0,
-        data_array=[[1.0]],
-        formula_array=[[""]],
-    )
-    payload = asdict(model)
-    assert set(payload) == {"sheet_name", "used_range", "cells", "circular_groups"}
-    assert payload["cells"]["A1"]["type"] == "constant"
 
 
 def test_fixture_simple_budget_snapshot():

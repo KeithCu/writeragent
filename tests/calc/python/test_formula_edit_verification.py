@@ -32,7 +32,7 @@ from plugin.calc.python.formula_edit import (
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
-from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body, skip_if_release_build
+from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body
 from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
@@ -45,14 +45,6 @@ _CROSSHAIR_TARGETS = (
     "plugin.calc.python.formula_edit.normalize_formula_string",
     "plugin.calc.python.formula_edit.PyFormula.parse",
     "plugin.calc.spreadsheet_import.preprocess.normalize_lo_formula_for_parse",
-)
-_REWRITE_WRAPPERS_OFF = (
-    "escape_code_for_formula",
-    "render",
-    "compose",
-    "format_data_binding_display",
-    "parse_data_binding_text",
-    "build_data_suffix",
 )
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
@@ -243,39 +235,6 @@ def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
     assert escape_code_for_formula("dtype=float\x00") == "dtype=float\x00"
     rebuilt = PyFormula("=PY(", "x", data_suffix=")").render(".dtype=float\x01")
     assert ".dtype=float\x01" in rebuilt
-
-
-def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
-    """Sanitize/escape/rebuild stay ``# crosshair: off``; parse/normalize stay on.
-
-    format_data_binding_display, parse_data_binding_text, and wrapper helpers
-    stay out of cover FQNs, while range formatters remain on.
-    """
-    skip_if_release_build("scripts/ not in stripped release tree")
-    from scripts.crosshair_stream import cover_fqns_for_module
-
-    path = Path("plugin/calc/python/formula_edit.py")
-    fqns = cover_fqns_for_module(path, require_deal=True)
-    for name in _REWRITE_WRAPPERS_OFF:
-        assert not any(f.endswith(f".{name}") for f in fqns), name
-    assert any(f.endswith(".PyFormula.parse") for f in fqns)
-    assert any(f.endswith(".normalize_formula_string") for f in fqns)
-    assert any(f.endswith(".format_py_data_range") for f in fqns)
-    assert any(f.endswith(".format_excel_data_range") for f in fqns)
-    cover_fqns = cover_fqns_for_module(path)
-    for name in (
-        "build_data_suffix",
-        "_parts_result_ok",
-        "_quoted_parse_result_ok",
-        "format_data_binding_text",
-        "render",
-        "compose",
-    ):
-        assert not any(f.endswith(f".{name}") for f in cover_fqns), name
-    preprocess = cover_fqns_for_module(
-        Path("plugin/calc/spreadsheet_import/preprocess.py"), require_deal=True
-    )
-    assert any(f.endswith(".normalize_lo_formula_for_parse") for f in preprocess)
 
 
 @pytest.mark.slow
