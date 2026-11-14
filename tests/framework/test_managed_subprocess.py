@@ -16,14 +16,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-if "fcntl" not in sys.modules:
-    fake_fcntl = types.ModuleType("fcntl")
-    fake_fcntl.F_SETPIPE_SZ = 1031
-    fake_fcntl.fcntl = lambda *args, **kwargs: None
-    sys.modules["fcntl"] = fake_fcntl
-elif not hasattr(sys.modules["fcntl"], "F_SETPIPE_SZ"):
-    setattr(sys.modules["fcntl"], "F_SETPIPE_SZ", 1031)
-
 from plugin.framework.managed_subprocess import (
     ManagedSubprocess,
     _instances,
@@ -31,6 +23,17 @@ from plugin.framework.managed_subprocess import (
     optimize_popen_pipes,
     shutdown_all,
 )
+
+
+@pytest.fixture(autouse=True)
+def _fake_fcntl_on_non_posix(monkeypatch: pytest.MonkeyPatch) -> None:
+    if "fcntl" not in sys.modules:
+        fake_fcntl = types.ModuleType("fcntl")
+        fake_fcntl.F_SETPIPE_SZ = 1031
+        fake_fcntl.fcntl = lambda *args, **kwargs: None
+        monkeypatch.setitem(sys.modules, "fcntl", fake_fcntl)
+    elif not hasattr(sys.modules["fcntl"], "F_SETPIPE_SZ"):
+        monkeypatch.setattr(sys.modules["fcntl"], "F_SETPIPE_SZ", 1031, raising=False)
 
 
 def pid_is_alive(pid: int) -> bool:

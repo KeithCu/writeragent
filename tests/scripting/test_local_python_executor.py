@@ -2172,7 +2172,7 @@ def test_operator_and_string_star_imports():
 
 
 
-def test_numpy_pickle_policy_enforcement(tmp_path):
+def test_numpy_pickle_policy_enforcement(monkeypatch):
     executor = LocalPythonExecutor(additional_authorized_imports=["numpy", "pandas", "functools"])
     executor.send_tools({})
 
@@ -2262,47 +2262,36 @@ def test_numpy_pickle_policy_enforcement(tmp_path):
     # from numpy import save as s with fake.
     import sys
     import types
-    orig_np = sys.modules.get("numpy")
     fake_mod = types.ModuleType("numpy")
     setattr(fake_mod, "save", fake_save)
-    sys.modules["numpy"] = fake_mod
-    try:
-        executor_import = LocalPythonExecutor(additional_authorized_imports=["numpy"])
-        with pytest.raises(InterpreterError) as exc:
-            executor_import("from numpy import save as s\ns('file', [1, 2], allow_pickle=True)")
-        assert "allow_pickle=True" in str(exc.value)
-    finally:
-        if orig_np is not None:
-            sys.modules["numpy"] = orig_np
-        else:
-            sys.modules.pop("numpy", None)
+    monkeypatch.setitem(sys.modules, "numpy", fake_mod)
+    executor_import = LocalPythonExecutor(additional_authorized_imports=["numpy"])
+    with pytest.raises(InterpreterError) as exc:
+        executor_import("from numpy import save as s\ns('file', [1, 2], allow_pickle=True)")
+    assert "allow_pickle=True" in str(exc.value)
 
-    # If NumPy imports, numeric np.save succeeds and object-array save raises.
-    try:
-        import importlib.util
-        if importlib.util.find_spec("numpy") is None:
-            return
-        executor_real = LocalPythonExecutor(additional_authorized_imports=["numpy"])
-        executor_real.send_variables({"path_num": str(tmp_path / "num.npy"), "path_obj": str(tmp_path / "obj.npy")})
-        real_code = """
+
+def test_numpy_pickle_policy_enforcement_real_numpy(tmp_path):
+    pytest.importorskip("numpy")
+    executor_real = LocalPythonExecutor(additional_authorized_imports=["numpy"])
+    executor_real.send_variables({"path_num": str(tmp_path / "num.npy"), "path_obj": str(tmp_path / "obj.npy")})
+    real_code = """
 import numpy as np
 arr_num = np.array([1, 2, 3])
 np.save(path_num, arr_num)
 """
-        executor_real(real_code)
+    executor_real(real_code)
 
-        real_obj_code = """
+    real_obj_code = """
 import numpy as np
 class Dummy:
     pass
 arr_obj = np.array([Dummy()])
 np.save(path_obj, arr_obj)
 """
-        with pytest.raises(InterpreterError) as exc:
-            executor_real(real_obj_code)
-        assert "cannot be saved when allow_pickle=False" in str(exc.value)
-    except ImportError:
-        pass
+    with pytest.raises(InterpreterError) as exc:
+        executor_real(real_obj_code)
+    assert "cannot be saved when allow_pickle=False" in str(exc.value)
 
 
 def test_bounded_print_container_during_execution():

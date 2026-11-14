@@ -19,10 +19,15 @@ from plugin.framework.uno_bootstrap import (
 from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
 
-def _clear_writeragent_modules() -> None:
-    for key in list(sys.modules):
-        if key == "writeragent" or key.startswith("writeragent."):
-            del sys.modules[key]
+@pytest.fixture
+def clean_writeragent_modules(alias_import_state, monkeypatch: pytest.MonkeyPatch):
+    import plugin.scripting.writeragent_api as api
+
+    # writeragent aliases writeragent_api, so importing writeragent.vision overwrites api.vision with the venv submodule.
+    monkeypatch.setattr(api, "vision", api.vision)
+    for key in list(alias_import_state):
+        del sys.modules[key]
+    yield
 
 
 _ORIGINAL_FIND_SPEC = importlib.util.find_spec
@@ -197,8 +202,7 @@ def test_venv_worker_bidirectional_tool_call():
             shutdown_venv_workers_for_tests()
 
 
-def test_writeragent_namespace_fallback_when_api_missing():
-    _clear_writeragent_modules()
+def test_writeragent_namespace_fallback_when_api_missing(clean_writeragent_modules):
     with patch("importlib.util.find_spec", side_effect=_find_spec_without_writeragent_api):
         register_alias_importer()
 
@@ -211,7 +215,7 @@ def test_writeragent_namespace_fallback_when_api_missing():
         assert "writeragent.scripting.analysis" in sys.modules
 
 
-def test_sandboxed_template_imports_run_vision():
+def test_sandboxed_template_imports_run_vision(clean_writeragent_modules):
     """Built-in vision scripts import run_vision through the venv alias.
 
     Calc and Writer image_name Run paths execute the template in the user venv
@@ -227,7 +231,6 @@ def test_sandboxed_template_imports_run_vision():
     from plugin.vision.vision_templates import get_vision_script_templates
 
     register_alias_importer()
-    _clear_writeragent_modules()
     from writeragent.vision import run_vision
 
     assert run_vision is venv_run_vision
@@ -246,10 +249,9 @@ def test_sandboxed_template_imports_run_vision():
     assert response["result"] == "UNKNOWN_HELPER"
 
 
-def test_sandboxed_code_writeragent_analysis_without_api():
+def test_sandboxed_code_writeragent_analysis_without_api(clean_writeragent_modules):
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
-    _clear_writeragent_modules()
     code = (
         "from writeragent.scripting.analysis import grid_to_dataframe\n"
         "result = callable(grid_to_dataframe)\n"
@@ -261,11 +263,10 @@ def test_sandboxed_code_writeragent_analysis_without_api():
     assert response["result"] is True
 
 
-def test_sandboxed_code_writeragent_vision_as_module():
+def test_sandboxed_code_writeragent_vision_as_module(clean_writeragent_modules):
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     register_alias_importer()
-    _clear_writeragent_modules()
     code = (
         "import writeragent.vision as v\n"
         "result = callable(v.run_vision)\n"

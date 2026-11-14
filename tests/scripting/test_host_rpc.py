@@ -905,12 +905,7 @@ def test_handle_tool_call_frame_write_timeout_propagates():
 
 
 def test_every_domain_tool_resolves_to_a_proxy_method():
-    import importlib
-
     import plugin.scripting.writeragent_api as api
-
-    # Alias/sandbox tests can repoint writeragent.vision; reload keeps TOOL_METHODS and proxies aligned.
-    importlib.reload(api)
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
 
     methods = _proxy_methods_by_tool()
