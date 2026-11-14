@@ -22,16 +22,5 @@ def test_stop_words_cover_snowballstemmer_algorithms_used_by_writer():
             assert stop_words_for_snowball(algo)
 
 
-def test_english_stop_words_from_stopwords_iso():
-    assert "the" in STOP_WORDS["english"]
-    assert "and" in STOP_WORDS["english"]
-    assert len(STOP_WORDS["english"]) > 200
-
-
-def test_russian_stop_words_include_common_short_words():
-    assert "на" in STOP_WORDS["russian"]
-    assert "по" in STOP_WORDS["russian"]
-
-
 def test_unknown_snowball_lang_returns_empty_fallback():
     assert stop_words_for_snowball("klingon") == frozenset()

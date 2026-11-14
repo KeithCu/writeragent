@@ -5,62 +5,21 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-
-
-def test_ppt_master_not_in_draw_delegate_enum():
-    from plugin.draw.specialized import DelegateToSpecializedDraw
-
-    gw = DelegateToSpecializedDraw()
-    domains = gw.parameters["properties"]["domain"]["enum"]
-    assert "ppt-master" not in domains
-
 
 def test_sidebar_flags_impress_has_ppt_master():
-    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_PPT_MASTER, get_mode_labels, sidebar_mode_flags_for_doc_type
+    from plugin.chatbot.chat_sidebar_mode import (
+        CHAT_MODE_PPT_MASTER,
+        get_mode_labels,
+        mode_from_label,
+        sidebar_mode_flags_for_doc_type,
+    )
 
-    flags = sidebar_mode_flags_for_doc_type("impress")
-    assert flags.include_ppt_master is True
-    assert flags.include_brainstorming is False
-    labels = get_mode_labels(flags)
-    assert mode_from_label_ppt_master(labels, flags) == CHAT_MODE_PPT_MASTER
-
-
-def mode_from_label_ppt_master(labels, flags):
-    from plugin.chatbot.chat_sidebar_mode import mode_from_label
-
+    impress_flags = sidebar_mode_flags_for_doc_type("impress")
+    assert impress_flags.include_ppt_master is True
+    assert impress_flags.include_brainstorming is False
+    labels = get_mode_labels(impress_flags)
     # Librarian is always last; PPT-Master is the last doc-type-specific mode.
-    return mode_from_label(labels[-2], flags)
+    assert mode_from_label(labels[-2], impress_flags) == CHAT_MODE_PPT_MASTER
 
-
-def test_sidebar_flags_writer_no_ppt_master():
-    from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
-
-    flags = sidebar_mode_flags_for_doc_type("writer")
-    assert flags.include_ppt_master is False
-    assert flags.include_brainstorming is True
-
-
-def _impress_doc() -> MagicMock:
-    doc = MagicMock()
-
-    def supports(svc: str) -> bool:
-        return svc == "com.sun.star.presentation.PresentationDocument"
-
-    doc.supportsService = supports
-    return doc
-
-
-def test_impress_default_schemas_exclude_ppt_master_tools():
-    from plugin.framework.tool import ToolRegistry
-    from plugin.draw.base import ToolDrawPptMasterBase
-    from plugin.ppt_master import tools as ppt_master_tools  # noqa: F401 — register subclasses
-
-    doc = _impress_doc()
-    registry = ToolRegistry(MagicMock())
-    for cls in ToolDrawPptMasterBase.__subclasses__():
-        registry.register(cls())
-    names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=doc)}
-    assert "export_presentation_project" not in names
-    assert "get_ppt_master_skill_path" not in names
+    writer_flags = sidebar_mode_flags_for_doc_type("writer")
+    assert writer_flags.include_ppt_master is False

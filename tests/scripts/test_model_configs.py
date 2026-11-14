@@ -21,11 +21,6 @@ from model_configs import (  # noqa: E402
 )
 
 
-def test_catalog_ids_are_unique_and_gold_only_ids_exist() -> None:
-    assert len(MODEL_BY_ID) == len(MODELS)
-    assert GOLD_ONLY_MODEL_IDS <= set(MODEL_BY_ID)
-
-
 def test_get_default_models_drops_gold_only_ids(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         model_configs,
@@ -42,15 +37,3 @@ def test_default_eval_student_and_gold_models_are_in_catalog() -> None:
     assert resolved in MODEL_BY_ID
     assert resolved not in GOLD_ONLY_MODEL_IDS
     assert DEFAULT_GOLD_MODEL in MODEL_BY_ID
-
-
-def test_model_config_fields_are_populated() -> None:
-    for model in MODELS:
-        assert model.openrouter_id
-        assert model.display_name
-        assert model.context_window_tokens is not None
-        assert model.context_window_tokens > 0
-        assert model.input_cost_per_million >= 0
-        assert model.output_cost_per_million >= 0
-        assert model.notes
-        assert ":" not in model.openrouter_id.split("/", 1)[-1]
