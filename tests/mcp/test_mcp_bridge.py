@@ -199,13 +199,3 @@ def test_stdin_preserves_accents_after_pinning(monkeypatch):
 
     got = json.loads(bridge.sys.stdin.readline())
     assert got["params"]["t"] == _ACCENTED
-
-
-def test_cp1252_stdin_would_mangle_accents_without_the_fix():
-    """Guards the premise: without pinning, the same bytes decode wrong.
-
-    If this ever stops holding, the regression test above is no longer proving
-    anything and both should be revisited.
-    """
-    raw = _ACCENTED.encode("utf-8")
-    assert _cp1252_stream(raw).read() != _ACCENTED

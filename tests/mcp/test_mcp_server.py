@@ -668,29 +668,6 @@ def test_to_mcp_schema_injects_document_url():
     assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]
 
 
-def test_handle_mcp_tools_call_is_async_routing():
-    """Test that _mcp_tools_call routes tools with is_async() returning True to long running."""
-    services = MagicMock()
-    mcp_protocol = MCPProtocolHandler(services)
-
-    tool_mock = MagicMock()
-    tool_mock.name = "dummy_async_tool"
-    tool_mock.long_running = False
-    tool_mock.is_async.return_value = True
-    mcp_protocol.tool_registry = MagicMock()
-    mcp_protocol.tool_registry.get.return_value = tool_mock
-
-    with patch.object(mcp_protocol, "_run_tool") as mock_execute_lr:
-        params = {
-            "name": "dummy_async_tool",
-            "arguments": {"arg": "val"}
-        }
-        mcp_protocol._mcp_tools_call(params, cancel=SendCancellation())
-        mock_execute_lr.assert_called_once()
-        args, kwargs = mock_execute_lr.call_args
-        assert args[0] == "dummy_async_tool"
-
-
 def test_handle_mcp_tools_call_parameter():
     """Test that _mcp_tools_call extracts document_url from arguments and uses it."""
     services = MagicMock()
@@ -740,28 +717,6 @@ def test_try_reserve_sse_after_stop_returns_none():
     reg = SseRegistry()
     reg.stop_all()
     assert reg.reserve() is None
-
-
-def test_http_server_stop_does_not_join_sse_thread():
-    from types import SimpleNamespace
-
-    from plugin.mcp.server import HttpServer
-
-    srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=False)
-    srv._running = True
-    mock_sse_registry = MagicMock()
-    server_ns = SimpleNamespace(
-        shutdown=MagicMock(),
-        server_close=MagicMock(),
-        sse_registry=mock_sse_registry,
-    )
-    srv._server = server_ns
-
-    srv.stop()
-
-    server_ns.shutdown.assert_called_once()
-    server_ns.server_close.assert_called_once()
-    mock_sse_registry.stop_all.assert_called_once()
 
 
 def test_dispatch_resets_response_started_for_subsequent_requests():

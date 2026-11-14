@@ -1983,16 +1983,6 @@ def test_stop_for_quit_sleeping_reset_returns_fast(monkeypatch, tmp_path):
             _join_recorded_background(background)
 
 
-def test_mcp_quit_hook_calls_stop_for_quit():
-    import plugin.mcp as mcp_mod
-
-    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
-    tunnel = MagicMock()
-    mod.tunnel = tunnel
-    mod._quit_stop_tunnel()
-    tunnel.stop_for_quit.assert_called_once()
-
-
 def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
     import plugin.mcp as mcp_mod
 

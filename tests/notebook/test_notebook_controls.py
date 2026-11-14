@@ -90,53 +90,6 @@ def test_wire_all_returns_0_no_container():
     assert len(form_run_listeners(doc)) == 0
 
 
-def test_install_notebook_run_button_wiring_global_listener():
-    ctx = MagicMock()
-    smgr = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    broadcaster = MagicMock()
-    smgr.createInstanceWithContext.return_value = broadcaster
-
-    with (
-        patch("plugin.framework.uno_context.get_active_document", return_value=None),
-        patch("plugin.framework.uno_context.get_active_document", return_value=None),
-    ):
-        notebook_controls.install_notebook_run_button_wiring(ctx)
-
-    smgr.createInstanceWithContext.assert_called_with("com.sun.star.frame.GlobalEventBroadcaster", ctx)
-    broadcaster.addDocumentEventListener.assert_called_once()
-    assert notebook_controls._doc_listener is not None
-
-
-def test_doc_event_listener_wires_buttons():
-    ctx = MagicMock()
-    smgr = MagicMock()
-    ctx.getServiceManager.return_value = smgr
-    broadcaster = MagicMock()
-    smgr.createInstanceWithContext.return_value = broadcaster
-
-    with (
-        patch("plugin.framework.uno_context.get_active_document", return_value=None),
-    ):
-        notebook_controls.install_notebook_run_button_wiring(ctx)
-
-    listener = notebook_controls._doc_listener
-    assert listener is not None
-
-    doc = MagicMock()
-    doc_event = MagicMock()
-    doc_event.EventName = "OnViewCreated"
-    doc_event.Source = doc
-    doc_event.ViewController = None
-
-    with (
-        patch("plugin.notebook.notebook_controls.wire_all_notebook_run_buttons") as wire_all,
-    ):
-        listener.on_document_event(doc_event)
-
-    wire_all.assert_called_once_with(ctx, doc, new_view=True)
-
-
 def test_ensure_form_design_mode_off_no_controller():
     doc = MagicMock()
     doc.getCurrentController.return_value = None

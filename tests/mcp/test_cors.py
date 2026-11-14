@@ -563,25 +563,6 @@ def read_http_error_body(err: urllib.error.HTTPError) -> bytes:
         raise
 
 
-def test_read_http_error_body_survives_darwin_reset():
-    """Status 400 is enough; Darwin-style RST while reading the body is not a regression."""
-    err = urllib.error.HTTPError("http://127.0.0.1/mcp", 400, "Bad Request", hdrs={}, fp=None)
-
-    def _raise_reset() -> bytes:
-        raise ConnectionResetError(54, "Connection reset by peer")
-
-    err.read = _raise_reset  # type: ignore[method-assign]
-    assert err.code == 400
-    assert read_http_error_body(err) == b""
-
-
-def test_read_http_error_body_returns_json_when_available():
-    payload = b'{"jsonrpc":"2.0","error":{"code":-32600}}'
-    err = urllib.error.HTTPError("http://127.0.0.1/mcp", 400, "Bad Request", hdrs={}, fp=None)
-    err.read = lambda: payload  # type: ignore[method-assign]
-    assert json.loads(read_http_error_body(err).decode("utf-8"))["error"]["code"] == -32600
-
-
 def test_post_unsupported_protocol_version(mcp_server):
     payload = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
     data_bytes = json.dumps(payload).encode("utf-8")

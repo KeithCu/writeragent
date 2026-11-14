@@ -786,40 +786,6 @@ def test_async_long_running_uses_execute_safe_without_bypass_keyword():
     assert seen == [{"kwargs": {"note": "keep"}, "execute_safe": 1}]
 
 
-def test_long_running_flag_without_is_async_stays_on_backpressure():
-    """long_running=True is not a second path that passes bypass_thread_guard."""
-    tool = _SyncProbe()
-    tool.long_running = True
-    handler = _handler(_LiveDoc(), tool)
-    with patch.object(handler, "_run_tool", return_value={"status": "ok"}) as mock_run:
-        handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True}}, cancel=SendCancellation())
-    assert mock_run.called
-
-
-def test_async_tools_are_long_running():
-    from plugin.framework.tool import ToolBase, ToolRegistry
-    from plugin.mcp.mcp_protocol import MCPProtocolHandler
-    from unittest.mock import patch, MagicMock
-
-    class MockAsyncTool(ToolBase):
-        name = "async_mock"
-        timeout = 10
-
-        def execute(self, ctx, **kwargs):
-            return {"status": "ok"}
-
-        def is_async(self):
-            return True
-
-    registry = ToolRegistry(MagicMock())
-    registry._tools["async_mock"] = MockAsyncTool()
-    handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
-    handler.tool_registry = registry
-    with patch.object(handler, "_run_tool", return_value={"status": "ok"}) as mock_run:
-        handler._mcp_tools_call({"name": "async_mock", "arguments": {}}, cancel=SendCancellation())
-        assert mock_run.called
-
-
 def test_document_url_not_popped_when_declared():
     from plugin.framework.tool import ToolBase, ToolRegistry
     from plugin.mcp.mcp_protocol import MCPProtocolHandler

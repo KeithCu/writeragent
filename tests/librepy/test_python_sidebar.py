@@ -382,12 +382,14 @@ def test_resize_listener_disposing_runs_callback_once_without_removing():
     assert calls == ["dispose"]
 
 
-def test_resize_listener_disposing_logs_callback_failure():
+def test_resize_listener_disposing_logs_callback_failure(caplog):
     def boom() -> None:
         raise RuntimeError("deck")
 
     listener = _PanelResizeListener({}, on_dispose=boom)
     listener.disposing(None)
+    assert listener._on_dispose is None
+    assert any(r.exc_info is not None for r in caplog.records)
 
 
 def test_window_dispose_hook_cleans_controller_once():
@@ -956,6 +958,7 @@ def test_init_failure_in_wire_allows_safe_disposing():
     ctrl_partial._on_torn_down = None
     # Ensure disposing does not crash on missing attributes
     ctrl_partial.disposing()
+    assert ctrl_partial._disposed is True
 
 
 def test_control_ids_match_xdl_controls():

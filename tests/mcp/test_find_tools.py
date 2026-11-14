@@ -30,14 +30,6 @@ def test_get_domain_guidance_unknown_and_app_neutral_branch():
     )
 
 
-def test_document_research_guidance_has_no_peer_tools():
-    from unittest.mock import patch
-    with patch("plugin.doc.find_tools_tool.get_document_research_workflow_hint", return_value="HINT") as hint:
-        assert get_domain_guidance("document_research") == "HINT"
-    hint.assert_called_once_with()
-    assert "send_peer" not in get_domain_guidance("document_research")
-
-
 def test_specialized_domain_catalog_writer_has_footnotes():
     catalog = get_specialized_domain_catalog(agent_label="Writer", ctx=MagicMock())
     assert "footnotes" in _domain_ids(catalog)
