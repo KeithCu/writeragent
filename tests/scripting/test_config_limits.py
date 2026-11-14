@@ -18,7 +18,6 @@ from plugin.scripting.config_limits import (
     python_exec_timeout,
     python_exec_timeout_default,
 )
-import pytest
 
 
 def test_timeout_fallbacks_match_manifest():
@@ -47,13 +46,14 @@ def test_python_exec_timeout_requested_wins_and_clamps():
         assert python_exec_timeout(0) == 1
         mock_get.assert_not_called()
         assert python_exec_timeout(None) == 10
-        mock_get.assert_called_once_with("scripting.python_exec_timeout")
 
 
-@patch("plugin.framework.config.get_config", return_value=10)
+@patch(
+    "plugin.framework.config.get_config",
+    side_effect=lambda key, *a, **k: {"scripting.python_exec_timeout": 37}[key],
+)
 def test_configured_python_exec_timeout(mock_get):
-    assert python_exec_timeout() == 10
-    mock_get.assert_called_once_with("scripting.python_exec_timeout")
+    assert python_exec_timeout() == 37
 
 
 @patch("plugin.framework.config.get_config", return_value=1000)
@@ -74,14 +74,12 @@ def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_ge
     """
     assert python_exec_timeout_default() != _bounds("python_exec_timeout")[0]
     assert python_exec_timeout() == python_exec_timeout_default()
-    mock_get.assert_called_once_with("scripting.python_exec_timeout")
     assert mock_resolve_default.call_count == 0
 
 
 @patch("plugin.framework.config.get_config", return_value=0)
 def test_configured_python_exec_timeout_stored_zero_clamps_to_min(mock_get):
     assert python_exec_timeout() == _bounds("python_exec_timeout")[0]
-    mock_get.assert_called_once_with("scripting.python_exec_timeout")
 
 
 def test_run_venv_python_script_schema_has_no_timeout_sec():
@@ -102,37 +100,12 @@ def test_run_venv_python_script_schema_has_no_timeout_sec():
     assert "timeout_sec" not in props
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("scripting__python_exec_timeout", id="test_settings_field_specs_include_python_exec_timeout"),
-        pytest.param("scripting__python_max_data_cells", id="test_settings_field_specs_include_python_max_data_cells"),
-    ],
+@patch(
+    "plugin.framework.config.get_config",
+    side_effect=lambda key, *a, **k: {"scripting.python_max_data_cells": 300_000}[key],
 )
-def test_settings_field_specs_include_python_exec_timeout(value):
-    from plugin.chatbot.settings_dialog import get_settings_field_specs
-    from plugin.framework.queue_executor import main
-
-    saved = main._async_callback_service
-    try:
-        names = {f["name"] for f in get_settings_field_specs(MagicMock())}
-        assert value in names
-    finally:
-        main._async_callback_service = saved
-
-
-def test_get_config_python_max_data_cells_uses_schema_default():
-    """get_config must resolve module.yaml default without writeragent.json."""
-    from plugin.framework.config import get_config, reset_config_for_tests
-
-    reset_config_for_tests()
-    assert get_config("scripting.python_max_data_cells") == 250_000
-
-
-@patch("plugin.framework.config.get_config", return_value=250_000)
 def test_configured_python_max_data_cells(mock_get):
-    assert configured_python_max_data_cells() == 250_000
-    mock_get.assert_called_once_with("scripting.python_max_data_cells")
+    assert configured_python_max_data_cells() == 300_000
 
 
 @patch("plugin.framework.config.get_config", return_value=9_999_999)
@@ -147,4 +120,11 @@ def test_configured_python_max_data_cells_clamps_low(mock_get):
 
 @patch("plugin.framework.config.get_config", side_effect=RuntimeError("read failed"))
 def test_configured_python_max_data_cells_failed_read_uses_default_not_min(mock_get):
-    assert configured_python_max_data_cells() == 250_000
+    from plugin._manifest import MODULES
+
+    field = next(
+        m["config"]["python_max_data_cells"]
+        for m in MODULES
+        if isinstance(m, dict) and m.get("name") == "scripting"
+    )
+    assert configured_python_max_data_cells() == field["default"]

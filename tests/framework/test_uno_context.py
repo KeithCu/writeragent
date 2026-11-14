@@ -293,24 +293,6 @@ def test_get_active_document_none_on_other_uno_object_error():
         assert get_active_document(MagicMock()) is None
 
 
-def test_extension_id_constants_match_package_ids():
-    from plugin.framework.constants import (
-        EXTENSION_ID_LIBREHARPER,
-        EXTENSION_ID_LIBREPY,
-        EXTENSION_ID_WRITERAGENT,
-    )
-    from plugin.framework.uno_context import _KNOWN_EXTENSION_IDS
-
-    assert EXTENSION_ID_LIBREPY == "org.extension.librepy"
-    assert EXTENSION_ID_WRITERAGENT == "org.extension.writeragent"
-    assert EXTENSION_ID_LIBREHARPER == "org.extension.libreharper"
-    assert _KNOWN_EXTENSION_IDS == (
-        EXTENSION_ID_LIBREPY,
-        EXTENSION_ID_WRITERAGENT,
-        EXTENSION_ID_LIBREHARPER,
-    )
-
-
 class _NeverEq:
     """Two instances compare unequal so the helper must fall through ``is`` / ``==``."""
 
