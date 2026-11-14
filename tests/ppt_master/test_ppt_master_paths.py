@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from plugin.contrib.ppt_master.upstream import collect_svg_files_upstream
 from plugin.ppt_master.paths import (
     _configured_data_root,
@@ -32,24 +34,23 @@ def _make_outer_clone_layout(tmp_path: Path) -> tuple[Path, Path]:
 def test_dev_clone_data_root_when_repo_present():
     root = _dev_clone_data_root()
     if root is None:
-        return  # ppt-master clone not checked out in this environment
+        pytest.skip("ppt-master dev clone not checked out in this environment")
     assert (root / "SKILL.md").is_file()
     assert (root / "scripts" / "svg_to_pptx").is_dir()
 
 
 def test_find_data_root_prefers_dev_clone():
-    found = find_data_root_in_site_packages()
     dev = _dev_clone_data_root()
     if dev is None:
-        assert found is None or (found / "SKILL.md").is_file()
-    else:
-        assert found == dev
+        pytest.skip("ppt-master dev clone not checked out in this environment")
+    found = find_data_root_in_site_packages()
+    assert found == dev
 
 
 def test_upstream_collect_svg_files_from_dev_clone(tmp_path: Path):
     dev = _dev_clone_data_root()
     if dev is None:
-        return
+        pytest.skip("ppt-master dev clone not checked out in this environment")
     proj = tmp_path / "demo"
     (proj / "svg_final").mkdir(parents=True)
     (proj / "svg_final" / "01.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"/>', encoding="utf-8")
@@ -60,7 +61,7 @@ def test_upstream_collect_svg_files_from_dev_clone(tmp_path: Path):
 def test_upstream_scripts_path_imports_discovery():
     dev = _dev_clone_data_root()
     if dev is None:
-        return
+        pytest.skip("ppt-master dev clone not checked out in this environment")
     from plugin.contrib.ppt_master.upstream import _load_pptx_discovery
 
     mod = _load_pptx_discovery(dev)

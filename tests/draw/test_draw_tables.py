@@ -244,9 +244,9 @@ def test_table_insert_tool_dispatches_draw():
     ctx = MagicMock()
     with patch("plugin.writer.specialized.tables.is_draw", return_value=True):
         with patch("plugin.draw.tables.insert_draw_table", return_value={"status": "ok", "rows": 2}) as ins:
-            out = TableInsert().execute(ctx, rows=2, columns=2)
+            out = TableInsert().execute(ctx, rows=2, columns=2, page=1)
     assert out["status"] == "ok"
-    ins.assert_called_once()
+    ins.assert_called_once_with(ctx, rows=2, columns=2, page=1)
 
 
 def test_table_insert_draw_rejects_parent_cell():
@@ -278,9 +278,9 @@ def test_table_delete_tool_dispatches_draw():
             "plugin.draw.tables.delete_draw_table",
             return_value={"status": "ok", "table_name": "Fees"},
         ) as dele:
-            out = TableDelete().execute(ctx, name="Fees")
+            out = TableDelete().execute(ctx, name=" Fees ", page=1, index=2)
     assert out["status"] == "ok"
-    dele.assert_called_once()
+    dele.assert_called_once_with(ctx.doc, name="Fees", page=1, index=2)
 
 
 def test_get_draw_cells_empty_string_is_empty_cell():

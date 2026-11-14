@@ -133,7 +133,7 @@ def test_validation_combo_without_options_allowed():
         }
     ]
     # Allowed: combo with runtime options
-    validate_modules(modules)
+    assert validate_modules(modules) is None
 
 
 def test_validation_inverted_min_max():

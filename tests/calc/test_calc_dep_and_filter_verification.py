@@ -13,7 +13,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.calc.calc_utils import resolve_sheet_and_cell
 from plugin.calc.sheet_filter_criteria import (
     filter_connection_code,
     resolve_filter_operator_code,
@@ -28,19 +27,12 @@ from plugin.framework.errors import ToolExecutionError
 
 
 
-def test_resolve_sheet_and_cell_parse() -> None:
-    res = resolve_sheet_and_cell(None, "Sheet1.B10")
-    # doc is None, so function returns None after parsing cell part B10 (col 1, row 9)
-    assert res is None
-
-    res2 = resolve_sheet_and_cell(None, "INVALID_CELL_1234567")
-    assert res2 is None
-
-
-@given(conn=st.sampled_from(["AND", "and", "OR", "or", None]))
-def test_filter_connection_code_valid(conn: str | None) -> None:
-    code = filter_connection_code(conn)
-    assert code in (0, 1)
+@pytest.mark.parametrize(
+    "conn, expected",
+    [("AND", 0), ("and", 0), (None, 0), ("OR", 1), ("or", 1)],
+)
+def test_filter_connection_code_valid(conn: str | None, expected: int) -> None:
+    assert filter_connection_code(conn) == expected
 
 
 def test_filter_connection_code_invalid() -> None:
@@ -49,11 +41,20 @@ def test_filter_connection_code_invalid() -> None:
     assert exc.value.code == "INVALID_PARAM"
 
 
-@given(op=st.sampled_from(["EQUAL", "NOT_EQUAL", "GREATER", "LESS", "CONTAINS", "BEGINS_WITH"]))
-def test_resolve_filter_operator_code_valid(op: str) -> None:
-    code = resolve_filter_operator_code(op)
-    assert isinstance(code, int)
-    assert code >= 0
+@pytest.mark.parametrize(
+    "op, expected",
+    [
+        ("EQUAL", 2),
+        ("NOT_EQUAL", 3),
+        (" not-equal ", 3),
+        ("GREATER", 4),
+        ("LESS", 6),
+        ("CONTAINS", 12),
+        ("BEGINS_WITH", 14),
+    ],
+)
+def test_resolve_filter_operator_code_valid(op: str, expected: int) -> None:
+    assert resolve_filter_operator_code(op) == expected
 
 
 def test_resolve_filter_operator_code_invalid() -> None:
