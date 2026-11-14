@@ -410,7 +410,8 @@ closed notebook leftover uid=41 then hung 30s on the next Hidden
 docs. Unique leftover `_wa_notebook_2` is the same stacking family
 as leftover `_wa_factory_N`. The detect reload
 `skip_windows_leftover_hidden_load`s when leftovers are already
-open. Do **not** skip `document_research_uno` Hidden
+open (removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1
+run id). Do **not** skip `document_research_uno` Hidden
 `Budget_read.ods`.
 
 GHA 34648929578 / 34649699848 (`86279d14`): `#732`'s
@@ -540,8 +541,9 @@ hung 30s in attach / storeAsURL / raw `doc.close(True)` / Hidden
 `_blank` reopen (office alive). 34678020608 returned here and died
 later on Hidden `.mml`. Same leftover Hidden family as import-filter
 detect. Windows now `skip_windows_leftover_hidden_load`s
-(`windows leftover skip: document scripts Hidden _blank reopen`).
-Do not raw-close leftover Writers. Not a product change.
+(`windows leftover skip: document scripts Hidden _blank reopen`;
+removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1 run
+id). Do not raw-close leftover Writers. Not a product change.
 
 GHA 34681661844 (PR #746 tip `5d5d1232`): document-scripts /
 MathML leftover Hidden skips fired (suites green). Then
@@ -554,7 +556,8 @@ Writer + close returned; the second hung. Same leftover Hidden
 family. Apply-content UNO tests now
 `skip_windows_leftover_hidden_load`
 (`windows leftover skip: apply_document_content Hidden _default
-swriter leftovers=N`). Not a product change.
+swriter leftovers=N`; removed 2026-11, TSLOP-WIN stage 2; pending
+Windows UNO round-1 run id). Not a product change.
 
 GHA 34683742049 (PR #746 tip `d6b6319a`): heading-rewrite /
 structured-return / table-cell / whitespace leftover Hidden apply
@@ -566,7 +569,8 @@ via `ApplyDocumentContent.execute` (office alive). Same leftover
 Hidden `_default` family as heading-rewrite `_b_uno`. Content-style
 write `_tool_ctx` plus later apply UNO files (`test_format_uno`,
 `test_track_changes_reviewable_uno`) now
-`skip_windows_leftover_hidden_load`. Not a product change.
+`skip_windows_leftover_hidden_load` (removed 2026-11, TSLOP-WIN stage 2;
+pending Windows UNO round-1 run id). Not a product change.
 Same run:
 `test_apply_style_known_limitation_direct_equals_old_default_uno`
 FAIL (`origin detection improved`) under leftover writer reuse;
@@ -597,8 +601,9 @@ small_doc + cross-paragraph leftover skips fired (suite green). Then
 (office alive). Hidden leftover Writers have no working view.
 Inline-review `_body` now
 `skip_windows_leftover_hidden_load`
-(`windows leftover skip: inline_review view cursor leftover reuse`).
-Not a product change.
+(`windows leftover skip: inline_review view cursor leftover reuse`;
+removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1 run
+id). Not a product change.
 
 GHA 34689136372 (PR #746 tip `4bdaa1b3`): inline-review leftover
 view-cursor skips fired (suite green). Then
@@ -767,8 +772,9 @@ failed a bare AssertionError; sibling
 reuse path. #809's `\\r\\n` color filter was not enough. Windows now
 `skip_windows_pooled_writer_reuse`s
 (`windows pool skip: format_uno cross-paragraph color pooled reuse`)
-when this test's Writer came from the pool, including leftover_open=0.
-Factory-fresh Windows Writer still runs the test. Not a product
+when this test's Writer came from the pool, including leftover_open=0
+(removed 2026-11, TSLOP-WIN stage 2; pending Windows UNO round-1 run
+id). Factory-fresh Windows Writer still runs the test. Not a product
 `replace_preserving_format` change. Same run: Pytest+UNO step timed
 out at 25m mid `test_insert_html_fragment_at_cursor` (body had
 returned). leftover_open=0 runs more tests + impress recycles;
@@ -983,12 +989,16 @@ A `*_uno.py` module that raises on import or exec (such as `ImportError`, `Synta
 
 Stage 1 removed `_windows_should_reuse_writer` (redundant with default
 pooling). GHA run 43525041142 (`PR CI`, `os=windows-latest`) passed
-`UNO Tests (windows-latest)`. Stage 2 then removed
+`UNO Tests (windows-latest)` as the stage 1 baseline (with all
+hidden-load and pooled-reuse skips still active). Stage 2 then removed
 `skip_windows_leftover_hidden_load`, `windows_leftover_hidden_load_unsafe`,
 `skip_windows_pooled_writer_reuse`, `windows_pooled_writer_reuse`,
 `writer_pool_reused`, the `skip_reason=` parameters on
 `native_writer_tool_context` / `writer_services_tool_context`, all 17
-hidden-load skip call sites, and their meta-tests.
+hidden-load skip call sites, and their meta-tests ahead of the round-1
+Windows UNO and mock-sidebar dispatches (not yet dispatched because this
+branch tip is local/unpushed; update this section with the round run ids
+and per-class outcomes once Windows CI runs on stage 2).
 
 Later (not this PR): rename `set_windows_notebook_host` and
 `_windows_notebook_host` since the separate-pool flag applies on every

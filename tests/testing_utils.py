@@ -565,7 +565,9 @@ def note_windows_hidden_open_bitmap(err: str | None) -> None:
     )
 
 
-# Win32 factory target for the separate notebook pool.
+# Win32 factory target for the separate notebook pool, distinct from
+# _wa_factory (would find leftover HTML-paste Writers) and _wa_notebook
+# (import-filter leftover listeners, GHA 34643210006).
 _WINDOWS_NOTEBOOK_HOST_TARGET = "_wa_notebook_host"
 
 
@@ -602,6 +604,8 @@ def windows_notebook_load_args() -> tuple[str, int]:
     is the same stacking family as leftover ``_wa_factory_N``. Do not
     close leftover notebook docs (same skip as paste Writers). On Windows,
     use the dedicated ``_wa_notebook`` target; POSIX keeps ``_blank``.
+    (The detect-reload skip was removed in TSLOP-WIN stage 2, pending
+    round-1 Windows UNO verification.)
     """
     if sys.platform != "win32":
         return "_blank", 0
