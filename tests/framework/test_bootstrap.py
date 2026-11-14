@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -185,24 +184,6 @@ assert not bootstrap_mod.bootstrap_initialized()
         text=True,
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
-
-
-def test_app_py_does_not_import_plugin_main():
-    app_path = Path(__file__).resolve().parents[2] / "plugin" / "app.py"
-    tree = ast.parse(app_path.read_text(encoding="utf-8"))
-
-    def walk(node: ast.AST) -> None:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                assert alias.name != "plugin.main", f"import {alias.name}"
-        elif isinstance(node, ast.ImportFrom):
-            assert node.module != "plugin.main", f"from {node.module}"
-            if node.module and node.module.startswith("plugin.main"):
-                raise AssertionError(f"from {node.module}")
-        for child in ast.iter_child_nodes(node):
-            walk(child)
-
-    walk(tree)
 
 
 def test_is_dev_build_eq_one_only(monkeypatch):

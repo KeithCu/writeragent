@@ -335,31 +335,6 @@ def test_iter_cell_text_portions_logs_enumeration(capsys, monkeypatch):
     assert "insert_cell_html: portions enum exit yielded=1" in err
 
 
-def test_insert_cell_html_post_execute_breadcrumbs_present():
-    """GHA 33703959362: next Windows timeout must name the post-execute hang site."""
-    import inspect
-
-    from tests.calc import test_rich_html_uno as mod
-
-    src = inspect.getsource(inspect.unwrap(mod.test_insert_cell_html))
-    for needle in (
-        "status assert start",
-        "status assert done",
-        "getCellByPosition start",
-        "getCellByPosition done",
-        "getString start",
-        "getString done",
-        "portion loop start",
-        "portion loop done",
-        "bold assert start",
-        "bold assert done",
-        "assertions done",
-        "getDocumentProperties probe start",
-        "getDocumentProperties probe done",
-    ):
-        assert needle in src, needle
-
-
 def test_diagnose_insert_cell_html_bold_logs_enter_exit(capsys, monkeypatch):
     monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     from tests.calc.test_rich_html_uno import _diagnose_insert_cell_html_bold

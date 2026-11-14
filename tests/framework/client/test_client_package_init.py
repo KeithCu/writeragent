@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import os
 import subprocess
 import sys
@@ -15,33 +14,18 @@ _CLIENT_INIT = _REPO_ROOT / "plugin" / "framework" / "client" / "__init__.py"
 _FORBIDDEN_TOP_LEVEL = frozenset(
     {
         "llm_client",
-        ".llm_client",
         "embedding_client",
-        ".embedding_client",
         "embeddings_service",
-        ".embeddings_service",
         "stream_normalizer",
-        ".stream_normalizer",
         "plugin.scripting.client",
     }
 )
 
 
-def _top_level_import_modules(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    modules: list[str] = []
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module is not None:
-            modules.append(node.module)
-        elif isinstance(node, ast.Import):
-            modules.extend(alias.name for alias in node.names)
-    return modules
-
-
 def test_client_init_source_does_not_import_llm_stack():
-    modules = _top_level_import_modules(_CLIENT_INIT)
-    hit = [m for m in modules if m in _FORBIDDEN_TOP_LEVEL]
-    assert not hit, "client/__init__.py top-level imports LLM stack: %s" % hit
+    from tests.harness.import_guards import assert_no_toplevel_import
+
+    assert_no_toplevel_import(_CLIENT_INIT, _FORBIDDEN_TOP_LEVEL)
 
 
 @pytest.mark.parametrize(

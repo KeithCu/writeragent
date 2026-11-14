@@ -1067,23 +1067,10 @@ def test_run_writer_mutation_with_optional_review_import_error():
 
 def test_format_module_avoids_document_helpers_ops_review_authors():
     """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
-    import ast
-    from pathlib import Path
-
     import plugin.writer.html_import as fmt
+    from tests.harness.import_guards import assert_no_toplevel_import
 
-    tree = ast.parse(Path(fmt.__file__).read_text(encoding="utf-8"))
-    mods: list[str] = []
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module:
-            mods.append(node.module)
-        elif isinstance(node, ast.Import):
-            mods.extend(alias.name for alias in node.names)
-    assert "plugin.doc.document_helpers" not in mods
-    assert ".ops" not in mods
-    assert "ops" not in mods
-    assert ".review_authors" not in mods
-    assert "review_authors" not in mods
+    assert_no_toplevel_import(fmt, {"plugin.doc.document_helpers", "ops", "review_authors"})
 
 
 # --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------
