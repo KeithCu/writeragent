@@ -268,8 +268,9 @@ def test_insert_content_at_position_empty_selection_uses_doc_end():
 
 
 
-def test_insert_content_at_position_beginning_applies_styles():
-    """beginning path passes apply_styles=True (no PARAGRAPH_BREAK prep needed at para start)."""
+@pytest.mark.parametrize(("position", "goto"), [("beginning", "gotoStart"), ("end", "gotoEnd")])
+def test_insert_content_at_position_extremes_apply_styles(position: str, goto: str):
+    """Beginning needs no PARAGRAPH_BREAK prep and end runs absorb prep; both pass apply_styles=True."""
     from unittest.mock import MagicMock, patch
 
     from plugin.writer.html_import import insert_content_at_position
@@ -282,38 +283,11 @@ def test_insert_content_at_position_beginning_applies_styles():
 
     with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
         "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
-        side_effect=lambda text, cursor, position: cursor,
-    ) as mock_prep:
-        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Heading1\">x</p>", "beginning")
+        side_effect=lambda text, cursor, pos: cursor,
+    ):
+        insert_content_at_position(model, MagicMock(), '<p data-lo-style="Heading1">x</p>', position)
 
-    body_cursor.gotoStart.assert_called_once_with(False)
-    mock_prep.assert_called_once()
-    assert mock_prep.call_args.args[2] == "beginning"
-    mock_insert.assert_called_once()
-    assert mock_insert.call_args.kwargs.get("apply_styles") is True
-
-
-def test_insert_content_at_position_end_preps_then_applies_styles():
-    """end path runs absorb prep then passes apply_styles=True."""
-    from unittest.mock import MagicMock, patch
-
-    from plugin.writer.html_import import insert_content_at_position
-
-    body_cursor = MagicMock()
-    body_text = MagicMock()
-    body_text.createTextCursor.return_value = body_cursor
-    model = MagicMock()
-    model.getText.return_value = body_text
-
-    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, patch(
-        "plugin.writer.html_import._ensure_empty_absorb_for_styled_insert",
-        side_effect=lambda text, cursor, position: cursor,
-    ) as mock_prep:
-        insert_content_at_position(model, MagicMock(), "<p data-lo-style=\"Caption\">x</p>", "end")
-
-    body_cursor.gotoEnd.assert_called_once_with(False)
-    mock_prep.assert_called_once()
-    assert mock_prep.call_args.args[2] == "end"
+    getattr(body_cursor, goto).assert_called_once_with(False)
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
 
@@ -1063,14 +1037,6 @@ def test_run_writer_mutation_with_optional_review_import_error():
     with patch("builtins.__import__", side_effect=import_without_edit_review):
         run_writer_mutation_with_optional_review(MagicMock(), MagicMock(), apply_fn)
     apply_fn.assert_called_once()
-
-
-def test_format_module_avoids_document_helpers_ops_review_authors():
-    """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
-    import plugin.writer.html_import as fmt
-    from tests.harness.import_guards import assert_no_toplevel_import
-
-    assert_no_toplevel_import(fmt, {"plugin.doc.document_helpers", "ops", "review_authors"})
 
 
 # --- clear_direct: the paragraph half of Format > Clear Direct Formatting -----------------

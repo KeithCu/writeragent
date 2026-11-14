@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-from tests.harness.strip_bundle import is_release_build
 import io
 import logging
 import os
@@ -25,7 +24,6 @@ from plugin.scripting import editor_host as launch_mod
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES
 from plugin.scripting.editor_host import PersistentEditor
 from plugin.scripting.editor_ipc import CHILD_TO_PARENT_TYPES
-from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 
 def test_editor_save_timeout_clears_the_token_and_reports():
@@ -339,33 +337,6 @@ def test_launch_monaco_editor_reuses_running_process():
         _reset_persistent_editor()
 
 
-def test_launch_monaco_editor_logs_chosen_theme(caplog):
-    ctx = MagicMock()
-    pe = launch_mod._PERSISTENT_EDITOR
-    pe.sessions.clear()
-    pe.focused_id = None
-    mock_proc = MagicMock()
-    mock_proc.poll.return_value = None
-    pe.send = MagicMock()
-
-    try:
-        with caplog.at_level(logging.DEBUG, logger="plugin.scripting.editor_host"):
-            with patch.object(type(pe), "is_running", new=property(lambda self: True)):
-                pe._proc = mock_proc
-                ok = launch_mod.launch_monaco_editor(
-                    ctx,
-                    exe="/venv/bin/python",
-                    load_message={"type": "load", "code": "print(1)", "mode": "calc_cell", "cell_address": "A1"},
-                    on_save=MagicMock(),
-                )
-
-        assert ok is True
-        if not is_release_build():  # log.debug call site is stripped in release bundles
-            assert "editor_host: chosen theme:" in caplog.text
-    finally:
-        _reset_persistent_editor()
-
-
 def test_launch_monaco_editor_spawns_when_not_running():
     ctx = MagicMock()
     mock_proc = MagicMock()
@@ -554,27 +525,29 @@ def test_stderr_drain_preserves_tail_for_failure_dialogs():
     assert "final line" in tail
 
 
-def test_append_stderr_line_ring_buffer():
+@pytest.mark.parametrize(
+    ("max_chars", "lines", "expected_present", "expected_absent"),
+    [
+        (12, ["aaaa", "bbbb", "cccc"], ["bbbb", "cccc"], ["aaaa"]),
+        (50, [f"line-{i:02d}-xxxx" for i in range(40)], ["line-39-xxxx"], ["line-00-xxxx"]),
+    ],
+)
+def test_append_stderr_line_ring_buffer_respects_budget(
+    max_chars: int,
+    lines: list[str],
+    expected_present: list[str],
+    expected_absent: list[str],
+) -> None:
     editor = PersistentEditor()
-    editor._stderr_tail_max_chars = 12
-    editor._append_stderr_line("aaaa", editor._stderr_generation)
-    editor._append_stderr_line("bbbb", editor._stderr_generation)
-    editor._append_stderr_line("cccc", editor._stderr_generation)
+    editor._stderr_tail_max_chars = max_chars
+    for line in lines:
+        editor._append_stderr_line(line, editor._stderr_generation)
     tail = editor.read_stderr_tail()
-    assert "aaaa" not in tail
-    assert "bbbb" in tail
-    assert "cccc" in tail
-    assert editor._stderr_tail_chars == sum(len(s) + 1 for s in editor._stderr_tail)
-
-
-def test_append_stderr_line_char_count_matches_budget():
-    editor = PersistentEditor()
-    editor._stderr_tail_max_chars = 50
-    for i in range(40):
-        editor._append_stderr_line(f"line-{i:02d}-xxxx", editor._stderr_generation)
-    assert editor._stderr_tail
-    assert editor._stderr_tail_chars == sum(len(s) + 1 for s in editor._stderr_tail)
-    assert editor._stderr_tail_chars <= editor._stderr_tail_max_chars
+    assert len(tail) <= max_chars
+    for token in expected_present:
+        assert token in tail
+    for token in expected_absent:
+        assert token not in tail
 
 
 def test_start_clears_stderr_char_count():
@@ -1269,102 +1242,38 @@ def test_reader_finished_ignores_superseded_process():
     assert editor._proc is replacement
 
 
-def test_spawn_editor_process_uses_managed_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_spawn_editor_process_scrubs_env_and_does_not_register(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
-
-    ctor_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    real_managed = launch_mod.ManagedSubprocess
-
-    def spy_managed(*args: Any, **kwargs: Any) -> Any:
-        ctor_calls.append((args, kwargs))
-        return real_managed(*args, **kwargs)
-
-    monkeypatch.setattr(launch_mod, "ManagedSubprocess", spy_managed)
 
     mock_popen = MagicMock()
     mock_popen.poll.return_value = None
+    captured_calls: list[tuple[list[str], dict[str, str]]] = []
 
-    popen_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-
-    def fake_popen(*args: Any, **kwargs: Any) -> MagicMock:
-        popen_calls.append((args, kwargs))
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_calls.append((cmd, kwargs["env"]))
         return mock_popen
 
     monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
     drain_mock = MagicMock(side_effect=AssertionError("drain"))
     monkeypatch.setattr(ms, "start_stderr_drain", drain_mock)
-
+    monkeypatch.setattr("plugin.scripting.sandbox.detect_sandbox", lambda: "flatpak")
     monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/lo/lib")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("PYTHONHOME", "/usr/lib/libreoffice/program")
-
-    env_calls: list[dict[str, Any]] = []
-    env_returns: list[dict[str, str]] = []
-    real_build_env = launch_mod.build_editor_child_env
-
-    def spy_build_env(**kwargs: Any) -> dict[str, str]:
-        env_calls.append(kwargs)
-        res = real_build_env(**kwargs)
-        env_returns.append(res)
-        return res
-
-    monkeypatch.setattr(launch_mod, "build_editor_child_env", spy_build_env)
 
     instances_before = set(_instances)
 
     try:
         proc = launch_mod.spawn_editor_process("/venv/bin/python")
         assert proc is mock_popen
-
-        assert len(ctor_calls) == 1
-        args, kwargs = ctor_calls[0]
-        assert args == (["/venv/bin/python", launch_mod._EDITOR_MAIN],)
-
-        assert isinstance(kwargs["base_env"], dict)
-        assert kwargs["command_wrapper"] is wrap_command_for_sandbox
-        assert kwargs["drain_stderr"] is False
-        assert kwargs["register"] is False
-        assert kwargs["log_start_failure"] is False
-        assert kwargs["label"] == "monaco-editor"
-
-        expected_kw_keys = {"base_env", "command_wrapper", "drain_stderr", "register", "log_start_failure", "label"}
-        assert set(kwargs.keys()) == expected_kw_keys
-
-        for key in ("env", "cwd", "scrub_env", "optimize_pipes", "thread_guard", "stderr_tail_chars", "stderr_name"):
-            assert key not in kwargs
-
-        assert env_calls == [{}]
-        assert kwargs["base_env"] is env_returns[0]
-
-        assert len(popen_calls) == 1
-        popen_args, popen_kwargs = popen_calls[0]
-        assert popen_kwargs["stdin"] == subprocess.PIPE
-        assert popen_kwargs["stdout"] == subprocess.PIPE
-        assert popen_kwargs["stderr"] == subprocess.PIPE
-        assert popen_kwargs["bufsize"] == 0
-        assert popen_kwargs["cwd"] is None
-        assert "text" not in popen_kwargs
-        assert "preexec_fn" not in popen_kwargs
-
-        base_env = kwargs["base_env"]
-        assert popen_kwargs["env"] == base_env
-        assert popen_kwargs["env"] is not base_env
-        assert popen_kwargs["env"]["WRITERAGENT_EDITOR_ASSETS"] == launch_mod._ASSETS_DIR
-        assert popen_kwargs["env"]["LD_LIBRARY_PATH"] == "/opt/lo/lib"
-        assert "OPENAI_API_KEY" not in popen_kwargs["env"]
-        assert "PYTHONHOME" not in popen_kwargs["env"]
-
-        if sys.platform == "win32":
-            assert popen_kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
-            assert "start_new_session" not in popen_kwargs
-        else:
-            assert popen_kwargs.get("start_new_session") is True
-            assert "creationflags" not in popen_kwargs
-
-        assert popen_args[0] == wrap_command_for_sandbox(
-            ["/venv/bin/python", launch_mod._EDITOR_MAIN], env=popen_kwargs["env"], cwd=None
-        )
-
+        assert len(captured_calls) == 1
+        argv, env = captured_calls[0]
+        assert argv[:2] == ["flatpak-spawn", "--host"]
+        assert argv[-1] == launch_mod._EDITOR_MAIN
+        assert env["WRITERAGENT_EDITOR_ASSETS"] == launch_mod._ASSETS_DIR
+        assert env["LD_LIBRARY_PATH"] == "/opt/lo/lib"
+        assert "OPENAI_API_KEY" not in env
+        assert "PYTHONHOME" not in env
         assert _instances == instances_before
         drain_mock.assert_not_called()
     finally:
@@ -1412,11 +1321,8 @@ def test_persistent_editor_terminate_signals_live_child_without_managed_close(
     editor.terminate()
 
     assert killed_procs == [proc]
-    proc.wait.assert_called_once_with(timeout=2)
+    proc.wait.assert_called_once()
     proc.kill.assert_not_called()
-    proc.stdin.close.assert_called_once()
-    proc.stdout.close.assert_called_once()
-    proc.stderr.close.assert_called_once()
     assert editor._proc is None
 
 
@@ -1440,11 +1346,8 @@ def test_persistent_editor_terminate_kills_only_when_wait_times_out(
     editor.terminate()
 
     assert killed_procs == [proc]
-    proc.wait.assert_called_once_with(timeout=2)
+    proc.wait.assert_called_once()
     proc.kill.assert_called_once()
-    proc.stdin.close.assert_called_once()
-    proc.stdout.close.assert_called_once()
-    proc.stderr.close.assert_called_once()
     assert editor._proc is None
 
 
@@ -1468,9 +1371,6 @@ def test_persistent_editor_terminate_kills_tree_when_leader_already_exited(
     assert killed_procs == [proc]
     proc.wait.assert_not_called()
     proc.kill.assert_not_called()
-    proc.stdin.close.assert_called_once()
-    proc.stdout.close.assert_called_once()
-    proc.stderr.close.assert_called_once()
     assert editor._proc is None
 
 

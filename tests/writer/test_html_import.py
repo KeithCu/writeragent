@@ -772,7 +772,15 @@ def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
     cm = html_import._deletion_author()
     with cm:
         pass
-    assert type(cm).__name__ == type(contextlib.nullcontext()).__name__ or hasattr(cm, "__enter__")
+    assert isinstance(cm, contextlib.nullcontext)
+
+
+def test_html_import_avoids_document_helpers_ops_review_authors():
+    """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
+    import plugin.writer.html_import as fmt
+    from tests.harness.import_guards import assert_no_toplevel_import
+
+    assert_no_toplevel_import(fmt, {"plugin.doc.document_helpers", "ops", "review_authors"})
 
 
 @pytest.mark.parametrize(

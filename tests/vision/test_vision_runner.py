@@ -231,9 +231,7 @@ def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run,
     assert result["images_processed"] == 2
     assert result["full_text"] == "text-Img1\n\ntext-Img2"
     assert mock_run.call_count == 2
-    assert "_merged" not in mock_run.call_args_list[0].kwargs["params"]
     assert mock_run.call_args_list[0].kwargs["params"] == {"lang": "en", "image_name": "Img1"}
-    assert mock_run.call_args_list[0].kwargs["params"]["image_name"] == "Img1"
     assert mock_run.call_args_list[1].kwargs["params"]["image_name"] == "Img2"
     assert insert.call_count == 2
     first_result = insert.call_args_list[0].args[2]

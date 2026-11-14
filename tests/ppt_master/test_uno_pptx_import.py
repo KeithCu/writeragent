@@ -522,42 +522,25 @@ def test_graphic_clone_without_context_does_not_alias_live_graphic():
     assert all(name != "Graphic" or value is not live for name, value in dest.sets)
 
 
-def test_copy_shapes_to_page_forwards_uno_ctx(monkeypatch):
-    seen: dict[str, Any] = {}
-    source = _ScFakeShape("com.sun.star.drawing.RectangleShape", {"FillColor": 1})
-    dest_page = _ScFakePage()
+def test_copy_shapes_to_page_reimports_graphics_with_context():
+    live = object()
+    owned = object()
+    source = _ScFakeShape(
+        "com.sun.star.drawing.GraphicObjectShape",
+        {"Graphic": live, "GraphicURL": "vnd.sun.star.GraphicObject:hidden-pool"},
+    )
+    dest = _ScFakeShape("com.sun.star.drawing.GraphicObjectShape")
     doc = MagicMock()
+    doc.createInstance.return_value = dest
+    provider = MagicMock()
+    provider.queryGraphic.side_effect = [None, owned]
+    uno_ctx = MagicMock()
+    uno_ctx.ServiceManager.createInstanceWithContext.return_value = provider
 
-    def fake_clone(
-        target_doc: Any,
-        target_page: Any,
-        source_shape: Any,
-        *,
-        uno_ctx: Any | None = None,
-        **kwargs: Any,
-    ) -> ClonedShape:
-        seen["ctx"] = uno_ctx
-        seen["source"] = source_shape
-        seen["doc"] = target_doc
-        seen["page"] = target_page
-        return ClonedShape(
-            shape=object(),
-            shape_type="com.sun.star.drawing.RectangleShape",
-            reimported=None,
-            graphic_shapes=0,
-            graphic_reimports=0,
-            empty_group_message=None,
-        )
-
-    monkeypatch.setattr(uno_pptx_import, "clone_shape", fake_clone)
-    marker = object()
-    copied = copy_shapes_to_page(_ScFakePage([source]), doc, dest_page, uno_ctx=marker)
+    copied = copy_shapes_to_page(_ScFakePage([source]), doc, _ScFakePage(), uno_ctx=uno_ctx)
 
     assert copied == 1
-    assert seen["ctx"] is marker
-    assert seen["source"] is source
-    assert seen["doc"] is doc
-    assert seen["page"] is dest_page
+    assert dest.props.get("Graphic") is owned
 
 
 def test_clone_shape_copies_fill_gradient_and_hatch():
