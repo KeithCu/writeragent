@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import ntpath
 import os
 import re
 import sqlite3
@@ -183,7 +184,7 @@ def _path_for_mount_match(path: str | Path) -> str:
     """Normalize *path* for prefix comparison against psutil mount points."""
     text = str(path)
     if sys.platform == "win32":
-        return os.path.normpath(text)
+        return ntpath.normcase(ntpath.normpath(text))
     return os.path.realpath(text)
 
 
@@ -193,12 +194,15 @@ def _longest_mount_partition(path: str | Path, partitions: list[Any]) -> Any | N
     best_len = -1
     best_part: Any | None = None
     for part in partitions:
-        mp = str(part.mountpoint)
+        raw_mp = str(part.mountpoint or "").strip()
+        if not raw_mp:
+            continue
+        mp = _path_for_mount_match(raw_mp)
         if target == mp:
             mp_len = len(mp)
-        elif mp == "/" and target.startswith("/"):
+        elif mp in ("/", "\\") and target.startswith(mp):
             mp_len = 1
-        elif target.startswith(mp.rstrip("/") + "/") or target.startswith(mp.rstrip("\\") + "\\"):
+        elif target.startswith(mp.rstrip("/\\") + "/") or target.startswith(mp.rstrip("/\\") + "\\"):
             mp_len = len(mp.rstrip("/\\"))
         else:
             continue
