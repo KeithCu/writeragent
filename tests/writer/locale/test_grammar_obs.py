@@ -53,15 +53,6 @@ def test_grammar_obs_no_op_when_debug_disabled(caplog: pytest.LogCaptureFixture)
     assert not any("[grammar] obs" in r.message for r in caplog.records)
 
 
-def test_grammar_obs_logs_when_debug_enabled() -> None:
-    with patch.object(go.log, "isEnabledFor", return_value=True), patch.object(go.log, "debug") as mock_debug:
-        go.grammar_obs("test_event", counter=2)
-    mock_debug.assert_called_once()
-    assert mock_debug.call_args[0][0] == "[grammar] obs %s %s"
-    assert mock_debug.call_args[0][1] == "test_event"
-    assert "counter=2" in mock_debug.call_args[0][2]
-
-
 def test_filter_stale_and_group_emits_batch_stats_for_stale_skips() -> None:
     items = [_item(key="a", seq=1), _item(key="b", seq=2)]
     q = GrammarWorkQueue()

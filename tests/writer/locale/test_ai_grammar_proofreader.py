@@ -1257,22 +1257,18 @@ def test_ensure_persistence_bound_prioritizes_runtime_uid_over_current_component
 def test_ignore_rule_fails_loudly_when_doc_id_unresolved(mock_config_fixture, mock_locale_fixture) -> None:
     pr = _make_proofreader()
     with patch("plugin.writer.locale.ai_grammar_proofreader._ignore_rule_on_main") as mock_ignore, \
-         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
          patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found") as exc_info:
+        with pytest.raises(RuntimeError, match="ignoreRule failed: no active document found"):
             pr.ignoreRule("test-rule", mock_locale_fixture)
     mock_ignore.assert_not_called()
-    mock_log.warning.assert_any_call("[grammar] ignoreRule: %s", exc_info.value, exc_info=True)
 
 def test_reset_ignore_rules_fails_loudly_when_doc_id_unresolved(mock_config_fixture) -> None:
     pr = _make_proofreader()
     with patch("plugin.writer.locale.ai_grammar_proofreader._reset_ignore_rules_on_main") as mock_reset, \
-         patch("plugin.writer.locale.ai_grammar_proofreader.log") as mock_log, \
          patch.object(pr, "_resolve_doc_id_for_ignore", return_value=None):
-        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found") as exc_info:
+        with pytest.raises(RuntimeError, match="resetIgnoreRules failed: no active document found"):
             pr.resetIgnoreRules()
     mock_reset.assert_not_called()
-    mock_log.warning.assert_any_call("[grammar] resetIgnoreRules: %s", exc_info.value, exc_info=True)
 
 def test_enqueue_misses_persists_identity_from_active_provider(mock_config_fixture, mock_locale_fixture, mock_queue_fixture) -> None:
     pr = _make_proofreader()

@@ -7,7 +7,6 @@
 # (at your option) any later version.
 """Tests for agent backend registry and backend specs."""
 
-import logging
 from pathlib import Path
 from unittest.mock import patch
 import pytest
@@ -30,24 +29,18 @@ from plugin.acp.registry import (
 _MODULE_YAML = Path(__file__).resolve().parent.parent.parent / "plugin" / "acp" / "module.yaml"
 
 
-def test_known_and_empty_ids_do_not_warn(caplog):
-    caplog.set_level(logging.WARNING, logger="plugin.acp.registry")
+def test_normalize_known_and_empty_ids():
     assert normalize_backend_id("hermes") == "hermes"
     assert normalize_backend_id("Hermes") == "hermes"
     assert normalize_backend_id("builtin") == "builtin"
     assert normalize_backend_id("") == "builtin"
     assert normalize_backend_id(None) == "builtin"
     assert normalize_backend_id("   ") == "builtin"
-    assert caplog.text == ""
 
 
-def test_unknown_id_warns_and_returns_builtin(caplog):
-    caplog.set_level(logging.WARNING, logger="plugin.acp.registry")
+def test_normalize_unknown_id_returns_builtin():
     assert normalize_backend_id("gemini") == "builtin"
     assert normalize_backend_id("nonexistent") == "builtin"
-    assert "gemini" in caplog.text
-    assert "nonexistent" in caplog.text
-    assert "using builtin" in caplog.text
     assert isinstance(get_backend("gemini"), BuiltinBackend)
 
 

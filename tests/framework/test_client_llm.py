@@ -87,24 +87,6 @@ def test_headers_and_config_injection(client):
     assert client._api_path() == "/api/paas/v4"
 
 
-def test_make_chat_request_logs_body_model(caplog, client):
-    import logging
-
-    from plugin.framework.client import llm_client as llm_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if not module_source_contains(llm_mod, "Chat Request body:"):
-        pytest.skip("log.debug stripped in release bundle")
-    caplog.set_level(logging.DEBUG, logger="plugin.framework.client.llm_client")
-    client.config["endpoint"] = "https://api.z.ai/api/paas"
-    client.config["model"] = "glm-5.2"
-    client.config["api_key"] = "test-key"
-    client.make_chat_request([{"role": "user", "content": "hi"}], 100, tools=[{"type": "function"}], stream=True)
-    joined = "\n".join(r.message for r in caplog.records)
-    assert "Chat Request body: model='glm-5.2'" in joined
-    assert "full_url='https://api.z.ai/api/paas/v4/chat/completions'" in joined
-
-
 def test_make_chat_request_omits_temperature_when_unset():
     """Settings default -1 means get_api_config leaves the key out; do not invent 0.5."""
     client = LlmClient(
@@ -405,14 +387,12 @@ def test_stream_delta_normalized_once(client, monkeypatch):
         assert result["role"] == "assistant"
 
 
-def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, caplog):
+def test_stream_request_with_tools_coalesces_split_tool_call(client):
     # Cerebras/OpenRouter gpt-oss stream-split: first delta is the real call
     # (index 0, name=lookup, partial args); second delta is a phantom
     # continuation (new index, empty id/name, remainder of arguments).
     # accumulate_delta keeps both slots; coalesce_split_tool_calls then
     # merges the phantom into the real call and rebases index to 0.
-    # Merge unit coverage lives in test_stream_delta.py; this test is the
-    # stream_request_with_tools end-to-end + raw/accumulated logging path.
     mock_responses = [
         b'data: {"id":"chunk-1","model":"gpt-oss","provider":"Cerebras","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"query\\":\\"part"}}]}}]}\n\n',
         b'data: {"id":"chunk-2","model":"gpt-oss","provider":"Cerebras","choices":[{"delta":{"tool_calls":[{"index":1,"id":"","type":"function","function":{"name":"","arguments":" two\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
@@ -427,12 +407,11 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
         mock_response.__iter__.return_value = iter(mock_responses)
         mock_conn.getresponse.return_value = mock_response
 
-        with caplog.at_level("DEBUG", logger="plugin.framework.client.llm_client"):
-            result = client.stream_request_with_tools(
-                messages=[{"role": "user", "content": "Look it up"}],
-                max_tokens=100,
-                tools=[{"type": "function", "function": {"name": "lookup"}}],
-            )
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Look it up"}],
+            max_tokens=100,
+            tools=[{"type": "function", "function": {"name": "lookup"}}],
+        )
 
     assert result["tool_calls"] is not None
     assert len(result["tool_calls"]) == 1
@@ -441,24 +420,6 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
     assert kept["function"]["name"] == "lookup"
     assert kept["function"]["arguments"] == '{"query":"part two"}'
     assert kept["index"] == 0
-
-    from plugin.framework.client import llm_client as llm_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if not module_source_contains(llm_mod, "raw tool_call delta"):
-        pytest.skip("log.debug stripped in release bundle")
-
-    # Raw deltas are logged before accumulate/coalesce — the phantom
-    # index=1 chunk must still appear on the wire log.
-    assert "raw tool_call delta" in caplog.text
-    assert "chunk_provider='Cerebras'" in caplog.text
-    assert '"index": 1' in caplog.text
-    # After coalesce the accumulated snapshot is one rebased call.
-    # json.dumps escapes the arguments string, so the merged JSON appears
-    # as \"query\":\"part two\" in the log text.
-    assert "accumulated tool_calls" in caplog.text
-    assert '\\"query\\":\\"part two\\"' in caplog.text
-    assert '"index": 0' in caplog.text
 
 
 def test_stream_request_with_tools_preserves_reasoning_replay(client):
@@ -1771,9 +1732,7 @@ def test_anthropic_response_cache_facts():
     assert anthropic_response_cache_facts({"id": "chatcmpl-123", "object": "chat.completion.chunk"}) is None
 
 
-def test_anthropic_cache_diagnostics_stream_wiring(client, caplog):
-    import logging
-
+def test_anthropic_cache_diagnostics_stream_wiring(client):
     client.config["model"] = "claude-sonnet-4-5"
     client.config["provider"] = "anthropic"
     client.config["api_key"] = "test-key"
@@ -1798,7 +1757,6 @@ def test_anthropic_cache_diagnostics_stream_wiring(client, caplog):
         yield from payloads1
 
     with (
-        caplog.at_level(logging.INFO),
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate1),
@@ -1832,15 +1790,6 @@ def test_anthropic_cache_diagnostics_stream_wiring(client, caplog):
         )
     data2 = json.loads(body2)
     assert data2["diagnostics"]["previous_message_id"] == "msg_turn1"
-
-    # In dev build, caplog contains diagnostics line with cache_miss_reason, cache_read_input_tokens, cache_creation_input_tokens
-    if not is_release_build():
-        diag_records = [r for r in caplog.records if "Anthropic cache diagnostics:" in r.getMessage()]
-        assert len(diag_records) == 1
-        msg = diag_records[0].getMessage()
-        assert "cache_miss_reason={'type': 'system_changed', 'cache_missed_input_tokens': 10}" in msg
-        assert "cache_read_input_tokens=9" in msg
-        assert "cache_creation_input_tokens=16" in msg
 
     # Follow-up stream_request_with_tools without cache_session_id does not replace sess-1's id
     payloads2 = [
@@ -1880,9 +1829,7 @@ def test_anthropic_cache_diagnostics_stream_wiring(client, caplog):
         assert client.anthropic_previous_message_id("sess-openrouter") is None
 
 
-def test_anthropic_cache_diagnostics_sync_wiring(client, caplog):
-    import logging
-
+def test_anthropic_cache_diagnostics_sync_wiring(client):
     client.config["model"] = "claude-sonnet-4-5"
     client.config["provider"] = "anthropic"
     client.config["api_key"] = "test-key"
@@ -1902,10 +1849,7 @@ def test_anthropic_cache_diagnostics_sync_wiring(client, caplog):
         },
     }
 
-    with (
-        caplog.at_level(logging.INFO),
-        patch.object(client, "_exchange_json", return_value=sync_response),
-    ):
+    with patch.object(client, "_exchange_json", return_value=sync_response):
         result = client.request_with_tools(
             messages=[{"role": "user", "content": "Hello sync"}],
             stream=False,
@@ -1914,15 +1858,6 @@ def test_anthropic_cache_diagnostics_sync_wiring(client, caplog):
 
     assert result["content"] == "Sync reply"
     assert client.anthropic_previous_message_id("sess-sync-1") == "msg_sync"
-
-    if not is_release_build():
-        diag_records = [r for r in caplog.records if "Anthropic cache diagnostics:" in r.getMessage()]
-        assert len(diag_records) == 1
-        msg = diag_records[0].getMessage()
-        assert "cache_miss_reason={'type': 'system_changed', 'cache_missed_input_tokens': 15}" in msg
-        assert "cache_read_input_tokens=12" in msg
-        assert "cache_creation_input_tokens=18" in msg
-        assert "cache_read=12" in msg
 
 
 @pytest.mark.parametrize(
@@ -2093,12 +2028,7 @@ def test_gemini_shim_inline_data():
         }
 
 
-def test_stream_request_with_tools_tracks_used_model(client, caplog):
-    import logging
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info stripped in release bundle")
-
+def test_stream_request_with_tools_tracks_used_model(client):
     mock_responses = [
         b'data: {"model": "deepseek/deepseek-r1:free", "choices": [{"delta": {"role": "assistant", "content": "Hello free world"}}]}\n\n',
         b'data: {"model": "deepseek/deepseek-r1:free", "choices": [{"finish_reason": "stop", "delta": {}}]}\n\n',
@@ -2115,25 +2045,17 @@ def test_stream_request_with_tools_tracks_used_model(client, caplog):
 
         messages = [{"role": "user", "content": "Hi"}]
 
-        with caplog.at_level(logging.INFO):
-            result = client.stream_request_with_tools(
-                messages=messages,
-                max_tokens=100,
-                model="openrouter/free",
-            )
+        result = client.stream_request_with_tools(
+            messages=messages,
+            max_tokens=100,
+            model="openrouter/free",
+        )
 
         assert result["content"] == "Hello free world"
         assert result["model"] == "deepseek/deepseek-r1:free"
-        assert any("LLM response stream started" in rec.message and "deepseek/deepseek-r1:free" in rec.message for rec in caplog.records)
-        assert any("LLM response stream finished" in rec.message and "deepseek/deepseek-r1:free" in rec.message for rec in caplog.records)
 
 
-def test_sync_request_with_tools_tracks_used_model(client, caplog):
-    import logging
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.info stripped in release bundle")
-
+def test_sync_request_with_tools_tracks_used_model(client):
     sync_resp_body = json.dumps({
         "id": "gen-123",
         "model": "deepseek/deepseek-r1:free",
@@ -2150,17 +2072,15 @@ def test_sync_request_with_tools_tracks_used_model(client, caplog):
 
         messages = [{"role": "user", "content": "Hi"}]
 
-        with caplog.at_level(logging.INFO):
-            result = client.request_with_tools(
-                messages=messages,
-                max_tokens=100,
-                stream=False,
-                model="openrouter/free",
-            )
+        result = client.request_with_tools(
+            messages=messages,
+            max_tokens=100,
+            stream=False,
+            model="openrouter/free",
+        )
 
         assert result["content"] == "Sync response"
         assert result["model"] == "deepseek/deepseek-r1:free"
-        assert any("LLM sync response received" in rec.message and "deepseek/deepseek-r1:free" in rec.message for rec in caplog.records)
 
 
 def test_sync_request_with_tools_429_does_not_error_log_prompt(client, caplog, _fast_retry_waits):

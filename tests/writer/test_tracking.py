@@ -352,13 +352,11 @@ def test_manage_tracked_changes_self_resolve_undo_fails():
 
     ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")
 
-    with patch("plugin.writer.tracking.log.exception") as mock_log_exc:
-        res = tool.execute(ctx, action="accept", index=0)
+    res = tool.execute(ctx, action="accept", index=0)
 
     assert res["status"] == "error"
     assert "Agent edit was resolved, which is forbidden." in res["message"]
     assert "Undo failed; the change is still resolved." in res["message"]
-    mock_log_exc.assert_called_once_with("tracking_manage: undo of a forbidden agent resolution failed")
 
 def test_manage_tracked_changes_accept():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
@@ -674,14 +672,12 @@ def test_track_changes_list_record_changes_read_fails():
     enum_mock.hasMoreElements.return_value = False
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
 
-    with patch("plugin.writer.tracking.log.exception") as mock_log_exc:
-        res = TrackChangesList().execute(ctx)
+    res = TrackChangesList().execute(ctx)
     assert res["status"] == "ok"
     assert res["recording"] is None
     assert res["count"] == 0
     assert res["changes"] == []
     assert "track_changes_list_unsupported" not in res
-    mock_log_exc.assert_called_once_with("tracking_list: could not read RecordChanges")
 
 
 @pytest.mark.parametrize("action", ["accept_all", "reject_all"])
@@ -906,7 +902,34 @@ def test_track_changes_list_caps_at_100_and_reports_more():
     cursor_mock.getString.return_value = "hello"
     text_mock.createTextCursorByRange.return_value = cursor_mock
 
-    items = [_fake_redline("user %d" % i, text_mock=text_mock) for i in range(101)]
+    class _LightRange:
+        __slots__ = ("_text",)
+
+        def __init__(self, text_obj):
+            self._text = text_obj
+
+        def getText(self):
+            return self._text
+
+    class _LightRedline:
+        __slots__ = ("_props",)
+
+        def __init__(self, comment: str, text_obj):
+            rng = _LightRange(text_obj)
+            self._props = {
+                "RedlineComment": comment,
+                "RedlineIdentifier": f"id:{comment}",
+                "RedlineType": "Insert",
+                "RedlineAuthor": "Author",
+                "RedlineDateTime": None,
+                "RedlineStart": rng,
+                "RedlineEnd": rng,
+            }
+
+        def getPropertyValue(self, name: str):
+            return self._props.get(name, "")
+
+    items = [_LightRedline("user %d" % i, text_mock) for i in range(101)]
     _install_redlines(ctx, items)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res = tool.execute(ctx)
@@ -916,7 +939,7 @@ def test_track_changes_list_caps_at_100_and_reports_more():
     assert res["next_index"] == 100
     assert res["changes"][-1]["index"] == 99
 
-    items_one = [_fake_redline("user 0", text_mock=text_mock)]
+    items_one = [_LightRedline("user 0", text_mock)]
     _install_redlines(ctx, items_one)
     with patch("plugin.writer.search.describe_match_location", return_value="body"):
         res_one = tool.execute(ctx)

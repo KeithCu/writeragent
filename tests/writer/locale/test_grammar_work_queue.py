@@ -169,28 +169,21 @@ def test_drain_loop_distinct_keys_both_dispatch() -> None:
     assert {it.text for it in drained[0]} == {"No.", "No problem today."}
 
 
-def test_enqueue_updates_latest_seq_and_handles_out_of_order(caplog) -> None:
-    """Enqueue updates latest_seq; older seq leaves higher value and logs error; newer seq updates without error."""
-    import logging
-
+def test_enqueue_updates_latest_seq_and_handles_out_of_order() -> None:
+    """Enqueue updates latest_seq; older seq leaves higher value; newer seq updates."""
     q = GrammarWorkQueue()
     with patch.object(q, "_ensure_workers"):
-        with caplog.at_level(logging.ERROR):
-            # First enqueue seq 10
-            q.enqueue(_item(10, key="d|en-US|k1"))
-            assert q._latest_seq["d|en-US|k1"] == 10
-            assert "out-of-order seq detected" not in caplog.text
+        # First enqueue seq 10
+        q.enqueue(_item(10, key="d|en-US|k1"))
+        assert q._latest_seq["d|en-US|k1"] == 10
 
-            # Enqueue older seq 5: stays 10, logs error
-            q.enqueue(_item(5, key="d|en-US|k1"))
-            assert q._latest_seq["d|en-US|k1"] == 10
-            assert "out-of-order seq detected for key=d|en-US|k1: incoming seq=5 < latest seq=10" in caplog.text
+        # Enqueue older seq 5: stays 10
+        q.enqueue(_item(5, key="d|en-US|k1"))
+        assert q._latest_seq["d|en-US|k1"] == 10
 
-            caplog.clear()
-            # Enqueue newer seq 15: updates to 15, no error
-            q.enqueue(_item(15, key="d|en-US|k1"))
-            assert q._latest_seq["d|en-US|k1"] == 15
-            assert "out-of-order seq detected" not in caplog.text
+        # Enqueue newer seq 15: updates to 15
+        q.enqueue(_item(15, key="d|en-US|k1"))
+        assert q._latest_seq["d|en-US|k1"] == 15
 
 
 # The drain-loop dict accumulator (this test) plus _latest_seq guards

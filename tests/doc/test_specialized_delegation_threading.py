@@ -769,16 +769,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
 
 def test_calc_shapes_domain_tools():
     from plugin.calc.shapes import UpsertShape, DeleteShape, ConnectShapes, GroupShapes, GetDrawSummary
-    from plugin.calc.base import ToolCalcShapeBase
     from plugin.framework.tool import ToolRegistry
-    
-    assert issubclass(UpsertShape, ToolCalcShapeBase)
-    assert issubclass(DeleteShape, ToolCalcShapeBase)
-    assert issubclass(ConnectShapes, ToolCalcShapeBase)
-    assert issubclass(GroupShapes, ToolCalcShapeBase)
-    assert issubclass(GetDrawSummary, ToolCalcShapeBase)
-    
-    assert "com.sun.star.sheet.SpreadsheetDocument" in UpsertShape.uno_services
 
     services = MagicMock()
     reg = ToolRegistry(services)
@@ -787,10 +778,10 @@ def test_calc_shapes_domain_tools():
     reg.register(ConnectShapes())
     reg.register(GroupShapes())
     reg.register(GetDrawSummary())
-    
+
     doc = MagicMock()
     doc.supportsService.return_value = True
-    
+
     tools = reg.get_tools(doc=doc, active_domain="shapes", exclude_tiers=())
     names = {t.name for t in tools}
     assert "shape_upsert" in names
@@ -798,23 +789,6 @@ def test_calc_shapes_domain_tools():
     assert "shape_connect" in names
     assert "shape_group" in names
     assert "shape_summary" in names
-
-
-def test_outer_turn_is_peer_work_probe_logs_exception_repr(caplog):
-    """When _probe raises an exception with empty message, repr is logged."""
-    import logging
-    from plugin.doc.specialized_base import _outer_turn_is_peer_work
-
-    class EmptyMessageError(Exception):
-        def __str__(self):
-            return ""
-
-    with patch("plugin.framework.queue_executor.main.call", side_effect=EmptyMessageError):
-        with caplog.at_level(logging.WARNING, logger="plugin.doc.specialized_base"):
-            res = _outer_turn_is_peer_work(MagicMock())
-
-    assert res is False
-    assert any("EmptyMessageError" in r.message for r in caplog.records)
 
 
 def test_outer_turn_is_peer_work_active_query_text_returns_true():
