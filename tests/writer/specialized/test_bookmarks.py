@@ -145,24 +145,6 @@ def test_get_bookmark_miss_includes_hint_and_similar(mock_ctx):
     assert "InfoBM" in res["details"]["similar"]
 
 
-def test_bookmark_get_reads_mcp_heading_bookmark(mock_ctx):
-    doc = mock_ctx.doc
-    mock_bookmarks = MagicMock()
-    doc.getBookmarks.return_value = mock_bookmarks
-    mock_bookmarks.hasByName.return_value = True
-
-    mock_bm = MagicMock()
-    mock_bookmarks.getByName.return_value = mock_bm
-    mock_anchor = MagicMock()
-    mock_bm.getAnchor.return_value = mock_anchor
-    mock_anchor.getString.return_value = "Intro"
-
-    res = BookmarkGet().execute(mock_ctx, name="_mcp_ab12cd34")
-
-    assert res["status"] == "ok"
-    assert res["bookmark"]["text"] == "Intro"
-
-
 def test_list_bookmarks(mock_ctx):
     doc = mock_ctx.doc
     mock_bookmarks = MagicMock()

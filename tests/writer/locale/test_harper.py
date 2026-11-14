@@ -1866,6 +1866,7 @@ def test_harper_close_order_when_terminate_succeeds() -> None:
     with patch("plugin.framework.managed_subprocess.kill_process_tree") as mock_kill_tree:
         client.close()
 
+    # Order guards the Windows deadlock in HarperLSClient.close (stdout closed only after process death; no stdin write).
     assert events == ["stdin.close", "terminate", "wait(0.5)", "stdout.close"]
     mock_proc.kill.assert_not_called()
     assert client.proc is None

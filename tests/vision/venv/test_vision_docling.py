@@ -255,6 +255,7 @@ def test_build_pipeline_options_surya():
         )
 
     assert pipeline_opts == pdf_opts_instance
+    assert pdf_opts_cls.call_args.kwargs["allow_external_plugins"] is True  # surya is a docling external plugin; without this it silently falls back
     mock_surya.SuryaOcrOptions.assert_called_once_with(lang=["en"])
     assert pdf_opts_instance.ocr_options == "surya-opts"
     assert pdf_opts_instance.ocr_model == "suryaocr"

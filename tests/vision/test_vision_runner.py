@@ -80,7 +80,8 @@ def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_me
     result = run_trusted_vision(ctx, doc, helper="extract_text", params={"lang": "en"})
 
     assert result["full_text"] == "hi"
-    mock_run_vision.assert_called_once()
+    assert mock_run_vision.call_args.args[1] == {"helper": "extract_text", "params": {"lang": "en"}}
+    assert mock_run_vision.call_args.kwargs["context"] == {"source": "selection"}
 
 
 def test_run_trusted_vision_rejects_unknown_helper():
@@ -105,7 +106,6 @@ def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_visio
 
     run_trusted_vision(ctx, doc, helper="extract_text", params={"image_name": "Photo1", "lang": "en"})
 
-    mock_run_vision.assert_called_once()
     assert mock_run_vision.call_args.args[1]["params"] == {"lang": "en"}
     assert mock_run_vision.call_args.kwargs["context"] == {"source": "graphic_name", "image_name": "Photo1"}
 
