@@ -16,6 +16,7 @@ from plugin.scripting.venv.trusted_dispatch import (
     dispatch_spec_domain,
     dispatch_sql,
     dispatch_text,
+    dispatch_vision,
     parse_trusted_spec,
 )
 
@@ -287,3 +288,25 @@ def test_text_unknown_helper_with_empty_text_is_unknown_helper():
         "helper": "bogus",
         "message": "Unknown text analytics helper 'bogus'",
     }
+
+
+def test_dispatch_vision_calls_run_vision():
+    with patch(
+        "plugin.vision.venv.vision.run_vision",
+        return_value={"status": "ok", "helper": "extract_text", "full_text": "x"},
+    ) as mock_run:
+        out = dispatch_vision(
+            {
+                "helper": "extract_text",
+                "params": {"lang": "en"},
+                "image": b"png",
+                "context": {"source": "selection"},
+            }
+        )
+
+    assert out["full_text"] == "x"
+    mock_run.assert_called_once_with(
+        {"helper": "extract_text", "params": {"lang": "en"}},
+        b"png",
+        {"source": "selection"},
+    )
