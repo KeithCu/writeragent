@@ -350,24 +350,18 @@ class PanelVoiceController:
             else:
                 self._panel._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
 
-    def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
-        """Transcribe audio synchronously using event pumping on the main thread.
+    def _cleanup_stt(self, wav_path: str) -> None:
+        self._panel._stt_inflight = False
+        self._panel._stt_kill = None
+        from plugin.framework.errors import best_effort
 
-        The send-scoped checker is taken via ``spawn_scope(self._panel)`` on this
-        thread before blocking work, and the
-        checker is read once more after the transcript returns. Without
-        that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
-        cancel the send scope and a nested send can replace
-        the panel's cancellation field, while Whisper's ``subprocess.run`` still
-        waits out 900s and the transcript is posted anyway. Stop does
-        not kill local Whisper or close the endpoint socket: transcription
-        finishes and ``_do_send`` puts the words back in the Ask box instead
-        of sending them (see the StopSendEffect invariant in ``panel``).
-        Only sidebar teardown kills the child, through ``_stt_kill``. A
-        re-entrant call returns without deleting the first WAV or clearing
-        the first client's stop latch. The STT client is not registered with
-        the send scope for the same reason.
-        """
+        best_effort(lambda: os.remove(wav_path), "cleanup audio wav")
+        self._panel.audio_wav_path = None
+
+    def _prepare_stt(
+        self, wav_path: str, stt_model: str
+    ) -> tuple[Any, Callable[[], str]] | None:
+        """Prepare STT client/status and return ``(cancel_scope, _call)`` or ``None``."""
         from plugin.audio.stt_service import (
             status_for_transcription,
             terminate_stt_process,
@@ -380,7 +374,7 @@ class PanelVoiceController:
         # until this call sets it. Missing means nothing is in flight.
         if getattr(self._panel, "_stt_inflight", False):
             log.info("Ignoring re-entrant STT; the in-flight transcription keeps the first Stop")
-            return ""
+            return None
 
         self._panel._stt_inflight = True
         try:
@@ -388,7 +382,8 @@ class PanelVoiceController:
             cancel_scope = spawn_scope(self._panel)
             if is_cancelled(cancel_scope):
                 assign_send_outcome(self._panel, "stopped")
-                return ""
+                self._cleanup_stt(wav_path)
+                return None
 
             if uses_local_stt():
                 client = None
@@ -429,6 +424,34 @@ class PanelVoiceController:
                     on_spawn=_on_spawn,
                 )
 
+            return cancel_scope, _call
+        except BaseException:
+            self._cleanup_stt(wav_path)
+            raise
+
+    def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
+        """Transcribe audio synchronously using event pumping on the main thread.
+
+        The send-scoped checker is taken via ``spawn_scope(self._panel)`` on this
+        thread before blocking work, and the
+        checker is read once more after the transcript returns. Without
+        that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
+        cancel the send scope and a nested send can replace
+        the panel's cancellation field, while Whisper's ``subprocess.run`` still
+        waits out 900s and the transcript is posted anyway. Stop does
+        not kill local Whisper or close the endpoint socket: transcription
+        finishes and ``_do_send`` puts the words back in the Ask box instead
+        of sending them (see the StopSendEffect invariant in ``panel``).
+        Only sidebar teardown kills the child, through ``_stt_kill``. A
+        re-entrant call returns without deleting the first WAV or clearing
+        the first client's stop latch. The STT client is not registered with
+        the send scope for the same reason.
+        """
+        prepared = self._prepare_stt(wav_path, stt_model)
+        if prepared is None:
+            return ""
+        cancel_scope, _call = prepared
+        try:
             try:
                 # Runs to the end: Stop keeps the transcript.
                 transcript_text = run_blocking_in_thread(self._panel.ctx, _call)
@@ -443,12 +466,139 @@ class PanelVoiceController:
                 assign_send_outcome(self._panel, "stopped")
             return transcript_text
         finally:
-            self._panel._stt_inflight = False
-            self._panel._stt_kill = None
-            from plugin.framework.errors import best_effort
+            self._cleanup_stt(wav_path)
 
-            best_effort(lambda: os.remove(wav_path), "cleanup audio wav")
-            self._panel.audio_wav_path = None
+    def _apply_stt_transcript(self, transcript: str, query_text: str) -> tuple[str, bool]:
+        """Apply finished STT transcript to *query_text* or Ask box on Stop/empty."""
+        from plugin.framework.i18n import _
+
+        typed_after = ""
+        if self._panel.query_control and self._panel.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            typed_after = (get_control_text(self._panel.query_control) or "").strip()
+
+        if send_outcome_is_stopped(self._panel):
+            # Do not auto-send late transcript into the new typed turn.
+            # Put it back in Ask so it is not silently lost.
+            self._put_stopped_transcript_in_ask(transcript, query_text)
+            return query_text, True
+
+        user_changed_ask = bool(typed_after and typed_after != query_text)
+        if user_changed_ask:
+            query_text = typed_after
+
+        if transcript:
+            self._empty_take_count = 0
+            if user_changed_ask:
+                restored = _join_voice_text(typed_after, transcript)
+                self._panel._restore_query_text(restored)
+            else:
+                query_text = _join_voice_text(query_text, transcript)
+
+        # WAV is deleted in _transcribe_audio finally. Empty STT must not
+        # fall through into a chat POST with a blank user message.
+        if not query_text.strip():
+            self._panel._append_response("\n" + _("[No speech detected.]") + "\n")
+            assign_send_outcome(self._panel, "stopped")
+            if self.note_empty_take():
+                self._panel._append_response(_("[Hands-free off: no speech heard.]") + "\n")
+            return query_text, True
+        return query_text, False
+
+    def _record_stt_error(self, e: Exception, query_text: str, *, append_ui: bool) -> None:
+        from plugin.framework.errors import NetworkError
+        from plugin.framework.i18n import _
+
+        if append_ui:
+            self._panel._append_response("\n" + _("[Transcription error: {0}]").format(str(e)) + "\n")
+        if isinstance(e, NetworkError):
+            log.exception("NetworkError during STT fallback")
+        else:
+            log.exception("Error during STT fallback")
+        assign_send_outcome(self._panel, "error")
+        self._panel._restore_query_text(query_text)
+
+    def try_start_async_stt(self, query_text: str, *, on_resolved: Callable[[str], None]) -> bool:
+        """Start STT off the UI thread when AsyncCallback is available so SolarMutex is not held.
+
+        Returns True when STT was started asynchronously (caller should exit and
+        let ``on_resolved`` continue the turn when STT completes).
+        """
+        qe = getattr(self._panel, "queue_executor", None)
+        if qe is None or getattr(qe, "_async_callback_service", None) is None:
+            return False
+        wav_path = getattr(self._panel, "audio_wav_path", None)
+        if not wav_path:
+            return False
+
+        from plugin.audio.stt_service import uses_local_stt
+        from plugin.framework.client.model_fetcher import get_stt_model, get_text_model, has_native_audio
+        from plugin.framework.config import get_current_endpoint
+
+        local_stt = uses_local_stt()
+        if not (local_stt or has_native_audio(get_text_model(), get_current_endpoint()) is False):
+            return False
+        stt_model = get_stt_model()
+        if not (local_stt or stt_model):
+            return False
+
+        prepared = self._prepare_stt(wav_path, stt_model)
+        if prepared is None:
+            return False
+        cancel_scope, _call = prepared
+
+        from plugin.framework.async_stream import defer_until_drain_done
+        from plugin.framework.worker_pool import run_in_background
+
+        self._panel._stt_defer_close = True
+
+        def _finish_on_main(transcript: str, err: Exception | None) -> None:
+            self._cleanup_stt(wav_path)
+            close_drain = self._panel._stt_pending_close
+            self._panel._stt_pending_close = None
+            self._panel._stt_defer_close = False
+            exit_err: BaseException | None = None
+            try:
+                if self._panel._panel_teardown:
+                    return
+                if err is not None:
+                    self._record_stt_error(err, query_text, append_ui=True)
+                    return
+                if is_cancelled(cancel_scope):
+                    log.info("Speech-to-text finished after Stop; preserving transcript for query box")
+                    assign_send_outcome(self._panel, "stopped")
+                new_query, should_exit = self._apply_stt_transcript(transcript, query_text)
+                if should_exit:
+                    return
+                on_resolved(new_query)
+            except BaseException as exc:
+                exit_err = exc
+                from plugin.chatbot.tool_loop_actions import current_turn
+
+                turn = current_turn(self._panel)
+                if turn is None or not turn.stored_user_row():
+                    self._panel._restore_query_text(query_text)
+                log.exception("Async STT continuation unhandled exception")
+            finally:
+                if close_drain is not None:
+                    defer_until_drain_done(lambda: close_drain(exit_err))
+
+        def _worker() -> None:
+            transcript = ""
+            err: Exception | None = None
+            try:
+                transcript = _call()
+            except Exception as exc:
+                err = exc
+            qe.post(
+                lambda: _finish_on_main(transcript, err),
+                bound_scope=None,
+                force_queue=True,
+            )
+
+        run_in_background(_worker, daemon=True, name="stt-transcribe")
+        return True
 
     def _put_stopped_transcript_in_ask(self, transcript: str, query_text: str) -> None:
         """Put a finished transcript in Ask when the send was stopped (not auto-send)."""
@@ -526,49 +676,11 @@ class PanelVoiceController:
                     )
                 try:
                     transcript = self._transcribe_audio(self._panel.audio_wav_path, stt_model)
-
-                    typed_after = ""
-                    if self._panel.query_control and self._panel.query_control.getModel():
-                        from plugin.chatbot.dialogs import get_control_text
-
-                        typed_after = (get_control_text(self._panel.query_control) or "").strip()
-
-                    if send_outcome_is_stopped(self._panel):
-                        # Do not auto-send late transcript into the new typed turn.
-                        # Put it back in Ask so it is not silently lost.
-                        self._put_stopped_transcript_in_ask(transcript, query_text)
-                        return query_text, True
-
-                    user_changed_ask = bool(typed_after and typed_after != query_text)
-                    if user_changed_ask:
-                        query_text = typed_after
-
-                    if transcript:
-                        self._empty_take_count = 0
-                        if user_changed_ask:
-                            restored = _join_voice_text(typed_after, transcript)
-                            self._panel._restore_query_text(restored)
-                        else:
-                            query_text = _join_voice_text(query_text, transcript)
                 except Exception as e:
-                    from plugin.framework.errors import NetworkError
-
-                    if isinstance(e, NetworkError):
-                        log.exception("NetworkError during STT fallback")
-                    else:
-                        log.exception("Error during STT fallback")
-                    assign_send_outcome(self._panel, "error")
-                    self._panel._restore_query_text(query_text)
+                    self._record_stt_error(e, query_text, append_ui=False)
                     return query_text, True
 
-                # WAV is deleted in _transcribe_audio finally. Empty STT must not
-                # fall through into a chat POST with a blank user message.
-                if not query_text.strip():
-                    self._panel._append_response("\n" + _("[No speech detected.]") + "\n")
-                    assign_send_outcome(self._panel, "stopped")
-                    if self.note_empty_take():
-                        self._panel._append_response(_("[Hands-free off: no speech heard.]") + "\n")
-                    return query_text, True
+                return self._apply_stt_transcript(transcript, query_text)
             else:
                 err_msg = _(
                     "[Model {0} does not support native audio. Please select an STT Model in Settings.]"
@@ -669,7 +781,7 @@ def strip_audio_from_last_user_message(host: Any, *, speak: bool) -> None:
     """Remove input_audio parts from the last user row once per turn (deferred drain close)."""
     if not speak:
         return
-    from plugin.framework.i18n import _
+    from plugin.chatbot.history_db import AUDIO_ATTACHED_PLACEHOLDER
     from plugin.chatbot.tool_loop_actions import session_for_turn
 
     sess = session_for_turn(host) or host.session
@@ -684,5 +796,5 @@ def strip_audio_from_last_user_message(host: Any, *, speak: bool) -> None:
                     if kept_parts:
                         msg["content"] = kept_parts
                     else:
-                        msg["content"] = _("[Voice message]")
+                        msg["content"] = AUDIO_ATTACHED_PLACEHOLDER
                 break
