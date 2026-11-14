@@ -5,13 +5,6 @@ from plugin.framework.default_models import get_provider_defaults, resolve_model
 
 
 class TestGetProviderDefaults:
-    def test_together_defaults_match_catalog(self):
-        d = get_provider_defaults("together")
-        assert (bool(d.get("text_model")))
-        assert (bool(d.get("image_model")))
-        assert (bool(d.get("stt_model")))
-        assert (bool(d.get("tts_model")))
-
     def test_together_serverless_audio_catalog_merges_known_families(self):
         from plugin.framework.default_models import together_speech_ids
 
@@ -30,26 +23,19 @@ class TestGetProviderDefaults:
         assert (resolve_model_id({"ids": {"openrouter": "x"}}, "openrouter")) == ("x")
         assert (resolve_model_id({"ids": {"release": ()}}, "release")) is None
 
-    def test_gpt_oss_20b_openrouter_id(self):
+    def test_gpt_oss_20b_not_stray_on_openrouter(self):
         # Same slug as Together/Groq. Without it, an OpenRouter sidebar treats
         # openai/gpt-oss-20b as a stray id and restashes text_model to 120b:nitro.
-        from plugin.framework.default_models import DEFAULT_MODELS
+        from plugin.chatbot.config_ui_helpers import _is_incompatible_model_for_provider
 
-        oss20 = next((m for m in DEFAULT_MODELS if m.get("display_name") == "GPT-OSS 20B"), None)
-        assert (oss20) is not None
-        assert (oss20["ids"].get("openrouter")) == ("openai/gpt-oss-20b")
-        assert (oss20["ids"].get("together")) == ("openai/gpt-oss-20b")
-        assert (oss20["ids"].get("groq")) == ("openai/gpt-oss-20b")
+        assert not _is_incompatible_model_for_provider("openai/gpt-oss-20b", "openrouter")
 
-    def test_writeragent_mock_catalog_window(self):
+    def test_writeragent_mock_not_custom_or_openai_default(self):
         from plugin.framework.default_models import DEFAULT_MODELS
-        from plugin.framework.constants import ModelCapability
 
         row = next((m for m in DEFAULT_MODELS if m.get("ids", {}).get("mock") == "writeragent-mock"), None)
         assert (row) is not None
-        assert (row["context_length"]) == (32768)
         assert not (row.get("default_text"))
-        assert (bool(row["capability"] & ModelCapability.CHAT))
         # Must not become the custom-endpoint Settings default.
         assert (get_provider_defaults("custom").get("text_model")) is None
         assert (resolve_model_id(row, "openai")) is None

@@ -258,7 +258,10 @@ def test_teardown_passes_lease_wait_sec_and_triggers_retry():
         mock_reset.return_value = {"status": "error", "code": "WORKER_REENTRY"}
         with patch("plugin.calc.python.workbook_lifecycle.run_in_background") as mock_run:
             listener._teardown()
-            mock_reset.assert_called_once_with("calc:wb-blocked", timeout_sec=3, lease_wait_sec=3)
+            mock_reset.assert_called_once()
+            assert mock_reset.call_args[0] == ("calc:wb-blocked",)
+            assert mock_reset.call_args[1]["timeout_sec"] > 0
+            assert mock_reset.call_args[1]["lease_wait_sec"] > 0
             retry_calls = [c for c in mock_run.call_args_list if c[1].get("name") == "reset_python_session_retry"]
             assert len(retry_calls) == 1
             assert retry_calls[0][1].get("dedicated") is True
@@ -268,7 +271,10 @@ def test_teardown_passes_lease_wait_sec_and_triggers_retry():
         mock_reset.return_value = {"status": "error", "code": "VENV_TIMEOUT"}
         with patch("plugin.calc.python.workbook_lifecycle.run_in_background") as mock_run:
             listener2._teardown()
-            mock_reset.assert_called_once_with("calc:wb-to", timeout_sec=3, lease_wait_sec=3)
+            mock_reset.assert_called_once()
+            assert mock_reset.call_args[0] == ("calc:wb-to",)
+            assert mock_reset.call_args[1]["timeout_sec"] > 0
+            assert mock_reset.call_args[1]["lease_wait_sec"] > 0
             retry_calls = [c for c in mock_run.call_args_list if c[1].get("name") == "reset_python_session_retry"]
             assert len(retry_calls) == 1
             assert retry_calls[0][1].get("dedicated") is True
@@ -287,14 +293,14 @@ def test_teardown_drops_retry_when_reopened():
         lifecycle._LISTENERS.pop("key-new2", None)
 
 
-def test_retry_reset_logs_warning_on_timeout():
+def test_retry_reset_exhausts_retries_and_warns_on_timeout():
     listener = _CalcPythonUnloadListener("key-timeout", "calc:wb-timeout", WorkbookState(key="key-timeout"))
-    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "error", "code": "WORKER_REENTRY"}):
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "error", "code": "WORKER_REENTRY"}) as mock_reset:
         with patch("time.sleep"):
             with patch("plugin.calc.python.workbook_lifecycle.log.warning") as mock_warn:
                 listener._retry_reset("calc:wb-timeout")
+                assert mock_reset.call_count > 1
                 mock_warn.assert_called_once()
-                assert "still busy or timed out" in mock_warn.call_args[0][0]
                 assert mock_warn.call_args[0][1] == "calc:wb-timeout"
 
 

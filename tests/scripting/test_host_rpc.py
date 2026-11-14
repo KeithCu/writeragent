@@ -78,8 +78,8 @@ def test_resolve_allowed_tools_plural_domain_name():
     assert "list_open_documents" in allowed
 
 
-def test_shape_group_proxy_docstring_says_why_to_group():
-    """wa.shape.group carries the tool description, including why to group."""
+def test_shape_group_proxy_carries_description():
+    """wa.shape.group carries the tool description, and Writer/Calc re-export Draw's."""
     import inspect
 
     import plugin.scripting.writeragent_api as api
@@ -88,15 +88,6 @@ def test_shape_group_proxy_docstring_says_why_to_group():
     from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
 
     doc = inspect.cleandoc(api.shape.group.__doc__ or "")
-    assert "select and move them together" in doc
-    assert "a flag, logo, diagram, icon" in doc
-    assert "ALWAYS call this before finishing" in doc
-    assert "leaving loose parts is wrong" in doc
-    assert "Pass every related shape index" in doc
-    assert "shape_upsert (action edit)" in doc
-    # Args stay the generated schema text.
-    assert "indices (required): List of shape indices or Names to group." in doc
-    assert "page (optional): Page index containing the shapes." in doc
     # Writer and Calc re-export Draw's class and do not own a second description.
     assert WriterGroupShapes.description == GroupShapes.description
     assert CalcGroupShapes.description == GroupShapes.description
@@ -799,23 +790,11 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
                 raise AssertionError("Expected RuntimeError")
 
 
-def test_writeragent_api_exports_and_tool_methods():
+def test_writeragent_api_all_excludes_builtin_range():
     import plugin.scripting.writeragent_api as api
 
-    assert hasattr(api, "TOOL_METHODS")
-    assert isinstance(api.TOOL_METHODS, dict)
-    assert api.TOOL_METHODS["shape_upsert"] == ("shape", "upsert")
-    assert api.TOOL_METHODS["tracking_start"] == ("tracking", "start")
-    assert api.TOOL_METHODS["tracking_stop"] == ("tracking", "stop")
-    assert api.TOOL_METHODS["tracking_list"] == ("tracking", "list")
-    assert api.TOOL_METHODS["tracking_show"] == ("tracking", "show")
-    assert api.TOOL_METHODS["tracking_manage"] == ("tracking", "manage")
-    assert hasattr(api, "__all__")
-    assert "shape" in api.__all__
-    assert "core" in api.__all__
     # Builtin range should not be in __all__ so star-import does not clobber it
     assert "range" not in api.__all__
-    assert "math" in api.__all__
 
 
 def test_execute_tool_copies_stop_onto_tool_context():

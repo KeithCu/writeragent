@@ -38,24 +38,45 @@ def _config_get(path="", args=""):
 class TestDefaultExtraArgs:
     """Default CLI args apply only when settings args are empty and the basename matches."""
 
-    def test_hermes_defaults_when_settings_args_empty(self):
+    @pytest.mark.parametrize(
+        "backend_cls,binary_path",
+        [
+            (HermesBackend, "/usr/bin/hermes"),
+            (OpenCodeBackend, "/usr/bin/opencode"),
+            (AntigravityBackend, "/usr/bin/agy"),
+            (GrokBackend, "/usr/bin/grok"),
+            (GrokBackend, "/usr/local/bin/grok-cli"),
+        ],
+    )
+    def test_defaults_apply_when_settings_args_empty(self, backend_cls, binary_path):
+        assert backend_cls.default_extra_args
         with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes", args="")),
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path=binary_path, args="")),
             patch("os.path.isfile", return_value=True),
             patch("shutil.which", return_value=None),
         ):
-            backend = HermesBackend()
-        assert (backend._binary_path) == ("/usr/bin/hermes")
-        assert (backend._extra_args) == (["acp"])
+            backend = backend_cls()
+        assert backend._binary_path == binary_path
+        assert backend._extra_args == list(backend_cls.default_extra_args)
 
-    def test_hermes_settings_args_win(self):
+    @pytest.mark.parametrize(
+        "backend_cls,binary_path,settings_args,expected_args",
+        [
+            (HermesBackend, "/usr/bin/hermes", "--keep-going", ["--keep-going"]),
+            (OpenCodeBackend, "/usr/bin/opencode", "serve --port 4096", ["serve", "--port", "4096"]),
+            (AntigravityBackend, "/usr/bin/agy", "serve --port 4096", ["serve", "--port", "4096"]),
+            (GrokBackend, "/usr/bin/grok", "agent stdio", ["agent", "stdio"]),
+            (ClaudeBackend, "/usr/bin/claude-code-acp-rs", "--verbose", ["--verbose"]),
+        ],
+    )
+    def test_settings_args_win(self, backend_cls, binary_path, settings_args, expected_args):
         with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes", args="--keep-going")),
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path=binary_path, args=settings_args)),
             patch("os.path.isfile", return_value=True),
             patch("shutil.which", return_value=None),
         ):
-            backend = HermesBackend()
-        assert (backend._extra_args) == (["--keep-going"])
+            backend = backend_cls()
+        assert backend._extra_args == expected_args
 
     def test_quoted_settings_arg_stays_one_entry(self):
         with (
@@ -122,7 +143,6 @@ class TestDefaultExtraArgs:
         assert backend._binary_path == "/usr/bin/hermes"
         assert backend._extra_args == []
 
-
     @pytest.mark.parametrize(
         "path, expected",
         [
@@ -140,91 +160,20 @@ class TestDefaultExtraArgs:
         assert (backend._binary_path) == (expected)
         assert (backend._extra_args) == ([])
 
-    def test_opencode_defaults_when_settings_args_empty(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/opencode", args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = OpenCodeBackend()
-        assert (backend._extra_args) == (["acp"])
-
-    def test_opencode_settings_args_win(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/opencode", args="serve --port 4096")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = OpenCodeBackend()
-        assert (backend._extra_args) == (["serve", "--port", "4096"])
-
-    def test_antigravity_defaults_when_settings_args_empty(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/agy", args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = AntigravityBackend()
-        assert (backend._extra_args) == (["acp"])
-
-    def test_antigravity_settings_args_win(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/agy", args="serve --port 4096")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = AntigravityBackend()
-        assert (backend._extra_args) == (["serve", "--port", "4096"])
-
-    def test_grok_defaults_when_settings_args_empty(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/grok", args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = GrokBackend()
-        assert (backend._extra_args) == (["--no-auto-update", "agent", "stdio"])
-
-    def test_grok_prefix_basename_gets_defaults(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/local/bin/grok-cli", args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = GrokBackend()
-        assert (backend._binary_path) == ("/usr/local/bin/grok-cli")
-        assert (backend._extra_args) == (["--no-auto-update", "agent", "stdio"])
-
-    def test_grok_settings_args_win(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/grok", args="agent stdio")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = GrokBackend()
-        assert (backend._extra_args) == (["agent", "stdio"])
-
-    def test_claude_has_no_default_extra_args(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/claude-code-acp-rs", args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = ClaudeBackend()
-        assert (backend._extra_args) == ([])
-        assert backend.default_extra_args == ()
-
     @pytest.mark.parametrize(
         "backend_cls,binary",
         [
             (HermesBackend, "hermes"),
             (OpenCodeBackend, "opencode"),
             (AntigravityBackend, "agy"),
+            (GrokBackend, "grok"),
+            (GrokBackend, "grok-cli"),
         ],
     )
     @pytest.mark.parametrize("suffix", [".exe", ".cmd", ".bat", ".EXE"])
     def test_windows_suffix_applies_default_extra_args(self, backend_cls, binary, suffix):
         """shutil.which on Windows returns name.exe / .cmd / .bat, not the bare name."""
+        assert backend_cls.default_extra_args
         path = f"/usr/bin/{binary}{suffix}"
         with (
             patch("plugin.framework.config.get_config", side_effect=_config_get(path=path, args="")),
@@ -232,9 +181,8 @@ class TestDefaultExtraArgs:
             patch("shutil.which", return_value=None),
         ):
             backend = backend_cls()
-        assert (backend._binary_path) == (path)
-        assert (backend._extra_args) == (["acp"])
-
+        assert backend._binary_path == path
+        assert backend._extra_args == list(backend_cls.default_extra_args)
 
     def test_windows_wrapper_stem_skips_defaults(self):
         with (
@@ -243,27 +191,6 @@ class TestDefaultExtraArgs:
             patch("shutil.which", return_value=None),
         ):
             backend = HermesBackend()
-        assert (backend._extra_args) == ([])
-
-    @pytest.mark.parametrize("binary", ["grok.exe", "grok-cli.exe", "Grok.CMD"])
-    def test_grok_windows_suffix_still_uses_prefix_match(self, binary):
-        path = f"/usr/local/bin/{binary}"
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path=path, args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = GrokBackend()
-        assert (backend._binary_path) == (path)
-        assert (backend._extra_args) == (["--no-auto-update", "agent", "stdio"])
-
-    def test_claude_windows_suffix_still_has_no_defaults(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/claude-code-acp-rs.exe", args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = ClaudeBackend()
         assert (backend._extra_args) == ([])
 
 

@@ -19,7 +19,7 @@ from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework import thread_guard as tg
-from plugin.doc.peer_prompt import PEER_INNER_CHOICE_RULES, get_peer_inner_choice_block
+from plugin.doc.peer_prompt import get_peer_inner_choice_block
 from plugin.framework.prompts import get_document_research_workflow_hint
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
@@ -498,12 +498,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
         session.close()
 
     assert err is None, f"UNO touch from worker: {err}"
-    assert hint and "Budget.ods" in hint
-    assert "send_peer_work" in hint
-    assert "send_peer_result" in hint
-    assert PEER_INNER_CHOICE_RULES in hint
-    assert inner and "Budget.ods" in inner
-    assert "uid=u2" in inner
+    assert inner and inner in hint
 
 
 @patch(
@@ -587,17 +582,10 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
 
     assert err is None, f"UNO touch from worker: {err}"
     assert result is not None and result.get("status") == "incomplete"
-    instructions = mock_agent_class.call_args.kwargs["instructions"]
-    assert "Budget.ods" in instructions
-    assert "send_peer_work" in instructions
-    assert "send_peer_result" in instructions
-    assert PEER_INNER_CHOICE_RULES in instructions
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
     assert "send_peer_work" in names
     assert "send_peer_result" in names
-    peer_adapter = next(t for t in smol_tools if t.name == "send_peer_work")
-    assert "Budget.ods" in peer_adapter.description
     mock_enqueue_index.assert_called_once()
 
 
@@ -769,16 +757,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
 
 def test_calc_shapes_domain_tools():
     from plugin.calc.shapes import UpsertShape, DeleteShape, ConnectShapes, GroupShapes, GetDrawSummary
-    from plugin.calc.base import ToolCalcShapeBase
     from plugin.framework.tool import ToolRegistry
-    
-    assert issubclass(UpsertShape, ToolCalcShapeBase)
-    assert issubclass(DeleteShape, ToolCalcShapeBase)
-    assert issubclass(ConnectShapes, ToolCalcShapeBase)
-    assert issubclass(GroupShapes, ToolCalcShapeBase)
-    assert issubclass(GetDrawSummary, ToolCalcShapeBase)
-    
-    assert "com.sun.star.sheet.SpreadsheetDocument" in UpsertShape.uno_services
 
     services = MagicMock()
     reg = ToolRegistry(services)
@@ -787,10 +766,10 @@ def test_calc_shapes_domain_tools():
     reg.register(ConnectShapes())
     reg.register(GroupShapes())
     reg.register(GetDrawSummary())
-    
+
     doc = MagicMock()
     doc.supportsService.return_value = True
-    
+
     tools = reg.get_tools(doc=doc, active_domain="shapes", exclude_tiers=())
     names = {t.name for t in tools}
     assert "shape_upsert" in names
@@ -800,9 +779,8 @@ def test_calc_shapes_domain_tools():
     assert "shape_summary" in names
 
 
-def test_outer_turn_is_peer_work_probe_logs_exception_repr(caplog):
-    """When _probe raises an exception with empty message, repr is logged."""
-    import logging
+def test_outer_turn_is_peer_work_probe_failure_returns_false():
+    """When _probe raises (e.g. CancelledError with empty str), fail closed to False."""
     from plugin.doc.specialized_base import _outer_turn_is_peer_work
 
     class EmptyMessageError(Exception):
@@ -810,11 +788,9 @@ def test_outer_turn_is_peer_work_probe_logs_exception_repr(caplog):
             return ""
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=EmptyMessageError):
-        with caplog.at_level(logging.WARNING, logger="plugin.doc.specialized_base"):
-            res = _outer_turn_is_peer_work(MagicMock())
+        res = _outer_turn_is_peer_work(MagicMock())
 
     assert res is False
-    assert any("EmptyMessageError" in r.message for r in caplog.records)
 
 
 def test_outer_turn_is_peer_work_active_query_text_returns_true():

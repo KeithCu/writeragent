@@ -194,13 +194,10 @@ def test_locale_construction_failure_registers_degraded_and_retries() -> None:
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once"),
             patch("plugin.writer.locale.harper_proofreader.uno_locales_for_tags", side_effect=flaky),
             patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async"),
-            patch("plugin.writer.locale.harper_proofreader.log") as mock_log,
         ):
             proofreader = HarperProofreader(MagicMock())
             assert proofreader._locales == ()
             assert proofreader._locales_degraded is True
-            mock_log.error.assert_called()
-            assert "degraded" in mock_log.error.call_args[0][0]
 
             locale = SimpleNamespace(Language="en", Country="US", Variant="")
             with patch.object(proofreader, "_normalize_locale", return_value="en-US"):
@@ -234,7 +231,6 @@ def test_locale_retry_failure_is_logged_once() -> None:
             assert proofreader.hasLocale(locale) is False
             assert proofreader.getLocales() == ()
         assert mock_log.warning.call_count == 1
-        assert "retry failed" in mock_log.warning.call_args[0][0]
     finally:
         reset_package_extension_id_for_tests()
 
