@@ -898,7 +898,7 @@ class TestSendDispose:
         assert killed == ["kill"]
 
     def test_record_start_failure_does_not_leave_stop_rec(self) -> None:
-        """Nested ERROR during RECORD_CLICKED used to restore Stop Rec after resetting is_recording."""
+        """Nested ERROR during RECORD_CLICKED does not restore Stop Rec after resetting is_recording."""
         listener = _make_send_listener()
         listener.sidebar_state = SidebarCompositeState(
             send=SendButtonState(SendMode.IDLE, False, False, True),
@@ -2787,7 +2787,7 @@ def test_append_output_falls_back_to_response_control_without_session():
 
 
 def test_on_capture_stopped_when_stop_requested_clears_busy_in_real_fsm(tmp_path):
-    """Stop during reap ends the send cleanly and clears is_busy on the real send FSM (finding 1)."""
+    """Stop during reap ends the send cleanly and clears is_busy on the real send FSM."""
     import os
 
     listener = _make_send_listener()

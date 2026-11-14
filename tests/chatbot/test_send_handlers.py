@@ -256,7 +256,7 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
 
 
 def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
-    """Regression: sub-agent worker must not call get_ctx() off the main thread."""
+    """Sub-agent worker must not call get_ctx() off the main thread."""
     panel = DummyChatbotPanel()
     panel.rerender_rich_text_session = MagicMock()
     model = MockDocument()
@@ -336,7 +336,7 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
 
 
 def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
-    """Regression: direct-image worker must not call get_ctx() off the main thread."""
+    """Direct-image worker must not call get_ctx() off the main thread."""
     panel = DummyChatbotPanel()
     model = MockDocument()
     captured_tool_ctx = []

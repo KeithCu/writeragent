@@ -262,15 +262,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
                 # task 1 finishes
                 finish = ctx.finish_callbacks.pop(0)
 
-                # Simulate another owner holding the pump right as task 1's cleanup finishes
-                # but before it notifies idle callbacks / runs the posted task.
-                # Actually, finish() releases the pump, so we need to hold it before we
-                # call post(run_next_task), or we can simulate run_next_task
-                # executing while the pump is held.
-
-                # Instead of normal flow, we'll manually invoke on_done while the pump is held
-                # to simulate another owner sneaking in.
-
+                # Simulate another owner holding the pump while task 1's cleanup posts run_next_task.
                 finish() # finishes task 1, releases "stream"
 
                 acquire_drain_owner("other_owner")
@@ -283,7 +275,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
                 # Release the pump
                 release_drain_owner()
 
-                # the resched was an add_drain_idle_callback. let's fire it.
+                # Trigger the rescheduled drain-idle callback.
                 _notify_drain_idle()
 
                 assert len(ctx.finish_callbacks) == 1 # task 2 started

@@ -91,9 +91,8 @@ def test_fields_insert(mock_ctx):
     mock_field.setPropertyValue.assert_any_call("NumberingType", 4)
     mock_field.setPropertyValue.assert_any_call("IsDate", True)
 
-    # Text insertion uses the cursor returned by resolve_target_cursor. Since the cell-safe fix,
-    # the selection cursor is built in the SELECTION's own text object (rng.getText()), not the
-    # body — the old body-cursor pin validated the cross-text bug.
+    # Text insertion uses the cursor returned by resolve_target_cursor, built in the
+    # selection's own text object (rng.getText()) rather than the body.
     rng = mock_controller.getSelection().getByIndex()
     used_cursor = rng.getText().createTextCursorByRange()
     used_cursor.getText().insertTextContent.assert_called_with(used_cursor, mock_field, False)

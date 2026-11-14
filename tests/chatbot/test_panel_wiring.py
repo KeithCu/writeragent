@@ -1,4 +1,4 @@
-"""Annotation lock for panel_wiring leftovers (reportMissingParameterType)."""
+"""Tests for panel wiring listener installation and control wiring."""
 
 from __future__ import annotations
 

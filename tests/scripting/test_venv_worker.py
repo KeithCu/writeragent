@@ -643,9 +643,8 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
 def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame_type):
     """An intermediate frame that raises mid-dispatch must not be sent again.
 
-    The flag used to be set only after dispatch returned. A RuntimeError
-    from the handler, with no exec_started frame, left may_have_run false
-    and the attempt loop wrote the same request to a new child.
+    may_have_run must be set before dispatch; otherwise a RuntimeError from
+    the handler causes the attempt loop to resend to a new child.
     """
     import plugin.scripting.venv_worker as venv_worker_module
     mgr = PythonWorkerManager(sys.executable, {})
@@ -980,11 +979,7 @@ def test_run_code_in_user_venv_reads_sandbox_policy_flags():
 
 @pytest.mark.parametrize('exc_type', [ValueError, OverflowError, TypeError])
 def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
-    """Unpack failures after a finished tool call must not resend the script.
-
-    ValueError was already caught. OverflowError (int(inf) on an int column)
-    and TypeError are on the same host-unpack contract and used to escape.
-    """
+    """Unpack failures (ValueError, OverflowError, TypeError) after a finished tool call do not resend the script."""
     import plugin.scripting.venv_worker as venv_worker_module
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -1485,7 +1480,7 @@ def test_shared_session_persists_after_soft_timeout():
         mgr._terminate_worker()
 
 def test_init_and_cell_share_one_timeout_without_killing_worker():
-    """Init and the cell used to each get a full alarm, so the host read killed the worker."""
+    """Init and the cell share one timeout budget so the worker is not killed by host read."""
     import plugin.scripting.venv_worker as vw
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     sid = 'test-shared-budget-session'

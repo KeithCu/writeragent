@@ -754,7 +754,7 @@ def test_audio_record_main_protocol(tmp_path, monkeypatch):
 
 
 def test_cleanup_failure_closes_wav():
-    """A failed Stop used to leave the host WAV open."""
+    """A failed Stop closes the host WAV file."""
     from plugin.chatbot.audio_recorder_state import AudioRecorderState
 
     recorder = AudioRecorder()
@@ -1379,19 +1379,19 @@ def test_cancel_during_start_transitions_fsm_to_idle():
         assert recorder.state.status == "initializing"
 
         recorder.cleanup()
-        # Finding 3: cleanup transitions out of initializing to idle
+        # Cleanup transitions out of initializing to idle.
         assert recorder.state.status == "idle"
 
         gate.set()
         _settle(recorder)
 
-        # Finding 3: take was discarded, on_capture_stopped must not be called
+        # Take was discarded, so on_capture_stopped must not be called.
         on_capture_stopped.assert_not_called()
         term_proc.assert_called()
 
 
 def test_dead_child_stop_goes_through_finish_stop_and_preserves_wav(tmp_path):
-    """Dead child with audio data preserves WAV via _finish_stop header finalization (finding 4)."""
+    """Dead child with audio data preserves WAV via _finish_stop header finalization."""
     wav_path = tmp_path / "dead_child.wav"
     wav_path.write_bytes(_WAV_WITH_AUDIO)
 

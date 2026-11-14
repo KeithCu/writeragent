@@ -47,9 +47,8 @@ def test_vision_pool_uses_compute_frame_cap() -> None:
 def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
     """The child loop must use the same 33 MiB cap as the parent pool.
 
-    A frame between the 16 MiB stdio default and COMPUTE_MAX_PAYLOAD_BYTES
-    used to fail the child read. A result over 16 MiB broke the child loop
-    and the host saw EMPTY_RESPONSE.
+    Otherwise a result over 16 MiB breaks the child loop and the host sees
+    EMPTY_RESPONSE.
     """
     import io
 
@@ -165,7 +164,7 @@ class TestVisionPoolSupervisor:
         shutdown_vision_pool()
 
     def test_zero_timeout_is_pool_busy(self) -> None:
-        """timeout_sec=0 expires immediately. It used to become the OCR default."""
+        """timeout_sec=0 expires immediately instead of falling back to the OCR default."""
         pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=30))
         try:
             res = pool.execute(helper="extract_text", image=b"\x89PNG", timeout_sec=0, req_id="zero")

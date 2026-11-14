@@ -82,7 +82,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("oddfprice", ("", 41000, 39900, 40100, 0.05, 0.06, 100, 2), "nan", "oddfprice-blank"),
     ("oddfyield", ("text", 41000, 39900, 40100, 0.05, 95, 100, 2), "nan", "oddfyield-text"),
     ("oddfyield", ("", 41000, 39900, 40100, 0.05, 95, 100, 2), "nan", "oddfyield-blank"),
-    # price + redemption == 0 used to raise ZeroDivisionError.
+    # price + redemption == 0 returns NaN instead of raising ZeroDivisionError.
     ("oddfyield", (40000, 41000, 39900, 40100, 0.05, -100, 100, 2), "nan", "oddfyield-zero-denom"),
     ("oddfyield", (40000, 40000, 39900, 40100, 0.05, 95, 100, 2), "nan", "oddfyield-out-of-range"),
     ("oddlprice", ("text", 41000, 39000, 0.05, 0.06, 100, 2), "nan", "oddlprice-text"),
@@ -368,8 +368,7 @@ def test_odd_rounds_away_from_zero():
 
 
 def test_regex_occurrence_and_whole_match():
-    # Search returns the whole match. An optional group that did not
-    # participate used to make group(1) None.
+    # Search returns the whole match even when an optional group did not participate.
     assert calc.regex("b", "(a)?b") == "b"
     assert calc.regex("abc-123", "([a-z]+)-([0-9]+)") == "abc-123"
     assert calc.regex("ababa", "a", None, 2) == "a"
@@ -467,7 +466,7 @@ def test_sort_order_is_only_one_or_minus_one():
 
 
 def test_oddf_frequency_and_basis():
-    # isFreqInvalid is {1, 2, 4}. 1e7 used to walk range(1, int(years * f) + 1).
+    # isFreqInvalid is {1, 2, 4}; non-member frequencies including 1e7 return NaN immediately.
     args = (40000, 41000, 39900, 40100, 0.05, 0.06, 100)
     for freq in (3, 1.5, 4.9, 1.9, 0, -1, 10_000_000):
         assert math.isnan(calc.oddfprice(*args, freq))

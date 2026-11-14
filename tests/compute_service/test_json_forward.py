@@ -195,9 +195,8 @@ class TestMultipartExecute:
     def test_rfc2046_empty_part_is_empty_bytes(self) -> None:
         """headers\\r\\n\\r\\n--boundary is an empty part, not a malformed body.
 
-        The CRLF before --boundary belongs to the delimiter. On an empty
-        part that CRLF is also the blank line that ended the headers.
-        Treating it only as the delimiter used to reject the part.
+        The CRLF before --boundary belongs to the delimiter, and on an empty
+        part it is also the blank line that ends the headers.
         """
         nl = b"\r\n"
         body = (
@@ -469,7 +468,7 @@ class TestHttpBlobForward:
         assert payload["id"] == "c1"
 
     def test_field_validation_error_is_not_invalid_json(self) -> None:
-        """Regression: a bad field reports its own message, not the generic body error."""
+        """A bad field reports its own message, not the generic body error."""
 
         def execute_fn(**_kwargs):
             raise AssertionError("invalid fields must not lease a worker")
@@ -741,7 +740,7 @@ class TestPeelAndMultipartAgree:
         assert seen_m["init_script"] is None
 
     def test_non_text_init_script_is_not_dropped(self) -> None:
-        """A peel number used to be ignored and the cell ran with no init script."""
+        """A non-string init_script returns HTTP 400 instead of being dropped."""
 
         def execute_fn(**_kwargs):
             raise AssertionError("non-text init_script must not run")

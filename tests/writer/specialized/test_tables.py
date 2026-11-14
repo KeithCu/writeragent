@@ -747,7 +747,7 @@ def test_writer_table_copy_layout_ignores_split_suffix_for_size():
 
 
 def test_copy_table_copies_merged_d2_by_name():
-    """HTML copy must walk getCellNames(); range(cols) on cols=1 used to drop D2."""
+    """HTML copy walks getCellNames() so merged/irregular cells like D2 are not dropped."""
     from plugin.writer.range_copy import _copy_table
 
     src = FakeTable(
@@ -816,7 +816,7 @@ def test_hosted_in_band_scans_named_cells_not_range_cols():
 
 
 def test_hosted_in_band_sees_nest_in_split_cell_name():
-    """int() on A1.1.1 used to return None and skip the nest."""
+    """A nest in split cell A1.1.1 counts toward row 0 and column 0 of the parent band; int() cannot parse a split cell name."""
     parent = FakeParentTable(
         2,
         2,
@@ -1112,9 +1112,8 @@ def test_table_delete_requires_name():
 
 
 # ---- table_delete under change tracking --------------------------------------
-# Regression: with tracking on (review mode records every agent edit) table_delete
-# removed the table with removeTextContent, which records no redline -- the table
-# vanished unreviewable, along with any tracked change pending inside it.
+# With tracking on (review mode records every agent edit), table_delete
+# records redlines rather than silently removing the table via removeTextContent.
 
 class _TrackingCell:
     def __init__(self, cells, name):

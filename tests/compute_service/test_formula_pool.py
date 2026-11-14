@@ -999,11 +999,10 @@ class TestFormulaPoolSupervisor:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="the in-child cell timeout uses signal.alarm; Windows falls back to the host kill")
     def test_timeout_does_not_sigkill_healthy_shared_kernel(self) -> None:
-        """A sleep past the cell budget returns an error frame. The pid stays.
+        """A sleep past the cell budget returns an error frame and keeps the pid.
 
-        The child used to be given the original timeout_sec while the host
-        read only the time left on the deadline, so this sleep was SIGKILL
-        and every other workbook on that process disappeared.
+        Otherwise the sleep is SIGKILLed and every other workbook on that
+        shared process disappears.
         """
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=30))
         try:
@@ -1164,8 +1163,7 @@ class TestFormulaHttpEndpoint:
         """New shared sessions must be assigned to the worker holding the fewest active sessions."""
         pool = FormulaProcessPool(settings=ComputeSettings(workers=2, default_timeout_sec=15))
         try:
-            # First session lands on the least-loaded live worker. On a tie
-            # that is the lowest worker_id (hash() used to depend on PYTHONHASHSEED).
+            # First session lands on the least-loaded live worker (lowest worker_id on a tie).
             res1 = run_cell(pool, code="result = 1", session_id="sess-1")
             assert res1.get("status") == "ok"
             w1 = session_worker(pool, "sess-1")
@@ -1353,12 +1351,8 @@ class TestFormulaHttpEndpoint:
 
             t1.start()
             t2.start()
-            # What was wrong: join(5) returned while both executes were still
-            # inside a cold Windows worker spawn, so results stayed {}.
-            # The pool timeout is 15s and lease_specific is bounded by it
-            # (GHA 37719557033).
-            # Why: wait past that budget plus process-start slack. A hung
-            # lease still fails; a slow spawn can finish.
+            # Wait past the 15s pool timeout plus process-start slack so a slow
+            # Windows spawn can finish while a hung lease still fails.
             t1.join(timeout=45)
             t2.join(timeout=45)
 
@@ -1847,7 +1841,7 @@ class TestFormulaHttpEndpoint:
             pool.shutdown()
 
     def test_zero_timeout_is_not_the_default(self) -> None:
-        """timeout_sec=0 expires immediately. It used to become the 30s default."""
+        """timeout_sec=0 expires immediately instead of falling back to the 30s default."""
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=30))
         try:
             res = run_cell(pool, code="result = 1", timeout_sec=0)
