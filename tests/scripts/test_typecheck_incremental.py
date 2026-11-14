@@ -6,13 +6,16 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from scripts import typecheck_incremental as ti
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _touch(root: Path, rel: str) -> None:
@@ -21,7 +24,34 @@ def _touch(root: Path, rel: str) -> None:
     path.write_text("x = 1\n", encoding="utf-8")
 
 
-def test_filter_files_for_tool_respects_scopes_and_existing_py(tmp_path: Path) -> None:
+def _copy_configs(root: Path) -> None:
+    shutil.copy2(REPO_ROOT / "pyproject.toml", root / "pyproject.toml")
+    shutil.copy2(REPO_ROOT / "pyspector.toml", root / "pyspector.toml")
+
+
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _init_repo_with_origin_master(root: Path) -> None:
+    _copy_configs(root)
+    _touch(root, "plugin/base.py")
+    _git(root, "init")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+    _git(root, "update-ref", "refs/remotes/origin/master", "HEAD")
+
+
+def test_filter_files_for_tool_reads_real_configs_and_existing_py(tmp_path: Path) -> None:
+    _copy_configs(tmp_path)
     candidates = [
         "plugin/main.py",
         "plugin/with spaces/mod.py",
@@ -55,7 +85,12 @@ def test_filter_files_for_tool_respects_scopes_and_existing_py(tmp_path: Path) -
         "plugin/scripting/venv/quant.py",
         "plugin/with spaces/mod.py",
     ]
-    assert ti.filter_files_for_tool("opengrep", candidates, tmp_path) == [
+    assert ti.filter_files_for_tool(
+        "opengrep",
+        candidates,
+        tmp_path,
+        cli_excludes=("plugin/contrib", "plugin/lib"),
+    ) == [
         "plugin/main.py",
         "plugin/scripting/venv/quant.py",
         "plugin/scripting/venv/text_analytics.py",
@@ -66,16 +101,6 @@ def test_filter_files_for_tool_respects_scopes_and_existing_py(tmp_path: Path) -
         "plugin/main.py",
         "plugin/with spaces/mod.py",
     ]
-
-
-def _git(cwd: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
 
 
 def test_get_changed_files_returns_none_without_origin_master(tmp_path: Path) -> None:
@@ -90,29 +115,24 @@ def test_get_changed_files_returns_none_without_origin_master(tmp_path: Path) ->
 
 
 def test_get_changed_files_collects_branch_staged_unstaged_and_untracked(tmp_path: Path) -> None:
-    _git(tmp_path, "init")
-    _git(tmp_path, "config", "user.name", "Test")
-    _git(tmp_path, "config", "user.email", "test@example.com")
-    _touch(tmp_path, "plugin/base.py")
+    _init_repo_with_origin_master(tmp_path)
     _touch(tmp_path, "plugin/staged.py")
     _touch(tmp_path, "plugin/unstaged.py")
     _git(tmp_path, "add", ".")
-    _git(tmp_path, "commit", "-m", "base")
+    _git(tmp_path, "commit", "-m", "more base")
     _git(tmp_path, "update-ref", "refs/remotes/origin/master", "HEAD")
 
     _touch(tmp_path, "plugin/committed branch.py")
     _git(tmp_path, "add", "plugin/committed branch.py")
     _git(tmp_path, "commit", "-m", "branch change")
 
-    _touch(tmp_path, "plugin/staged.py")
     (tmp_path / "plugin/staged.py").write_text("x = 2\n", encoding="utf-8")
     _git(tmp_path, "add", "plugin/staged.py")
 
     (tmp_path / "plugin/unstaged.py").write_text("x = 3\n", encoding="utf-8")
     _touch(tmp_path, "plugin/untracked.py")
 
-    changed = ti.get_changed_files(tmp_path)
-    assert changed == [
+    assert ti.get_changed_files(tmp_path) == [
         "plugin/committed branch.py",
         "plugin/staged.py",
         "plugin/unstaged.py",
@@ -127,44 +147,92 @@ def test_chunk_files_splits_at_max_chars() -> None:
     assert len(chunks) == 3
 
 
-def test_build_invocations_full_and_incremental() -> None:
-    assert ti.build_invocations("mypy", ["py", "-m", "mypy"], None) == [["py", "-m", "mypy"]]
-    assert ti.build_invocations("bandit", ["py", "-m", "bandit"], None) == [
-        ["py", "-m", "bandit", "-r", "plugin"]
+def test_build_invocations_substitutes_target_placeholder_or_appends() -> None:
+    assert ti.build_invocations(["py", "-m", "mypy"], ["plugin/a.py", "plugin/b.py"]) == [
+        ["py", "-m", "mypy", "plugin/a.py", "plugin/b.py"]
     ]
-    assert ti.build_invocations("opengrep", ["og", "scan"], None) == [["og", "scan", "plugin"]]
-    assert ti.build_invocations("pyspector", ["py", "rp.py"], None) == [
-        ["py", "rp.py", "scan", "plugin", "--ai", "-c", "pyspector.toml", "--msg=False"]
-    ]
-
-    assert ti.build_invocations("pyspector", ["py", "rp.py"], ["plugin/a.py", "plugin/b.py"]) == [
-        ["py", "rp.py", "scan", "plugin/a.py", "--ai", "-c", "pyspector.toml", "--msg=False"],
-        ["py", "rp.py", "scan", "plugin/b.py", "--ai", "-c", "pyspector.toml", "--msg=False"],
+    assert ti.build_invocations(
+        ["py", "rp.py", "scan", "{target}", "--ai"],
+        ["plugin/a.py", "plugin/b.py"],
+    ) == [
+        ["py", "rp.py", "scan", "plugin/a.py", "--ai"],
+        ["py", "rp.py", "scan", "plugin/b.py", "--ai"],
     ]
 
 
-def test_main_skips_when_no_files_in_scope(capsys: pytest.CaptureFixture[str]) -> None:
-    with (
-        patch.object(ti, "get_changed_files", return_value=["README.md"]),
-        patch.object(ti.subprocess, "run") as mock_run,
-    ):
-        rc = ti.main(["--tool", "mypy", "--", "python", "-m", "mypy"])
+def test_main_returns_fallback_code_without_origin_master(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.name", "Test")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _touch(tmp_path, "plugin/a.py")
+    _git(tmp_path, "add", "plugin/a.py")
+    _git(tmp_path, "commit", "-m", "init")
 
+    rc = ti.main(["--tool", "bandit", "--", sys.executable, "-m", "bandit"], repo_root=tmp_path)
+    assert rc == ti.EXIT_FALLBACK_FULL
+    assert "origin/master merge-base not found" in capsys.readouterr().out
+
+
+def test_main_returns_fallback_code_when_config_changed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo_with_origin_master(tmp_path)
+    (tmp_path / "pyproject.toml").write_text(
+        (tmp_path / "pyproject.toml").read_text(encoding="utf-8") + "\n# edit\n",
+        encoding="utf-8",
+    )
+
+    rc = ti.main(["--tool", "mypy", "--", sys.executable, "-m", "mypy"], repo_root=tmp_path)
+    assert rc == ti.EXIT_FALLBACK_FULL
+    assert "config changed (pyproject.toml)" in capsys.readouterr().out
+
+
+def test_main_returns_fallback_code_when_exceeding_max_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo_with_origin_master(tmp_path)
+    _touch(tmp_path, "plugin/a.py")
+    _touch(tmp_path, "plugin/b.py")
+
+    rc = ti.main(
+        ["--tool", "pyspector", "--max-files", "1", "--", sys.executable, "-c", "pass"],
+        repo_root=tmp_path,
+    )
+    assert rc == ti.EXIT_FALLBACK_FULL
+    assert "exceed threshold (1)" in capsys.readouterr().out
+
+
+def test_main_skips_when_no_files_in_scope(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo_with_origin_master(tmp_path)
+    _touch(tmp_path, "README.md")
+
+    rc = ti.main(["--tool", "mypy", "--", sys.executable, "-c", "raise SystemExit(9)"], repo_root=tmp_path)
     assert rc == 0
-    mock_run.assert_not_called()
     assert "mypy: no changed files in scope — skipped" in capsys.readouterr().out
 
 
-def test_main_falls_back_to_full_when_merge_base_missing(capsys: pytest.CaptureFixture[str]) -> None:
-    with (
-        patch.object(ti, "get_changed_files", return_value=None),
-        patch.object(ti.subprocess, "run") as mock_run,
-    ):
-        mock_run.return_value.returncode = 0
-        rc = ti.main(["--tool", "bandit", "--", "python", "-m", "bandit", "-c", "pyproject.toml"])
+def test_main_runs_command_on_changed_files_in_real_repo(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init_repo_with_origin_master(tmp_path)
+    _touch(tmp_path, "plugin/with space.py")
+    marker = tmp_path / "seen.txt"
 
+    rc = ti.main(
+        [
+            "--tool",
+            "mypy",
+            "--",
+            sys.executable,
+            "-c",
+            f"import pathlib, sys; pathlib.Path({str(marker)!r}).write_text('\\n'.join(sys.argv[1:]))",
+        ],
+        repo_root=tmp_path,
+    )
     assert rc == 0
-    mock_run.assert_called_once()
-    cmd = mock_run.call_args.args[0]
-    assert cmd == ["python", "-m", "bandit", "-c", "pyproject.toml", "-r", "plugin"]
-    assert "origin/master merge-base not found" in capsys.readouterr().out
+    assert marker.read_text(encoding="utf-8") == "plugin/with space.py"
+    assert "mypy: checking 1 changed file(s)" in capsys.readouterr().out

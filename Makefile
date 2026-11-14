@@ -630,7 +630,7 @@ check-ext:
 	@"$(PYTHON)" -c "from plugin._manifest import MODULES; print('Manifest OK: %d modules, %d with config' % (len(MODULES), len([m for m in MODULES if m.get('config')])))"
 
 
-TYPECHECK_FULL ?=
+# TYPECHECK_FULL=1 or CI=true: make typecheck runs typecheck-full.
 _USE_FULL_TYPECHECK :=
 ifneq ($(filter true 1,$(CI)),)
 _USE_FULL_TYPECHECK := 1
@@ -649,7 +649,8 @@ else
 endif
 
 # Full-repo checkers including thread-safety-lint and basedpyright library-source walk.
-typecheck-full: manifest ruff-for-build _typecheck-full-run
+typecheck-full: manifest ruff-for-build
+	@$(MAKE) _typecheck-full-run
 
 _typecheck-full-run:
 	@echo "=== typecheck-full: basedpyright (library source) + bandit + opengrep + pyspector + ty + thread-safety + mypy (parallel) ==="
@@ -805,7 +806,8 @@ opengrep-lint: build/uno_thread_safety.yml
 opengrep-lint-incr: build/uno_thread_safety.yml
 	@test -x "$(OPENGREP)" || (echo "opengrep not found — run: make opengrep-install" && exit 1)
 	@test -f $(OPENGREP_DIR)/third_party/SOURCES.json || (echo "vendored Opengrep rules missing — run: make opengrep-rules-sync" && exit 1)
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py opengrep "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool opengrep -- "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c))
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py opengrep "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool opengrep $(OPENGREP_EXCLUDES) -- env SEMGREP_SEND_METRICS=off "$(OPENGREP)" scan $(OPENGREP_SCAN_FLAGS) $(foreach c,$(OPENGREP_CONFIGS),-c $(c)); \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) opengrep-lint; else exit $$rc; fi
 
 thread-safety-lint:
 	"$(PYTHON)" scripts/lint_thread_safety.py plugin
@@ -979,14 +981,16 @@ mypy-run: ensure-uno
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" -m mypy
 
 mypy-incr-run: ensure-uno
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool mypy -- "$(PYTHON)" -m mypy
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py mypy "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool mypy -- "$(PYTHON)" -m mypy; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) mypy-run; else exit $$rc; fi
 
 # Future task: try enabling `reportMissingTypeArgument = true` in pyproject.toml to enforce generic type parameters (dict[str, Any], list[str])
 basedpyright-run: ensure-uno
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" -m basedpyright
 
 basedpyright-incr-run: ensure-uno
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool basedpyright -- "$(PYTHON)" -m basedpyright
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py basedpyright "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool basedpyright -- "$(PYTHON)" -m basedpyright; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) basedpyright-run; else exit $$rc; fi
 
 basedpyright-full-run: ensure-uno
 	@test -f pyrightconfig.full.json || (echo "pyrightconfig.full.json missing — without -p config basedpyright scans .venv and hangs" && exit 1)
@@ -999,12 +1003,14 @@ bandit:
 	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" -m bandit -r plugin -c pyproject.toml --severity-level medium
 
 bandit-incr:
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool bandit -- "$(PYTHON)" -m bandit -c pyproject.toml --severity-level medium
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py bandit "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool bandit -- "$(PYTHON)" -m bandit -c pyproject.toml --severity-level medium; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) bandit; else exit $$rc; fi
 
 # Cross-file / AI-agent SAST (part of make typecheck / make test; not build/release).
 # Wrapper disables reviewed FP rules; see scripts/run_pyspector.py.
 # PyPI has no CPython 3.13 Windows wheel, so uv sync does not install pyspector
 # there. Skip on Windows instead of failing typecheck; Linux and macOS still fail if missing.
+# pyspector scan accepts a single PATH; above 5 changed files, fall back to full scan for cross-file analysis.
 ifeq ($(OS),Windows_NT)
 pyspector:
 	@if "$(PYTHON)" -c "import pyspector" >/dev/null 2>&1; then \
@@ -1015,7 +1021,8 @@ pyspector:
 
 pyspector-incr:
 	@if "$(PYTHON)" -c "import pyspector" >/dev/null 2>&1; then \
-		"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py; \
+		"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
+		rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pyspector; else exit $$rc; fi; \
 	else \
 		echo "pyspector not installed — skipped"; \
 	fi
@@ -1034,7 +1041,8 @@ pyspector:
 
 pyspector-incr:
 	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
-	@"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py
+	@"$(PYTHON)" $(SCRIPTS)/run_timed.py pyspector "$(PYTHON)" $(SCRIPTS)/typecheck_incremental.py --tool pyspector --max-files 5 -- "$(PYTHON)" $(SCRIPTS)/run_pyspector.py scan {target} --ai -c pyspector.toml --msg=False; \
+	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pyspector; else exit $$rc; fi
 
 pyspector-report:
 	@"$(PYTHON)" -c "import pyspector" 2>/dev/null || (echo "pyspector not found — run: uv sync" && exit 1)
