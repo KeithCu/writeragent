@@ -250,6 +250,7 @@ def test_collect_post_test_death_soffice_exit() -> None:
 @pytest.mark.parametrize(
     ("paths", "expected_before_pairs"),
     [
+        # GHA 34551644954: other suites must run before leftover peer docs.
         pytest.param(
             [
                 "/tmp/tests/chatbot/test_peer_message_uno.py",
@@ -262,6 +263,7 @@ def test_collect_post_test_death_soffice_exit() -> None:
             ],
             id="puts_peer_last",
         ),
+        # GHA 34616287301: leftover Math Draw hung notebook import-filter load.
         pytest.param(
             [
                 "/tmp/tests/chatbot/test_peer_message_uno.py",
@@ -273,10 +275,12 @@ def test_collect_post_test_death_soffice_exit() -> None:
             [
                 ("test_import_filter_uno.py", "test_draw_uno.py"),
                 ("test_draw_forms_uno.py", "test_draw_uno.py"),
+                ("test_impress_uno.py", "test_draw_uno.py"),
                 ("test_draw_uno.py", "test_peer_message_uno.py"),
             ],
             id="puts_draw_uno_before_peer",
         ),
+        # GHA 34648929578: leftover paste Writers poisoned Hidden Budget_read.
         pytest.param(
             [
                 "/tmp/tests/calc/test_formulas_uno.py",
@@ -297,6 +301,7 @@ def test_collect_post_test_death_soffice_exit() -> None:
             ],
             id="defers_html_paste_after_doc_research",
         ),
+        # GHA 37406913485: designs must not inherit the bridge suite's recycle.
         pytest.param(
             [
                 "/tmp/tests/draw/test_draw_forms_uno.py",

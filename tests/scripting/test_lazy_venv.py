@@ -195,8 +195,14 @@ def test_overlapping_export_names_raise() -> None:
 def test_host_facades_have_no_toplevel_venv_import() -> None:
     from tests.harness.import_guards import assert_no_toplevel_import
 
+    forbidden = (
+        "plugin.scripting.venv",
+        "plugin.scripting.venv_worker",
+        "plugin.scripting.venv_probe_ui",
+        "plugin.scripting.venv_diagnostics",
+    )
     for rel_path in _HOST_FACADE_PATHS:
-        assert_no_toplevel_import(_REPO_ROOT / rel_path, ("plugin.scripting.venv",))
+        assert_no_toplevel_import(_REPO_ROOT / rel_path, forbidden)
 
 
 @pytest.mark.parametrize(
