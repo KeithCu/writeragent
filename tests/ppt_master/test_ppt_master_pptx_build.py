@@ -355,4 +355,3 @@ def test_ensure_project_pptx_builds_when_missing(mock_build, tmp_path: Path):
 def test_build_timeout_leaves_margin_for_tool_timeout():
     from plugin.ppt_master.tools import ExportPresentationProject
     assert _BUILD_TIMEOUT_SEC < ExportPresentationProject.timeout
-
