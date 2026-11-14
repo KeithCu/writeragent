@@ -610,5 +610,3 @@ def test_to_mcp_schema_injects_document_url():
     input_schema = schema.get("inputSchema", {})
     assert "document_url" in input_schema.get("properties", {})
     assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]
-
-

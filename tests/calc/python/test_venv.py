@@ -174,5 +174,3 @@ def test_execute_data_resolution_error_has_tool_error_code():
 def test_run_venv_python_advertises_superset_when_doc_unknown():
     params = RunVenvPythonScript().get_parameters(None)
     assert "data_range" in params["properties"]
-
-

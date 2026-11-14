@@ -160,5 +160,3 @@ class MockHandler:
 
     def end_headers(self):
         self.headers_ended = True
-
-

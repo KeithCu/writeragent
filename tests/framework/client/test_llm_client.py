@@ -1,3 +1,4 @@
+# Edge cases adapted from LiteLLM (BerriAI/litellm) streaming_handler.py; class docstrings cite the source anchors.
 import json
 from unittest.mock import MagicMock
 

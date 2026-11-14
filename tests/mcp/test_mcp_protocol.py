@@ -14,7 +14,10 @@ import pytest
 
 from plugin.framework.tool import ToolBase, ToolRegistry
 from plugin.framework.send_cancellation import SendCancellation
+import plugin.mcp.mcp_session as mcp_session
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
+from plugin.mcp.wire_types import INVALID_REQUEST
+from tests.mcp.conftest import MockHandler
 
 
 def test_precomputed_echo_shape_and_absence():
@@ -1171,31 +1174,24 @@ def test_prepare_mcp_execution_passes_arguments_to_requires_document_lock(lock):
 
 
 def test_empty_batch_returns_400():
-    from plugin.mcp.wire_types import INVALID_REQUEST
-
     services = MagicMock()
     handler = MCPProtocolHandler(services)
-    mock_handler = MagicMock()
-    mock_handler.headers = {}
+    mock_handler = MockHandler({})
 
-    handler._send_json = MagicMock()
     handler._handle_mcp([], mock_handler)
 
-    handler._send_json.assert_called_with(
-        mock_handler,
-        400,
-        {"jsonrpc": "2.0", "id": None, "error": {"code": INVALID_REQUEST, "message": "Empty batch"}},
-    )
+    assert mock_handler.sent_responses == [400]
+    assert json.loads(mock_handler.wfile.getvalue()) == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": INVALID_REQUEST, "message": "Empty batch"},
+    }
 
 
 def test_batch_initialize_rejected():
-    from plugin.mcp.wire_types import INVALID_REQUEST
-    import plugin.mcp.mcp_session as mcp_session
-
     services = MagicMock()
     handler = MCPProtocolHandler(services)
-    mock_handler = MagicMock()
-    mock_handler.headers = {}
+    mock_handler = MockHandler({})
 
     msg = [
         {
@@ -1206,24 +1202,21 @@ def test_batch_initialize_rejected():
         }
     ]
 
-    with patch.object(mcp_session, "mint_session_id_once") as mock_mint:
-        handler._send_json = MagicMock()
-        handler._process_jsonrpc = MagicMock()
-
+    with (
+        patch.object(mcp_session, "mint_session_id_once") as mock_mint,
+        patch.object(MCPProtocolHandler, "_process_jsonrpc") as mock_process,
+    ):
         handler._handle_mcp(msg, mock_handler)
 
-        mock_mint.assert_not_called()
-        handler._process_jsonrpc.assert_not_called()
-        handler._send_json.assert_called_with(
-            mock_handler,
-            400,
-            {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {
-                    "code": INVALID_REQUEST,
-                    "message": "initialize must not be part of a JSON-RPC batch",
-                },
-            },
-        )
+    mock_mint.assert_not_called()
+    mock_process.assert_not_called()
+    assert mock_handler.sent_responses == [400]
+    assert json.loads(mock_handler.wfile.getvalue()) == {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {
+            "code": INVALID_REQUEST,
+            "message": "initialize must not be part of a JSON-RPC batch",
+        },
+    }
 
