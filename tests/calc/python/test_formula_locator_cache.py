@@ -8,6 +8,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from plugin.calc.python.formula_locator_cache import (
     CELL_FLAG_FORMULA,
     bind_formula_locate_memo,
@@ -29,22 +31,6 @@ def _ctx_with_doc(doc: CalcDocStub):
 def test_is_matching_py_formula_variants():
     assert is_matching_py_formula('=PY("plt.plot([1, 2])")', "plt.plot([1, 2])")
     assert is_matching_py_formula('=PYTHON("x = ""hello""")', 'x = "hello"')
-    assert is_matching_py_formula(
-        '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("plt.figure(); plt.show()")',
-        "plt.figure(); plt.show()",
-    )
-    assert not is_matching_py_formula('=SUM(A1:A10)', "plt.plot()")
-    assert not is_matching_py_formula('', "plt.plot()")
-    assert not is_matching_py_formula('=PY("plt.plot([1, 2])")', "")
-    # Shared 30-char prefix must not match a different script.
-    code_a = "plt.figure(); plt.plot([1, 2, 3]); plt.title('Sales')"
-    code_b = "plt.figure(); plt.plot([1, 2, 3]); plt.title('Costs')"
-    assert code_a[:30] == code_b[:30]
-    assert not is_matching_py_formula(f'=PY("{code_a}")', code_b)
-
-
-def test_is_matching_py_formula_pins():
-    assert is_matching_py_formula('=PY("plt.plot([1, 2])")', "plt.plot([1, 2])")
     assert is_matching_py_formula('=PYTHON("x = ""hello""", A1:B10)', 'x = "hello"')
     assert is_matching_py_formula(
         '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("import matplotlib.pyplot as plt\nplt.show()")',
@@ -55,11 +41,17 @@ def test_is_matching_py_formula_pins():
         "result = 1",
     )
     assert is_matching_py_formula('{=PY("result = 1")}', "result = 1")
-    # Pin change B: tail after call is not a match
+    assert not is_matching_py_formula('=SUM(A1:A10)', "plt.plot()")
+    assert not is_matching_py_formula('', "plt.plot()")
+    assert not is_matching_py_formula('=PY("plt.plot([1, 2])")', "")
+    # Shared 30-char prefix must not match a different script.
+    code_a = "plt.figure(); plt.plot([1, 2, 3]); plt.title('Sales')"
+    code_b = "plt.figure(); plt.plot([1, 2, 3]); plt.title('Costs')"
+    assert code_a[:30] == code_b[:30]
+    assert not is_matching_py_formula(f'=PY("{code_a}")', code_b)
+    # Tail after call, tail inside call, and heads not in _PY_CALLS do not match.
     assert not is_matching_py_formula('=PY("x")+1', "x")
-    # Pin change A: tail inside call is not a match
     assert not is_matching_py_formula('=PY("x"+1)', "x")
-    # Pin change C: heads not in _PY_CALLS do not match
     assert not is_matching_py_formula('=GETPY("x")', "x")
     assert not is_matching_py_formula('=ORG.EXTENSION.OTHER.FOO.PY("x")', "x")
 
@@ -156,25 +148,20 @@ def test_untitled_docs_locate_independently():
     assert located2 is not None and located2[2] == (5, 5)
 
 
-def test_locate_duplicate_py_formulas_is_ambiguous():
-    """Two gapped cells with the same code are not a unique origin (no calling cell on XAddIn)."""
+@pytest.mark.parametrize(
+    ("positions", "url"),
+    [
+        pytest.param([(0, 0), (0, 5)], "file:///dup.ods", id="gapped"),
+        pytest.param([(0, 0), (0, 1), (0, 2)], "file:///filldown.ods", id="fill-down"),
+    ],
+)
+def test_locate_duplicate_py_formulas_is_ambiguous(positions, url):
+    """Duplicate cells with the same code are not a unique origin (no calling cell on XAddIn)."""
     sheet = CalcSheetStub("Sheet1")
-    doc = CalcDocStub(sheets=[sheet], url="file:///dup.ods")
+    doc = CalcDocStub(sheets=[sheet], url=url)
     code = "result = [1, 2]"
-    sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
-    sheet.getCellByPosition(0, 5).setFormula(f'=PY("{code}")')
-    assert locate_formula_cell_in_doc(doc, code) is None
-
-
-def test_locate_fill_down_duplicate_is_ambiguous():
-    """Contiguous fill-down A1:A3 with the same code must NOT collapse to top-left origin."""
-    sheet = CalcSheetStub("Sheet1")
-    doc = CalcDocStub(sheets=[sheet], url="file:///filldown.ods")
-    code = "result = [1, 2]"
-    sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
-    sheet.getCellByPosition(0, 1).setFormula(f'=PY("{code}")')
-    sheet.getCellByPosition(0, 2).setFormula(f'=PY("{code}")')
-
+    for col, row in positions:
+        sheet.getCellByPosition(col, row).setFormula(f'=PY("{code}")')
     assert locate_formula_cell_in_doc(doc, code) is None
 
 

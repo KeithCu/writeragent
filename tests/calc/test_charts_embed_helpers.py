@@ -214,63 +214,35 @@ def test_axis_title_shape_string_reads_and_writes_when_present():
     assert _axis_title_shape_string(shape, None) == "Sales"
 
 
-def test_resolve_chart_skips_disposed_shape_on_draw():
-    dead = MagicMock()
-    dead.getShapeType.side_effect = _DisposedException("gone")
-    late = _OleShape("Chart_1")
-    named_dead = _OleShape("ignored", name_error=_DisposedException("name gone"))
-    page = _page(dead, named_dead, late)
-    doc = MagicMock()
-    pages = MagicMock()
-    pages.getCount.return_value = 1
-    pages.getByIndex.return_value = page
-    doc.getDrawPages.return_value = pages
-    with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
-        ref = chart_host(doc).find("Chart_1")
-        assert ref is not None
-        assert ref.host is late
-
-
-def test_resolve_chart_draw_skips_bad_shape_type():
+@pytest.mark.parametrize(
+    ("host_kind", "shape_error", "include_named_dead"),
+    [
+        pytest.param("draw", _DisposedException("gone"), True, id="draw-disposed"),
+        pytest.param("draw", ValueError("bad shape"), False, id="draw-bad-shape-type"),
+        pytest.param("writer", ValueError("bad shape"), False, id="writer-bad-shape-type"),
+        pytest.param("writer", _DisposedException("gone"), False, id="writer-disposed"),
+    ],
+)
+def test_resolve_chart_skips_broken_shapes(host_kind, shape_error, include_named_dead):
     bad = MagicMock()
-    bad.getShapeType.side_effect = ValueError("bad shape")
-    late = _OleShape("Chart_1")
-    page = _page(bad, late)
+    bad.getShapeType.side_effect = shape_error
+    chart_name = "Chart_1" if host_kind == "draw" else "Chart_9"
+    late = _OleShape(chart_name)
+    shapes = [bad, late]
+    if include_named_dead:
+        shapes.insert(1, _OleShape("ignored", name_error=_DisposedException("name gone")))
+    page = _page(*shapes)
     doc = MagicMock()
-    pages = MagicMock()
-    pages.getCount.return_value = 1
-    pages.getByIndex.return_value = page
-    doc.getDrawPages.return_value = pages
-    with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
-        ref = chart_host(doc).find("Chart_1")
-        assert ref is not None
-        assert ref.host is late
-
-
-def test_resolve_chart_writer_draw_page_skips_bad_shape_type():
-    bad = MagicMock()
-    bad.getShapeType.side_effect = ValueError("bad shape")
-    late = _OleShape("Chart_9")
-    page = _page(bad, late)
-    doc = MagicMock()
-    doc.getEmbeddedObjects.return_value.hasByName.return_value = False
-    doc.getDrawPage.return_value = page
-    with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        ref = chart_host(doc).find("Chart_9")
-        assert ref is not None
-        assert ref.host is late
-
-
-def test_resolve_chart_writer_skips_disposed_shape():
-    dead = MagicMock()
-    dead.getShapeType.side_effect = _DisposedException("gone")
-    late = _OleShape("Chart_9")
-    page = _page(dead, late)
-    doc = MagicMock()
-    doc.getEmbeddedObjects.return_value.hasByName.return_value = False
-    doc.getDrawPage.return_value = page
-    with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        ref = chart_host(doc).find("Chart_9")
+    if host_kind == "draw":
+        pages = MagicMock()
+        pages.getCount.return_value = 1
+        pages.getByIndex.return_value = page
+        doc.getDrawPages.return_value = pages
+    else:
+        doc.getEmbeddedObjects.return_value.hasByName.return_value = False
+        doc.getDrawPage.return_value = page
+    with patch("plugin.calc.charts._supports_service", side_effect=_supports(host_kind)):
+        ref = chart_host(doc).find(chart_name)
         assert ref is not None
         assert ref.host is late
 

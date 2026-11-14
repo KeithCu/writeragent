@@ -91,9 +91,14 @@ def test_get_calc_context_for_chat_omits_leading_underscore_sheets():
     assert "Active Sheet: Sheet1" in text
 
 
-def test_get_calc_context_for_chat_disposed():
+@pytest.mark.parametrize("raw_disposed", [False, True], ids=["document-disposed-error", "raw-disposed-exception"])
+def test_get_calc_context_for_chat_disposed(raw_disposed):
+    class DisposedException(Exception):
+        pass
+
+    exc = DisposedException("stale") if raw_disposed else DocumentDisposedError("stale")
     model = MagicMock()
-    with patch("plugin.calc.analyzer.SheetAnalyzer.get_sheet_summary", side_effect=DocumentDisposedError("stale")):
+    with patch("plugin.calc.analyzer.SheetAnalyzer.get_sheet_summary", side_effect=exc):
         with pytest.raises(DocumentDisposedError):
             get_calc_context_for_chat(model, 1000, ctx=MagicMock())
 
@@ -370,16 +375,6 @@ def test_get_calc_context_for_chat_disposed_from_read_range():
         patch("plugin.calc.analyzer.SheetAnalyzer", return_value=analyzer),
         patch("plugin.calc.analyzer.CellInspector", return_value=inspector),
     ):
-        with pytest.raises(DocumentDisposedError):
-            get_calc_context_for_chat(model, ctx=object())
-
-
-def test_get_calc_context_for_chat_disposed_raw_disposed_exception_from_summary():
-    class DisposedException(Exception):
-        pass
-
-    model = MagicMock()
-    with patch("plugin.calc.analyzer.SheetAnalyzer.get_sheet_summary", side_effect=DisposedException("stale")):
         with pytest.raises(DocumentDisposedError):
             get_calc_context_for_chat(model, ctx=object())
 

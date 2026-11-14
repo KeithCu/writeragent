@@ -89,23 +89,20 @@ def test_finalize_python_data_already_flat_becomes_row():
     assert finalize_python_data([1, 2]) == [[1, 2]]
 
 
-def test_finalize_python_data_namedtuple_is_scalar_wrap():
-    """Namedtuple subclasses tuple but is not a Calc grid (CrossHair SplitResultBytes case)."""
+@pytest.mark.parametrize("fn_name", ["finalize_python_data", "ensure_rectangular_2d", "calc_addin_data_to_python"])
+def test_namedtuple_is_scalar_wrap(fn_name: str):
+    """Namedtuple subclasses tuple but is not a Calc grid (e.g. SplitResultBytes)."""
     from collections import namedtuple
+    from plugin.scripting.calc_range import ensure_rectangular_2d
 
     SplitResultBytes = namedtuple("SplitResultBytes", "a b c d e")
     raw = SplitResultBytes([], "", "", 0, 0)
-    assert finalize_python_data(raw) == [[raw]]
-
-
-def test_ensure_rectangular_2d_namedtuple_is_scalar_wrap():
-    from collections import namedtuple
-
-    from plugin.scripting.calc_range import ensure_rectangular_2d
-
-    Row = namedtuple("Row", "x y")
-    raw = Row(1, 2)
-    assert ensure_rectangular_2d(raw) == [[raw]]
+    fn = {
+        "finalize_python_data": finalize_python_data,
+        "ensure_rectangular_2d": ensure_rectangular_2d,
+        "calc_addin_data_to_python": calc_addin_data_to_python,
+    }[fn_name]
+    assert fn(raw) == [[raw]]
 
 
 def test_pack_calc_data_for_wire_uses_split_grid_at_threshold():
@@ -254,14 +251,6 @@ def test_dict_is_one_cell_not_rows():
 
 def test_set_is_one_cell_not_rows():
     assert calc_addin_data_to_python({1, 2}) == [[{1, 2}]]
-
-
-def test_namedtuple_is_one_cell_not_rows():
-    from collections import namedtuple
-
-    Row = namedtuple("Row", "x y")
-    raw = Row(1, 2)
-    assert calc_addin_data_to_python(raw) == [[raw]]
 
 
 def test_normalize_data_range_addresses_skips_non_strings():

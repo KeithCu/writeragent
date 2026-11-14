@@ -458,32 +458,17 @@ def test_py_addin_child_timeout_shows_guidance_text(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_py_addin_div0_token_formula_error(ctx, doc):
-    """A real =PY() result of the #DIV/0! token is formula error 532 (computed in soffice's worker)."""
+def test_py_addin_token_formula_errors(ctx, doc):
+    """Real =PY() results of #DIV/0! and #N/A tokens map to Calc errors 532 and 32767."""
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
+    cases = [("#DIV/0!", 532), ("#N/A", 32767)]
     try:
-        cell = sheet.getCellByPosition(0, 0)
-        cell.setFormula('=PY("result = \'#DIV/0!\'")')
+        for row_idx, (token, _expected_err) in enumerate(cases):
+            sheet.getCellByPosition(0, row_idx).setFormula(f'=PY("result = \'{token}\'")')
         doc.calculateAll()
-        assert cell.getError() == 532
-    finally:
-        st = WorkbookState.known(doc)
-        if st is not None:
-            WorkbookState.forget_key(st.key)
-
-
-@native_test
-@with_native_doc("calc")
-def test_py_addin_na_token_formula_error(ctx, doc):
-    """A real =PY() result of the #N/A token is formula error 32767 (computed in soffice's worker)."""
-    sheet = doc.getSheets().getByIndex(0)
-    clear_python_addin_cache()
-    try:
-        cell = sheet.getCellByPosition(0, 0)
-        cell.setFormula('=PY("result = \'#N/A\'")')
-        doc.calculateAll()
-        assert cell.getError() == 32767
+        for row_idx, (_token, expected_err) in enumerate(cases):
+            assert sheet.getCellByPosition(0, row_idx).getError() == expected_err
     finally:
         st = WorkbookState.known(doc)
         if st is not None:

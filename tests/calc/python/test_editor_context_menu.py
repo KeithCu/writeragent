@@ -287,20 +287,12 @@ def test_register_ignores_non_calc_controller():
         assert len(mod._registered_controllers) == 0
 
 
-def test_edit_python_cell_url_follows_librepy_extension_id():
+@pytest.mark.parametrize("extension_id", [EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT])
+def test_edit_python_cell_url_follows_extension_id(extension_id):
     reset_package_extension_id_for_tests()
-    set_package_extension_id(EXTENSION_ID_LIBREPY)
+    set_package_extension_id(extension_id)
     try:
-        assert _edit_python_cell_url() == f"{EXTENSION_ID_LIBREPY}:scripting.edit_python_cell"
-    finally:
-        reset_package_extension_id_for_tests()
-
-
-def test_edit_python_cell_url_follows_writeragent_extension_id():
-    reset_package_extension_id_for_tests()
-    set_package_extension_id(EXTENSION_ID_WRITERAGENT)
-    try:
-        assert _edit_python_cell_url() == f"{EXTENSION_ID_WRITERAGENT}:scripting.edit_python_cell"
+        assert _edit_python_cell_url() == f"{extension_id}:scripting.edit_python_cell"
     finally:
         reset_package_extension_id_for_tests()
 

@@ -1134,8 +1134,43 @@ def test_write_formula_range_rejects_semicolon_json_mismatch():
     commit.assert_not_called()
 
 
-def test_write_formula_range_rejects_json_length_mismatch():
-    """4 values into an 8-cell column must fail loud — no silent zip/pad."""
+@pytest.mark.parametrize(
+    ("cell_range", "values", "expected_snippets"),
+    [
+        pytest.param(
+            ["C2:C9"],
+            '["a", "b", "c", "d"]',
+            ("4 values", "8 cells", "one value per row"),
+            id="json-length-mismatch",
+        ),
+        pytest.param(
+            ["A1:B4"],
+            ["a", "b", "c", "d"],
+            ("4 values", "8 cells"),
+            id="list-length-mismatch",
+        ),
+        pytest.param(
+            ["A1:B2"],
+            [["a"], ["b", "c"]],
+            (),
+            id="ragged-rows",
+        ),
+        pytest.param(
+            ["A1"],
+            [{"x": 1}],
+            ("boolean, or null",),
+            id="dict-cell",
+        ),
+        pytest.param(
+            ["A1"],
+            [["a"], "b"],
+            ("boolean, or null",),
+            id="mixed-grid-rows",
+        ),
+    ],
+)
+def test_write_formula_range_rejects_invalid_values(cell_range, values, expected_snippets):
+    """Invalid value shapes or mismatched lengths must fail loud before committing."""
     from plugin.calc.manipulator import CellManipulator
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1143,32 +1178,11 @@ def test_write_formula_range_rejects_json_length_mismatch():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = _tool("write_formula_range").execute_safe(
-            ctx, range=["C2:C9"], values='["a", "b", "c", "d"]'
-        )
+        result = _tool("write_formula_range").execute_safe(ctx, range=cell_range, values=values)
 
     assert result["status"] == "error"
-    assert "4 values" in result["message"]
-    assert "8 cells" in result["message"]
-    assert "one value per row" in result["message"]
-    commit.assert_not_called()
-
-
-def test_write_formula_range_rejects_list_length_mismatch():
-    from plugin.calc.manipulator import CellManipulator
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with (
-        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
-        patch.object(CellManipulator, "commit_write") as commit,
-    ):
-        result = _tool("write_formula_range").execute_safe(
-            ctx, range=["A1:B4"], values=["a", "b", "c", "d"]
-        )
-
-    assert result["status"] == "error"
-    assert "4 values" in result["message"]
-    assert "8 cells" in result["message"]
+    for snippet in expected_snippets:
+        assert snippet in result["message"]
     commit.assert_not_called()
 
 
@@ -1190,7 +1204,8 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
     assert manip_cls.return_value.commit_write.call_count == 3
 
 
-def test_write_formula_range_source_and_values_errors():
+@pytest.mark.parametrize("values", ["=A1", ""], ids=["non-empty", "empty-string"])
+def test_write_formula_range_source_and_values_errors(values):
     """source + values is forbidden — no silent write or copy."""
 
     ctx = SimpleNamespace(doc=MagicMock())
@@ -1199,28 +1214,12 @@ def test_write_formula_range_source_and_values_errors():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
         result = _tool("write_formula_range").execute_safe(
-            ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values="=A1"
+            ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values=values
         )
 
     assert result["status"] == "error"
     assert "do not pass values" in result["message"].lower()
     manip_cls.return_value.commit_write.assert_not_called()
-    manip_cls.return_value.copy_formula_range.assert_not_called()
-
-
-def test_write_formula_range_source_and_empty_values_errors():
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with (
-        patch("plugin.calc.cells.CalcBridge"),
-        patch("plugin.calc.cells.CellManipulator") as manip_cls,
-    ):
-        result = _tool("write_formula_range").execute_safe(
-            ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values=""
-        )
-
-    assert result["status"] == "error"
-    assert "do not pass values" in result["message"].lower()
     manip_cls.return_value.copy_formula_range.assert_not_called()
 
 
@@ -1319,52 +1318,6 @@ def test_write_formula_range_rejects_2d_grid_shape_mismatch():
     commit.assert_not_called()
 
 
-def test_write_formula_range_rejects_ragged_rows_before_manipulator():
-    from plugin.calc.manipulator import CellManipulator
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with (
-        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
-        patch.object(CellManipulator, "commit_write") as commit,
-    ):
-        result = _tool("write_formula_range").execute_safe(
-            ctx, range=["A1:B2"], values=[["a"], ["b", "c"]]
-        )
-
-    assert result["status"] == "error"
-    commit.assert_not_called()
-
-
-def test_write_formula_range_rejects_dict_cell_before_manipulator():
-    from plugin.calc.manipulator import CellManipulator
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with (
-        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
-        patch.object(CellManipulator, "commit_write") as commit,
-    ):
-        result = _tool("write_formula_range").execute_safe(ctx, range=["A1"], values=[{"x": 1}])
-
-    assert result["status"] == "error"
-    assert "boolean, or null" in result["message"]
-    commit.assert_not_called()
-
-
-def test_write_formula_range_rejects_mixed_grid_rows_before_manipulator():
-    from plugin.calc.manipulator import CellManipulator
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    with (
-        patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
-        patch.object(CellManipulator, "commit_write") as commit,
-    ):
-        result = _tool("write_formula_range").execute_safe(ctx, range=["A1"], values=[["a"], "b"])
-
-    assert result["status"] == "error"
-    assert "boolean, or null" in result["message"]
-    commit.assert_not_called()
-
-
 def test_preview_if_large_escapes_doubled_apostrophes():
     from plugin.calc.cells import _preview_if_large
 
@@ -1378,12 +1331,21 @@ def test_preview_if_large_escapes_doubled_apostrophes():
     assert preview["sheet_prefix"] == "'O''Brien'."
 
 
-def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_sheet():
+@pytest.mark.parametrize(
+    ("sheet_name", "expected_clip_range"),
+    [
+        pytest.param("O'Brien", "'O''Brien'.A1:B100", id="quoted-sheet"),
+        pytest.param("Other", "Other.A1:B100", id="identifier-sheet"),
+    ],
+)
+def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_sheet(
+    sheet_name, expected_clip_range
+):
 
     ctx = SimpleNamespace(doc=MagicMock())
     cell_range = _range_addr(start_col=0, end_col=1, start_row=0, end_row=99)
     sheet_mock = MagicMock()
-    sheet_mock.getName.return_value = "O'Brien"
+    sheet_mock.getName.return_value = sheet_name
     cell_range.getSpreadsheet = MagicMock(return_value=sheet_mock)
     cell_range.getDataArray.return_value = (("Col1", "Col2"), (1, 2))
 
@@ -1400,32 +1362,7 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_she
         calls = bridge.resolve_range_or_address.call_args_list
         assert len(calls) == 2
         assert calls[0].args[0] == "Sales"
-        assert calls[1].args[0] == "'O''Brien'.A1:B100"
-
-
-def test_read_cell_range_oversized_unqualified_named_range_clips_on_identifier_sheet():
-
-    ctx = SimpleNamespace(doc=MagicMock())
-    cell_range = _range_addr(start_col=0, end_col=1, start_row=0, end_row=99)
-    sheet_mock = MagicMock()
-    sheet_mock.getName.return_value = "Other"
-    cell_range.getSpreadsheet = MagicMock(return_value=sheet_mock)
-    cell_range.getDataArray.return_value = (("Col1", "Col2"), (1, 2))
-
-    with (
-        patch("plugin.calc.cells.CalcBridge") as bridge_cls,
-        patch("plugin.calc.cells.CellInspector") as inspector_cls,
-    ):
-        bridge = bridge_cls.return_value
-        bridge.resolve_range_or_address.return_value = cell_range
-        inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
-
-        _tool("read_cell_range").execute_safe(ctx, range=["Sales"])
-
-        calls = bridge.resolve_range_or_address.call_args_list
-        assert len(calls) == 2
-        assert calls[0].args[0] == "Sales"
-        assert calls[1].args[0] == "Other.A1:B100"
+        assert calls[1].args[0] == expected_clip_range
 
 
 def test_sheet_prefix_for_clip_quotes_like_quote_sheet_name():
@@ -1573,9 +1510,23 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
         assert fake_undo.undone == 1
 
 
-def test_set_cell_style_multi_range_rolls_back_on_error():
+class _RuntimeException(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("use_calc_error", "expected_code", "expected_snippet"),
+    [
+        pytest.param(True, "CALC_ERROR", "B1", id="calc-error"),
+        pytest.param(False, "TOOL_EXECUTION_ERROR", None, id="runtime-exception"),
+    ],
+)
+def test_set_cell_style_multi_range_rolls_back_on_error(
+    use_calc_error, expected_code, expected_snippet
+):
     from plugin.framework.errors import CalcError
 
+    exc = CalcError("style failed") if use_calc_error else _RuntimeException("style failed")
     fake_undo = FakeUndoManager()
     doc = MagicMock()
     doc.getUndoManager.return_value = fake_undo
@@ -1583,13 +1534,14 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
 
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        manipulator.set_cell_style.side_effect = [None, CalcError("style failed")]
+        manipulator.set_cell_style.side_effect = [None, exc]
 
         res = _tool("set_style").execute_safe(ctx, range=["A1", "B1"], bold=True)
         assert res["status"] == "error"
-        assert res["code"] == "CALC_ERROR"
+        assert res.get("code") == expected_code
         assert "Nothing was kept." in res["message"]
-        assert "B1" in res["message"]
+        if expected_snippet is not None:
+            assert expected_snippet in res["message"]
         assert fake_undo.undone == 1
 
 
@@ -1615,27 +1567,6 @@ def test_set_cell_style_disposal_propagates():
         res = tool.execute_safe(ctx, range=["A1"], bold=True)
         assert res["status"] == "error"
         assert res["code"] == "DOCUMENT_DISPOSED"
-
-
-def test_set_cell_style_runtime_exception_still_rolls_back():
-
-    class RuntimeException(Exception):
-        pass
-
-    fake_undo = FakeUndoManager()
-    doc = MagicMock()
-    doc.getUndoManager.return_value = fake_undo
-    ctx = SimpleNamespace(doc=doc)
-
-    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
-        manipulator = manipulator_cls.return_value
-        manipulator.set_cell_style.side_effect = [None, RuntimeException("style failed")]
-
-        res = _tool("set_style").execute_safe(ctx, range=["A1", "B1"], bold=True)
-        assert res["status"] == "error"
-        assert "Nothing was kept." in res["message"]
-        assert fake_undo.undone == 1
-        assert res.get("code") == "TOOL_EXECUTION_ERROR"
 
 
 def test_write_formula_range_disposal_propagates():
