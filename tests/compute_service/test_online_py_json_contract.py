@@ -150,7 +150,6 @@ class TestOnlinePyJsonContract:
 
         assert to_dumb_json_value(np.array([[1.0, float("nan")]])) == [[1.0, None]]
 
-
     def test_error_field_on_sandbox_failure(self) -> None:
         out = _execute_code("import subprocess\nresult = subprocess")
         assert out["status"] == "error"
