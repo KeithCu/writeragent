@@ -510,8 +510,8 @@ Maintain a `verification_status.json` file tracking which components have been v
 35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_sheet_filter_criteria.py`](../../tests/calc/test_sheet_filter_criteria.py))
 36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_resolve_refs.py`](../../tests/calc/test_resolve_refs.py))
 37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py))
-38. **`plugin/writer/word_diff_split.py`** — `tokenize`, `split_change` ([`tests/writer/test_writer_diff_and_html_verification.py`](../../tests/writer/test_writer_diff_and_html_verification.py))
-39. **`plugin/writer/xhtml_style_postprocess.py`** — `decode_lo_css_class_suffix`, `compact_lo_style_name`, `parse_fodt_autostyles`, `parse_style_block` ([`tests/writer/test_writer_diff_and_html_verification.py`](../../tests/writer/test_writer_diff_and_html_verification.py))
+38. **`plugin/writer/word_diff_split.py`** — `tokenize`, `split_change` ([`tests/writer/test_word_diff_split.py`](../../tests/writer/test_word_diff_split.py))
+39. **`plugin/writer/xhtml_style_postprocess.py`** — `decode_lo_css_class_suffix`, `compact_lo_style_name`, `parse_fodt_autostyles`, `parse_style_block`
 40. **`plugin/calc/calc_addin_data.py`** — `_unwrap_cell`, `finalize_python_data`, `calc_addin_data_to_python` ([`tests/calc/test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py))
 41. **`plugin/scripting/audio_silence_detector.py`** — `pcm_energy_int16` (pytest `@deal` / Hypothesis; CrossHair `# crosshair: off` — deep check-all run 32877875221 hung on the RMS post) ([`tests/scripting/test_audio_silence_detector.py`](../../tests/scripting/test_audio_silence_detector.py))
 42. **`plugin/doc/visual_helpers.py`** — `parse_color_to_uno_int` (the Hypothesis test calls `parse_color_to_uno_int`; the `set_style` schema rejects non-string colors (`prepare_tool_call`); the cells wrapper and `@deal.post` are gone) ([`tests/doc/test_visual_helpers.py`](../../tests/doc/test_visual_helpers.py))
@@ -533,7 +533,7 @@ Named deep domains (oracles + `test_hypothesis_*` so `-k hypothesis` selects the
 |--------|--------|-------------------|
 | Calc `=PY()` parse/serialize | [`formula_edit.py`](../../plugin/calc/python/formula_edit.py) | [`test_formula_edit.py`](../../tests/calc/python/test_formula_edit.py) |
 | CORS origin/host safety | [`cors.py`](../../plugin/mcp/cors.py) | [`test_cors_verification.py`](../../tests/mcp/test_cors_verification.py) |
-| Writer word diff / redline split | [`word_diff_split.py`](../../plugin/writer/word_diff_split.py) | [`test_writer_diff_and_html_verification.py`](../../tests/writer/test_writer_diff_and_html_verification.py) |
+| Writer word diff / redline split | [`word_diff_split.py`](../../plugin/writer/word_diff_split.py) | [`test_word_diff_split.py`](../../tests/writer/test_word_diff_split.py) |
 | Embeddings sentence chunking | [`embeddings_split.py`](../../plugin/embeddings/embeddings_split.py) | [`test_embeddings_split_verification.py`](../../tests/embeddings/test_embeddings_split_verification.py) |
 
 Also on the same `make vhs` line (same budget helper): serialization A/B Hypothesis; chat/MCP FSM oracles; stream/response normalizers (including `iterate_sse` line-partition + readline-fragment); sandbox path + `scrub_subprocess_env`; payload_codec policy; `address_utils` column/address round-trips.

@@ -8,16 +8,7 @@ from typing import Any
 from unittest.mock import MagicMock
 import pytest
 
-from plugin.writer import review_click_popup, review_view_attachment as rva
-
-
-def _click_handlers(registry: dict[str, Any]) -> list[tuple[Any, Any]]:
-    return [(c, h) for att in registry.values() for c, _i, h in att.controllers]
-
-
-@pytest.fixture(autouse=True)
-def clean_attached(review_registry: dict[str, Any]) -> dict[str, Any]:
-    return review_registry
+from plugin.writer import review_click_popup
 
 
 def test_same_click_point() -> None:
@@ -168,107 +159,6 @@ def test_show_popup_dismissal_does_not_resolve(
 
     popup.execute.assert_called_once()
     resolve_mock.assert_not_called()
-
-
-class FakeController:
-    def __init__(self, model: Any = object()) -> None:
-        self.model = model
-        self.add_count = 0
-        self.remove_count = 0
-
-    def addMouseClickHandler(self, handler: Any) -> None:  # noqa: N802 -- UNO API
-        self.add_count += 1
-
-    def removeMouseClickHandler(self, handler: Any) -> None:  # noqa: N802 -- UNO API
-        self.remove_count += 1
-
-    def getModel(self) -> Any:  # noqa: N802 -- UNO API
-        return self.model
-
-    def registerContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
-        pass
-
-    def releaseContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
-        pass
-
-
-def test_registration_dedup_and_detach(
-    monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
-) -> None:
-    monkeypatch.setattr(
-        "plugin.writer.change_context_menu.make_interceptor",
-        lambda m: MagicMock(model=m),
-    )
-    model = MagicMock()
-    model.supportsService.return_value = True
-    ctrl = FakeController(model=model)
-    rva.register_controller(ctrl)
-    assert len(_click_handlers(review_registry)) == 1
-    assert ctrl.add_count == 1
-
-    # Registering again is a no-op
-    rva.register_controller(ctrl)
-    assert len(_click_handlers(review_registry)) == 1
-    assert ctrl.add_count == 1
-
-    # detach_click_handler
-    handler = _click_handlers(review_registry)[0][1]
-    detached_ctrl = rva.detach_click_handler(handler)
-    assert detached_ctrl is ctrl
-    assert len(_click_handlers(review_registry)) == 0
-
-    # detach_click_handler when not present
-    assert rva.detach_click_handler(handler) is None
-
-
-def test_handler_disposing_calls_remove_mouse_click_handler(
-    monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
-) -> None:
-    monkeypatch.setattr(
-        "plugin.writer.change_context_menu.make_interceptor",
-        lambda m: MagicMock(model=m),
-    )
-    model = MagicMock()
-    model.supportsService.return_value = True
-    ctrl = FakeController(model=model)
-    rva.register_controller(ctrl)
-    assert len(_click_handlers(review_registry)) == 1
-
-    handler = _click_handlers(review_registry)[0][1]
-    assert isinstance(handler, review_click_popup.ClickReviewHandler)
-    handler.disposing(ctrl)
-
-    assert ctrl.remove_count == 1
-    assert len(_click_handlers(review_registry)) == 0
-
-
-def test_cleanup_disposed_controllers(
-    monkeypatch: pytest.MonkeyPatch, review_registry: dict[str, Any]
-) -> None:
-    monkeypatch.setattr(
-        "plugin.writer.change_context_menu.make_interceptor",
-        lambda m: MagicMock(model=m),
-    )
-    live_model = MagicMock()
-    live_model.supportsService.return_value = True
-    live_ctrl = FakeController(model=live_model)
-    dead_ctrl = FakeController(model=live_model)
-
-    def _dead_get_model() -> Any:
-        raise RuntimeError("disposed")
-
-    dead_ctrl.getModel = _dead_get_model  # type: ignore[method-assign]
-
-    rva.register_controller(live_ctrl)
-    key = rva.attachment_key(live_model)
-    review_registry[key].controllers.append(
-        (dead_ctrl, MagicMock(), review_click_popup.ClickReviewHandler(live_model, rva.detach_click_handler))
-    )
-    assert len(_click_handlers(review_registry)) == 2
-
-    rva.cleanup_disposed_controllers()
-    assert len(_click_handlers(review_registry)) == 1
-    assert _click_handlers(review_registry)[0][0] is live_ctrl
 
 
 def _click(x: int, y: int, count: int) -> Any:

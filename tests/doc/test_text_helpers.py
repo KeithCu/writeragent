@@ -802,6 +802,52 @@ def test_starts_at_or_after():
     assert starts_at_or_after(text, left, right) is False
 
 
+def test_iter_elements_stops_for_magicmock():
+    """`if not enum.hasMoreElements()` never stops on MagicMock (truthy mock)."""
+    from plugin.doc.text_helpers import iter_elements
+
+    assert list(iter_elements(MagicMock())) == []
+
+    class _UnoTrue:
+        def __init__(self):
+            self.calls = 0
+
+        def hasMoreElements(self):
+            return self.calls == 0
+
+        def nextElement(self):
+            self.calls += 1
+            return "elem"
+
+    class _UnoFalse:
+        def hasMoreElements(self):
+            return False
+
+        def nextElement(self):
+            return "elem"
+
+    assert list(iter_elements(_UnoTrue())) == ["elem"]
+    assert list(iter_elements(_UnoFalse())) == []
+
+
+def test_enum_hit_walk_cap_and_warning_are_honest():
+    from plugin.doc import text_helpers as fmt
+
+    more = MagicMock()
+    more.hasMoreElements.return_value = True
+    done = MagicMock()
+    done.hasMoreElements.return_value = False
+
+    assert fmt.record_walk_cap(more, 50, 50, "text portions") is True
+    assert fmt.record_walk_cap(more, 49, 50, "text portions") is False
+    assert fmt.record_walk_cap(done, 50, 50, "text portions") is False
+    dest = []
+    assert fmt.record_walk_cap(more, 50, 50, "text portions", dest) is True
+    assert len(dest) == 1
+    assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
+    assert len(dest) == 1
+
+
 def test_go_right_chunks_large_moves():
     from plugin.doc.text_helpers import go_right
 

@@ -288,3 +288,107 @@ def test_install_review_toolbar_warns_on_listener_install_failure(review_registr
         rva.install(ctx)
         assert any(call.kwargs.get("exc_info") for call in warn.call_args_list)
 
+
+def _click_handlers(registry):
+    return [(c, h) for att in registry.values() for c, _i, h in att.controllers]
+
+
+class FakeController:
+    def __init__(self, model=object()) -> None:
+        self.model = model
+        self.add_count = 0
+        self.remove_count = 0
+
+    def addMouseClickHandler(self, handler) -> None:  # noqa: N802 -- UNO API
+        self.add_count += 1
+
+    def removeMouseClickHandler(self, handler) -> None:  # noqa: N802 -- UNO API
+        self.remove_count += 1
+
+    def getModel(self):  # noqa: N802 -- UNO API
+        return self.model
+
+    def registerContextMenuInterceptor(self, interceptor) -> None:  # noqa: N802 -- UNO API
+        pass
+
+    def releaseContextMenuInterceptor(self, interceptor) -> None:  # noqa: N802 -- UNO API
+        pass
+
+
+def test_registration_dedup_and_detach(monkeypatch, review_registry) -> None:
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
+    )
+    model = MagicMock()
+    model.supportsService.return_value = True
+    ctrl = FakeController(model=model)
+    rva.register_controller(ctrl)
+    assert len(_click_handlers(review_registry)) == 1
+    assert ctrl.add_count == 1
+
+    # Registering again is a no-op
+    rva.register_controller(ctrl)
+    assert len(_click_handlers(review_registry)) == 1
+    assert ctrl.add_count == 1
+
+    # detach_click_handler
+    handler = _click_handlers(review_registry)[0][1]
+    detached_ctrl = rva.detach_click_handler(handler)
+    assert detached_ctrl is ctrl
+    assert len(_click_handlers(review_registry)) == 0
+
+    # detach_click_handler when not present
+    assert rva.detach_click_handler(handler) is None
+
+
+def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch, review_registry) -> None:
+    from plugin.writer import review_click_popup
+
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
+    )
+    model = MagicMock()
+    model.supportsService.return_value = True
+    ctrl = FakeController(model=model)
+    rva.register_controller(ctrl)
+    assert len(_click_handlers(review_registry)) == 1
+
+    handler = _click_handlers(review_registry)[0][1]
+    assert isinstance(handler, review_click_popup.ClickReviewHandler)
+    handler.disposing(ctrl)
+
+    assert ctrl.remove_count == 1
+    assert len(_click_handlers(review_registry)) == 0
+
+
+def test_cleanup_disposed_controllers(monkeypatch, review_registry) -> None:
+    from plugin.writer import review_click_popup
+
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu.make_interceptor",
+        lambda m: MagicMock(model=m),
+    )
+    live_model = MagicMock()
+    live_model.supportsService.return_value = True
+    live_ctrl = FakeController(model=live_model)
+    dead_ctrl = FakeController(model=live_model)
+
+    def _dead_get_model():
+        raise RuntimeError("disposed")
+
+    dead_ctrl.getModel = _dead_get_model  # type: ignore[method-assign]
+
+    rva.register_controller(live_ctrl)
+    key = rva.attachment_key(live_model)
+    review_registry[key].controllers.append(
+        (dead_ctrl, MagicMock(), review_click_popup.ClickReviewHandler(live_model, rva.detach_click_handler))
+    )
+    assert len(_click_handlers(review_registry)) == 2
+
+    rva.cleanup_disposed_controllers()
+    assert len(_click_handlers(review_registry)) == 1
+    assert _click_handlers(review_registry)[0][0] is live_ctrl
+
+

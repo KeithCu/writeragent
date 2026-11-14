@@ -777,7 +777,7 @@ vhs:
 		tests/chatbot/test_fsm_verification.py \
 		tests/calc/python/test_formula_edit.py \
 		tests/mcp/test_cors_verification.py \
-		tests/writer/test_writer_diff_and_html_verification.py \
+		tests/writer/test_word_diff_split.py \
 		tests/embeddings/test_embeddings_split_verification.py \
 		tests/framework/test_stream_normalizer_verification.py \
 		tests/framework/test_response_normalizers_verification.py \

@@ -18,7 +18,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.doc.text_helpers import iter_elements
 from plugin.writer.hyperlink_fixup import (
     OutlineLink,
     OutlineSnapshot,
@@ -529,32 +528,6 @@ def test_restore_puts_back_black_and_no_underline_after_url_write():
     assert (prefix.color, prefix.underline) == (0, 0)
     assert (title.color, title.underline) == (0, 0)
     assert (suffix.color, suffix.underline) == (0, 0)
-
-
-def test_iter_elements_stops_for_magicmock():
-    """`if not enum.hasMoreElements()` never stops on MagicMock (truthy mock)."""
-    assert list(iter_elements(MagicMock())) == []
-
-    class _UnoTrue:
-        def __init__(self):
-            self.calls = 0
-
-        def hasMoreElements(self):
-            return self.calls == 0
-
-        def nextElement(self):
-            self.calls += 1
-            return "elem"
-
-    class _UnoFalse:
-        def hasMoreElements(self):
-            return False
-
-        def nextElement(self):
-            return "elem"
-
-    assert list(iter_elements(_UnoTrue())) == ["elem"]
-    assert list(iter_elements(_UnoFalse())) == []
 
 
 @pytest.mark.timeout(5)
