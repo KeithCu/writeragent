@@ -23,21 +23,9 @@ from plugin.calc.spreadsheet_import.preserve import (
     enrich_number_formats,
     output_cell_from_record,
 )
+from tests.calc.serialization_cases import all_serialization_cases, case_input_grids
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT))
-
-from tests.calc.serialization_cases import all_serialization_cases, case_input_grids  # noqa: E402
-
-_GEN_PATH = REPO_ROOT / "scripts" / "generate_serialization_spreadsheet.py"
-if _GEN_PATH.is_file():
-    _spec = importlib.util.spec_from_file_location("generate_serialization_spreadsheet", _GEN_PATH)
-    assert _spec and _spec.loader
-    _gen = importlib.util.module_from_spec(_spec)
-    sys.modules[_spec.name] = _gen
-    _spec.loader.exec_module(_gen)
-else:
-    _gen = None
+_GEN_PATH = Path(__file__).resolve().parents[2] / "scripts" / "generate_serialization_spreadsheet.py"
 
 
 def _normalized(formula: str) -> str | None:
@@ -316,14 +304,26 @@ def test_preserve_normalizes_py_cell_from_record():
     assert (parsed.code, parsed.data_args()) == ("np.sum(data)", ["A1"])
 
 
-@pytest.mark.skipif(_gen is None, reason="generate_serialization_spreadsheet.py not available")
-def test_all_serialization_cases_normalize_semantically():
+@pytest.fixture
+def _gen_module(monkeypatch: pytest.MonkeyPatch):
+    if not _GEN_PATH.is_file():
+        pytest.skip("generate_serialization_spreadsheet.py not available")
+    spec = importlib.util.spec_from_file_location("generate_serialization_spreadsheet", _GEN_PATH)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    # Register in sys.modules for @dataclass string-annotation resolution during exec_module.
+    monkeypatch.setitem(sys.modules, spec.name, mod)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_all_serialization_cases_normalize_semantically(_gen_module):
     for case in all_serialization_cases():
         grids = case_input_grids(case)
-        max_nrows = max((_gen.grid_dimensions(g)[0] for g in grids), default=0)
+        max_nrows = max((_gen_module.grid_dimensions(g)[0] for g in grids), default=0)
         data_top = 2 + 1 if max_nrows else 2
-        data_ranges = _gen.data_ranges_for_case(case, data_top)
-        formula = _gen._python_formula(case, data_ranges)
+        data_ranges = _gen_module.data_ranges_for_case(case, data_top)
+        formula = _gen_module._python_formula(case, data_ranges)
         norm = _normalized(formula)
         assert norm is not None, f"{case.id}: could not normalize {formula!r}"
         raw_p = PyFormula.parse(formula)

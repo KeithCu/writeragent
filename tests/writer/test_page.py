@@ -1,15 +1,11 @@
-import pytest
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.tests.testing_utils import TestingFactory
 from plugin.writer import html_import_styles
-
-
-# Set up BreakType PAGE_BEFORE constant explicitly if needed for the test
-import sys
-
-setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
 
 from plugin.writer.page import (
     PageGetHeaderFooterText,
@@ -27,6 +23,15 @@ from plugin.writer.page import (
     _scan_region_content,
     copy_page_style,
 )
+
+
+@pytest.fixture(autouse=True)
+def _stub_break_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(
+        sys.modules,
+        "com.sun.star.style.BreakType",
+        SimpleNamespace(PAGE_BEFORE=4),
+    )
 
 
 def test_get_page_style_properties_without_header_or_footer():
@@ -229,9 +234,7 @@ def _attach_page_styles(doc, names):
 
 
 def test_page_break_view_cursor_page_style_and_restart():
-    import sys
     from unittest.mock import call
-    setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
     doc = MagicMock()
     controller = MagicMock()
     view_cursor = MagicMock()
@@ -262,7 +265,7 @@ def test_page_break_view_cursor_page_style_and_restart():
     ])
     assert text_cursor.setPropertyValue.call_count == 3
     text_obj.insertControlCharacter.assert_not_called()
-    assert not hasattr(text_cursor, "gotoNextParagraph") or text_cursor.gotoNextParagraph.call_count == 0
+    text_cursor.gotoNextParagraph.assert_not_called()
     assert [c.args[0] for c in text_cursor.getPropertyValue.call_args_list] == ["TextTable"]
 
 
@@ -1545,13 +1548,11 @@ def test_is_landscape_explicit_size_written_after_flag():
     style.setPropertyValue.assert_any_call("Height", 21000)
 
 
-def test_page_style_layout_read_and_write():
-    from types import SimpleNamespace
-    import sys
+def test_page_style_layout_read_and_write(monkeypatch: pytest.MonkeyPatch):
     from plugin.writer.page import get_page_style_properties, PageSetStyleProperties
 
     psl = SimpleNamespace(ALL=0, LEFT=1, RIGHT=2, MIRRORED=3)
-    sys.modules["com.sun.star.style.PageStyleLayout"] = psl
+    monkeypatch.setitem(sys.modules, "com.sun.star.style.PageStyleLayout", psl)
 
     doc = MagicMock()
     style = MagicMock()
@@ -1756,8 +1757,6 @@ def test_page_break_page_style_in_table_cell_still_errors():
     para.setPropertyValue.assert_not_called()
 
     # View-cursor path: model cursor is in text table
-    import sys
-    setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
     doc2 = MagicMock()
     _attach_page_styles(doc2, {"Annex"})
     controller = MagicMock()
