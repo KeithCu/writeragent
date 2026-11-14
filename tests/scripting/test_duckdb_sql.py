@@ -1339,6 +1339,7 @@ def test_flat_stem_collision_keeps_first(tmp_path: Path):
 
 @pytest.fixture(autouse=True)
 def _require_duckdb_and_pandas(request: pytest.FixtureRequest) -> None:
+    # is_sql_result is a pure dict check; keep it running in venvs without duckdb or pandas.
     if request.function is test_is_sql_result_matches_is_status_helper_result:
         return
     pytest.importorskip("duckdb")

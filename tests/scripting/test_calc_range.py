@@ -636,6 +636,8 @@ def test_whole_number_cells_arrive_as_int():
 
 @pytest.fixture(autouse=True)
 def _require_pandas_and_numpy(request: pytest.FixtureRequest) -> None:
+    # Host-side calc_range helpers are NumPy-free (calc_range.py:11); keep their
+    # verification tests running without pandas or numpy.
     if request.function in {
         test_ensure_rectangular_2d_invariants,
         test_ensure_rectangular_2d_string_row_is_one_cell,
