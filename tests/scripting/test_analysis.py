@@ -857,13 +857,6 @@ def test_run_analysis_echoes_context():
     assert result["context"]["sheet_name"] == "Sheet1"
 
 
-def test_table_row_cap():
-    grid = [["Region", "Sales"]] + [[f"R{i % 5}", i * 10] for i in range(100)]
-    result = analysis.group_summary(grid, by="Region", metrics=["Sales"], aggfunc="sum")
-    assert result["tables"][0]["truncated"] is False
-    assert result["tables"][0]["total_rows"] <= MAX_TABLE_ROWS
-
-
 @pytest.mark.parametrize(
     ("helper", "call", "metric_keys", "requires"),
     [

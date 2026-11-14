@@ -1574,7 +1574,7 @@ def test_dataframe_envelope_roundtrips_through_host_unpack():
     # Simulate child: a rectangular grid packed, wrapped as df payload.
     grid = [[10, "x"], [20, "y"]]
     inner = child_pack_result(grid, force="always")
-    assert is_split_grid(inner) or isinstance(inner, list)
+    assert is_split_grid(inner)
     df_env = {
         "__wa_payload__": PAYLOAD_DATAFRAME,
         "columns": ["num", "label"],
@@ -1585,8 +1585,7 @@ def test_dataframe_envelope_roundtrips_through_host_unpack():
     assert unpacked["columns"] == ["num", "label"]
     data = unpacked["data"]
     # After unpack, inner should be list-of-lists
-    assert isinstance(data, list) and len(data) == 2
-    assert data[0] == [10, "x"] or data[0][0] == 10
+    assert data == [[10, "x"], [20, "y"]]
 
 
 def test_wire_cell_count_ndarray_dataframe_uses_size():

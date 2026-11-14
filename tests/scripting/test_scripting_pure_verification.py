@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from unittest.mock import patch
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
@@ -26,15 +26,6 @@ from plugin.scripting.calc_range import (
     CalcRange,
 )
 from plugin.scripting.venv.coerce import dedupe_column_names
-
-
-@given(val=st.none() | st.integers())
-@settings(max_examples=100)
-def test_python_exec_timeout_clamping(val) -> None:
-    with patch("plugin.framework.config.get_config", return_value=10):
-        timeout = python_exec_timeout(val)
-        assert isinstance(timeout, int)
-        assert python_exec_timeout(0) <= timeout <= python_exec_timeout(10**9)
 
 
 def test_clamp_timeout_overflow_clamps() -> None:

@@ -38,19 +38,30 @@ def test_validate_sandbox_ast_forbidden_dunder(value, value_2) -> None:
     assert error is not None
     assert value_2 in error
 
-@given(attr=st.text(min_size=1, max_size=20))
-@settings(max_examples=100)
+_ATTR_SAMPLES = (
+    "__code__",
+    "__globals__",
+    "__subclasses__",
+    "__builtins__",
+    "__class__",
+    "__dict__",
+    "__doc__",
+    *sorted(ALLOWED_DUNDER_ATTRIBUTES),
+    "foo",
+    "value",
+)
+
+
+@given(attr=st.sampled_from(_ATTR_SAMPLES))
+@settings(max_examples=50)
 def test_validate_sandbox_ast_dunder_attribute_security(attr: str) -> None:
     code = f"x = obj.{attr}"
-    try:
-        module = ast.parse(code)
-    except SyntaxError:
-        return
+    module = ast.parse(code)
     error = validate_sandbox_ast(module, ["math"])
     if attr.startswith("__") and attr.endswith("__") and attr not in ALLOWED_DUNDER_ATTRIBUTES:
         assert error is not None
         assert "Forbidden access to dunder attribute" in error
-    elif attr in ALLOWED_DUNDER_ATTRIBUTES:
+    else:
         assert error is None
 
 

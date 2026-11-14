@@ -89,11 +89,17 @@ def test_optimize_extra_param_returns_invalid_param():
     assert res["code"] == "INVALID_PARAM"
 
 
-def test_viz_plot_data_keeps_unknown_key_inside_spec():
-    pytest.importorskip("matplotlib")
-    pytest.importorskip("pandas")
-    import plugin.scripting.venv.viz  # noqa: F401
+def test_viz_plot_data_keeps_unknown_key_inside_spec(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    captured: dict[str, Any] = {}
+
+    def fake_plot(data: Any, spec: dict[str, Any] | None = None, **_kw: Any) -> dict[str, Any]:
+        captured["spec"] = spec
+        return {"status": "ok", "helper": "plot_data"}
+
+    monkeypatch.setitem(helper_registry._BOUND, ("viz", "plot_data"), fake_plot)
 
     data = [["x", "y"], [1, 2], [3, 4]]
     spec = {
@@ -108,6 +114,7 @@ def test_viz_plot_data_keeps_unknown_key_inside_spec():
     res = run_domain("viz", spec, data)
     assert res["status"] == "ok", res
     assert res["helper"] == "plot_data"
+    assert captured["spec"]["custom_chart_option"] == "retained"
 
 
 def test_quant_extra_param_is_not_error(monkeypatch):
@@ -136,10 +143,18 @@ def test_quant_extra_param_is_not_error(monkeypatch):
     assert "extra_ignored_key" not in captured
 
 
-def test_symbolic_explicit_none_variable_uses_default():
-    pytest.importorskip("sympy")
-    import plugin.scripting.venv.symbolic  # noqa: F401
+def test_symbolic_explicit_none_variable_uses_default(monkeypatch: pytest.MonkeyPatch):
+    from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    captured: dict[str, Any] = {}
+
+    def fake_solve(equation: str = "", variable: str = "x") -> dict[str, Any]:
+        captured["equation"] = equation
+        captured["variable"] = variable
+        return {"status": "ok", "helper": "solve_equation"}
+
+    monkeypatch.setitem(helper_registry._BOUND, ("symbolic", "solve_equation"), fake_solve)
 
     spec = {
         "helper": "solve_equation",
@@ -151,11 +166,21 @@ def test_symbolic_explicit_none_variable_uses_default():
     res = run_domain("symbolic", spec, None)
     assert res["status"] == "ok", res
     assert res["helper"] == "solve_equation"
+    assert captured["variable"] == "x"
 
 
-def test_units_output_style_popped():
+def test_units_output_style_popped(monkeypatch: pytest.MonkeyPatch):
     pytest.importorskip("pint")
+    from plugin.scripting import helper_registry
     from plugin.scripting.venv.trusted_dispatch import run_domain
+
+    captured: dict[str, Any] = {}
+
+    def fake_convert(params: dict[str, Any]) -> dict[str, Any]:
+        captured.update(params)
+        return {"status": "ok", "helper": "convert_quantity"}
+
+    monkeypatch.setitem(helper_registry._BOUND, ("units", "convert_quantity"), fake_convert)
 
     spec = {
         "helper": "convert_quantity",
@@ -169,6 +194,8 @@ def test_units_output_style_popped():
     res = run_domain("units", spec, None)
     assert res["status"] == "ok", res
     assert res["helper"] == "convert_quantity"
+    assert "output_style" not in captured
+    assert captured["value"] == 100
 
 
 def test_text_dispatch_reaches_one_branch_per_registry_name(monkeypatch: pytest.MonkeyPatch):
