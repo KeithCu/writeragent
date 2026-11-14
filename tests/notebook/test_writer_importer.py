@@ -190,15 +190,6 @@ def test_format_output_plain_mime():
     assert format_output_text(out) == "hi"
 
 
-def test_format_all_outputs_joins():
-    outputs = [
-        {"output_type": "stream", "name": "stdout", "text": "a"},
-        {"output_type": "execute_result", "data": {"text/plain": "b"}},
-    ]
-    text = "\n\n".join(p for p in (format_output_text(o) for o in outputs) if p.strip())
-    assert "a" in text and "b" in text
-
-
 def test_format_outputs_for_body_interleaves_image_then_stream():
     """Mixed [display image, print] must stay image-then-text, not text-then-images."""
     outputs = [
@@ -593,7 +584,7 @@ def test_import_resolves_page_style_once(tmp_path, monkeypatch):
     monkeypatch.setattr("plugin.notebook.writer_importer.page_style", counting_page_style)
     monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", lambda *_a, **_k: True)
     monkeypatch.setattr("plugin.notebook.layout.Size", lambda w, h: None)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     import_ipynb_to_writer(doc, str(ipynb))
     assert len(page_style_calls) == 1
@@ -998,7 +989,7 @@ def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkey
             self.Height = h
 
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     import_ipynb_to_writer(doc, str(ipynb))
 
@@ -1056,7 +1047,7 @@ def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
             self.Height = h
 
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     saved: list = []
 
@@ -1177,7 +1168,7 @@ def test_import_small_numpy_notebook_fixture(monkeypatch):
 
     doc.createInstance.side_effect = create_instance
     monkeypatch.setattr("plugin.notebook.layout.Size", FakeSize)
-    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_output_start_bookmark", lambda _d, _n: True)
 
     html_calls: list[str] = []
 
@@ -1298,7 +1289,7 @@ def test_import_nested_lists_and_blockquotes_fixture(monkeypatch):
     assert 'start="3"' in joined
     assert "Ask for help" in joined
     assert "<blockquote>" in joined
-    assert "<strong>Note:</strong>" in joined or "**Note:**" not in joined
+    assert "<strong>Note:</strong>" in joined
     assert "ndarray" in joined
     assert "how to find unique elements" in joined
     assert "https://numpy.org/doc/stable/index.html" in joined
@@ -1365,7 +1356,7 @@ def test_bourke_cells_5_and_8_direct():
     assert "`ndarray`" in c8_blocks[1][1]
     c8_html = _inline_markdown_to_html(c8_blocks[1][1])
     assert "<code>ndarray</code>" in c8_html
-    assert "<strong>Note:</strong>" in c8_html or "**Note:**" not in c8_html
+    assert "<strong>Note:</strong>" in c8_html
 
 
 def test_iter_markdown_blocks_list_continuation():
@@ -1892,26 +1883,21 @@ def test_import_cells_keeps_later_cell_when_one_cell_fails(tmp_path, monkeypatch
     )
     doc, body_text, _cursor = _writer_doc_mock(with_bookmarks=True)
 
-    real = __import__(
-        "plugin.notebook.layout", fromlist=["insert_code_input_in_flow"]
-    ).insert_code_input_in_flow
-
     def fail_field(*_args, **_kwargs):
         raise RuntimeError("field failed")
 
     monkeypatch.setattr(
         "plugin.notebook.writer_importer.insert_code_input_in_flow", fail_field)
     monkeypatch.setattr(
-        "plugin.notebook.cell_registry.save_registry", lambda *_a, **_k: None)
+        "plugin.notebook.writer_importer.save_registry", lambda *_a, **_k: None)
     monkeypatch.setattr(
-        "plugin.notebook.cell_registry.save_notebook_source_path", lambda *_a, **_k: None)
+        "plugin.notebook.writer_importer.save_notebook_source_path", lambda *_a, **_k: None)
 
     stats = import_ipynb_to_writer(doc, str(ipynb))
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
     assert stats["markdown"] == 1
     assert stats["cells"] == 2
     assert any(text == "[Notebook cell 1 could not be imported]" for text in inserted)
-    assert real is not fail_field
 
 
 def test_import_failed_output_image_writes_placeholder(tmp_path, monkeypatch):

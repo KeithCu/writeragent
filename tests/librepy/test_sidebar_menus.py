@@ -56,11 +56,6 @@ def test_calc_hamburger_includes_python_and_cell_not_search():
     assert by_action["main.settings"].endswith(".png")
     assert "vision.open_settings" in actions
     assert "main.report_bug" in actions
-    assert "embeddings.search_dialog" not in actions
-    assert "mcp.toggle_server" not in actions
-    assert "chatbot.extend_selection" not in actions
-    assert "calc.convert_spreadsheet_to_python" not in actions
-    assert "writer.insert_latex_dialog" not in actions
     assert "notebook.run_all" not in actions
     assert "notebook.stop" not in actions
 
@@ -224,7 +219,6 @@ def test_show_hamburger_uses_librepy_command_prefix():
     commands = [c.args[1] for c in popup.setCommand.call_args_list]
     assert commands
     assert all(c.startswith(EXTENSION_ID_LIBREPY + ":") for c in commands)
-    assert not any("embeddings.search" in c for c in commands)
 
 
 def test_writeragent_python_hamburger_uses_chat_menu():

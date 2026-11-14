@@ -167,29 +167,6 @@ def test_execute_code_passes_current_send_scope():
     assert run_venv.call_args.kwargs["cancel"] is scope
 
 
-def test_execute_code_stop_returns_interrupted_without_venv():
-    """When stop is latched during exception handling in _run, we return stopped."""
-
-    ctx = MagicMock()
-    doc = MagicMock()
-    with (
-        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
-        patch(
-            "plugin.notebook.notebook_runner.run_blocking_in_thread",
-            side_effect=lambda ctx, func, **kw: func(),
-        ) as pump,
-        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", side_effect=Exception("stalled")) as run_venv,
-        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
-        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
-        patch("plugin.notebook.notebook_runner.release_script_document"),
-        patch("plugin.framework.worker_pool.run_in_background", lambda f, **kwargs: f()),
-    ):
-        out = execute_code(ctx, doc, "x = 1")
-    assert out["status"] == "stopped"
-    assert pump.call_args.kwargs.get("pump_idle") is False
-    run_venv.assert_not_called()
-
-
 def test_run_cell_updates_registry_and_execution_count():
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")

@@ -211,8 +211,9 @@ def test_full_layout_all_calc_tools_executable_dispatch(calc_mcp_setup):
 
     all_tools = tools_reg.get_tools(doc_type="calc", exclude_tiers=frozenset())
 
+    executed_count = 0
     for idx, tool in enumerate(all_tools):
-        with patch.object(tool, "execute", return_value={"status": "ok", "mocked": True}):
+        with patch.object(tool, "execute", return_value={"status": "ok", "mocked": True}) as mock_exec:
             res = _call_rpc(handler, {
                 "jsonrpc": "2.0",
                 "id": 200 + idx,
@@ -223,6 +224,11 @@ def test_full_layout_all_calc_tools_executable_dispatch(calc_mcp_setup):
             assert res is not None
             assert "jsonrpc" in res
             assert res.get("id") == 200 + idx
+            if mock_exec.called:
+                executed_count += 1
+                assert "error" not in res
+                assert not res["result"].get("isError")
+    assert executed_count > 0
 
 
 def test_fizzbee_randomized_calc_mcp_fuzz(calc_mcp_setup):

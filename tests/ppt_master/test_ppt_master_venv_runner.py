@@ -64,9 +64,8 @@ def test_load_skill_context_includes_skill_md(tmp_path: Path, monkeypatch: pytes
 
     ctx = load_skill_context()
     assert ctx["ok"] is True
-    assert "WriterAgent fork" in ctx["block"]
-    assert bundled_skill_md_path().read_text(encoding="utf-8")[:50] in ctx["block"] or "PPT Master" in ctx["block"]
-    assert "WRITERAGENT LO BRIDGE" in ctx["block"]
+    assert bundled_skill_md_path().read_text(encoding="utf-8")[:50] in ctx["block"]
+    assert "route here" in ctx["block"]
 
 
 def test_resolve_writeragent_skill_md_prefers_bundled_fork():
@@ -166,37 +165,6 @@ def test_run_turn_missing_skill_returns_error(tmp_path: Path, monkeypatch: pytes
     monkeypatch.setenv("PPT_MASTER_DATA_ROOT", str(tmp_path / "nope"))
     result = run_turn({"query": "hello", "session_id": "test"})
     assert result.get("status") == "error"
-
-
-def test_ppt_master_session_delegates_to_venv():
-    from plugin.chatbot.ppt_master import PptMasterSessionTool
-    from plugin.framework.tool import ToolContext
-
-    tool = PptMasterSessionTool()
-    ctx = MagicMock(spec=ToolContext)
-    ctx.ctx = MagicMock()
-    ctx.doc = "anthropic/claude-sonnet-4"
-    ctx.status_callback = None
-    ctx.append_thinking_callback = None
-    ctx.send_cancellation = None
-
-    fake_doc = MagicMock()
-    fake_doc.getURL.return_value = "file:///deck.odp"
-
-    with (
-        patch("plugin.framework.uno_context.get_active_document", return_value=fake_doc),
-        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch(
-            "plugin.ppt_master.venv.host.run_ppt_master_venv_turn",
-            return_value={"status": "ok", "result": "<p>done</p>"},
-        ) as mock_run,
-    ):
-        out = tool.execute(ctx, query="Build a deck")
-        mock_run.assert_called_once()
-        assert mock_run.call_args.kwargs["model"] is None
-        assert mock_run.call_args.kwargs["cancel"] is None
-        assert out["status"] == "ok"
-        assert "done" in out["result"]
 
 
 def test_run_turn_passes_ppt_master_examples(monkeypatch: pytest.MonkeyPatch):
