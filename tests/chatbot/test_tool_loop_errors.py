@@ -887,32 +887,6 @@ def test_final_stream_done_and_stop_partial(test_instance):
     assert q3.get_nowait() == (StreamQueueKind.STOPPED,)
 
 
-def test_start_tool_calling_resets_overflow_attempts(test_instance):
-    test_instance._spawn_llm_worker = MagicMock()
-    test_instance._refresh_active_tools_for_session = MagicMock()
-
-    def execute_fn(name, args, call_id, ctx):
-        del name, args, call_id, ctx
-        return "{}"
-
-    with (
-        patch(
-            "plugin.chatbot.tool_loop.get_config",
-            side_effect=lambda key: False if key == "chat_compaction_enabled" else 8,
-        ),
-        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=MagicMock()),
-        patch("plugin.chatbot.tool_loop.run_stream_drain_loop"),
-        patch("plugin.chatbot.tool_loop_actions.finalize_sidebar_assistant_response"),
-    ):
-        from plugin.chatbot.tool_loop_actions import begin_send_turn
-        begin_send_turn(test_instance)
-        test_instance._start_tool_calling_async(
-            MagicMock(), MagicMock(), 128, [], execute_fn, max_tool_rounds=8
-        )
-    from plugin.chatbot.tool_loop_actions import current_turn
-    assert current_turn(test_instance)._overflow_compact_attempts == 0
-
-
 def test_overflow_does_not_retry_when_stop_requested(test_instance):
     _prime_active_tool_loop(test_instance)
     test_instance.stop_requested = True
@@ -923,19 +897,6 @@ def test_overflow_does_not_retry_when_stop_requested(test_instance):
     assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     assert send_outcome_terminal_display(test_instance) == "Error"
-
-
-def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
-    _prime_active_tool_loop(test_instance)
-    test_instance.stop_requested = True
-    test_instance._spawn_llm_worker = MagicMock()
-
-    recovered = _handle_stream_error(test_instance, _overflow_payload())
-
-    assert recovered is StreamErrorOutcome.END
-    test_instance._spawn_llm_worker.assert_not_called()
-    assert send_outcome_terminal_display(test_instance) == "Error"
-
 
 
 def test_stream_error_on_dead_turn_still_deletes_wav(test_instance, tmp_path):

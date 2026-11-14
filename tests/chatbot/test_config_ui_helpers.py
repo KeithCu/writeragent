@@ -685,7 +685,9 @@ class TestPopulateComboboxWithLruFetchOptions:
     def test_populate_combobox_with_bad_port_does_not_raise(self):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
-        populate_combobox_with_lru(ctrl, "", "model_lru", "http://localhost:1a")
+        result = populate_combobox_with_lru(ctrl, "", "model_lru", "http://localhost:1a")
+        assert result == "(Connection failed)"
+        ctrl.setText.assert_called_with("(Connection failed)")
 
     def test_lmstudio_keeps_catalogued_elsewhere_model(self):
         ctrl = MagicMock()

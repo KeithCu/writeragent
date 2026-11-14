@@ -181,7 +181,6 @@ class TestAppendRichText:
         """Verify the prefix cursor gets USER_COLOR via createTextCursorByRange."""
         doc = MockDoc()
         created_cursors = []
-        doc.getText().createTextCursorByRange
 
         def track_cursor(rng):
             c = MockTextCursor()

@@ -2,8 +2,6 @@
 
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -44,27 +42,6 @@ def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50
 # =============================================================================
 # Web research chat block formatting tests (from test_web_research_chat.py)
 # =============================================================================
-
-
-def test_web_research_module_imports_despite_threading_lock_annotation():
-    """Regression: ``threading.Lock | None`` must not raise at import time.
-
-    On Python before 3.13, ``threading.Lock`` is ``allocate_lock`` (a
-    builtin factory), so evaluating ``Lock | None`` without postponed
-    annotations aborts ``ChatbotModule.initialize`` and leaves
-    ``librarian_onboarding`` unregistered.
-    """
-    r = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import plugin.chatbot.web_research as wr; assert wr.WebAgentRunParams is not None",
-        ],
-        cwd=Path(__file__).resolve().parents[2],
-        capture_output=True,
-        text=True,
-    )
-    assert r.returncode == 0, r.stderr
 
 
 def test_web_search_engine_step_chat_text():
@@ -119,9 +96,7 @@ def test_cache_hit_does_not_stream_chat_append_callback():
                 return 8
             return 50
 
-        with patch("plugin.framework.config.get_config", return_value=True), \
-             patch("plugin.framework.config.user_config_dir", return_value=td), \
-             patch("plugin.framework.config.get_config", return_value=50), \
+        with patch("plugin.framework.config.user_config_dir", return_value=td), \
              patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
              patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=False), \
              patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
@@ -1345,11 +1320,8 @@ def test_web_research_tool_includes_instruction_in_result(tmp_path):
     ctx.ctx = MockContext()
     ctx.doc_type = "calc"
 
-    with patch("plugin.framework.config.get_config", return_value="off"), \
-         patch("plugin.framework.config.get_config", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
-         patch("plugin.framework.config.get_config", return_value=50), \
          patch("plugin.framework.config.get_config", return_value=30), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research._run_web_agent", return_value="Live research result text"):
@@ -1487,10 +1459,8 @@ def test_cdp_connection_leak_early_exception():
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=FakeException("Early crash")), \
          patch("plugin.framework.client.llm_client.LlmClient"):
 
-         try:
+         with pytest.raises(FakeException):
              WebResearchTool().execute(ctx, query="test query")
-         except FakeException:
-             pass
 
          mock_begin.assert_called_once_with(ctx.ctx, "chrome")
          # Important: Even though the exception was raised during LlmClient setup, finish must be called

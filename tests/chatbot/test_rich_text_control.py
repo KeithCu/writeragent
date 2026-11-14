@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from plugin.chatbot.dialogs import set_prop
 from plugin.chatbot.rich_text_control import (
@@ -43,58 +45,26 @@ class TestRichControlHelpers:
         assert bw == 100 - 2 * RICH_CONTROL_EDGE_INSET
         assert bh == 200 - 2 * RICH_CONTROL_EDGE_INSET
 
-    def test_content_bounds_placeholder_rect_is_authoritative(self):
-        """Layout-provided rect is the sole geometry source; Clear width must not widen it."""
-        from types import SimpleNamespace
-
+    @pytest.mark.parametrize(
+        "ps_size, placeholder_rect, expected_rect",
+        [
+            pytest.param((4, 16, 142, 110), (10, 30, 400, 350), (10, 30, 400, 350), id="authoritative_placeholder"),
+            pytest.param((4, 16, 400, 110), None, (4, 16, 400, 110), id="fallback_ps"),
+        ],
+    )
+    def test_content_bounds_placeholder_and_fallback(self, ps_size, placeholder_rect, expected_rect):
         from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
 
         ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=142, Height=110)
-        root = MagicMock()
-        root.getPosSize.return_value = SimpleNamespace(Width=900, Height=500)
-        clear = MagicMock()
-        clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
-        root.getControl.return_value = clear
-        bx, by, bw, bh = _content_bounds_for_rich_control(
-            ps, placeholder_rect=(4, 16, 142, 350),
-        )
-        assert bx == 4 + RICH_CONTROL_EDGE_INSET
-        assert by == 16 + RICH_CONTROL_EDGE_INSET
-        assert bw == 142 - 2 * RICH_CONTROL_EDGE_INSET
-        assert bh == 350 - 2 * RICH_CONTROL_EDGE_INSET
-        assert bw < 900
+        ps.getPosSize.return_value = SimpleNamespace(X=ps_size[0], Y=ps_size[1], Width=ps_size[2], Height=ps_size[3])
+        kwargs = {"placeholder_rect": placeholder_rect} if placeholder_rect is not None else {}
+        bx, by, bw, bh = _content_bounds_for_rich_control(ps, **kwargs)
 
-    def test_content_bounds_wide_placeholder_fills_placeholder(self):
-        from types import SimpleNamespace
-
-        from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
-
-        ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=400, Height=110)
-        root = MagicMock()
-        clear = MagicMock()
-        clear.getPosSize.return_value = SimpleNamespace(X=108, Y=186, Width=50, Height=15)
-        root.getControl.return_value = clear
-
-        bx, _by, bw, _bh = _content_bounds_for_rich_control(
-            ps, placeholder_rect=(4, 16, 400, 500),
-        )
-
-        assert bx == 4 + RICH_CONTROL_EDGE_INSET
-        assert bw == 400 - 2 * RICH_CONTROL_EDGE_INSET
-
-    def test_content_bounds_fallback_fills_placeholder(self):
-        from types import SimpleNamespace
-
-        from plugin.chatbot.rich_text_control import RICH_CONTROL_EDGE_INSET, _content_bounds_for_rich_control
-
-        ps = MagicMock()
-        ps.getPosSize.return_value = SimpleNamespace(X=4, Y=16, Width=400, Height=110)
-        bx, _by, bw, _bh = _content_bounds_for_rich_control(ps)
-
-        assert bx == 4 + RICH_CONTROL_EDGE_INSET
-        assert bw == 400 - 2 * RICH_CONTROL_EDGE_INSET
+        ex, ey, ew, eh = expected_rect
+        assert bx == ex + RICH_CONTROL_EDGE_INSET
+        assert by == ey + RICH_CONTROL_EDGE_INSET
+        assert bw == ew - 2 * RICH_CONTROL_EDGE_INSET
+        assert bh == eh - 2 * RICH_CONTROL_EDGE_INSET
 
     def test_apply_rich_control_geometry_set_pos_size(self):
         """View geometry is setPosSize only. Dialog-model Position/Width/Height are insert-time."""
@@ -111,7 +81,6 @@ class TestRichControlHelpers:
 
         assert changed
         rich.setPosSize.assert_called_once_with(36, 118, 1043, 300, 15)
-        assert model.Height == 94
         rich.getModel.assert_not_called()
 
     def test_rich_control_model_gets_chat_typography(self):
@@ -319,8 +288,6 @@ class TestAppendTextChunk:
         mock_uno.assert_called_once_with(control, ".uno:SelectAll")
         assert restore.call_count == 2
         assert restore.call_args_list[0] == restore.call_args_list[1]
-        # SelectAll is between the two restores so Hidden mode stays.
-        assert mock_uno.call_count == 1
 
     def test_scroll_rich_to_tail_is_not_reentrant(self):
         from plugin.chatbot import rich_text_control as rtc

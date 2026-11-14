@@ -389,12 +389,23 @@ def test_find_cut_snaps_forward_off_tool_and_keeps_pairs():
     cut = C.find_cut_index(messages, keep, start_index=1)
     assert cut is not None
     assert messages[cut]["role"] != "tool"
-    # The assistant+both tools are together: either all in tail or all before cut.
-    asst_i = 2
-    if cut <= asst_i:
-        assert cut <= asst_i
-    else:
-        assert cut >= 5
+    # The assistant+both tools are together, so landing on t2 snaps forward past both.
+    assert cut == 5
+
+    # Sequential multi-round tool iterations also snap forward off the trailing tool result.
+    seq_messages = [
+        _system_doc(50),
+        _msg("user", 20),
+        _assistant_tools(("t1", "tool_1")),
+        _tool("t1", 30),
+        _assistant_tools(("t2", "tool_2")),
+        _tool("t2", 30),
+        _msg("assistant", 20),
+    ]
+    seq_keep = C.estimate_message_tokens(seq_messages[-1]) + C.estimate_message_tokens(seq_messages[-2])
+    seq_cut = C.find_cut_index(seq_messages, seq_keep, start_index=1)
+    assert seq_cut == 6
+    assert seq_messages[seq_cut]["role"] == "assistant"
 
 
 def test_sanitize_drops_orphan_tool_and_dangling_tool_calls():
@@ -905,12 +916,12 @@ def test_compact_session_max_tokens_never_reads_chat_max_tokens():
     session = DummySession(_history_3x1000())
     client = DummyClient()
     result = C.compact_session(session, client, window=4096, max_tokens=512)
-    assert result.reason in ("ok", "nothing_to_compact", "failed")
-    if client.calls:
-        assert client.calls[0]["max_tokens"] == 512
-        assert client.calls[0]["stream"] is False
-        assert client.calls[0]["tools"] is None
-        assert client.calls[0]["prepend_dev_build_system_prefix"] is False
+    assert result.reason == "ok"
+    assert len(client.calls) == 1
+    assert client.calls[0]["max_tokens"] == 512
+    assert client.calls[0]["stream"] is False
+    assert client.calls[0]["tools"] is None
+    assert client.calls[0]["prepend_dev_build_system_prefix"] is False
 
 
 # --- 13. UPDATE path -----------------------------------------------------------
@@ -1277,25 +1288,6 @@ def test_stop_checker_after_http_returns_aborts():
     assert result.compacted is False
     assert session.compaction is None
     assert len(client.calls) == 1
-
-
-def test_multi_round_tool_sequence_cut():
-    # User turn followed by sequential tool iterations (round 1 then round 2)
-    messages = [
-        _system_doc(50),
-        _msg("user", 20),
-        _assistant_tools(("t1", "tool_1")),
-        _tool("t1", 30),
-        _assistant_tools(("t2", "tool_2")),
-        _tool("t2", 30),
-        _msg("assistant", 20),
-    ]
-    # Ceiling walk trying to keep tail tokens
-    keep = C.estimate_message_tokens(messages[-1]) + C.estimate_message_tokens(messages[-2])
-    cut = C.find_cut_index(messages, keep, start_index=1)
-    assert cut is not None
-    # Must snap forward off tool result (cannot be at index 3 or 5)
-    assert messages[cut]["role"] in ("user", "assistant")
 
 
 def test_flatten_content_and_tool_name_fallbacks():

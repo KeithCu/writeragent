@@ -1972,16 +1972,16 @@ def test_do_send_restores_query_text_on_error() -> None:
 
 
 def test_normal_turn_end_does_not_set_focus() -> None:
-    from plugin.chatbot.panel import SendButtonListener
-    from unittest.mock import MagicMock, patch
-
-    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
-        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener = _make_send_listener()
     listener.frame_session = MagicMock()
-    listener.frame_session.restore_focus = MagicMock()
-
-    # Check that a non-stop button state update does not restore focus
-    listener._set_button_states(True, False)
+    listener.sidebar_state = SidebarCompositeState(
+        send=SendButtonState(SendMode.BUSY, False, False, True),
+        tool_loop=None,
+    )
+    with patch.object(listener, "_do_send") as mock_do_send:
+        listener._run_send_drain()
+    mock_do_send.assert_called_once()
+    assert listener.sidebar_state.send.mode == SendMode.IDLE
     listener.frame_session.restore_focus.assert_not_called()
 
 def test_ask_text_restored_on_post_clear_error() -> None:
