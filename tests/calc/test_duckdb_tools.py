@@ -261,7 +261,7 @@ def test_query_folder_sql_handles_office_files_and_sheet_hint(
     assert pre["budget"]["grid"] == [["Region", "Sales"], ["North", 100]]
 
     flat = call_args.kwargs.get("flat_files") or {}
-    assert flat == {"sales": "/tmp/project/sales.csv"}
+    assert flat == {"sales": os.path.join("/tmp/project", "sales.csv")}
 
 
 @patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)

@@ -503,6 +503,7 @@ def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
         um.undo()
         restored = str(a2.getFormula() or "")
         assert "PY" in restored.upper() or "PYTHON" in restored.upper(), restored
+        # One undo may restore only A2; flush re-links A3 to it either way.
         _flush(ctx, doc, sheet)
         assert _pred(str(a3.getFormula() or "")) == "A2", (
             a2.getFormula(),

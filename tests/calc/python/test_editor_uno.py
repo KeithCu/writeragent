@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import unittest
+
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -112,8 +114,6 @@ def test_follow_ref_save_empty_data_still_evaluates(ctx, doc):
     # Headless PY($A$1) may not run the worker (val stays 0); GUI does. When
     # setup evaluated, save must update the result; otherwise skip visibly.
     if float(before_val) != 42.0:
-        import unittest
-
         raise unittest.SkipTest("=PY() worker did not evaluate in headless profile (before_val != 42.0)")
     assert float(after_val) == 99.0, f"after {after!r} val={after_val} err={after_err}"
 

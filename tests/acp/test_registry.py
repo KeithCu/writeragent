@@ -60,7 +60,6 @@ def test_registry_classes_own_their_display_names():
         assert "display_name" in cls.__dict__
 
 
-
 @pytest.mark.parametrize("cls", _ACP_BACKENDS, ids=lambda c: c.backend_id)
 def test_backend_is_available_matrix(cls):
     backend = cls()

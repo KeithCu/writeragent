@@ -90,9 +90,11 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
         "headers": ["Month", "Sales"],
         "rows": [["Jan", 100], ["Feb", 150]]
     })
+    # Schema strips the other doc type's fields before validation (docs/calc/charts.md).
     assert res.get("status") == "error"
-    assert res.get("code") == "INVALID_PARAM"
-    assert "not supported in Calc" in res.get("message", "")
+    assert res.get("code") == "VALIDATION_ERROR"
+    assert "data_range" in res.get("message", "")
+    assert res.get("ignored_parameters") == ["headers", "rows"]
 
     # Create chart without data_range should fail in Calc
     res = _execute_calc_tool(doc, ctx, "chart_upsert", {
@@ -112,9 +114,11 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
         # Create chart with data_range should fail in Writer due to missing headers/rows
         res_fail = get_tools().execute("chart_upsert", writer_ctx, chart_type="bar", data_range="A1:B6")
+        # Schema strips the other doc type's fields before validation (docs/calc/charts.md).
         assert res_fail.get("status") == "error"
-        assert res_fail.get("code") == "INVALID_PARAM"
-        assert "only supported in Calc" in res_fail.get("message", "")
+        assert res_fail.get("code") == "VALIDATION_ERROR"
+        assert "Both 'headers' and 'rows' are required" in res_fail.get("message", "")
+        assert res_fail.get("ignored_parameters") == ["data_range"]
 
         # Create chart without headers/rows should fail in Writer
         res_fail2 = get_tools().execute("chart_upsert", writer_ctx, chart_type="bar")
