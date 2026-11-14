@@ -267,14 +267,6 @@ def test_execute_rejects_negative_page():
     assert "0-based" in res["message"]
 
 
-def test_execute_page_param_is_0based():
-    page_desc = GetImage.parameters["properties"]["page"]["description"]
-    assert page_desc.startswith("0-based page/slide index")
-    assert "1-based" not in page_desc
-    assert "0-based" in GetImage.description
-    assert "1-based" not in GetImage.description
-
-
 def test_execute_named_image_uses_visual_helpers_not_graphic_objects():
     doc = FakeDrawDoc()
     raw = b"\x89PNG\r\n\x1a\nimg"

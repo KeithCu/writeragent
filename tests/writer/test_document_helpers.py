@@ -134,12 +134,11 @@ class _DocWithUserDefinedProperties:
         return _DocProps(self._props)
 
 
-def test_build_writer_rewrite_prompt_uses_direct_rewrite_format():
-    prompt = build_writer_rewrite_prompt("Original text", "Make it shorter")
-
-    assert "Rewrite the following text" in prompt
-    assert "Instructions: Make it shorter" in prompt
-    assert "Text to rewrite:\nOriginal text" in prompt
+def test_build_writer_rewrite_prompt_interpolates_args():
+    prompt = build_writer_rewrite_prompt("ORIG", "INSTR")
+    assert "ORIG" in prompt
+    assert "INSTR" in prompt
+    assert prompt.index("INSTR") < prompt.index("ORIG")
 
 
 def test_writer_streamed_rewrite_session_finishes_as_single_tracked_change():

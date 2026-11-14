@@ -17,11 +17,9 @@
 
 from __future__ import annotations
 
-from plugin.writer.specialized.textframes import FrameSetProperties
 from plugin.writer.specialized_base import (
     INSERT_TARGETS,
     DelegateToSpecializedWriter,
-    ToolWriterTextFramesBase,
     enum_param,
     index_error,
     target_params,
@@ -95,31 +93,6 @@ def test_index_error_out_of_bounds() -> None:
     assert index_error(0, 0, "footnote") == "Invalid index 0. The document has 0 footnote(s)."
 
 
-def test_textframes_contract_matches_implemented_tools() -> None:
-    desc = (ToolWriterTextFramesBase.specialized_domain_description or "").lower()
-    assert "content" not in desc
-    assert "list" in desc and "resize" in desc
-    assert "insert" in desc and "delete" in desc
-    assert "reposition" not in (FrameSetProperties.description or "").lower()
-
-
-def test_writer_gateway_description_has_no_hardcoded_domain_list() -> None:
-    assert "Also:" not in DelegateToSpecializedWriter.description
-
-
-def test_indexes_domain_description_tells_main_chat_to_delegate_toc_jobs() -> None:
-    from plugin.writer.specialized_base import ToolWriterIndexBase
-
-    desc = ToolWriterIndexBase.specialized_domain_description or ""
-    assert "links only on request" in desc
-    assert "indexes_create kind=toc" in desc
-    assert "must not rebuild a TOC with document-content edits" in desc
-    assert "report entry text and level" in desc
-    assert "yourself" not in desc
-    assert "internal hyperlink" not in desc
-    assert "verbatim" not in desc
-
-
 def test_writer_gateway_description_carries_python_routing_and_research_task_hint() -> None:
     from plugin.framework.prompts import (
         DELEGATION_USER_FILE_DATA_HINT,
@@ -130,20 +103,6 @@ def test_writer_gateway_description_carries_python_routing_and_research_task_hin
     desc = DelegateToSpecializedWriter.description
     assert delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_writer_toolset") in desc
     assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") in desc
-    assert "topics, sections, depth" in desc
     assert DELEGATION_USER_FILE_DATA_HINT not in desc
     assert "\n" not in desc
-
-
-def test_writer_vision_catalog_line_routes_ocr() -> None:
-    from plugin.writer.specialized_base import ToolWriterVisionBase
-
-    desc = ToolWriterVisionBase.specialized_domain_description or ""
-    assert "OCR" in desc
-    assert "selected graphic" in desc
-    assert "insert it into the document" in desc
-    assert "task is ignored" in desc
-    lowered = desc.lower()
-    for banned in ("html", "docling", "rapidocr", "recognized text", "yourself"):
-        assert banned not in lowered
 

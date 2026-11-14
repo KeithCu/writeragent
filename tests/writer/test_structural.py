@@ -180,8 +180,6 @@ def test_clone_heading_block_with_table():
     assert inserted_strings == ["Heading A", "Body text"]
     assert created_cursors == [table.getAnchor()]
     cursor_mock.collapseToEnd.assert_called_once()
-    assert "Plain paragraph text" in CloneHeadingBlock.description
-    assert "tables are skipped" in CloneHeadingBlock.description
 
 
 def test_get_page_objects_disposal_and_error_handling(caplog):

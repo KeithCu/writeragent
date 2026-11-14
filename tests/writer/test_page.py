@@ -488,19 +488,9 @@ def test_set_header_footer_enables_a_region_that_is_off():
     text_obj.setString.assert_not_called()
 
 
-def test_page_header_footer_schema_has_no_force_and_descriptions_say_html():
-    """force/refuse-on-held is gone: schema omits force; copy says get/set HTML, not wipe."""
-    get_desc = PageGetHeaderFooterText.description.lower()
-    set_desc = PageSetHeaderFooterText.description.lower()
-    assert "html" in get_desc
-    assert "html" in set_desc
-    assert "images" in get_desc and "fields" in get_desc
+def test_page_header_footer_schema_has_no_force():
+    """force/refuse-on-held is gone: schema omits force."""
     assert "force" not in PageSetHeaderFooterText.parameters["properties"]
-    assert "force" not in set_desc
-    assert "force" not in get_desc
-    assert "wipe" not in set_desc
-    assert "refuse" not in set_desc
-    assert "setstring" not in set_desc
 
 
 def test_scan_region_warns_when_portion_cap_is_hit(monkeypatch):

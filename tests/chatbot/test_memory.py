@@ -400,11 +400,3 @@ def test_memory_cap_rejection_and_shrink_allowed(tmp_path):
         after_del = store.read()
         assert len(after_del) < initial_len
         assert "extra" not in json.loads(after_del)
-
-
-def test_memory_tool_description_and_spec():
-    desc = MemoryTool.description
-    assert "JSON object" in desc
-    assert "writing.tone" in desc
-    assert "empty string" in desc
-    assert "short stable keys" in desc

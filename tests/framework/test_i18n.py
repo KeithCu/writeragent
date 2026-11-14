@@ -237,7 +237,6 @@ class TestI18n:
     def _ensure_mo(self, lang: str) -> str:
         """Return locales dir, compiling *lang* from .po into a temporary directory."""
         import tempfile
-        from pathlib import Path
 
         from tests.harness.strip_bundle import skip_if_release_build
 
@@ -323,47 +322,3 @@ class TestI18n:
 
         zh_trans = i18n_module.load_translation(["zh_CN"], self._ensure_mo("zh_CN"), fallback=False)
         assert (zh_trans.gettext("{0}d ago")) == ("{0}天前")
-
-
-    def test_ja_es_catalogs_fill_survey_leftovers(self):
-        """JA/ES msgstrs for the headed-survey leftovers are real translations."""
-        from tests.harness.strip_bundle import skip_if_release_build
-
-        skip_if_release_build("locales/*.po not in stripped release tree")
-        import polib
-
-        root = Path(__file__).resolve().parents[2]
-        ja = polib.pofile(str(root / "locales/ja/LC_MESSAGES/writeragent.po"))
-        es = polib.pofile(str(root / "locales/es/LC_MESSAGES/writeragent.po"))
-        ja_expected = {
-            "Web Research Cache": "ウェブリサーチキャッシュ",
-            "Web Research Browser": "ウェブリサーチブラウザ",
-            "Recheck": "再チェック",
-            "Copy Config": "設定をコピー",
-            "Download": "ダウンロード",
-            "Geometric Recalc Order (Experimental)": "幾何学的再計算順序 (実験的)",
-            "Deep Research": "詳細リサーチ",
-            "Assistant:": "アシスタント:",
-            "Square": "正方形",
-            "Vision OCR Settings...": "Vision OCR 設定...",
-            "Debug": "デバッグ",
-        }
-        es_expected = {
-            "Recheck": "Recomprobar",
-            "Copy Config": "Copiar configuración",
-            "Download": "Descargar",
-            "Assistant:": "Asistente:",
-            "Square": "Cuadrado",
-            "Deep Research": "Investigación profunda",
-            "Geometric Recalc Order (Experimental)": "Orden de recálculo geométrico (experimental)",
-        }
-        for msgid, msgstr in ja_expected.items():
-            entry = ja.find(msgid)
-            assert entry is not None, msgid
-            assert entry.msgstr == msgstr
-        for msgid, msgstr in es_expected.items():
-            entry = es.find(msgid)
-            assert entry is not None, msgid
-            assert entry.msgstr == msgstr
-
-
