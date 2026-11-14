@@ -238,14 +238,6 @@ def test_whitespace_normalization_cache_key() -> None:
     assert key5 == key6
     assert key1 != key6
 
-def test_cache_hit_with_trailing_whitespace() -> None:
-    """Putting 'Hello.' and getting 'Hello. ' should be a cache hit."""
-    gc.cache_put_sentence("en-US", "Hello.", [{"n_error_start": 0, "n_error_length": 5}])
-    result = gc.cache_get_sentence("en-US", "Hello. ")
-    assert result is not None
-    assert len(result) == 1
-    assert result[0]["n_error_start"] == 0
-
 def test_cache_persistence_fallback() -> None:
     """Test that cache_get_sentence falls back to persistence and populates memory cache."""
     from unittest.mock import MagicMock

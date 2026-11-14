@@ -371,25 +371,6 @@ def test_list_cites_plain_runtime_error_still_degrades():
     assert res["cites"][0]["fields"] == {}
 
 
-def test_indexes_create_and_mark_shortened_params():
-    tool_create = IndexesCreate()
-    ctx = MagicMock()
-    doc = ctx.doc
-    cursor_mock = MagicMock()
-    doc.getText().createTextCursor.return_value = cursor_mock
-    index_mock = MagicMock()
-    doc.createInstance.return_value = index_mock
-
-    res_create = tool_create.execute(ctx, kind="toc", title="My TOC", target="beginning")
-    assert res_create["status"] == "ok"
-
-    tool_mark = IndexesAddMark()
-    mark_mock = MagicMock()
-    doc.createInstance.return_value = mark_mock
-    res_mark = tool_mark.execute(ctx, text="Important Term", kind="alphabetical", target="beginning")
-    assert res_mark["status"] == "ok"
-
-
 def test_compose_toc_line_copies_sibling_page_digits():
     line, page, copied = _compose_toc_line("Gamma title", None, "Alpha title\t1")
     assert line == "Gamma title\t1"

@@ -716,6 +716,7 @@ def test_grammar_check_routes_to_languagetool() -> None:
         run_grammar_check(chunk, "en-US", "en-US", ec)
 
         mock_lt_check.assert_called_once()
+        assert mock_lt_check.call_args.args[1] == "This has an error."
         mock_process.assert_called_once()
 
 
@@ -746,6 +747,7 @@ def test_grammar_check_routes_to_vale() -> None:
         run_grammar_check(chunk, "en-US", "en-US", ec)
 
         mock_vale_check.assert_called_once()
+        assert mock_vale_check.call_args.args[1] == "This is a passive voice sentence."
         mock_process.assert_called_once()
 
 
@@ -1136,7 +1138,8 @@ def test_detect_languages_for_chunk_sends_only_unresolved_to_llm() -> None:
         result = detect_languages_for_chunk(chunk, "instruction", ec)
 
     assert result == ["en-US", "de-DE"]
-    mock_single.assert_called_once_with(item_b.text, "instruction", ec)
+    mock_single.assert_called_once()
+    assert mock_single.call_args.args[0] == item_b.text
 
     item_c = _item("Auf Wiedersehen.", inflight_key="k3")
     chunk3 = [(item_a, item_a.text), (item_b, item_b.text), (item_c, item_c.text)]

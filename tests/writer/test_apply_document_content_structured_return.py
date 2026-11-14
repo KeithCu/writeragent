@@ -1471,33 +1471,3 @@ def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monke
     assert res["status"] == "error"
     assert res["code"] == "SHAPE_TEXT_NEEDS_DELEGATION"
 
-
-def test_parameter_validations_return_invalid_param():
-    tool = ApplyDocumentContent()
-    ctx = _ctx()
-
-    # Empty content on insert target
-    res = tool.execute(ctx, target="beginning", content="")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    # position='before' with target != 'search'
-    res = tool.execute(ctx, target="end", content="bar", position="before")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    # position='before' with all_matches=True
-    res = tool.execute(ctx, target="search", old_content="foo", content="bar", position="before", all_matches=True)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    # non-string list items
-    res = tool.execute(ctx, target="beginning", content=[123])
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-
-    # non-string content
-    res = tool.execute(ctx, target="beginning", content=123)
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
-

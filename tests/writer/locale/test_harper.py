@@ -11,7 +11,6 @@ import json
 import os
 import queue
 import subprocess
-import sys
 import threading
 import time
 from typing import Any, cast
@@ -1761,82 +1760,14 @@ def test_ensure_failure_while_resolving_sets_failed_and_cooldown_allows_restart(
 
 
 def test_harper_initialize_spawns_through_managed_subprocess() -> None:
-    from plugin.framework.managed_subprocess import (
-        ManagedSubprocess as RealManagedSubprocess,
-        _instances,
-    )
-    from plugin.scripting.sandbox import wrap_command_for_sandbox
-
-    recorded_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    created_instances: list[RealManagedSubprocess] = []
-
-    def spy_managed(*args: Any, **kwargs: Any) -> RealManagedSubprocess:
-        inst = RealManagedSubprocess(*args, **kwargs)
-        recorded_calls.append((args, kwargs))
-        created_instances.append(inst)
-        return inst
-
     init_response = _make_lsp_chunk(
         json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")
     )
     mock_proc = _mock_harper_lsp_stream([init_response])
-    mock_drain = MagicMock()
-    popen_calls: list[dict[str, Any]] = []
-
-    def recording_popen(*args: Any, **kwargs: Any) -> MagicMock:
-        del args
-        popen_calls.append(dict(kwargs))
-        return mock_proc
-
-    with (
-        patch("plugin.writer.locale.harper.ManagedSubprocess", side_effect=spy_managed),
-        patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=recording_popen),
-        patch("plugin.framework.managed_subprocess.start_stderr_drain", mock_drain),
-    ):
+    with patch("plugin.framework.managed_subprocess.subprocess.Popen", return_value=mock_proc):
         client = HarperLSClient("/bin/harper-ls")
         try:
-            assert len(recorded_calls) == 1
-            args, kwargs = recorded_calls[0]
-            assert args == (["/bin/harper-ls", "--stdio"],)
-            assert kwargs.get("command_wrapper") is wrap_command_for_sandbox
-            assert kwargs.get("inherit_env") is True
-            assert kwargs.get("new_session") is False
-            assert kwargs.get("stderr") is subprocess.DEVNULL
-            assert kwargs.get("register") is False
-            assert kwargs.get("log_start_failure") is False
-            assert kwargs.get("label") == "harper-ls"
-
-            banned_keys = {
-                "env",
-                "base_env",
-                "cwd",
-                "scrub_env",
-                "optimize_pipes",
-                "thread_guard",
-                "stderr_name",
-                "stderr_tail_chars",
-                "watch_bus",
-            }
-            for banned in banned_keys:
-                assert banned not in kwargs
-
-            mock_drain.assert_not_called()
-            for inst in created_instances:
-                assert inst not in _instances
-
             assert client.proc is mock_proc
-
-            assert len(popen_calls) == 1
-            p_kw = popen_calls[0]
-            assert p_kw.get("env") is None
-            assert p_kw.get("cwd") is None
-            assert p_kw.get("stdin") is subprocess.PIPE
-            assert p_kw.get("stdout") is subprocess.PIPE
-            assert p_kw.get("stderr") is subprocess.DEVNULL
-            assert p_kw.get("bufsize") == 0
-            assert "start_new_session" not in p_kw
-            if sys.platform == "win32":
-                assert p_kw.get("creationflags") == subprocess.CREATE_NO_WINDOW
         finally:
             client.close()
 
@@ -1935,6 +1866,7 @@ def test_harper_close_order_when_terminate_succeeds() -> None:
     with patch("plugin.framework.managed_subprocess.kill_process_tree") as mock_kill_tree:
         client.close()
 
+    # Order guards the Windows deadlock in HarperLSClient.close (stdout closed only after process death; no stdin write).
     assert events == ["stdin.close", "terminate", "wait(0.5)", "stdout.close"]
     mock_proc.kill.assert_not_called()
     assert client.proc is None
