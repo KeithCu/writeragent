@@ -207,90 +207,45 @@ def test_read_settings_control_skips_missing_and_checkbox_is_bool():
     assert read_settings_control(_Box(), {"type": "bool"}) is True
 
 
-def test_read_settings_control_commits_peer_text_before_getvalue():
+@pytest.mark.parametrize(
+    ("init_val", "peer_val", "set_raises", "expected_val", "expected_set_calls"),
+    [
+        pytest.param(1.0, 42.0, False, 42.0, [42.0], id="commits_peer_text_before_getvalue"),
+        pytest.param(42.0, 42.0, False, 42.0, [], id="spun_value_ignores_stale_caption"),
+        pytest.param(42, None, False, 42, [], id="without_peer_keeps_getvalue"),
+        pytest.param(1.0, 42.0, True, 42.0, [], id="uses_peer_when_setvalue_fails"),
+    ],
+)
+def test_read_settings_control_numeric_peer(init_val, peer_val, set_raises, expected_val, expected_set_calls):
+    set_value_calls: list[Any] = []
+
     class _Peer:
         def getValue(self):
-            return 42.0
+            return peer_val
 
-    class _Ctrl:
+    class _BaseCtrl:
         def __init__(self):
-            self.value = 1.0
+            self.value = init_val
 
         def getValue(self):
             return self.value
 
         def setValue(self, val):
+            if set_raises:
+                raise RuntimeError("setValue failed")
+            set_value_calls.append(val)
             self.value = float(val)
 
         def getText(self):
             return "1"
 
+    class _PeerCtrl(_BaseCtrl):
         def getPeer(self):
             return _Peer()
 
-    ctrl = _Ctrl()
-    assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == 42.0
-    assert ctrl.value == 42.0
-
-
-def test_read_settings_control_spun_value_ignores_stale_caption():
-    set_value_calls: list[Any] = []
-
-    class _Peer:
-        def getValue(self):
-            return 42.0
-
-    class _Ctrl:
-        def getValue(self):
-            return 42.0
-
-        def setValue(self, val):
-            set_value_calls.append(val)
-
-        def getText(self):
-            return "1"
-
-        def getPeer(self):
-            return _Peer()
-
-    ctrl = _Ctrl()
-    result = read_settings_control(ctrl, {"type": "int", "name": "count"})
-    assert result == 42.0
-    assert len(set_value_calls) == 0
-
-
-def test_read_settings_control_without_peer_keeps_getvalue():
-    class _Ctrl:
-        def getText(self):
-            return "1"
-
-        def getValue(self):
-            return 42
-
-    ctrl = _Ctrl()
-    assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == 42
-
-
-def test_read_settings_control_uses_peer_when_setvalue_fails():
-    class _Peer:
-        def getValue(self):
-            return 42.0
-
-    class _Ctrl:
-        def getValue(self):
-            return 1.0
-
-        def setValue(self, val):
-            raise RuntimeError("setValue failed")
-
-        def getText(self):
-            return "1"
-
-        def getPeer(self):
-            return _Peer()
-
-    ctrl = _Ctrl()
-    assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == 42.0
+    ctrl = _PeerCtrl() if peer_val is not None else _BaseCtrl()
+    assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == expected_val
+    assert set_value_calls == expected_set_calls
 
 
 def test_populate_settings_control_sets_string_item_list_and_numeric_value():

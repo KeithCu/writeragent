@@ -105,37 +105,26 @@ def test_calc_anchor_disposed_cell_address_is_not_no_output_anchor():
             calc_output_anchor_from_graphic(MagicMock())
 
 
-def test_calc_anchor_ordinary_address_error_stays_no_output_anchor():
+class _AnchorRuntimeException(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("target", "exc_factory"),
+    [
+        ("address", lambda: ValueError("not a cell")),
+        ("property", lambda: _AnchorRuntimeException("fail")),
+        ("address", lambda: _AnchorRuntimeException("fail")),
+    ],
+)
+def test_calc_anchor_non_disposed_error_stays_no_output_anchor(target, exc_factory):
     shape = MagicMock()
-    anchor = MagicMock()
-    anchor.getCellAddress.side_effect = ValueError("not a cell")
-    shape.getPropertyValue.return_value = anchor
-    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
-        with pytest.raises(ToolExecutionError) as exc:
-            calc_output_anchor_from_graphic(MagicMock())
-    assert exc.value.code == "NO_OUTPUT_ANCHOR"
-
-
-def test_calc_anchor_runtime_property_is_not_document_disposed():
-    class RuntimeException(Exception):
-        pass
-
-    shape = MagicMock()
-    shape.getPropertyValue.side_effect = RuntimeException("fail")
-    with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
-        with pytest.raises(ToolExecutionError) as exc:
-            calc_output_anchor_from_graphic(MagicMock())
-    assert exc.value.code == "NO_OUTPUT_ANCHOR"
-
-
-def test_calc_anchor_runtime_cell_address_is_not_document_disposed():
-    class RuntimeException(Exception):
-        pass
-
-    shape = MagicMock()
-    anchor = MagicMock()
-    anchor.getCellAddress.side_effect = RuntimeException("fail")
-    shape.getPropertyValue.return_value = anchor
+    if target == "property":
+        shape.getPropertyValue.side_effect = exc_factory()
+    else:
+        anchor = MagicMock()
+        anchor.getCellAddress.side_effect = exc_factory()
+        shape.getPropertyValue.return_value = anchor
     with patch("plugin.calc.vision_egress.selected_graphic_object", return_value=shape):
         with pytest.raises(ToolExecutionError) as exc:
             calc_output_anchor_from_graphic(MagicMock())
@@ -311,49 +300,20 @@ def test_truncation_note_is_last_in_table():
     assert grid[-1] == ["(showing first rows; 50 total)"]
 
 
-def test_table_without_spans_has_no_merges():
-    result = {
-        "helper": "extract_structure",
-        "tables": [
-            {
-                "name": "t",
-                "columns": ["ColA", "ColB"],
-                "rows": [["1", "2"]],
-            }
-        ],
-    }
-    _grid, merges = _vision_structure_calc_layout(result)
-    assert merges == []
-
-
-def test_span_ignores_non_numeric_offsets():
-    result = {
-        "helper": "extract_structure",
-        "tables": [
-            {
-                "name": "t",
-                "columns": ["A", "B"],
-                "rows": [["1", "2"]],
-                "spans": [{"row": "x", "col": 0, "colspan": 2}],
-            }
-        ],
-    }
-    _grid, merges = _vision_structure_calc_layout(result)
-    assert merges == []
-
-
-def test_span_ignores_negative_origin():
-    result = {
-        "helper": "extract_structure",
-        "tables": [
-            {
-                "name": "t",
-                "columns": ["A", "B"],
-                "rows": [["1", "2"]],
-                "spans": [{"row": 0, "col": -2, "colspan": 2}],
-            }
-        ],
-    }
+@pytest.mark.parametrize(
+    "spans",
+    [
+        None,
+        [{"row": "x", "col": 0, "colspan": 2}],
+        [{"row": 0, "col": -2, "colspan": 2}],
+        [{"row": 99, "col": 0, "rowspan": 1, "colspan": 2}],
+    ],
+)
+def test_invalid_or_missing_spans_produce_no_merges(spans):
+    table: dict = {"name": "t", "columns": ["A", "B"], "rows": [["1", "2"]]}
+    if spans is not None:
+        table["spans"] = spans
+    result = {"helper": "extract_structure", "tables": [table]}
     _grid, merges = _vision_structure_calc_layout(result)
     assert merges == []
 
@@ -375,22 +335,6 @@ def test_span_colspan_is_clamped_to_table_width():
     _r1, c1, _r2, c2 = merges[0]
     assert c1 == 0
     assert c2 == 2
-
-
-def test_span_starting_past_last_data_row_is_skipped():
-    result = {
-        "helper": "extract_structure",
-        "tables": [
-            {
-                "name": "t",
-                "columns": ["A", "B"],
-                "rows": [["1", "2"]],
-                "spans": [{"row": 99, "col": 0, "rowspan": 1, "colspan": 2}],
-            }
-        ],
-    }
-    _grid, merges = _vision_structure_calc_layout(result)
-    assert merges == []
 
 
 @patch("plugin.calc.vision_egress.CellManipulator")

@@ -385,58 +385,34 @@ def test_audio_recorder_missing_venv():
         assert recorder.state.status == "error"
 
 
-def test_venv_record_to_wav_writes_file(tmp_path):
+def _run_record_to_wav(
+    tmp_path,
+    *,
+    pcm: bytes = b"\x00\x01",
+    frames: int = 1,
+    on_start=None,
+    on_wait=None,
+    extra_patches=(),
+    **record_kwargs,
+):
+    from contextlib import ExitStack
     import plugin.scripting.venv.audio_recorder as var
 
     stop_event = threading.Event()
     output_path = str(tmp_path / "out.wav")
-
     mock_sd = MagicMock()
     mock_stream = MagicMock()
+    captured: dict[str, Any] = {"callback": None, "finished_callback": None}
 
-    def fake_raw_input_stream(*args, **kwargs):
-        callback = kwargs.get("callback")
-
-        def start():
-            if callback is not None:
-                callback(b"\x00\x01", 1, None, None)
-            stop_event.set()
-
-        mock_stream.start.side_effect = start
-        return mock_stream
-
-    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
-
-    with patch.object(var, "_import_sounddevice", return_value=mock_sd):
-        var.record_to_wav(output_path, stop_event, on_stream_started=lambda: None)
-
-    assert os.path.exists(output_path)
-    with wave.open(output_path, "rb") as wf:
-        assert wf.getnchannels() == var.CHANNELS
-        assert wf.getframerate() == var.SAMPLE_RATE
-
-
-def test_record_to_wav_holds_silence_progress_until_ready(tmp_path, monkeypatch):
-    from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-    import plugin.scripting.venv.audio_recorder as var
-
-    stop_event = threading.Event()
-    output_path = str(tmp_path / "out.wav")
-    config = SilenceDetectorConfig(silence_stop_ms=100)
-    pcm = b"\x00" * 3200
-    recorded: list[str] = []
-
-    mock_sd = MagicMock()
-    mock_stream = MagicMock()
-    stored_callback = None
-
-    def fake_raw_input_stream(*args, **kwargs):
-        nonlocal stored_callback
-        stored_callback = kwargs.get("callback")
+    def fake_raw_input_stream(*_args, **kwargs):
+        captured["callback"] = kwargs.get("callback")
+        captured["finished_callback"] = kwargs.get("finished_callback")
 
         def start():
-            if stored_callback is not None:
-                stored_callback(pcm, 1600, None, None)
+            if captured["callback"] is not None:
+                captured["callback"](pcm, frames, None, None)
+            if on_start is not None:
+                on_start(stop_event, captured)
 
         mock_stream.start.side_effect = start
         mock_stream.stop.side_effect = lambda: None
@@ -445,73 +421,76 @@ def test_record_to_wav_holds_silence_progress_until_ready(tmp_path, monkeypatch)
 
     mock_sd.RawInputStream.side_effect = fake_raw_input_stream
 
-    def fake_wait(timeout=None):
-        if stored_callback is not None:
-            stored_callback(pcm, 1600, None, None)
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(var, "_import_sounddevice", return_value=mock_sd))
+        if on_wait is not None:
+            stack.enter_context(
+                patch.object(stop_event, "wait", side_effect=lambda timeout=None: on_wait(stop_event, captured, timeout))
+            )
+        for p in extra_patches:
+            stack.enter_context(p)
+        result = var.record_to_wav(output_path, stop_event, **record_kwargs)
+    return var, output_path, stop_event, result
+
+
+def test_venv_record_to_wav_writes_file(tmp_path):
+    var, output_path, _stop_event, _result = _run_record_to_wav(
+        tmp_path,
+        on_start=lambda stop_event, _cap: stop_event.set(),
+        on_stream_started=lambda: None,
+    )
+
+    assert os.path.exists(output_path)
+    with wave.open(output_path, "rb") as wf:
+        assert wf.getnchannels() == var.CHANNELS
+        assert wf.getframerate() == var.SAMPLE_RATE
+
+
+def test_record_to_wav_holds_silence_progress_until_ready(tmp_path):
+    from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
+
+    config = SilenceDetectorConfig(silence_stop_ms=100)
+    pcm = b"\x00" * 3200
+    recorded: list[str] = []
+
+    def on_wait(stop_event, captured, _timeout):
+        if captured["callback"] is not None:
+            captured["callback"](pcm, 1600, None, None)
         stop_event.set()
         return True
 
-    monkeypatch.setattr(stop_event, "wait", fake_wait)
-
-    with patch.object(var, "_import_sounddevice", return_value=mock_sd):
-        var.record_to_wav(
-            output_path,
-            stop_event,
-            on_stream_started=lambda: recorded.append("ready"),
-            silence_config=config,
-            on_ipc_emit=lambda payload: recorded.append(str(payload["status"])),
-        )
+    _var, output_path, _stop, _res = _run_record_to_wav(
+        tmp_path,
+        pcm=pcm,
+        frames=1600,
+        on_wait=on_wait,
+        on_stream_started=lambda: recorded.append("ready"),
+        silence_config=config,
+        on_ipc_emit=lambda payload: recorded.append(str(payload["status"])),
+    )
 
     assert recorded == ["ready", "silence_progress"]
     with wave.open(output_path, "rb") as wf:
         assert wf.getnframes() == 3200
 
 
-
 def test_venv_record_write_error_stops_instead_of_waiting(tmp_path):
-    import plugin.scripting.venv.audio_recorder as var
-
-    stop_event = threading.Event()
-    output_path = str(tmp_path / "out.wav")
-
-    mock_sd = MagicMock()
-    mock_stream = MagicMock()
-
-    def fake_raw_input_stream(*args, **kwargs):
-        callback = kwargs.get("callback")
-
-        def start():
-            if callback is not None:
-                callback(b"\x00\x01", 1, None, None)
-
-        mock_stream.start.side_effect = start
-        return mock_stream
-
-    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
-
     mock_wave_file = MagicMock()
     mock_wave_file.writeframes.side_effect = OSError("disk full")
-
-    def fake_wave_open(*args, **kwargs):
-        del args, kwargs
-        return mock_wave_file
-
     wait_called = False
 
-    def fake_wait(timeout=None):
-        del timeout
+    def on_wait(stop_event, _captured, _timeout):
         nonlocal wait_called
         wait_called = True
         if not stop_event.is_set():
             raise AssertionError("stop_event was not set before wait completed")
 
-    with (
-        patch.object(var, "_import_sounddevice", return_value=mock_sd),
-        patch("wave.open", side_effect=fake_wave_open),
-        patch.object(stop_event, "wait", side_effect=fake_wait),
-    ):
-        with pytest.raises(RuntimeError, match=r"Failed to write audio WAV file.*disk full"):
-            var.record_to_wav(output_path, stop_event)
+    with pytest.raises(RuntimeError, match=r"Failed to write audio WAV file.*disk full"):
+        _run_record_to_wav(
+            tmp_path,
+            on_wait=on_wait,
+            extra_patches=(patch("wave.open", return_value=mock_wave_file),),
+        )
 
     assert wait_called is True
     mock_wave_file.close.assert_called_once()
@@ -521,68 +500,29 @@ def test_venv_record_vad_error_stops_capture(tmp_path):
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
     import plugin.scripting.venv.audio_recorder as var
 
-    stop_event = threading.Event()
-    output_path = str(tmp_path / "out.wav")
     config = SilenceDetectorConfig(silence_stop_ms=100)
-
-    mock_sd = MagicMock()
-    mock_stream = MagicMock()
-
-    def fake_raw_input_stream(*args, **kwargs):
-        callback = kwargs.get("callback")
-
-        def start():
-            if callback is not None:
-                callback(b"\x00\x01", 1, None, None)
-
-        mock_stream.start.side_effect = start
-        return mock_stream
-
-    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
-
-    def fake_wait(timeout=None):
-        del timeout
-        if not stop_event.is_set():
-            raise AssertionError("stop_event was not set before wait")
-
     mock_vad = MagicMock()
     mock_vad.process_chunk.side_effect = ValueError("bad pcm")
 
-    with (
-        patch.object(var, "_import_sounddevice", return_value=mock_sd),
-        patch.object(var, "SilenceDetector", return_value=mock_vad),
-        patch.object(stop_event, "wait", side_effect=fake_wait),
-    ):
-        with pytest.raises(RuntimeError, match=r"Audio capture failed.*bad pcm"):
-            var.record_to_wav(output_path, stop_event, silence_config=config)
+    def on_wait(stop_event, _captured, _timeout):
+        if not stop_event.is_set():
+            raise AssertionError("stop_event was not set before wait")
+
+    with pytest.raises(RuntimeError, match=r"Audio capture failed.*bad pcm"):
+        _run_record_to_wav(
+            tmp_path,
+            on_wait=on_wait,
+            extra_patches=(patch.object(var, "SilenceDetector", return_value=mock_vad),),
+            silence_config=config,
+        )
 
 
 def test_venv_record_ipc_emit_error_stops_capture(tmp_path):
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-    import plugin.scripting.venv.audio_recorder as var
 
-    stop_event = threading.Event()
-    output_path = str(tmp_path / "out.wav")
     config = SilenceDetectorConfig(silence_stop_ms=100)
-    pcm = b"\x00" * 3200
 
-    mock_sd = MagicMock()
-    mock_stream = MagicMock()
-
-    def fake_raw_input_stream(*args, **kwargs):
-        callback = kwargs.get("callback")
-
-        def start():
-            if callback is not None:
-                callback(pcm, 1600, None, None)
-
-        mock_stream.start.side_effect = start
-        return mock_stream
-
-    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
-
-    def fake_wait(timeout=None):
-        del timeout
+    def on_wait(stop_event, _captured, _timeout):
         if not stop_event.is_set():
             raise AssertionError("stop_event was not set before wait")
 
@@ -590,91 +530,45 @@ def test_venv_record_ipc_emit_error_stops_capture(tmp_path):
         del payload
         raise OSError("ipc gone")
 
-    with (
-        patch.object(var, "_import_sounddevice", return_value=mock_sd),
-        patch.object(stop_event, "wait", side_effect=fake_wait),
-    ):
-        with pytest.raises(RuntimeError, match=r"Audio capture failed.*ipc gone"):
-            var.record_to_wav(output_path, stop_event, silence_config=config, on_ipc_emit=broken_ipc_emit)
+    with pytest.raises(RuntimeError, match=r"Audio capture failed.*ipc gone"):
+        _run_record_to_wav(
+            tmp_path,
+            pcm=b"\x00" * 3200,
+            frames=1600,
+            on_wait=on_wait,
+            silence_config=config,
+            on_ipc_emit=broken_ipc_emit,
+        )
 
 
 def test_venv_record_stream_finished_early_stops_capture(tmp_path):
-    import plugin.scripting.venv.audio_recorder as var
-
-    stop_event = threading.Event()
-    output_path = str(tmp_path / "out.wav")
-
-    mock_sd = MagicMock()
-    mock_stream = MagicMock()
-    stored_finished_cb = None
-
-    def fake_raw_input_stream(*args, **kwargs):
-        nonlocal stored_finished_cb
-        stored_finished_cb = kwargs.get("finished_callback")
-        callback = kwargs.get("callback")
-
-        def start():
-            if callback is not None:
-                callback(b"\x00\x01", 1, None, None)
-
-        mock_stream.start.side_effect = start
-        return mock_stream
-
-    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
-
-    def fake_wait(timeout=None):
-        del timeout
-        assert stored_finished_cb is not None
-        stored_finished_cb()
+    def on_wait(stop_event, captured, _timeout):
+        assert captured["finished_callback"] is not None
+        captured["finished_callback"]()
         assert stop_event.is_set()
         return True
 
-    with (
-        patch.object(var, "_import_sounddevice", return_value=mock_sd),
-        patch.object(stop_event, "wait", side_effect=fake_wait),
-    ):
-        with pytest.raises(RuntimeError, match="stopped unexpectedly"):
-            var.record_to_wav(output_path, stop_event)
+    with pytest.raises(RuntimeError, match="stopped unexpectedly"):
+        _run_record_to_wav(tmp_path, on_wait=on_wait)
 
 
 def test_venv_record_max_duration_is_auto_stop(tmp_path):
-    import plugin.scripting.venv.audio_recorder as var
-
-    stop_event = threading.Event()
     output_path = str(tmp_path / "out.wav")
-    pcm = b"\x00" * 3200  # 1600 samples (16-bit mono)
     collected_statuses: list[str] = []
     frames_at_emit: list[int] = []
-
-    mock_sd = MagicMock()
-    mock_stream = MagicMock()
-
-    def fake_raw_input_stream(*args, **kwargs):
-        callback = kwargs.get("callback")
-
-        def start():
-            if callback is not None:
-                callback(pcm, 1600, None, None)
-
-        mock_stream.start.side_effect = start
-        return mock_stream
-
-    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
-
-    def fake_wait(timeout=None):
-        del timeout
-        return False
 
     def emit_handler(payload):
         collected_statuses.append(str(payload.get("status")))
         with wave.open(output_path, "rb") as wf:
             frames_at_emit.append(wf.getnframes())
 
-    with (
-        patch.object(var, "_import_sounddevice", return_value=mock_sd),
-        patch.object(stop_event, "wait", side_effect=fake_wait),
-    ):
-        result = var.record_to_wav(output_path, stop_event, on_ipc_emit=emit_handler)
+    _var, _out, _stop, result = _run_record_to_wav(
+        tmp_path,
+        pcm=b"\x00" * 3200,
+        frames=1600,
+        on_wait=lambda _stop, _cap, _t: False,
+        on_ipc_emit=emit_handler,
+    )
 
     assert result is True
     assert collected_statuses == ["auto_stopped"]

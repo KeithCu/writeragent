@@ -31,16 +31,6 @@ def test_deep_research_calc_instructions_omit_apply_document_content():
     assert "apply_document_content" not in text
 
 
-class _ApplyDocumentContentStub(ToolBase):
-    name = "apply_document_content"
-    description = "stub"
-    tier = "core"
-    parameters = {"type": "object", "properties": {}, "required": []}
-
-    def execute(self, ctx, **kwargs):
-        return {"status": "ok"}
-
-
 class _GetDocumentContentStub(ToolBase):
     name = "get_document_content"
     description = "stub"
@@ -77,10 +67,10 @@ def test_collect_deep_research_tools_calc_omits_apply_document_content():
     assert "apply_document_content" not in names
 
 
-def test_collect_deep_research_tools_includes_apply_on_writer():
+def test_collect_deep_research_tools_includes_apply_on_writer(apply_document_content_stub):
     registry = ToolRegistry(services={})
     registry.register(DeepResearchWebTool())
-    registry.register(_ApplyDocumentContentStub())
+    registry.register(apply_document_content_stub)
     registry.register(_GetDocumentContentStub())
 
     ctx = ToolContext(
@@ -98,7 +88,7 @@ def test_collect_deep_research_tools_includes_apply_on_writer():
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
 @patch("plugin.chatbot.deep_research_session.get_sub_agent_instructions", return_value="instr")
-def test_deep_research_session_tool_returns_ok(mock_instr, mock_examples, mock_build):
+def test_deep_research_session_tool_returns_ok(mock_instr, mock_examples, mock_build, apply_document_content_stub):
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 
     agent = MagicMock()
@@ -107,7 +97,7 @@ def test_deep_research_session_tool_returns_ok(mock_instr, mock_examples, mock_b
 
     registry = ToolRegistry(services={})
     registry.register(DeepResearchWebTool())
-    registry.register(_ApplyDocumentContentStub())
+    registry.register(apply_document_content_stub)
 
     ctx = ToolContext(
         doc=MagicMock(),

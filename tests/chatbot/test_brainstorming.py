@@ -15,7 +15,7 @@ from plugin.chatbot.sub_agent_tools import (
     collect_sub_agent_tools,
     normalize_html_content_array,
 )
-from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
+from plugin.framework.tool import ToolContext, ToolRegistry
 
 
 def test_normalize_html_content_array_accepts_list_and_string():
@@ -25,21 +25,8 @@ def test_normalize_html_content_array_accepts_list_and_string():
     assert normalize_html_content_array("   ") is None
 
 
-class _ApplyDocumentContentStub(ToolBase):
-    name = "apply_document_content"
-    description = "stub"
-    parameters = {"type": "object", "properties": {}, "required": []}
-
-    def __init__(self):
-        super().__init__()
-        self.execute_safe = MagicMock(return_value={"status": "ok", "message": "applied"})
-
-    def execute(self, ctx, **kwargs):
-        return self.execute_safe(ctx, **kwargs)
-
-
-def test_save_design_spec_passes_html_array_to_apply_document_content():
-    apply_stub = _ApplyDocumentContentStub()
+def test_save_design_spec_passes_html_array_to_apply_document_content(apply_document_content_stub):
+    apply_stub = apply_document_content_stub
     registry = ToolRegistry(services={})
     registry.register(apply_stub)
 
@@ -135,8 +122,8 @@ def test_normalize_html_content_array_rejects_non_string():
     assert normalize_html_content_array(["<p>A</p>", {"bad": 1}]) is None
 
 
-def test_save_design_spec_rejects_dict_item():
-    apply_stub = _ApplyDocumentContentStub()
+def test_save_design_spec_rejects_dict_item(apply_document_content_stub):
+    apply_stub = apply_document_content_stub
     registry = ToolRegistry(services={})
     registry.register(apply_stub)
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
@@ -148,8 +135,8 @@ def test_save_design_spec_rejects_dict_item():
     apply_stub.execute_safe.assert_not_called()
 
 
-def test_save_design_spec_coerces_unknown_target_to_end():
-    apply_stub = _ApplyDocumentContentStub()
+def test_save_design_spec_coerces_unknown_target_to_end(apply_document_content_stub):
+    apply_stub = apply_document_content_stub
     registry = ToolRegistry(services={})
     registry.register(apply_stub)
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
