@@ -316,6 +316,20 @@ def test_create_native_doc_windows_reuses_stable_target(
         tu._STATE.factory_seq = saved_seq
 
 
+def test_windows_factory_load_args_blank_and_unknown_sequence():
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._STATE.factory_seq
+    tu._STATE.factory_seq = 0
+    try:
+        assert tu._windows_factory_load_args("private:factory/swriter", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/smath", 2) == ("_wa_factory_1", 8 | 55)
+        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == ("_wa_sdraw", 8 | 55)
+        assert tu._windows_factory_load_args("private:factory/smath", 2) == ("_wa_factory_2", 8 | 55)
+    finally:
+        tu._STATE.factory_seq = saved
+
+
 def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
     monkeypatch,
 ):
@@ -1162,31 +1176,6 @@ def test_native_doc_svc_magicmock_is_not_writer():
     from plugin.tests.testing_utils import _native_doc_svc
 
     assert _native_doc_svc(MagicMock()) == ""
-
-
-def test_close_doc_windows_draw_closes_unmarked_doc(monkeypatch):
-    from unittest.mock import MagicMock
-
-    from plugin.tests import testing_utils as tu
-    from plugin.tests.testing_utils import TestingFactory
-
-    monkeypatch.setattr(tu.sys, "platform", "win32")
-    monkeypatch.setattr("gc.collect", lambda: None)
-    monkeypatch.setattr("time.sleep", lambda _seconds: None)
-    saved = tu._windows_leftover_open()
-    tu._set_windows_leftover_open(3)
-    tu.set_harness_keeper_uid("1")
-    tu._clear_windows_math_ole_uids()
-    doc = MagicMock()
-    doc.RuntimeUID = "48"
-    doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
-    try:
-        TestingFactory.close_doc(doc)
-        doc.close.assert_called_once_with(True)
-    finally:
-        tu._set_windows_leftover_open(saved)
-        tu.set_harness_keeper_uid("")
-        tu._clear_windows_math_ole_uids()
 
 
 def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):

@@ -572,7 +572,7 @@ def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     assert events == ["arm", "disarm"]
 
 
-def test_run_module_suite_prints_fail_reason() -> None:
+def test_run_module_suite_records_fail_reason() -> None:
     """Failures must be recorded in suite_log with the exception and LIFECYCLE line."""
 
     def test_boom(ctx=None):

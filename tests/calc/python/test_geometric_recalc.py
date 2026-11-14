@@ -1892,3 +1892,32 @@ def test_unreadable_sheet_name_is_not_attached(monkeypatch):
     assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("second")'
     assert all(sname not in ("Sheet", "") for (_wk, sname, _addr) in _RUNTIME.records)
 
+
+@pytest.mark.parametrize("on_gha", [True, False])
+def test_geometric_unregistered_py_525_gate(monkeypatch, on_gha: bool) -> None:
+    from types import SimpleNamespace
+
+    from tests.calc.python import test_geometric_recalc_uno as geo_uno
+
+    if on_gha:
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    else:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    cell = SimpleNamespace(
+        getError=lambda: 525,
+        getValue=lambda: 0.0,
+        getFormula=lambda: '=py("x_geo_live = 41")',
+    )
+    if on_gha:
+        with pytest.raises(AssertionError):
+            geo_uno._skip_if_py_unregistered(
+                cell, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
+            )
+    else:
+        assert (
+            geo_uno._skip_if_py_unregistered(
+                cell, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
+            )
+            is True
+        )
+

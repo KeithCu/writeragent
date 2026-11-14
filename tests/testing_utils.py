@@ -90,7 +90,10 @@ def _native_teardown_progress(msg: str) -> None:
 
 
 class _HarnessState:
-    """Process-wide leftover / keeper flags shared across both import aliases."""
+    """Process-wide leftover / keeper flags shared across both import aliases.
+
+    Leftover paste Writers are never closed because ``close(True)`` hangs 30s on Windows.
+    """
 
     __slots__ = (
         "keeper_uid",
@@ -234,7 +237,7 @@ def prepare_windows_writer_factory(ctx) -> int:
 
 
 # Last leftover count from prepare lives on _STATE.leftover_open;
-# close_doc and native_doc reuse read it without re-enumerating desktop components.
+# close_doc and native_doc reuse read it because desktop.getComponents() can hang after paste close.
 
 
 def _set_windows_leftover_open(n: int) -> None:
@@ -247,7 +250,7 @@ def _windows_leftover_open() -> int:
 
 
 def _windows_should_reuse_calc(ctx) -> bool:
-    """True when leftover Writers are open on Windows and a new scalc factory would hang."""
+    """True when leftover Writers are open on Windows, because a new scalc factory hangs."""
     if ctx is None or sys.platform != "win32":
         return False
     return _windows_leftover_open() > 0
@@ -300,7 +303,7 @@ def note_windows_html_paste_leftover() -> None:
     )
 
 
-# High leftover Writer count on Windows wedges cross-app Draw/Impress factories.
+# >2 leftover Writers: a cross-app Draw/Impress factory load hangs 30s on Windows (3 hung; 4 was too loose).
 _WINDOWS_CROSS_APP_LEFTOVER_MAX = 2
 
 
@@ -348,7 +351,7 @@ def windows_hidden_open_bitmap_err(err: str | None) -> bool:
 
 
 def skip_windows_hidden_open_after_bitmap(reason: str) -> None:
-    """Skip a later Hidden sibling open or Hidden ``_blank`` load after a Windows system-bitmap failure."""
+    """Skip a later Hidden sibling open or Hidden ``_blank`` load, because the next Hidden open hangs 30s after a Windows system-bitmap failure."""
     if not _windows_hidden_open_bitmap():
         return
     _raise_windows_skip(
@@ -398,7 +401,7 @@ def _windows_notebook_host() -> bool:
 
 
 def windows_notebook_load_args() -> tuple[str, int]:
-    """Return (target, FrameSearchFlag) for Hidden Jupyter loads; reuse ``_wa_notebook`` on Windows."""
+    """Return (target, FrameSearchFlag) for Hidden Jupyter loads; reuse ``_wa_notebook`` on Windows because consecutive Hidden ``_blank`` hangs."""
     if sys.platform != "win32":
         return "_blank", 0
     return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
@@ -487,12 +490,14 @@ def _default_native_doc_reuse(doc_type: str) -> bool:
 _CLOSE_DOC_URP_SETTLE_S = 0.05
 
 # Post-close and POSIX pre-close URP settle durations for Draw/Impress teardown.
+# Without this settle, the next factory load hangs; keep it out of close_doc so
+# Writer/Calc closes are not taxed, and keep the longer budget on Windows.
 _DRAW_FAMILY_POST_CLOSE_SETTLE_S = 0.75 if sys.platform == "win32" else 0.15
 _DRAW_FAMILY_PRE_CLOSE_SETTLE_S = _DRAW_FAMILY_POST_CLOSE_SETTLE_S
 
 
 def _draw_family_raw_close() -> bool:
-    """True on Windows where Impress/Draw must close via bare ``close(True)`` without pre-close GC."""
+    """True on Windows where Impress/Draw must close via bare ``close(True)`` because pre-close GC/sleep hangs."""
     return sys.platform == "win32"
 
 
@@ -674,7 +679,11 @@ def close_draw_family_doc(doc):
 
 
 def settle_after_draw_family_close() -> None:
-    """GC and sleep after closing Impress/Draw so URP teardown finishes before the next factory load."""
+    """GC and sleep after closing Impress/Draw so URP teardown finishes before the next factory load.
+
+    Call after ``close_draw_family_doc`` and after dropping the local reference,
+    because the next factory load hangs if the proxy is still held or skipped.
+    """
     import gc
     import time
 
@@ -747,7 +756,8 @@ def _probe_soffice_before_udprops(doc, _ctx=None) -> None:
 
 
 def _clear_writeragent_udprops(doc, ctx=None) -> None:
-    # Write the scripts UDProp directly so reset never triggers doc.isReadonly().
+    # Write the scripts UDProp directly because doc.isReadonly() hung on Windows;
+    # do not skip this write, because skipping relocated the hang to getDocumentProperties().
     from plugin.doc import udprops as udprops_mod
 
     # Keep suite noise low: the desktop/clipboard probe runs only when
@@ -1225,7 +1235,7 @@ class TestingFactory:
                 uid = str(getattr(doc, "RuntimeUID", None) or "")
             except Exception:
                 uid = ""
-            # Check Math OLE mark from RuntimeUID only (no supportsService / getDrawPages).
+            # Check Math OLE mark from RuntimeUID only because supportsService/getDrawPages killed soffice.
             if _windows_should_skip_math_ole_close(uid):
                 from plugin.testing_runner import _progress_verbose as _progress, _soffice_pids
 
@@ -1256,7 +1266,8 @@ class TestingFactory:
                     "close_doc: start uid=%s leftovers=%s" % (uid or "-", leftover_open)
                 )
                 if leftover_open > 0:
-                    # Do not close Writers on Windows while leftover paste/notebook Writers remain open.
+                    # Do not close Writers on Windows while leftover paste/notebook Writers remain open,
+                    # because closing them hangs the next factory load.
                     reactivate_harness_keeper()
                     _progress(
                         "close_doc: skip writer close leftovers open=%s uid=%s"
