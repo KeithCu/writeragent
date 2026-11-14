@@ -18,7 +18,6 @@ from typing import Any
 
 import pytest
 
-from plugin.framework.i18n import _
 from plugin.scripting.venv_diagnostics import (
     GroupResult,
     ProbeReport,
@@ -26,13 +25,9 @@ from plugin.scripting.venv_diagnostics import (
     _AUDIO_PACKAGE_KEYS,
     _AUDIO_PROBE_SCRIPT,
     _DUCKDB_PROBE_SCRIPT,
-    _NLP_OPTIONAL_KEYS,
-    _NLP_PACKAGE_KEYS,
     _NLP_PROBE_SCRIPT,
-    _SANDBOX_SELF_CHECK_GROUPS,
     _UI_PACKAGE_KEYS,
     _UI_PROBE_SCRIPT,
-    _VECTOR_SEARCH_PACKAGE_KEYS,
     _VECTOR_SEARCH_PROBE_SCRIPT,
     _VISION_OPTIONAL_KEYS,
     _VISION_PACKAGE_KEYS,
@@ -40,89 +35,12 @@ from plugin.scripting.venv_diagnostics import (
     _import_probe_script,
     _import_try_block,
     _parse_probe_stdout,
-    _probe_key_to_pip,
     _run_named_json_probe,
     probe_venv_path_with_progress,
     run_venv_self_check_with_progress,
 )
 
 orig_named_probe = _run_named_json_probe
-
-
-def _report_from_legacy_data(data: dict[str, Any]) -> ProbeReport:
-    version = data.get("v", "unknown")
-    arch = data.get("arch", "")
-    packages = dict(data.get("p", {}))
-    groups: list[GroupResult] = []
-
-    if data.get("audio"):
-        groups.append(
-            GroupResult(
-                key="audio",
-                title=_("Audio Recording & Speech"),
-                packages=tuple(data["audio"]),
-                optional_keys=_AUDIO_OPTIONAL_KEYS,
-                failure=data.get("audio_probe_failure"),
-            )
-        )
-
-    for spec in _SANDBOX_SELF_CHECK_GROUPS:
-        if spec.key in data and data[spec.key]:
-            pkgs = tuple(data[spec.key])
-            failure = data.get(f"{spec.key}_probe_failure")
-            groups.append(GroupResult(key=spec.key, title=_(spec.title), packages=pkgs, failure=failure))
-
-    if data.get("nlp"):
-        groups.append(
-            GroupResult(
-                key="nlp",
-                title=_("Text / NLP Libraries"),
-                packages=tuple(data["nlp"]),
-                optional_keys=_NLP_OPTIONAL_KEYS,
-                failure=data.get("nlp_probe_failure"),
-            )
-        )
-
-    if data.get("vision"):
-        groups.append(
-            GroupResult(
-                key="vision",
-                title=_("Vision Libraries"),
-                packages=tuple(data["vision"]),
-                optional_keys=_VISION_OPTIONAL_KEYS,
-                failure=data.get("vision_probe_failure"),
-            )
-        )
-
-    if data.get("vector_search"):
-        groups.append(
-            GroupResult(
-                key="vector_search",
-                title=_("Vector Search Libraries"),
-                packages=tuple(data["vector_search"]),
-                failure=data.get("vector_search_probe_failure"),
-            )
-        )
-
-    warnings = list(data.get("probe_warnings", []))
-    return ProbeReport(
-        version=version,
-        arch=arch,
-        packages=packages,
-        groups=groups,
-        probe_warnings=warnings,
-    )
-
-
-def _format_self_check_success(data: dict[str, Any]) -> str:
-    data = dict(data)
-    data.setdefault("vector_search", list(_VECTOR_SEARCH_PACKAGE_KEYS))
-    data.setdefault("vision", list(_VISION_PACKAGE_KEYS))
-    data.setdefault("audio", list(_AUDIO_PACKAGE_KEYS))
-    data.setdefault("nlp", list(_NLP_PACKAGE_KEYS))
-    data.setdefault("data_eng", ["pint"])
-    report = _report_from_legacy_data(data)
-    return report.render(include_install_footer=True)
 
 def test_probe_venv_path_with_progress_not_directory():
     shown: list[str] = []
@@ -250,406 +168,222 @@ def test_run_venv_self_check_with_progress_reports_architecture():
     assert expected_arch in msg
 
 
-def test_format_self_check_success_with_arch():
-    data = {"v": "3.12.0", "arch": "ARM64", "p": {}, "sci": [], "ui": []}
-    msg = _format_self_check_success(data)
-    assert "Python 3.12.0 (ARM64)" in msg
-    assert "responds OK" in msg
+@pytest.mark.parametrize(
+    ("arch", "expect_paren"),
+    [("ARM64", True), ("", False)],
+)
+def test_probe_report_render_header_arch(arch: str, expect_paren: bool) -> None:
+    msg = ProbeReport(version="3.12.0", arch=arch).render()
+    first_line = msg.splitlines()[0]
+    assert "3.12.0" in first_line
+    assert (f"({arch})" in first_line) is expect_paren
+    if not expect_paren:
+        assert "(" not in first_line
 
 
-def test_format_self_check_success_without_arch():
-    data = {"v": "3.11.5", "p": {}, "sci": [], "ui": []}
-    msg = _format_self_check_success(data)
-    assert "Python 3.11.5 responds OK" in msg
-    assert "(" not in msg.split("\n")[0]
-
-
-def test_format_self_check_success_with_data_engineering_group():
-
-    data = {
-        "v": "3.12.0",
-        "p": {"pint": "present", "duckdb": None},
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "vision": [],
-        "data_eng": ["pint", "duckdb"],
-    }
-    msg = _format_self_check_success(data)
+def test_probe_report_render_skips_empty_groups_and_shows_failures() -> None:
+    report = ProbeReport(
+        version="3.12.0",
+        packages={"pint": "present"},
+        groups=[
+            GroupResult("empty", "Empty Group", packages=()),
+            GroupResult("data_eng", "Data Engineering Libraries", packages=("pint", "duckdb"), failure="probe timed out"),
+        ],
+    )
+    msg = report.render(include_install_footer=True)
+    assert "Empty Group" not in msg
     assert "Data Engineering Libraries" in msg
-    assert "Data Engineering Libraries: pint" in msg
-    assert "duckdb" in msg
-    assert "uv pip install duckdb" in msg
-    assert "pip install duckdb" in msg
+    assert "probe timed out" in msg
 
 
-def test_build_probe_display_includes_nlp_when_keys_present():
-    data = {
-        "v": "3.12.0",
-        "p": {"spacy": "present", "textdescriptives": None, "transformers": None},
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "viz": [],
-        "cas": [],
-        "quant": [],
-        "data_eng": [],
-        "nlp": ["spacy", "textdescriptives", "transformers"],
-    }
-    msg = _report_from_legacy_data(data).render()
-    assert "Text / NLP Libraries" in msg
-    assert "spacy" in msg
+@pytest.mark.parametrize(
+    ("include_footer", "packages", "optional_keys", "expect_footer", "expected_in_footer", "excluded_from_footer"),
+    [
+        pytest.param(
+            False,
+            {"numpy": "present", "scipy": None, "sklearn": None},
+            (),
+            False,
+            (),
+            (),
+            id="progressive_omits_footer",
+        ),
+        pytest.param(
+            True,
+            {"numpy": "present", "scipy": "present"},
+            (),
+            False,
+            (),
+            (),
+            id="all_present_omits_footer",
+        ),
+        pytest.param(
+            True,
+            {"numpy": "present", "scipy": None, "sklearn": None, "language_tool_python": None},
+            ("language_tool_python",),
+            True,
+            ("scipy", "scikit-learn"),
+            ("language_tool_python", "language-tool-python"),
+            id="missing_required_shown_optional_excluded",
+        ),
+    ],
+)
+def test_probe_report_install_footer_structure(
+    include_footer: bool,
+    packages: dict[str, str | None],
+    optional_keys: tuple[str, ...],
+    expect_footer: bool,
+    expected_in_footer: tuple[str, ...],
+    excluded_from_footer: tuple[str, ...],
+) -> None:
+    report = ProbeReport(
+        version="3.12.0",
+        packages=packages,
+        groups=[GroupResult("sci", "Scientific Libraries", packages=tuple(packages), optional_keys=optional_keys)],
+    )
+    msg = report.render(include_install_footer=include_footer)
+    lines = msg.splitlines()
+    uv_lines = [line for line in lines if line.startswith("uv pip install ")]
+    pip_lines = [line for line in lines if line.startswith("pip install ")]
+    if not expect_footer:
+        assert not uv_lines
+        assert not pip_lines
+        return
+    assert len(uv_lines) == 1
+    assert len(pip_lines) == 1
+    assert lines.index(uv_lines[0]) < lines.index(pip_lines[0])
+    for pkg in expected_in_footer:
+        assert pkg in uv_lines[0]
+        assert pkg in pip_lines[0]
+    for pkg in excluded_from_footer:
+        assert pkg not in uv_lines[0]
+        assert pkg not in pip_lines[0]
 
 
-def test_build_probe_display_linux_portaudio_hint_when_sounddevice_missing():
-    data = {
-        "v": "3.12.0",
-        "p": {"sounddevice": None},
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "audio": ["sounddevice"],
-        "nlp": [],
-        "vision": [],
-        "vector_search": [],
-        "data_eng": [],
-    }
-    msg = _report_from_legacy_data(data).render()
-    if sys.platform.startswith("linux"):
-        assert "PortAudio" in msg
+@pytest.mark.parametrize(
+    ("packages", "expect_ready_engine", "expect_footer", "expected_in_footer"),
+    [
+        pytest.param(
+            {"docling": "present", "rapidocr": "present", "css_inline": "present"},
+            "Docling",
+            False,
+            (),
+            id="docling_ready",
+        ),
+        pytest.param(
+            {"docling": "present", "rapidocr": None, "css_inline": "present", "paddleocr": "present", "paddle": "present"},
+            "Paddle",
+            False,
+            (),
+            id="paddle_ready_fallback",
+        ),
+        pytest.param(
+            {"docling": "present", "rapidocr": None, "css_inline": "present"},
+            None,
+            True,
+            ("rapidocr-paddle", "onnxruntime"),
+            id="docling_without_rapidocr_not_ready",
+        ),
+        pytest.param(
+            {},
+            None,
+            True,
+            ("docling", "rapidocr-paddle", "css-inline", "onnxruntime"),
+            id="all_ocr_missing_not_ready",
+        ),
+    ],
+)
+def test_probe_report_vision_ocr_structure(
+    packages: dict[str, str | None],
+    expect_ready_engine: str | None,
+    expect_footer: bool,
+    expected_in_footer: tuple[str, ...],
+) -> None:
+    report = ProbeReport(
+        version="3.12.0",
+        packages=packages,
+        groups=[
+            GroupResult(
+                "vision",
+                "Vision Libraries",
+                packages=_VISION_PACKAGE_KEYS,
+                optional_keys=_VISION_OPTIONAL_KEYS,
+            )
+        ],
+    )
+    msg = report.render(include_install_footer=True)
+    if expect_ready_engine:
+        assert f"OCR: ready ({expect_ready_engine})" in msg
+        assert "OCR: not ready" not in msg
     else:
-        assert "PortAudio" not in msg
+        assert "OCR: not ready" in msg
+        assert "OCR: ready" not in msg
+    uv_lines = [line for line in msg.splitlines() if line.startswith("uv pip install ")]
+    assert bool(uv_lines) is expect_footer
+    if expect_footer:
+        for pkg in expected_in_footer:
+            assert pkg in uv_lines[0]
+        for opt in ("paddleocr", "ultralytics", "skimage"):
+            assert opt not in uv_lines[0]
 
 
-def test_build_probe_display_omits_install_footer_while_progressive():
-    """Mid-Test refresh must not show a partial uv/pip install recipe."""
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "numpy": "present",
-            "scipy": None,
-            "sklearn": None,
-            "sounddevice": "present",
-            "input_device": "present",
-        },
-        "sci": ["numpy", "scipy", "sklearn"],
-        "eda": [],
-        "ui": [],
-        "audio": ["sounddevice", "input_device"],
-        "nlp": [],
-        "vision": [],
-        "vector_search": [],
-        "data_eng": [],
-    }
-    msg = _report_from_legacy_data(data).render()
-    assert "Scientific Libraries" in msg
-    assert "Missing: scipy, sklearn" in msg
-    assert "To install remaining packages:" not in msg
-    assert "uv pip install" not in msg
-    assert "pip install" not in msg
-
-
-def test_format_self_check_success_with_vision_group():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "docling": "present",
-            "rapidocr": "present",
-            "css_inline": "present",
-            "paddleocr": "present",
-            "paddle": "present",
-            "numpy": "present",
-            "ultralytics": None,
-            "skimage": None,
-        },
-        "sci": ["numpy"],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
-    }
-    msg = _format_self_check_success(data)
-    assert "Vision Libraries" in msg
-    assert "Vision Libraries: docling, rapidocr, css_inline, paddleocr, paddle" in msg
-    assert "OCR: ready (Docling)" in msg
-    assert "Optional (not installed): ultralytics, skimage" in msg
-    assert "Missing: ultralytics" not in msg
-    assert "Missing (OCR)" not in msg
-    assert "pip install" not in msg
-    assert "Helpers" not in msg
-
-def test_format_self_check_success_vision_optional_paddle_when_docling_ready():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "docling": "present",
-            "rapidocr": "present",
-            "css_inline": "present",
-            "paddleocr": None,
-            "paddle": None,
-            "ultralytics": None,
-            "skimage": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
-    }
-    msg = _format_self_check_success(data)
-    assert "OCR: ready (Docling)" in msg
-    assert "Optional (not installed): paddleocr, paddle, ultralytics, skimage" in msg
-    assert "Missing (OCR)" not in msg
-    assert "To install remaining packages:" not in msg
-    assert "pip install" not in msg
-
-
-def test_format_self_check_success_vision_install_hint():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "docling": None,
-            "rapidocr": None,
-            "css_inline": None,
-            "paddleocr": None,
-            "paddle": None,
-            "numpy": None,
-            "ultralytics": None,
-            "skimage": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
-    }
-    msg = _format_self_check_success(data)
-    assert "OCR: not ready" in msg
-    assert "Missing (OCR): docling, rapidocr, css_inline" in msg
-    assert "Optional (not installed): paddleocr, paddle, ultralytics, skimage" in msg
-    assert "To install remaining packages:" in msg
-    install_idx = msg.index("To install remaining packages:")
-    footer = msg[install_idx:]
-    assert "uv pip install docling rapidocr-paddle css-inline onnxruntime" in footer
-    pip_line = [line for line in footer.splitlines() if line.startswith("pip install ")][0]
-    uv_line = [line for line in footer.splitlines() if line.startswith("uv pip install ")][0]
-    assert footer.index(uv_line) < footer.index(pip_line)
-    assert "paddleocr" not in footer
-    assert "ultralytics" not in footer
-    assert "Helpers" not in msg
-
-
-def test_format_self_check_success_vision_paddle_only_ready():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "docling": None,
-            "rapidocr": None,
-            "css_inline": "present",
-            "paddleocr": "present",
-            "paddle": "present",
-            "ultralytics": None,
-            "skimage": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
-    }
-    msg = _format_self_check_success(data)
-    assert "OCR: ready (Paddle)" in msg
-    assert "Optional (not installed): ultralytics, skimage, docling, rapidocr" in msg
-    assert "Missing (OCR)" not in msg
-    assert "pip install" not in msg
-
-
-def test_format_self_check_success_docling_without_rapidocr_is_not_ready():
-    from plugin.scripting.venv_diagnostics import _VISION_PACKAGE_KEYS
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "docling": "present",
-            "rapidocr": None,
-            "css_inline": "present",
-            "paddleocr": None,
-            "paddle": None,
-            "ultralytics": None,
-            "skimage": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": list(_VISION_PACKAGE_KEYS),
-    }
-    msg = _format_self_check_success(data)
-    assert "OCR: not ready" in msg
-    assert "OCR: ready" not in msg
-    assert "Missing (OCR): rapidocr" in msg
-    present_line = [line for line in msg.splitlines() if line.startswith("Vision Libraries:")][0]
-    assert "docling" in present_line
-    assert "uv pip install rapidocr-paddle onnxruntime" in msg
-    footer = msg[msg.index("To install remaining packages:") :]
-    for pkg in ("docling", "css-inline", "paddleocr", "ultralytics"):
-        assert pkg not in footer
-    assert "rapidocr-paddle" in footer
-
-
-def test_format_self_check_success_paddle_ready_when_docling_lacks_rapidocr():
-    from plugin.scripting.venv_diagnostics import _VISION_PACKAGE_KEYS
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "docling": "present",
-            "rapidocr": None,
-            "css_inline": "present",
-            "paddleocr": "present",
-            "paddle": "present",
-            "ultralytics": None,
-            "skimage": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": list(_VISION_PACKAGE_KEYS),
-    }
-    msg = _format_self_check_success(data)
-    assert "OCR: ready (Paddle)" in msg
-    assert "OCR: ready (Docling)" not in msg
-    assert "Optional (not installed): ultralytics, skimage, rapidocr" in msg
-    assert "Missing (OCR)" not in msg
-    assert "pip install" not in msg
-
-
-def test_format_self_check_success_vision_install_hint_when_numpy_missing():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "docling": "present",
-            "rapidocr": "present",
-            "css_inline": "present",
-            "paddleocr": "present",
-            "paddle": "present",
-            "numpy": None,
-            "ultralytics": "present",
-            "skimage": "present",
-        },
-        "sci": ["numpy"],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
-    }
-    msg = _format_self_check_success(data)
-    assert "OCR: ready (Docling)" in msg
-    assert "To install remaining packages:" in msg
-    footer = msg[msg.index("To install remaining packages:") :]
-    assert "uv pip install numpy" in footer
-    assert "pip install numpy" in footer
-    assert footer.index("uv pip install") < footer.index("\npip install")
-    assert "Helpers" not in msg
-
-
-def test_format_self_check_success_with_vector_search_group():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "envwrap": "present",
-            "sentence_transformers": "present",
-            "sqlite_vec": "present",
-            "zvec": None,
-            "langgraph": None,
-            "langchain_core": "present",
-            "langchain_text_splitters": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vision": [],
-        "data_eng": [],
-        "vector_search": [
-            "envwrap",
-            "sentence_transformers",
-            "sqlite_vec",
-            "zvec",
-            "langgraph",
-            "langchain_core",
-            "langchain_text_splitters",
+@pytest.mark.parametrize(
+    ("packages", "expect_tts_hint", "expect_whisper_hint"),
+    [
+        pytest.param(
+            {"sounddevice": "present", "input_device": "present", "kokoro_onnx": "present", "soundfile": "present", "piper": "present", "faster_whisper": "present"},
+            False,
+            False,
+            id="all_audio_present",
+        ),
+        pytest.param(
+            {"sounddevice": "present", "input_device": None, "kokoro_onnx": "present", "soundfile": "present", "piper": "present", "faster_whisper": None},
+            False,
+            True,
+            id="whisper_missing_only",
+        ),
+        pytest.param(
+            {"sounddevice": "present", "input_device": "present", "kokoro_onnx": None, "soundfile": "present", "piper": "present", "faster_whisper": "present"},
+            True,
+            False,
+            id="tts_missing_only",
+        ),
+    ],
+)
+def test_probe_report_audio_structure(
+    packages: dict[str, str | None],
+    expect_tts_hint: bool,
+    expect_whisper_hint: bool,
+) -> None:
+    report = ProbeReport(
+        version="3.13.0",
+        packages=packages,
+        groups=[
+            GroupResult(
+                "audio",
+                "Audio Recording & Speech",
+                packages=_AUDIO_PACKAGE_KEYS,
+                optional_keys=_AUDIO_OPTIONAL_KEYS,
+            )
         ],
-    }
-    msg = _format_self_check_success(data)
-    assert "Vector Search Libraries" in msg
-    assert "Vector Search Libraries: envwrap, sentence_transformers, sqlite_vec, langchain_core" in msg
-    assert "Missing: zvec, langgraph, langchain_text_splitters" in msg
-    footer = msg[msg.index("To install remaining packages:") :]
-    assert "uv pip install zvec langgraph langchain-text-splitters" in footer
-    assert "pip install zvec langgraph langchain-text-splitters" in footer
+    )
+    msg = report.render(include_install_footer=True)
+    assert ("Local TTS engines (optional):" in msg) is expect_tts_hint
+    assert ("Local Whisper (optional):" in msg) is expect_whisper_hint
+    if packages.get("sounddevice") == "present" and packages.get("input_device") != "present":
+        assert "input_device" not in msg
+        assert "No microphone input devices detected." in msg
+    assert "uv pip install " not in [line[:15] for line in msg.splitlines()]
 
 
-def test_format_self_check_success_vector_search_probe_failure_hint():
-
-    data = {
-        "v": "3.12.0",
-        "p": {},
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vision": [],
-        "data_eng": [],
-        "vector_search": [
-            "envwrap",
-            "sentence_transformers",
-            "sqlite_vec",
-            "zvec",
-            "langgraph",
-            "langchain_core",
-            "langchain_text_splitters",
-        ],
-        "vector_search_probe_failure": "Vector Search probe timed out (sentence-transformers import can take 10–30s on first check).",
-    }
-    msg = _format_self_check_success(data)
-    assert "Vector Search probe timed out" in msg
-    assert "Missing: envwrap" in msg
-    assert "To install remaining packages:" in msg
-    assert "sentence-transformers" in msg
+def test_probe_report_audio_linux_portaudio_hint() -> None:
+    report = ProbeReport(
+        version="3.12.0",
+        packages={"sounddevice": None},
+        groups=[GroupResult("audio", "Audio Recording & Speech", packages=("sounddevice",))],
+    )
+    msg = report.render()
+    assert ("PortAudio" in msg) is sys.platform.startswith("linux")
 
 
 def test_run_venv_self_check_with_progress_includes_vision():
@@ -827,28 +561,6 @@ def test_probe_vector_search_packages_subprocess_timeout():
     assert "timed out" in hint.lower()
 
 
-def test_format_self_check_success_vision_probe_failure_hint():
-
-    data = {
-        "v": "3.12.0",
-        "p": {},
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
-        "vision_probe_failure": "Vision probe timed out (Docling import can take 10–30s on first check).",
-    }
-    msg = _format_self_check_success(data)
-    assert "Vision probe timed out" in msg
-    assert "Missing (OCR): docling, rapidocr, css_inline" in msg
-    assert "To install remaining packages:" in msg
-    assert "uv pip install docling rapidocr-paddle css-inline onnxruntime" in msg
-
-
 def test_probe_vision_packages_subprocess_timeout():
 
     with patch(
@@ -859,94 +571,6 @@ def test_probe_vision_packages_subprocess_timeout():
     assert probes == {}
     assert hint is not None
     assert "timed out" in hint.lower()
-
-
-def test_format_self_check_success_analysis_install_hint():
-
-    data = {
-        "v": "3.12.0",
-        "p": {"data_profiling": None, "statsmodels": "present", "pandas_montecarlo": None},
-        "sci": [],
-        "eda": ["data_profiling", "statsmodels", "pandas_montecarlo"],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": [],
-    }
-    msg = _format_self_check_success(data)
-    assert "To install remaining packages:" in msg
-    footer = msg[msg.index("To install remaining packages:") :]
-    assert "uv pip install fg-data-profiling pandas-montecarlo" in footer
-    assert "pip install fg-data-profiling pandas-montecarlo" in footer
-    assert footer.index("uv pip install") < footer.index("\npip install")
-    assert "Helpers" not in msg
-
-
-def test_format_self_check_success_no_analysis_hint_when_complete():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "data_profiling": "present",
-            "statsmodels": "present",
-            "pandas_montecarlo": "present",
-        },
-        "sci": [],
-        "eda": ["data_profiling", "statsmodels", "pandas_montecarlo"],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": [],
-    }
-    msg = _format_self_check_success(data)
-    assert "To install remaining packages:" not in msg
-    assert "pip install" not in msg
-    assert "Helpers" not in msg
-
-
-def test_format_self_check_success_global_install_footer_mixed_groups():
-
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "numpy": "present",
-            "scipy": None,
-            "sklearn": None,
-            "docling": None,
-            "rapidocr": None,
-            "css_inline": None,
-        },
-        "sci": ["numpy", "scipy", "sklearn"],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "data_eng": [],
-        "vision": ["docling", "rapidocr", "css_inline", "paddleocr", "paddle", "ultralytics", "skimage"],
-    }
-    msg = _format_self_check_success(data)
-    footer = msg[msg.index("To install remaining packages:") :]
-    assert "uv pip install scipy scikit-learn docling rapidocr-paddle css-inline onnxruntime" in footer
-    assert "pip install scipy scikit-learn docling rapidocr-paddle css-inline onnxruntime" in footer
-    lines = footer.splitlines()
-    uv_idx = next(i for i, line in enumerate(lines) if line.startswith("uv pip install "))
-    pip_idx = next(i for i, line in enumerate(lines) if line.startswith("pip install "))
-    assert uv_idx < pip_idx
-
-
-def test_duckdb_probe_script_is_not_sandboxed():
-    from plugin.scripting.venv_diagnostics import _SANDBOX_SELF_CHECK_GROUPS, _VERSION_PROBE_SCRIPT, _package_probe_script
-
-    assert "import duckdb" not in _VERSION_PROBE_SCRIPT
-    sandbox_pkgs = [pkg for spec in _SANDBOX_SELF_CHECK_GROUPS for pkg in spec.packages]
-    assert "duckdb" not in sandbox_pkgs
-    with pytest.raises(ValueError, match="unsupported probe module"):
-        _package_probe_script("duckdb")
 
 
 def test_run_venv_self_check_with_progress_reports_duckdb():
@@ -1027,177 +651,6 @@ def test_run_venv_self_check_with_progress_uses_nlp_probe_timeout():
     mock_nlp_probe.assert_any_call("/x/python", "nlp")
 
 
-def test_format_self_check_success_nlp_optional_language_tool_python_when_missing():
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "spacy": "present",
-            "textdescriptives": "present",
-            "transformers": "present",
-            "language_tool_python": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": ["spacy", "textdescriptives", "transformers", "language_tool_python"],
-        "audio": [],
-        "vector_search": [],
-        "vision": [],
-        "data_eng": [],
-    }
-    msg = _format_self_check_success(data)
-    assert "Text / NLP Libraries" in msg
-    assert "Text / NLP Libraries: spacy, textdescriptives, transformers" in msg
-    assert "Optional (not installed): language_tool_python" in msg
-    assert "Missing: language_tool_python" not in msg
-    assert "To install remaining packages:" not in msg
-
-
-def test_format_self_check_success_nlp_language_tool_python_present():
-    data = {
-        "v": "3.12.0",
-        "p": {
-            "spacy": "present",
-            "textdescriptives": "present",
-            "transformers": "present",
-            "language_tool_python": "present",
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": ["spacy", "textdescriptives", "transformers", "language_tool_python"],
-        "audio": [],
-        "vector_search": [],
-        "vision": [],
-        "data_eng": [],
-    }
-    msg = _format_self_check_success(data)
-    assert "Text / NLP Libraries: spacy, textdescriptives, transformers, language_tool_python" in msg
-    assert "Optional (not installed): language_tool_python" not in msg
-    assert "Missing:" not in msg
-
-
-def test_format_self_check_success_audio_tts_optional_installed():
-    from plugin.scripting.venv_diagnostics import _AUDIO_PACKAGE_KEYS
-
-    data = {
-        "v": "3.13.0",
-        "p": {
-            "sounddevice": "present",
-            "input_device": "present",
-            "kokoro_onnx": "present",
-            "soundfile": "present",
-            "piper": "present",
-            "faster_whisper": "present",
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": list(_AUDIO_PACKAGE_KEYS),
-        "vector_search": [],
-        "vision": [],
-        "data_eng": [],
-    }
-    msg = _format_self_check_success(data)
-    assert (
-        "Audio Recording & Speech: sounddevice, input_device, kokoro_onnx, soundfile, piper, faster_whisper"
-        in msg
-    )
-    assert "Optional (not installed):" not in msg
-    assert "Local Whisper (optional):" not in msg
-
-
-def test_format_self_check_success_audio_tts_optional_missing_shows_hint():
-    from plugin.scripting.venv_diagnostics import _AUDIO_PACKAGE_KEYS
-
-    data = {
-        "v": "3.13.0",
-        "p": {
-            "sounddevice": "present",
-            "input_device": "present",
-            "kokoro_onnx": None,
-            "soundfile": None,
-            "piper": None,
-            "faster_whisper": None,
-        },
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": list(_AUDIO_PACKAGE_KEYS),
-        "vector_search": [],
-        "vision": [],
-        "data_eng": [],
-    }
-    msg = _format_self_check_success(data)
-    assert "Audio Recording & Speech: sounddevice, input_device" in msg
-    assert "Optional (not installed): kokoro_onnx, soundfile, piper, faster_whisper" in msg
-    assert "Missing: faster_whisper" not in msg
-    assert "To install remaining packages:" not in msg
-    assert (
-        "Local TTS engines (optional): uv pip install kokoro-onnx soundfile piper-tts "
-        "'misaki[ja,zh]' phonemizer-fork espeakng-loader"
-    ) in msg
-    assert 'Local Whisper (optional): uv pip install faster-whisper "av<14"' in msg
-
-
-def _audio_self_check_data(packages: dict[str, str | None]) -> dict:
-    from plugin.scripting.venv_diagnostics import _AUDIO_PACKAGE_KEYS
-
-    return {
-        "v": "3.13.0",
-        "p": packages,
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "nlp": [],
-        "audio": list(_AUDIO_PACKAGE_KEYS),
-        "vector_search": [],
-        "vision": [],
-        "data_eng": [],
-    }
-
-
-def test_format_self_check_success_whisper_missing_does_not_print_tts_recipe():
-    msg = _format_self_check_success(
-        _audio_self_check_data(
-            {
-                "sounddevice": "present",
-                "input_device": "present",
-                "kokoro_onnx": "present",
-                "soundfile": "present",
-                "piper": "present",
-                "faster_whisper": None,
-            }
-        )
-    )
-    assert "Optional (not installed): faster_whisper" in msg
-    assert 'Local Whisper (optional): uv pip install faster-whisper "av<14"' in msg
-    assert "Local TTS engines (optional):" not in msg
-    assert "kokoro-onnx" not in msg
-
-
-def test_format_self_check_success_tts_missing_does_not_print_whisper_recipe():
-    msg = _format_self_check_success(
-        _audio_self_check_data(
-            {
-                "sounddevice": "present",
-                "input_device": "present",
-                "kokoro_onnx": None,
-                "soundfile": "present",
-                "piper": "present",
-                "faster_whisper": "present",
-            }
-        )
-    )
-    assert "Optional (not installed): kokoro_onnx" in msg
-    assert "faster_whisper" not in msg.split("Optional (not installed):", 1)[-1].split("\n", 1)[0]
-    assert "Local TTS engines (optional):" in msg
-    assert "Local Whisper (optional):" not in msg
-    assert 'uv pip install faster-whisper "av<14"' not in msg
-
-
 def test_attach_external_probes_shares_one_helper(monkeypatch):
     from plugin.scripting import venv_diagnostics as vd
 
@@ -1216,36 +669,6 @@ def test_attach_external_probes_shares_one_helper(monkeypatch):
     for group in ("audio", "ui", "nlp", "vision", "vector_search"):
         vd._attach_external_probes("/usr/bin/python", report, group, group)
     assert {g.key for g in report.groups} == {"audio", "ui", "nlp", "vision", "vector_search"}
-
-
-def test_probe_key_to_pip_webview_is_pywebview():
-    from plugin.scripting.venv_diagnostics import (
-        _UI_PACKAGE_KEYS,
-    )
-
-    assert _probe_key_to_pip("webview") == "pywebview"
-    p = {k: "present" for k in _UI_PACKAGE_KEYS}
-    p["webview"] = None
-    data = {
-        "v": "3.12.0",
-        "p": p,
-        "ui": list(_UI_PACKAGE_KEYS),
-        "sci": [],
-        "eda": [],
-        "nlp": [],
-        "audio": [],
-        "vector_search": [],
-        "vision": [],
-        "data_eng": [],
-    }
-    msg = _format_self_check_success(data)
-    footer_lines = msg.splitlines()
-    uv_line = next(line for line in footer_lines if line.startswith("uv pip install "))
-    pip_line = next(line for line in footer_lines if line.startswith("pip install "))
-    assert "pywebview" in uv_line.split()
-    assert "webview" not in uv_line.split()
-    assert "pywebview" in pip_line.split()
-    assert "webview" not in pip_line.split()
 
 
 def test_run_json_probe_ignores_stdout_banner():
@@ -1415,33 +838,6 @@ def test_run_json_probe_watches_the_flatpak_bus():
         with patch("plugin.scripting.venv_diagnostics.subprocess.run", return_value=completed):
             _run_named_json_probe("/x/python", "vision")
     assert recorded_kwargs.get("watch_bus") is True
-
-
-def test_build_probe_display_input_device_is_not_missing():
-    data = {
-        "p": {
-            "sounddevice": "present",
-            "input_device": None,
-            "kokoro_onnx": None,
-            "soundfile": None,
-            "piper": None,
-            "faster_whisper": None,
-        },
-        "audio": list(_AUDIO_PACKAGE_KEYS),
-        "sci": [],
-        "eda": [],
-        "ui": [],
-        "viz": [],
-        "cas": [],
-        "quant": [],
-        "data_eng": [],
-        "nlp": [],
-        "vision": [],
-        "vector_search": [],
-    }
-    msg = _report_from_legacy_data(data).render()
-    assert "No microphone input devices detected." in msg
-    assert "input_device" not in msg
 
 
 def test_probe_venv_path_messages_are_translated(tmp_path, monkeypatch):

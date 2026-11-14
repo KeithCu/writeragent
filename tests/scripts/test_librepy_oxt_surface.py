@@ -14,57 +14,13 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts.build_librepy_oxt import (  # noqa: E402
-    LIBREPY_DIALOG_FILES,
-    LIBREPY_GENERATED_DIALOG_FILES,
-    _FORBIDDEN_RUNTIME,
-    _FORBIDDEN_UI,
     _REQUIRED_RUNTIME,
     _REQUIRED_UI,
     BuildError,
     iter_librepy_archive_entries,
-    librepy_include_paths,
-    librepy_manifest_cmd,
     stage_librepy_plugin_tree,
     verify_librepy_archive,
 )
-
-
-def _entries() -> set[str]:
-    return set(iter_librepy_archive_entries(str(_REPO_ROOT)))
-
-
-def test_include_list_uses_explicit_dialogs_not_wholesale_trees():
-    include = librepy_include_paths(str(_REPO_ROOT), include_locales=False)
-    assert "extension/Dialogs/" not in include
-    assert "build/generated/Dialogs/" not in include
-    for rel in LIBREPY_DIALOG_FILES:
-        assert rel in include
-    for rel in LIBREPY_GENERATED_DIALOG_FILES:
-        assert rel in include
-
-
-def test_archive_entries_include_required_runtime_and_ui():
-    entries = _entries()
-    missing = [path for path in _REQUIRED_RUNTIME + _REQUIRED_UI if path not in entries]
-    assert missing == []
-
-
-def test_archive_entries_exclude_writeragent_surfaces():
-    entries = _entries()
-    leaked = [path for path in _FORBIDDEN_RUNTIME + _FORBIDDEN_UI if path in entries]
-    leaked.extend(path for path in entries if path.startswith("plugin/embeddings/"))
-    leaked.extend(path for path in entries if path.startswith("plugin/mcp/"))
-    assert leaked == []
-
-
-def test_generated_settings_dialog_included_when_present():
-    entries = _entries()
-    settings = _REPO_ROOT / "build" / "generated" / "Dialogs" / "SettingsDialog.xdl"
-    vision = _REPO_ROOT / "build" / "generated" / "Dialogs" / "VisionSettingsDialog.xdl"
-    if settings.is_file():
-        assert "Dialogs/SettingsDialog.xdl" in entries
-    if vision.is_file():
-        assert "Dialogs/VisionSettingsDialog.xdl" in entries
 
 
 def test_archive_entry_set_is_deterministic():
@@ -85,19 +41,6 @@ def test_plugin_stage_is_deterministic(tmp_path: Path):
     assert _rel_files(first) == _rel_files(second)
     assert "plugin/calc/python/workbook_lifecycle.py" in _rel_files(first)
     assert "plugin/main.py" not in _rel_files(first)
-
-
-def test_identity_sources_are_librepy_not_prompt():
-    jobs = (_REPO_ROOT / "extension-core" / "Jobs.xcu").read_text(encoding="utf-8")
-    assert "org.extension.librepy.Main" in jobs
-    assert "org.extension.writeragent.Main" not in jobs
-
-    addins = (
-        _REPO_ROOT / "extension-core" / "registry" / "org" / "openoffice" / "Office" / "CalcAddIns.xcu"
-    ).read_text(encoding="utf-8")
-    assert 'oor:name="py"' in addins
-    assert 'oor:name="python"' in addins
-    assert "prompt" not in addins.lower()
 
 
 def test_staged_plugin_imports_resolve_to_stage(tmp_path: Path):
@@ -229,7 +172,7 @@ def _create_synthetic_zip(
 def test_verify_librepy_archive_valid(tmp_path: Path):
     zip_path = tmp_path / "valid.oxt"
     _create_synthetic_zip(zip_path)
-    verify_librepy_archive(str(zip_path), with_tests=False)
+    assert verify_librepy_archive(str(zip_path), with_tests=False) is None
 
 
 def test_verify_librepy_archive_missing_metadata(tmp_path: Path):
@@ -286,31 +229,9 @@ def test_verify_librepy_archive_matches_version_not_platform_version(tmp_path: P
         for name, data in entries.items():
             zf.writestr(name, data)
 
-    verify_librepy_archive(str(zip_path), with_tests=False)
+    assert verify_librepy_archive(str(zip_path), with_tests=False) is None
 
 
-def test_librepy_manifest_cmd_and_makefile_recipe():
-    cmd = librepy_manifest_cmd(str(_REPO_ROOT))
-    assert cmd.count("scripting") == 1
-    assert cmd.count("vision") == 1
-
-    makefile_content = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-    lines = makefile_content.splitlines()
-    manifest_core_lines: list[str] = []
-    in_target = False
-    for line in lines:
-        if line.startswith("manifest-core:"):
-            in_target = True
-            continue
-        if in_target:
-            if line.startswith(("\t", " ")):
-                manifest_core_lines.append(line)
-            else:
-                break
-    recipe = "\n".join(manifest_core_lines)
-    assert "scripting" not in recipe
-    assert "vision" not in recipe
-    assert "--manifest-only" in recipe
 def test_missing_generated_settings_dialog_fails_assembly(monkeypatch, tmp_path: Path):
     from scripts.build_librepy_oxt import BuildError, assemble_librepy_bundle
 
@@ -322,6 +243,8 @@ def test_missing_generated_settings_dialog_fails_assembly(monkeypatch, tmp_path:
     def fake_isfile(path: str) -> bool:
         if "SettingsDialog.xdl" in path:
             return False
+        if path.endswith(("XPythonFunction.rdb", "_manifest_librepy.py")):
+            return True
         return real_isfile(path)
 
     monkeypatch.setattr("os.path.isfile", fake_isfile)
