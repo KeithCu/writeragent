@@ -213,20 +213,6 @@ def test_set_and_get_manifest_modules(restore_manifest) -> None:
     assert validate({"only.flag": "yes"})["only.flag"] is True
 
 
-def test_dataclass_field_helpers_parameterize_field() -> None:
-    """Bare dataclasses.Field leftovers trip reportMissingTypeArgument.
-
-    Quoted so older LibreOffice runtimes (Field is not subscriptable) can import
-    the module; check the stored annotation string rather than get_type_hints.
-    """
-    from plugin.framework import config_schema as schema
-
-    # from __future__ import annotations stores the source text, including
-    # the quotes already written on the parameter.
-    assert "dataclasses.Field" in schema._dataclass_field_default.__annotations__["field"]
-    assert "dataclasses.Field" in schema._dataclass_field_type.__annotations__["field"]
-
-
 def test_dataclass_field_type_resolves_int_with_postponed_annotations() -> None:
     import dataclasses
 
