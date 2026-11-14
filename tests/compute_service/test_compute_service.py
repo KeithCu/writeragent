@@ -30,7 +30,7 @@ from compute_service.json_egress import normalize_execute_response, sanitize_for
 from tests.compute_service.multipart_encode import encode_multipart_vision
 from compute_service.server import create_wsgi_app
 from compute_service.vision import shutdown_vision_pool
-from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC, ComputeServerHandler, request_conn
+from compute_service.wsgi_server import REQUEST_READ_TIMEOUT_SEC, request_conn
 
 
 def _wsgi_vision_post(app, meta: dict[str, Any], image: bytes | bytearray | None = None, *, headers: dict[str, str] | None = None, send_host: bool = True) -> tuple[str, list[tuple[str, str]], dict]:
@@ -3303,37 +3303,33 @@ def test_drain_restores_socket_timeout() -> None:
 
 def test_app_close_connection_on_request_conn_reaches_handler_after_run() -> None:
     """wsgiref shallow-copies environ for the app; RequestConn is shared so handle() sees close_connection."""
+    from compute_service.wsgi_server import DeadlineRequestHandler
 
     def closing_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         start_response("200 OK", [("Content-Type", "application/json"), ("Content-Length", "2")])
         request_conn(environ).close_connection = True
         return [b"{}"]
 
-    handler_environ: dict[str, Any] = {
-        "REQUEST_METHOD": "GET",
-        "PATH_INFO": "/health",
-        "SERVER_PROTOCOL": "HTTP/1.1",
+    req_handler = object.__new__(DeadlineRequestHandler)
+    req_handler.rfile = io.BytesIO(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    req_handler.wfile = io.BytesIO()
+    req_handler.connection = MagicMock()
+    req_handler.client_address = ("127.0.0.1", 12345)
+    req_handler.server = MagicMock()
+    req_handler.server.server_name = "127.0.0.1"
+    req_handler.server.server_port = 8765
+    req_handler.server.base_environ = {
         "SERVER_NAME": "127.0.0.1",
+        "GATEWAY_INTERFACE": "CGI/1.1",
         "SERVER_PORT": "8765",
-        "wsgi.version": (1, 0),
-        "wsgi.url_scheme": "http",
-        "wsgi.input": io.BytesIO(b""),
-        "wsgi.errors": sys.stderr,
-        "wsgi.multithread": False,
-        "wsgi.run_once": False,
+        "REMOTE_HOST": "",
+        "CONTENT_LENGTH": "",
+        "SCRIPT_NAME": "",
     }
-    request_conn(handler_environ)
+    req_handler.server.get_app.return_value = closing_app
 
-    req_handler = MagicMock()
-    req_handler.close_connection = False
+    req_handler.handle()
 
-    server_handler = ComputeServerHandler(io.BytesIO(b""), io.BytesIO(), sys.stderr, handler_environ, multithread=False)
-    setattr(server_handler, "request_handler", req_handler)
-    server_handler.run(closing_app)
-
-    assert request_conn(handler_environ).close_connection is True
-    if request_conn(handler_environ).close_connection:
-        req_handler.close_connection = True
     assert req_handler.close_connection is True
 
 

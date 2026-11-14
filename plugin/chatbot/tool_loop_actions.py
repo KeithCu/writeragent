@@ -719,19 +719,13 @@ def persist_assistant_on_turn(
         turn.session.add_assistant_message(content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
 
-def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: TurnController, *, model: Any) -> None:
+def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: TurnController) -> None:
     """Queue a tool failure. A disposed document ends the loop.
 
     A closed document is not a normal tool error. Turning every exception
     into a JSON payload and queuing ``TOOL_DONE`` lets the loop continue.
     ``is_disposal`` is the tool-boundary check; a bare ``RuntimeException``
     from a live document is not disposal.
-
-    Classify against ``model``, the document closed over at spawn. Reading
-    ``host._active_model`` when the worker finishes scores the failure
-    against a later send's live document, so a bare ``RuntimeException``
-    fails ``is_disposal`` and is queued as ``TOOL_DONE``.
-    The same capture keeps the tool from running on the new send.
     """
     formatted = format_error_payload(exc)
     if is_disposal(exc):
@@ -1166,7 +1160,7 @@ class ToolLoopEffectInterpreter:
             except Exception as e:
                 if not effect.is_async:
                     log.debug("sync tool failed name=%s elapsed_ms=%.1f", effect.func_name, (time.perf_counter() - t0) * 1000.0)
-                _queue_tool_failure(effect.call_id, effect.func_name, effect.func_args_str, e, turn, model=spawn_doc)
+                _queue_tool_failure(effect.call_id, effect.func_name, effect.func_args_str, e, turn)
 
         # Use the same dedicated worker as async tools. Calling the tool
         # on the drain thread skips pump_ui_idle, so Stop is not delivered

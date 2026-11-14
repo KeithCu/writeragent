@@ -1239,19 +1239,24 @@ class TestFormulaHttpEndpoint:
             pool.shutdown()
 
     def test_isolated_worker_lease_falls_back_when_all_workers_have_sessions(self) -> None:
-        """When all idle workers hold shared sessions, _pick_idle_worker still picks an idle worker."""
+        """When all idle workers hold shared sessions, _pick_idle_worker picks the fewest-session worker."""
         pool = FormulaProcessPool(settings=ComputeSettings(workers=2, default_timeout_sec=15))
         try:
-            res1 = run_cell(pool, code="result = 1", session_id="s1")
-            assert res1.get("status") == "ok"
-            res2 = run_cell(pool, code="result = 2", session_id="s2")
-            assert res2.get("status") == "ok"
+            assert run_cell(pool, code="result = 1", session_id="s1").get("status") == "ok"
+            assert run_cell(pool, code="result = 2", session_id="s2").get("status") == "ok"
+            assert run_cell(pool, code="result = 3", session_id="s3").get("status") == "ok"
+
+            w1 = session_worker(pool, "s1")
+            w2 = session_worker(pool, "s2")
+            w3 = session_worker(pool, "s3")
+            assert w1 is not None and w2 is not None and w3 is not None
+            assert w1 is not w2
+            fewest_worker = w2 if w3 is w1 else w1
 
             with pool._cond:
-                # Both workers have sessions and both are idle
                 assert len(pool._idle) == 2
                 picked = pool._pick_idle_worker()
-                assert picked is not None
+                assert picked is fewest_worker
                 pool._idle[picked] = time.monotonic()
         finally:
             pool.shutdown()
