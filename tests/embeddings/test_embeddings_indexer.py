@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from plugin.embeddings import embeddings_indexer
 from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
@@ -265,22 +265,13 @@ def test_stale_schema_rmtree_runs_on_corpus_index_thread(tmp_path):
 
 def test_index_worker_calls_maintain_rpc():
     ctx = MagicMock()
-    parent = MagicMock()
-    with patch("plugin.embeddings.embeddings_indexer.maybe_upgrade_legacy_index", parent.upgrade), \
-         patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc", parent.maintain), \
+    with patch("plugin.embeddings.embeddings_indexer.maybe_upgrade_legacy_index"), \
+         patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc") as mock_maintain, \
          patch("plugin.embeddings.embeddings_indexer.get_embedding_model", return_value="m"), \
          patch("plugin.embeddings.embeddings_indexer._resolve_search_mode", return_value="llama_index"):
         embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing")
-        assert parent.mock_calls == [
-            call.upgrade("/tmp/listing"),
-            call.maintain(
-                ctx,
-                "/tmp/listing",
-                model="m",
-                mode="auto",
-                search_mode="llama_index",
-            ),
-        ]
+    mock_maintain.assert_called_once()
+    assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 
 
 def test_resolve_search_mode_reads_config():

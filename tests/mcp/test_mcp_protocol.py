@@ -569,6 +569,13 @@ def test_handle_debug_post_rejects_non_object_json(payload):
     assert json.loads(mock_req.wfile.getvalue().decode("utf-8")) == {"error": "JSON body must be an object"}
 
 
+def test_debug_call_tool_rejects_non_dict_args():
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+    res = handler._debug_call_tool("my_tool", [])
+    assert isinstance(res, dict) and "error" in res
+
+
 def test_http_server_stop_ends_sse_keepalive():
     """stop() must wake the SSE request thread instead of leaving it in select."""
     import socket
