@@ -2245,7 +2245,7 @@ def test_setup_module_tabs_wiring_error_propagates():
             setup_module_tabs(dlg)
 
 
-def test_open_system_url():
+def test_open_system_url(caplog):
     from plugin.chatbot.dialog_views import open_system_url
 
     # Empty URL does nothing
@@ -2259,12 +2259,17 @@ def test_open_system_url():
     open_system_url(ctx, "https://example.com")
     shell.execute.assert_called_once_with("https://example.com", "", 0)
 
-    # Errors during execute are swallowed
+    # Errors during execute are swallowed and recorded
+    shell.execute.reset_mock()
     shell.execute.side_effect = RuntimeError("shell error")
-    open_system_url(ctx, "https://example.com")
+    with caplog.at_level("DEBUG", logger="writeragent.errors"):
+        result = open_system_url(ctx, "https://example.com")
+    assert result is None
+    shell.execute.assert_called_once_with("https://example.com", "", 0)
+    assert any(r.exc_info is not None for r in caplog.records)
 
 
-def test_stt_provider_item_listener_sync_ui():
+def test_stt_provider_item_listener_sync_ui(caplog):
     from plugin.chatbot.dialog_views import sync_stt_ui
 
     # None dialog does nothing
@@ -2276,12 +2281,20 @@ def test_stt_provider_item_listener_sync_ui():
         sync_stt_ui(dlg)
         mock_apply.assert_called_once()
 
-    # Exception in visibility application is swallowed by best_effort
-    with patch("plugin.chatbot.dialog_views._apply_stt_model_visibility", side_effect=RuntimeError("boom")):
-        sync_stt_ui(dlg)
+    # Exception in visibility application is swallowed by best_effort and recorded
+    caplog.clear()
+    with (
+        patch("plugin.chatbot.dialog_views._apply_stt_model_visibility", side_effect=RuntimeError("boom")) as mock_apply,
+        caplog.at_level("DEBUG", logger="writeragent.errors"),
+    ):
+        result = sync_stt_ui(dlg)
+    assert result is None
+    mock_apply.assert_called_once()
+    dlg.setVisible.assert_not_called()
+    assert any(r.exc_info is not None for r in caplog.records)
 
 
-def test_tts_test_progress_box_show_or_update():
+def test_tts_test_progress_box_show_or_update(caplog):
     from plugin.chatbot.dialog_views import _TtsTestProgressBox
 
     ctx = MagicMock()
@@ -2300,10 +2313,18 @@ def test_tts_test_progress_box_show_or_update():
     box.show_or_update("Should not apply")
     assert msg_ctrl.getModel().Label == "Initial"
 
-    # Exceptions during update are swallowed
+    # Exceptions during update are swallowed, UI state is unchanged, and error is recorded
+    caplog.clear()
     box._closed = False
+    dlg.getControl.reset_mock()
     dlg.getControl.side_effect = RuntimeError("control error")
-    box.show_or_update("Error message")
+    with caplog.at_level("DEBUG", logger="writeragent.errors"):
+        result = box.show_or_update("Error message")
+    assert result is None
+    dlg.getControl.assert_called_once_with("Msg")
+    assert msg_ctrl.getModel().Label == "Initial"
+    assert box._closed is False
+    assert any(r.exc_info is not None for r in caplog.records)
 
 
 def test_settings_dialog_retries_on_config_validation_error() -> None:
