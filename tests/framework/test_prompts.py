@@ -369,23 +369,6 @@ def test_get_core_directives_draw():
     assert 'domain="python"' in directives
 
 
-# --- Tests for TD1 (uno_bootstrap) ---
-
-def test_ensure_plugin_on_path_is_idempotent():
-    """Calling the helper multiple times must not duplicate entries on sys.path."""
-    from plugin.framework.uno_bootstrap import ensure_plugin_on_path
-    import sys
-
-    before = list(sys.path)
-    root1 = ensure_plugin_on_path(__file__, levels_up=3)
-    root2 = ensure_plugin_on_path(__file__, levels_up=3)
-    after = list(sys.path)
-
-    assert root1 == root2
-    # Should not have added duplicate entries
-    assert after.count(root1) == before.count(root1) + (1 if root1 not in before else 0)
-
-
 def test_calc_core_directives_py_formula_not_domains():
     assert 'domain="python"' not in CALC_CORE_DIRECTIVES
     assert 'domain="analysis"' not in CALC_CORE_DIRECTIVES

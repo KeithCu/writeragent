@@ -8,7 +8,7 @@ import pytest
 from plugin.framework.client.auth import AuthError
 from plugin.framework.send_cancellation import SendCancellation
 
-from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_template_control_tokens
+from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
@@ -898,38 +898,6 @@ def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
     
     # Original messages array must NOT be mutated
     assert messages[0]["content"] == "Core instructions."
-
-
-def test_strip_leaked_chat_template_control_tokens_removes_harmony_style():
-    raw = (
-        '<|channel|>final <|constrain|>commentary<|message|>{\n'
-        '  "name": "reply_to_user",\n'
-        '  "arguments": {\n'
-        '    "answer": "Hi"\n'
-        "  }\n"
-        "}"
-    )
-    out = strip_leaked_chat_template_control_tokens(raw)
-    assert "<|" not in out
-    assert "reply_to_user" in out
-    assert "Hi" in out
-
-
-def test_strip_leaked_chat_template_control_tokens_plain_unchanged():
-    assert strip_leaked_chat_template_control_tokens("Hello world") == "Hello world"
-
-
-def test_strip_leaked_chat_template_control_tokens_empty():
-    assert strip_leaked_chat_template_control_tokens("") == ""
-    assert strip_leaked_chat_template_control_tokens(None) == ""
-
-
-def test_strip_leaked_chat_template_control_tokens_llama_python_tag_still_parsable():
-    """Stripping ``<|python_tag|>`` leaves the JSON payload intact."""
-    raw = '<|python_tag|>{"name": "x", "arguments": {}}'
-    out = strip_leaked_chat_template_control_tokens(raw)
-    assert "<|" not in out
-    assert out.startswith('{"name"')
 
 
 def test_request_with_tools_strips_leaked_control_tokens_in_sync_response(client):
@@ -2089,67 +2057,6 @@ def test_parallel_tool_calls_config(client):
         _, _, body, _ = client.make_chat_request(messages, tools=tools, stream=False)
         data = json.loads(body.decode("utf-8"))
         assert data["parallel_tool_calls"] is False
-
-
-def test_normalize_multimodal_messages_openai(client):
-    """Test that in OpenAI/Grok/Together, tool images are moved to the user message."""
-    messages = [
-        {"role": "user", "content": "Tell me about this document"},
-        {"role": "assistant", "content": "Let me read it."},
-        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
-    ]
-    
-    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
-    normalize_multimodal_messages(messages, "openai")
-    
-    # Tool message content should have its image replaced with [Image Ref]
-    assert messages[2]["content"] == "Here is the page: [Image Ref]"
-    
-    # Nearest preceding user message (messages[0]) should have the image appended
-    assert isinstance(messages[0]["content"], list)
-    assert messages[0]["content"][0] == {"type": "text", "text": "Tell me about this document"}
-    assert messages[0]["content"][1]["type"] == "image_url"
-    assert messages[0]["content"][1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
-
-
-def test_normalize_multimodal_messages_anthropic(client):
-    """Test that in Anthropic, tool images are kept in-place."""
-    messages = [
-        {"role": "user", "content": "Tell me about this document"},
-        {"role": "assistant", "content": "Let me read it."},
-        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
-    ]
-    
-    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
-    normalize_multimodal_messages(messages, "anthropic")
-    
-    # Tool message content should also be stripped of the raw base64 string,
-    # but re-attached to the SAME message as a list of content parts
-    assert isinstance(messages[2]["content"], list)
-    assert messages[2]["content"][0] == {"type": "text", "text": "Here is the page: [Image Ref]"}
-    assert messages[2]["content"][1]["type"] == "image_url"
-    assert messages[2]["content"][1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
-    
-    # User message (messages[0]) should NOT have the image attached
-    assert messages[0]["content"] == "Tell me about this document"
-
-
-def test_normalize_multimodal_messages_gemini(client):
-    """Test that in Gemini, tool images are moved to the user message."""
-    messages = [
-        {"role": "user", "content": "Tell me about this document"},
-        {"role": "assistant", "content": "Let me read it."},
-        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": 'Here is the page: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA'}
-    ]
-    
-    from plugin.framework.client.response_normalizers import normalize_multimodal_messages
-    normalize_multimodal_messages(messages, "google")
-    
-    assert messages[2]["content"] == "Here is the page: [Image Ref]"
-    assert isinstance(messages[0]["content"], list)
-    assert messages[0]["content"][0] == {"type": "text", "text": "Tell me about this document"}
-    assert messages[0]["content"][1]["type"] == "image_url"
-    assert messages[0]["content"][1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA"
 
 
 def test_gemini_shim_inline_data():

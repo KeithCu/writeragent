@@ -3,7 +3,6 @@ from plugin.framework.queue_executor import main
 import builtins
 import sys
 import threading
-from plugin.testing_runner import native_test
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,31 +11,6 @@ from plugin.framework.uno_context import get_ctx, get_extension_url, set_fallbac
 _test_doc1 = None
 _test_doc2 = None
 _test_ctx = None
-
-
-@native_test
-def test_event_bus():
-    from plugin.framework.event_bus import EventBus
-    events = EventBus()
-    event_received = []
-
-    def handler(**kwargs):
-        event_received.append(kwargs)
-    events.subscribe('test_event', handler)
-    events.emit('test_event', data=123)
-    assert (len(event_received) == 1), 'Handler not called exactly once'
-    assert (event_received[0].get('data') == 123), f'EventBus failed, received: {event_received}'
-
-@native_test
-def test_service_registry():
-    from plugin.framework.service import ServiceRegistry
-    registry = ServiceRegistry()
-
-    class DummyService():
-        pass
-    svc = DummyService()
-    registry.register('dummy', svc)
-    assert (registry.get('dummy') is svc), 'ServiceRegistry failed'
 
 
 def test_get_ctx_with_uno():

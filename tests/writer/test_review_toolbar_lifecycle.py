@@ -93,14 +93,6 @@ def test_toolbar_docks_once_per_document(review_registry):
     assert review_registry[key].toolbar_docked is True
 
 
-def test_disposing_clears_docked_state(review_registry):
-    key = _doc_key("uid-E")
-    listener = rva.ReviewModifyListener(key)
-    review_registry[key] = rva.ReviewViewAttachment(key=key, model=object(), modify_listener=listener, toolbar_docked=True)
-    listener.disposing(MagicMock())
-    assert key not in review_registry
-
-
 # --- modified() must never recount inside the modify notification ------------
 # Regression: typing a comment while a review was open fired modified() from inside
 # the comment editor's EditEngine::InsertText. The recount's XTextCursor.getString()

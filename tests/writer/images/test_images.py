@@ -125,15 +125,16 @@ def test_image_insert_schema_includes_first_page_targets():
     assert "header" in enum and "footer" in enum
 
 
-def test_image_insert_routes_header_first_to_region_helper():
+@pytest.mark.parametrize("target", ["header_first", "footer_first"])
+def test_image_insert_routes_first_page_target_to_region_helper(target: str):
     # Shared target=header never reaches HeaderTextFirst; the tool must
-    # pass header_first through to the same helper page_get/set use.
+    # pass header_first/footer_first through to the same helper page_get/set use.
     graphic = MagicMock()
     graphic.getName.return_value = "Graphic1"
     placed = {
         "graphic": graphic,
         "style_name": "Standard",
-        "region": "header_first",
+        "region": target,
         "auto_height": True,
     }
     ctx = TestingFactory.create_context(doc_type="writer")
@@ -142,31 +143,11 @@ def test_image_insert_routes_header_first_to_region_helper():
         patch("plugin.writer.images.images.insert_image_into_header_footer", return_value=placed) as insert,
     ):
         res = ImageInsert().execute(
-            ctx, path="/tmp/logo.png", target="header_first", width_mm=40, height_mm=20,
+            ctx, path="/tmp/logo.png", target=target, width_mm=40, height_mm=20,
         )
     assert res["status"] == "ok"
-    assert res["target"] == "header_first"
-    assert insert.call_args.args[2] == "header_first"
-
-
-def test_image_insert_routes_footer_first_to_region_helper():
-    graphic = MagicMock()
-    graphic.getName.return_value = "Graphic1"
-    placed = {
-        "graphic": graphic,
-        "style_name": "Standard",
-        "region": "footer_first",
-        "auto_height": True,
-    }
-    ctx = TestingFactory.create_context(doc_type="writer")
-    with (
-        patch("os.path.isfile", return_value=True),
-        patch("plugin.writer.images.images.insert_image_into_header_footer", return_value=placed) as insert,
-    ):
-        res = ImageInsert().execute(ctx, path="/tmp/logo.png", target="footer_first")
-    assert res["status"] == "ok"
-    assert res["target"] == "footer_first"
-    assert insert.call_args.args[2] == "footer_first"
+    assert res["target"] == target
+    assert insert.call_args.args[2] == target
 
 
 def test_image_generate_default_base_size_is_1024():

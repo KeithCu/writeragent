@@ -858,47 +858,26 @@ def test_delete_last_column_guard():
     assert res["status"] == "error" and "last column" in res["message"]
 
 
-def test_delete_row_refuses_nested_host():
+@pytest.mark.parametrize(
+    ("rows", "cols", "cell_names", "nested_factory", "check_other_row"),
+    [
+        (2, 2, None, lambda: {"B2": [FakeTextTableElement("Child")]}, True),
+        (5, 1, _MERGED_BANNER_NAMES, lambda: {"D2": [FakeTextTableElement("Child")]}, False),
+        (2, 2, None, lambda: {"B2": [FakeTextFrame([FakeTextTableElement("Child")])]}, False),
+    ],
+    ids=["direct_cell", "merged_d2", "in_frame"],
+)
+def test_delete_row_refuses_nested_host(rows, cols, cell_names, nested_factory, check_other_row):
     """removeByIndex on the host row would destroy the nested table."""
-    parent = FakeParentTable(2, 2, nested_by_cell={"B2": [FakeTextTableElement("Child")]})
-    child = FakeTable(1, 1)
-    ctx = _ctx({"Parent": parent, "Child": child})
+    parent = FakeParentTable(rows, cols, cell_names=cell_names, nested_by_cell=nested_factory())
+    ctx = _ctx({"Parent": parent, "Child": FakeTable(1, 1)})
     tool = ManageTableStructure()
     res = tool.execute(ctx, action="delete", axis="row", name="Parent", index=1)
     assert res["status"] == "error" and "Child" in res["message"]
-    assert parent._rows.n == 2
-    # The other row has no nested table — delete still works.
-    ok = tool.execute(ctx, action="delete", axis="row", name="Parent", index=0)
-    assert ok["status"] == "ok" and parent._rows.n == 1
-
-
-def test_delete_row_refuses_nested_host_in_merged_d2():
-    """cols=1 after A1:D1 merge; a nest in D2 must still refuse delete of that row."""
-    parent = FakeParentTable(
-        5,
-        1,
-        cell_names=_MERGED_BANNER_NAMES,
-        nested_by_cell={"D2": [FakeTextTableElement("Child")]},
-    )
-    child = FakeTable(1, 1)
-    ctx = _ctx({"Parent": parent, "Child": child})
-    res = ManageTableStructure().execute(
-        ctx, action="delete", axis="row", name="Parent", index=1
-    )
-    assert res["status"] == "error" and "Child" in res["message"]
-    assert parent._rows.n == 5
-
-
-def test_delete_row_refuses_nested_host_in_frame():
-    parent = FakeParentTable(
-        2, 2, nested_by_cell={"B2": [FakeTextFrame([FakeTextTableElement("Child")])]}
-    )
-    res = ManageTableStructure().execute(
-        _ctx({"Parent": parent, "Child": FakeTable(1, 1)}),
-        action="delete", axis="row", name="Parent", index=1,
-    )
-    assert res["status"] == "error" and "Child" in res["message"]
-    assert parent._rows.n == 2
+    assert parent._rows.n == rows
+    if check_other_row:
+        ok = tool.execute(ctx, action="delete", axis="row", name="Parent", index=0)
+        assert ok["status"] == "ok" and parent._rows.n == rows - 1
 
 
 def test_raise_if_range_hosts_nested_table_cell_vs_body():

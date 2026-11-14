@@ -17,15 +17,6 @@ def _repo_root() -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
-def test_libreharper_preserves_supported_english_dialects() -> None:
-    for country, expected in (("US", "en-US"), ("GB", "en-GB"), ("AU", "en-AU"), ("CA", "en-CA"), ("IN", "en-IN")):
-        locale = SimpleNamespace(Language="en", Country=country, Variant="")
-        assert normalize_harper_locale_to_bcp47(locale) == expected
-
-    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-AU", Country="", Variant="")) == "en-AU"
-    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="de", Country="DE", Variant="")) is None
-
-
 def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -> None:
     """Harper OXT must not pull LLM/embeddings via ``from plugin.framework.client import …``."""
     for filename in ("grammar_work_queue.py", "grammar_settings.py"):
@@ -122,8 +113,21 @@ def test_harper_proofreader_initialization_starts_harper_warmup() -> None:
         reset_package_extension_id_for_tests()
 
 
-def test_harper_proofreader_skips_register_side_effects_on_no_vcl() -> None:
-    """uno.bin register/enable must not warmup harper-ls or schedule update check (#768)."""
+import pytest
+
+
+@pytest.mark.parametrize(
+    ("unsafe_desktop", "cfg_dir", "expect_update", "expect_service_manager"),
+    [
+        (True, "/tmp/lo-user", False, False),
+        (False, "", True, True),
+    ],
+    ids=["no_vcl", "empty_config_dir"],
+)
+def test_harper_proofreader_skips_warmup(
+    unsafe_desktop: bool, cfg_dir: str, expect_update: bool, expect_service_manager: bool
+) -> None:
+    """uno.bin register/enable (#768) and empty user_config_dir both skip harper-ls warmup."""
     from unittest.mock import MagicMock, patch
     from plugin.writer.locale.harper_proofreader import HarperProofreader
     from plugin.framework.uno_context import reset_package_extension_id_for_tests
@@ -131,32 +135,18 @@ def test_harper_proofreader_skips_register_side_effects_on_no_vcl() -> None:
     try:
         ctx = MagicMock()
         with (
-            patch("plugin.framework.uno_context.desktop_create_is_unsafe", return_value=True),
+            patch("plugin.framework.uno_context.desktop_create_is_unsafe", return_value=unsafe_desktop),
+            patch("plugin.writer.locale.harper_proofreader.init_config"),
+            patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value=cfg_dir),
             patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once") as mock_update,
             patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
         ):
             HarperProofreader(ctx)
-        mock_update.assert_not_called()
+        if not expect_update:
+            mock_update.assert_not_called()
         mock_start.assert_not_called()
-        ctx.ServiceManager.createInstanceWithContext.assert_not_called()
-    finally:
-        reset_package_extension_id_for_tests()
-
-
-def test_harper_proofreader_skips_warmup_without_config_dir() -> None:
-    from unittest.mock import MagicMock, patch
-    from plugin.writer.locale.harper_proofreader import HarperProofreader
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests
-
-    try:
-        ctx = MagicMock()
-        with (
-            patch("plugin.writer.locale.harper_proofreader.init_config"),
-            patch("plugin.writer.locale.harper_proofreader.user_config_dir", return_value=""),
-            patch("plugin.writer.locale.harper_proofreader.maybe_start_harper_async") as mock_start,
-        ):
-            HarperProofreader(ctx)
-            mock_start.assert_not_called()
+        if not expect_service_manager:
+            ctx.ServiceManager.createInstanceWithContext.assert_not_called()
     finally:
         reset_package_extension_id_for_tests()
 

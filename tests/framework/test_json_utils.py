@@ -115,6 +115,49 @@ def test_safe_json_loads_repairs_latex_clash_before_subscript_or_digit() -> None
     assert safe_json_loads(r'{"x": "\alphax"}') == {"x": "\alphax"}
 
 
+class TestSafeJsonLoads:
+    def test_safe_json_loads_valid(self):
+        assert safe_json_loads('{"key": "value"}') == {"key": "value"}
+        assert safe_json_loads("[1, 2, 3]") == [1, 2, 3]
+        assert safe_json_loads('"string"') == "string"
+        assert safe_json_loads("123") == 123
+
+    def test_safe_json_loads_repair_truncated(self):
+        assert safe_json_loads('{"key": "value"') == {"key": "value"}
+        assert safe_json_loads("[1, 2") == [1, 2]
+        assert safe_json_loads('{"a": {"b": 1') == {"a": {"b": 1}}
+
+    def test_safe_json_loads_repair_trailing_comma(self):
+        assert safe_json_loads('{"key": "value",}') == {"key": "value"}
+        assert safe_json_loads("[1, 2, ]") == [1, 2]
+
+    def test_safe_json_loads_literal_eval(self):
+        assert safe_json_loads("{'key': 'value'}") == {"key": "value"}
+        assert safe_json_loads("[True, False, None]") == [True, False, None]
+
+    def test_safe_json_loads_invalid(self):
+        assert safe_json_loads("not json at all") is None
+        assert safe_json_loads("<<< completely broken garbage >>>") is None
+
+    def test_safe_json_loads_wrong_type(self):
+        assert safe_json_loads(None) is None
+        assert safe_json_loads(123) is None
+        assert safe_json_loads({"not": "a string"}) is None
+
+    def test_safe_json_loads_null_eval(self):
+        assert safe_json_loads("null") is None
+        assert safe_json_loads("null", default={}) is None
+
+    def test_safe_json_loads_custom_default(self):
+        assert safe_json_loads("invalid", default={"error": True}) == {"error": True}
+        assert safe_json_loads(None, default="default") == "default"
+
+    def test_safe_json_loads_silent_latex_corruption(self):
+        corrupted_json = '{"content": "\nabla \times \x0crac{1}{c}"}'
+        repaired = safe_json_loads(corrupted_json)
+        assert repaired == {"content": "\\nabla \\times \\frac{1}{c}"}
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

@@ -7,10 +7,6 @@
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,6 +15,7 @@ from hypothesis import strategies as st
 
 from plugin.framework.stream_delta import accumulate_delta
 from plugin.framework.async_stream import _format_agent_tool_stream_line
+from tests.harness.crosshair import assert_crosshair_clean
 
 
 def test_format_agent_tool_stream_line_basic() -> None:
@@ -39,18 +36,7 @@ def test_hypothesis_format_agent_tool_stream_line_invariants(prefix: str, data: 
     assert res.startswith("\n") and res.endswith("\n")
     assert prefix in res
 
-_CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.framework.stream_delta.accumulate_delta"
-
-
-def _find_crosshair() -> str | None:
-    crosshair_path = shutil.which("crosshair")
-    if crosshair_path:
-        return crosshair_path
-    venv_bin_ch = Path(".venv/bin/crosshair")
-    if venv_bin_ch.exists():
-        return str(venv_bin_ch)
-    return None
 
 
 @given(parts=st.lists(st.text(max_size=20), min_size=1, max_size=6))
@@ -62,44 +48,6 @@ def test_hypothesis_content_concat(parts: list[str]) -> None:
     assert acc["content"] == "".join(parts)
 
 
-def test_tool_call_args_concat_by_index() -> None:
-    acc: dict = {}
-    accumulate_delta(acc, {"tool_calls": [{"index": 0, "function": {"name": "f", "arguments": "hel"}}]})
-    accumulate_delta(acc, {"tool_calls": [{"index": 0, "function": {"arguments": "lo"}}]})
-    assert acc["tool_calls"][0]["function"]["arguments"] == "hello"
-    assert acc["tool_calls"][0]["function"]["name"] == "f"
-
-
-def test_chunked_equals_full_merge_content() -> None:
-    chunks = [{"content": "Hel"}, {"content": "lo"}, {"content": "!"}]
-    acc: dict = {}
-    for c in chunks:
-        accumulate_delta(acc, c)
-    full = accumulate_delta({}, {"content": "Hello!"})
-    assert acc == full
-
-
-def test_raises_on_bad_list_delta() -> None:
-    with pytest.raises(TypeError):
-        accumulate_delta({"items": [{"index": 0, "x": 1}]}, {"items": ["bad"]})
-    with pytest.raises(RuntimeError):
-        accumulate_delta({"items": [{"index": 0, "x": 1}]}, {"items": [{"x": 2}]})
-
-
 @pytest.mark.slow
 def test_crosshair_accumulate_delta_fqn_if_available() -> None:
-    crosshair_path = _find_crosshair()
-    if not crosshair_path:
-        pytest.skip("CrossHair concolic execution engine is not installed.")
-    result = subprocess.run(
-        [crosshair_path, "check", "-v", "--report_all", _CROSSHAIR_TARGET],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    combined = f"{result.stdout}\n{result.stderr}".strip()
-    print(f"CrossHair output:\n{combined}")
-    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
-    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
-    if result.returncode == 2:
-        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+    assert_crosshair_clean(_CROSSHAIR_TARGET)

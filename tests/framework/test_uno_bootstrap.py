@@ -46,6 +46,19 @@ class TestEnsureUtf8Stdio:
             sys.stdout = old_stdout
 
 
+def test_ensure_plugin_on_path_is_idempotent() -> None:
+    """Calling the helper multiple times must not duplicate entries on sys.path."""
+    from plugin.framework.uno_bootstrap import ensure_plugin_on_path
+
+    before = list(sys.path)
+    root1 = ensure_plugin_on_path(__file__, levels_up=3)
+    root2 = ensure_plugin_on_path(__file__, levels_up=3)
+    after = list(sys.path)
+
+    assert root1 == root2
+    assert after.count(root1) == before.count(root1) + (1 if root1 not in before else 0)
+
+
 def test_alias_loader_preserves_real_module_spec_and_path(tmp_path) -> None:
     import importlib.machinery
     import importlib.util

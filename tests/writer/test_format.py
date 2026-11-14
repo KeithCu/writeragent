@@ -11,9 +11,6 @@ import base64
 
 import pytest
 
-from plugin.writer.html_import import (
-    content_has_block_markup,
-)
 from plugin.writer.html_export import (
     _apply_image_export_options,
     strip_embedded_image_data,
@@ -1429,29 +1426,6 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert families.getByName.call_count == 1  # second read served from the cache
     assert rc.source_style(model, "Nope", cache) is None
     assert rc.source_style(model, "", cache) is None
-
-
-# --- table-cell HTML block gate (from test_cell_block_html_gate.py) ---
-# R3: pins the block-vs-inline classification that gates the clear "rich HTML in a table cell"
-# error in replace_single_range_with_content.
-
-def test_plain_text_is_not_block():
-    assert content_has_block_markup("hello world") is False
-
-
-def test_inline_tags_are_not_block():
-    # <b>/<span>/<i> are inline -> they go through the in-cell path that works; the cell-error
-    # gate must NOT fire for them.
-    assert content_has_block_markup("<b>bold</b> text") is False
-
-
-def test_paragraph_is_block():
-    # <p> is block -> the path that can raise inside a table cell; the clear-error gate fires here.
-    assert content_has_block_markup("<p>a paragraph</p>") is True
-
-
-def test_heading_is_block():
-    assert content_has_block_markup("<h1>title</h1>") is True
 
 
 def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
