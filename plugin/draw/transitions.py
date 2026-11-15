@@ -65,7 +65,7 @@ def _transition_enum_name(value: Any) -> str:
 class GetSlideTransition(ToolDrawSlideTransitionsBase):
     """Read the current transition settings from a slide."""
 
-    name: str | None = "slide_transition_get"
+    name: str | None = "slide_get_transition"
     description: str = "Get the transition effect, speed, duration, and advance mode for an Impress slide."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
@@ -94,7 +94,7 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
 class SetSlideTransition(ToolDrawSlideTransitionsBase):
     """Set the transition effect on a slide."""
 
-    name: str | None = "slide_transition_set"
+    name: str | None = "slide_set_transition"
     description: str = (
         "Set the transition effect on an Impress slide. "
         "Effects: none, fade_from_left/top/right/bottom, "
@@ -198,7 +198,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
 class GetSlideLayout(ToolDrawSlideLayoutBase):
     """Get the layout of an Impress slide."""
 
-    name: str | None = "slide_layout_get"
+    name: str | None = "slide_get_layout"
     description: str = "Get the layout type of an Impress slide. Returns the layout ID and a human-readable name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
@@ -212,9 +212,9 @@ class GetSlideLayout(ToolDrawSlideLayoutBase):
 class SetSlideLayout(ToolDrawSlideLayoutBase):
     """Set the layout of an Impress slide."""
 
-    name: str | None = "slide_layout_set"
+    name: str | None = "slide_set_layout"
     description: str = (
-        "Set the layout of an Impress slide. Layouts: blank, title, text, title_only, two_column_text, text_and_chart, chart, text_and_object, object, text_and_clipart, large_object, four_objects, vertical_text, two_objects, and more. Use slide_layout_get to see all available layout names."
+        "Set the layout of an Impress slide. Layouts: blank, title, text, title_only, two_column_text, text_and_chart, chart, text_and_object, object, text_and_clipart, large_object, four_objects, vertical_text, two_objects, and more. Use slide_get_layout to see all available layout names."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."}}, "required": ["layout"]}
     is_mutation: bool | None = True

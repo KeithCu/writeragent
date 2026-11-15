@@ -244,7 +244,7 @@ class TestFormulaPoolSupervisor:
     def test_formula_worker_blocks_document_tools(self) -> None:
         pool = FormulaProcessPool(settings=ComputeSettings(workers=1, default_timeout_sec=30))
         try:
-            res = run_cell(pool, code=("from plugin.scripting.host_tool_call import call_host_tool\ntry:\n    call_host_tool('list_open_documents')\n    result = 'called'\nexcept Exception as exc:\n    result = str(exc)\n"))
+            res = run_cell(pool, code=("from plugin.scripting.host_tool_call import call_host_tool\ntry:\n    call_host_tool('document_list_open')\n    result = 'called'\nexcept Exception as exc:\n    result = str(exc)\n"))
             assert res.get("status") == "ok", res
             assert "compute service" in str(res.get("result"))
         finally:

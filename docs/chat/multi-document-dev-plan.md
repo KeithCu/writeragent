@@ -35,9 +35,9 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 | Principle | Detail |
 | --------- | ------ |
-| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_document_content`, `get_document_tree`, `search_in_document`, `get_sheet_summary`, `read_cell_range`, Draw read tools, …) via `SmolToolAdapter` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
+| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_content`, `get_tree`, `search`, `get_sheet_summary`, `read_range`, Draw read tools, …) via `SmolToolAdapter` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
 | **Read-only on other files** | Mutation tools apply to the **active** document only. Sibling files are opened **read-only**; write APIs are **not** exposed on those models in Phase 0 (see [Read-only enforcement](#read-only-enforcement) and [Open questions](#open-questions) #4). |
-| **Writer + Calc + Draw** | Calc is first-class (budget → table). Draw/Impress: `list_pages` + shape/text tools where applicable. |
+| **Writer + Calc + Draw** | Calc is first-class (budget → table). Draw/Impress: `slide_list` + shape/text tools where applicable. |
 | **Active doc unchanged** | Cross-doc reads must not steal focus or mutate the user’s window; hidden open in the **same** LO process for Phase 0. |
 | **Fresh contexts when tool sets change** | **Main chat** keeps one OpenAI-style history; don’t swap its wire tool schema mid-thread. **Sub-agents** are ephemeral task runs: focused tool context, compact result, smol runtime torn down afterward. |
 | **Two-tier delegation** | Outer picks the file; **inner** gets read tools for **that** `doc_type`. See [Two-tier sub-agent model](#two-tier-sub-agent-model). |
@@ -106,10 +106,10 @@ flowchart TD
     Outer["Outer sub-agent — orchestration"]
     ListOpen["list_nearby_files, open hidden ReadOnly"]
     Inner["Inner sub-agent — one opened file"]
-    ReadTools["Existing read tools: get_document_tree, read_cell_range, get_document_content, ..."]
+    ReadTools["Existing read tools: get_tree, read_range, get_content, ..."]
     MoreFiles{"More files needed?"}
     OuterReturn["Return extracted facts to main"]
-    WriteActive["apply_document_content / write_formula_range on active doc"]
+    WriteActive["apply_content / write_range on active doc"]
 
     UserMsg --> MainAgent
     MainAgent --> Delegate --> Outer
@@ -156,7 +156,7 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 | ----- | -------------- | ------------ |
 | **Main agent** | User intent; edits **active** doc only. | **Core** tools on active `ToolContext.doc` + `delegate_to_specialized_{writer\|calc\|draw}_toolset` (domain enum includes **`document_research`**). No specialized-tier tools on main’s wire schema. |
 | **Outer sub-agent** | Natural-language **task** from main. Lists nearby files, resolves names, calls **inner** per file, aggregates. | `list_nearby_files`, `delegate_read_document(path, task)`, `specialized_workflow_finished` / final answer. **No** `apply_*` / `write_*`. |
-| **Inner sub-agent** | One run per opened file; `doc_type` known. | **Read tools for that type only** — Writer inner never sees `read_cell_range`; Calc inner never sees `get_document_tree`. Same production schemas; **no writes.** |
+| **Inner sub-agent** | One run per opened file; `doc_type` known. | **Read tools for that type only** — Writer inner never sees `read_range`; Calc inner never sees `get_tree`. Same production schemas; **no writes.** |
 
 ### Reference scenario
 
@@ -168,9 +168,9 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 | 2 | **Main** | `delegate_*(domain="document_research", task="Find Q4 numbers in the budget spreadsheet and return structured data")`. |
 | 3 | **Outer** | `list_nearby_files(filter="budget")` → match candidates; newest-first bias. |
 | 4 | **Outer** | `delegate_read_document(path, task)` — hidden read-only open → **inner** (e.g. “extract Q4 revenue”). |
-| 5 | **Inner** | On Calc model: `get_sheet_summary` → `read_cell_range`. On Writer budget: `search_in_document` / `get_document_content`. Returns to **outer**; inner discarded. |
+| 5 | **Inner** | On Calc model: `get_sheet_summary` → `read_range`. On Writer budget: `search` / `get_content`. Returns to **outer**; inner discarded. |
 | 6 | **Outer** | Repeat step 4 if needed; aggregate; **final_answer** to main. |
-| 7 | **Main** | `write_formula_range`, `apply_document_content`, etc. on **active** doc only. |
+| 7 | **Main** | `write_range`, `apply_content`, etc. on **active** doc only. |
 
 **Important:** Main issues **one** workspace delegation, then edits the active document with the returned payload.
 
@@ -242,7 +242,7 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 **Phase 0 tests (implemented):**
 
 - [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py): mock inner agent (no live LLM); `document_research` on all three delegates; `READ_ONLY_TARGET` guard; outer document_research tool surface; `delegate_read_document` is not a delegate gateway recurse.
-- [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_cell_range` on opened model.
+- [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_range` on opened model.
 - `stop_checker` is copied from parent to inner `ToolContext` in `run_inner_read_agent`.
 
 See [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md).
@@ -260,13 +260,13 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 
 | Source doc type | Typical inner allowlist |
 | --------------- | ----------------------- |
-| **Writer** | `get_document_content` ([`get_document_content.py`](../../plugin/writer/get_document_content.py); optional `include_images`, default false), `get_document_tree` ([`outline.py`](../../plugin/writer/outline.py)), `search_in_document` |
-| **Calc** | `get_sheet_summary` ([`sheets.py`](../../plugin/calc/sheets.py)), `read_cell_range` ([`cells.py`](../../plugin/calc/cells.py)) |
-| **Draw / Impress** | `list_pages` ([`shapes.py`](../../plugin/draw/shapes.py)), `get_draw_tree` ([`tree.py`](../../plugin/draw/tree.py)) — see `READ_TOOLS_BY_DOC_TYPE` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) |
+| **Writer** | `get_content` ([`get_document_content.py`](../../plugin/writer/get_document_content.py); optional `include_images`, default false), `get_tree` ([`outline.py`](../../plugin/writer/outline.py)), `search` |
+| **Calc** | `get_sheet_summary` ([`sheets.py`](../../plugin/calc/sheets.py)), `read_range` ([`cells.py`](../../plugin/calc/cells.py)) |
+| **Draw / Impress** | `slide_list` ([`shapes.py`](../../plugin/draw/shapes.py)), `get_tree` ([`tree.py`](../../plugin/draw/tree.py)) — see `READ_TOOLS_BY_DOC_TYPE` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) |
 
-**Calc example:** User has `Q4_Report.odt` open → main delegates document_research → outer opens `Budget_2026.ods` → inner `get_sheet_summary` + `read_cell_range` → main `apply_document_content` on active doc.
+**Calc example:** User has `Q4_Report.odt` open → main delegates document_research → outer opens `Budget_2026.ods` → inner `get_sheet_summary` + `read_range` → main `apply_content` on active doc.
 
-**Large Writer docs:** Inner should prefer `get_document_tree` / `search_in_document` before full `get_document_content` (existing truncation limits apply).
+**Large Writer docs:** Inner should prefer `get_tree` / `search` before full `get_content` (existing truncation limits apply).
 
 ---
 
@@ -366,7 +366,7 @@ flowchart LR
 
 - [ ] Calc acceptance scenario #1 (Q4 budget) passes manually (recommended before release notes).
 - [x] `make test` / pytest green: [`test_document_research.py`](../../tests/doc/test_document_research.py), [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py).
-- [x] UNO: hidden open, list excludes self, sibling read via `read_cell_range` — [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py).
+- [x] UNO: hidden open, list excludes self, sibling read via `read_range` — [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py).
 - [ ] Active window focus unchanged after cross-file read (manual check).
 
 ---
@@ -452,7 +452,7 @@ flowchart LR
 **Deferred (not implemented):**
 
 - `list_nearby_files` preview blocks when the outer agent lists siblings.
-- Inner read-tool steps (`read_cell_range`, `get_document_content`, …) via `chat_append_callback` on the inner `ToolContext` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) — useful when step-by-step cross-doc read visibility is desired (similar to “Show search thinking” for web research).
+- Inner read-tool steps (`read_range`, `get_content`, …) via `chat_append_callback` on the inner `ToolContext` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) — useful when step-by-step cross-doc read visibility is desired (similar to “Show search thinking” for web research).
 - Optional config gate (e.g. `chatbot.show_document_research_steps` or tie to an existing thinking toggle) if chat noise becomes an issue.
 - MCP parity: [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) `ToolContext` has no chat sink today; hosts would need a stream hook if they want the same status lines.
 
@@ -492,7 +492,7 @@ flowchart LR
 
 #### 7.2 Metadata Caching ("Librarian's Index")
 *   **Concept:** "Remember" the structure of nearby files so the agent can answer "Which document has the Q3 numbers?" instantly.
-*   **Implementation:** Expand the Phase 6 polish concept. Create `plugin/doc/nearby_cache.py` (using SQLite or JSON). When `open_document_for_read` is used, extract and cache the `get_document_tree` (Writer) or `get_sheet_summary` (Calc) keyed by `(path, st_mtime)`. Modify `list_nearby_files` to optionally return this cached structural summary in the `FileEntry` so the outer agent sees what's inside files without opening them.
+*   **Implementation:** Expand the Phase 6 polish concept. Create `plugin/doc/nearby_cache.py` (using SQLite or JSON). When `open_document_for_read` is used, extract and cache the `get_tree` (Writer) or `get_sheet_summary` (Calc) keyed by `(path, st_mtime)`. Modify `list_nearby_files` to optionally return this cached structural summary in the `FileEntry` so the outer agent sees what's inside files without opening them.
 
 #### 7.3 Automatic Citations & Provenance
 *   **Concept:** When facts are pulled from sibling files, automatically cite the source.
@@ -517,9 +517,9 @@ flowchart LR
 
 Use these to validate design and tests (Phase 0 targets #1–#5):
 
-1. **Active Calc, read sibling Calc:** main delegates → outer lists/opens budget → inner `read_cell_range` → outer returns figures → main `write_formula_range` on active sheet.
-2. **Active Calc, read sibling Writer:** inner `get_document_content` on brief → main `insert_cell_html` / `write_formula_range`.
-3. **Active Writer, read sibling Calc:** inner `get_sheet_summary` + `read_cell_range` → main `apply_document_content`.
+1. **Active Calc, read sibling Calc:** main delegates → outer lists/opens budget → inner `read_range` → outer returns figures → main `write_range` on active sheet.
+2. **Active Calc, read sibling Writer:** inner `get_content` on brief → main `insert_html` / `write_range`.
+3. **Active Writer, read sibling Calc:** inner `get_sheet_summary` + `read_range` → main `apply_content`.
 4. **Multiple budgets:** outer `list_nearby_files(filter="budget")`, disambiguate, optionally run inner twice before returning to main.
 5. **Formula semantics:** main respects Calc `;` separator rules ([`CALC_FORMULA_SYNTAX`](../../plugin/framework/constants.py)) when writing active sheet only.
 
@@ -527,9 +527,9 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 
 ## Writer / Draw scenarios (acceptance checks)
 
-1. **Outline-first:** `get_document_tree` on nearby `.odt` before full read for long docs.
-2. **Search:** `search_in_document` on nearby file for “Q4” instead of full HTML dump.
-3. **Draw/Impress:** Nearby `.odp` → `list_pages` + text extraction; insert into active Writer/Calc via main write tools.
+1. **Outline-first:** `get_tree` on nearby `.odt` before full read for long docs.
+2. **Search:** `search` on nearby file for “Q4” instead of full HTML dump.
+3. **Draw/Impress:** Nearby `.odp` → `slide_list` + text extraction; insert into active Writer/Calc via main write tools.
 
 ---
 
@@ -566,7 +566,7 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 
 | Phase | Unit | UNO / integration |
 | ----- | ---- | ----------------- |
-| **0** | [`test_document_research.py`](../../tests/doc/test_document_research.py): scandir, extensions, sort, exclude self, filter, truncate, Work-path fallback | [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py): hidden+read-only open; list; sibling `read_cell_range` |
+| **0** | [`test_document_research.py`](../../tests/doc/test_document_research.py): scandir, extensions, sort, exclude self, filter, truncate, Work-path fallback | [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py): hidden+read-only open; list; sibling `read_range` |
 | **0** | [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py): `document_research` on all delegates; mock inner; read-only guard; no gateway recurse | — |
 | **1** | Config merge, dedupe | — |
 | **2** | Prompt snapshot / max length | — |

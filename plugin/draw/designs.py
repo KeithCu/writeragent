@@ -25,14 +25,14 @@ then ``page.MasterPage = cloned_master`` on every slide (Exchange-all).
 Style-family copies share the hidden source item pool and abort soffice,
 so they are not part of this path.
 
-``apply_design`` always restyles the **open** Impress deck this way. A new
+``design_apply`` always restyles the **open** Impress deck this way. A new
 window would spawn a second sidebar agent with empty chat context — do not
 reintroduce a model-facing create-from-template tool. Start from a blank
-deck or File→Templates, then ``list_designs`` → ``apply_design``. The result
+deck or File→Templates, then ``design_list`` → ``design_apply``. The result
 includes ``source_master`` and ``selection``; a fallback warning names the
 master when several untitled masters tie.
 
-``list_designs`` includes a short ``look`` string (mood / accent hues /
+``design_list`` includes a short ``look`` string (mood / accent hues /
 illustrated vs graphic chrome) derived from the ``.otp`` ZIP — see
 ``design_look.derive_otp_look``. ZIP member reading and extraction are
 handled via ``otp_zip``. No Desktop open, no vision images.
@@ -47,9 +47,8 @@ import shutil
 import tempfile
 from typing import Any, NamedTuple
 
-from plugin.framework.doc_type import is_impress
+from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE, is_impress
 from plugin.doc.document_research import path_settings_from_ctx, resolve_lo_directory_path, should_skip_filename
-from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.design_look import derive_otp_look
 from plugin.draw.masters import find_master, iter_masters
 from plugin.draw.otp_zip import extract_member, read_member
@@ -254,7 +253,7 @@ def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[di
                     "url": path_to_file_url(full),
                     # ZIP thumbnail / Pictures / styles — never Desktop-open.
                     # Name/path match does not need this. Opening every .otp
-                    # just to resolve a design name made apply_design scan
+                    # just to resolve a design name made design_apply scan
                     # the template tree twice on a miss.
                     "look": derive_otp_look(full) if include_look else "",
                 }
@@ -842,7 +841,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
             except Exception:
                 slide_count = len(snapshot)
             log.info(
-                "apply_design partial assign rolled back design=%s updated=%s/%s restored=%s",
+                "design_apply partial assign rolled back design=%s updated=%s/%s restored=%s",
                 design_label,
                 slides_updated,
                 slide_count,
@@ -868,7 +867,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
             }
 
         log.info(
-            "apply_design design=%s master=%s shapes=%s graphics=%s/%s slides=%s",
+            "design_apply design=%s master=%s shapes=%s graphics=%s/%s slides=%s",
             design_label,
             master_name,
             cloned.shape_count,
@@ -877,7 +876,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
             slides_updated,
         )
     except DesignChromeMissingError as exc:
-        log.warning("apply_design failed chrome missing: %s", exc)
+        log.warning("design_apply failed chrome missing: %s", exc)
         warns = list(exc.warnings)
         return {
             "status": "error",
@@ -940,16 +939,16 @@ def create_presentation_from_design(uno_ctx: Any, design: dict[str, str], *, hid
 class ListDesigns(ToolBase):
     """Enumerate shipped Impress ``.otp`` designs via PathSettings."""
 
-    name: str | None = "list_designs"
+    name: str | None = "design_list"
     description: str = (
         "List shipped Impress .otp designs from LibreOffice PathSettings template "
         "directories (id, name, path, url, look). Read look to choose a design by "
         "appearance (dark/tech vs candy/illustrated), not only by name. Use a listed "
-        "id with apply_design to restyle the open Impress deck. Does not hardcode the "
+        "id with design_apply to restyle the open Impress deck. Does not hardcode the "
         "install prefix."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = DRAW_AND_IMPRESS
+    uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -961,37 +960,27 @@ class ListDesigns(ToolBase):
 class ApplyDesign(ToolBase):
     """Restyle the open Impress deck from a listed ``.otp`` (clone_master)."""
 
-    name: str | None = "apply_design"
+    name: str | None = "design_apply"
+    # Cloning internals (bitmap fills, style families, the shared source pool, untitled-master ties)
+    # are documented in docs/draw/impress-specialized-toolsets.md; when relevant, results report them in clone_warnings.
     description: str = (
-        "Restyle the OPEN Impress deck from a listed .otp: Hidden-load the "
-        "template, clone its master shapes and reimported graphics into this "
-        "document, and assign that master to every slide. Does not use "
-        "the system clipboard and does not open a new presentation. "
-        "The master matching the deck's aspect ratio and design name is cloned "
-        "and assigned to every slide; other layout masters in the .otp are not imported. "
-        "Groups, custom-shape geometry, polygons, rotation, gradient and hatch structs, "
-        "solid master backgrounds, line and character properties, and pictures are cloned. "
-        "Bitmap fills and presentation style families are not (copying those families shares "
-        "the hidden source pool and aborts LibreOffice). "
-        "The result may include clone_warnings when a property is rejected, an aspect ratio "
-        "mismatch occurs, or a bitmap fill was not reproduced. "
-        "The result includes source_master and selection; a fallback warning names the master "
-        "when several untitled masters tie. "
-        "Existing placeholder text stays on its current styles. "
-        "Applying the same design again replaces the previously imported master of that name. "
-        "Call list_designs first. Draw documents return a not-Impress error."
+        "Restyle the open Impress deck in place with a design from design_list: copies that "
+        "design's master (the one matching the deck's aspect ratio) into this document and "
+        "assigns it to every slide. Existing slide text keeps its current styles. Reapplying "
+        "the same design replaces the master it imported before. Fills or properties that could not be "
+        "copied are listed in clone_warnings. Impress only; does not open a new presentation."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
-    uno_services: list[str] | None = DRAW_AND_IMPRESS
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from design_list (e.g. Metropolis)."}}, "required": ["design"]}
+    uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
     tier: str = "core"
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Draw and every other non-Impress doc share this error.
-        # _is_draw_only_doc returned the same payload.
+        # Probed Draw documents never list this tool, and callers that only pass the
+        # "draw" family label still reach execute, so the live document is checked here.
         if not is_impress(ctx.doc):
             return self._tool_error(
-                "apply_design requires an Impress presentation, not a Draw document.",
+                "design_apply requires an Impress presentation, not a Draw document.",
                 code="UNSUPPORTED_DOC_TYPE",
                 doc_type="draw",
             )
@@ -1014,5 +1003,5 @@ class ApplyDesign(ToolBase):
         except Exception as e:
             if is_disposal(e):
                 raise
-            log.exception("current-doc apply_design failed for %s", entry.get("path"))
+            log.exception("current-doc design_apply failed for %s", entry.get("path"))
             return self._tool_error("Failed to apply design to the current presentation: %s" % e, reason="current_doc_import_failed", hint="Hidden .otp master clone or MasterPage assign did not complete.")

@@ -39,7 +39,7 @@ from plugin.calc.array_formula import returns_array
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import cell_value_and_type
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, is_disposal, make_tool_ok, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.manipulator import quiet_probe_cleanup
+from plugin.calc.python.formula_edit import repair_py_code_newlines
 
 log = logging.getLogger(__name__)
 
@@ -106,7 +107,7 @@ def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -
 class ListCalcFunctions(ToolBase):
     """Retrieve available spreadsheet functions inside LibreOffice Calc."""
 
-    name: str | None = "list_calc_functions"
+    name: str | None = "list_functions"
     description: str = "Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring to filter functions by (case-insensitive search anywhere in the name or description)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -142,7 +143,7 @@ class ListCalcFunctions(ToolBase):
 
             matched_functions.append({"name": name, "description": desc, "category_id": func_data.get("Category", 0), "arguments": arg_list})
         log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
-        return {"status": "ok", "functions": matched_functions}
+        return make_tool_ok(functions=matched_functions)
 
 
 def formula_evaluation_error_message(error_code: int) -> str:
@@ -180,6 +181,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             return self._tool_error("formula is required", code="INVALID_PARAM")
         if not formula_string.startswith("="):
             formula_string = "=" + formula_string
+        formula_string = repair_py_code_newlines(formula_string)
 
         # Reject a defined name before copying a sheet. A sheet prefix is
         # dropped here; only the bare coordinate is used below.
@@ -261,11 +263,11 @@ class EvaluateFormula(ToolCalcErrorBase):
             cell, formula_error_as_string=False, empty_as_none=False
         )
 
-        eval_result: dict[str, Any] = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
+        eval_result = make_tool_ok(formula=formula_string, result=result, result_type=result_type_str)
         if returns_array(formula_string):
             eval_result["requires_array"] = True
             eval_result["note"] = (
                 "Calc does not spill arrays: only the top-left value is reported. "
-                "Write it with write_formula_range to get the full result."
+                "Write it with write_range to get the full result."
             )
         return eval_result

@@ -239,7 +239,7 @@ production-compatible version of a demo is 2–3 lines in
 
 - **base:** HEAD prompts.
 - **X (`L1 + L3`):**
-  - **L1 (`plugin/framework/prompts.py` `SIDEBAR_VS_DOCUMENT`):** line 2 changed to `MUST use apply_document_content for drafts, reports, research output, and rewrites or conversions of document text; sidebar gets at most a brief confirmation.`
+  - **L1 (`plugin/framework/prompts.py` `SIDEBAR_VS_DOCUMENT`):** line 2 changed to `MUST use apply_content for drafts, reports, research output, and rewrites or conversions of document text; sidebar gets at most a brief confirmation.`
   - **L3 (`plugin/calc/cells.py` `SortRange.description`):** `"Multi-key sorts are multiple calls (two stable one-column passes). "` changed to `"Multi-key sorts are one call per key: tie-breaker first, main key last (a stable pass keeps the earlier order only among equal values). "`
 - **Y (`X + L2`):**
   - **L2 (`plugin/framework/prompts.py` `build_specialized_sub_agent_instructions`):** `"If this domain cannot do the task, say so in the answer instead of claiming it was done. "` changed to `"Do every part of the task these tools can do; for any part they cannot do, say so in the answer instead of claiming it was done. "`
@@ -258,24 +258,24 @@ production-compatible version of a demo is 2–3 lines in
 | `data_sorting` | 120b | 4/8 | 1/2 (1 har) | 5/10 | 4/8 | 6/8 | 6/7 (1 har) |
 | `data_sorting` | 20b | 5/5 (3 inv) | 1/2 (1 inv) | 6/7 | 2/5 (3 inv) | 5/6 (2 inv) | 0/5 (3 inv) |
 
-- Exclusions: `inv` = upstream Groq provider/parsing error (`invalid`); `har` = failed `data_sorting` with sheet-qualified `range_sort` (`harness`).
+- Exclusions: `inv` = upstream Groq provider/parsing error (`invalid`); `har` = failed `data_sorting` with sheet-qualified `sort_range` (`harness`).
 - `data_sorting` `last_sort_is_revenue_desc`: `base` 5/13 (4/8 120b, 1/5 20b), `base_old` 1/4 (1/2 120b, 0/2 20b), pooled `base` 6/17 (35.3%), `X` 4/13 (30.8%: 4/8 120b, 0/5 20b), `Y` 7/14 (50.0%: 5/8 120b, 2/6 20b), `L2` 6/12 (50.0%: 6/7 120b, 0/5 20b).
 - A concurrent `base2` batch (`5` partial/full runs alongside `L2`) scored `4/6` valid on `data_sorting` (120b `2/3` with 1 harness, 20b `2/3` with 1 invalid; `last_sort_is_revenue_desc` `4/6`), bringing the overall pooled `base` on `data_sorting` to `15/23` (`65.2%`).
 - No Writer row in `X`, `Y`, or `L2` delegated to a specialized sub-agent.
 
 ### Decisions
 
-- **Drop L1:** `logical_rewriting + table_engineering` in `X` was 26/32 (81.3%) vs pooled `base` 40/44 (90.9%), and `logical_rewriting` alone dropped to 10/16 (62.5%) vs 19/22 (86.4%). Because no Writer row in `Y` delegated, `X+Y` pools to 55/64 (85.9%) vs `base` 40/44 (90.9%), and `logical_rewriting` alone is 23/32 (71.9%) vs 19/22 (86.4%). (`reformat_resume` served as the guard against over-applying `apply_document_content` and stayed at 15/15 in `X` and 16/16 in `Y`.)
+- **Drop L1:** `logical_rewriting + table_engineering` in `X` was 26/32 (81.3%) vs pooled `base` 40/44 (90.9%), and `logical_rewriting` alone dropped to 10/16 (62.5%) vs 19/22 (86.4%). Because no Writer row in `Y` delegated, `X+Y` pools to 55/64 (85.9%) vs `base` 40/44 (90.9%), and `logical_rewriting` alone is 23/32 (71.9%) vs 19/22 (86.4%). (`reformat_resume` served as the guard against over-applying `apply_content` and stayed at 15/15 in `X` and 16/16 in `Y`.)
 - **Drop L3:** `data_sorting` in `X` fell to 6/13 (46.2%) vs pooled `base` 11/17 (64.7%), and `last_sort_is_revenue_desc` fell from 6/17 (35.3%) to 4/13 (30.8%).
 - **Drop L2:** in the `L2`-only arm (`base + L2`), `data_sorting` was 6/12 (50.0%: 6/7 120b, 0/5 20b), which is −14.7 pp below pooled `base` (11/17, 64.7%) and well under the +15 pp keep bar. Most of `Y`'s +32.4 pp gap over `X` (11/14 = 78.6% vs 6/13 = 46.2%) was making up for `L3`'s damage rather than `L2`'s own lift, so `plugin/framework/prompts.py` is reverted to `base`.
 
 ### Harness confounders on `data_sorting`
 
-- **Sheet-qualified ranges:** `eval_worlds.py` `parse_a1_range('Sheet1!A1:B6')` misparses the sheet prefix and returns `"no rows moved"`, whereas production `range_sort` handles sheet-qualified ranges.
-- **Mixed-value descending order:** `eval_worlds.py` `range_sort` puts text after numbers in both directions, whereas LibreOffice (`sc/source/core/data/table3.cxx` `ScTable::CompareCell`) sorts number-before-string and negates on descending, so text sorts first when descending (empty cells stay last). Harness `data_sorting` passes therefore overstate production for `"Revenue descending, non-numeric last"`.
+- **Sheet-qualified ranges:** `eval_worlds.py` `parse_a1_range('Sheet1!A1:B6')` misparses the sheet prefix and returns `"no rows moved"`, whereas production `sort_range` handles sheet-qualified ranges.
+- **Mixed-value descending order:** `eval_worlds.py` `sort_range` puts text after numbers in both directions, whereas LibreOffice (`sc/source/core/data/table3.cxx` `ScTable::CompareCell`) sorts number-before-string and negates on descending, so text sorts first when descending (empty cells stay last). Harness `data_sorting` passes therefore overstate production for `"Revenue descending, non-numeric last"`.
 
 ### Follow-ups
 
-- Decide on multi-key `range_sort` and "non-numeric last" behavior in LibreOffice (`L3` hurt `data_sorting` and `range_sort` descending puts text first in Calc).
+- Decide on multi-key `sort_range` and "non-numeric last" behavior in LibreOffice (`L3` hurt `data_sorting` and `sort_range` descending puts text first in Calc).
 - Revisit `CHAT_RESPONSE_FORMAT` ordering rather than strengthening `SIDEBAR_VS_DOCUMENT` (`L1` hurt `logical_rewriting`).
-- Fix `eval_worlds.py` `parse_a1_range` sheet-prefix handling and align `range_sort` text/number ordering with LibreOffice.
+- Fix `eval_worlds.py` `parse_a1_range` sheet-prefix handling and align `sort_range` text/number ordering with LibreOffice.

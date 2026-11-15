@@ -138,3 +138,26 @@ def test_python_exec_timeout_is_total() -> None:
     ):
         with patch("plugin.framework.config.get_config", return_value=raw):
             assert python_exec_timeout() == expected
+
+
+def test_clamp_rejects_unknown_field() -> None:
+    import deal
+
+    with pytest.raises(deal.PreContractError):
+        _clamp("\x00", 0)
+
+
+def test_data_cells_fallbacks_match_manifest() -> None:
+    from plugin._manifest import MODULES
+
+    field = next(
+        m["config"]["python_max_data_cells"]
+        for m in MODULES
+        if isinstance(m, dict) and m.get("name") == "scripting"
+    )
+    with (
+        patch("plugin.framework.config_schema.get_config_schema", return_value=None),
+        patch("plugin.framework.config.get_config", side_effect=ConfigError("read failed")),
+    ):
+        assert _bounds("python_max_data_cells") == (field["min"], field["max"])
+        assert configured_python_max_data_cells() == field["default"]

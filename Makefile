@@ -158,13 +158,13 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-bot test-full pytest test-uno test-uno-full test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full _typecheck-full-run check-ext check-setup deploy ensure-uno _check-lo-python \
-        verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
-        crosshair-cover-all crosshair-cover-all-deep \
+        verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-medium crosshair-check-all-deep \
+        crosshair-cover-all crosshair-cover-all-medium crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-incr opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit bandit-incr pyspector pyspector-incr pyspector-report ty-run mypy-run mypy-incr-run pyright-run basedpyright basedpyright-run basedpyright-incr-run basedpyright-full-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar vulture \
-        eval-deps run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
+        eval-deps eval-ab run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -244,6 +244,7 @@ help:
 	@echo ""
 	@echo "Benchmarks (prompt optimization / eval):"
 	@echo "  make eval-deps              uv pip install dspy-ai (after uv sync)"
+	@echo "  make eval-ab                A/B prompt eval (SUITE=calc|writer|draw|all|string|lo, REPEATS=3, MODELS=..., TASKS=...)"
 	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
 	@echo "  make run_eval-smoke         Quick smoke: one model, one example (gpt-oss-120b:nitro; needs a key)"
 	@echo "  make run_eval-lo-scripted   Headless LO + scripted student (no API key)"
@@ -255,8 +256,10 @@ help:
 	@echo "  make crosshair-check        CrossHair check on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-cover        CrossHair cover on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-check-all    CrossHair check every @deal. plugin module (regular: 25 iters / 5s + 120s wall; log: build/crosshair-check-all.log)"
+	@echo "  make crosshair-check-all-medium  Same sweep, medium mode (75 iters / 20s + 600s wall). START_AT=42 resumes from module 42"
 	@echo "  make crosshair-check-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall). START_AT=42 resumes from module 42"
 	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (regular: 25 iters / 5s + 120s wall; process pool; log: build/crosshair-cover-all.log)"
+	@echo "  make crosshair-cover-all-medium  Same sweep, medium mode (75 iters / 20s + 600s wall). START_AT=42 resumes from module 42"
 	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall). START_AT=42 resumes from module 42"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
@@ -315,13 +318,13 @@ ifeq ($(USE_DOCKER),1)
 build: ty ruff-for-build preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: ty ruff-for-build preview-translations vendor manifest compile-translations
+build: ty ruff-for-build preview-translations vendor manifest proxy-stubs compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: ty ruff-for-build preview-translations vendor manifest compile-translations
+build-no-recording: ty ruff-for-build preview-translations vendor manifest proxy-stubs compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -341,7 +344,7 @@ release: clean
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt
 
-release-verify: vendor manifest compile-translations
+release-verify: vendor manifest proxy-stubs compile-translations
 	"$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
 
 release-no-test:
@@ -702,11 +705,11 @@ endif
 PYTEST_UNIT_FLAGS = -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST) $(PYTEST_CI_DEBUG_FLAGS)
 PYTEST_UNIT = PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests $(PYTEST_UNIT_FLAGS)
 
-pytest:
+pytest: proxy-stubs
 	@echo "=== pytest ==="
 	$(PYTEST_UNIT)
 
-test-bot:
+test-bot: proxy-stubs
 	@echo "=== test-bot (incremental pytest) ==="
 	@PYTHONUNBUFFERED=1 "$(PYTHON)" $(SCRIPTS)/test_incremental.py -- "$(PYTHON)" -u -m pytest $(PYTEST_UNIT_FLAGS); \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pytest; else exit $$rc; fi
@@ -727,13 +730,13 @@ FILTER ?=
 _check-lo-python:
 	@"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" check-lo-python --python "$(LO_PYTHON)"
 
-test-uno-full: _check-lo-python
+test-uno-full: proxy-stubs _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	# Release runs this from a /tmp tree with no .venv. The spill UNO test
 	# needs the checkout interpreter (matplotlib); VIRTUAL_ENV is stripped below.
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
-test-uno: _check-lo-python
+test-uno: proxy-stubs _check-lo-python
 ifneq ($(strip $(FILTER)),)
 	@$(MAKE) test-uno-full FILTER="$(FILTER)"
 else
@@ -870,7 +873,7 @@ excel-py-roundtrip:
 	fi
 
 # Incremental typecheck + incremental pytest + incremental UNO tests (for humans and single users).
-test:
+test: proxy-stubs
 	@echo "=== make test: typecheck ==="
 	@$(MAKE) typecheck
 	@echo "=== make test: incremental pytest + incremental LibreOffice ==="
@@ -880,7 +883,7 @@ ifneq ($(SKIP_UNO),1)
 endif
 
 # SKIP_UNO=1: typecheck + pytest + excel-py-roundtrip only (PR CI unit job).
-test-full:
+test-full: proxy-stubs
 	@echo "=== make test-full: typecheck ==="
 	@$(MAKE) typecheck
 	@echo "=== make test-full: pytest + LibreOffice ==="
@@ -926,7 +929,7 @@ crosshair-cover:
 	"$(PYTHON)" scripts/crosshair_stream.py run cover -- -v $(CROSSHAIR_MODULE)
 
 # Every plugin file with @deal. (deal contracts only). Not part of make test.
-# Regular: 25 uninteresting iters + 5s per condition + 120s module wall. Deep: 200 iters, no timeout/wall.
+# Regular: 25 uninteresting iters + 5s per condition + 120s module wall. Medium: 75 iters + 20s + 600s wall. Deep: 200 iters, no timeout/wall.
 # Regular payload_codec only: 5 / 5s (module_check_bounds / module_cover_bounds).
 # START_AT=N (optional, 1-based) resumes from module N: make crosshair-check-all-deep START_AT=42
 START_AT ?=
@@ -935,12 +938,18 @@ START_AT_FLAG := $(if $(START_AT),--start-at $(START_AT),)
 crosshair-check-all:
 	"$(PYTHON)" scripts/crosshair_check_all.py $(START_AT_FLAG)
 
+crosshair-check-all-medium:
+	"$(PYTHON)" scripts/crosshair_check_all.py --medium $(START_AT_FLAG)
+
 crosshair-check-all-deep:
 	"$(PYTHON)" scripts/crosshair_check_all.py --deep $(START_AT_FLAG)
 
 # Cover (example synthesis) on the same @deal. set / skip list. Not part of make test.
 crosshair-cover-all:
 	"$(PYTHON)" scripts/crosshair_cover_all.py $(START_AT_FLAG)
+
+crosshair-cover-all-medium:
+	"$(PYTHON)" scripts/crosshair_cover_all.py --medium $(START_AT_FLAG)
 
 crosshair-cover-all-deep:
 	"$(PYTHON)" scripts/crosshair_cover_all.py --deep $(START_AT_FLAG)
@@ -952,6 +961,14 @@ EVAL_ARGS ?=
 
 eval-deps:
 	uv pip install -r $(PO_EVAL_REQ)
+
+eval-ab:
+	"$(PYTHON)" scripts/generate_manifest.py
+	"$(PYTHON)" scripts/prompt_optimization/eval_ab.py \
+		$(if $(strip $(SUITE)),--suite "$(SUITE)",) \
+		$(if $(strip $(MODELS)),--models "$(MODELS)",) \
+		$(if $(strip $(REPEATS)),--repeats "$(REPEATS)",) \
+		$(if $(strip $(TASKS)),--tasks "$(TASKS)",)
 
 run_eval:
 	"$(PYTHON)" scripts/benchmark.py $(EVAL_ARGS)

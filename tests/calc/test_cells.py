@@ -600,7 +600,7 @@ def test_read_cell_range_tool_opts_into_format_info():
             start_col=0, end_col=0, start_row=0, end_row=0
         )
         inspector_cls.return_value.read_range.return_value = grid
-        result = _tool("read_cell_range").execute_safe(ctx, range=["A1"])
+        result = _tool("read_range").execute_safe(ctx, range=["A1"])
 
     entry = _only_entry(result)
     assert not entry.get("truncated")
@@ -646,7 +646,7 @@ def test_read_cell_range_format_cells_returns_grid():
             start_col=0, end_col=0, start_row=0, end_row=0
         )
         inspector_cls.return_value.read_range.return_value = grid
-        result = _tool("read_cell_range").execute_safe(ctx, range=["A1"], format="cells")
+        result = _tool("read_range").execute_safe(ctx, range=["A1"], format="cells")
 
     assert _only_entry(result)["result"][0] is grid
 
@@ -663,7 +663,7 @@ def test_read_cell_range_every_range_is_one_entry():
             start_col=0, end_col=0, start_row=0, end_row=0
         )
         inspector_cls.return_value.read_range.return_value = grid_a
-        one = _tool("read_cell_range").execute_safe(ctx, range=["A1"])
+        one = _tool("read_range").execute_safe(ctx, range=["A1"])
         assert one == {
             "status": "ok",
             "result": [
@@ -676,7 +676,7 @@ def test_read_cell_range_every_range_is_one_entry():
         }
 
         inspector_cls.return_value.read_range.side_effect = [grid_a, grid_b]
-        two = _tool("read_cell_range").execute_safe(ctx, range=["A1", "B2"])
+        two = _tool("read_range").execute_safe(ctx, range=["A1", "B2"])
         assert two["status"] == "ok"
         assert [e["range"] for e in two["result"]] == ["A1", "B2"]
         assert two["result"][0]["result"][0]["rows"] == [[1.0]]
@@ -684,7 +684,7 @@ def test_read_cell_range_every_range_is_one_entry():
 
         inspector_cls.return_value.read_range.side_effect = None
         inspector_cls.return_value.read_range.return_value = grid_a
-        cells_res = _tool("read_cell_range").execute_safe(ctx, range=["A1"], format="cells")
+        cells_res = _tool("read_range").execute_safe(ctx, range=["A1"], format="cells")
         assert _only_entry(cells_res)["result"][0] is grid_a
 
 
@@ -701,7 +701,7 @@ def test_read_cell_range_tool_truncates_large_range():
             start_col=0, end_col=7, start_row=0, end_row=499
         )
         inspector_cls.return_value.read_range.return_value = sample
-        result = _tool("read_cell_range").execute_safe(ctx, range=["A1:H500"])
+        result = _tool("read_range").execute_safe(ctx, range=["A1:H500"])
 
     entry = _only_entry(result)
     assert entry["truncated"] is True
@@ -718,7 +718,7 @@ def test_read_cell_range_tool_truncates_large_range():
 def test_read_cell_range_min_over_cap_truncates_to_preview():
     """9×9 fixture (81 cells) is the smallest range-too-large repro.
 
-    Chat `read_cell_range` caps at 80 cells.
+    Chat `read_range` caps at 80 cells.
     """
     from plugin.calc.cells import _READ_CELL_RANGE_MAX_CELLS
 
@@ -743,7 +743,7 @@ def test_read_cell_range_min_over_cap_truncates_to_preview():
             start_col=0, end_col=cols - 1, start_row=0, end_row=rows - 1
         )
         inspector_cls.return_value.read_range.return_value = sample
-        result = _tool("read_cell_range").execute_safe(ctx, range=[range_name])
+        result = _tool("read_range").execute_safe(ctx, range=[range_name])
 
     entry = _only_entry(result)
     assert entry["truncated"] is True
@@ -771,7 +771,7 @@ def test_read_cell_range_tool_keeps_small_range_full():
             start_col=0, end_col=7, start_row=0, end_row=9
         )
         inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
-        result = _tool("read_cell_range").execute_safe(ctx, range=["A1:H10"])
+        result = _tool("read_range").execute_safe(ctx, range=["A1:H10"])
 
     assert not _only_entry(result).get("truncated")
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
@@ -870,7 +870,7 @@ def test_read_cell_range_truncated_attaches_column_distincts():
         # 2×100 is over the 80-cell cap.
         bridge_cls.return_value.resolve_range_or_address.return_value = mock_range
         inspector_cls.return_value.read_range.return_value = sample
-        result = _tool("read_cell_range").execute_safe(ctx, range=["A1:B100"])
+        result = _tool("read_range").execute_safe(ctx, range=["A1:B100"])
 
     entry = _only_entry(result)
     assert entry["truncated"] is True
@@ -1075,7 +1075,7 @@ def test_write_cell_range_tool_error_return():
     bridge = MagicMock()
     bridge.resolve_range_or_address.side_effect = _BlankUno()
 
-    tool = _tool("write_formula_range")
+    tool = _tool("write_range")
     with patch("plugin.calc.cells.CalcBridge", return_value=bridge):
         res = tool.execute(ctx, range=["A1"], values="123")
     assert res["status"] == "error"
@@ -1104,13 +1104,13 @@ def test_write_formula_range_source_is_stripped_and_blank_falls_to_values():
     ):
         manip = manip_cls.return_value
         manip.copy_formula_range.return_value = {"message": "copied", "rows_copied": 3, "cols_copied": 3}
-        res_copy = _tool("write_formula_range").execute_safe(ctx, range=["D1:F3"], source="  Sheet1.A1:C3  ")
+        res_copy = _tool("write_range").execute_safe(ctx, range=["D1:F3"], source="  Sheet1.A1:C3  ")
         assert res_copy["status"] == "ok"
         manip.copy_formula_range.assert_called_once_with("Sheet1.A1:C3", "D1:F3")
 
         manip.reset_mock()
         manip.commit_write.return_value = {"message": "wrote"}
-        res_val = _tool("write_formula_range").execute_safe(ctx, range=["A1"], source="   ", values="1")
+        res_val = _tool("write_range").execute_safe(ctx, range=["A1"], source="   ", values="1")
         assert res_val["status"] == "ok"
         manip.copy_formula_range.assert_not_called()
         manip.plan_write.assert_called_once()
@@ -1124,7 +1124,7 @@ def test_write_formula_range_rejects_semicolon_json_mismatch():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = _tool("write_formula_range").execute_safe(
+        result = _tool("write_range").execute_safe(
             ctx, range=["A1:A3"], values='["a"; "b"]'
         )
 
@@ -1179,7 +1179,7 @@ def test_write_formula_range_rejects_invalid_values(cell_range, values, expected
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = _tool("write_formula_range").execute_safe(ctx, range=cell_range, values=values)
+        result = _tool("write_range").execute_safe(ctx, range=cell_range, values=values)
 
     assert result["status"] == "error"
     for snippet in expected_snippets:
@@ -1195,9 +1195,9 @@ def test_write_formula_range_accepts_matching_json_and_scalar_fill():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
         manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
-        matched = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2"], values='["x", "y"]')
-        filled = _tool("write_formula_range").execute_safe(ctx, range=["A1:A8"], values="=B2+1")
-        cleared = _tool("write_formula_range").execute_safe(ctx, range=["A1:A8"], values="")
+        matched = _tool("write_range").execute_safe(ctx, range=["A1:A2"], values='["x", "y"]')
+        filled = _tool("write_range").execute_safe(ctx, range=["A1:A8"], values="=B2+1")
+        cleared = _tool("write_range").execute_safe(ctx, range=["A1:A8"], values="")
 
     assert matched["status"] == "ok"
     assert filled["status"] == "ok"
@@ -1214,7 +1214,7 @@ def test_write_formula_range_source_and_values_errors(values):
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
-        result = _tool("write_formula_range").execute_safe(
+        result = _tool("write_range").execute_safe(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values=values
         )
 
@@ -1236,10 +1236,10 @@ def test_write_formula_range_source_only_copies_block_size():
             "rows_copied": 3,
             "cols_copied": 3,
         }
-        result = _tool("write_formula_range").execute_safe(
+        result = _tool("write_range").execute_safe(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3"
         )
-        result2 = _tool("write_formula_range").execute_safe(
+        result2 = _tool("write_range").execute_safe(
             ctx, range=["Sample.A1"], source="Sheet1.A1:C3", values=None
         )
 
@@ -1262,7 +1262,7 @@ def test_write_formula_range_missing_values_without_source_errors():
         patch("plugin.calc.cells.CalcBridge"),
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
-        result = _tool("write_formula_range").execute_safe(ctx, range=["A1"])
+        result = _tool("write_range").execute_safe(ctx, range=["A1"])
 
     assert result["status"] == "error"
     assert "values is required" in result["message"]
@@ -1279,7 +1279,7 @@ def test_write_formula_range_passes_native_2d_grid_to_manipulator():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
         manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
-        result = _tool("write_formula_range").execute_safe(ctx, range=["A1:B2"], values=grid)
+        result = _tool("write_range").execute_safe(ctx, range=["A1:B2"], values=grid)
 
     assert result["status"] == "ok"
     manip_cls.return_value.plan_write.assert_called_once()
@@ -1295,7 +1295,7 @@ def test_write_formula_range_passes_bool_cells_in_grid():
         patch("plugin.calc.cells.CellManipulator") as manip_cls,
     ):
         manip_cls.return_value.commit_write.return_value = {"message": "wrote"}
-        result = _tool("write_formula_range").execute_safe(ctx, range=["A1:B1"], values=grid)
+        result = _tool("write_range").execute_safe(ctx, range=["A1:B1"], values=grid)
 
     assert result["status"] == "ok"
     assert manip_cls.return_value.plan_write.call_args[0][1] == grid
@@ -1309,7 +1309,7 @@ def test_write_formula_range_rejects_2d_grid_shape_mismatch():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        result = _tool("write_formula_range").execute_safe(
+        result = _tool("write_range").execute_safe(
             ctx, range=["A1:C2"], values=[["a", "b"], ["c", "d"]]
         )
 
@@ -1358,7 +1358,7 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_she
         bridge.resolve_range_or_address.return_value = cell_range
         inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
 
-        _tool("read_cell_range").execute_safe(ctx, range=["Sales"])
+        _tool("read_range").execute_safe(ctx, range=["Sales"])
 
         calls = bridge.resolve_range_or_address.call_args_list
         assert len(calls) == 2
@@ -1449,7 +1449,7 @@ def test_read_cell_range_partial_failure():
         inspector = inspector_cls.return_value
         inspector.read_range.side_effect = [grid1, RuntimeError("bad range")]
 
-        res = _tool("read_cell_range").execute_safe(ctx, range=["A1", "B2"])
+        res = _tool("read_range").execute_safe(ctx, range=["A1", "B2"])
         assert res["status"] == "error"
         assert "Failed to read 1 of 2 ranges" in res["message"]
         assert "B2" in res["message"]
@@ -1461,7 +1461,7 @@ def test_read_cell_range_partial_failure():
         assert "bad range" in res["result"][1]["message"]
 
         inspector.read_range.side_effect = RuntimeError("single fail")
-        res_single = _tool("read_cell_range").execute_safe(ctx, range=["C3"])
+        res_single = _tool("read_range").execute_safe(ctx, range=["C3"])
         assert res_single["status"] == "error"
         assert res_single["range"] == "C3"
         assert "single fail" in res_single["message"]
@@ -1481,7 +1481,7 @@ def test_write_cell_range_multi_range_preserves_array_payload():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = [dict_res, {"message": "wrote"}]
 
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "B1:B2"], values="=SEQUENCE(2)")
+        res = _tool("write_range").execute_safe(ctx, range=["A1:A2", "B1:B2"], values="=SEQUENCE(2)")
         assert res["status"] == "ok"
         assert res["message"] == "Wrote to 2 ranges"
         assert len(res["ranges"]) == 2
@@ -1503,7 +1503,7 @@ def test_write_cell_range_multi_range_rolls_back_on_error():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = [{"message": "wrote"}, CalcError("occupied")]
 
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "B1"], values="1")
+        res = _tool("write_range").execute_safe(ctx, range=["A1", "B1"], values="1")
         assert res["status"] == "error"
         assert res["code"] == "CALC_ERROR"
         assert "Nothing was kept." in res["message"]
@@ -1582,7 +1582,7 @@ def test_write_formula_range_disposal_propagates():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = DisposedException("gone")
 
-        tool = _tool("write_formula_range")
+        tool = _tool("write_range")
         with pytest.raises(DisposedException):
             tool.execute(ctx, range=["A1"], values="1")
         assert fake_undo.undone == 0
@@ -1605,7 +1605,7 @@ def test_empty_new_group_does_not_undo_older_action():
         manipulator = manipulator_cls.return_value
         manipulator.commit_write.side_effect = CalcError("fail")
 
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1"], values="1")
+        res = _tool("write_range").execute_safe(ctx, range=["A1"], values="1")
         assert res["status"] == "error"
         assert fake_undo.undone == 0
 
@@ -1621,7 +1621,7 @@ def test_read_cell_range_sizing_failure_fails_closed():
         patch("plugin.calc.cells.CellInspector") as inspector_cls,
     ):
         bridge_cls.return_value.resolve_range_or_address.return_value = cell_range
-        res = _tool("read_cell_range").execute_safe(ctx, range=["A1:H10"])
+        res = _tool("read_range").execute_safe(ctx, range=["A1:H10"])
 
     assert res["status"] == "error"
     assert "Could not size range" in res["message"]
@@ -1636,7 +1636,7 @@ def test_two_range_array_write_measures_once():
         manipulator.plan_write.side_effect = [SimpleNamespace(array_size=(2, 2)), SimpleNamespace(array_size=(2, 2))]
         manipulator.commit_write.return_value = {"message": "ok"}
 
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:B2", "C1:D2"], values="=SEQUENCE(2, 2)")
+        res = _tool("write_range").execute_safe(ctx, range=["A1:B2", "C1:D2"], values="=SEQUENCE(2, 2)")
         assert res["status"] == "ok"
         assert manipulator.plan_write.call_count == 2
         calls = manipulator.plan_write.call_args_list
@@ -1655,7 +1655,7 @@ def test_write_formula_range_refuses_named_range_mismatch_before_any_write():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge({"Totals": "B1:B3"})),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "Totals"], values=["x", "y"])
+        res = _tool("write_range").execute_safe(ctx, range=["A1:A2", "Totals"], values=["x", "y"])
 
     assert res["status"] == "error"
     assert "Array has 2 values but range Totals has 3 cells (3×1)" in res["message"]
@@ -1675,7 +1675,7 @@ def test_write_formula_range_clear_refuses_unknown_range_before_any_write():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write") as commit,
     ):
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1:A2", "Nope"], values="")
+        res = _tool("write_range").execute_safe(ctx, range=["A1:A2", "Nope"], values="")
 
     assert res["status"] == "error"
     assert "NOPE" in res["message"]
@@ -1692,7 +1692,7 @@ def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge()),
         patch.object(CellManipulator, "commit_write", return_value={"message": "ok"}) as commit,
     ):
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "C1"], values="Hello, world")
+        res = _tool("write_range").execute_safe(ctx, range=["A1", "C1"], values="Hello, world")
 
     assert res["status"] == "ok"
     assert commit.call_count == 2
@@ -1702,7 +1702,7 @@ def test_write_formula_range_comma_prose_to_one_cell_ranges_is_text():
         patch("plugin.calc.cells.CalcBridge", return_value=_a1_bridge({"Note": "B2"})),
         patch.object(CellManipulator, "commit_write", return_value={"message": "ok"}) as commit_named,
     ):
-        res_named = _tool("write_formula_range").execute_safe(ctx, range=["Note"], values="Hello, world")
+        res_named = _tool("write_range").execute_safe(ctx, range=["Note"], values="Hello, world")
 
     assert res_named["status"] == "ok"
     commit_named.assert_called_once()
@@ -1768,13 +1768,57 @@ def test_set_cell_style_validation():
         manipulator.reset_mock()
         res_fmt = _tool("set_style").execute_safe(ctx, range=["A1"], number_format="#,##0.00 ")
         assert res_fmt["status"] == "ok"
-        assert manipulator.set_cell_style.call_args.kwargs["number_format"] == "#,##0.00 "
+        assert manipulator.set_cell_style.call_args.kwargs["number_format_key"] is manipulator.number_format_key.return_value
 
 
-def test_merge_cells_validation():
+def test_set_style_border_mode_none_with_color_is_refused():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
+        res = _tool("set_style").execute_safe(ctx, range=["A1:B2"], border_mode="none", border_color="red")
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+
+def test_set_style_border_color_alone_draws_all():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = _tool("set_style").execute_safe(ctx, range=["A1:B2"], border_color="#112233")
+        assert res["status"] == "ok"
+        assert manipulator.set_cell_style.call_args.kwargs["border_mode"] == "all"
+        assert manipulator.set_cell_style.call_args.kwargs["border_color"] == 0x112233
+
+
+def test_set_style_layout_validation():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+
+        res_zero = _tool("set_style").execute_safe(ctx, range=["A1"], column_width_mm=0)
+        assert res_zero["status"] == "error"
+        assert res_zero["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+        res_conflict = _tool("set_style").execute_safe(ctx, range=["A1"], autofit="both", row_height_mm=10)
+        assert res_conflict["status"] == "error"
+        assert res_conflict["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+        res_ok = _tool("set_style").execute_safe(ctx, range=["A1"], autofit="rows", column_width_mm=15)
+        assert res_ok["status"] == "ok"
+        assert manipulator.set_cell_style.call_args.kwargs["column_width"] == 1500
+        assert manipulator.set_cell_style.call_args.kwargs["autofit"] == "rows"
+
+
+def test_merge_cells_validation():
+    from plugin.calc.manipulator import MergeOutcome
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        manipulator.merge_cells.return_value = MergeOutcome(True, 0, [])
 
         res_ok = _tool("merge_cells").execute_safe(ctx, range=["A1:B1"])
         assert res_ok["status"] == "ok"
@@ -1782,13 +1826,45 @@ def test_merge_cells_validation():
 
 
 def test_merge_cells_unmerge_passes_flag():
+    from plugin.calc.manipulator import MergeOutcome
 
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
+        manipulator.merge_cells.return_value = MergeOutcome(True, 0, [])
         res = _tool("merge_cells").execute_safe(ctx, range=["A1:B1"], unmerge=True)
         assert res["status"] == "ok"
         manipulator.merge_cells.assert_called_once_with("A1:B1", center=True, unmerge=True)
+
+
+def test_merge_cells_aggregates_hidden_content():
+    from plugin.calc.manipulator import MergeOutcome
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        manipulator.merge_cells.side_effect = [
+            MergeOutcome(True, 1, ["Sheet1.B1"]),
+            MergeOutcome(True, 1, ["Sheet1.D1"]),
+        ]
+        res = _tool("merge_cells").execute_safe(ctx, range=["A1:B1", "C1:D1"])
+        assert res["status"] == "ok"
+        assert res["hidden_count"] == 2
+        assert res["hidden_cells"] == ["Sheet1.B1", "Sheet1.D1"]
+        assert len(res["warnings"]) == 1
+        assert res["warnings"][0]["code"] == "MERGE_HIDES_CONTENT"
+
+
+def test_merge_cells_refuses_when_calc_did_not_merge():
+    from plugin.calc.manipulator import MergeOutcome
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        manipulator.merge_cells.return_value = MergeOutcome(False, 0, [])
+        res = _tool("merge_cells").execute_safe(ctx, range=["B1:D1"])
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
 
 
 def test_sort_range_validation():
@@ -1796,19 +1872,19 @@ def test_sort_range_validation():
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
 
-        res_sc_neg = _tool("range_sort").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
+        res_sc_neg = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
         assert res_sc_neg["status"] == "error"
         assert "sort_column" in res_sc_neg["message"]
         manipulator.range_sort.assert_not_called()
 
         manipulator.range_sort.return_value = "Sorted"
-        res_ok = _tool("range_sort").execute_safe(ctx, range=["A1:B2"], has_header=True)
+        res_ok = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True)
         assert res_ok["status"] == "ok"
         manipulator.range_sort.assert_called_once_with("A1:B2", sort_column=0, ascending=True, has_header=True)
 
         manipulator.range_sort.reset_mock()
         manipulator.range_sort.side_effect = ["A done.", "B done."]
-        res_multi = _tool("range_sort").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True)
+        res_multi = _tool("sort_range").execute_safe(ctx, range=["A1:B2", "D1:E2"], has_header=True)
         assert res_multi["status"] == "ok"
         assert res_multi["message"] == "A done. B done."
 
@@ -1817,7 +1893,7 @@ def test_delete_structure_validation():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        manipulator.delete_structure.return_value = "Deleted"
+        manipulator.delete_structure.return_value = {"message": "Deleted", "sheet": "Sheet1"}
 
         for bad_row in ("²", "5x", 0, -1):
             res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=bad_row)
@@ -1828,7 +1904,7 @@ def test_delete_structure_validation():
         for good_row in ("5", 5):
             res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=good_row)
             assert res["status"] == "ok"
-            manipulator.delete_structure.assert_called_with("rows", 5, count=1, sheet=None)
+            manipulator.delete_structure.assert_called_with("rows", 5, count=1, sheet=None, confirm=False)
         manipulator.delete_structure.reset_mock()
 
         for bad_col in ("3", 3):
@@ -1839,7 +1915,7 @@ def test_delete_structure_validation():
 
         res_c = _tool("delete_structure").execute_safe(ctx, structure_type="columns", start="c")
         assert res_c["status"] == "ok"
-        manipulator.delete_structure.assert_called_with("columns", "C", count=1, sheet=None)
+        manipulator.delete_structure.assert_called_with("columns", "C", count=1, sheet=None, confirm=False)
         manipulator.delete_structure.reset_mock()
 
         for bad_count in (0, -1):
@@ -1853,7 +1929,7 @@ def test_insert_structure_validation_matches_delete():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
         manipulator = manipulator_cls.return_value
-        manipulator.insert_structure.return_value = "Inserted"
+        manipulator.insert_structure.return_value = {"message": "Inserted", "sheet": "Sheet1"}
 
         for bad_row in ("²", "5x", 0, -1):
             res = _tool("insert_structure").execute_safe(ctx, structure_type="rows", start=bad_row)
@@ -1880,9 +1956,35 @@ def test_delete_structure_sheet_prefix_passes_sheet():
     ):
         bridge_cls.return_value.get_sheet.return_value = sheet
         manipulator = manipulator_cls.return_value
-        manipulator.delete_structure.return_value = "ok"
+        manipulator.delete_structure.return_value = {"message": "ok", "sheet": "Sheet2"}
         _tool("delete_structure").execute_safe(ctx, structure_type="rows", start="Sheet2.5")
-        manipulator.delete_structure.assert_called_once_with("rows", 5, count=1, sheet=sheet)
+        manipulator.delete_structure.assert_called_once_with("rows", 5, count=1, sheet=sheet, confirm=False)
+
+
+def test_delete_structure_forwards_confirm():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        manipulator.delete_structure.return_value = {"message": "Deleted", "sheet": "Sheet1"}
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=5, confirm=True)
+        assert res["status"] == "ok"
+        manipulator.delete_structure.assert_called_once_with("rows", 5, count=1, sheet=None, confirm=True)
+
+
+def test_delete_structure_refs_would_break_keeps_code_and_details():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        manipulator.delete_structure.side_effect = CalcError(
+            "would break",
+            code="REFS_WOULD_BREAK",
+            details={"sheet": "Sheet1", "refs_broken": 2, "broken_cells": ["Sheet1.C1", "Other.A1"]},
+        )
+        res = _tool("delete_structure").execute_safe(ctx, structure_type="rows", start=5)
+        assert res["status"] == "error"
+        assert res["code"] == "REFS_WOULD_BREAK"
+        assert res["details"]["refs_broken"] == 2
+        assert res["details"]["broken_cells"] == ["Sheet1.C1", "Other.A1"]
 
 
 def test_delete_structure_rejects_internal_sheet_prefix():
@@ -1928,9 +2030,10 @@ def test_insert_cell_html_execution_and_validation():
     from plugin.calc.cells import InsertCellHtml
 
     ctx = SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), services=None)
-    with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
+    with patch("plugin.calc.rich_html.insert_cell_html_rich", return_value="") as mock_rich:
         res = InsertCellHtml().execute(ctx, cell="A1", html="<b>bold</b>")
         assert res["status"] == "ok"
+        assert "replaced_text" not in res
         mock_rich.assert_called_once_with(ctx.doc, ctx.ctx, "A1", "<b>bold</b>")
 
     # Empty cell address after strip
@@ -1942,6 +2045,22 @@ def test_insert_cell_html_execution_and_validation():
     res_inv = InsertCellHtml().execute(ctx, cell="invalid_cell_addr", html="<b>bold</b>")
     assert res_inv["status"] == "error"
     assert "Invalid cell address" in res_inv["message"]
+
+
+def test_insert_cell_html_reports_replaced_text():
+    from plugin.calc.cells import InsertCellHtml
+
+    ctx = SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), services=None)
+    with patch("plugin.calc.rich_html.insert_cell_html_rich", return_value="=1+2"):
+        res = InsertCellHtml().execute(ctx, cell="A1", html="<b>x</b>")
+        assert res["status"] == "ok"
+        assert res["replaced_text"] == "=1+2"
+
+    long_text = "a" * 300
+    with patch("plugin.calc.rich_html.insert_cell_html_rich", return_value=long_text):
+        res_long = InsertCellHtml().execute(ctx, cell="A1", html="<b>x</b>")
+        assert res_long["status"] == "ok"
+        assert res_long["replaced_text"] == ("a" * 200) + "…"
 
 
 @requires_asserts
@@ -1958,11 +2077,11 @@ def test_insert_cell_html_non_string_assertion():
     [
         ("merge_cells", {"range": ["A1:B1"], "center": "invalid"}),
         ("merge_cells", {"range": ["A1:B1"], "center": "true"}),
-        ("range_sort", {"range": ["A1:B2"], "has_header": True, "ascending": "invalid"}),
-        ("range_sort", {"range": ["A1:B2"], "has_header": True, "ascending": "false"}),
-        ("range_sort", {"range": ["A1:B2"], "has_header": True, "sort_column": True}),
-        ("range_sort", {"range": ["A1:B2"], "has_header": "true"}),
-        ("range_sort", {"range": ["A1:B2"]}),
+        ("sort_range", {"range": ["A1:B2"], "has_header": True, "ascending": "invalid"}),
+        ("sort_range", {"range": ["A1:B2"], "has_header": True, "ascending": "false"}),
+        ("sort_range", {"range": ["A1:B2"], "has_header": True, "sort_column": True}),
+        ("sort_range", {"range": ["A1:B2"], "has_header": "true"}),
+        ("sort_range", {"range": ["A1:B2"]}),
         ("delete_structure", {"structure_type": "rows", "start": 5, "count": True}),
         ("delete_structure", {"structure_type": "rows", "start": 5, "count": "2"}),
         ("delete_structure", {"structure_type": "invalid", "start": 1}),
@@ -1971,13 +2090,13 @@ def test_insert_cell_html_non_string_assertion():
         ("insert_structure", {"structure_type": "rows", "start": 5, "count": "2"}),
         ("insert_structure", {"structure_type": "invalid", "start": 1}),
         ("insert_structure", {"start": 1}),
-        ("read_cell_range", {"range": ["A1"], "format": "csv"}),
-        ("read_cell_range", {"range": ["A1"], "format": "grid"}),
-        ("read_cell_range", {}),
-        ("write_formula_range", {"range": ["A1"], "values": True}),
-        ("write_formula_range", {"range": ["A1"], "values": "1", "array": "false"}),
-        ("write_formula_range", {"range": ["A1"], "source": 5}),
-        ("write_formula_range", {"values": "1"}),
+        ("read_range", {"range": ["A1"], "format": "csv"}),
+        ("read_range", {"range": ["A1"], "format": "grid"}),
+        ("read_range", {}),
+        ("write_range", {"range": ["A1"], "values": True}),
+        ("write_range", {"range": ["A1"], "values": "1", "array": "false"}),
+        ("write_range", {"range": ["A1"], "source": 5}),
+        ("write_range", {"values": "1"}),
         ("set_style", {"range": ["A1"], "bold": "notabool"}),
         ("set_style", {"range": ["A1"], "font_size": "12"}),
         ("set_style", {"range": ["A1"], "bg_color": 255}),
@@ -2007,7 +2126,7 @@ def test_write_formula_range_missing_sheet_is_uno_object_error():
     fake_undo = FakeUndoManager()
     doc.getUndoManager.return_value = fake_undo
     ctx = SimpleNamespace(doc=doc)
-    res = _tool("write_formula_range").execute_safe(ctx, range="Nope.A1", values="1")
+    res = _tool("write_range").execute_safe(ctx, range="Nope.A1", values="1")
 
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
@@ -2031,7 +2150,7 @@ def test_mutate_ranges_keeps_exception_code_after_rollback():
             UnoObjectError("No sheet named 'B'. Available: Sheet1", details={"hint": "h"}),
         ]
 
-        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "B1"], values="1")
+        res = _tool("write_range").execute_safe(ctx, range=["A1", "B1"], values="1")
 
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
@@ -2082,7 +2201,7 @@ def test_mutate_ranges_empty_group_keeps_older_same_title():
 def test_read_cell_range_missing_sheet_is_uno_object_error():
     doc = _missing_sheet_doc()
     ctx = SimpleNamespace(doc=doc)
-    res = _tool("read_cell_range").execute_safe(ctx, range="Nope.A1")
+    res = _tool("read_range").execute_safe(ctx, range="Nope.A1")
 
     assert res["status"] == "error"
     assert res["code"] == "UNO_OBJECT_ERROR"
@@ -2094,8 +2213,56 @@ def test_read_cell_range_missing_sheet_is_uno_object_error():
 def test_cells_registry_refuses_bad_args_as_invalid_param():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.cells.CellManipulator") as mock_manip:
-        res_write = _tool("write_formula_range").execute_safe(ctx, range=["A1"])
+        res_write = _tool("write_range").execute_safe(ctx, range=["A1"])
     assert res_write["status"] == "error"
     assert res_write["code"] == "INVALID_PARAM"
     mock_manip.return_value.plan_write.assert_not_called()
 
+
+def test_write_cell_range_multi_range_merges_write_reports():
+    ctx = SimpleNamespace(doc=MagicMock())
+    res1 = {
+        "message": "Range J1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.J1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    res2 = {
+        "message": "Range K1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.K1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = [res1, res2]
+        res = _tool("write_range").execute_safe(ctx, range=["J1", "K1"], values="=SUMM(1)")
+
+    assert res["status"] == "ok"
+    assert len(res["error_cells"]) == 2
+    assert len(res["warnings"]) == 1
+    assert "ranges" not in res
+
+
+def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
+    ctx = SimpleNamespace(doc=MagicMock())
+    res1 = {
+        "message": "Range A1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.A1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s) show an error."}],
+    }
+    res2 = {
+        "message": "Range B1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.B1", "error": "#NAME?", "formula": "=SUM(1,2)"}],
+        "warnings": [
+            {
+                "code": "FORMULA_ERROR",
+                "message": "1 formula cell(s) show an error. Calc separates function arguments with ';', not ','.",
+            }
+        ],
+    }
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = [res1, res2]
+        res = _tool("write_range").execute_safe(ctx, range=["A1", "B1"], values="=SUMM(1)")
+
+    assert res["status"] == "ok"
+    assert len(res["error_cells"]) == 2
+    assert len(res["warnings"]) == 2
+    assert "Calc separates function arguments with ';', not ','." in res["warnings"][1]["message"]

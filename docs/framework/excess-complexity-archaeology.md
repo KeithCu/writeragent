@@ -433,7 +433,7 @@ paying, which is why the rule is applied per file, not to the run.
 
 **A file is done when its last two passes were both low-yield**, where
 low-yield means fewer than 5 net lines removed *or* fewer than 1.5 lines
-deleted per line inserted. One low pass is not enough: `apply_document_content`
+deleted per line inserted. One low pass is not enough: `apply_content`
 reshuffled on its 3rd pass (83 in, 79 out) and then removed 36 and 61 net
 lines on the next two. Two in a row is the signal. The line count is still not
 the metric for a *single* pass (`venv_worker` lost concepts at constant
@@ -636,7 +636,7 @@ accumulated around them.
 | "merge `common_details` into `result_details` without overwriting" loop → `{**common_details, **result_details}` | 4 |
 | `_is_specialized_domain_tool`: `split(":")` called twice plus nested `if ":" in …` → `parts = split(":")`, `return len(parts) > 1 and tool_domain == parts[1]` | 3 |
 | `supports_doc` and `_tier_excluded` local closures, each used once → a comprehension and an inline `getattr` | 5 |
-| `filter_get_image_for_text_only_model(tools, has_native_vision(...))` (`a31af6949`) → `if has_native_vision(...) is False: tools = [t for t in tools if t.name != "get_image"]` with the comment "Unknown (None) keeps get_image". This followed `0d4a9f140` making the answer tri-state, which left the helper one line long | 5 |
+| `filter_get_image_for_text_only_model(tools, has_native_vision(...))` (`a31af6949`) → `if has_native_vision(...) is False: tools = [t for t in tools if t.name != "image_get"]` with the comment "Unknown (None) keeps image_get". This followed `0d4a9f140` making the answer tri-state, which left the helper one line long | 5 |
 | `run_threaded` on `_execute_with_timeout` and its inline-and-warn branch → a small `_run_sync` wrapper in the caller that warns once per tool. The caller knows whether the tool is sync. The callee shouldn't need a flag for it. **A later pass (`730054d1c`, Nov 1) deleted `_run_sync`, `_sync_timeout_warned`, and the "declares timeout= but is synchronous" warning with its test.** The first pass moved the flag; the second removed what it had been for | 8, then 17 |
 | `ToolPermissionError` dropped from a comment in `b4c8487f7` because `03-errors` removed the class: a cross-file ripple, not a tool.py decision | 12 |
 

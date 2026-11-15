@@ -219,14 +219,30 @@ def test_move_slide_failure():
     assert out["status"] == "error"
 
 
+class _FakePages:
+    def __init__(self, names: list[str]) -> None:
+        from types import SimpleNamespace
+
+        self._pages = [SimpleNamespace(Name=name, getCount=lambda: 0) for name in names]
+
+    def getCount(self) -> int:
+        return len(self._pages)
+
+    def getByIndex(self, idx: int) -> object:
+        return self._pages[idx]
+
+
 def test_move_slide_ok():
     ctx = _ctx()
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = _FakePages(["A", "B"])
         bridge.move_slide.return_value = True
         bridge.get_active_page_index.return_value = 1
         out = MoveSlide().execute(ctx, from_page=0, to_page=1)
     assert out["status"] == "ok"
+    assert out["to_page"] == 1
+    assert out["pages"] == [{"index": 0, "name": "A", "title": ""}, {"index": 1, "name": "B", "title": ""}]
     bridge.move_slide.assert_called_once_with(0, 1)
 
 
@@ -388,17 +404,29 @@ def test_add_slide_activate_false_does_not_switch():
     bridge.set_current_page_index.assert_not_called()
 
 
-def test_list_pages_uses_page_name():
+def test_list_pages_returns_index_name_and_title():
     ctx = _ctx()
+    title_shape = MagicMock()
+    title_shape.Name = ""
+    title_shape.getShapeType.return_value = "com.sun.star.presentation.TitleTextShape"
+    title_shape.getString.return_value = "Agenda Title"
+
     p0 = MagicMock()
     p0.Name = "Agenda"
+    p0.getCount.return_value = 1
+    p0.getByIndex.return_value = title_shape
     p1 = MagicMock()
     p1.Name = ""
+    p1.getCount.return_value = 0
     p2 = MagicMock()
     p2.Name = "   "
+    p2.getCount.return_value = 0
+    p3 = MagicMock()
+    p3.Name = "page4"
+    p3.getCount.return_value = 0
     pages_mock = MagicMock()
-    pages_mock.getCount.return_value = 3
-    pages_mock.getByIndex.side_effect = [p0, p1, p2]
+    pages_mock.getCount.return_value = 4
+    pages_mock.getByIndex.side_effect = [p0, p1, p2, p3]
 
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
@@ -406,7 +434,13 @@ def test_list_pages_uses_page_name():
         bridge.get_active_page_index.return_value = 0
         out = ListPages().execute(ctx)
     assert out["status"] == "ok"
-    assert out["pages"] == ["Agenda", "Page 1", "Page 2"]
+    assert out["count"] == 4
+    assert out["pages"] == [
+        {"index": 0, "name": "Agenda", "title": "Agenda Title"},
+        {"index": 1, "name": "", "title": "", "default_name": True},
+        {"index": 2, "name": "", "title": "", "default_name": True},
+        {"index": 3, "name": "page4", "title": "", "default_name": True},
+    ]
 
 
 def test_list_pages_reraises_dispose_from_name():

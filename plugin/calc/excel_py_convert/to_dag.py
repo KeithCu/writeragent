@@ -515,6 +515,7 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_pri
     )
 )
 def convert_model_to_dag(model: ExcelWorkbookModel, *, best_effort: bool = False) -> ConversionReport:
+    # crosshair: off — delegates to convert_cell_to_dag/resolve_dep; CrossHair's relib crashes on \[ under IGNORECASE
     """Convert every PY cell in *model* to DAG-style ``=PY`` formulas."""
     report = ConversionReport(direction="dag", source_path=model.source_path)
     if model.issues:

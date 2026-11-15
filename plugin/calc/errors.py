@@ -30,6 +30,7 @@ from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
 from plugin.calc.error_detector import ErrorDetector, truncation_hint
+from plugin.framework.errors import make_tool_ok
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
 class DetectErrors(ToolCalcErrorBase):
     """Detect and explain formula errors in a range."""
 
-    name: str | None = "error_detect"
+    name: str | None = "detect_errors"
     description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas. Explanations are capped at 50 per range; truncated and total_error_count report any remainder."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -60,7 +61,7 @@ class DetectErrors(ToolCalcErrorBase):
         error_detector = ErrorDetector(bridge, inspector, ctx=ctx.ctx)
 
         if len(ranges) <= 1:
-            return {"status": "ok", "result": error_detector.detect_and_explain(range_str=ranges[0] if ranges else None)}
+            return make_tool_ok(result=error_detector.detect_and_explain(range_str=ranges[0] if ranges else None))
 
         results = [error_detector.detect_and_explain(range_str=r) for r in ranges]
         combined_errors: list[dict[str, Any]] = [
@@ -77,7 +78,4 @@ class DetectErrors(ToolCalcErrorBase):
         }
         if truncated:
             combined["hint"] = truncation_hint(len(combined_errors), total)
-        return {
-            "status": "ok",
-            "result": combined,
-        }
+        return make_tool_ok(result=combined)

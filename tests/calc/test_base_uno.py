@@ -25,11 +25,11 @@ def test_tool_argument_normalization(ctx, doc):
     active_sheet = doc.getCurrentController().getActiveSheet()
 
     # Test with string param
-    res1 = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": "A10", "values": "Norm"})
+    res1 = _execute_calc_tool(doc, ctx, "write_range", {"range": "A10", "values": "Norm"})
     assert res1.get("status") == "ok", f"String param failed: {res1}"
 
     # Test with list[str] param
-    res2 = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["A11"], "values": "Norm"})
+    res2 = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A11"], "values": "Norm"})
     assert res2.get("status") == "ok", f"List param failed: {res2}"
 
     assert active_sheet.getCellByPosition(0, 9).getString() == "Norm", "Value mismatch for string param"

@@ -194,7 +194,7 @@ def _existing_data_args(parsed_parts: PyFormula | None) -> list[str]:
 def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None, *, parsed_parts: PyFormula | None = None) -> tuple[str, str | None] | dict[str, Any]:
     """When ``scripting.xl_static_rewrite`` is on, lift ``xl("A1")`` into data args.
 
-    Returns ``(code, data_binding_text)`` or an error dict for the Monaco save path.
+    Returns ``(code, data_binding_text)`` or an error dict that every editor shows as the save status.
     """
     enabled = best_effort(lambda: bool(get_config("scripting.xl_static_rewrite")), "xl_static_rewrite config read", False)
     if not enabled:
@@ -213,10 +213,6 @@ def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None,
 
 
 def _apply_formula_save(cell: Any, *, parsed_parts: PyFormula | None, new_code: str, data_binding_text: str | None = None) -> dict[str, Any]:
-    rewritten = _maybe_apply_xl_static_rewrite(new_code, data_binding_text, parsed_parts=parsed_parts)
-    if isinstance(rewritten, dict):
-        return rewritten
-    new_code, data_binding_text = rewritten
     new_formula = build_editor_formula_save(
         parsed_parts=parsed_parts,
         new_code=new_code,
@@ -252,6 +248,16 @@ def editor_load_save_as_plain(*, parsed_parts: PyFormula | None, initial_code: s
 
 
 def apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
+    # The xl("A1") sugar applies to every save that ends in a =PY() formula: a
+    # formula-mode save, and a follow save (code text in the referenced cell,
+    # ranges on the =PY($A$1; …) formula cell, where follow ignores the plain box).
+    # Monaco, CodeMirror and the built-in dialog all save through here. A plain
+    # "Save without =PY()" has no formula to carry the ranges, so it keeps the text.
+    if is_follow(code_ref, code_cell, cell) or not save_as_plain:
+        rewritten = _maybe_apply_xl_static_rewrite(new_code, data_binding_text, parsed_parts=parsed_parts)
+        if isinstance(rewritten, dict):
+            return rewritten
+        new_code, data_binding_text = rewritten
     # Follow saves touch code and formula cells plus geometric recalc; compound undo groups one undo step.
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
         if is_follow(code_ref, code_cell, cell):

@@ -483,6 +483,8 @@ def policy_allowlist(policy: SandboxPolicy) -> list[str]:
 
 
 def policy_blocked_imports(policy: SandboxPolicy) -> list[str]:
+    # Symbolic policy tuples crash CrossHair inside _matches_prefix.
+    # crosshair: off
     blocked = set(DANGEROUS_MODULES)
     if not policy.network:
         blocked.update(NETWORK_BLOCKED_MODULES)

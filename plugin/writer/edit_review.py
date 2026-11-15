@@ -141,7 +141,7 @@ def annotate_review_status(result: Any) -> dict[str, Any]:
 
 
 def edit_review_wait_seconds() -> int:
-    """Max seconds ``apply_document_content`` may block waiting for review; 0 = don't wait."""
+    """Max seconds ``apply_content`` may block waiting for review; 0 = don't wait."""
     if get_agent_edit_review_mode() != "wait":
         return 0
     return max(0, int(config.get_config("doc.edit_review_timeout")))

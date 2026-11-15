@@ -423,7 +423,17 @@ def test_find_shape_on_page_nested_duplicate_and_missing():
     page_dup = _Shapes([_Shape("TextShape", name="Dup"), _Shape("TextShape", name="Dup")])
     idx, shape, parent, err = find_shape_on_page(page_dup, name="Dup")
     assert idx is None and shape is None and parent is None
-    assert err == "Several shapes named 'Dup'; pass index as well."
+    assert err == "Several shapes named 'Dup' at 0, 1; pass index instead."
+
+    nested_dup = _Shapes(
+        [
+            _Shape("TextShape", name="Dup"),
+            _Shape("GroupShape", children=[_Shape("TextShape", name="Dup")]),
+        ]
+    )
+    idx, shape, parent, err = find_shape_on_page(nested_dup, name="Dup")
+    assert idx is None and shape is None and parent is None
+    assert err == "Several shapes named 'Dup' at 0, 1.0; pass index instead."
 
     idx, shape, parent, err = find_shape_on_page(page_dup, name="Nope")
     assert idx is None and shape is None and parent is None

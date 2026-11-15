@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for get_image tool-list gating by text model vision capability."""
+"""Tests for image_get tool-list gating by text model vision capability."""
 from typing import Any
 from unittest.mock import patch
 
@@ -39,7 +39,7 @@ class _Named(ToolBase):
 
 def _openai_names() -> list[str]:
     reg = ToolRegistry(ServiceRegistry())
-    for name in ("apply_document_content", "get_image", "search_in_document"):
+    for name in ("apply_content", "image_get", "search"):
         tool = _Named()
         tool.name = name
         reg.register(tool)
@@ -66,8 +66,8 @@ def test_get_image_gating_by_vision_support(vision: bool | None, expect_get_imag
     p1, p2, p3 = _patch(vision)
     with p1, p2, p3:
         names = _openai_names()
-    assert ("get_image" in names) is expect_get_image
-    assert "apply_document_content" in names and "search_in_document" in names
+    assert ("image_get" in names) is expect_get_image
+    assert "apply_content" in names and "search" in names
 
 
 def test_exceptions_not_swallowed():
@@ -80,7 +80,7 @@ def test_exceptions_not_swallowed():
 
 def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
     # Chat Send is on the UI thread. An id with no static row and no stored
-    # answer returns None on UI thread and keeps get_image without GET /v1/models.
+    # answer returns None on UI thread and keeps image_get without GET /v1/models.
     import plugin.framework.client.model_fetcher as mf
 
     for key in list(mf._catalog_memos):
@@ -97,23 +97,24 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
         names = _openai_names()
         sync.assert_not_called()
         bg.assert_called_once()
-    assert "get_image" in names
+    assert "image_get" in names
 
 
 def test_catalogued_text_only_model_drops_get_image_without_fetch():
     import plugin.framework.client.model_fetcher as mf
 
+    # Groq has no live vision API, so the catalog row is the answer.
     mf._catalog_memos.clear()
     with patch("plugin.framework.client.model_fetcher.fetch_available_models") as fetch, \
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
          patch("plugin.framework.client.model_fetcher.get_model_capability", return_value=ModelCapability.CHAT | ModelCapability.TOOLS), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="synthetic/text-only"), \
-         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://api.groq.com/openai"), \
          patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch("plugin.framework.client.model_fetcher.run_in_background"):
         names = _openai_names()
         fetch.assert_not_called()
-    assert "get_image" not in names
+    assert "image_get" not in names
 
 
 def test_stored_vision_false_drops_get_image_without_fetch():
@@ -133,11 +134,11 @@ def test_stored_vision_false_drops_get_image_without_fetch():
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"):
         names = _openai_names()
         fetch.assert_not_called()
-    assert "get_image" not in names
+    assert "image_get" not in names
 
 
 class _GetImageTool(ToolBase):
-    name = "get_image"
+    name = "image_get"
     description = "Fetch image from document"
     parameters = {"type": "object", "properties": {}}
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -152,6 +153,6 @@ def test_openai_hides_get_image_but_mcp_keeps_it():
     p1, p2, p3 = _patch(False)
     with p1, p2, p3:
         openai_schemas = reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"))
-        assert not any(schema["function"]["name"] == "get_image" for schema in openai_schemas)
+        assert not any(schema["function"]["name"] == "image_get" for schema in openai_schemas)
         mcp_schemas = reg.get_schemas("mcp", doc=TestingFactory.create_doc(doc_type="writer"))
-        assert any(schema["name"] == "get_image" for schema in mcp_schemas)
+        assert any(schema["name"] == "image_get" for schema in mcp_schemas)

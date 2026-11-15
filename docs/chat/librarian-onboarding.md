@@ -35,7 +35,7 @@ We get:
 ```
 Librarian: "Would you like me to call you Keith?"  (suggested from LibreOffice User Data or OS login)
 User: "Yes, but my friends call me Cash"
-Librarian: [stores "Cash" via upsert_memory after confirmation]
+Librarian: [stores "Cash" via memory_upsert after confirmation]
 Librarian: "Got it! I'll call you Cash. It's great to meet you, Cash! 😊"
 ```
 
@@ -48,7 +48,7 @@ On the UI thread before each librarian turn, [`plugin/chatbot/librarian.py`](plu
 1. **LibreOffice User Data** — `givenname` / `sn` from Tools → Options → User Data (`/org.openoffice.UserProfile/Data`).
 2. **OS login** — `getpass.getuser()` (cross-platform; `$USER` / `$USERNAME` / passwd lookup).
 
-Generic placeholders (`user`, `root`, `administrator`, …) are filtered out. The hint is injected as `[SUGGESTED USER NAME]` in agent instructions; the model **confirms** before calling `upsert_memory` with key `"name"`. If the user prefers another name or declines, the agent respects that.
+Generic placeholders (`user`, `root`, `administrator`, …) are filtered out. The hint is injected as `[SUGGESTED USER NAME]` in agent instructions; the model **confirms** before calling `memory_upsert` with key `"name"`. If the user prefers another name or declines, the agent respects that.
 
 ## Shipped: Librarian is a sidebar mode
 

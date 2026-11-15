@@ -14,11 +14,11 @@ does not receive specialized domain tools. When it needs them it calls
 
 The inner agent gets ``run_venv_python_script`` with ``python_tool_domain`` set
 to those domains plus ``core``, so one script can loop ``writeragent_api``
-(``wa.shape.upsert``, ``wa.core.list_open_documents``, and the rest of the
+(``wa.shape.upsert``, ``wa.document.list_open``, and the rest of the
 catalog). The inner instructions include that catalog (full proxy docstrings
 and Args). The venv sandbox blocks ``inspect`` / ``dir`` / ``__doc__``, so the
 model cannot read the signatures itself. Shapes mutators stay off the inner
-LLM list (``shape_summary`` remains for a check). Other domains still pass
+LLM list (``shape_get_summary`` remains for a check). Other domains still pass
 their ``ToolBase`` tools. ``specialized_workflow_finished`` is always included.
 
 The gateway parameter ``python_tool_domain`` stays commented out. This module
@@ -64,7 +64,7 @@ _DOMAINS_ERROR = "domains must be a non-empty list of specialized domain names."
 # Shapes-first: bulk geometry is a script loop, not N LLM mutator calls.
 # Other domains (footnotes, sheets, …) keep their ToolBase tools.
 _SCRIPT_PLACEMENT_DOMAINS = frozenset({"shapes"})
-_SCRIPT_PLACEMENT_LLM_KEEP = frozenset({"shape_summary"})
+_SCRIPT_PLACEMENT_LLM_KEEP = frozenset({"shape_get_summary"})
 
 
 def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozenset[str]:
@@ -138,7 +138,7 @@ def script_only_llm_tool_names(domain: str) -> frozenset[str]:
     """Shape-domain proxy names the inner LLM must not see.
 
     Scripts still call them: ``python_tool_domain`` allowlists the same
-    ``DOMAIN_TOOLS`` entry. ``shape_summary`` stays so the agent can verify.
+    ``DOMAIN_TOOLS`` entry. ``shape_get_summary`` stays so the agent can verify.
     Footnotes and other domains return an empty set and keep their tools.
     """
     if domain not in _SCRIPT_PLACEMENT_DOMAINS:
@@ -288,7 +288,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
             " on the page. Those shape mutators are not LLM tools. Do not invent JSON geometry,"
             " return a pasteable script/macro listing, or finish with prose alone. Use page-scale"
             " HMM sizes: a full-page composite is typically 10000–20000 HMM wide. Width near"
-            " 1900 HMM (~19mm) is a tiny speck and is wrong. shape_summary can verify."
+            " 1900 HMM (~19mm) is a tiny speck and is wrong. shape_get_summary can verify."
         )
     instructions = (
         f"You are an inner {label} agent with tools for these specialized domains: {domain_list}. "

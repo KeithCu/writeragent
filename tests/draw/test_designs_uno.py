@@ -30,13 +30,13 @@ def _pick_known_design(listed):
 @native_test
 @with_native_doc("impress")
 def test_list_designs_finds_metropolis(ctx, doc):
-    listed = _exec(doc, ctx, "list_designs", {})
+    listed = _exec(doc, ctx, "design_list", {})
     assert listed.get("status") == "ok", listed
     assert listed.get("count", 0) >= 1, listed
     ids = [str(d.get("id") or "") for d in listed.get("designs") or []]
     names = [str(d.get("name") or "") for d in listed.get("designs") or []]
     blob = " ".join(ids + names).lower()
-    assert "metropolis" in blob, "list_designs did not find Metropolis: %s" % listed
+    assert "metropolis" in blob, "design_list did not find Metropolis: %s" % listed
     for d in listed.get("designs") or []:
         assert d.get("path"), d
         assert d.get("url", "").startswith("file:"), d
@@ -59,27 +59,27 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
     from plugin.chatbot.dialogs import copy_to_clipboard
 
     copy_to_clipboard(ctx, "SPREADSHEET_AUDIT_JUNK_SHOULD_NOT_APPEAR")
-    listed = _exec(doc, ctx, "list_designs", {})
+    listed = _exec(doc, ctx, "design_list", {})
     design = _pick_known_design(listed)
     assert design, listed
-    added = _exec(doc, ctx, "add_slide", {})
+    added = _exec(doc, ctx, "slide_add", {})
     assert added.get("status") == "ok", added
-    layout0 = _exec(doc, ctx, "slide_layout_set", {"page": 0, "layout": "text"})
+    layout0 = _exec(doc, ctx, "slide_set_layout", {"page": 0, "layout": "text"})
     assert layout0.get("status") == "ok", layout0
-    title0 = _exec(doc, ctx, "set_placeholder_text", {"page": 0, "role": "title", "text": "Keep Title 0"})
+    title0 = _exec(doc, ctx, "placeholder_set_text", {"page": 0, "role": "title", "text": "Keep Title 0"})
     if title0.get("status") != "ok":
-        title0 = _exec(doc, ctx, "set_placeholder_text", {"page": 0, "index": 0, "text": "Keep Title 0"})
+        title0 = _exec(doc, ctx, "placeholder_set_text", {"page": 0, "index": 0, "text": "Keep Title 0"})
     assert title0.get("status") == "ok", title0
     title1 = _exec(
-        doc, ctx, "set_placeholder_text", {"page": 1, "role": "title", "text": "Keep Title 1"}
+        doc, ctx, "placeholder_set_text", {"page": 1, "role": "title", "text": "Keep Title 1"}
     )
-    body1 = _exec(doc, ctx, "set_placeholder_text", {"page": 1, "role": "body", "text": "Keep Body 1"})
+    body1 = _exec(doc, ctx, "placeholder_set_text", {"page": 1, "role": "body", "text": "Keep Body 1"})
     assert title1.get("status") == "ok", title1
     assert body1.get("status") == "ok", body1
     before_count = doc.getDrawPages().getCount()
     assert before_count >= 2, before_count
 
-    out = _exec(doc, ctx, "apply_design", {"design": design["id"]})
+    out = _exec(doc, ctx, "design_apply", {"design": design["id"]})
     assert out.get("status") == "ok", out
     assert out.get("import_method") == "clone_master", out
     assert out.get("blank_master") is False, out
@@ -125,11 +125,11 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
             out,
         )
 
-    kept0 = _exec(doc, ctx, "get_placeholder_text", {"page": 0, "role": "title"})
+    kept0 = _exec(doc, ctx, "placeholder_get_text", {"page": 0, "role": "title"})
     if kept0.get("status") != "ok":
-        kept0 = _exec(doc, ctx, "get_placeholder_text", {"page": 0, "index": 0})
-    kept1 = _exec(doc, ctx, "get_placeholder_text", {"page": 1, "role": "title"})
-    kept_body = _exec(doc, ctx, "get_placeholder_text", {"page": 1, "role": "body"})
+        kept0 = _exec(doc, ctx, "placeholder_get_text", {"page": 0, "index": 0})
+    kept1 = _exec(doc, ctx, "placeholder_get_text", {"page": 1, "role": "title"})
+    kept_body = _exec(doc, ctx, "placeholder_get_text", {"page": 1, "role": "body"})
     assert "Keep Title 0" in str(kept0.get("text") or ""), kept0
     assert "Keep Title 1" in str(kept1.get("text") or ""), kept1
     assert "Keep Body 1" in str(kept_body.get("text") or ""), kept_body
@@ -147,7 +147,7 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
 @native_test
 @with_native_doc("impress")
 def test_create_from_template_helper_non_default_master(ctx, doc):
-    """Internal helper only — apply_design must not open this new-doc path."""
+    """Internal helper only — design_apply must not open this new-doc path."""
     from plugin.draw.designs import (
         _blank_master_signal,
         _master_entries,
@@ -155,7 +155,7 @@ def test_create_from_template_helper_non_default_master(ctx, doc):
         resolve_design,
     )
 
-    listed = _exec(doc, ctx, "list_designs", {})
+    listed = _exec(doc, ctx, "design_list", {})
     design = _pick_known_design(listed)
     assert design, listed
     entry = resolve_design(ctx, design["id"])
@@ -189,7 +189,7 @@ def test_create_from_template_helper_non_default_master(ctx, doc):
 @native_test
 @with_native_doc("draw")
 def test_apply_design_draw_not_impress(ctx, doc):
-    out = _exec(doc, ctx, "apply_design", {"design": "Metropolis"}, doc_type="draw")
+    out = _exec(doc, ctx, "design_apply", {"design": "Metropolis"}, doc_type="draw")
     assert out.get("status") == "error", out
     assert out.get("code") == "UNSUPPORTED_DOC_TYPE", out
 
@@ -199,7 +199,7 @@ def test_apply_design_draw_not_impress(ctx, doc):
 def test_apply_design_clones_shipped_template_chrome(ctx, doc):
     from plugin.draw.designs import create_presentation_from_design, resolve_design
 
-    listed = _exec(doc, ctx, "list_designs", {})
+    listed = _exec(doc, ctx, "design_list", {})
     available_ids = [d["id"] for d in (listed.get("designs") or [])]
 
     # Sunset
@@ -215,7 +215,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
         finally:
             TestingFactory.close_doc(hidden_doc)
 
-        out_sunset = _exec(doc, ctx, "apply_design", {"design": "sunset"})
+        out_sunset = _exec(doc, ctx, "design_apply", {"design": "sunset"})
         assert out_sunset.get("status") == "ok", out_sunset
         master = doc.getDrawPages().getByIndex(0).MasterPage
         if expected_bg_color is not None and hasattr(master, "Background") and hasattr(master.Background, "FillColor"):
@@ -230,7 +230,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
         assert has_group_with_children, "Sunset cloned master missing populated GroupShape"
 
         # Reapply Sunset: verify cleanup of previous same-named master
-        out_reapply = _exec(doc, ctx, "apply_design", {"design": "sunset"})
+        out_reapply = _exec(doc, ctx, "design_apply", {"design": "sunset"})
         assert out_reapply.get("status") == "ok", out_reapply
         sunset_masters = [
             doc.getMasterPages().getByIndex(k)
@@ -241,7 +241,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
 
     # Beehive
     if "beehive" in available_ids:
-        out_bee = _exec(doc, ctx, "apply_design", {"design": "beehive"})
+        out_bee = _exec(doc, ctx, "design_apply", {"design": "beehive"})
         assert out_bee.get("status") == "ok", out_bee
         master = doc.getDrawPages().getByIndex(0).MasterPage
         has_bee_group = False
@@ -262,7 +262,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
 
     # Vivid
     if "vivid" in available_ids:
-        out_vivid = _exec(doc, ctx, "apply_design", {"design": "vivid"})
+        out_vivid = _exec(doc, ctx, "design_apply", {"design": "vivid"})
         assert out_vivid.get("status") == "ok", out_vivid
         master = doc.getDrawPages().getByIndex(0).MasterPage
         has_geom = False
@@ -278,7 +278,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
     # Grey Elegant
     if "grey_elegant" in available_ids or "grey-elegant" in available_ids:
         did = "grey_elegant" if "grey_elegant" in available_ids else "grey-elegant"
-        out_grey = _exec(doc, ctx, "apply_design", {"design": did})
+        out_grey = _exec(doc, ctx, "design_apply", {"design": did})
         assert out_grey.get("status") == "ok", out_grey
         applied = str(out_grey.get("applied_master") or "").lower()
         assert "grey" in applied and "elegant" in applied
@@ -287,7 +287,7 @@ def test_apply_design_clones_shipped_template_chrome(ctx, doc):
 @native_test
 @with_native_doc("impress")
 def test_apply_design_aspect_ratio_selection(ctx, doc):
-    listed = _exec(doc, ctx, "list_designs", {})
+    listed = _exec(doc, ctx, "design_list", {})
     available_ids = [d["id"] for d in (listed.get("designs") or [])]
     if "beehive" not in available_ids:
         return
@@ -297,7 +297,7 @@ def test_apply_design_aspect_ratio_selection(ctx, doc):
     p0.Width = 28000
     p0.Height = 21000
 
-    out = _exec(doc, ctx, "apply_design", {"design": "beehive"})
+    out = _exec(doc, ctx, "design_apply", {"design": "beehive"})
     assert out.get("status") == "ok", out
     master = p0.MasterPage
     mw = getattr(master, "Width", 0)
@@ -310,13 +310,13 @@ def test_apply_design_aspect_ratio_selection(ctx, doc):
 @native_test
 @with_native_doc("impress")
 def test_apply_design_growing_liberty_fallback(ctx, doc):
-    listed = _exec(doc, ctx, "list_designs", {})
+    listed = _exec(doc, ctx, "design_list", {})
     available_ids = [d["id"] for d in (listed.get("designs") or [])]
     target_id = next((i for i in available_ids if "growing" in i and "liberty" in i), None)
     if not target_id:
         return
 
-    out = _exec(doc, ctx, "apply_design", {"design": target_id})
+    out = _exec(doc, ctx, "design_apply", {"design": target_id})
     assert out.get("status") == "ok", out
     assert "Title" in str(out.get("source_master") or ""), out
     assert out.get("selection") == "fallback", out

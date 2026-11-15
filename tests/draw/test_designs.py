@@ -1643,3 +1643,20 @@ def test_normalize_master_name_keeps_digits_before_a_ratio_suffix():
     assert _normalize_master_name("Beehive_20_4_3a_3") == "beehive"
     assert _normalize_master_name("Slide_4_3") == "slide"
 
+
+def test_design_tools_hidden_on_drawing_document():
+    from plugin.app import get_tools
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+
+    draw_doc = MagicMock()
+    draw_doc.supportsService.side_effect = lambda s: s == DRAW_DOCUMENT_SERVICE
+    impress_doc = MagicMock()
+    impress_doc.supportsService.side_effect = lambda s: s in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
+
+    registry = get_tools()
+    draw_names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=draw_doc)}
+    impress_names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=impress_doc)}
+    assert "design_list" not in draw_names
+    assert "design_apply" not in draw_names
+    assert {"design_list", "design_apply"} <= impress_names
+

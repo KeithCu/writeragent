@@ -24,6 +24,7 @@ import hashlib
 import logging
 import math
 import os
+import re
 import sys
 import threading
 import time
@@ -75,6 +76,9 @@ from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
 from plugin.scripting.venv.results import DEFER_TIMEOUT_FINALIZE, error_result
 from plugin.scripting.sandbox import (
+    FILE_BLOCKED_MODULES,
+    NETWORK_BLOCKED_MODULES,
+    PROCESS_MODULES,
     SANDBOX_BLOCKED_MODULES,
     SANDBOX_EXTRA_MODULES,
     SandboxPolicy,
@@ -1004,8 +1008,45 @@ def _serialize_cell_result(
     return serialized, extra_stdout
 
 
-def _with_help_hint(message: str) -> str:
-    """Append a wa.help(name) hint when the sandbox blocks dir() or __doc__."""
+_ERROR_FIX_HINTS: tuple[tuple[str, str], ...] = (
+    (
+        "unsupported operand type(s) for +: 'int' and 'list'",
+        "builtin sum() over 2-D data (one list per row) adds whole rows; use np.sum(data), or np.sum(data, axis=0) per column",
+    ),
+    (
+        "The axis argument to unique is not supported for dtype object",
+        "cells that mix text and numbers make an object array; for unique rows use data.to_pandas().drop_duplicates()",
+    ),
+    (
+        "not supported between instances of",
+        "cells of different types (text, numbers, blanks as None) cannot be compared; use data.to_pandas() (drop_duplicates / sort_values) or filter the values first",
+    ),
+)
+
+_BLOCKED_IMPORT_RE = re.compile(r"^Import (?:of|from) ([A-Za-z_][\w.]*) is not allowed\.")
+
+
+def _matches_module(name: str, modules: tuple[str, ...] | frozenset[str] | set[str]) -> bool:
+    return any(name == m or name.startswith(m + ".") for m in modules)
+
+
+def _blocked_import_hint(module: str) -> str:
+    """Return the Settings category hint for a single blocked module (never dumps the blocklist)."""
+    if _matches_module(module, NETWORK_BLOCKED_MODULES):
+        return "networking modules are blocked unless 'Allow network access' is on in Settings"
+    if _matches_module(module, FILE_BLOCKED_MODULES):
+        return "file access modules are blocked unless 'Allow file access' is on in Settings"
+    if _matches_module(module, PROCESS_MODULES):
+        return "running programs is blocked unless 'Allow OS access' is on in Settings"
+    return "this module is blocked in the sandbox"
+
+
+def _with_fix_hint(message: str) -> str:
+    """Append an actionable fix hint when a sandbox error has a known remedy.
+
+    The model sees only this error message, so naming the fix or Settings
+    toggle directly avoids repeated trial-and-error.
+    """
     if "wa.help(" in message:
         return message
     if (
@@ -1014,6 +1055,13 @@ def _with_help_hint(message: str) -> str:
         or "name 'dir' is not defined" in message
     ):
         return f"{message.rstrip('.')} — use wa.help(name) instead (or wa.help() to list namespaces)."
+    for needle, hint in _ERROR_FIX_HINTS:
+        if needle in message:
+            return f"{message.rstrip('.')} — {hint}."
+    match = _BLOCKED_IMPORT_RE.match(message)
+    if match:
+        hint = _blocked_import_hint(match.group(1))
+        return f"{message.rstrip('.')} — {hint}."
     return message
 
 
@@ -1127,7 +1175,7 @@ def _run_on_executor(
         return _fail_cell(
             executor,
             prior_result,
-            _with_help_hint(str(e)),
+            _with_fix_hint(str(e)),
             stdout=print_outputs_from_state(executor.state),
         )
     except Exception as e:

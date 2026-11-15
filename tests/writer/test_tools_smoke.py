@@ -31,15 +31,21 @@ class TestWriterToolsSmoke:
         doc = WriterDocStub()
         writer_tools = {t.name for t in registry.get_tools(doc=doc)}
         # Specialized tools are not in the default chat tool list.
-        assert "nav_heading" not in writer_tools
+        assert "nav_get_heading" not in writer_tools
 
     def test_structural_domain_routing_excludes_tables_tools(self):
         registry = get_tools()
         doc = WriterDocStub()
         structural_names = {t.name for t in registry.get_tools(doc=doc, active_domain="structural")}
         table_names = {t.name for t in registry.get_tools(doc=doc, active_domain="tables")}
-        assert "get_page_objects" in structural_names
-        assert "get_page_objects" not in table_names
+        assert "page_get_objects" in structural_names
+        assert "page_get_objects" not in table_names
+
+    def test_tables_domain_offers_merge_and_split(self):
+        registry = get_tools()
+        doc = WriterDocStub()
+        table_names = {t.name for t in registry.get_tools(doc=doc, active_domain="tables")}
+        assert {"table_merge_cells", "table_split_cell"} <= table_names
 
     def test_indexes_domain_bibliography_must_stay_unregistered(self):
         registry = get_tools()

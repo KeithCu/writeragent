@@ -60,7 +60,7 @@ def _note_at_index(doc: Any, note_type: str, index: int) -> tuple[Any, Any, dict
 
 
 class FootnotesInsert(ToolWriterFootnoteBase):
-    name: str | None = "footnotes_insert"
+    name: str | None = "footnote_insert"
     description: str = (
         "Inserts a new footnote or endnote. Without insert_after, uses the current view cursor. "
         "When the insert position must be specific (e.g. delegated sub-agent work), pass insert_after: "
@@ -147,7 +147,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
 
 class FootnotesList(ToolWriterFootnoteBase):
-    name: str | None = "footnotes_list"
+    name: str | None = "footnote_list"
     description: str = "Lists all existing footnotes or endnotes in the document, including their indices, labels (if custom), and text content. Use this index for editing or deleting."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -174,13 +174,13 @@ class FootnotesList(ToolWriterFootnoteBase):
 
 
 class FootnotesEdit(ToolWriterFootnoteBase):
-    name: str | None = "footnotes_edit"
-    description: str = "Edits an existing footnote or endnote. You must provide the index (from footnotes_list) and the new text content. You can optionally provide a new custom label, or set it to an empty string to revert to auto-numbering."
+    name: str | None = "footnote_edit"
+    description: str = "Edits an existing footnote or endnote. You must provide the index (from footnote_list) and the new text content. You can optionally provide a new custom label, or set it to an empty string to revert to auto-numbering."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "note": enum_param(NOTE_TYPES, "Whether to edit a footnote or an endnote."),
-            "index": {"type": "integer", "description": "The 0-based index of the note to edit (from footnotes_list)."},
+            "index": {"type": "integer", "description": "The 0-based index of the note to edit (from footnote_list)."},
             "text": {"type": "string", "description": "The new text content for the note."},
             "label": {"type": "string", "description": "Optional custom mark (e.g., '*'). Leave empty to revert to auto-numbering."},
         },
@@ -207,13 +207,13 @@ class FootnotesEdit(ToolWriterFootnoteBase):
 
 
 class FootnotesDelete(ToolWriterFootnoteBase):
-    name: str | None = "footnotes_delete"
-    description: str = "Deletes an existing footnote or endnote based on its index (from footnotes_list)."
+    name: str | None = "footnote_delete"
+    description: str = "Deletes an existing footnote or endnote based on its index (from footnote_list)."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "note": enum_param(NOTE_TYPES, "Whether to delete a footnote or an endnote."),
-            "index": {"type": "integer", "description": "The 0-based index of the note to delete (from footnotes_list)."},
+            "index": {"type": "integer", "description": "The 0-based index of the note to delete (from footnote_list)."},
         },
         "required": ["note", "index"],
     }
@@ -245,7 +245,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
 
 
 class FootnotesSettingsGet(ToolWriterFootnoteBase):
-    name: str | None = "footnotes_settings_get"
+    name: str | None = "footnote_get_settings"
     description: str = "Gets the current formatting and numbering settings for footnotes or endnotes. These include prefix, suffix, starting number, and styles."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -278,7 +278,7 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
 
 
 class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
-    name: str | None = "footnotes_settings_update"
+    name: str | None = "footnote_update_settings"
     description: str = "Updates the formatting and numbering settings for footnotes or endnotes. You can specify which properties to change (e.g., Prefix, Suffix, StartAt, NumberingType)."
     parameters: dict[str, Any] | None = {
         "type": "object",

@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Calc search tools: search_cells, search_replace."""
+"""Calc search tools: search_cells, replace_cells."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from plugin.calc.spreadsheet_search import (
     iter_target_sheets,
     search_spreadsheet_cells,
 )
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, make_tool_ok
 from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
     invalid_regex_tool_message,
@@ -79,13 +79,13 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             cancel=scope,
         )
 
-        return {"status": "ok", "matches": matches, "count": len(matches), "matched_case_sensitive": case_sensitive}
+        return make_tool_ok(matches=matches, count=len(matches), matched_case_sensitive=case_sensitive)
 
 
 class ReplaceInSpreadsheet(ToolCalcSearchBase):
     """Find and replace in the spreadsheet."""
 
-    name: str | None = "search_replace"
+    name: str | None = "replace_cells"
     description: str = "Find and replace text or values in a Calc spreadsheet. Returns count of replacements made."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -120,10 +120,9 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
             rd.ReplaceString = replace
             total += sheet.replaceAll(rd)
 
-        return {
-            "status": "ok",
-            "replacements": total,
-            "search": search,
-            "replace": replace,
-            "matched_case_sensitive": case_sensitive,
-        }
+        return make_tool_ok(
+            replacements=total,
+            search=search,
+            replace=replace,
+            matched_case_sensitive=case_sensitive,
+        )

@@ -60,8 +60,9 @@ Explain the code that is here **now**, for a reader who would otherwise be lost.
 | `make build` | Produce `build/WriterAgent.oxt` only (no install) |
 | `make build-core` | Produce `build/LibrePy.oxt` only (no install) |
 | `make release` | Typecheck + bandit, verify a stripped tree in `/tmp` (`compileall` + pytest + LO tests), then build/register `build/WriterAgent.oxt` |
+| `make eval-ab SUITE=...` | To test a prompt change, run `make eval-ab SUITE=calc` (or `writer`, `draw`, `all`, `string`, `lo`). |
 
-Usual targets generate `plugin/_manifest.py` when needed. Other Makefile targets exist for fuzz and niche tooling—see the `Makefile` when you need them.
+Usual targets generate `plugin/_manifest.py` and `plugin/scripting/writeragent_api.py` (`make proxy-stubs`) when needed. Other Makefile targets exist for fuzz and niche tooling—see the `Makefile` when you need them.
 
 ---
 
@@ -85,7 +86,7 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **Refresh document context each chat send.** Each request ends with a fresh trailing `[DOCUMENT CONTENT]` snapshot (merged into the trailing user message on chat turns, or the trailing tool message in tool rounds); the stored history never contains it and is never rewritten. The system prompt contains the base instructions and user memory, which remain stable across requests to maximize prompt cache hits. Why: providers cache an exact prefix, and rewriting `messages[0]` on every send misses that cache.
 
-- **Register tools so schemas and execution agree.** Matching uses `uno_services` first, then `doc_types`. Anything advertised by `get_schemas` must be runnable via `execute`. Default main-chat tools are `tier="core"`; nested specialized sets use `specialized` / `specialized_control` and are omitted from default lists. Gateway tools must list **every** UNO service they support (e.g. Draw **and** Impress). Writer `charts` / `shapes` share tool **names** with Calc/Draw—the Writer class must declare the **union** of those services or execution rejects the document.
+- **Register tools so schemas and execution agree.** Matching uses `uno_services` first, then `doc_types`. Anything advertised by `get_schemas` must be runnable via `execute`. Default main-chat tools are `tier="core"`; nested specialized sets use `specialized` / `specialized_control` and are omitted from default lists. Gateway tools must list **every** UNO service they support (e.g. Draw **and** Impress). Writer `charts` / `shapes` share tool **names** with Calc/Draw—the Writer class must declare the **union** of those services or execution rejects the document. Tool names are `<domain>_<verb>[_<object>]` with a singular domain from `API_DOMAINS`, or `<verb>[_<object>]` for single-app tools without an `writer_`/`calc_`/`draw_` prefix (which land on `wa.<app>` from their registered app); `make proxy-stubs` fails otherwise.
 
 - **Do not start raw threads for background work.** Use `run_in_background`. Short fire-and-forget jobs share a daemon pool with a fixed worker count (unbounded submit queue; pool size is controlled by `WRITERAGENT_BG_POOL_WORKERS`, default `2`, valid values are integers `>= 1`); pass `dedicated=True` (or `daemon=False`) for servers, pipe drains, infinite loops, and any job another thread will `join()`. Long subprocesses use `AsyncProcess`; if stderr is piped, drain it continuously or redirect it, or the process can deadlock ([docs/framework/threading.md](docs/framework/threading.md)). Dev builds enable a UNO thread guard by default (`thread_guard`; set `WRITERAGENT_UNO_THREAD_GUARD=0` to opt out; release OXTs stub it off). Wrap document-model access at boundaries with `guard_uno` (e.g. `get_active_document`, frame `_get_document_model`, `resolve_document_by_url`, `open_document_for_read`). For `ToolContext`, use `get_ctx()`—not the raw bootstrap `self.ctx`. Details: [docs/framework/uno-thread-safety.md](docs/framework/uno-thread-safety.md).
 

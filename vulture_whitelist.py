@@ -260,11 +260,13 @@ _.OutputURL  # attribute: plugin/writer/specialized/mail_merge.py:546
 _.PageGetColumns  # class: plugin/writer/page.py:1611
 _.PageGetHeaderFooterText  # class: plugin/writer/page.py:930
 _.PageGetStyleProperties  # class: plugin/writer/page.py:763
+_.PageGetWatermark  # class: plugin/writer/watermark.py
 _.PageInsertBreak  # class: plugin/writer/page.py:1759
 _.PageReplaceHeaderFooterText  # class: plugin/writer/page.py:1436
 _.PageSetColumns  # class: plugin/writer/page.py:1644
 _.PageSetHeaderFooterText  # class: plugin/writer/page.py:1026
 _.PageSetStyleProperties  # class: plugin/writer/page.py:779
+_.PageSetWatermark  # class: plugin/writer/watermark.py
 _.PlotDataTool  # class: plugin/calc/viz.py:22
 _.ProtectSheet  # class: plugin/calc/sheets.py:156
 _.QueryFolderSqlTool  # class: plugin/calc/duckdb_tools.py:37
@@ -286,8 +288,12 @@ _.SaveFilter  # attribute: plugin/writer/specialized/mail_merge.py:553
 _.SearchInDocument  # class: plugin/writer/search.py:956
 _.SearchInSpreadsheet  # class: plugin/calc/search.py:31
 _.SearchNearbyFiles  # class: plugin/embeddings/document_research_fts_tool.py:21
+_.SectionCreate  # class: plugin/writer/specialized/sections.py:155
+_.SectionDelete  # class: plugin/writer/specialized/sections.py:231
 _.SectionList  # class: plugin/writer/structural.py:63
 _.SectionRead  # class: plugin/writer/structural.py:276
+_.SectionSetColumns  # class: plugin/writer/specialized/sections.py:266
+_.SectionSetProtection  # class: plugin/writer/specialized/sections.py:325
 _.SendPeerResult  # class: plugin/doc/peer_message.py:812
 _.SendPeerWork  # class: plugin/doc/peer_message.py:804
 _.SetActivePage  # class: plugin/draw/pages.py:274
@@ -314,7 +320,9 @@ _.TableDelete  # class: plugin/writer/specialized/tables.py:912
 _.TableGetCells  # class: plugin/writer/specialized/tables.py:511
 _.TableInsert  # class: plugin/writer/specialized/tables.py:773
 _.TableList  # class: plugin/writer/specialized/tables.py:461
+_.TableMergeCells  # class: plugin/writer/specialized/tables.py:646
 _.TableSetCell  # class: plugin/writer/specialized/tables.py:620
+_.TableSplitCell  # class: plugin/writer/specialized/tables.py:698
 _.ToolCalcDocumentResearchBase  # class: plugin/calc/base.py:61
 _.ToolCalcImageBase  # class: plugin/calc/base.py:45
 _.ToolCalcWebResearchBase  # class: plugin/calc/base.py:56

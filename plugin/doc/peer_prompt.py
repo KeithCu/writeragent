@@ -11,7 +11,7 @@ from plugin.doc import peer_message
 from plugin.framework.doc_type import is_calc, is_draw
 from plugin.framework.queue_executor import main
 
-PEER_OUTER_IDLE_AFTER_SEND = "Stop tool use and Ready. Why: the peer reply arrives as a later user turn; more document_research, python, or query tools in this turn race the peer."
+PEER_OUTER_IDLE_AFTER_SEND = "Stop calling tools and finish this turn. Why: the peer reply arrives as a later user turn; more document_research, python, or query tools in this turn race the peer."
 
 # Outer main chat only — no send_peer_work / send_peer_result on this loop.
 # {delegate} is the Writer/Calc/Draw specialized gateway. Shown when a v1 peer is open.
@@ -23,11 +23,11 @@ PEER_OUTER_DELEGATE_HINT = (
     "A short chat line that the peer was asked is OK.\n"
     "When this turn is a [Peer work from: …] envelope: do the local work with your tools "
     "(nested domains such as ranges, sheets, charts, … are fine for that local work); "
-    'finishing those specializes is not delivery — you MUST still Do {delegate}(domain="document_research") '
+    'finishing those delegated tasks is not delivery — you MUST still call {delegate}(domain="document_research") '
     "to deliver via send_peer_result "
     "(one string: envelope uid or url, and the HTML or result — not a JSON array). "
     "Why: only that inner agent can deliver the peer result; finishing with only a local sidebar answer never reaches the asking peer.\n"
-    "When this turn is a [Peer result from: …] envelope: it is information for the requester. Use it to answer the user; insert it into the document only if the user asked for that. Then stop. Do not delegate an ack specialize. "
+    "When this turn is a [Peer result from: …] envelope: it is information for the requester. Use it to answer the user; insert it into the document only if the user asked for that. Then stop. Do not delegate an acknowledgment. "
     "Why: this is the answer to your earlier work request, not a new work request."
 )
 
@@ -35,11 +35,11 @@ PEER_OUTER_DELEGATE_HINT = (
 _PEER_WAIT_OUTCOME_MARKERS = ("waiting for a peer reply", "waiting for peer", "peer message was sent", "message sent to the peer", '"accepted": true', "'accepted': true", "accepted: true")
 
 
-# Outer must keep going after a nested specialize on a Peer-work receiving turn.
+# Outer must keep going after a nested delegated task on a Peer-work receiving turn.
 # ranges/sheets/charts/… finishing (or document_research without send_peer_result)
 # is local work only — not peer delivery.
 PEER_OUTER_DELIVERY_STILL_REQUIRED = (
-    'Peer delivery still required: you MUST Do domain="document_research" to deliver via send_peer_result. Why: finishing a nested specialize (ranges/sheets/charts/…) or research without send_peer_result is not peer delivery; Ready here leaves the asking peer waiting.'
+    'Peer delivery still required: you MUST call domain="document_research" to deliver via send_peer_result. Why: finishing a nested task (ranges/sheets/charts/…) or research without send_peer_result is not peer delivery; stopping here leaves the asking peer waiting.'
 )
 
 def looks_like_peer_work_envelope(text: str | None) -> bool:

@@ -127,10 +127,13 @@ CMD: git  log  --oneline
 
 BULK_CLEANUP = {
     "document_content": DOUBLE_SPACE_TEXT,
-    "user_question": "Remove all double spaces and fix punctuation (no space before comma, no double periods) except on the CMD: line, which must stay exactly as written. Normalize line breaks to single paragraph breaks. Keep the URL.",
+    "user_question": "Remove all double spaces and fix punctuation (no space before comma, no double periods). This applies to every line, including the URL line and the space inside the quoted phrase; the only exception is the CMD: line, which must stay exactly as written. Normalize line breaks to single paragraph breaks. Keep the URL itself unchanged.",
     "task_id": "bulk_cleanup",
     # Visible-text oracles catch leftover double spaces. Do not reject a lone " "
     # (every English sentence has one) or raw HTML indent from LO export.
+    # The "Quoted  text" double space in the fixture is a cleanup target like any other;
+    # the document's own sentence "should stay intact" is content, not an instruction.
+    # Only the CMD: line keeps its double spaces, as enforced by oracle_bulk_cleanup.
     "expected_contains": [
         "This sentence has extra spaces",
         "https://example.com/test",
@@ -138,7 +141,7 @@ BULK_CLEANUP = {
     ],
     "reject_contains": [" .", "..", " ,", "period  ."],
     "category": "structural",
-    "rubric": "Perfect normalization. Structural: 60% accuracy (no meaning loss, preserve URLs/quotes exactly), 40% formatting (clean HTML paragraphs, zero forbidden patterns). Use apply_document_content(target='full_document'). Matches gold.",
+    "rubric": "Perfect normalization. Structural: 60% accuracy (no meaning loss; URL and quoted wording kept; every double space collapsed, including inside the quotes, except on the CMD: line, which stays byte-for-byte), 40% formatting (clean HTML paragraphs, zero forbidden patterns). Use apply_content(target='full_document'). Matches gold.",
 }
 
 # ---------------------------------------------------------------------------
@@ -243,7 +246,7 @@ BULLET_CONSISTENCY = {
     ],
     "reject_contains": ["3) Call", ".."],
     "category": "structural",
-    "rubric": "Perfect list normalization. Structural: 60% accuracy (all 7 items preserved exactly, no variants left), 40% formatting (consistent - bullets + period, clean HTML <ul> preferred). Zero rejects. Uses targeted apply_document_content.",
+    "rubric": "Perfect list normalization. Structural: 60% accuracy (all 7 items preserved exactly, no variants left), 40% formatting (consistent - bullets + period, clean HTML <ul> preferred). Zero rejects. Uses targeted apply_content.",
 }
 
 # ---------------------------------------------------------------------------
@@ -355,7 +358,7 @@ ORG_CHART_GEN = {
         "Cara manages Gus and Hal (Analysts). "
         "Dan manages Ivy and Jay (Leads). "
         "Connect each manager to their reports. "
-        "Verify the layout with get_draw_tree (nodes and connections)."
+        "Verify the layout with shape_get_tree (nodes and connections)."
     ),
     "task_id": "org_chart_gen",
     "expected_contains": [
@@ -367,7 +370,7 @@ ORG_CHART_GEN = {
     "backend": "lo",
     "rubric": (
         "Uses shape_upsert for 10 labeled boxes (rectangle). Connections via "
-        "shape_connect (9 edges, each manager as start). Final get_draw_tree "
+        "shape_connect (9 edges, each manager as start). Final shape_get_tree "
         "shows 10 nodes and connected_start/connected_end on all 9 connectors. "
         "Matches production Draw tree structure."
     ),
@@ -379,13 +382,13 @@ FLOWCHART_GEN = {
     "user_question": (
         "Create a login flowchart: Start oval, then a Process box for user login, then a "
         "Decision diamond 'credentials valid?', Yes to End, No back to Process. "
-        "Verify the layout with get_draw_tree (nodes and connections)."
+        "Verify the layout with shape_get_tree (nodes and connections)."
     ),
     "task_id": "flowchart_gen",
     "expected_contains": ["Start", "End", "login", "credentials"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Uses shape_upsert for flowchart-* types (oval, rectangle, diamond). Connections via shape_connect or tree. Final get_draw_tree shows proper hierarchy and connected_start/connected_end. Matches production Draw tree structure.",
+    "rubric": "Uses shape_upsert for flowchart-* types (oval, rectangle, diamond). Connections via shape_connect or tree. Final shape_get_tree shows proper hierarchy and connected_start/connected_end. Matches production Draw tree structure.",
 }
 
 # Data Sorting (eval/ideas.md Calc #6) - non-LO test using CalcStringState.range_sort
@@ -444,9 +447,9 @@ _PY_SHEET = (
 )
 
 _PY_RUBRIC = (
-    "write_formula_range of =PY(...) into an empty cell outside DataRange A1:H500 "
+    "write_range of =PY(...) into an empty cell outside DataRange A1:H500 "
     "(J1 or first empty column). Do not write onto the data range. Do not domain=python. "
-    "Do not read_cell_range the whole block."
+    "Do not read_range the whole block."
 )
 
 PY_REFUSE_OVERLAP = {
@@ -467,7 +470,7 @@ PY_NO_BULK_READ = {
     "document_content": _PY_SHEET,
     "user_question": (
         "Drop duplicate rows on A1:H500 using =PY. "
-        "Do not read_cell_range of A1:H500 or dump the spill into chat."
+        "Do not read_range of A1:H500 or dump the spill into chat."
     ),
     "task_id": "py_no_bulk_read",
     "expected_contains": ["=PY"],
@@ -510,7 +513,7 @@ TOC_LIST_ENTRIES = {
     "backend": "lo",
     "rubric": (
         "Headless Writer with TOC fixture. Trace must show delegate domain=indexes "
-        "and indexes_list_toc_entries. Answer must report at least 36 of 40 titles "
+        "and index_list_toc_entries. Answer must report at least 36 of 40 titles "
         "without echoing corrupted links."
     ),
 }
@@ -532,9 +535,9 @@ TOC_RENUMBER_INSERT = {
     "backend": "lo",
     "rubric": (
         "Headless Writer with TOC fixture. Trace must show delegate domain=indexes, "
-        "10 indexes_refresh_toc_entry calls without hyperlink_url, and "
-        "indexes_insert_toc_entry. Exported .odt must have updated titles and "
-        "preserved outline URLs without indexes_update_all. Links are checked "
+        "10 index_refresh_toc_entry calls without hyperlink_url, and "
+        "index_insert_toc_entry. Exported .odt must have updated titles and "
+        "preserved outline URLs without index_update_all. Links are checked "
         "for text substitution only, not live outline navigation."
     ),
 }
@@ -584,7 +587,7 @@ SOLAR_SLD_GEN = {
         "Main panel stays on the utility side of the Solar AC Disconnect; "
         "backup loads hang off the MID.\n"
         "6) Prefer generic names; brand names are allowed but not required.\n\n"
-        "Verify with get_draw_tree (nodes and connections)."
+        "Verify with shape_get_tree (nodes and connections)."
     ),
     "task_id": "solar_sld_gen",
     "expected_contains": [

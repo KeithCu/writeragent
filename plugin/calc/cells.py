@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal
+from plugin.framework.errors import CalcError, Diagnostic, ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, make_tool_ok
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
-from plugin.calc.manipulator import CellManipulator
+from plugin.calc.manipulator import WRITE_REPORT_KEYS, CellManipulator
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
@@ -45,15 +45,11 @@ from plugin.doc.visual_helpers import parse_color_to_uno_int
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
 _READ_CELL_RANGE_MAX_CELLS = 80
 _READ_CELL_RANGE_PREVIEW_ROWS = 10
-# Size + peek + fill-down first; =PY only for small reductions (not a hard =PY funnel).
+# message states size and that the sample is a peek; hint (set in _read_one) names the next step: fill-down for row-wise formulas, =PY for a small reduction.
 _READ_CELL_RANGE_TRUNCATED_MSG = (
     "Range is too large to load into chat (would overload the model context): "
     "{rows} rows × {columns} columns ({cells} cells). "
-    "The sample below is a peek only — do not re-read the full range. "
-    "Row-wise ordinary Calc formulas: write_formula_range into a 1-column "
-    "(or 1-row) destination; fill-down adjusts relative refs. "
-    "Reductions that spill a small result: write =PY into one empty cell "
-    "outside the data."
+    "The sample below is a peek only — do not re-read the full range."
 )
 # Truncated-path distinct peek only (not a public tool). High-unique columns
 # are summarized, not listed — no phone book in chat.
@@ -97,7 +93,8 @@ def _parse_structure_start(
     return None, sheet_prefix, 'start for columns must be a column letter (for example "C")'
 
 
-def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
+def opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
+    """Parse an optional color parameter from *kwargs* into a UNO RGB int or error message."""
     raw = kwargs.get(key)
     if raw is None or raw.strip() == "":
         return None, None
@@ -175,9 +172,9 @@ def _mutate_ranges(
         if len(ranges) == 1:
             single = results[0]
             if isinstance(single, dict):
-                return {"status": "ok", **single}
-            return {"status": "ok", "message": single}
-        return {"status": "ok", "message": done_message}
+                return make_tool_ok(**single)
+            return make_tool_ok(message=single)
+        return make_tool_ok(message=done_message)
     except Exception as exc:
         if is_disposal(exc):
             raise
@@ -310,11 +307,11 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
 class ReadCellRange(ToolBase):
     """Read values from one or more cell ranges."""
 
-    name: str | None = "read_cell_range"
+    name: str | None = "read_range"
     description: str = (
         "Reads values from the specified cell range(s). Inspection only — keep ranges small "
         "(headers or a few dozen cells). A large dump overloads chat context; oversized reads "
-        "return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); "
+        "return a peek plus size only. Row-wise transforms use write_range (fill-down); "
         "reductions that spill a small result use =PY into one empty cell outside the data. "
         "Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, "
         "`PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and "
@@ -370,7 +367,7 @@ class ReadCellRange(ToolBase):
                 "message": f"Failed to read {len(failed)} of {len(rn)} ranges: {failed!r}",
                 "result": results,
             }
-        return {"status": "ok", "result": results}
+        return make_tool_ok(result=results)
 
     def _wire_result(
         self,
@@ -388,25 +385,24 @@ class ReadCellRange(ToolBase):
             preview = _preview_if_large(bridge, range_name)
             if preview is None:
                 grid = inspector.read_range(range_name, include_format_info=True)
-                return {"status": "ok", "result": self._wire_result(grid, wire_format, range_name), "range": range_name}
+                return make_tool_ok(result=self._wire_result(grid, wire_format, range_name), range=range_name)
             grid = inspector.read_range(preview["preview_range"], include_format_info=True)
             # Size metadata uses row_count/column_count/cell_count so it cannot collide with result[0]["rows"] (2D values).
-            payload: dict[str, Any] = {
-                "status": "ok",
-                "truncated": True,
-                "message": _READ_CELL_RANGE_TRUNCATED_MSG.format(rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]),
-                "range": range_name,
-                "preview_range": preview["preview_range"],
-                "row_count": preview["rows"],
-                "column_count": preview["columns"],
-                "cell_count": preview["cells"],
-                "result": self._wire_result(grid, wire_format, range_name),
-            }
+            payload = make_tool_ok(
+                truncated=True,
+                message=_READ_CELL_RANGE_TRUNCATED_MSG.format(rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]),
+                range=range_name,
+                preview_range=preview["preview_range"],
+                row_count=preview["rows"],
+                column_count=preview["columns"],
+                cell_count=preview["cells"],
+                result=self._wire_result(grid, wire_format, range_name),
+            )
             distincts = _try_column_distinct_peek(bridge, range_name, preview)
             if distincts:
                 payload["column_distincts"] = distincts
             payload["hint"] = (
-                "Peek only (%s). Row-wise formulas: write_formula_range on a 1-column or 1-row range. "
+                "Peek only (%s). Row-wise formulas: write_range on a 1-column or 1-row range. "
                 "A small reduction: =PY in one empty cell outside the data."
                 % preview["preview_range"]
             )
@@ -424,14 +420,13 @@ class ReadCellRange(ToolBase):
 class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
-    name: str | None = "write_formula_range"
+    name: str | None = "write_range"
     description: str = (
         "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; "
         "a 2-D array (one inner array per row) must match the range; or multiline CSV from a start "
         "cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. "
         "Supports lists for non-contiguous "
-        "areas. A single ordinary Calc formula into a 1-column or 1-row range fill-down/across "
-        "adjusts relative A1 refs ($ stays absolute). Prefer plain values/ISO "
+        "areas. Prefer plain values/ISO "
         "dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), "
         "computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or "
         "YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: "
@@ -441,12 +436,10 @@ class WriteCellRange(ToolBase):
         'Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell '
         "outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result "
         "(values are in the neighbors). A small peek of the origin or headers is enough — do not "
-        "dump the input or full spill into chat; do not write =PY onto DataRange (circular). If "
+        "dump the input or full spill into chat. If "
         "they asked for in-place unique rows, still land beside/new sheet and say where. "
         'Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). '
-        "Always use data.to_pandas() rather than pd.DataFrame(data) because to_pandas() uses row 0 as column headers; "
-        "pd.DataFrame(data) treats headers as data and generates synthetic numeric columns (0..N) that spill as a junk top row. "
-        "np.unique on mixed rows fails — NumPy object arrays cannot compare/hash mixed cell types. "
+        "Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. "
         "DO: to copy a block onto another sheet or place, pass source and dest range; do not pass "
         "values. Dest is the top-left (or a matching range whose start is used); the copied size is "
         "the source extent. Relative formula refs adjust for the dest offset; $ stay."
@@ -459,12 +452,10 @@ class WriteCellRange(ToolBase):
                 "items": {"type": "string"},
                 "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
             },
-            # The fill-down rule lives on the values description (not CALC_CORE
-            # FORMULAS and not the main tool description): one formula string fills
-            # the range with shifted refs, while a JSON array of copied =B2*… writes
-            # each string as given, so every row keeps the first ref.
+            # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
+            # first ref) live only here; read_range's description and hint just point here.
             # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
-            # keeps real unions (same pattern as apply_document_content content).
+            # keeps real unions (same pattern as apply_content content).
             "values": {
                 "type": ["string", "array", "null"],
                 "items": {
@@ -521,12 +512,11 @@ class WriteCellRange(ToolBase):
                 msg = last["message"]
                 if len(rn) > 1:
                     msg = f"Copied {last['rows_copied']}×{last['cols_copied']} from {source} onto {len(rn)} ranges."
-                return {
-                    "status": "ok",
-                    "message": msg,
-                    "rows_copied": last["rows_copied"],
-                    "cols_copied": last["cols_copied"],
-                }
+                return make_tool_ok(
+                    message=msg,
+                    rows_copied=last["rows_copied"],
+                    cols_copied=last["cols_copied"],
+                )
 
             return _mutate_ranges(
                 self,
@@ -562,11 +552,28 @@ class WriteCellRange(ToolBase):
             return plan
 
         def _format_write(results: list[Any]) -> dict[str, Any]:
+            # Merge per-range write reports so multi-range writes do not
+            # drop error_cells, numeric-text, apostrophe, or warning details.
+            # Deduplicate exact-matching warnings so identical advice across
+            # ranges collapses while different advice or counts survive.
+            merged: dict[str, list[Any]] = {}
+            for res in results:
+                for key in WRITE_REPORT_KEYS:
+                    if key not in res:
+                        continue
+                    items = res.pop(key)
+                    dest = merged.setdefault(key, [])
+                    if key == "warnings":
+                        for warn in items:
+                            if warn not in dest:
+                                dest.append(warn)
+                    else:
+                        dest.extend(items)
             message = f"Wrote to {len(rn)} ranges"
             if any("array_range" in res for res in results):
                 ranges_payload = [{"range": r, **res} for r, res in zip(rn, results)]
-                return {"status": "ok", "message": message, "ranges": ranges_payload}
-            return {"status": "ok", "message": message}
+                return make_tool_ok(message=message, ranges=ranges_payload, **merged)
+            return make_tool_ok(message=message, **merged)
 
         return _mutate_ranges(
             self,
@@ -582,12 +589,13 @@ class WriteCellRange(ToolBase):
 class InsertCellHtml(ToolBase):
     """Insert HTML as rich text into a single cell (active sheet)."""
 
-    name: str | None = "insert_cell_html"
+    name: str | None = "insert_html"
     description: str = (
         "Parses HTML with the same filter as Writer and pastes rich text into one cell "
         "(e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) "
         "selects that sheet; otherwise the active sheet. Does not support images or embedded objects. "
-        "Clears existing cell text. Use set_style for table-wide borders."
+        "Replaces the cell's existing content (text, number or formula); replaced_text in the result shows what was there. "
+        "Use set_style (border_color, border_mode) for borders."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -619,8 +627,11 @@ class InsertCellHtml(ToolBase):
         except ValueError as e:
             return self._tool_error(f"Invalid cell address: {e}", code="INVALID_PARAM")
 
-        insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
-        return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
+        replaced = insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
+        fields: dict[str, Any] = {"message": f"Inserted rich HTML into cell {addr.upper()}."}
+        if replaced:
+            fields["replaced_text"] = replaced[:200] + "…" if len(replaced) > 200 else replaced
+        return make_tool_ok(**fields)
 
 
 class SetCellStyle(ToolBase):
@@ -640,25 +651,62 @@ class SetCellStyle(ToolBase):
             "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal alignment"},
             "v_align": {"type": "string", "enum": ["top", "center", "bottom"], "description": "Vertical alignment"},
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
-            "border_color": {"type": "string", "description": ("Border color (hex or name). Draws a frame around the cell/range.")},
+            "border_color": {"type": "string", "description": "Border line color (hex or name). Used by border_mode; black when border_mode is given without a color."},
+            "border_mode": {
+                "type": "string",
+                "enum": ["all", "outline", "inner", "none"],
+                "description": "all = every cell boxed (default when border_color is given); outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders.",
+            },
+            "number_format": {
+                "type": "string",
+                "description": 'Preset "currency" (the document currency), "percent", or "general" (clear), or an Excel-style en-US format code such as "#,##0.00", "0.0%" or "YYYY-MM-DD" (converted to the document locale). Date/time writes already get a format; set one only when the user asks for a different look.',
+            },
+            "column_width_mm": {"type": "number", "description": "Width of every column the range touches, in millimetres (> 0)."},
+            "row_height_mm": {"type": "number", "description": "Height of every row the range touches, in millimetres (> 0)."},
+            "autofit": {
+                "type": "string",
+                "enum": ["columns", "rows", "both"],
+                "description": "Fit whole-column widths and/or row heights to content. Cannot be combined with column_width_mm (columns) or row_height_mm (rows).",
+            },
         },
         "required": ["range"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
-    # Kept for scripting API / in-process callers; omitted from LLM schema so models cannot
-    # casually rewrite NumberFormat via set_style (see docs/calc/date-time-handling.md S26).
-    scripting_only_parameters: frozenset[str] = frozenset({"number_format"})
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
         style_kwargs: dict[str, Any] = {}
         for key in ("bg_color", "font_color", "border_color"):
-            color_val, err = _opt_color(kwargs, key)
+            color_val, err = opt_color(kwargs, key)
             if err:
                 return self._tool_error(err, code="INVALID_PARAM")
             style_kwargs[key] = color_val
+
+        border_mode = kwargs.get("border_mode")
+        if border_mode == "none" and style_kwargs["border_color"] is not None:
+            return self._tool_error("border_color has no effect with border_mode='none'.", code="INVALID_PARAM")
+        if border_mode is None and style_kwargs["border_color"] is not None:
+            border_mode = "all"
+        style_kwargs["border_mode"] = border_mode
+
+        for param_name, target_key in (("column_width_mm", "column_width"), ("row_height_mm", "row_height")):
+            raw_mm = kwargs.get(param_name)
+            if raw_mm is not None:
+                mm = float(raw_mm)
+                if mm <= 0:
+                    return self._tool_error(f"{param_name} must be greater than 0.", code="INVALID_PARAM")
+                style_kwargs[target_key] = round(mm * 100)
+            else:
+                style_kwargs[target_key] = None
+
+        autofit = kwargs.get("autofit")
+        if autofit in ("columns", "both") and style_kwargs["column_width"] is not None:
+            return self._tool_error("autofit cannot be combined with column_width_mm.", code="INVALID_PARAM")
+        if autofit in ("rows", "both") and style_kwargs["row_height"] is not None:
+            return self._tool_error("autofit cannot be combined with row_height_mm.", code="INVALID_PARAM")
+        style_kwargs["autofit"] = autofit
 
         for key in ("bold", "italic", "wrap_text", "h_align", "v_align"):
             style_kwargs[key] = kwargs.get(key)
@@ -666,14 +714,11 @@ class SetCellStyle(ToolBase):
         font_size = kwargs.get("font_size")
         style_kwargs["font_size"] = None if font_size is None else float(font_size)
 
-        # number_format is scripting-only and has no schema entry, so the validator never type-checks it.
-        raw_fmt = kwargs.get("number_format")
-        if raw_fmt is not None and not isinstance(raw_fmt, str):
-            return self._tool_error(f"number_format must be a string, got {type(raw_fmt).__name__}", code="INVALID_PARAM")
-        style_kwargs["number_format"] = raw_fmt if raw_fmt and raw_fmt.strip() else None
-
         if len(rn) == 0:
             return self._tool_error("range is required", code="INVALID_PARAM")
+
+        raw_fmt = kwargs.get("number_format")
+        style_kwargs["number_format_key"] = manipulator.number_format_key(raw_fmt) if raw_fmt and raw_fmt.strip() else None
 
         # Reject style calls where every property is None—empty mutations create useless undo steps.
         if all(v is None for v in style_kwargs.values()):
@@ -697,7 +742,14 @@ class MergeCells(ToolBase):
     """Merge a cell range."""
 
     name: str | None = "merge_cells"
-    description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
+    description: str = (
+        "Merges the specified cell range(s). Typically used for main headers. "
+        "The merged area shows the top-left cell's content; other cells keep their content "
+        "(hidden, still counted by formulas) and are listed in hidden_cells. "
+        "Write text with write_range (before or after merging) into the top-left cell, "
+        "and style with set_style. Refuses ranges overlapping an existing merge. "
+        "Supports lists for non-contiguous areas."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -715,11 +767,49 @@ class MergeCells(ToolBase):
         center: bool = kwargs.get("center", True)
         unmerge: bool = kwargs.get("unmerge", False)
 
-        def _apply_merge(r: Any) -> str:
-            manipulator.merge_cells(r, center=center, unmerge=unmerge)
+        def _apply_merge(r: Any) -> dict[str, Any]:
+            outcome = manipulator.merge_cells(r, center=center, unmerge=unmerge)
             if unmerge:
-                return f"Unmerged cells {r}"
-            return f"Merged cells {r}"
+                return {"message": f"Unmerged cells {r}"}
+            if not outcome.merged:
+                raise CalcError(
+                    f"Calc did not merge {r}: it overlaps an existing merged area or the sheet is protected. "
+                    "Unmerge the existing area first (merge_cells unmerge=true) or choose a range that does not overlap it.",
+                    code="INVALID_PARAM",
+                )
+            res: dict[str, Any] = {"message": f"Merged cells {r}"}
+            if outcome.hidden_count:
+                res["hidden_count"] = outcome.hidden_count
+                res["hidden_cells"] = outcome.hidden_cells
+            return res
+
+        def _format_merge(results: list[dict[str, Any]]) -> dict[str, Any]:
+            msg = (
+                results[0]["message"]
+                if len(results) == 1
+                else f"{'Unmerged' if unmerge else 'Merged'} cells in {len(results)} ranges"
+            )
+            hidden_count = sum(r.get("hidden_count", 0) for r in results)
+            hidden_cells: list[str] = []
+            for r in results:
+                hidden_cells.extend(r.get("hidden_cells", ()))
+            fields: dict[str, Any] = {"message": msg}
+            warnings: list[Diagnostic] = []
+            if hidden_count:
+                fields["hidden_count"] = hidden_count
+                fields["hidden_cells"] = hidden_cells
+                warnings.append(
+                    Diagnostic(
+                        code="MERGE_HIDES_CONTENT",
+                        message=(
+                            f"{hidden_count} cell(s) besides the top-left still hold content "
+                            "(see hidden_cells). The merge hides it but keeps it, and "
+                            'formulas still read it. Clear those cells with write_range (values "") '
+                            "if it should be gone, or write it into the top-left cell."
+                        ),
+                    )
+                )
+            return make_tool_ok(warnings=warnings, **fields)
 
         return _mutate_ranges(
             self,
@@ -727,22 +817,22 @@ class MergeCells(ToolBase):
             rn,
             "WriterAgent: Merge cells",
             _apply_merge,
-            f"Merged cells in {len(rn)} ranges",
+            format_result=_format_merge,
         )
 
 
 class SortRange(ToolCalcRangeBase):
     """Sort a range by a column."""
 
-    name: str | None = "range_sort"
+    name: str | None = "sort_range"
     # Action-time key/direction and "use this tool, don't rewrite the
     # block" live here. Do not restack another SORT Don't/Do into
     # CALC_CORE (flash merges adjacent identical shapes).
     description: str = (
         "Stable one-column sort of the specified range(s) by values in one column. "
         "Multi-key sorts are multiple calls (two stable one-column passes). "
-        "Do call range_sort to reorder rows (not rewrite the block with "
-        "write_formula_range) because hand-written order often leaves labels mid-table. "
+        "Do call sort_range to reorder rows (not rewrite the block with "
+        "write_range) because hand-written order often leaves labels mid-table. "
         "Pick sort_column for the metric to order by (0-based within the range); "
         "set ascending=false when largest values should come first. "
         "Do pass has_header=true when row 1 is labels because otherwise labels "
@@ -782,8 +872,14 @@ class SortRange(ToolCalcRangeBase):
             rn,
             "WriterAgent: Sort range",
             lambda r: manipulator.range_sort(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
-            format_result=(lambda results: {"status": "ok", "message": " ".join(results)}) if len(rn) > 1 else None,
+            format_result=(lambda results: make_tool_ok(message=" ".join(results))) if len(rn) > 1 else None,
         )
+
+
+_STRUCTURE_START_DESCRIPTION = (
+    'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). '
+    "Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet."
+)
 
 
 class _StructureTool(ToolBase):
@@ -814,10 +910,14 @@ class _StructureTool(ToolBase):
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         sheet = bridge.get_sheet(sheet_prefix) if sheet_prefix is not None else None
-        mutate = manipulator.insert_structure if self.insert else manipulator.delete_structure
         try:
             assert start is not None
-            return {"status": "ok", "message": mutate(structure_type, start, count=count, sheet=sheet)}
+            if self.insert:
+                result = manipulator.insert_structure(structure_type, start, count=count, sheet=sheet)
+            else:
+                confirm = kwargs.get("confirm", False) is True
+                result = manipulator.delete_structure(structure_type, start, count=count, sheet=sheet, confirm=confirm)
+            return make_tool_ok(**result)
         except Exception as e:
             # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
             if is_disposal(e) or isinstance(e, WriterAgentException):
@@ -830,13 +930,20 @@ class DeleteStructure(_StructureTool):
 
     insert: ClassVar[bool] = False
     name: str | None = "delete_structure"
-    description: str = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
+    description: str = (
+        "Deletes rows or columns. Use for structural changes; prefer ranges for data operations. "
+        "Refused (nothing deleted) when formulas would turn into #REF! unless confirm=true."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
-            "start": {"type": ["integer", "string"], "description": ('For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").')},
+            "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
             "count": {"type": "integer", "description": "Number to delete (default 1)."},
+            "confirm": {
+                "type": "boolean",
+                "description": "Set true to delete even when formulas would turn into #REF!. Default false: such a delete is refused and nothing changes.",
+            },
         },
         "required": ["structure_type", "start"],
     }
@@ -852,7 +959,7 @@ class InsertStructure(_StructureTool):
         "type": "object",
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
-            "start": {"type": ["integer", "string"], "description": ('For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5).')},
+            "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
             "count": {"type": "integer", "description": "Number to insert (default 1)."},
         },
         "required": ["structure_type", "start"],

@@ -55,6 +55,36 @@ def _page_shape_names(page: Any) -> list[str]:
     return names
 
 
+def _ensure_shape_name(page: Any, shape: Any) -> str:
+    """Return *shape*'s Name, assigning ``Shape<n>`` if it is empty.
+
+    Writer's ``SwXDrawPage::add`` (``sw/source/core/unocore/unodraw.cxx:SwXDrawPage::add``)
+    already assigns a unique Name, whereas Draw, Impress, and Calc leave Name
+    empty and prompts tell the model to address shapes by Name.
+    Uses one more than the highest existing ``Shape<n>`` number on the page so
+    deleting a shape never hands its old name to a newly created shape.
+    """
+    current = str(shape.Name or "").strip()
+    if current:
+        return current
+    highest = 0
+    for name in _page_shape_names(page):
+        if name.startswith("Shape"):
+            suffix = name[5:]
+            if suffix.isascii() and suffix.isdigit():
+                highest = max(highest, int(suffix))
+    candidate = f"Shape{highest + 1}"
+    shape.Name = candidate
+    return candidate
+
+
+def _name_taken_error(tool: ToolBase, name: str) -> dict[str, Any]:
+    return tool._tool_error(
+        "A shape named %r already exists on this page; choose another name or edit that shape." % name,
+        code="INVALID_PARAM",
+    )
+
+
 def _lookup_ref(
     tool: ToolBase,
     page: Any,
@@ -222,7 +252,7 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
 
 
 class GetDrawSummary(_AnyDocumentShapeTool):
-    name: str | None = "shape_summary"
+    name: str | None = "shape_get_summary"
     description: str = (
         "Returns a summary of shapes on the active or specified page. "
         'Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.'
@@ -407,8 +437,9 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
         _try(failed_props, "text", _apply_text)
 
-    if kwargs.get("name") and hasattr(shape, "Name"):
-        _try(failed_props, "name", lambda: setattr(shape, "Name", str(kwargs["name"])))
+    stripped_name = str(kwargs.get("name") or "").strip()
+    if stripped_name and hasattr(shape, "Name"):
+        _try(failed_props, "name", lambda: setattr(shape, "Name", stripped_name))
 
     # Background/Fill Color
     if kwargs.get("fill_color"):
@@ -536,7 +567,7 @@ def _outside_page(page: Any, shape: Any) -> bool:
 
 class UpsertShape(_AnyDocumentShapeTool):
     name: str | None = "shape_upsert"
-    description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from get_draw_tree — draw-page index shifts when other shapes sit between fields."
+    description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -545,7 +576,10 @@ class UpsertShape(_AnyDocumentShapeTool):
                 "type": ["integer", "string"],
                 "description": '0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name)',
             },
-            "name": {"type": "string", "description": "Shape Name. Edit: look up by Name when index is omitted. Create: set the new shape's Name so later fills stay stable."},
+            "name": {
+                "type": "string",
+                "description": "Shape Name. Edit: look up by Name when index is omitted; with index, renames (must be unused on the page). Create: optional unique Name; when omitted a unique Name is assigned and returned as `name`.",
+            },
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
             "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC + " (required only for action='create')"},
             "x": {"type": "integer", "description": "X position (100ths of mm) (required only for action='create')"},
@@ -600,6 +634,12 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
     page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
     if action == "create":
+        # Without this check, an explicit duplicate name would undo the
+        # page-unique Name guarantee that auto-naming relies on.
+        wanted_name = str(kwargs.get("name") or "").strip()
+        if wanted_name and wanted_name in _page_shape_names(page):
+            return _name_taken_error(tool, wanted_name)
+
         type_map = {"rectangle": "RectangleShape", "ellipse": "EllipseShape", "text": "TextShape", "line": "LineShape", "connector": "ConnectorShape"}
         shape_type_raw = kwargs["shape_type"]
 
@@ -647,6 +687,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
                 geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
 
             failed_props = _apply_shape_properties(shape, kwargs)
+            shape_name = _ensure_shape_name(page, shape)
             # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
             _try_writer_invalidate_and_pump(ctx.doc)
@@ -664,7 +705,15 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
 
         log.debug("shape_upsert (create): page=%s shape=%s shape_type=%s is_custom=%s geometry_applied=%s", page_index, shape_index, shape_type_raw, is_custom_shape, geometry_applied)
 
-        result: dict[str, Any] = {"status": "ok", "message": f"Created {shape_type_raw}", "index": shape_index, "page": page_index, "shape_count_after": shape_count_after}
+        result: dict[str, Any] = {
+            "status": "ok",
+            "action": "create",
+            "message": f"Created {shape_type_raw}",
+            "index": shape_index,
+            "page": page_index,
+            "name": shape_name,
+            "shape_count_after": shape_count_after,
+        }
         if is_custom_shape:
             result["custom_shape_engine"] = _ENHANCED_CUSTOM_SHAPE_ENGINE
             result["geometry_applied"] = bool(geometry_applied)
@@ -681,12 +730,18 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
     elif action == "edit":
         from plugin.draw.tree import find_shape_on_page
 
-        # Index is fragile for peer "fill field X"; Name from get_draw_tree stays stable
+        # Index is fragile for peer "fill field X"; Name from shape_get_tree stays stable
         # when non-fields sit between boxes. Index wins when both are passed.
         lookup_name = kwargs.get("name") if "index" not in kwargs else None
         shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs.get("index"), name=lookup_name)
         if find_err or shape is None:
             return tool._tool_error(find_err or "Shape not found.")
+
+        # Without this check, renaming by index to an existing name would
+        # create a duplicate on the page.
+        new_name = str(kwargs.get("name") or "").strip()
+        if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in _page_shape_names(page):
+            return _name_taken_error(tool, new_name)
 
         if "x" in kwargs or "y" in kwargs:
             pos = shape.getPosition()
@@ -700,7 +755,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             size = shape.getSize()
             shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
-        result = {"status": "ok", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
+        result = {"status": "ok", "action": "edit", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": shape.Name or ""}
         if failed_props:
             result["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
         if _outside_page(page, shape):
@@ -742,7 +797,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
     from com.sun.star.awt import Point, Size
     from plugin.draw.bridge import DrawBridge
 
-    page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+    page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
     start_addr, start_shape, _sp, start_err = _lookup_ref(tool, page, kwargs["start"])
     if start_err is not None:
@@ -770,6 +825,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
 
         # Additional properties
         failed_props = _apply_shape_properties(shape, kwargs)
+        conn_name = _ensure_shape_name(page, shape)
 
     except Exception:
         # The connector is already on the page. Remove it so a failed
@@ -785,6 +841,8 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
         "status": "ok",
         "message": f"Connected shape {start_addr} to {end_addr}",
         "index": page.getCount() - 1,
+        "name": conn_name,
+        "page": actual_idx,
     }
     if failed_props:
         res["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
@@ -837,7 +895,7 @@ class GroupShapes(_AnyDocumentShapeTool):
         from plugin.draw.bridge import DrawBridge
         from plugin.framework.uno_context import uno_same
 
-        page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         indices = kwargs["indices"]
         assert isinstance(indices, list)
@@ -862,13 +920,27 @@ class GroupShapes(_AnyDocumentShapeTool):
         for shape in resolved_shapes:
             shape_collection.add(shape)
         # page.group is the first page mutation; failure propagates to execute_safe.
-        page.group(shape_collection)
+        group = page.group(shape_collection)
+        group_name = ""
+        warnings: list[str] = []
+        try:
+            group_name = _ensure_shape_name(page, group)
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            log.debug("group name assignment failed", exc_info=True)
+            warnings.append("Failed to assign group name")
 
-        return {
+        res: dict[str, Any] = {
             "status": "ok",
             "message": f"Grouped {len(indices)} shapes.",
             "index": page.getCount() - 1,  # Grouping replaces the individuals with this group shape
+            "name": group_name,
+            "page": actual_idx,
         }
+        if warnings:
+            res["warnings"] = warnings
+        return res
 
 
 def _shape_box(shape: Any) -> tuple[int, int, int, int]:
@@ -963,7 +1035,7 @@ class DistributeShapes(_AnyDocumentShapeTool):
 
 
 class CreateDiagram(_AnyDocumentShapeTool):
-    name: str | None = "shape_diagram"
+    name: str | None = "shape_create_diagram"
     description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -1062,7 +1134,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
                 return self._tool_error("shape_upsert did not return a shape index.")
             tracked.append(page.getByIndex(idx))
             id_to_index[str(node["id"])] = idx
-            created.append({"id": node["id"], "index": idx, "x": x, "y": y, "width": w, "height": h})
+            created.append({"id": node["id"], "index": idx, "name": result.get("name"), "x": x, "y": y, "width": w, "height": h})
 
         connected = []
         for conn in connections:
@@ -1117,7 +1189,7 @@ class DeleteShape(_AnyDocumentShapeTool):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
-        page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         if "index" in kwargs:
             _addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["index"])
         else:
@@ -1132,4 +1204,4 @@ class DeleteShape(_AnyDocumentShapeTool):
                 raise
             label = kwargs.get("index", kwargs.get("name"))
             return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
-        return {"status": "ok", "message": "Shape deleted"}
+        return {"status": "ok", "message": "Shape deleted", "page": actual_idx}

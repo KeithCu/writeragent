@@ -18,7 +18,7 @@ from plugin.framework.prompts import (
 
 # NOTE: the EXTERNAL_AGENT_GUIDANCE pin test moved to tests/chatbot/test_agent_manual.py —
 # the blob was retired; the single source is the shared prompt pieces in constants.py (the
-# sidebar embeds them, get_guidance serves them per topic, full_manual() feeds the agent backend).
+# sidebar embeds them, manual_read serves them per topic, full_manual() feeds the agent backend).
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +59,7 @@ def test_html_fragment_rules_appear_once_in_writer_prompt():
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     assert prompt.count("Use <br> for line breaks within an element") == 1
-    assert get_sub_agent_instructions("BASE", tool_names=["apply_document_content"]).count("Use <br> for line breaks within an element") == 1
+    assert get_sub_agent_instructions("BASE", tool_names=["apply_content"]).count("Use <br> for line breaks within an element") == 1
 
 
 def test_writer_chat_prompt_section_order_matches_assembly():
@@ -132,8 +132,8 @@ def test_draw_prompt_omits_get_image_when_model_has_no_vision():
     ):
         prompt = get_chat_system_prompt_for_document(model)
     assert DRAW_GET_IMAGE_TOOL_LINE not in prompt
-    assert "get_image" not in prompt
-    assert "get_draw_tree" in prompt
+    assert "image_get" not in prompt
+    assert "get_tree" in prompt
 
 
 def test_draw_prompt_keeps_get_image_when_model_has_vision():
@@ -237,7 +237,7 @@ def _tts_flags(*, short_answers: bool, tts_enabled: bool):
 
 
 def test_tts_short_answers_injected_when_option_and_tts_on():
-    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION
 
     with patch(
         "plugin.framework.config.get_config",
@@ -246,14 +246,13 @@ def test_tts_short_answers_injected_when_option_and_tts_on():
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
 
     assert TTS_SHORT_ANSWERS_INSTRUCTION in prompt
-    assert TTS_SHORT_ANSWERS_REMINDER in prompt
-    assert prompt.index("house style") < prompt.index(TTS_SHORT_ANSWERS_INSTRUCTION) < prompt.index(TTS_SHORT_ANSWERS_REMINDER)
-    assert prompt.rstrip().endswith(TTS_SHORT_ANSWERS_REMINDER)
+    assert prompt.index("house style") < prompt.index(TTS_SHORT_ANSWERS_INSTRUCTION)
+    assert prompt.rstrip().endswith(TTS_SHORT_ANSWERS_INSTRUCTION)
     assert prompt.count(TTS_SHORT_ANSWERS_INSTRUCTION) == 1
 
 
 def test_tts_short_answers_absent_when_tts_off():
-    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION
 
     with patch(
         "plugin.framework.config.get_config",
@@ -262,13 +261,12 @@ def test_tts_short_answers_absent_when_tts_off():
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
 
     assert TTS_SHORT_ANSWERS_INSTRUCTION not in prompt
-    assert TTS_SHORT_ANSWERS_REMINDER not in prompt
     assert "house style" in prompt
     assert "<<<profile>>>" in prompt
 
 
 def test_tts_short_answers_absent_when_checkbox_off():
-    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION
 
     with patch(
         "plugin.framework.config.get_config",
@@ -277,7 +275,6 @@ def test_tts_short_answers_absent_when_checkbox_off():
         prompt = get_chat_system_prompt_for_document(_writer_model())
 
     assert TTS_SHORT_ANSWERS_INSTRUCTION not in prompt
-    assert TTS_SHORT_ANSWERS_REMINDER not in prompt
 
 
 def test_user_memory_long_blob_is_truncated_short_is_unchanged():
@@ -442,3 +439,97 @@ def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():
     # Inner instruction wins over the sheet_create fallback.
     out2 = attach_sheets_create_completion_instruction(finish, create_sheet_ran=True, tool_results=tool_results)
     assert out2["instruction"] == custom
+
+
+def _doc_stub_for_services(*services: str) -> MagicMock:
+    doc = MagicMock()
+    svc_set = frozenset(services)
+    doc.supportsService.side_effect = lambda s: s in svc_set
+    return doc
+
+
+@pytest.mark.parametrize("is_impress", [False, True], ids=["draw", "impress"])
+def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> None:
+    from plugin.app import get_tools
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+
+    draw_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE)
+    impress_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
+
+    registry = get_tools()
+    draw_tools = {s["function"]["name"] for s in registry.get_schemas("openai", doc=draw_doc)}
+    impress_tools = {s["function"]["name"] for s in registry.get_schemas("openai", doc=impress_doc)}
+    impress_only_tools = impress_tools - draw_tools
+    assert "placeholder_list" in impress_only_tools
+
+    gw = DelegateToSpecializedDraw()
+    impress_only_domains = set(gw.domains_for_services(frozenset({IMPRESS_DOCUMENT_SERVICE}))) - set(
+        gw.domains_for_services(frozenset({DRAW_DOCUMENT_SERVICE}))
+    )
+    assert impress_only_domains
+
+    target_doc = impress_doc if is_impress else draw_doc
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(target_doc)
+
+    for name in impress_only_tools | impress_only_domains:
+        if is_impress:
+            assert name in prompt
+        else:
+            assert name not in prompt
+
+
+@pytest.mark.parametrize(
+    ("gateway_cls_path", "service"),
+    [
+        ("plugin.writer.specialized_base.DelegateToSpecializedWriter", "com.sun.star.text.TextDocument"),
+        ("plugin.calc.specialized.DelegateToSpecializedCalc", "com.sun.star.sheet.SpreadsheetDocument"),
+        ("plugin.draw.specialized.DelegateToSpecializedDraw", "com.sun.star.drawing.DrawingDocument"),
+        ("plugin.draw.specialized.DelegateToSpecializedDraw", "com.sun.star.presentation.PresentationDocument"),
+    ],
+)
+def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path: str, service: str) -> None:
+    import importlib
+    from plugin.app import get_tools
+    from plugin.doc.specialized_catalog import catalog_entries_from_base, get_specialized_delegation_tool_hint
+
+    get_tools()
+    mod_name, cls_name = gateway_cls_path.rsplit(".", 1)
+    gw = getattr(importlib.import_module(mod_name), cls_name)()
+    doc = _doc_stub_for_services(service)
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(doc)
+
+    domains = gw.domains_for_services(frozenset({service}))
+    rendered = get_specialized_delegation_tool_hint(gw._agent_label, uno_services=frozenset({service}))
+    assert rendered in prompt
+    rendered_names = {
+        entry["domain"]
+        for entry in catalog_entries_from_base(agent_label=gw._agent_label, uno_services=frozenset({service}))
+    }
+    assert set(domains) == rendered_names
+    if service == "com.sun.star.sheet.SpreadsheetDocument":
+        # Calc documents must keep forms in both the prompt and the narrowed gateway enum.
+        assert "forms" in domains
+        assert "forms:" in rendered
+
+
+def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
+    from plugin.framework.prompts import get_chat_system_prompt_for_kind
+
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        assert "placeholder_list" in get_chat_system_prompt_for_kind("impress")
+        draw_prompt = get_chat_system_prompt_for_kind("draw")
+        assert "placeholder_list" not in draw_prompt
+        for tool_name in ("slide_add", "slide_delete", "slide_duplicate", "slide_move", "slide_rename", "slide_set_active", "document_undo", "document_redo"):
+            assert f"- {tool_name}:" in draw_prompt

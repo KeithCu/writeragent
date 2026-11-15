@@ -2,14 +2,14 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Core get_image tool — return an embedded image as a real (viewable) image.
+"""Core image_get tool — return an embedded image as a real (viewable) image.
 
 Lazy image perception (see docs/images/recognition-multimodal-LLMs.md and the Keith/Augusto design):
-b64 is stripped from get_document_content by default, so a model never pays vision tokens up front.
-When it actually needs to SEE one image, it calls get_image, which returns that single picture as a
+b64 is stripped from get_content by default, so a model never pays vision tokens up front.
+When it actually needs to SEE one image, it calls image_get, which returns that single picture as a
 native MCP image content block (only then are vision tokens spent). One self-documenting tool, by
 graphic name, by the current selection, or page=<n> to render a whole page (_render_page_png below).
-On Draw/Impress, page=N is the vision screenshot (0-based, same as list_pages / get_draw_tree); get_draw_tree remains the structure read.
+On Draw/Impress, page=N is the vision screenshot (0-based, same as slide_list / shape_get_tree); shape_get_tree remains the structure read.
 """
 
 from __future__ import annotations
@@ -181,13 +181,14 @@ def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str |
 
 
 class GetImage(ToolBase):
-    name: str | None = "get_image"
+    name: str | None = "image_get"
     tier: str = "core"
     description: str = (
         "Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name "
-        "from image_list / get_page_objects> for an embedded picture; selection=true for the image "
+        "from shape_get_tree on Draw/Impress, or get_content / get_sheet_summary / image_list "
+        "on Writer/Calc> for an embedded picture; selection=true for the image "
         "currently selected; or page=<n> (0-based) to render that whole PAGE as an image "
-        "(Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= "
+        "(Writer/Draw/Impress layout). On Draw/Impress, shape_get_tree is the shape tree — use page= "
         "here when you need to see the rendered page. Returns the picture itself, not a description. "
         "b64 is stripped from normal reads, so use this when you actually need to look. "
         "Pass at most one of image, selection, or page."
@@ -195,7 +196,7 @@ class GetImage(ToolBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page."},
+            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from shape_get_tree on Draw/Impress, or document reads / image_list). Pass at most one of image, selection, or page."},
             "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page."},
             "page": {"type": "integer", "description": "0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page."},
             "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names)."},

@@ -43,9 +43,10 @@ def test_read_annotation_falls_back_to_paragraph_context():
 
 
 def test_form_tools_declare_form_doc_services_union():
+    from plugin.framework.constants import ALL_DOCUMENT_SERVICES
     from plugin.writer.specialized import forms
 
-    form_union = forms._FORM_DOC_SERVICES
+    form_union = list(ALL_DOCUMENT_SERVICES)
     for tool_cls in (
         forms.FormListControls,
         forms.FormCreateControl,
@@ -208,7 +209,7 @@ def test_ensure_annotation_name_assigns_when_empty():
     assert name != "__Annotation__1_1"
     field.setPropertyValue.assert_called_once_with("Name", name)
 
-# ---- D4: add_comment span / occurrence / author -----------------------------
+# ---- D4: comment_add span / occurrence / author -----------------------------
 
 
 def _fields_that_grow():

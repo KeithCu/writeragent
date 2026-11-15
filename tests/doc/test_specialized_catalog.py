@@ -135,7 +135,7 @@ def test_apply_inner_outcome_read_only_calls_note() -> None:
     finish = {"status": "ok", "finished": True, "answer": "Inspected document"}
 
     calls_readonly = [
-        InnerToolCall("get_document_tree", {"status": "ok"}, mutating=False),
+        InnerToolCall("get_tree", {"status": "ok"}, mutating=False),
         InnerToolCall(FINISH_TOOL_NAME, finish, mutating=False),
     ]
     # expect_edits=True -> note attached
@@ -177,7 +177,7 @@ def test_apply_inner_outcome_mutating_calls_no_note() -> None:
 
 def test_apply_inner_outcome_incomplete_without_edits_has_note() -> None:
     final_ans = "Could not finish"
-    calls_ro = [InnerToolCall("get_document_tree", {"status": "ok"}, mutating=False)]
+    calls_ro = [InnerToolCall("get_tree", {"status": "ok"}, mutating=False)]
     res_note = apply_inner_outcome({"status": "ok", "result": final_ans}, final_ans, calls_ro, expect_edits=True)
     assert res_note["status"] == "incomplete"
     assert res_note["note"] == NO_EDIT_TOOL_NOTE
@@ -194,7 +194,7 @@ def test_apply_inner_outcome_incomplete_without_edits_has_note() -> None:
 
 def test_apply_inner_outcome_error_without_edits_has_note() -> None:
     read_err = {"status": "error", "message": "Bookmark not found"}
-    calls = [InnerToolCall("get_document_tree", read_err, mutating=False)]
+    calls = [InnerToolCall("get_tree", read_err, mutating=False)]
     result = apply_inner_outcome({"status": "ok", "result": ""}, "", calls, expect_edits=True)
     assert result["status"] == "error"
     assert result["code"] == "SPECIALIZED_TOOL_ERROR"
@@ -246,4 +246,30 @@ def test_start_inner_payload_plain_text() -> None:
 
     res3 = start_inner_payload("hi", domains, text_message="done")
     assert res3 == {"status": "ok", "result": "hi", "message": "done", "domains": ["footnotes"]}
+
+
+def test_catalog_entries_narrowed_by_uno_services() -> None:
+    import plugin.draw.headers_footers  # noqa: F401
+    import plugin.draw.notes  # noqa: F401
+    import plugin.draw.transitions  # noqa: F401
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+
+    impress_only = {"headers_footers", "speaker_notes", "slide_transitions", "slide_layouts"}
+    draw_domains = {
+        e["domain"]
+        for e in catalog_entries_from_base(agent_label="Draw", uno_services=frozenset({DRAW_DOCUMENT_SERVICE}))
+    }
+    assert impress_only.isdisjoint(draw_domains)
+    assert "shapes" in draw_domains
+
+    impress_domains = {
+        e["domain"]
+        for e in catalog_entries_from_base(agent_label="Draw", uno_services=frozenset({IMPRESS_DOCUMENT_SERVICE}))
+    }
+    assert impress_only <= impress_domains
+
+    assert catalog_entries_from_base(agent_label="Draw", uno_services=frozenset()) == catalog_entries_from_base(
+        agent_label="Draw"
+    )
 

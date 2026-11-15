@@ -228,6 +228,8 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
 
 def field_from_tool_arguments(arguments: Any, field: str) -> Any:
     """Read *field* from tool arguments (dict or JSON string), or None."""
+    # CrossHair's regex engine crashes inside the json.loads repair path.
+    # crosshair: off
     if arguments is None:
         return None
     if isinstance(arguments, dict):
@@ -275,7 +277,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     implement ``execute``.
 
     Attributes:
-        name:        Unique tool identifier (e.g. "get_document_tree").
+        name:        Unique tool identifier (e.g. "get_tree").
         description: Human-readable description shown to LLMs.
         parameters:  JSON Schema dict (MCP ``inputSchema`` format).
         uno_services: List of UNO services the tool supports (e.g.,
@@ -302,17 +304,21 @@ class ToolBase(_ToolErrorMixin, ABC):
     is_final_answer_tool: bool = False
     doc_types: list[str] | None = None
     # When False, the MCP executor runs the tool even with no document open (e.g. the
-    # find_tools discovery meta-tool); the default requires an open document.
+    # tool_find discovery meta-tool); the default requires an open document.
     requires_document: bool = True
     # Extra tools this domain's sub-agent should see, by name. Core readers
-    # (get_document_content) or one specialized tool from another domain
+    # (get_content) or one specialized tool from another domain
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
-    scripting_only_parameters: frozenset[str] = frozenset()
 
-    def detects_mutation(self) -> bool:
-        """Return True if the tool mutates the document."""
+    def detects_mutation(self, arguments: Any = None) -> bool:
+        """Return True if the tool mutates the document.
+
+        *arguments* is the call's arguments (dict or JSON string, as from the
+        wire). Ignored by the default; delegate gateways use it to decide per
+        call.
+        """
         if self.is_mutation is not None:
             return self.is_mutation
         if self.name:
@@ -322,11 +328,11 @@ class ToolBase(_ToolErrorMixin, ABC):
     def requires_document_lock(self, arguments: Any = None) -> bool:
         """Whether a long-running or backpressure MCP run must hold the per-document gate.
 
-        Defaults to :meth:`detects_mutation`. Override when a tool is sometimes read-only
-        depending on ``arguments`` (e.g. delegate gateway domains). See
+        Defaults to :meth:`detects_mutation(arguments)`. Override only when
+        locking differs from mutation (e.g. ``EvaluateFormula``). See
         docs/framework/threading.md § MCP tool execution paths.
         """
-        return self.detects_mutation()
+        return self.detects_mutation(arguments)
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         """JSON Schema for this tool; override for document-type-specific parameters."""
@@ -346,18 +352,15 @@ class ToolBase(_ToolErrorMixin, ABC):
         for key in required_keys(schema):
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
-        extra_ok = self.scripting_only_parameters or frozenset()
-        # scripting_only_parameters stay allowed here because validate has no caller;
-        # _execute_impl drops them unless caller == "script" before this method runs;
-        # empty properties {} is a closed schema, not "accept any kwargs".
+        # Empty properties {} is a closed schema, not "accept any kwargs".
         props_dict = call_properties(schema)
         if props_dict is not None:
             for key in kwargs:
-                if key not in props_dict and key not in extra_ok:
+                if key not in props_dict:
                     return False, f"Unknown parameter: {key}"
             for key, value in kwargs.items():
                 prop = props_dict.get(key)
-                if not isinstance(prop, dict) or key in extra_ok:
+                if not isinstance(prop, dict):
                     continue
                 enum = prop.get("enum")
                 if isinstance(enum, list) and enum and value not in enum:
@@ -551,18 +554,13 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     """
     # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
     # from API/LLM) do not cause "Unknown parameter" validation errors.
-    # scripting_only_parameters (e.g. set_style number_format) are only kept
-    # for scripting callers — chat/MCP models must not apply hidden parameters
-    # from training memory when the property was removed from the schema
-    # (see docs/calc/date-time-handling.md S26).
     kwargs = dict(tool_kwargs)
     doc_type = getattr(ctx, "doc_type", None)
     caller = getattr(ctx, "caller", None)
 
     schema = tool.get_parameters(doc_type) or {}
     props = call_properties(schema) or {}
-    extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if caller == "script" else frozenset()
-    kept = without_unknown_kwargs(schema, kwargs, extra_ok)
+    kept = without_unknown_kwargs(schema, kwargs)
     ignored: list[str] = sorted(k for k in tool_kwargs if k not in kept)
     kwargs = kept
 
@@ -617,6 +615,7 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
+        self._duplicate_registrations: list[tuple[str, type[ToolBase], type[ToolBase]]] = []
         self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
         self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []
         # Shared names (shape_upsert / chart_upsert) last-wins the instance but
@@ -645,16 +644,13 @@ class ToolRegistry:
             # Same class object, including a re-import that got the cached module: return, no log.
             if type(existing_tool) is type(tool):
                 return
-            # A different class object replaces. Warn only when __name__ or __module__ differs
-            # (shared Writer/Calc/Draw names). Same __name__ and __module__ on a new class
-            # object replaces with no warning (reload).
-            if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
-                log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
-            # Shared names replace the instance (Writer loads last). Union both
-            # required_core_tools sets, plus any prior merge, or Calc
-            # shapes/charts never request get_sheet_summary / read_cell_range.
-            # get_tools still drops cores that fail tool_supports_document
-            # for the active doc.
+            # Same __name__ and __module__ on a new class object replaces with no warning (reload).
+            if type(existing_tool).__name__ == type(tool).__name__ and type(existing_tool).__module__ == type(tool).__module__:
+                self._tools[tool.name] = tool
+                return
+            # A different class object replaces with a warning.
+            log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
+            self._duplicate_registrations.append((tool.name, type(existing_tool), type(tool)))
             prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
             nxt = getattr(tool, "required_core_tools", None)
             if prev or nxt:
@@ -728,7 +724,7 @@ class ToolRegistry:
             ctx: Optional ToolContext or context for filtering vision specialized tools.
         """
         # crosshair: off
-        tools: Any = self._tools.values()
+        tools: Any = list(self._tools.values())
 
         # Doc-type probe is main-thread-only because get_document_type accesses UNO.
         # In release builds @main_thread_only logs and continues rather than raising,
@@ -826,9 +822,9 @@ class ToolRegistry:
         if protocol == "openai":
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
-            # Unknown (None) keeps get_image. Only a known text-only chat model drops it.
+            # Unknown (None) keeps image_get. Only a known text-only chat model drops it.
             if has_native_vision(get_text_model(), get_current_endpoint()) is False:
-                tools = [t for t in tools if t.name != "get_image"]
+                tools = [t for t in tools if t.name != "image_get"]
             convert = to_openai_schema
         else:
             convert = to_mcp_schema

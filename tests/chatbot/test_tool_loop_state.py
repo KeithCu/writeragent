@@ -10,10 +10,12 @@ from plugin.chatbot.tool_loop_actions import (
     is_replaced_zero_result,
 )
 from plugin.chatbot.tool_loop_state import (
+    EDIT_NUDGE_MESSAGE,
     AddMessageEffect,
     CleanupAudioEffect,
     EventKind,
     ExitLoopEffect,
+    MessageRole,
     SpawnFinalStreamEffect,
     SpawnLLMWorkerEffect,
     SpawnToolWorkerEffect,
@@ -277,7 +279,7 @@ def test_stream_done_with_tool_calls():
 
 def test_stream_done_with_tool_calls_preserves_reasoning_replay():
     state = create_base_state()
-    tool_calls = [{"id": "1", "function": {"name": "apply_document_content"}}]
+    tool_calls = [{"id": "1", "function": {"name": "apply_content"}}]
     response = {
         "tool_calls": tool_calls,
         "content": "Updating doc.",
@@ -327,7 +329,7 @@ def test_next_tool_upsert_memory_shows_key_and_value_in_chat_line():
         {
             "id": "call_1",
             "function": {
-                "name": "upsert_memory",
+                "name": "memory_upsert",
                 "arguments": '{"key": "my_key", "content": "my_val"}',
             },
             "parsed_args": {"key": "my_key", "content": "my_val"},
@@ -339,7 +341,7 @@ def test_next_tool_upsert_memory_shows_key_and_value_in_chat_line():
     running_eff = next(
         e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.TOOL_RUNNING
     )
-    assert running_eff.func_name == "upsert_memory"
+    assert running_eff.func_name == "memory_upsert"
     _status, append_text = format_tool_running_ui(running_eff.func_name, running_eff.func_args or {})
     assert "my_key" in append_text
     assert "my_val" in append_text
@@ -572,14 +574,14 @@ def test_apply_document_content_debug_uses_structured_replaced_count():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="c1",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"target": "search", "old_content": "zzz"}',
         result='{"status": "error", "message": "old_content not found in document.", "replaced_count": 0}',
         mutates_document=True,
     )
     tr = next_state(state, event)
     res_eff = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.TOOL_RESULT)
-    assert res_eff.func_name == "apply_document_content"
+    assert res_eff.func_name == "apply_content"
     assert is_replaced_zero_result(res_eff.result_data)
     debug_line = format_replaced_zero_debug_line(res_eff.func_args_str)
     assert debug_line.startswith("[Debug: params")
@@ -592,7 +594,7 @@ def test_apply_document_content_search_miss_skips_doc_context_refresh():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="c1b",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"target": "search", "old_content": "zzz", "content": "BAR"}',
         result='{"status": "error", "message": "old_content not found in document.", "replaced_count": 0}',
         mutates_document=True,
@@ -606,7 +608,7 @@ def test_apply_document_content_no_debug_when_replaced():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="c2",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"target": "search", "old_content": "foo"}',
         result='{"status": "ok", "message": "Replaced 2 occurrence(s).", "replaced_count": 2}',
         mutates_document=True,
@@ -705,11 +707,11 @@ def test_tool_result_parsing():
     assert msg_eff.call_id == "call_x"
     assert msg_eff.content == '{"success": true, "message": "done"}'
 
-    # apply_document_content edge case output
+    # apply_content edge case output
     event_adc = create_event(
         EventKind.TOOL_RESULT,
         call_id="call_y",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"content": "' + ("A" * 1000) + '"}',
         result='{"message": "Replaced 0 occurrences", "replaced_count": 0}',
         mutates_document=False
@@ -787,17 +789,17 @@ def test_format_replaced_zero_debug_line():
 
 
 def test_format_tool_running_ui():
-    status, line = format_tool_running_ui("read_cell_range", {})
-    assert status == "Running: read_cell_range"
-    assert line == "[Running tool: read_cell_range...]\n"
+    status, line = format_tool_running_ui("read_range", {})
+    assert status == "Running: read_range"
+    assert line == "[Running tool: read_range...]\n"
 
     status, line = format_tool_running_ui("delegate_to_specialized_calc_toolset", {"domain": "charts", "task": "plot"})
     assert "delegate (charts)" in status
     assert line.startswith("[Running delegate (charts):")
     assert line.endswith("\n")
 
-    status, line = format_tool_running_ui("upsert_memory", {"key": "k", "content": "v"})
-    assert status == "Running: upsert_memory"
+    status, line = format_tool_running_ui("memory_upsert", {"key": "k", "content": "v"})
+    assert status == "Running: memory_upsert"
     assert "Memory update" in line
     assert line.endswith("\n")
 
@@ -875,3 +877,119 @@ def test_describe_empty_response_tool_calls_handles_all_shapes() -> None:
     assert _describe_empty_response_tool_calls("not-a-list") == "present"
     assert _describe_empty_response_tool_calls({"k": 1}) == "present"
     assert _describe_empty_response_tool_calls(["not-a-dict"]) == "1"
+
+
+def test_stream_done_edit_intent_zero_tools_nudges_once() -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text="Rewrite this paragraph to be professional and concise.",
+        has_apply_tool=True,
+    )
+    tr = next_state(
+        state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Rewritten paragraph.</p>", "tool_calls": None}),
+    )
+    assert tr.state.edit_nudge_sent is True
+    assert tr.state.round_num == 1
+    assert any(isinstance(e, SpawnLLMWorkerEffect) and e.round_num == 1 for e in tr.effects)
+    assert not any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    user_msgs = [e for e in tr.effects if isinstance(e, AddMessageEffect) and e.role == MessageRole.USER]
+    assert len(user_msgs) == 1
+    assert user_msgs[0].content == EDIT_NUDGE_MESSAGE
+
+    # A second zero-tool reply in the same turn must not nudge again.
+    tr2 = next_state(
+        tr.state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Still in chat.</p>", "tool_calls": None}),
+    )
+    assert tr2.state.status == "Ready"
+    assert any(isinstance(e, ExitLoopEffect) for e in tr2.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr2.effects)
+
+
+def test_stream_done_plain_question_does_not_nudge() -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text="What is this document about?",
+        has_apply_tool=True,
+    )
+    tr = next_state(
+        state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>It summarizes Q3 results.</p>", "tool_calls": None}),
+    )
+    assert tr.state.edit_nudge_sent is False
+    assert tr.state.status == "Ready"
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr.effects)
+
+
+def test_stream_done_after_mutating_tool_does_not_nudge() -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text="Rewrite this paragraph to be concise.",
+        has_apply_tool=True,
+    )
+    tr_tool = next_state(
+        state,
+        create_event(
+            EventKind.TOOL_RESULT,
+            call_id="c1",
+            func_name="apply_content",
+            result='{"status": "ok"}',
+            mutates_document=True,
+        ),
+    )
+    assert tr_tool.state.has_mutated is True
+    tr_done = next_state(
+        tr_tool.state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Done.</p>", "tool_calls": None}),
+    )
+    assert tr_done.state.status == "Ready"
+    assert any(isinstance(e, ExitLoopEffect) for e in tr_done.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_done.effects)
+
+
+def test_stream_done_stopped_or_non_writer_does_not_nudge() -> None:
+    stopped = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Stopped",
+        is_stopped=True,
+        doc_type="writer",
+        query_text="Rewrite this paragraph.",
+        has_apply_tool=True,
+    )
+    tr_stopped = next_state(
+        stopped,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Rewritten</p>", "tool_calls": None}),
+    )
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_stopped.effects)
+
+    calc = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="calc",
+        query_text="Rewrite this cell.",
+        has_apply_tool=False,
+    )
+    tr_calc = next_state(
+        calc,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Rewritten</p>", "tool_calls": None}),
+    )
+    assert tr_calc.state.status == "Ready"
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_calc.effects)

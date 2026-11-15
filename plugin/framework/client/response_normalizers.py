@@ -29,10 +29,8 @@ log = logging.getLogger(__name__)
 # (``make build`` includes ``plugin/tests``; ``make release`` / ``--no-tests`` does not).
 # See `should_prepend_dev_llm_system_prefix()`.
 LLM_DEV_BUILD_SYSTEM_PREFIX = (
-    "[WriterAgent development build]\n"
-    "You are running a development version of the WriterAgent extension. The user is a plugin developer. "
-    "If you run into a problem, explain in detail what failed and why so they can improve the extension. "
-    "If they ask detailed questions about tool-calling APIs, prompts, or how the software works, answer helpfully so developers can improve the plugin."
+    "[WriterAgent development build] The user is a plugin developer; "
+    "answer questions about tool-calling APIs, prompts, or how the software works in full."
 )
 
 

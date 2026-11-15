@@ -22,13 +22,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import name_miss_details
+from plugin.framework.errors import make_tool_ok, name_miss_details
 from plugin.framework.uno_context import create_property_value
 from plugin.calc.address_utils import format_range
 from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
+from plugin.calc.cells import opt_color
 
+from com.sun.star.awt import FontWeight
 from com.sun.star.table import CellAddress
 
 if TYPE_CHECKING:
@@ -120,7 +122,19 @@ class ListConditionalFormats(ToolCalcConditionalBase):
         formats = cell_range.getPropertyValue("ConditionalFormat")
         rules = [_entry_to_dict(formats.getByIndex(i), i) for i in range(formats.getCount())] if formats is not None else []
 
-        return {"status": "ok", "range": resolved_range_name, "rules": rules, "count": len(rules)}
+        return make_tool_ok(range=resolved_range_name, rules=rules, count=len(rules))
+
+
+def _inline_style_name(bg: int | None, font: int | None, bold: bool | None) -> str:
+    """Return a deterministic hidden CellStyle name for inline conditional formatting."""
+    parts = ["WA CF"]
+    if bg is not None:
+        parts.append(f"bg #{bg:06X}")
+    if font is not None:
+        parts.append(f"font #{font:06X}")
+    if bold is not None:
+        parts.append("bold" if bold else "not bold")
+    return " ".join(parts)
 
 
 class AddConditionalFormat(ToolCalcConditionalBase):
@@ -130,6 +144,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
     description: str = (
         "Add a conditional formatting rule to a Calc cell range. "
         "Applies a cell style when the condition is met. "
+        "Pass style or inline formatting (bg_color, font_color, bold), not both. "
         "Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, "
         "LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. "
         "DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; "
@@ -144,8 +159,11 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style": {"type": "string", "description": ("Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.")},
+            "bg_color": {"type": "string", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
+            "font_color": {"type": "string", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
+            "bold": {"type": "boolean", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
         },
-        "required": ["range", "operator", "style"],
+        "required": ["range", "operator"],
     }
     is_mutation: bool | None = True
 
@@ -154,7 +172,21 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         range_str = range_args(kwargs.get("range"), exactly_one=True)[0]
 
         operator = kwargs["operator"]
-        style_name = kwargs["style"]
+        style_name = kwargs.get("style")
+        bg, err = opt_color(kwargs, "bg_color")
+        if err:
+            return self._tool_error(err, code="INVALID_PARAM")
+        font, err = opt_color(kwargs, "font_color")
+        if err:
+            return self._tool_error(err, code="INVALID_PARAM")
+        bold = kwargs.get("bold")
+        inline = bg is not None or font is not None or bold is not None
+
+        if style_name and inline:
+            return self._tool_error("Pass style or inline formatting (bg_color, font_color, bold), not both.", code="INVALID_PARAM")
+        if not style_name and not inline:
+            return self._tool_error("Pass style, or bg_color / font_color / bold.", code="INVALID_PARAM")
+
         formula1 = kwargs.get("formula1") or ""
         formula2 = kwargs.get("formula2") or ""
 
@@ -167,7 +199,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             return self._tool_error("formula1 is required for this operator.", code="MISSING_FORMULA")
 
         cell_styles = ctx.doc.getStyleFamilies().getByName("CellStyles")
-        if not cell_styles.hasByName(style_name):
+        if style_name and not cell_styles.hasByName(style_name):
             return self._tool_error(
                 f"Unknown cell style '{style_name}'.",
                 code="INVALID_STYLE",
@@ -178,12 +210,39 @@ class AddConditionalFormat(ToolCalcConditionalBase):
                 ),
             )
 
+        # Resolve the target range before creating an inline style so an invalid range leaves no orphan style.
         cell_range = bridge.resolve_range_or_address(range_str)
         ra = cell_range.getRangeAddress()
         addr = CellAddress()
         addr.Sheet = ra.Sheet
         addr.Column = ra.StartColumn
         addr.Row = ra.StartRow
+
+        created: bool | None = None
+        if inline:
+            resolved_style = _inline_style_name(bg, font, bold)
+            if cell_styles.hasByName(resolved_style):
+                st = cell_styles.getByName(resolved_style)
+                created = False
+            else:
+                st = ctx.doc.createInstance("com.sun.star.style.CellStyle")
+                cell_styles.insertByName(resolved_style, st)
+                created = True
+            # Re-apply properties even on reuse so user edits to the hidden style do not stick.
+            if bg is not None:
+                st.setPropertyValue("CellBackColor", bg)
+            if font is not None:
+                st.setPropertyValue("CharColor", font)
+            if bold is not None:
+                st.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
+            # Hidden keeps the Styles deck clean while Calc's Conditional Formatting dialog
+            # still lists the style (condformatdlgentry.cxx FillStyleListBox uses SfxStyleSearchBits::All,
+            # include/svl/style.hxx). Style insertion is not undoable (styleuno.cxx
+            # ScStyleFamilyObj::insertByName), so Ctrl+Z removes the rule and leaves the unused style.
+            st.setPropertyValue("Hidden", True)
+        else:
+            assert isinstance(style_name, str)
+            resolved_style = style_name
 
         props = [
             create_property_value("Operator", idx),
@@ -192,14 +251,16 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         ]
         if formula2:
             props.append(create_property_value("Formula2", formula2))
-        props.append(create_property_value("StyleName", style_name))
+        props.append(create_property_value("StyleName", resolved_style))
 
         formats = _ensure_table_conditional_format(ctx, cell_range)
         formats.addNew(tuple(props))
         cell_range.setPropertyValue("ConditionalFormat", formats)
 
         log.info("Conditional format added to %s.", range_str.upper())
-        return {"status": "ok", "range": range_str, "rule_count": formats.getCount()}
+        if inline:
+            return make_tool_ok(range=range_str, rule_count=formats.getCount(), style=resolved_style, style_created=created)
+        return make_tool_ok(range=range_str, rule_count=formats.getCount())
 
 
 class RemoveConditionalFormats(ToolCalcConditionalBase):
@@ -228,9 +289,9 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
             if 0 <= index < formats.getCount():
                 formats.removeByIndex(index)
                 cell_range.setPropertyValue("ConditionalFormat", formats)
-                return {"status": "ok", "range": range_str, "removed_index": index}
+                return make_tool_ok(range=range_str, removed_index=index)
             return self._tool_error(f"Rule index {index} not found on {range_str}.", code="INVALID_PARAM")
         if formats is not None:
             formats.clear()
             cell_range.setPropertyValue("ConditionalFormat", formats)
-        return {"status": "ok", "range": range_str, "cleared": True}
+        return make_tool_ok(range=range_str, cleared=True)

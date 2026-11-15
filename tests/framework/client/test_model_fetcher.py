@@ -326,6 +326,28 @@ class TestFetchAvailableImageModels:
             'top': True,
         })
 
+    def test_vision_declarations_read_capabilities_vision_key_and_aliases(self):
+        from plugin.framework.client.model_fetcher import _vision_declarations_from_v1_entries
+
+        entries = [
+            {'id': 'mistral-small-2506', 'aliases': ['mistral-small-latest'], 'capabilities': {'vision': True}},
+            {'id': 'codestral-2508', 'capabilities': {'vision': False}},
+            {'key': 'google/gemma-4-26b-a4b', 'capabilities': {'vision': True}},
+            {'id': 'odd', 'capabilities': {'vision': 'yes'}},
+            {'id': 'both', 'input_modalities': ['text'], 'capabilities': {'vision': True}},
+            {'id': 'claude-opus-5-5', 'capabilities': {'image_input': {'supported': True}}},
+            {'id': 'claude-text-only', 'capabilities': {'image_input': {'supported': False}}},
+        ]
+        assert _vision_declarations_from_v1_entries(entries) == {
+            'mistral-small-2506': True,
+            'mistral-small-latest': True,
+            'codestral-2508': False,
+            'google/gemma-4-26b-a4b': True,
+            'both': False,
+            'claude-opus-5-5': True,
+            'claude-text-only': False,
+        }
+
     def test_image_output_model_ids_from_v1_entries(self):
         from plugin.framework.client.model_fetcher import _image_output_model_ids_from_v1_entries
 
@@ -715,8 +737,9 @@ class TestHasNativeVision:
                 assert has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api") is False
                 mock_bg.assert_not_called()
 
+            # Static catalog fallback (Z.ai has no live vision API) settles without scheduling.
             with patch.object(main, "is_current", return_value=True):
-                assert has_native_vision("google/gemini-3.1-flash-lite-preview", "https://openrouter.ai/api") is True
+                assert has_native_vision("glm-5.3-flash", "https://api.z.ai/api/paas/v4") is True
                 mock_bg.assert_not_called()
 
     def test_clear_settings_catalog_cache_drops_vision_memo_and_ollama_show(self):
@@ -738,6 +761,182 @@ class TestHasNativeVision:
 
         clear_settings_catalog_cache(ollama_ep)
         assert model_fetcher._catalog_memo_key(ollama_ep) not in model_fetcher._catalog_memos
+
+    def test_anthropic_live_lookup_capabilities_image_input(self, vision_config):
+        from plugin.framework.client.model_fetcher import clear_settings_catalog_cache, has_native_vision
+
+        payload = {
+            "data": [
+                {"id": "claude-opus-5-5", "capabilities": {"image_input": {"supported": True}}},
+                {"id": "claude-text-only", "capabilities": {"image_input": {"supported": False}}},
+            ]
+        }
+        for endpoint in ("https://api.anthropic.com", "https://api.anthropic.com/v1"):
+            clear_settings_catalog_cache(endpoint)
+            with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync, \
+                 patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value="sk-ant-test"):
+                assert has_native_vision("claude-opus-5-5", endpoint) is True
+                assert has_native_vision("claude-text-only", endpoint) is False
+                assert has_native_vision("claude-unlisted", endpoint) is None
+                assert mock_sync.call_count == 1
+                url = mock_sync.call_args.args[0]
+                headers = mock_sync.call_args.kwargs["headers"]
+                assert url == "https://api.anthropic.com/v1/models"
+                assert headers.get("x-api-key") == "sk-ant-test"
+                assert "anthropic-version" in headers
+
+            clear_settings_catalog_cache(endpoint, api_key_override="sk-ant-test")
+            with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("down")), \
+                 patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value="sk-ant-test"):
+                assert has_native_vision("claude-opus-5-5", endpoint) is None
+        assert vision_config == {}
+
+    def test_mistral_and_deepseek_live_lookup(self, vision_config):
+        from plugin.framework.client.model_fetcher import has_native_vision
+
+        mistral_ep = "https://api.mistral.ai"
+        mistral_payload = {
+            "data": [
+                {"id": "mistral-small-2506", "aliases": ["mistral-small-latest"], "capabilities": {"vision": True}},
+                {"id": "codestral-2508", "capabilities": {"vision": False}},
+            ]
+        }
+        deepseek_ep = "https://api.deepseek.com"
+        deepseek_payload = {
+            "data": [
+                {"id": "deepseek-flash", "input_modalities": ["text", "image"]},
+                {"id": "deepseek-v4-pro", "input_modalities": ["text"]},
+            ]
+        }
+
+        def fake_sync(url, **kwargs):
+            if "mistral.ai" in url:
+                return mistral_payload
+            return deepseek_payload
+
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync) as mock_sync, \
+             patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value="sk-test"):
+            assert has_native_vision("mistral-small-latest", mistral_ep) is True
+            assert has_native_vision("codestral-2508", mistral_ep) is False
+            assert has_native_vision("deepseek-flash", deepseek_ep) is True
+            assert has_native_vision("deepseek-v4-pro", deepseek_ep) is False
+            assert has_native_vision("deepseek-chat", deepseek_ep) is None
+            assert mock_sync.call_count == 2
+        assert vision_config == {}
+
+    def test_xai_language_models_answer_survives_settings_fetch(self, vision_config):
+        from plugin.framework.client.model_fetcher import fetch_available_models, has_native_vision
+
+        xai_ep = "https://api.x.ai/v1"
+
+        def fake_sync(url, **kwargs):
+            if url.endswith("/language-models"):
+                return {"models": [{"id": "grok-x", "input_modalities": ["text", "image"], "aliases": ["grok-x-latest"]}]}
+            if url.endswith("/models"):
+                return {"data": [{"id": "grok-x"}]}
+            raise AssertionError(f"unexpected URL: {url}")
+
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync), \
+             patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value="sk-xai"):
+            assert has_native_vision("grok-x-latest", xai_ep) is True
+            fetch_available_models(xai_ep)
+            assert has_native_vision("grok-x-latest", xai_ep) is True
+
+    def test_lmstudio_api_v1_models_capabilities_vision(self, vision_config):
+        from plugin.framework.client.model_fetcher import clear_settings_catalog_cache, has_native_vision
+
+        lms_ep = "http://localhost:1234"
+        lms_payload = {
+            "models": [
+                {"type": "llm", "key": "qwen/qwen3-vl-8b", "capabilities": {"vision": True}},
+                {"type": "llm", "key": "qwen/qwen3-4b", "capabilities": {"vision": False}},
+            ]
+        }
+
+        with patch("plugin.framework.client.requests.sync_request", return_value=lms_payload) as mock_sync:
+            assert has_native_vision("qwen/qwen3-vl-8b", lms_ep) is True
+            assert has_native_vision("qwen/qwen3-4b", lms_ep) is False
+            assert mock_sync.call_count == 1
+            assert mock_sync.call_args.args[0] == "http://localhost:1234/api/v1/models"
+
+        clear_settings_catalog_cache(lms_ep)
+        with patch("plugin.framework.client.requests.sync_request", side_effect=[OSError("conn refused"), lms_payload]) as mock_sync:
+            assert has_native_vision("qwen/qwen3-vl-8b", lms_ep) is None
+            assert has_native_vision("qwen/qwen3-vl-8b", lms_ep) is True
+            assert mock_sync.call_count == 2
+
+    def test_provider_default_after_catalog_and_config(self, vision_config):
+        from plugin.framework.client.model_fetcher import has_native_vision, set_native_vision_support
+
+        google_ep = "https://generativelanguage.googleapis.com/v1beta/openai"
+        with patch("plugin.framework.client.requests.sync_request") as mock_sync, \
+             patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+            with patch.object(main, "is_current", return_value=True):
+                assert has_native_vision("gemini-4-carbon", google_ep) is True
+                assert has_native_vision("gemini-3.1-flash-lite-preview", google_ep) is True
+            with patch.object(main, "is_current", return_value=False):
+                assert has_native_vision("gemini-4-carbon", google_ep) is True
+            mock_sync.assert_not_called()
+            mock_bg.assert_not_called()
+
+        set_native_vision_support("gemini-4-carbon", google_ep, False)
+        assert has_native_vision("gemini-4-carbon", google_ep) is False
+
+    def test_live_answer_beats_conflicting_catalog_and_catalog_used_on_fetch_failure(self, vision_config):
+        from plugin.framework.client.model_fetcher import clear_settings_catalog_cache, has_native_vision
+        from plugin.framework.constants import ModelCapability
+
+        endpoint = "https://openrouter.ai/api"
+        model = "custom/model-x"
+        payload = {"data": [{"id": model, "architecture": {"input_modalities": ["text"]}}]}
+
+        with patch("plugin.framework.client.model_fetcher.get_model_capability", return_value=ModelCapability.CHAT | ModelCapability.VISION):
+            # Live API says text-only (False), beating the catalog's VISION bit.
+            with patch("plugin.framework.client.requests.sync_request", return_value=payload), \
+                 patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""):
+                assert has_native_vision(model, endpoint) is False
+
+            # When the live fetch fails, fall back to the catalog VISION bit.
+            clear_settings_catalog_cache(endpoint)
+            with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("down")), \
+                 patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""):
+                assert has_native_vision(model, endpoint) is True
+
+    def test_ui_thread_schedules_alternate_list_lookup(self, vision_config):
+        from plugin.framework.client.model_fetcher import has_native_vision
+
+        xai_ep = "https://api.x.ai/v1"
+        scheduled_jobs = []
+
+        def fake_bg(fn, *args, **kwargs):
+            scheduled_jobs.append(fn)
+
+        payload = {"models": [{"id": "grok-x", "input_modalities": ["text", "image"], "aliases": ["grok-x-latest"]}]}
+        with patch("plugin.framework.client.requests.sync_request", return_value=payload) as mock_sync, \
+             patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value="sk-xai"), \
+             patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=fake_bg):
+            with patch.object(main, "is_current", return_value=True):
+                assert has_native_vision("grok-x-latest", xai_ep) is None
+                mock_sync.assert_not_called()
+                assert len(scheduled_jobs) == 1
+
+            with patch.object(main, "is_current", return_value=False):
+                scheduled_jobs[0]()
+            assert mock_sync.call_count == 1
+
+            with patch.object(main, "is_current", return_value=True):
+                assert has_native_vision("grok-x-latest", xai_ep) is True
+                assert len(scheduled_jobs) == 1
+
+    def test_unlisted_provider_stays_unknown_without_fetch(self, vision_config):
+        from plugin.framework.client.model_fetcher import has_native_vision
+
+        with patch("plugin.framework.client.requests.sync_request") as mock_sync, \
+             patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+            assert has_native_vision("some/uncatalogued", "https://api.groq.com/openai") is None
+            assert has_native_vision("meta/llama-3.2-11b-vision-instruct", "https://integrate.api.nvidia.com/v1") is None
+            mock_sync.assert_not_called()
+            mock_bg.assert_not_called()
 
 
 class TestParseOllamaRuntimeNumCtx:

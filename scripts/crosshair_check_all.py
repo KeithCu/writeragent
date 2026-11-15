@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Discover ``@deal.`` modules under ``plugin/`` and run CrossHair check (budgeted).
+"""Discover modules under ``plugin/`` with a ``@deal.*`` decorator and run CrossHair check (budgeted).
 
 Runs **one FQN at a time** (same crash isolation as cover-all) and prints
 ``[CHECK START]`` *before* each spawn so a hang shows the current callable.
@@ -13,11 +13,13 @@ After the first tagged line of the sweep, each ``[CHECK …]`` line includes
 append-only CI logs show which post/pre is stuck. Cover-all does not stamp Prev.
 Errors are printed live and reprinted in a final ``ERRORS TO FIX`` / failed-module summary.
 
-Two presets only (same numbers as cover-all; no per-flag budget overrides):
+Three presets only (same numbers as cover-all; no per-flag budget overrides):
 
 - **regular** (default): ``--max_uninteresting_iterations=25`` and
   ``--per_condition_timeout=5`` (breadth over depth), plus a hard **120s**
   per-module wall kill so no file dominates the sweep.
+- **medium** (``--medium``): ``--max_uninteresting_iterations=75`` and
+  ``--per_condition_timeout=20``, plus a hard **600s** per-module wall kill.
 - **deep** (``--deep``): ``--max_uninteresting_iterations=200``, no per-condition
   timeout and no wall — hour-scale exploration (CrossHair's "hundreds" guidance).
   Speed comes from the short ``WRITERAGENT_CROSSHAIR=1`` deal table, not timeouts.
@@ -28,8 +30,10 @@ Wall timeout is exit 0 / not a sweep failure (budget exhaustion). Contract
 Usage::
 
     make crosshair-check-all
+    make crosshair-check-all-medium
     make crosshair-check-all-deep
     python scripts/crosshair_check_all.py
+    python scripts/crosshair_check_all.py --medium
     python scripts/crosshair_check_all.py --deep
     python scripts/crosshair_check_all.py --list
     python scripts/crosshair_check_all.py --start-at 42
@@ -63,6 +67,10 @@ REGULAR_MAX_UNINTERESTING = 25
 REGULAR_PER_CONDITION_TIMEOUT_SEC = 5
 # Hard stop per module in regular mode (backstop; soft bounds aim to finish earlier).
 REGULAR_MODULE_WALL_TIMEOUT_SEC = 120
+# Medium: balanced exploration between regular and deep.
+MEDIUM_MAX_UNINTERESTING = 75
+MEDIUM_PER_CONDITION_TIMEOUT_SEC = 20
+MEDIUM_MODULE_WALL_TIMEOUT_SEC = 600
 # Deep: CrossHair "hundreds" for multi-hour runs. No per-condition timeout, no module wall.
 DEEP_MAX_UNINTERESTING = 200
 # Regular only: payload_codec has many contracts; same 5s slice, fewer iters.
@@ -79,25 +87,37 @@ CROSSHAIR_CHECK_ALL_SKIP: frozenset[str] = frozenset()
 
 @dataclass(frozen=True)
 class CheckBudget:
-    """Resolved check-all preset (regular or deep)."""
+    """Resolved check-all preset (regular, medium, or deep)."""
 
-    mode: str  # "regular" | "deep"
+    mode: str  # "regular" | "medium" | "deep"
     max_uninteresting: int
     per_condition_timeout: int | None  # None = omit flag (deep)
+    module_wall_timeout: int | None  # None = no module wall (deep)
 
 
-def resolve_check_budget(*, deep: bool) -> CheckBudget:
-    """Map --deep to CrossHair bound flags (only two presets)."""
+def resolve_check_budget(*, deep: bool = False, medium: bool = False) -> CheckBudget:
+    """Map --deep / --medium to CrossHair bound flags (three presets)."""
+    if deep and medium:
+        raise ValueError("--deep and --medium are mutually exclusive")
     if deep:
         return CheckBudget(
             mode="deep",
             max_uninteresting=DEEP_MAX_UNINTERESTING,
             per_condition_timeout=None,
+            module_wall_timeout=None,
+        )
+    if medium:
+        return CheckBudget(
+            mode="medium",
+            max_uninteresting=MEDIUM_MAX_UNINTERESTING,
+            per_condition_timeout=MEDIUM_PER_CONDITION_TIMEOUT_SEC,
+            module_wall_timeout=MEDIUM_MODULE_WALL_TIMEOUT_SEC,
         )
     return CheckBudget(
         mode="regular",
         max_uninteresting=REGULAR_MAX_UNINTERESTING,
         per_condition_timeout=REGULAR_PER_CONDITION_TIMEOUT_SEC,
+        module_wall_timeout=REGULAR_MODULE_WALL_TIMEOUT_SEC,
     )
 
 
@@ -170,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "targets",
         nargs="*",
-        help="Optional file paths (default: every plugin/**/*.py containing @deal.)",
+        help="Optional file paths (default: every plugin/**/*.py with a @deal.* decorator)",
     )
     parser.add_argument(
         "--plugin-root",
@@ -194,7 +214,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="Only errors/fatals and final banner")
     parser.add_argument("--raw", action="store_true", help="Also print suppressed CrossHair -v spam")
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--medium",
+        action="store_true",
+        help=(
+            f"Medium mode: max_uninteresting_iterations={MEDIUM_MAX_UNINTERESTING}, "
+            f"per_condition_timeout={MEDIUM_PER_CONDITION_TIMEOUT_SEC}s, "
+            f"module_wall={MEDIUM_MODULE_WALL_TIMEOUT_SEC}s"
+        ),
+    )
+    mode_group.add_argument(
         "--deep",
         action="store_true",
         help=(
@@ -215,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    budget = resolve_check_budget(deep=args.deep)
+    budget = resolve_check_budget(deep=args.deep, medium=args.medium)
 
     explicit = bool(args.targets)
     if args.targets:
@@ -239,9 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         "none" if budget.per_condition_timeout is None else f"{budget.per_condition_timeout}s"
     )
     wall_desc = (
-        f"{REGULAR_MODULE_WALL_TIMEOUT_SEC}s"
-        if budget.mode == "regular"
-        else "none"
+        "none" if budget.module_wall_timeout is None else f"{budget.module_wall_timeout}s"
     )
     print(
         f"CrossHair check-all [{budget.mode}]: {full_count} module(s), one CrossHair process per FQN "
@@ -297,8 +325,8 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             max_uninteresting, per_condition_timeout = module_check_bounds(budget, rel)
             wall = (
-                float(REGULAR_MODULE_WALL_TIMEOUT_SEC)
-                if budget.mode == "regular"
+                float(budget.module_wall_timeout)
+                if budget.module_wall_timeout is not None
                 else None
             )
             started = time.perf_counter()

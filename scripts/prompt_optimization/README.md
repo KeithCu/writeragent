@@ -11,7 +11,16 @@ make eval-deps                    # uv pip install dspy-ai (eval + optimize only
 export OPENROUTER_API_KEY=sk-…   # or OPENAI_API_KEY / WRITERAGENT_API_KEY
 make run_eval-smoke               # one model, one example
 make run_eval EVAL_ARGS="--models openai/gpt-oss-120b:nitro -n 2 -j 1"
+make eval-ab SUITE=calc           # A/B compare origin/master vs working tree (calc, writer, draw, all, string, lo)
 ```
+
+### Prompt A/B (`make eval-ab`)
+
+`make eval-ab SUITE=calc` compares `origin/master` (Side A, in a reused detached worktree `/tmp/wa-eval-ab-master`) against your working tree (Side B) using `scripts/prompt_optimization/eval_ab.py`:
+
+- Defaults: `SUITE=all`, `MODELS=openai/gpt-oss-20b:nitro,openai/gpt-oss-120b:nitro`, `REPEATS=3`, optional `TASKS=task1,task2`.
+- Runs `scripts/generate_manifest.py` first, then executes one `run_eval_multi.py` at a time in the foreground (`-j 1 --lo-workers 2 --backend auto`).
+- Writes resumable results to `/tmp/wa-eval-ab/<suite>/<A|B>-rN.json` (skipping completed repeats) and prints a per-task pass-rate / quality table plus a `B better` / `B worse` / `B same` summary line.
 
 Local OpenAI-compatible (Ollama, vLLM, etc.):
 
@@ -88,7 +97,7 @@ python run_optimize.py --auto light -j 1 \
   -e table_from_mess,table_engineering --slice apply_html
 ```
 
-Other slices: `writer_core`, `apply_html`, `range_sort`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
+Other slices: `writer_core`, `apply_html`, `sort_range`, `write_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 
@@ -173,14 +182,14 @@ DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to r
 
 Production sidebar registration is unchanged. These flags only reshape the **advertised** eval catalog.
 
-**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `range_sort` / ranges-domain schemas.
+**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `sort_range` / ranges-domain schemas.
 
 | Preset | Kind | Outer tools (production names) |
 |--------|------|--------------------------------|
 | `full` | any | Today's unfiltered `get_schemas` catalog (Writer 14 / Calc 14 / Draw 19). |
-| `calc_minimal` | calc | `write_formula_range`, `get_sheet_summary`, `delegate_to_specialized_calc_toolset` — smallest set that can still pass `data_sorting` + `tax_column`. |
-| `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `web_research`, `upsert_memory`, `get_guidance`, `redo`, `undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
-| `writer_minimal` | writer | `apply_document_content`, `get_document_content` — smallest set for apply-HTML Writer tasks (`table_from_mess`, `bulk_cleanup`, …). |
+| `calc_minimal` | calc | `write_range`, `get_sheet_summary`, `delegate_to_specialized_calc_toolset` — smallest set that can still pass `data_sorting` + `tax_column`. |
+| `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `web_research`, `memory_upsert`, `manual_read`, `document_redo`, `document_undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
+| `writer_minimal` | writer | `apply_content`, `get_content` — smallest set for apply-HTML Writer tasks (`table_from_mess`, `bulk_cleanup`, …). |
 
 **`--schema-density full|skinny`** (default `full`): `skinny` is a pure transform (after the name filter, before MIPRO `apply_schema_patches`). Tool names and param names/types stay; tool and param **descriptions** are blanked so you can measure whether fat prose confuses small models without removing tools.
 
@@ -254,7 +263,7 @@ python merge_benchmark_results.py \
 
 - **Dataset** (`dataset.py`): 20 fixed tasks (12 Writer + Draw flowchart/org-chart/solar-sld + 2 Calc + 2 `=PY` dest + `python_shapes_flag` on LO) with assigned `category` (structural or creative). `--backend string` runs the 17 non-`backend=lo` rows.
 - **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
-- **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-6-luna`; not used during ranking).
+- **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-6-luna`; not used during ranking). `gold_standards.generated.json` and `gold_generation_details.json` are raw `--generate-golds` records; nothing loads them, and a teacher gold can fail its oracle (the `bulk_cleanup` teacher kept `"Quoted  text"`). Only `gold_standards.json` is loaded, and `test_golds_pass_oracles` gates it.
 - **Program**: default `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`). Optional `program.py` `WriterAssistant` (ReAct + mocks) behind `--student react-mock`.
 - **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.

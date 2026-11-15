@@ -12,8 +12,8 @@ Settings live on the **Doc** tab in WriterAgent Settings ([`plugin/doc/module.ya
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `doc.agent_edit_review_mode` | `off` | **Off** — direct edits. **Record** — tracked changes you accept/reject yourself. **Wait** — same as Record, and `apply_document_content` blocks (on chat/MCP worker thread) until you review. |
-| `doc.edit_review_timeout` | `900` (seconds) | Max time `apply_document_content` blocks when mode is **Wait**. Internal — not shown in Settings; set in `writeragent.json` if you need to change it. |
+| `doc.agent_edit_review_mode` | `off` | **Off** — direct edits. **Record** — tracked changes you accept/reject yourself. **Wait** — same as Record, and `apply_content` blocks (on chat/MCP worker thread) until you review. |
+| `doc.edit_review_timeout` | `900` (seconds) | Max time `apply_content` blocks when mode is **Wait**. Internal — not shown in Settings; set in `writeragent.json` if you need to change it. |
 
 > [!NOTE]
 > The two original boolean configuration flags (`writer.track_changes_reviewable` and `writer.require_edit_review`) have been consolidated into the single dropdown setting `doc.agent_edit_review_mode`.
@@ -30,12 +30,12 @@ What is implemented today (not every Writer mutation tool):
 
 | Path | Records redlines | Blocks until reviewed | Returns `review` outcomes |
 |------|------------------|----------------------|---------------------------|
-| `apply_document_content` (chat/MCP worker thread) | Yes | Yes, when wait enabled | Yes |
-| `apply_document_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
+| `apply_content` (chat/MCP worker thread) | Yes | Yes, when wait enabled | Yes |
+| `apply_content` (main thread, e.g. debug tests) | Yes | No (UI would freeze) | No |
 | Extend / edit selection (menu + sidebar) | Yes | No | No |
 | Vision / `python_runner` Writer insert | Yes | No | No |
 | `table_delete` | Yes (one agent change; the table stays struck through until accepted) | No | No |
-| Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`) | No (`style_unreviewed: true`; `page_insert_break` is not in this set) | No | No |
+| Style tools and page layout (`page_set_style_properties`, `page_set_header_footer_text`, `page_replace_header_footer_text`, `page_set_columns`, `page_set_watermark`) | No (`style_unreviewed: true`; `page_insert_break` is not in this set) | No | No |
 | Other Writer tools (comments, images, …) | No | No | No |
 
 Extend / Edit Selection stop when the selection already contains a tracked insertion or deletion.
@@ -53,11 +53,11 @@ removing every row), so the table would vanish unreviewable. It selects the tabl
 `.uno:DeleteTable`, which Writer records as a tracked deletion. Writer anchors each **empty** row with
 a U+200D but records no redline for it, so the tool deletes those anchors with tracking on — without
 that, Accept All left the empty rows behind as a table. Rejecting keeps the anchor in the empty cell,
-as LibreOffice's own Delete Table does. `apply_document_content` uses that same delete when an empty
+as LibreOffice's own Delete Table does. `apply_content` uses that same delete when an empty
 replacement is the last text left in the table, inside the edit's existing review session. Clearing
 one cell while another cell still has text stays a text edit.
 
-Blocking wait applies only to **`apply_document_content`** from a **background thread** (sidebar
+Blocking wait applies only to **`apply_content`** from a **background thread** (sidebar
 chat worker or MCP HTTP thread). The main thread never block-waits so the user can click accept/reject.
 
 The edit runs on the main thread in `_do_edit`. Checks finish before `EditReviewSession` is
@@ -146,7 +146,7 @@ If a portion read fails while building that accept-form or reject-form, the accu
 
 ## Tool response shape
 
-When blocking wait is active, `apply_document_content` (chat sidebar and MCP on a worker thread)
+When blocking wait is active, `apply_content` (chat sidebar and MCP on a worker thread)
 returns this schema:
 
 ```json
@@ -247,7 +247,7 @@ resolve-all returns user-facing messages when verification fails.
 
 * **Style and page layout changes are not reviewable.** `apply_style`, `style_update`, `style_create`,
   `style_import`, `page_set_style_properties`, `page_set_header_footer_text`,
-  `page_replace_header_footer_text`, and `page_set_columns` apply directly and return
+  `page_replace_header_footer_text`, `page_set_columns`, and `page_set_watermark` apply directly and return
   `style_unreviewed: true`; the agent is prompted to tell the user it changed a style or page layout
   (they don't produce redlines). `page_insert_break` is not in that set.
 * **Extend selection** records only the appended continuation as a single tracked **insertion**
@@ -272,7 +272,7 @@ Follow-ups and polish, roughly by priority.
 ### Wait and recording coverage
 
 If "Wait for Edit Review" should mean the agent pauses until the user resolves **every** agent
-edit, not just sidebar/MCP `apply_document_content`:
+edit, not just sidebar/MCP `apply_content`:
 
 * Wire `EditReviewSession.wait_for_review()` (or equivalent) into extend/edit selection, vision
   insert, and `python_runner` Writer insert — today those paths record but return immediately.
@@ -280,7 +280,7 @@ edit, not just sidebar/MCP `apply_document_content`:
   through `record_mutation` or stay direct with explicit flags like styles. `table_delete` already
   goes through it (`run_writer_mutation_with_optional_review`).
 
-If the product intent stays scoped to `apply_document_content`, keep settings and docs aligned
+If the product intent stays scoped to `apply_content`, keep settings and docs aligned
 with that (as in **Current scope** above).
 
 ### Streamed selection polish
@@ -304,7 +304,7 @@ the `html_import.py` split-author pattern (`_deletion_author`) so by-author colo
 
 ### Tests
 
-* Add an end-to-end UNO test: `apply_document_content` on a **background thread** with
+* Add an end-to-end UNO test: `apply_content` on a **background thread** with
   mode **wait**, user accepts/rejects, tool returns a `review` payload with outcomes.
 * Cover `edit_review_timeout: 0` with mode **wait** (immediate return with pending changes).
 

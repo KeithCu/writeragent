@@ -149,7 +149,7 @@ def test_get_document_context_for_chat_hints_math_ole(ctx):
         assert conv.ok and conv.starmath, conv.error_message
         insert_writer_math_formula(doc, cursor, conv.starmath, display_block=False)
         ctx_str = get_document_context_for_chat(doc, include_selection=False, ctx=ctx)
-        assert "get_document_content" in ctx_str
+        assert "get_content" in ctx_str
         assert "OLE" in ctx_str
 
 

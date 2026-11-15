@@ -80,6 +80,7 @@ from plugin.chatbot.tool_loop_state import (
     as_dict,
     next_state,
     object_dict_or_empty,
+    tools_have_apply_document_content,
 )
 from plugin.chatbot.compaction import (
     compact_session,
@@ -857,7 +858,9 @@ class ToolCallingMixin:
                 from plugin.app import get_tools as _get_tools_registry
 
                 tool = _get_tools_registry().get(item[2])
-                if tool and tool.detects_mutation():
+                # Pass the call's arguments so a delegate to a read-only domain
+                # does not refresh the document context.
+                if tool and tool.detects_mutation(item[3]):
                     mutates = True
             return ToolLoopEvent(
                 kind=EventKind.TOOL_RESULT,
@@ -1059,7 +1062,16 @@ class ToolCallingMixin:
         async_tool_default = frozenset({"web_research", "image_generate"})
         async_tools = best_effort(_get_async_tools, "Failed to get async tools list, falling back to defaults", default=async_tool_default) or async_tool_default
 
-        self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
+        self._sm_state = ToolLoopState(
+            round_num=0,
+            pending_tools=[],
+            max_rounds=max_tool_rounds,
+            status="Thinking...",
+            async_tools=async_tools,
+            doc_type=getattr(self._panel, "cached_doc_type", None) or "",
+            query_text=query_text or "",
+            has_apply_tool=tools_have_apply_document_content(tools),
+        )
 
         turn = running_turn(self._panel)
         if turn is None:

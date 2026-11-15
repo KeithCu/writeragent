@@ -920,7 +920,7 @@ def test_exchange_tool_call_user_stopped_is_not_a_normal_error(monkeypatch):
     monkeypatch.setattr(ipc, "write_pickle_frame", _write)
     monkeypatch.setattr(ipc, "read_pickle_frame", _read)
     with pytest.raises(ipc.UserStopped, match="Stopped by user") as raised:
-        ipc.exchange_tool_call("apply_document_content", {})
+        ipc.exchange_tool_call("apply_content", {})
     assert not isinstance(raised.value, Exception)
 
 
@@ -940,7 +940,7 @@ def test_exchange_tool_call_plain_error_stays_runtime_error(monkeypatch):
     monkeypatch.setattr(ipc, "write_pickle_frame", _write)
     monkeypatch.setattr(ipc, "read_pickle_frame", _read)
     with pytest.raises(RuntimeError, match="boom"):
-        ipc.exchange_tool_call("apply_document_content", {})
+        ipc.exchange_tool_call("apply_content", {})
 
 
 def test_exchange_tool_call_preserves_error_code(monkeypatch):
@@ -960,7 +960,7 @@ def test_exchange_tool_call_preserves_error_code(monkeypatch):
     monkeypatch.setattr(ipc, "write_pickle_frame", _write)
     monkeypatch.setattr(ipc, "read_pickle_frame", _read)
     with pytest.raises(RuntimeError, match="custom failure") as exc_info:
-        ipc.exchange_tool_call("apply_document_content", {})
+        ipc.exchange_tool_call("apply_content", {})
     assert getattr(exc_info.value, "code", None) == "CUSTOM_ERROR"
 
 

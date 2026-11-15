@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# get_document_content embeds the paragraph style model in the HTML: each named-style block
+# get_content embeds the paragraph style model in the HTML: each named-style block
 # carries a COMPACT data-lo-style token (no spaces: "Heading1"), direct char overrides are
 # inlined as style="..." (no synthetic classes leak), and synthetic autostyle paragraphs are
 # omitted (write treats a missing token as the default body style). Read path = XHTML Writer
@@ -100,7 +100,7 @@ def test_read_order_survives_table_uno(ctx, doc):
     assert "paragraph-" not in content, content
 
 
-# --- Write path: apply_document_content honors compact data-lo-style -------
+# --- Write path: apply_content honors compact data-lo-style -------
 
 @native_test
 @with_native_doc("writer")

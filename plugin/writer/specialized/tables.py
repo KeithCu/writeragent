@@ -4,13 +4,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Table tools: Writer XTextTable and Draw/Impress TableShape (same names, different UNO).
 
-Writer: named text tables (table_list / getCellByName). Draw: TableShape on a page
-(page + shape index, or shape.Name). Cell text is PLAIN (not tracked changes).
+Writer: named text tables (table_list / getCellByName), plus Writer-only cell merge/split
+(table_merge_cells / table_split_cell). Draw: TableShape on a page (page + shape index, or
+shape.Name); Draw does not merge or split cells. Cell text is PLAIN (not tracked changes).
 """
 import logging
 from typing import Any
 
-from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import FAILED, KeepViewSelection, get_string_without_tracked_deletions
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.uno_context import resolve_uno_context, uno_same
@@ -98,6 +99,36 @@ def _writer_named_cells(table: Any) -> list[str]:
     failure is raised so a delete guard does not treat it as "no nested tables".
     """
     return list(table.getCellNames() or ())
+
+
+def _writer_grid_ok(table: Any, name: str, **extra: Any) -> dict[str, Any]:
+    """Success payload after a Writer merge/split: fresh rows, cols and cell_names.
+
+    The names are re-read because a merge or split renumbers cells per row; the model must
+    address the next edit by these names, not the ones it read before.
+    """
+    rows, cols = table_dims(table)
+    return {
+        "status": "ok",
+        "table_name": name,
+        **extra,
+        "rows": rows,
+        "cols": cols,
+        "cell_names": _writer_named_cells(table),
+    }
+
+
+def _resolve_writer_cells(doc: Any, name: str, raw_cells: list[str]) -> tuple[Any, list[str]]:
+    """Resolve a Writer table and A1-style cell names against ``getCellNames()``."""
+    table = _require_table(doc, name)
+    names = _writer_named_cells(table)
+    resolved: list[str] = []
+    for raw in raw_cells:
+        match = _resolve_cell_name(raw, names)
+        if match is None:
+            raise ValueError(_unknown_cell_message(raw, name, names))
+        resolved.append(match)
+    return table, resolved
 
 
 def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> str:
@@ -209,10 +240,10 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     if controller is None:
         raise RuntimeError("no document view to delete the table through")
     empty_cells = [n for n in table.getCellNames() if not table.getCellByName(n).getString()]
-    previous = uno_read(lambda: controller.getSelection(), None)
     before = doc.getRedlines().getCount()
-    controller.select(table)
-    try:
+    # Leave the user's cursor where it was around the table selection and dispatch.
+    with KeepViewSelection(controller):
+        controller.select(table)
         helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
         helper.executeDispatch(controller.getFrame(), ".uno:DeleteTable", "", 0, ())
         try:
@@ -227,14 +258,6 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
             if is_disposal(exc):
                 raise
             log.debug("table_delete: could not clear an empty-row anchor", exc_info=True)
-    finally:
-        if previous is not None:
-            try:
-                controller.select(previous)  # leave the user's cursor where it was
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                log.debug("table_delete: could not restore the previous selection", exc_info=True)
 
     if doc.getRedlines().getCount() > before:
         return
@@ -246,7 +269,7 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
 def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: dict[str, Any]) -> bool:
     """Remove *table*. True when the deletion was recorded as a tracked change.
 
-    ``table_delete`` and ``apply_document_content`` both call this. The caller
+    ``table_delete`` and ``apply_content`` both call this. The caller
     wraps it in the EditReviewSession it already has, so RecordChanges is on
     before the tracked path runs. A second review wrapper here would nest
     sessions and tag the redlines twice.
@@ -262,7 +285,7 @@ def record_table_deletions(session: Any, doc: Any, ctx: Any, doomed: list[tuple[
     """Delete tables inside the caller's already-open review session.
 
     Returns True when at least one deletion was a tracked change. Does not
-    open a second EditReviewSession: apply_document_content is already in
+    open a second EditReviewSession: apply_content is already in
     one, and nesting would tag the same redlines twice.
     """
     tracked = False
@@ -610,6 +633,112 @@ class ManageTableStructure(ToolWriterTableBase):
             return {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
         except ValueError as ve:
             return self._tool_error(str(ve))
+
+
+class TableMergeCells(ToolWriterTableBase):
+    """Merge a rectangular block of Writer table cells into one cell."""
+
+    name: str | None = "table_merge_cells"
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
+    description: str = (
+        "Merge a rectangular block of Writer table cells into one cell. Each merged cell's text "
+        "becomes its own paragraph, empty cells add nothing, and nested tables are kept. If the "
+        "block cuts through an already-merged cell, LibreOffice grows the block to cover it. Cell "
+        "names are renumbered per row afterwards (after merging A1:B2 in a 3×3 table the old C1 "
+        "is B1), so use the returned cell_names or table_get_cells before the next edit. Ctrl+Z "
+        "undoes it in one step. Not a tracked change even when review mode is on."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Table name from table_list."},
+            "cell_range": {
+                "type": "string",
+                "description": "Two corner addresses joined by ':', e.g. 'A1:B2' (either order).",
+            },
+        },
+        "required": ["name", "cell_range"],
+    }
+
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        name = kwargs["name"].strip()
+        corners = [part.strip() for part in kwargs["cell_range"].split(":")]
+        if len(corners) != 2 or not all(corners):
+            return self._tool_error(
+                "cell_range must be two cell addresses joined by ':', e.g. 'A1:B2'.",
+                code="INVALID_PARAM",
+            )
+        try:
+            table, (first, last) = _resolve_writer_cells(ctx.doc, name, corners)
+        except ValueError as ve:
+            return self._tool_error(str(ve))
+        if first == last:
+            return self._tool_error("cell_range must cover at least two cells.", code="INVALID_PARAM")
+        # createCursorByCellName raises a bare RuntimeException on a name that is not a real cell
+        # (e.g. lower-case 'a1'), so both corners are resolved against getCellNames() first.
+        cursor = table.createCursorByCellName(first)
+        # SwDoc::MergeTable sets RedlineFlags::Ignore (sw/source/core/docnode/ndtbl.cxx), so merges
+        # are never recorded as tracked changes; this is not wrapped in run_writer_mutation_with_optional_review.
+        # mergeRange returns False on a DDE table or an old-model table whose block LibreOffice rejects.
+        if not (cursor.gotoCellByName(last, True) and cursor.mergeRange()):
+            return self._tool_error("LibreOffice could not merge %s:%s in table '%s'." % (first, last, name))
+        # After mergeRange the cursor sits on the merged box, so getRangeName() is its name.
+        return _writer_grid_ok(table, name, merged_cell=str(cursor.getRangeName()))
+
+
+class TableSplitCell(ToolWriterTableBase):
+    """Split one Writer table cell into 2-20 parts as rows or columns."""
+
+    name: str | None = "table_split_cell"
+    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
+    description: str = (
+        "Split one Writer table cell into 2-20 parts, as rows or as columns. The cell's text and "
+        "any nested table stay in the first part; the new parts are empty. Splitting a merged cell "
+        "into as many parts as it spans undoes the merge. Cell names are renumbered afterwards, so "
+        "use the returned cell_names. Ctrl+Z undoes it in one step. Not a tracked change even when "
+        "review mode is on."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Table name from table_list."},
+            "cell": {"type": "string", "description": "A1-style cell address from cell_names."},
+            "direction": enum_param(
+                ["rows", "columns"],
+                "rows stacks the parts top to bottom; columns puts them side by side.",
+            ),
+            "parts": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 20,
+                "description": "Number of cells the cell becomes (2-20).",
+            },
+        },
+        "required": ["name", "cell", "direction", "parts"],
+    }
+
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        name = kwargs["name"].strip()
+        cell_raw = kwargs["cell"].strip()
+        direction = kwargs["direction"]
+        parts = kwargs["parts"]
+        # Upper bound matches the Split Cells dialog spin button (cui/uiconfig/ui/splitcellsdialog.ui,
+        # adjustment upper 20). The UNO path skips the dialog's minimum-width check.
+        if not 2 <= parts <= 20:
+            return self._tool_error("parts must be an integer from 2 to 20.", code="INVALID_PARAM")
+        try:
+            table, (cell_name,) = _resolve_writer_cells(ctx.doc, name, [cell_raw])
+        except ValueError as ve:
+            return self._tool_error(str(ve))
+        cursor = table.createCursorByCellName(cell_name)
+        # Count is the number of new cells, and Horizontal=True adds horizontal dividing lines
+        # (more rows): SwXTextTableCursor::splitRange passes !Horizontal as bVert to SwDoc::SplitTable.
+        # SwDoc::SplitTable records no redline, so it is not wrapped in run_writer_mutation_with_optional_review.
+        if not cursor.splitRange(parts - 1, direction == "rows"):
+            return self._tool_error("LibreOffice could not split cell %s in table '%s'." % (cell_name, name))
+        return _writer_grid_ok(table, name, cell=cell_name, direction=direction, parts=parts)
 
 
 class TableInsert(ToolWriterTableBase):

@@ -66,7 +66,7 @@ Specs use real FizzBee syntax (`action Init` for state, `atomic action`, `oneof`
 - Cursor: `(kind, id, start, end)` on one container.
 - Actions include `CreateTable`, `SetCell`, `MoveCursorToCell`, `ApplySelection` (writes the **cursor** container, not the body), `GetSelection`.
 - Invariants: `Inv_BookmarksBounded`, `Inv_TablesValidDimensions`, `Inv_PendingChangesOnlyWhenRecorded`, `Inv_CursorSameContainer`. Selection-vs-body mapping is pinned by [`tests/writer/test_apply_document_content_table_cell_uno.py`](../../tests/writer/test_apply_document_content_table_cell_uno.py) (FizzBee `last_op` cannot shrink a multi-step story).
-- Alphabet is bounded for model checking. The live UNO test covers the MinerU-style cell-vs-body bug class (e.g. create 3×2 table, put text in a cell, select/edit the cell, verify the body stays untouched) — the same class of bug as `apply_document_content` building a cursor on `model.getText()` instead of `target_range.getText()`.
+- Alphabet is bounded for model checking. The live UNO test covers the MinerU-style cell-vs-body bug class (e.g. create 3×2 table, put text in a cell, select/edit the cell, verify the body stays untouched) — the same class of bug as `apply_content` building a cursor on `model.getText()` instead of `target_range.getText()`.
 
 ### C. Calc Tools Model (`tests/mcp/fizzbee/calc_tools_model.fizz`)
 - Spreadsheet grid cells, formula ranges, sheet management, named ranges, and filters.
@@ -102,7 +102,7 @@ WriterAgent MCP supports three tool exposure modes across both Writer and Calc:
 |------|----------------------|--------------------------|
 | **`delegate`** (default) | Core tools only (~12-14 tools) | Via delegate gateway or direct call |
 | **`direct_flat`** | Full layout (all core & specialized tools) | Listed directly in `tools/list` |
-| **`direct_discovery`** | Core tools + `find_tools` | Via dynamic domain lookup with `find_tools` |
+| **`direct_discovery`** | Core tools + `tool_find` | Via dynamic domain lookup with `tool_find` |
 
 ---
 
@@ -143,7 +143,7 @@ python scripts/fizzbee_mcp_fuzzer.py --app writer --steps 2000 --pair-bias 0.4
 python scripts/fizzbee_mcp_fuzzer.py --app writer --steps 2000 --pair-bias 0
 ```
 
-The CLI fuzzer still mocks `execute` (schema and JSON-RPC envelopes). That is why thousands of steps in 30 seconds is cheap. Pair bias does **not** run UNO; it only stops picking tools independently so sequences like `table_insert` → `get_document_content` or `apply_document_content` with `target=selection` after a nested mutate appear often. That order is what found the cell-content bug; MagicMock still cannot *execute* it. The nested-text oracle is the fast checker for container identity.
+The CLI fuzzer still mocks `execute` (schema and JSON-RPC envelopes). That is why thousands of steps in 30 seconds is cheap. Pair bias does **not** run UNO; it only stops picking tools independently so sequences like `table_insert` → `get_content` or `apply_content` with `target=selection` after a nested mutate appear often. That order is what found the cell-content bug; MagicMock still cannot *execute* it. The nested-text oracle is the fast checker for container identity.
 
 ### Fuzzer Performance & Metrics
 - **Throughput**: ~750–1,000 JSON-RPC requests/second.

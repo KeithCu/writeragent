@@ -20,14 +20,17 @@ from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
 
 @pytest.fixture
-def clean_writeragent_modules(alias_import_state, monkeypatch: pytest.MonkeyPatch):
+def clean_writeragent_modules(alias_import_state):
     import plugin.scripting.writeragent_api as api
 
-    # writeragent aliases writeragent_api, so importing writeragent.vision overwrites api.vision with the venv submodule.
-    monkeypatch.setattr(api, "vision", api.vision)
     for key in list(alias_import_state):
         del sys.modules[key]
     yield
+    # Python's import machinery sets imported submodules (writeragent.vision) as
+    # attributes on the aliased writeragent_api module; remove them so later tests see
+    # the generated module state.
+    if hasattr(api, "vision"):
+        delattr(api, "vision")
 
 
 _ORIGINAL_FIND_SPEC = importlib.util.find_spec

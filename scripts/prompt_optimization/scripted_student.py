@@ -34,7 +34,7 @@ def _stop(text: str = "done") -> dict[str, Any]:
 def _apply_html(html: str, call_id: str = "apply_1") -> dict[str, Any]:
     return _tools(
         _tc(
-            "apply_document_content",
+            "apply_content",
             {"target": "full_document", "content": html},
             call_id,
         )
@@ -183,7 +183,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "comment_management": [
         _tools(
             _tc(
-                "add_comment",
+                "comment_add",
                 {
                     "search": "uncertain",
                     "content": "Review this before finalizing",
@@ -274,7 +274,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_draw_1",
             )
         ),
-        _tools(_tc("get_draw_tree", {}, "tree_1")),
+        _tools(_tc("shape_get_tree", {}, "tree_1")),
         _stop(),
     ],
     "org_chart_gen": [
@@ -286,7 +286,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "task": (
                         "Create org chart: Ava CEO; Ben CTO, Cara CFO, Dan COO; "
                         "Eli Fay under Ben; Gus Hal under Cara; Ivy Jay under Dan; "
-                        "connect each manager to reports; verify with get_draw_tree."
+                        "connect each manager to reports; verify with shape_get_tree."
                     ),
                 },
                 "del_org_1",
@@ -446,7 +446,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_org_1",
             )
         ),
-        _tools(_tc("get_draw_tree", {}, "org_tree_1")),
+        _tools(_tc("shape_get_tree", {}, "org_tree_1")),
         _stop(),
     ],
     "solar_sld_gen": [
@@ -460,7 +460,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                         "Solar AC Disconnect→System controller (MID)→"
                         "Backup subpanel; MID/downstream on post-disconnect path; "
                         "PV+microinverters→Combiner→controller; "
-                        "AC battery→controller; verify get_draw_tree."
+                        "AC battery→controller; verify shape_get_tree."
                     ),
                 },
                 "del_sld_1",
@@ -619,7 +619,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_sld_1",
             )
         ),
-        _tools(_tc("get_draw_tree", {}, "sld_tree_1")),
+        _tools(_tc("shape_get_tree", {}, "sld_tree_1")),
         _stop(),
     ],
     "data_sorting": [
@@ -638,7 +638,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "range_sort",
+                "sort_range",
                 {
                     "range": ["A1:B6"],
                     "sort_column": 0,
@@ -650,7 +650,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "range_sort",
+                "sort_range",
                 {
                     "range": ["A1:B6"],
                     "sort_column": 1,
@@ -667,18 +667,34 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_calc_1",
             )
         ),
+        _tools(
+            _tc(
+                "write_range",
+                {
+                    "range": ["A2:B6"],
+                    "values": [
+                        ["Tool", 2100],
+                        ["Device", 1200],
+                        ["Widget", 1200],
+                        ["Gadget", 850],
+                        ["Aardvark", "n/a"],
+                    ],
+                },
+                "move_text_last",
+            )
+        ),
         _stop(),
     ],
     "tax_column": [
         _tools(_tc("get_sheet_summary", {}, "sum_1")),
         _tools(
             _tc(
-                "write_formula_range",
+                "write_range",
                 {"range": ["C1"], "values": "Tax"},
                 "tax_hdr",
             ),
             _tc(
-                "write_formula_range",
+                "write_range",
                 {
                     "range": ["C2:C5"],
                     "values": '["=B2*0.08","=B3*0.08","=B4*0.08","=B5*0.08"]',
@@ -686,7 +702,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "tax_vals",
             ),
             _tc(
-                "write_formula_range",
+                "write_range",
                 {"range": ["C6:C7"], "values": '["", ""]'},
                 "tax_skip",
             ),
@@ -699,7 +715,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
 _PY_FORMULA = '=PY("result = data.to_pandas().drop_duplicates()"; A1:H500)'
 _PY_WRITE = _tools(
     _tc(
-        "write_formula_range",
+        "write_range",
         {"range": ["J1"], "values": _PY_FORMULA},
         "py_1",
     )
@@ -726,7 +742,7 @@ SCRIPTS["toc_list_entries"] = [
             "del_idx_list",
         )
     ),
-    _tools(_tc("indexes_list_toc_entries", {}, "list_toc_1")),
+    _tools(_tc("index_list_toc_entries", {}, "list_toc_1")),
     _tools(
         _tc(
             "specialized_workflow_finished",
@@ -739,7 +755,7 @@ SCRIPTS["toc_list_entries"] = [
 
 _TOC_REFRESH_CALLS = [
     _tc(
-        "indexes_refresh_toc_entry",
+        "index_refresh_toc_entry",
         {"old_content": old, "content": new},
         f"ref_{i}",
     )
@@ -763,7 +779,7 @@ SCRIPTS["toc_renumber_insert"] = [
     _tools(*_TOC_REFRESH_CALLS),
     _tools(
         _tc(
-            "indexes_insert_toc_entry",
+            "index_insert_toc_entry",
             {
                 "content": "Chapter 4 Interim Review",
                 "position": "after",

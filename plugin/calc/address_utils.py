@@ -402,3 +402,21 @@ def split_axis(address: str) -> tuple[str, str, str] | None:
     return None
 
 
+def axis_range_bounds(address: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Return ``((c0, r0), (c1, r1))`` bounds for a whole-column or whole-row range, or None."""
+    axis = split_axis(address)
+    if axis is None:
+        return None
+    kind, start, end = axis
+    if kind == "col":
+        if len(start) <= 3 and len(end) <= 3:
+            c0, c1 = column_to_index(start), column_to_index(end)
+            if 0 <= c0 <= MAX_COL and 0 <= c1 <= MAX_COL:
+                return (c0, 0), (c1, MAX_ROW)
+        return None
+    r0, r1 = int(start) - 1, int(end) - 1
+    if 0 <= r0 <= MAX_ROW and 0 <= r1 <= MAX_ROW:
+        return (0, r0), (MAX_COL, r1)
+    return None
+
+

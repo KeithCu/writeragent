@@ -28,7 +28,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
-from plugin.doc.text_helpers import iter_elements_limited
+from plugin.doc.text_helpers import KeepViewSelection, iter_elements_limited
 from plugin.framework.uno_context import uno_same
 from plugin.writer.edit_review import get_agent_edit_review_mode
 from plugin.writer.inline_review import agent_self_resolution_block_reason, execute_dispatch
@@ -506,16 +506,8 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             return self._tool_error(refusal)
 
         controller = ctx.doc.getCurrentController()
-        previous = None
-        try:
-            previous = controller.getSelection()
-        except Exception:
-            log.debug("tracking_manage: could not read the view selection", exc_info=True)
-            previous = None
-
-        controller.select(cur)
-
-        try:
+        with KeepViewSelection(controller):
+            controller.select(cur)
             cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
             execute_dispatch(ctx.ctx, controller, cmd)
 
@@ -550,9 +542,3 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                     % (action_str, index)
                 ),
             }
-        finally:
-            if previous is not None:
-                try:
-                    controller.select(previous)
-                except Exception:
-                    log.exception("tracking_manage: could not restore the view selection")

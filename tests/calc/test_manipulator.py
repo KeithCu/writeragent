@@ -10,7 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import CalcError, UnoObjectError
-from plugin.calc.manipulator import CellManipulator, WritePlan, _parse_formula_or_values_string
+from plugin.calc.manipulator import (
+    CellManipulator,
+    WritePlan,
+    _parse_formula_or_values_string,
+    _write_report,
+    looks_numeric_text,
+)
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -298,6 +304,21 @@ def test_classify_write_cell_data_text_keeps_formula_and_apostrophe_text():
     assert w_default.kind == "formula" and w_default.formula == "=A1+1"
 
 
+def test_classify_write_cell_repairs_py_literal_newlines():
+    manipulator = CellManipulator(MagicMock())
+    repaired = manipulator._classify_write_cell('=PY("x = 2\\nresult = x")', None, None)
+    assert repaired.kind == "formula"
+    assert repaired.formula == '=PY("x = 2\nresult = x")'
+
+    as_data = manipulator._classify_write_cell('=PY("x = 2\\nresult = x")', None, None, data_text=True)
+    assert as_data.kind == "forced_text"
+    assert as_data.data == '=PY("x = 2\\nresult = x")'
+
+    as_literal = manipulator._classify_write_cell('=PY("x = 2\\nresult = x")', None, None, literal_text=True)
+    assert as_literal.kind == "forced_text"
+    assert as_literal.data == '=PY("x = 2\\nresult = x")'
+
+
 def test_literal_text_write_uses_setstring():
     addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
     cell_range = MagicMock()
@@ -520,6 +541,23 @@ def test_plan_write_array_false_does_not_force_array():
     assert plan_sort.array_size is None
 
 
+def test_plan_write_array_py_repairs_literal_newlines():
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write(
+        "A1",
+        '=PY("x = 2\\nresult = x")',
+        array=True,
+        premeasured_array_size=(1, 1),
+    )
+    assert plan.kind == "array"
+    assert plan.values == '=PY("x = 2\nresult = x")'
+
+
 def test_commit_write_always_returns_a_message_record():
     bridge = MagicMock()
     manipulator = CellManipulator(bridge)
@@ -642,8 +680,14 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
         ("", "", "c"),
     )
 
-    with pytest.raises(CalcError, match=r"needs A1:C2, but 1 cell\(s\).*\(first: C2\)"):
+    with pytest.raises(CalcError, match=r"needs A1:C2, but 1 cell\(s\).*\(first: C2\)") as exc:
         refuse_occupied_cells(sheet, 0, 0, 2, 1, skip=[(0, 0, 1, 0)])
+    assert exc.value.code == "SPILL_BLOCKED"
+    assert exc.value.details == {
+        "needed_range": "A1:C2",
+        "blocking_cells": ["C2"],
+        "blocking_count": 1,
+    }
 
     sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 2, 1)
     sheet.getCellByPosition.assert_not_called()
@@ -734,3 +778,474 @@ class TestFormulaParsingLogic:
         s = "Left; right"
         assert _parse_formula_or_values_string(s, single_cell_range=True) is None
         assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Left", "right"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("1,5", True),
+        ("1.234,56", True),
+        ("$1,200", True),
+        ("12%", True),
+        ("08/05/2026", True),
+        ("5.8.2026", True),
+        ("2026/08/05", True),
+        ("2026-02-30", True),
+        ("2026-08-08T10:00Z", True),
+        ("8:30 PM", True),
+        ("1.2.3", False),
+        ("10.0.0.1", False),
+        ("1,2,3", False),
+        ("Q1", False),
+        ("90s", False),
+        ("TRUE", False),
+        ("555-1234", False),
+        ("v1.2", False),
+        ("8/5", False),
+    ],
+)
+def test_looks_numeric_text(text: str, expected: bool) -> None:
+    assert looks_numeric_text(text) is expected
+
+
+def test_write_report_flags_numeric_text_and_needless_apostrophe() -> None:
+    vals = ["1,5", "'tis", "'2026-08-08", "''x", "08/05/2026", "hello", "=A1", "'"]
+    metas = CellManipulator(MagicMock()).plan_writes(vals, None, 0)
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    found = MagicMock()
+    found.getRangeAddresses.return_value = []
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    report = _write_report(sheet, (0, 0), (7, 0), vals, metas, scan_text=True)
+    assert report["text_that_looks_numeric"] == [
+        {"address": "Sheet1.A1", "value": "1,5"},
+        {"address": "Sheet1.E1", "value": "08/05/2026"},
+    ]
+    assert report["apostrophe_removed"] == [
+        {"address": "Sheet1.B1", "value": "tis"},
+        {"address": "Sheet1.H1", "value": ""},
+    ]
+    assert {w["code"] for w in report["warnings"]} == {"TEXT_LOOKS_NUMERIC", "APOSTROPHE_REMOVED"}
+
+    egress_report = _write_report(sheet, (0, 0), (7, 0), vals, metas, scan_text=False)
+    assert "text_that_looks_numeric" not in egress_report
+    assert "apostrophe_removed" not in egress_report
+
+
+def test_write_report_error_cells_with_address_and_count() -> None:
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    err_cell = MagicMock()
+    err_cell.getError.return_value = 509
+    err_cell.getFormula.return_value = "=py header"
+    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = err_cell
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=11)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    metas = CellManipulator(MagicMock()).plan_writes(["=PY header"] * 12, None, 0)
+    res = _write_report(sheet, (0, 0), (0, 11), ["=PY header"] * 12, metas, scan_text=True)
+    assert res["error_cells"] == [{"address": "Sheet1.A1", "error": "Err:509", "formula": "=py header"}]
+    assert res["warnings"][0]["code"] == "FORMULA_ERROR"
+    assert "12 formula cell(s)" in res["warnings"][0]["message"]
+
+
+@pytest.mark.parametrize(
+    ("formula", "expect_hint"),
+    [
+        ("=SUM(1,2)", True),
+        ("=SUMM(G1)", False),
+    ],
+)
+def test_write_report_semicolon_hint_only_when_formula_has_comma(formula: str, expect_hint: bool) -> None:
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    err_cell = MagicMock()
+    err_cell.getError.return_value = 525
+    err_cell.getFormula.return_value = formula
+    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = err_cell
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    metas = CellManipulator(MagicMock()).plan_writes([formula], None, 0)
+    res = _write_report(sheet, (0, 0), (0, 0), [formula], metas, scan_text=True)
+    msg = res["warnings"][0]["message"]
+    assert ("Calc separates function arguments with ';', not ','." in msg) is expect_hint
+
+
+def test_commit_write_forwards_write_report() -> None:
+    small_addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    mock_range = MagicMock()
+    mock_sheet = MagicMock()
+    mock_range.getSpreadsheet.return_value = mock_sheet
+    mock_range.getDataArray.return_value = ()
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = mock_range
+    bridge.doc.getNumberFormats.return_value = MagicMock()
+    bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
+
+    fake_report = {
+        "error_cells": [{"address": "Sheet1.A1", "error": "Err:509", "formula": "=py"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    with (
+        patch("plugin.calc.manipulator._uno_range_address", return_value=small_addr),
+        patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()),
+        patch("plugin.calc.manipulator._write_report", return_value=fake_report) as mock_report,
+    ):
+        res = CellManipulator(bridge).write_formula_range("A1", "=py")
+
+    mock_report.assert_called_once()
+    assert res["error_cells"] == fake_report["error_cells"]
+    assert res["warnings"] == fake_report["warnings"]
+    assert "formula gives" not in res["message"]
+
+
+def test_plan_write_refuses_py_inside_its_data_range():
+    bridge = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("",), ("",))
+
+    def _resolve(range_str: str):
+        cell_range = MagicMock()
+        cell_range.getSpreadsheet.return_value = sheet
+        if range_str == "A1:A2":
+            cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=1, Sheet=0)
+        else:
+            cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+        return cell_range
+
+    bridge.resolve_range_or_address.side_effect = _resolve
+    manipulator = CellManipulator(bridge)
+
+    formula = '=PY("result = np.sum(data)"; A1:A2)'
+    with pytest.raises(CalcError) as exc:
+        manipulator.plan_write("A1", formula)
+    assert exc.value.code == "PY_CIRCULAR"
+    assert exc.value.details == {
+        "data_range": "A1:A2",
+        "suggested_call": {
+            "tool": "write_range",
+            "arguments": {"range": ["Sheet1.B1"], "values": formula},
+        },
+    }
+
+    # Different sheet data arg is not circular on Sheet1.
+    plan_other = manipulator.plan_write("A1", '=PY("result = np.sum(data)"; Orders.A1:A2)')
+    assert plan_other.kind == "cells"
+
+    # Multi-cell write omits suggested_call.
+    with pytest.raises(CalcError) as exc_multi:
+        manipulator.plan_write("A1:A2", [formula, "=1"])
+    assert exc_multi.value.code == "PY_CIRCULAR"
+    assert "suggested_call" not in (exc_multi.value.details or {})
+
+    # Whole-column and whole-row arguments also trigger PY_CIRCULAR.
+    for open_arg in ("A:A", "1:3"):
+        with pytest.raises(CalcError) as exc_open:
+            manipulator.plan_write("A1", f'=PY("result = np.sum(data)"; {open_arg})')
+        assert exc_open.value.code == "PY_CIRCULAR"
+        assert exc_open.value.details == {"data_range": open_arg}
+
+    # Long plain-text values containing "py" must not reach PyFormula.parse's 8192-char @deal contract.
+    long_text = "happy " * 1500
+    assert len(long_text) > 8192
+    assert manipulator.plan_write("A1", long_text).kind == "cells"
+
+
+def test_commit_quotes_the_py_run_error():
+    from plugin.calc.python.diagnostics import get_diagnostics_store
+
+    store = get_diagnostics_store()
+    code = "result = sum(data)"
+    formula = f'=PY("{code}"; A1:A2)'
+
+    bridge = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    cell = MagicMock()
+    cell.Error = 519
+    cell.getString.return_value = ""
+
+    def _set_formula_err(_f):
+        store.record(workbook_key="wb", code=code, status="error", message="TypeError: unsupported operand type")
+
+    cell.setFormula.side_effect = _set_formula_err
+    sheet.getCellByPosition.return_value = cell
+
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    manipulator = CellManipulator(bridge)
+    plan = manipulator.plan_write("B1", formula)
+
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res = manipulator.commit_write(plan)
+    assert "Err:519" in res["message"]
+    assert "TypeError: unsupported operand type" in res["message"]
+
+    # An entry recorded before commit is not quoted (even for the same code),
+    # whereas a new entry recorded during setFormula is quoted.
+    stale_code = "result = 1 / 0"
+    stale_formula = f'=PY("{stale_code}"; A1:A2)'
+    store.record(workbook_key="wb", code=stale_code, status="error", message="ZeroDivisionError: old")
+    cell.setFormula.side_effect = None
+    plan_stale = manipulator.plan_write("B1", stale_formula)
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res_stale = manipulator.commit_write(plan_stale)
+    assert "ZeroDivisionError: old" not in res_stale["message"]
+
+    def _set_formula_new_for_same_code(_f):
+        store.record(workbook_key="wb", code=stale_code, status="error", message="ZeroDivisionError: fresh")
+
+    cell.setFormula.side_effect = _set_formula_new_for_same_code
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res_fresh = manipulator.commit_write(plan_stale)
+    assert "ZeroDivisionError: fresh" in res_fresh["message"]
+
+    # Error=0 with #SPILL! quotes the spill range from diagnostics.
+    spill_code = "result = [[1, 2]]"
+    spill_formula = f'=PY("{spill_code}"; A1:A2)'
+    cell.Error = 0
+    cell.getString.return_value = "#SPILL!"
+
+    def _set_formula_spill(_f):
+        store.record(
+            workbook_key="wb",
+            code=spill_code,
+            status="error",
+            message="#SPILL!: the 1 x 2 result needs Sheet1.B1:C1, but C1 is not empty.",
+        )
+
+    cell.setFormula.side_effect = _set_formula_spill
+    plan_spill = manipulator.plan_write("B1", spill_formula)
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res_spill = manipulator.commit_write(plan_spill)
+    assert "B1 shows #SPILL!" in res_spill["message"]
+    assert "Sheet1.B1:C1" in res_spill["message"]
+
+
+def test_number_format_key_malformed_code_is_invalid_param():
+    from com.sun.star.util import MalformedNumberFormatException
+
+    doc = MagicMock()
+    formats = doc.getNumberFormats.return_value
+    formats.addNewConverted.side_effect = MalformedNumberFormatException("bad format")
+    manipulator = CellManipulator(SimpleNamespace(doc=doc))
+    with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+        with pytest.raises(CalcError) as exc_info:
+            manipulator.number_format_key("bogus[[[")
+    assert exc_info.value.code == "INVALID_PARAM"
+
+
+def test_number_format_key_general_preset_skips_conversion():
+    doc = MagicMock()
+    formats = doc.getNumberFormats.return_value
+    formats.getStandardFormat.return_value = 0
+    locale = MagicMock()
+    manipulator = CellManipulator(SimpleNamespace(doc=doc))
+    with patch("plugin.calc.manipulator.resolve_document_locale", return_value=locale):
+        key = manipulator.number_format_key("General")
+    assert key == 0
+    formats.getStandardFormat.assert_called_once_with(16, locale)
+    formats.addNewConverted.assert_not_called()
+
+
+def test_surviving_ref_cells_rows_and_columns():
+    from plugin.calc.manipulator import _surviving_ref_cells
+
+    cells = {
+        ("Sheet1", 0, 1),   # above deleted rows 3..4 (0-based 2..3)
+        ("Sheet1", 1, 2),   # inside deleted rows
+        ("Sheet1", 2, 3),   # inside deleted rows
+        ("Sheet1", 0, 5),   # below deleted rows -> row 3
+        ("Other", 1, 2),    # other sheet: untouched
+    }
+    assert _surviving_ref_cells(cells, "Sheet1", True, 2, 2) == {
+        ("Sheet1", 0, 1),
+        ("Sheet1", 0, 3),
+        ("Other", 1, 2),
+    }
+
+    col_cells = {
+        ("Sheet1", 0, 0),   # left of deleted cols B..C (0-based 1..2)
+        ("Sheet1", 1, 4),   # inside deleted cols
+        ("Sheet1", 2, 5),   # inside deleted cols
+        ("Sheet1", 4, 2),   # right of deleted cols -> col 2
+        ("Other", 1, 4),    # other sheet: untouched
+    }
+    assert _surviving_ref_cells(col_cells, "Sheet1", False, 1, 2) == {
+        ("Sheet1", 0, 0),
+        ("Sheet1", 2, 2),
+        ("Other", 1, 4),
+    }
+
+
+def test_delete_structure_confirm_without_undo_does_not_promise_ctrl_z():
+    doc = MagicMock()
+    doc.getUndoManager.return_value = None
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheets = doc.getSheets.return_value
+    sheets.getCount.return_value = 1
+    sheets.getByIndex.return_value = sheet
+
+    empty_ranges = MagicMock()
+    empty_ranges.getRangeAddresses.return_value = []
+    ra = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+    after_ranges = MagicMock()
+    after_ranges.getRangeAddresses.return_value = [ra]
+    sheet.queryContentCells.side_effect = [empty_ranges, after_ranges]
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("=#REF!",),)
+
+    bridge = SimpleNamespace(doc=doc, get_active_sheet=lambda: sheet)
+    manipulator = CellManipulator(bridge)
+    res = manipulator.delete_structure("rows", 5, confirm=True)
+
+    assert res["refs_broken"] == 1
+    assert len(res["warnings"]) == 1
+    msg = res["warnings"][0]["message"]
+    assert "Ctrl+Z" not in msg
+    assert "Undo was unavailable" in msg
+
+
+def test_plan_write_rewrites_bang_refs_to_existing_sheets() -> None:
+    doc = MagicMock()
+    doc.getSheets.return_value.getElementNames.return_value = ("Sheet1", "Orders")
+    doc.NamedRanges.hasByName.return_value = False
+    sheet = MagicMock()
+    sheet.NamedRanges.hasByName.return_value = False
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+
+    bridge = MagicMock(doc=doc)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write("A1", "=Orders!A1*2")
+    assert plan.values == ["=Orders.A1*2"]
+    assert plan.notes[0]["code"] == "SHEET_REF_REWRITTEN"
+
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=1)
+    list_plan = manipulator.plan_write("A1:A2", [["=Orders!A1"], ["=Missing!A1"]])
+    assert list_plan.values == ["=Orders.A1", "=Missing!A1"]
+    assert list_plan.notes[0]["code"] == "SHEET_REF_REWRITTEN"
+
+    doc.NamedRanges.hasByName.side_effect = lambda name: name == "Orders"
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+    shadowed = manipulator.plan_write("A1", "=Orders!A1*2")
+    assert shadowed.values == ["=Orders!A1*2"]
+    assert shadowed.notes == ()
+
+    doc.NamedRanges.hasByName.side_effect = None
+    doc.NamedRanges.hasByName.return_value = False
+    sheet.NamedRanges.hasByName.side_effect = lambda name: name == "Orders"
+    sheet_shadowed = manipulator.plan_write("A1", "=Orders!A1*2")
+    assert sheet_shadowed.values == ["=Orders!A1*2"]
+    assert sheet_shadowed.notes == ()
+
+    sheet.NamedRanges.hasByName.side_effect = None
+    sheet.NamedRanges.hasByName.return_value = False
+    data_txt = manipulator.plan_write("A1", "=Orders!A1*2", data_text=True)
+    assert data_txt.values == ["=Orders!A1*2"]
+    assert data_txt.notes == ()
+
+
+def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=3)
+
+    bridge = MagicMock(doc=MagicMock())
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write("C2:C4", [["=B2*Rates.B2"]] * 3)
+    assert plan.values == ["=B2*Rates.B2", "=B2*Rates.B2", "=B2*Rates.B2"]
+    assert len(plan.notes) == 1
+    note = plan.notes[0]
+    assert note["code"] == "REPEATED_FORMULA"
+    assert "Column C" in note["message"]
+    assert note["suggested_call"] == {
+        "tool": "write_range",
+        "arguments": {"range": ["Sheet1.C2:C4"], "values": "=B2*Rates.B2"},
+    }
+
+    pinned = manipulator.plan_write("C2:C4", [["=B1"]] * 3)
+    assert pinned.values == ["=B1", "=B1", "=B1"]
+    assert pinned.notes == ()
+
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=1)
+    expanded = manipulator.plan_write("C2", [["=B2*2"]] * 3)
+    assert expanded.range_str == "C2:C4"
+    assert expanded.values == ["=B2*2", "=B2*2", "=B2*2"]
+    assert expanded.notes[0]["code"] == "REPEATED_FORMULA"
+    assert expanded.notes[0]["suggested_call"] == {
+        "tool": "write_range",
+        "arguments": {"range": ["Sheet1.C2:C4"], "values": "=B2*2"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("formula", "expect_hint"),
+    [
+        ("=missing!A1", True),
+        ("=SUMM(G1)", False),
+    ],
+)
+def test_write_report_bang_hint_on_name_error(formula: str, expect_hint: bool) -> None:
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    err_cell = MagicMock()
+    err_cell.getError.return_value = 525
+    err_cell.getFormula.return_value = formula
+    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = err_cell
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    metas = CellManipulator(MagicMock()).plan_writes([formula], None, 0)
+    res = _write_report(sheet, (0, 0), (0, 0), [formula], metas, scan_text=True)
+    msg = res["warnings"][0]["message"]
+    assert ("Sheet.A1" in msg) is expect_hint
+
+
+def test_commit_write_prepends_plan_notes() -> None:
+    manipulator = CellManipulator(MagicMock())
+    note = {"code": "SHEET_REF_REWRITTEN", "message": "rewritten"}
+    with patch.object(manipulator, "_write_array_formula", return_value={"message": "m"}):
+        res = manipulator.commit_write(WritePlan("array", "A1", notes=(note,)))
+    assert res["warnings"] == [note]

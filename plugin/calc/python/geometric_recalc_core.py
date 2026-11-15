@@ -17,7 +17,15 @@ import logging
 from dataclasses import dataclass
 from typing import Literal, Mapping
 
-from plugin.calc.address_utils import format_address, local_a1, parse_address, parse_local, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import (
+    axis_range_bounds,
+    format_address,
+    local_a1,
+    parse_address,
+    parse_local,
+    parse_range_string,
+    split_sheet_prefix,
+)
 from plugin.calc.python.formula_edit import (
     PyFormula,
     assemble_python_formula,
@@ -77,7 +85,7 @@ def same_cell_ref(left: str, right: str) -> bool:
     return bool(left) and bool(right) and local_a1(left) == local_a1(right)
 
 
-def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
+def arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
     """True when a data-arg token (cell or range) includes *target_a1*."""
     sheet, _rest = split_sheet_prefix(arg or "")
     if sheet and (sheet_name is None or sheet.casefold() != sheet_name.casefold()):
@@ -86,8 +94,9 @@ def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None)
     if not local or not target_a1:
         return False
     try:
-        (c0, r0), (c1, r1) = parse_range_string(local)
         tcol, trow = parse_address(target_a1)
+        bounds = axis_range_bounds(local)
+        (c0, r0), (c1, r1) = bounds if bounds is not None else parse_range_string(local)
     except (TypeError, ValueError):
         return False
     c_lo, c_hi = (c0, c1) if c0 <= c1 else (c1, c0)
@@ -158,7 +167,7 @@ def _adj_for(
         tokens.append(parts.code)
     return {
         live for live in live_keys
-        if any(_arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
+        if any(arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
     }
 
 

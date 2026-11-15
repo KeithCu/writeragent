@@ -17,11 +17,11 @@ Do not duplicate those catalogs here.
 
 ## Product gaps
 
-Primary product focus: features the agent still cannot drive. Shipped domains (shapes, fields, indexes including bibliography via `indexes_create(kind="bibliography")`, track changes, mail merge, styles list/create/update/import) stay in [`features.md`](features.md) and the toolset docs — not here.
+Primary product focus: features the agent still cannot drive. Shipped domains (shapes, fields, indexes including bibliography via `index_create(kind="bibliography")`, track changes, mail merge, styles list/create/update/import) stay in [`features.md`](features.md) and the toolset docs — not here.
 
 **Writer** — [`writer/specialized-toolsets.md`](writer/specialized-toolsets.md)
 
-- Watermarks
+- Text watermarks (done via `page_get_watermark` / `page_set_watermark`; image watermarks remain out of scope)
 - Sections lifecycle (create, multi-column, conditional visibility, password); read-only inspection exists
 - Style preview (deferred 2026-11-05)
 - Batch section rewriting (heading-based whole-document processing)
@@ -83,7 +83,7 @@ Visible so they are not re-invented as high-priority programs:
 - UI theme editor; document template marketplace; offline mode
 - Third-party plugin / extension API
 - Tool registry versioning; config profiles (schema lives in `config_schema.py`)
-- Memory search / expiration / compression (`upsert_memory` + `USER.md` injection are shipped; these extras are not)
+- Memory search / expiration / compression (`memory_upsert` + `USER.md` injection are shipped; these extras are not)
 - Performance-profiling program; Draw/Impress pytest page stubs (factory `doc_type` is enough)
 - MCP specialized-tool opt-in, domain switching, and document targeting (already implemented)
 

@@ -2,7 +2,7 @@
 """Specialized domain catalog for delegate tools and MCP discovery."""
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Sequence
+from typing import Any, NamedTuple, Sequence, cast
 
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
@@ -12,14 +12,15 @@ from plugin.framework.prompts import (
     WRITER_SIDEBAR_ONLY_DOMAINS,
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
+from plugin.framework.tool import ToolBase, tool_supports_document
 
 _FOOTNOTES_DIRECT_HINT = (
-    "For footnotes_insert: if the task quotes or names the document anchor "
+    "For footnote_insert: if the task quotes or names the document anchor "
     "(e.g. a sentence), pass that exact string as insert_after so the "
     "note is placed after that text."
 )
 _FOOTNOTES_LOOP_HINT = (
-    "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+    "For footnote_insert: if the task quotes or names the document anchor (e.g. a sentence), "
     "pass that exact string as insert_after so the note is placed after that text; "
     "the task executor cannot move the view cursor."
 )
@@ -55,7 +56,7 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     """Prompt sentence a specialized loop adds for *domain*, or "" when there is none.
 
     agent_label is "Writer" / "Calc" / "Draw" for a running sub-agent loop, or None for
-    MCP find_tools direct guidance with no app known (the host model runs the tools
+    MCP tool_find direct guidance with no app known (the host model runs the tools
     itself, so footnotes has no "task executor" clause and charts names both apps).
     Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
     Footnotes is one sentence for every app. Unknown domain or label -> "".
@@ -63,12 +64,22 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
 
 
-def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
+def catalog_entries_from_base(
+    *,
+    agent_label: str | None = None,
+    ctx: Any = None,
+    for_discovery: bool = False,
+    uno_services: frozenset[str] = frozenset(),
+) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
+
+    This is the single "bound for this document" filter, used by both the prompt and the
+    delegate enum; when ``uno_services`` is non-empty, domains whose base class does not
+    support those services are omitted.
 
     ``for_discovery`` skips the exclusions that only shape a chat prompt. CALC_HIDDEN_SPECIALIZED_
     DOMAINS keeps Python delegation out of the Calc sidebar's suggestions, but the MCP tool list
-    exposes those tools regardless — so applying it to find_tools made them callable and
+    exposes those tools regardless — so applying it to tool_find made them callable and
     undiscoverable at once. The sidebar-only domains stay excluded either way: the flat tool list
     drops them too, so both modes agree without help.
     """
@@ -84,6 +95,8 @@ def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None
         if agent_label == "Writer" and domain in WRITER_SIDEBAR_ONLY_DOMAINS:
             continue
         if agent_label == "Draw" and domain in IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS:
+            continue
+        if uno_services and not tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services):
             continue
         if ctx is not None:
             # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
@@ -112,9 +125,9 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
 
     ``agent_label`` is ``Writer`` / ``Calc`` / ``Draw`` for one app, or ``None`` to merge
-    all three (e.g. MCP ``find_tools`` with no document open).
+    all three (e.g. MCP ``tool_find`` with no document open).
 
-    ``for_discovery`` is set by MCP ``find_tools``: it keeps the domains whose exclusion only
+    ``for_discovery`` is set by MCP ``tool_find``: it keeps the domains whose exclusion only
     shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
     no-document merge uses the same flag as the per-app branches.
     """
@@ -132,10 +145,18 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
-def _get_specialized_domains_str(*, agent_label: str | None = None, ctx: Any = None) -> str:
+def _get_specialized_domains_str(
+    *,
+    agent_label: str | None = None,
+    ctx: Any = None,
+    uno_services: frozenset[str] = frozenset(),
+) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
-    for entry in sorted(catalog_entries_from_base(agent_label=agent_label, ctx=ctx), key=lambda e: e["domain"]):
+    for entry in sorted(
+        catalog_entries_from_base(agent_label=agent_label, ctx=ctx, uno_services=uno_services),
+        key=lambda e: e["domain"],
+    ):
         if entry["description"]:
             parts.append(f"{entry['domain']}: {entry['description']}")
         else:
@@ -143,9 +164,14 @@ def _get_specialized_domains_str(*, agent_label: str | None = None, ctx: Any = N
     return "; ".join(parts)
 
 
-def format_specialized_domains_description(*, agent_label: str | None = None, ctx: Any = None) -> str:
+def format_specialized_domains_description(
+    *,
+    agent_label: str | None = None,
+    ctx: Any = None,
+    uno_services: frozenset[str] = frozenset(),
+) -> str:
     """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
-    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx)
+    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, uno_services=uno_services)
     if not domains:
         return "The specialized domain to activate."
     # Compact form for the enum property description to reduce bloat in MCP schema
@@ -153,9 +179,14 @@ def format_specialized_domains_description(*, agent_label: str | None = None, ct
     return f"domain one of: {compact}"
 
 
-def get_specialized_delegation_tool_hint(agent_label: str, *, ctx: Any = None) -> str:
+def get_specialized_delegation_tool_hint(
+    agent_label: str,
+    *,
+    ctx: Any = None,
+    uno_services: frozenset[str] = frozenset(),
+) -> str:
     """Full specialized-delegation guidance (sidebar system prompt and MCP ``tools/list``)."""
-    domains_str = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx)
+    domains_str = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, uno_services=uno_services)
     template = {
         "Calc": CALC_SPECIALIZED_DELEGATION_TEMPLATE,
         "Draw": DRAW_SPECIALIZED_DELEGATION_TEMPLATE,

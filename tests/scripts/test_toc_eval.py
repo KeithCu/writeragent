@@ -88,11 +88,11 @@ def _good_edit_trace() -> list[dict[str, str]]:
             "arguments": json.dumps({"domain": "indexes", "task": "renumber"}),
         },
         {
-            "name": "indexes_refresh_toc_entry",
+            "name": "index_refresh_toc_entry",
             "arguments": json.dumps({"old_content": "Chapter 5 Title", "content": "Chapter 6 Title"}),
         },
         {
-            "name": "indexes_insert_toc_entry",
+            "name": "index_insert_toc_entry",
             "arguments": json.dumps({
                 "content": "Chapter 4 Interim Review",
                 "position": "after",
@@ -142,10 +142,10 @@ def test_href_with_inserted_quote_fails(tmp_path: Path) -> None:
 
 def test_indexes_update_all_in_trace_fails(tmp_path: Path) -> None:
     odt = _odt(tmp_path / "toc.odt")
-    trace = _good_edit_trace() + [{"name": "indexes_update_all", "arguments": "{}"}]
+    trace = _good_edit_trace() + [{"name": "index_update_all", "arguments": "{}"}]
     scored = score_toc_example(TOC_EDIT_TASK_ID, trace, backend="lo", odt_path=str(odt))
     assert scored.passed is False
-    assert any("indexes_update_all" in f for f in scored.failures)
+    assert any("index_update_all" in f for f in scored.failures)
 
 
 def test_missing_heading_bookmarks_fails(tmp_path: Path) -> None:
@@ -163,7 +163,7 @@ def test_read_task_all_titles_passes() -> None:
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
         {
-            "name": "indexes_list_toc_entries",
+            "name": "index_list_toc_entries",
             "arguments": "{}",
         },
         {
@@ -187,7 +187,7 @@ def test_read_task_corrupted_link_fails() -> None:
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
         {
-            "name": "indexes_list_toc_entries",
+            "name": "index_list_toc_entries",
             "arguments": "{}",
         },
         {
@@ -209,7 +209,7 @@ def test_read_task_exact_fixture_link_soft_note() -> None:
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
         {
-            "name": "indexes_list_toc_entries",
+            "name": "index_list_toc_entries",
             "arguments": "{}",
         },
         {
@@ -237,4 +237,4 @@ def test_read_task_missing_list_tool_fails() -> None:
     ]
     scored = score_toc_example(TOC_LIST_TASK_ID, trace, backend="lo")
     assert scored.passed is False
-    assert any("indexes_list_toc_entries" in f for f in scored.failures)
+    assert any("index_list_toc_entries" in f for f in scored.failures)

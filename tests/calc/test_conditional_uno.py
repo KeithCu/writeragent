@@ -16,7 +16,7 @@ from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, 
 @with_native_doc("calc")
 def test_calc_conditional_formatting(ctx, doc):
     # Write some numbers
-    _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["C20:C22"], "values": [
+    _execute_calc_tool(doc, ctx, "write_range", {"range": ["C20:C22"], "values": [
         [10],
         [20],
         [30]
@@ -70,7 +70,7 @@ def test_calc_conditional_formatting(ctx, doc):
 
     # 8. BETWEEN + list round-trip (extended operator uses operator_code in list when available)
     _execute_calc_tool(doc, ctx, "conditional_formatting_remove", {"range": ["C20:C22"]})
-    _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["C20:C22"], "values": [[5], [10], [15]]})
+    _execute_calc_tool(doc, ctx, "write_range", {"range": ["C20:C22"], "values": [[5], [10], [15]]})
     res_between = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["C20:C22"],
         "operator": "BETWEEN",
@@ -86,7 +86,7 @@ def test_calc_conditional_formatting(ctx, doc):
 
     # 9. DUPLICATE (LibreOffice ConditionOperator2) — empty formula1
     _execute_calc_tool(doc, ctx, "conditional_formatting_remove", {"range": ["E20:E22"]})
-    _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["E20:E22"], "values": [[1], [1], [2]]})
+    _execute_calc_tool(doc, ctx, "write_range", {"range": ["E20:E22"], "values": [[1], [1], [2]]})
     res_dup = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["E20:E22"],
         "operator": "DUPLICATE",
@@ -103,7 +103,7 @@ def test_calc_conditional_formatting(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_calc_conditional_formula_source_position(ctx, doc):
-    _execute_calc_tool(doc, ctx, "write_formula_range", {
+    _execute_calc_tool(doc, ctx, "write_range", {
         "range": ["C5:C9"],
         "values": [[50], [150], [80], [200], [90]],
     })
@@ -119,3 +119,49 @@ def test_calc_conditional_formula_source_position(ctx, doc):
     assert len(rules) == 1
     assert rules[0]["operator"] == "FORMULA"
     assert rules[0]["formula1"] == "C5>100"
+
+
+@native_test
+@with_native_doc("calc")
+def test_conditional_formatting_inline_style(ctx, doc):
+    from com.sun.star.awt import FontWeight
+
+    _execute_calc_tool(doc, ctx, "write_range", {
+        "range": ["C1:C3"],
+        "values": [[10], [200], [50]],
+    })
+    res1 = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
+        "range": ["C1:C3"],
+        "operator": "GREATER",
+        "formula1": "100",
+        "bg_color": "red",
+        "bold": True,
+    })
+    assert res1.get("status") == "ok", res1
+    assert res1.get("style") == "WA CF bg #FF0000 bold"
+    assert res1.get("style_created") is True
+
+    cell_styles = doc.getStyleFamilies().getByName("CellStyles")
+    assert cell_styles.hasByName("WA CF bg #FF0000 bold")
+    st = cell_styles.getByName("WA CF bg #FF0000 bold")
+    assert st.getPropertyValue("Hidden") is True
+    assert int(st.getPropertyValue("CellBackColor")) == 0xFF0000
+    assert st.getPropertyValue("CharWeight") == FontWeight.BOLD
+
+    res_list = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["C1:C3"]})
+    rules = res_list.get("rules", [])
+    assert len(rules) == 1
+    assert rules[0]["style"] == "WA CF bg #FF0000 bold"
+
+    res2 = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
+        "range": ["C1:C3"],
+        "operator": "LESS",
+        "formula1": "20",
+        "bg_color": "red",
+        "bold": True,
+    })
+    assert res2.get("status") == "ok", res2
+    assert res2.get("style") == "WA CF bg #FF0000 bold"
+    assert res2.get("style_created") is False
+    wa_cf_names = [n for n in cell_styles.getElementNames() if n.startswith("WA CF")]
+    assert wa_cf_names == ["WA CF bg #FF0000 bold"]

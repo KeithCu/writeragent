@@ -43,7 +43,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 | In core extension | WriterAgent extension only |
 |-------------------|---------------------------|
 | `=PYTHON()` / `=PY()` Calc add-in + warm venv worker | `=PROMPT()`, chat sidebar, MCP, grammar |
-| **Run Python Script…**, document scripts, init script, **Reset Python Session**, `wa.scripts` / `wa.doc` named libraries (`named_scripts.py`; host fetch via `host_rpc`, not `writeragent_api`) | Chat tools (`run_venv_python_script`, `analyze_data`, `extract_structure_from_image`, …) |
+| **Run Python Script…**, document scripts, init script, **Reset Python Session**, `wa.scripts` / `wa.doc` named libraries (`named_scripts.py`; host fetch via `host_rpc`, not `writeragent_api`) | Chat tools (`run_venv_python_script`, `analyze_data`, `image_extract_structure`, …) |
 | **Monaco** (Edit Python in Cell…, Run Python Script editor) | Analysis Sub-Agent, tool loop, LLM client |
 | **LibrePy Python sidebar** (Calc deck: cells + diagnostics; also in WriterAgent.oxt) | WriterAgent chat deck (`WriterAgentDeck`) |
 | **NumPy domain trusted helpers** (Analysis, Viz, Symbolic, Units, Forecast, Optimize, Quant, Text Analytics menu) | Embeddings (`plugin/embeddings/`, folder FTS, hybrid search) |
@@ -335,7 +335,7 @@ flowchart LR
   w[Writer: format_result_for_writer]
   insW[insert_content_at_position HTML]
   c[Calc: insert_result_into_calc]
-  insC[write_formula_range from selection]
+  insC[write_range from selection]
   menu --> dlg --> venv
   venv --> w --> insW
   venv --> c --> insC
@@ -346,7 +346,7 @@ flowchart LR
 | App | Insertion | Result shaping |
 |-----|-----------|----------------|
 | **Writer** | HTML at **selection** via [`insert_content_at_position`](../../plugin/writer/html_import.py) | [`format_result_for_writer`](../../plugin/scripting/python_runner.py) — lists → tables, dicts → sections |
-| **Calc** | Values from **active selection** via [`insert_result_into_calc`](../../plugin/scripting/python_runner.py) | Dict title/summary + tables; 1D/2D lists via `write_formula_range` |
+| **Calc** | Values from **active selection** via [`insert_result_into_calc`](../../plugin/scripting/python_runner.py) | Dict title/summary + tables; 1D/2D lists via `write_range` |
 | **Draw/Impress** | None (message box) | — |
 
 Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `last_python_script_name_draw`.
@@ -372,7 +372,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) | HTML post-process |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Active sheet / document access |
 | [`plugin/calc/address_utils.py`](../../plugin/calc/address_utils.py) | `index_to_column` for anchor cell |
-| [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) | `write_formula_range` (1-D formula fill-down via [`formula_fill.py`](../../plugin/calc/formula_fill.py); array results via [`array_formula.py`](../../plugin/calc/array_formula.py)) |
+| [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) | `write_range` (1-D formula fill-down via [`formula_fill.py`](../../plugin/calc/formula_fill.py); array results via [`array_formula.py`](../../plugin/calc/array_formula.py)) |
 | [`plugin/calc/tabular_egress.py`](../../plugin/calc/tabular_egress.py) | Tabular helper results → sheet |
 | [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) | Rich HTML cell insert (Vision Calc egress) |
 | [`plugin/main_core.py`](../../plugin/main_core.py) | LibrePy bootstrap — **not** [`plugin/main.py`](../../plugin/main.py) |
@@ -479,8 +479,8 @@ Additional files: `plugin/calc/base.py`, `plugin/calc/inspector.py`, `plugin/fra
 | `plot_data` | [`plugin/calc/viz.py`](../../plugin/calc/viz.py) | Run Python Script → Viz Helpers |
 | `forecast_data` | [`plugin/calc/forecast.py`](../../plugin/calc/forecast.py) | Run Python Script → Forecast |
 | `optimize_data` | [`plugin/calc/optimize.py`](../../plugin/calc/optimize.py) | Run Python Script → Optimize |
-| `symbolic_math` | [`plugin/calc/symbolic_math.py`](../../plugin/calc/symbolic_math.py) | Run Python Script → Math Helpers |
-| `extract_structure_from_image` | [`plugin/vision/vision_tools.py`](../../plugin/vision/vision_tools.py) | Run Python Script → Vision Helpers |
+| `math_run_symbolic` | [`plugin/calc/symbolic_math.py`](../../plugin/calc/symbolic_math.py) | Run Python Script → Math Helpers |
+| `image_extract_structure` | [`plugin/vision/vision_tools.py`](../../plugin/vision/vision_tools.py) | Run Python Script → Vision Helpers |
 
 ### Writer chat (venv, no menu insert)
 
@@ -855,7 +855,7 @@ Dev reference only (not OXT): `contrib/scripting/assets/editor/*`
 
 `vision/__init__.py`, `vision/module.yaml`, `vision_common.py`, `vision_templates.py`, `vision_runner.py`, `vision_egress.py`, `vision_availability.py`, `vision/venv/vision.py`, `vision/venv/vision_docling.py`, `vision/venv/vision_paddle.py`, `vision/venv/vision_html_export.py`, `vision/venv/vision_layout_html.py`, `vision/venv/__init__.py`, `calc/vision_egress.py`, `chatbot/module_config_dialog.py`
 
-Omit `vision_tools.py` for menu-only core (chat `extract_structure_from_image`).
+Omit `vision_tools.py` for menu-only core (chat `image_extract_structure`).
 
 ### Layer 6 adds (~4 paths, overlaps Layer 2)
 
@@ -965,7 +965,7 @@ Shipped domains per [numpy-domains.md](numpy-domains.md): **Analysis**, **Visual
 |--------|---------------------|------------|---------------------------|
 | Analysis | `analysis` | Run Python Script → Analysis Helpers | `analyze_data` |
 | Viz | `viz` | Run Python Script → Viz Helpers | `plot_data` |
-| Symbolic | `symbolic` / `math` | Run Python Script → Math Helpers | `symbolic_math` |
+| Symbolic | `symbolic` / `math` | Run Python Script → Math Helpers | `math_run_symbolic` |
 | Units | `units` | Run Python Script → Units Helpers | — |
 | Forecast | `forecast` | Run Python Script → Forecast (header fast-path) | `forecast_data` |
 | Optimize | `optimize` | Run Python Script → Optimize (header fast-path) | `optimize_data` |
@@ -1101,7 +1101,7 @@ Optional: `jedi` (completion stub in `editor_main.py`).
 
 ## Appendix G — Vision/OCR
 
-Local OCR and document layout via trusted Vision helpers. Manual path first per [../images/recognition.md](../images/recognition.md). Core ships **Run Python Script → Vision Helpers** + **Vision OCR Settings** — not chat `extract_structure_from_image`.
+Local OCR and document layout via trusted Vision helpers. Manual path first per [../images/recognition.md](../images/recognition.md). Core ships **Run Python Script → Vision Helpers** + **Vision OCR Settings** — not chat `image_extract_structure`.
 
 ```mermaid
 flowchart LR
@@ -1171,6 +1171,6 @@ Models are **not** bundled in the OXT; user venv installs them.
 
 | Path | Role |
 |------|------|
-| [`vision_tools.py`](../../plugin/vision/vision_tools.py) | `extract_structure_from_image` LLM tool |
+| [`vision_tools.py`](../../plugin/vision/vision_tools.py) | `image_extract_structure` LLM tool |
 | `plugin/framework/tool.py` | Tool registration |
 | Draw/Impress page-positioned OCR | Deferred — [../images/recognition.md](../images/recognition.md) Phase 1b.2 |

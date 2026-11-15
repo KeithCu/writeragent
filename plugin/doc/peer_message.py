@@ -204,7 +204,7 @@ PEER_WORK_DELIVERY_FOOTER = (
     "When the local work is done, you MUST Do domain=\"document_research\" to deliver "
     "via send_peer_result(document_url=<uid or url from this envelope header>, "
     "message=<one HTML/result string>). "
-    "Why: nested specialize done is not peer delivery; a chat-only answer in this "
+    "Why: finishing a nested task is not peer delivery; a chat-only answer in this "
     "sidebar never reaches the asking peer."
 )
 

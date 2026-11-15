@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from oracles import (  # noqa: E402
     check_oracle,
     haystack_has,
     uses_llm_judge,
+    visible_text,
 )
 from scripted_student import (  # noqa: E402
     _BULK_CLEANUP,
@@ -454,6 +456,8 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
         ("table_from_mess", _TABLE_FROM_MESS.replace("Total", "Subtotal").replace("$1458.46", "$1.00"), "Total"),
         ("table_engineering", _TABLE_ENGINEERING.replace("51.40", "0.00"), "51.4"),
         ("bulk_cleanup", _BULK_CLEANUP.replace("extra spaces", "extra  spaces"), "double space"),
+        ("bulk_cleanup", _BULK_CLEANUP.replace('"Quoted text"', '"Quoted  text"'), "Quoted text"),
+        ("bulk_cleanup", _BULK_CLEANUP.replace("git  log  --oneline", "git log --oneline"), "CMD line"),
         (
             "format_preservation",
             _FORMAT_PRESERVATION.replace("John Doe (legacy", "Jane Smith (legacy"),
@@ -973,6 +977,38 @@ def test_golds_pass_oracles() -> None:
         assert check_oracle(task_id, doc) == [], task_id
 
 
+def test_bulk_cleanup_gold_is_fixture_cleaned_except_cmd_line() -> None:
+    """Gold and scripted student must equal the fixture with every double space
+    collapsed except on the CMD: line, including inside the quotes.
+
+    Fixture/gold/oracle consistency guard: the gpt-oss eval runs kept
+    "Quoted  text", so this pins that the reference collapses it.
+    """
+    from dataset import BULK_CLEANUP
+
+    def clean(line: str) -> str:
+        if line.lstrip().startswith("CMD:"):
+            return line
+        collapsed = re.sub(r" {2,}", " ", line).strip()
+        return collapsed.replace(" ,", ",").replace(" .", ".").replace("..", ".")
+
+    golds = json.loads((_PO / "gold_standards.json").read_text(encoding="utf-8"))
+    expected = [
+        clean(line)
+        for line in BULK_CLEANUP["document_content"].splitlines()
+        if line.strip()
+    ]
+    for doc in (golds["bulk_cleanup"], _BULK_CLEANUP):
+        assert [visible_text(p) for p in re.findall(r"(?s)<p>(.*?)</p>", doc)] == expected
+        assert check_oracle("bulk_cleanup", doc) == []
+
+    joined = "\n".join(expected)
+    for needle in BULK_CLEANUP["expected_contains"]:
+        assert needle in joined
+    assert '"Quoted text"' in expected[2]
+    assert expected[-1] == "CMD: git  log  --oneline"
+
+
 def test_table_golds_match_scripted_and_align_numerics() -> None:
     golds = json.loads((_PO / "gold_standards.json").read_text(encoding="utf-8"))
     assert golds["table_from_mess"] == _TABLE_FROM_MESS
@@ -1043,7 +1079,7 @@ def test_judge_only_for_quality_tasks() -> None:
 
 
 def test_solar_sld_grouped_tree_still_scores() -> None:
-    """Production get_draw_tree may wrap the diagram in a GroupShape."""
+    """Production get_tree may wrap the diagram in a GroupShape."""
     doc = json.dumps(
         {
             "status": "ok",

@@ -15,6 +15,8 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 
+from plugin.calc.address_utils import split_sheet_prefix
+from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     _parse_formula_or_values_string,
@@ -119,10 +121,8 @@ def restyle_html_needle(
 
 
 def a1_to_col_row(addr: str) -> tuple[int, int]:
-    """Parse A1 / Sheet1.C2 into 0-based (col, row)."""
-    text = (addr or "").strip()
-    if "." in text:
-        text = text.split(".")[-1]
+    """Parse A1 / Sheet1.C2 / 'My Sheet'!C2 into 0-based (col, row)."""
+    unused_sheet, text = split_sheet_prefix(addr or "")
     letters: list[str] = []
     digits: list[str] = []
     for ch in text:
@@ -149,10 +149,8 @@ def col_row_to_a1(col: int, row: int) -> str:
 
 
 def parse_a1_range(rng: str) -> tuple[int, int, int, int]:
-    """Return (c0, r0, c1, r1) inclusive from ``A1:H500`` or ``J1``."""
-    raw = (rng or "").strip()
-    if "." in raw:
-        raw = raw.split(".")[-1]
+    """Return (c0, r0, c1, r1) inclusive from ``A1:H500``, ``J1``, or sheet-qualified ranges."""
+    unused_sheet, raw = split_sheet_prefix(rng or "")
     start, end = (raw.split(":", 1) + [raw])[:2]
     c0, r0 = a1_to_col_row(start)
     c1, r1 = a1_to_col_row(end)
@@ -338,7 +336,7 @@ class WriterWorld:
         """Hook for a later multi-turn refresh. Same as get_html today."""
         return self._html
 
-    def get_document_content(self, **kwargs: Any) -> dict[str, Any]:
+    def get_content(self, **kwargs: Any) -> dict[str, Any]:
         scope = kwargs.get("scope", "full")
         max_chars = kwargs.get("max_chars")
         text = self._html
@@ -359,7 +357,7 @@ class WriterWorld:
             "document_length": len(self._html),
         }
 
-    def apply_document_content(self, **kwargs: Any) -> dict[str, Any]:
+    def apply_content(self, **kwargs: Any) -> dict[str, Any]:
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         target = kwargs.get("target")
@@ -469,7 +467,7 @@ class WriterWorld:
                 break
         return {"status": "ok", "ranges": ranges}
 
-    def search_in_document(self, **kwargs: Any) -> dict[str, Any]:
+    def search(self, **kwargs: Any) -> dict[str, Any]:
         """Production name. Offsets are into exported HTML (same as find_text)."""
         pattern = str(kwargs.get("pattern") or kwargs.get("search") or "")
         if not pattern:
@@ -499,7 +497,7 @@ class WriterWorld:
         found["matches"] = matches
         return found
 
-    def add_comment(self, **kwargs: Any) -> dict[str, Any]:
+    def comment_add(self, **kwargs: Any) -> dict[str, Any]:
         """Anchor a visible ``[comment]`` after the search hit (no UNO annotation)."""
         content = str(kwargs.get("content") or "")
         search = str(kwargs.get("search") or "")
@@ -609,7 +607,7 @@ class DrawWorld:
     def export_for_prompt(self) -> str:
         import json
 
-        return json.dumps(self.get_draw_tree(), ensure_ascii=False)
+        return json.dumps(self.get_tree(), ensure_ascii=False)
 
     def shape_upsert(
         self,
@@ -702,7 +700,7 @@ class DrawWorld:
     def _shape_by_index(self, idx: int) -> dict[str, Any] | None:
         return next((s for s in self.shapes if s["index"] == idx), None)
 
-    def get_draw_tree(self, **kwargs: Any) -> dict[str, Any]:
+    def get_tree(self, **kwargs: Any) -> dict[str, Any]:
         unused = kwargs
         del unused
         by_idx = {s["index"]: s for s in self.shapes}
@@ -866,7 +864,7 @@ class CalcWorld:
             out.append(row_data)
         return out
 
-    def read_cell_range(self, **kwargs: Any) -> dict[str, Any]:
+    def read_range(self, **kwargs: Any) -> dict[str, Any]:
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
             ranges = [ranges]
@@ -886,7 +884,7 @@ class CalcWorld:
             ],
         }
 
-    def range_sort(self, **kwargs: Any) -> dict[str, Any]:
+    def sort_range(self, **kwargs: Any) -> dict[str, Any]:
         """One-column stable sort over the given range(s) (sort_column is 0-based within range)."""
         col = kwargs.get("sort_column", 0)
         ascending = kwargs.get("ascending", True)
@@ -972,12 +970,14 @@ class CalcWorld:
                     num = float(str(raw).replace(",", "").replace("$", ""))
                     if math.isnan(num):
                         raise ValueError
-                    return (0, num if ascending else -num)
+                    # Match ScTable::CompareCell: numbers before strings ascending,
+                    # negated (strings before numbers) descending, empties always last.
+                    return (0 if ascending else 1, num if ascending else -num)
                 except (TypeError, ValueError):
                     text = str(raw).lower()
                     if ascending:
                         return (1, text)
-                    return (1, tuple(-ord(ch) for ch in text) + (1,))
+                    return (0, tuple(-ord(ch) for ch in text) + (1,))
 
             slices.sort(key=_key)
             after = [s[col_idx] for s in slices]
@@ -1005,7 +1005,7 @@ class CalcWorld:
         }
 
     def write_cell_range(self, **kwargs: Any) -> dict[str, Any]:
-        return self.write_formula_range(**kwargs)
+        return self.write_range(**kwargs)
 
     @staticmethod
     def _plan_eval_write(
@@ -1054,7 +1054,7 @@ class CalcWorld:
             flat = values
         return (flat, (c0, r0, c1, r1))
 
-    def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
+    def write_range(self, **kwargs: Any) -> dict[str, Any]:
         raw_values = kwargs.get("values", [])
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
@@ -1124,24 +1124,17 @@ class CalcWorld:
                 self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
             self.sheets[self.active_sheet] = self._grid
             return 0
-        # Production write_formula_range fill-down-adjusts relative A1 refs
+        # Production write_range fill-down-adjusts relative A1 refs
         # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
-        # The harness used values * n and pinned the same text on every cell,
-        # so Tip A / tax_column false-red'd a correct =B2*0.08 into C2:C5
-        # (Banana stayed =B2*0.08). JSON arrays stay exact. 2-D / import
-        # failure keeps the honest pin.
+        # JSON arrays / explicit lists stay exact (and warn if a column repeats
+        # one row-aligned formula).
         formula_src = raw_values if isinstance(raw_values, str) else ""
         single = values[0] if values else None
         is_formula = isinstance(single, str) and single.lstrip().startswith("=")
         if len(values) == 1 and len(cells) > 1 and is_formula:
             num_rows = r1 - r0 + 1
             num_cols = c1 - c0 + 1
-            try:
-                from plugin.calc.formula_fill import expand_single_formula
-
-                fill = expand_single_formula(str(values[0]), num_rows, num_cols)
-            except Exception:
-                fill = values * len(cells)
+            fill = expand_single_formula(str(values[0]), num_rows, num_cols)
         elif len(values) == 1 and len(cells) > 1:
             fill = values * len(cells)
         else:

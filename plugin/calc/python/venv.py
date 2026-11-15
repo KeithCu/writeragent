@@ -17,6 +17,7 @@ from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.calc_addin_data import resolve_python_data
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+from plugin.framework.errors import make_tool_ok
 from plugin.framework.queue_executor import main
 from plugin.scripting.import_policy import format_matplotlib_plot_hint, python_venv_auto_imports_note
 from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads, write_image_payload_to_temp
@@ -128,7 +129,7 @@ def insert_plots_and_report(ctx: ToolContext, images: list[dict[str, Any]], res:
         # Delete the temps written so far; the caller never sees these paths.
         _unlink_quiet(img_paths)
         raise
-    out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated"}
+    out = make_tool_ok(message=f"{len(images)} plot(s) generated")
     stdout_val = res.get("stdout")
     if stdout_val:
         out["stdout"] = stdout_val

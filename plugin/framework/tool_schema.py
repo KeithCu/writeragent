@@ -70,7 +70,7 @@ def required_keys(schema: Any) -> list[Any]:
     return raw if isinstance(raw, list) else []
 
 
-def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any], extra_ok: Any = None) -> dict[str, Any]:
+def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Drop keys the schema does not declare.
 
     Returns *kwargs* unchanged when every key is allowed, so callers can
@@ -79,10 +79,9 @@ def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any], extra_ok: Any = 
     props = call_properties(schema)
     if props is None:
         return kwargs
-    allowed = extra_ok or frozenset()
-    if all(key in props or key in allowed for key in kwargs):
+    if all(key in props for key in kwargs):
         return kwargs
-    return {key: value for key, value in kwargs.items() if key in props or key in allowed}
+    return {key: value for key, value in kwargs.items() if key in props}
 
 
 def _parameter_schema(tool: Any) -> tuple[str, dict[str, Any]] | None:
@@ -195,7 +194,7 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     when this property's type includes array. Nested ``range`` fields are
     not walked.
 
-    ``write_formula_range`` values accept string or native array on the source
+    ``write_range`` values accept string or native array on the source
     schema; only a bare number is coerced to string for single-cell fill.
     """
     if not isinstance(kwargs, dict):
@@ -215,7 +214,7 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
                 if _type_includes(t, "integer"):
                     out[k] = int(v)
 
-    if tool_name == "write_formula_range":
+    if tool_name == "write_range":
         fov = out.get("values")
         if isinstance(fov, (int, float)) and not isinstance(fov, bool):
             out["values"] = str(fov)
@@ -271,7 +270,7 @@ def _normalize_schema_for_strict_providers(params: Any, *, for_mcp: bool = False
     # Dedupe only. One remaining name becomes a string. An empty list
     # becomes "string". Do not collapse a real union to one member:
     # ["string", "number"] must stay both, and ["array", "string"] must
-    # not become "array" (apply_document_content accepts either).
+    # not become "array" (apply_content accepts either).
     if "type" in params and isinstance(params["type"], list):
         types = params["type"]
         if not types:
@@ -321,7 +320,7 @@ def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any
         {
             "type": "function",
             "function": {
-                "name": "get_document_tree",
+                "name": "get_tree",
                 "description": "...",
                 "parameters": { ... JSON Schema ... }
             }
@@ -358,7 +357,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     props = input_schema.setdefault("properties", {})
     props.setdefault("document_url", {
         "type": "string",
-        "description": "Optional URL or RuntimeUID of the target document (both come from list_open_documents). If not provided, the active document is used. A RuntimeUID also targets unsaved/untitled documents that have no file URL yet.",
+        "description": "Optional URL or RuntimeUID of the target document (both come from document_list_open). If not provided, the active document is used. A RuntimeUID also targets unsaved/untitled documents that have no file URL yet.",
     })
     desc = tool.get_description(doc_type)
 

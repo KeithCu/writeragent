@@ -30,7 +30,7 @@ WriterAgent currently sends this shape to OpenAI-compatible providers:
     {
       "type": "function",
       "function": {
-        "name": "apply_document_content",
+        "name": "apply_content",
         "description": "...",
         "parameters": {"type": "object", "properties": {}}
       }
@@ -63,7 +63,7 @@ Responses moves the same workflow to typed items:
   "tools": [
     {
       "type": "function",
-      "name": "apply_document_content",
+      "name": "apply_content",
       "description": "...",
       "parameters": {"type": "object", "properties": {}},
       "strict": false
@@ -95,7 +95,7 @@ A tool request is a separate item:
   "type": "function_call",
   "id": "fc_123",
   "call_id": "call_abc",
-  "name": "apply_document_content",
+  "name": "apply_content",
   "arguments": "{\"old_text\":\"...\",\"new_text\":\"...\"}"
 }
 ```

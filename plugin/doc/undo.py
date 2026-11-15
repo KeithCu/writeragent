@@ -95,7 +95,7 @@ def _step_undo_manager(
 class Undo(ToolBase):
     """Undo the last action."""
 
-    name: str | None = "undo"
+    name: str | None = "document_undo"
     description: str = (
         "Undo the last change(s) in the document (all document types). CAUTION: the undo stack "
         "interleaves YOUR edits with the user's own edits — call this only immediately after an "
@@ -114,10 +114,10 @@ class Undo(ToolBase):
 class Redo(Undo):
     """Redo the last undone action."""
 
-    name: str | None = "redo"
+    name: str | None = "document_redo"
     description: str = (
         "Redo the last undone change(s) in the document (all document types). Same caution as "
-        "undo: the stack is shared with the user's edits — redo only what you yourself just "
+        "document_undo: the stack is shared with the user's edits — redo only what you yourself just "
         "undid, and tell the user."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"steps": {"type": "integer", "description": "Number of steps to redo (default: 1)."}}, "required": []}

@@ -10,17 +10,17 @@ In-chat `/` **popup** is a toolkit listbox window parented to the Ask peer (pref
 
 ### Main chat: sidebar reply vs document edit
 
-The sidebar is a **chat window**: assistant text is stored in session history and shown in the Response area (HTML when `rich_text_control_sidebar` is on). That is separate from **editing the open document**, which the **main** Writer agent does with **`apply_document_content`** (and related read/search tools).
+The sidebar is a **chat window**: assistant text is stored in session history and shown in the Response area (HTML when `rich_text_control_sidebar` is on). That is separate from **editing the open document**, which the **main** Writer agent does with **`apply_content`** (and related read/search tools).
 
 | User intent | Main agent action |
 |-------------|-------------------|
 | Answer, explain, discuss without changing the doc | Assistant **chat reply** only |
 | Look up public or local file info (no doc edit) | Delegate **`web_research`** / **`document_research`**, then chat summary |
-| Write, draft, replace, or translate into the document | **`apply_document_content`** (and reads as needed) |
-| Research then write (e.g. web report in the doc) | Delegate research (sub-agent returns **plain text** in `result`), main agent formats HTML and **`apply_document_content`** in the same send |
+| Write, draft, replace, or translate into the document | **`apply_content`** (and reads as needed) |
+| Research then write (e.g. web report in the doc) | Delegate research (sub-agent returns **plain text** in `result`), main agent formats HTML and **`apply_content`** in the same send |
 | Large edit plus acknowledgment | Tool call(s) + **brief** chat confirmation |
 
-Prompt text lives in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py): blocks are ordered to match runtime assembly in `get_chat_system_prompt_for_document` (see [Chat prompt constants](#chat-prompt-constants) below). Key pieces: **`SIDEBAR_VS_DOCUMENT`** (routing) and **`WRITER_CORE_DIRECTIVES`** (delegation, including research plain-text → format → `apply_document_content`), composed by **`get_chat_system_prompt_for_document`**. The sidebar factory seeds that call with the panel component context; each later send refreshes through `ChatSession.refresh_document_context` with the same context, so vision, peer, and profile injection are present from the first turn. Generic delegate `task` guidance in the specialized block is one short line; per-domain detail is injected on the sub-agent at runtime ([`specialized_base.py`](../../plugin/doc/specialized_base.py)). **Sub-agents** (web research, librarian, specialized delegate) use different completion tools (`final_answer`, `reply_to_user`, delegate `task`)—not this routing block.
+Prompt text lives in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py): blocks are ordered to match runtime assembly in `get_chat_system_prompt_for_document` (see [Chat prompt constants](#chat-prompt-constants) below). Key pieces: **`SIDEBAR_VS_DOCUMENT`** (routing) and **`WRITER_CORE_DIRECTIVES`** (delegation, including research plain-text → format → `apply_content`), composed by **`get_chat_system_prompt_for_document`**. The sidebar factory seeds that call with the panel component context; each later send refreshes through `ChatSession.refresh_document_context` with the same context, so vision, peer, and profile injection are present from the first turn. Generic delegate `task` guidance in the specialized block is one short line; per-domain detail is injected on the sub-agent at runtime ([`specialized_base.py`](../../plugin/doc/specialized_base.py)). **Sub-agents** (web research, librarian, specialized delegate) use different completion tools (`final_answer`, `reply_to_user`, delegate `task`)—not this routing block.
 
 **Menu chat** (non-sidebar entry) has no tool-calling; it is conversational only.
 
@@ -38,15 +38,15 @@ See [../framework/streaming-and-threading.md](../framework/streaming-and-threadi
 
 ## Chat prompt constants
 
-File layout in [`prompts.py`](../../plugin/framework/prompts.py) is Generic, then Writer, Calc, Draw, then Assembly. Writer main-chat blocks in the Writer section still follow runtime assembly in `get_chat_system_prompt_for_document` (persona → chat format → core directives → translation → usage patterns → review modes → specialized delegation → memory → sidebar routing → `apply_document_content` HTML rules → confirm-from-fields). Apply-HTML and confirm-from-fields sit last on purpose (recency); do not copy the research tool-result trailer into this ambient prompt. When Settings → Speech **Keep replies brief** and speech output are both on, a fixed brevity instruction and a one-line reminder are appended after user additional instructions (see [audio-architecture.md](audio-architecture.md)). Either flag off leaves that suffix out. Shared format and memory live in Generic. The delivery is hybrid: the reference pieces (search, navigation, images) are NOT ambient — the sidebar pulls them on demand via the `get_guidance` tool (topics mapped in `plugin/chatbot/agent_manual.py`, the same single source the MCP serves), and the math and heading-link examples (`HTML_MATH_AND_LINK_EXAMPLES`) are not ambient; they are served via `get_guidance` `editing-html`, `full_manual`, and the sub-agent HTML block. Writer python/shapes routing lives in the `DelegateToSpecializedWriter` description, and Writer OCR routing lives in the `vision` catalog line.
+File layout in [`prompts.py`](../../plugin/framework/prompts.py) is Generic, then Writer, Calc, Draw, then Assembly. Writer main-chat blocks in the Writer section still follow runtime assembly in `get_chat_system_prompt_for_document` (persona → chat format → core directives → translation → usage patterns → review modes → specialized delegation → memory → sidebar routing → `apply_content` HTML rules → confirm-from-fields). Apply-HTML and confirm-from-fields sit last on purpose (recency); do not copy the research tool-result trailer into this ambient prompt. When Settings → Speech **Keep replies brief** and speech output are both on, a fixed brevity instruction and a one-line reminder are appended after user additional instructions (see [audio-architecture.md](audio-architecture.md)). Either flag off leaves that suffix out. Shared format and memory live in Generic. The delivery is hybrid: the reference pieces (search, navigation, images) are NOT ambient — the sidebar pulls them on demand via the `manual_read` tool (topics mapped in `plugin/chatbot/agent_manual.py`, the same single source the MCP serves), and the math and heading-link examples (`HTML_MATH_AND_LINK_EXAMPLES`) are not ambient; they are served via `manual_read` `editing-html`, `full_manual`, and the sub-agent HTML block. Writer python/shapes routing lives in the `DelegateToSpecializedWriter` description, and Writer OCR routing lives in the `vision` catalog line.
 
 Design notes for prompt authors live in this section so the source file stays scannable.
 
-For `apply_document_content`, search edits in-use header/footer text; body insert targets do not. Page-structure tools are not named here because the main agent cannot call `page_*` tools; turning a region on, or editing a style that is not in use, goes through the `page` delegation catalog line.
+For `apply_content`, search edits in-use header/footer text; body insert targets do not. Page-structure tools are not named here because the main agent cannot call `page_*` tools; turning a region on, or editing a style that is not in use, goes through the `page` delegation catalog line.
 
-### `apply_document_content` — JSON array of HTML strings
+### `apply_content` — JSON array of HTML strings
 
-**Scope:** document tool only (`apply_document_content`). Not sidebar chat (`reply_to_user` / `final_answer`) or web-research `final_answer`.
+**Scope:** document tool only (`apply_content`). Not sidebar chat (`reply_to_user` / `final_answer`) or web-research `final_answer`.
 
 #### Why a JSON array (not one HTML blob)?
 
@@ -61,9 +61,9 @@ For `apply_document_content`, search edits in-use header/footer text; body inser
 
 #### Array wrapper and sub-agents
 
-- Web research returns plain text (`WEB_RESEARCH_PLAIN_TEXT_FORMAT` in [`web_research.py`](../../plugin/chatbot/web_research.py)); the **main** agent formats HTML for `apply_document_content`.
+- Web research returns plain text (`WEB_RESEARCH_PLAIN_TEXT_FORMAT` in [`web_research.py`](../../plugin/chatbot/web_research.py)); the **main** agent formats HTML for `apply_content`.
 - Librarian uses `reply_to_user` with `CHAT_SIDEBAR_HTML_EXAMPLES` (single HTML string).
-- Do not tell sub-agents to wrap answers in `apply_document_content` JSON arrays — that shape is for the main agent's document tool only.
+- Do not tell sub-agents to wrap answers in `apply_content` JSON arrays — that shape is for the main agent's document tool only.
 
 #### Removing the array wrapper?
 
@@ -71,7 +71,7 @@ Possible but non-trivial: tool JSON schema, eval harness, and years of prompt ha
 
 #### Anchor-based range replacement (`start_anchor` / `end_anchor`)
 
-In addition to `old_content`, `apply_document_content(target='search')` supports landmark-to-landmark replacement via `start_anchor` and `end_anchor`.
+In addition to `old_content`, `apply_content(target='search')` supports landmark-to-landmark replacement via `start_anchor` and `end_anchor`.
 - The replaced range starts at the beginning of the `start_anchor` match and extends through the end of the first `end_anchor` match that begins at or after the start match's end, including both anchors and all text between them.
 - Both anchors must resolve to the same `XText` container (same body, table cell, or text frame); crossing text boundaries produces an error. Spans containing a table between the anchors are refused with an error directing callers to `table_delete`.
 - Multiline plain anchor text is imported as new paragraphs and does not keep the span's character or paragraph formatting, while single-line plain anchor text remains on the inline path to avoid splitting the host paragraph; anchor replacements skip outline URL fixup.

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, cast
+from typing import Any, cast, final
 
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseWindowListener
@@ -51,6 +51,10 @@ def debug_env_active() -> bool:
 
 _CONTROL_INIT_STARTED: set[int] = set()
 _IN_SCROLL_TO_TAIL: set[int] = set()
+# Focus trackers by control id. Stick-to-bottom skips SelectAll while the
+# transcript has focus. See RichFocusTracker.
+_FOCUS_TRACKERS: dict[int, "RichFocusTracker"] = {}
+_ACC_ROLE_SCROLL_BAR = 50  # com.sun.star.accessibility.AccessibleRole.SCROLL_BAR
 RICH_CONTROL_NAME = "response_rich"
 # Dialog units (AppFont) — inset RichTextControl inside the response placeholder so glyphs are not clipped.
 RICH_CONTROL_EDGE_INSET = 8
@@ -1068,14 +1072,25 @@ def _dispatch_rich_uno(control: Any, command: str) -> bool:
 
 
 def _scroll_rich_to_tail(control: Any, restore_focus: Any = None) -> None:
-    """SelectAll for stick-to-bottom, keeping EESelectionMode::Hidden.
+    """SelectAll for stick-to-bottom, then collapse it, keeping EESelectionMode::Hidden.
 
-    OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor.
-    DrawSelectionXOR is a no-op while Hidden (impedit.cxx). GetFocus on the
-    viewport switches to Std (visible highlight); LoseFocus + HideInactiveSelection
-    switches back. SelectAll itself does not GrabFocus. Restore query first so
-    the viewport is Hidden, then SelectAll, then restore again. Do not setFocus
-    or reveal_caret around this (that is the flash: GetFocus + Std + All()).
+    OSelectAllDispatcher: EditView.SetSelection(All()) then ShowCursor, which
+    scrolls to the end. DrawSelectionXOR is a no-op while Hidden (impedit.cxx).
+    Restore query first so the viewport is Hidden, then SelectAll, then restore
+    again. Do not setFocus or reveal_caret around this (GetFocus + Std + All()
+    is the flash).
+
+    The All() selection must not outlive this call. A press inside a selection
+    is a drag-and-drop start in the SelectionEngine, so the user's first click
+    or drag in the transcript did nothing (or dragged the whole transcript)
+    instead of starting a selection, and any later GetFocus painted it.
+    ``_select_all_collapsed`` collapses it without focus.
+
+    Skipped while the transcript has focus: the user is clicking, selecting or
+    copying there. SelectAll would replace their selection, and scrolling
+    under the mouse is wrong anyway. Stick-to-bottom resumes on the next call
+    after focus leaves (Ask, document). This also keeps SelectAll off the
+    focused Std-mode path (DrawSelectionXOR -> OutputDevice::Invert).
 
     Re-entrant no-op: setPosSize during a sidebar drag can nest through
     layoutWindow into another restick; that is the hang we must not reintroduce.
@@ -1086,15 +1101,207 @@ def _scroll_rich_to_tail(control: Any, restore_focus: Any = None) -> None:
     ctrl_id = id(control)
     if ctrl_id in _IN_SCROLL_TO_TAIL:
         return
+    tracker = _FOCUS_TRACKERS.get(ctrl_id)
+    if tracker is not None and tracker.has_focus:
+        log_rich_scroll("skip_select_all", reason="transcript_focused")
+        return
     _IN_SCROLL_TO_TAIL.add(ctrl_id)
     try:
         if callable(restore_focus):
             restore_focus()
-        _dispatch_rich_uno(control, ".uno:SelectAll")
+        _select_all_collapsed(control)
         if callable(restore_focus):
             restore_focus()
     finally:
         _IN_SCROLL_TO_TAIL.discard(ctrl_id)
+
+
+def _select_all_collapsed(control: Any) -> bool:
+    """Dispatch SelectAll for its scroll, then collapse the selection with no focus.
+
+    There is no UNO selection setter (the peer is a VCLXWindow, not an
+    XTextComponent), and keys only reach the focus window. EditEngine does
+    collapse a view selection whose end paragraph is deleted
+    (ImpEditEngine::UpdateSelections: caret at the start of the paragraph now
+    at that position). So: append an empty paragraph with a tiny fixed line
+    height, SelectAll (the end PaM lands in it; ShowCursor scrolls to the end),
+    then remove the paragraph break. Net text is unchanged. The caret ends at
+    the start of the last real paragraph, where the view already is.
+    """
+    model = control.getModel() if hasattr(control, "getModel") else None
+    padded = _append_scroll_pad(model)
+    try:
+        return _dispatch_rich_uno(control, ".uno:SelectAll")
+    finally:
+        if padded:
+            _remove_scroll_pad(model)
+
+
+def _append_scroll_pad(model: Any) -> bool:
+    """Append an empty paragraph about 0 px high at the end of *model*."""
+    if model is None or not hasattr(model, "createTextCursor"):
+        return False
+    try:
+        import uno
+
+        cursor = model.createTextCursor()
+        cursor.gotoEnd(False)
+        brk = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
+        model.insertControlCharacter(cursor, brk, False)
+    except Exception as e:
+        log.debug("_append_scroll_pad: %s", e)
+        return False
+
+    def _flatten() -> None:
+        # Paragraph attributes only: a char attribute here would become an
+        # empty attribute at the end of the last paragraph after the merge
+        # and stick to the next streamed text.
+        import uno
+
+        pad = model.createTextCursor()
+        pad.gotoEnd(False)
+        spacing = cast("Any", uno.createUnoStruct("com.sun.star.style.LineSpacing"))
+        spacing.Mode = uno.getConstantByName("com.sun.star.style.LineSpacingMode.FIX")
+        spacing.Height = 1
+        pad.setPropertyValue("ParaLineSpacing", spacing)
+        pad.setPropertyValue("ParaTopMargin", 0)
+        pad.setPropertyValue("ParaBottomMargin", 0)
+
+    best_effort(_flatten, "_append_scroll_pad line height")
+    return True
+
+
+def _remove_scroll_pad(model: Any) -> None:
+    """Remove the paragraph break added by ``_append_scroll_pad``."""
+    try:
+        cursor = model.createTextCursor()
+        cursor.gotoEnd(False)
+        cursor.goLeft(1, True)
+        cursor.setString("")
+    except Exception:
+        log.exception("_remove_scroll_pad failed")
+
+
+def _rich_vscroll_accessible(control: Any) -> Any | None:
+    """XAccessibleValue of the transcript's vertical scroll bar, or None."""
+
+    def _find(obj: Any, depth: int) -> Any | None:
+        ctx = obj.getAccessibleContext() if hasattr(obj, "getAccessibleContext") else None
+        if ctx is None:
+            return None
+        if ctx.getAccessibleRole() == _ACC_ROLE_SCROLL_BAR and hasattr(ctx, "setCurrentValue"):
+            return ctx
+        if depth >= 6:
+            return None
+        for i in range(ctx.getAccessibleChildCount()):
+            found = _find(ctx.getAccessibleChild(i), depth + 1)
+            if found is not None:
+                return found
+        return None
+
+    try:
+        return _find(control, 0)
+    except Exception as e:
+        log.debug("_rich_vscroll_accessible: %s", e)
+        return None
+
+
+def collapse_rich_selection_keep_view(control: Any) -> None:
+    """Collapse the transcript selection without moving the view.
+
+    Called when the transcript loses focus. HideInactiveSelection hides the
+    user's selection, but EditView keeps it, so the next press inside it is a
+    drag-and-drop start and the first click does not start a new selection.
+    ``_select_all_collapsed`` scrolls to the end (SelectAll ShowCursor), so put
+    the scroll bar back through its accessible value (VCLXScrollBar::setValue
+    scrolls the view). The PRIMARY selection keeps the old text.
+    """
+    if control is None:
+        return
+    ctrl_id = id(control)
+    if ctrl_id in _IN_SCROLL_TO_TAIL:
+        return
+    _IN_SCROLL_TO_TAIL.add(ctrl_id)
+    try:
+        bar = _rich_vscroll_accessible(control)
+        value = bar.getCurrentValue() if bar is not None else None
+        _select_all_collapsed(control)
+        if bar is not None and value is not None:
+            bar.setCurrentValue(value)
+        log_rich_scroll("collapse_stale_selection", restored=value)
+    finally:
+        _IN_SCROLL_TO_TAIL.discard(ctrl_id)
+
+
+@final
+class RichFocusTracker:
+    """Track whether the transcript viewport has focus.
+
+    ``_scroll_rich_to_tail`` skips SelectAll while it does. *on_press* runs on
+    mousePressed (the sidebar passes the frame session's
+    ``note_user_left_query`` so stream chunks stop pulling focus back to Ask
+    while the user selects in the transcript).
+    """
+
+    def __init__(self, control: Any, on_press: Any = None) -> None:
+        self.control: Any = control
+        self.on_press: Any = on_press
+        self.has_focus: bool = False
+
+    def focus_gained(self) -> None:
+        self.has_focus = True
+
+    def focus_lost(self) -> None:
+        """Collapse the user's selection, now hidden, so the next press starts a new one."""
+        self.has_focus = False
+        best_effort(lambda: collapse_rich_selection_keep_view(self.control), "rich collapse on focus lost")
+
+    def mouse_pressed(self) -> None:
+        if callable(self.on_press):
+            best_effort(self.on_press, "rich transcript press")
+
+    def disposed(self) -> None:
+        self.has_focus = False
+        if _FOCUS_TRACKERS.get(id(self.control)) is self:
+            del _FOCUS_TRACKERS[id(self.control)]
+
+
+def attach_rich_focus_tracker(control: Any, on_press: Any = None) -> RichFocusTracker | None:
+    """Register focus/mouse listeners on the transcript. See RichFocusTracker."""
+    if control is None:
+        return None
+    if not hasattr(control, "addFocusListener") or not hasattr(control, "addMouseListener"):
+        return None
+    existing = _FOCUS_TRACKERS.get(id(control))
+    if existing is not None and existing.control is control:
+        return existing
+
+    from plugin.framework.uno_listeners import BaseFocusListener, BaseMouseListener
+
+    state = RichFocusTracker(control, on_press)
+
+    class _Focus(BaseFocusListener):
+        def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
+            state.disposed()
+
+        def on_focus_gained(self, e: Any) -> None:
+            state.focus_gained()
+
+        def on_focus_lost(self, e: Any) -> None:
+            state.focus_lost()
+
+    class _Mouse(BaseMouseListener):
+        def on_mouse_pressed(self, e: Any) -> None:
+            state.mouse_pressed()
+
+    try:
+        control.addFocusListener(_Focus())
+        control.addMouseListener(_Mouse())
+    except Exception as e:
+        log.debug("attach_rich_focus_tracker failed: %s", e)
+        return None
+    _FOCUS_TRACKERS[id(control)] = state
+    return state
 
 
 def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: Any = None, char_color: int | None = None, restore_focus: Any = None) -> None:

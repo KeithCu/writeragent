@@ -1977,3 +1977,57 @@ def test_automatic_imports_numpy(value, value_2, expected):
     assert r["status"] == "ok"
     assert r["result"] == expected
 
+
+@pytest.mark.parametrize(
+    ("code", "data", "needle", "forbid_settings"),
+    [
+        pytest.param("result = sum(data)", [[1], [2], [3]], "np.sum(data)", False, id="sum_2d"),
+        pytest.param(
+            "result = np.unique(data, axis=0)",
+            [["name", "qty"], ["a", 1]],
+            "drop_duplicates",
+            False,
+            id="np_unique_axis",
+        ),
+        pytest.param("result = sorted([1, 'a'])", None, "to_pandas", False, id="mixed_compare"),
+        pytest.param("import socket\nresult = 1", None, "Allow network access", False, id="blocked_network"),
+        pytest.param("import subprocess\nresult = 1", None, "Allow OS access", False, id="blocked_os"),
+        pytest.param("import shutil\nresult = 1", None, "Allow file access", False, id="blocked_file"),
+        pytest.param("import ctypes\nresult = 1", None, "blocked in the sandbox", True, id="blocked_other"),
+    ],
+)
+def test_error_message_names_the_fix(
+    fresh_sandbox_sessions,
+    code: str,
+    data: list[list[Any]] | None,
+    needle: str,
+    forbid_settings: bool,
+) -> None:
+    if "np." in code:
+        pytest.importorskip("numpy")
+    from plugin.calc.calc_addin_data import pack_calc_data_for_wire
+
+    wire_data = pack_calc_data_for_wire(data) if data is not None else None
+    res = sandbox_run(code, wire_data, session_id="calc:fix-hint-test", timeout_sec=5)
+    assert res["status"] == "error", res
+    msg = res["message"]
+    assert needle in msg
+    if forbid_settings:
+        assert "Settings" not in msg
+
+
+def test_dataframe_from_data_spills_the_source_rows(fresh_sandbox_sessions) -> None:
+    pytest.importorskip("pandas")
+    from plugin.calc.calc_addin_data import pack_calc_data_for_wire
+    from plugin.scripting.calc_range import result_to_calc_grid
+
+    rows = [["name", "qty"], ["apples", 3], ["pears", 5]]
+    res = sandbox_run(
+        "result = pd.DataFrame(data)",
+        pack_calc_data_for_wire(rows),
+        session_id="calc:df-no-junk-header",
+        timeout_sec=5,
+    )
+    assert res["status"] == "ok", res
+    assert result_to_calc_grid(res["result"]) == rows
+

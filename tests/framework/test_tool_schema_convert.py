@@ -1,5 +1,4 @@
 import json
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -402,19 +401,19 @@ def test_coerce_call_args_wraps_array_range_and_formula_values():
             },
         },
     }
-    out = coerce_call_args("write_formula_range", props, {"range": "A1", "values": ["a", 1]})
+    out = coerce_call_args("write_range", props, {"range": "A1", "values": ["a", 1]})
     assert out["range"] == ["A1"]
     assert out["values"] == ["a", 1]
-    empty = coerce_call_args("write_formula_range", props, {"range": "A1", "values": []})
+    empty = coerce_call_args("write_range", props, {"range": "A1", "values": []})
     assert empty["values"] == []
-    number = coerce_call_args("write_formula_range", props, {"range": "A1", "values": 3})
+    number = coerce_call_args("write_range", props, {"range": "A1", "values": 3})
     assert number["values"] == "3"
     plain = coerce_call_args("other", {"range": {"type": "string"}}, {"range": "A1"})
     assert plain["range"] == "A1"
 
 
 def test_write_formula_range_values_schema_string_array_union():
-    """Chat and MCP share the source values union (same guard as apply_document_content)."""
+    """Chat and MCP share the source values union (same guard as apply_content)."""
     from plugin.calc.cells import WriteCellRange
 
     tool = WriteCellRange()
@@ -510,74 +509,6 @@ def test_query_folder_sql_files_schema_is_object():
     files = to_openai_schema(QueryFolderSqlTool())["function"]["parameters"]["properties"]["files"]
     assert files["type"] == "object"
     assert files["additionalProperties"]["type"] == "string"
-
-
-def test_set_style_schema_omits_number_format_but_scripting_may_pass_it():
-    """#374 P3: number_format must not appear on LLM/MCP schemas."""
-    from plugin.calc.cells import SetCellStyle
-    from plugin.framework.tool import ToolRegistry
-
-    tool = SetCellStyle()
-    assert "number_format" not in tool.parameters["properties"]
-    assert "number_format" not in to_openai_schema(tool)["function"]["parameters"]["properties"]
-    assert "number_format" not in to_mcp_schema(tool)["inputSchema"]["properties"]
-
-    registry = ToolRegistry(MagicMock())
-    registry.register(tool)
-    ctx = MagicMock()
-    ctx.doc_type = "calc"
-    ctx.caller = "script"
-    ctx.read_only_target = False
-    ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
-    with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
-        "plugin.framework.tool.main.call", side_effect=lambda fn: fn()
-    ):
-        # Unknown LLM keys still stripped; scripting_only number_format is preserved.
-        registry.execute(
-            "set_style",
-            ctx,
-            range=["A1"],
-            bold=True,
-            number_format="0.00",
-            bogus_llm_key=1,
-        )
-        exe.assert_called_once()
-        kwargs = exe.call_args.kwargs
-        assert kwargs.get("number_format") == "0.00"
-        assert "bogus_llm_key" not in kwargs
-
-
-@pytest.mark.parametrize("caller", ["chat", "chatbot", "mcp"])
-def test_set_style_strips_number_format_for_non_script_callers(caller):
-    """§11.1: chat/MCP callers must not be able to apply scripting_only_parameters
-    like number_format even if the model invents the parameter from training memory."""
-    from plugin.calc.cells import SetCellStyle
-    from plugin.framework.tool import ToolRegistry
-
-    tool = SetCellStyle()
-    registry = ToolRegistry(MagicMock())
-    registry.register(tool)
-    ctx = MagicMock()
-    ctx.doc_type = "calc"
-    ctx.caller = caller
-    ctx.read_only_target = False
-    ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
-    with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
-        "plugin.framework.tool.main.call", side_effect=lambda fn: fn()
-    ):
-        registry.execute(
-            "set_style",
-            ctx,
-            range=["A1"],
-            bold=True,
-            number_format="0.00",
-        )
-        exe.assert_called_once()
-        kwargs = exe.call_args.kwargs
-        # number_format must be stripped — it is not in the schema and caller is not "script".
-        assert "number_format" not in kwargs
-        # Regular schema params still pass through.
-        assert kwargs.get("bold") is True
 
 
 def test_normalize_schema_non_list_required():

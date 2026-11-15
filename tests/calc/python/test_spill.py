@@ -731,6 +731,46 @@ def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
 
         prepared_spill = _spill.prepare_auto_spill(ctx, doc, state, FormulaOrigin(sheet, cell, "Sheet1", 0, 16383), "py_code", grid)
         assert prepared_spill == "#SPILL!"
+        from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+
+        entry = get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), "py_code")
+        assert entry is not None and entry.status == "error"
+        assert "Sheet1.XFD1" in entry.message
+    finally:
+        for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
+            SPILL_REGISTRY.pop(key, None)
+
+
+def test_prepare_auto_spill_records_why_it_is_blocked() -> None:
+    from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+    from plugin.calc.python.formula_locator_cache import FormulaOrigin
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    doc = CalcDocStub(url="file:///spill-blocked-diag.ods", props={"RuntimeUID": "uid-spill-blocked-diag"})
+    sheet = CalcSheetStub(name="Sheet1")
+    origin_cell = sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("code_spill")')
+    sheet.getCellByPosition(1, 0).setString("blocker")
+
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    doc_id = "uid-spill-blocked-diag"
+    try:
+        res = _spill.prepare_auto_spill(
+            MagicMock(),
+            doc,
+            state,
+            FormulaOrigin(sheet, origin_cell, "Sheet1", 0, 0),
+            "code_spill",
+            [[1, 2], [3, 4]],
+        )
+        assert res == "#SPILL!"
+        entry = get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), "code_spill")
+        assert entry is not None
+        assert entry.status == "error"
+        assert "Sheet1.A1:B2" in entry.message
+        assert "B1" in entry.message
     finally:
         for key in [k for k in SPILL_REGISTRY if k[0] == doc_id]:
             SPILL_REGISTRY.pop(key, None)

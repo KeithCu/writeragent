@@ -42,7 +42,7 @@ def test_playback_order_and_stop_on_content_only() -> None:
     student = ScriptedStudent("table_from_mess")
     first = student.request_with_tools([{"role": "user", "content": "x"}], tools=[])
     assert first["tool_calls"]
-    assert first["tool_calls"][0]["function"]["name"] == "apply_document_content"
+    assert first["tool_calls"][0]["function"]["name"] == "apply_content"
     second = student.request_with_tools([], tools=[])
     assert not second.get("tool_calls")
     assert second.get("content")
@@ -65,7 +65,7 @@ def test_tax_and_sort_use_production_names() -> None:
         for rnd in SCRIPTS["tax_column"]
         for tc in (rnd.get("tool_calls") or [])
     ]
-    assert "write_formula_range" in tax_names
+    assert "write_range" in tax_names
     assert "get_sheet_summary" in tax_names
 
 
@@ -98,15 +98,18 @@ def test_scripted_specialized_names_match_schema_stages() -> None:
     assert flow[0] == "delegate_to_specialized_draw_toolset"
     assert flow[0] in core_draw
     for name in flow[1:]:
-        if name == "get_draw_tree":
+        if name == "shape_get_tree":
             assert name in core_draw
         else:
             assert name in shapes, name
     sort_names = _script_tool_names("data_sorting")
     assert sort_names[0] == "delegate_to_specialized_calc_toolset"
     assert sort_names[0] in core_calc
-    for name in sort_names[1:]:
+    finish = sort_names.index("specialized_workflow_finished")
+    for name in sort_names[1 : finish + 1]:
         assert name in ranges, name
+    for name in sort_names[finish + 1 :]:
+        assert name in core_calc, name
 
 
 def test_scripted_flowchart_inner_loop_nests_shapes() -> None:
@@ -160,7 +163,7 @@ def test_calc_minimal_preset_still_runs_specialized_sort() -> None:
     names = [item["name"] for item in trace]
     assert "delegate_to_specialized_calc_toolset" in names
     nested = [item for item in trace if item.get("nested")]
-    assert any(item["name"] == "range_sort" for item in nested)
+    assert any(item["name"] == "sort_range" for item in nested)
     assert any(item["name"] == "specialized_workflow_finished" for item in nested)
 
 
@@ -183,4 +186,4 @@ def test_writer_minimal_scripted_apply_task() -> None:
         verbose=False,
     )
     assert err is None
-    assert any(item["name"] == "apply_document_content" for item in trace)
+    assert any(item["name"] == "apply_content" for item in trace)

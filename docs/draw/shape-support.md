@@ -49,7 +49,7 @@ For truly arbitrary shapes that don't fit into the predefined custom shape types
 These require specifying the `Polygon` or `PolyPolygon` properties, which expect an array of `com.sun.star.awt.Point` structures. *(Note: Support for these advanced arbitrary polygon creations via AI tool calls may be implemented as a separate API in the future to keep standard shape creation simple and distinct).*
 
 ## WriterAgent Shape Implementation
-The `shape_upsert` tool unifies the simple and CustomShape UNO APIs into a single interface.
+The `shape_upsert` tool unifies the simple and CustomShape UNO APIs into a single interface. Its results carry `action` (`"create"` or `"edit"`) and the read-back `name` (`""` when unnamed), while `shape_connect`, `shape_group`, and `shape_delete` results carry the resolved `page` index.
 
 When the user requests a `shape_type`:
 1. **Base Aliases**: If it's a known simple alias (e.g., `"rectangle"`, `"ellipse"`), it maps to the corresponding base UNO shape (`RectangleShape`, `EllipseShape`).
@@ -57,6 +57,8 @@ When the user requests a `shape_type`:
 3. **Custom Shapes**: If it's none of the above, the tool assumes the user is requesting a specific `CustomShape` geometry type (like `"octagon"` or `"smiley"`). It will instantiate a `CustomShape` and apply the requested string to the `Type` geometry property.
 
 The tool's JSON schema summarizes CustomShape types **by category** (with a few examples each); the full set is defined by LibreOffice (see `svx/source/customshapes/EnhancedCustomShapeTypeNames.cxx` in LibreOffice core). Any valid type string from that catalog can be passed as `shape_type`.
+
+New shapes created by `shape_upsert` (and `shape_diagram`), `shape_connect`, and `shape_group` always carry a page-unique `Name` (`Shape<n>` when omitted on Draw, Impress, and Calc; Writer's `SwXDrawPage::add` already assigns one) and return it as `name`. Explicit duplicate `name` values on create or index-addressed rename are rejected (`INVALID_PARAM`).
 
 ## Grouping
 

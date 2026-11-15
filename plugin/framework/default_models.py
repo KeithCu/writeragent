@@ -177,17 +177,17 @@ def together_speech_ids(kind: str, remote_models: list[str] | None = None) -> li
 
 
 DEFAULT_MODELS: list[dict[str, Any]] = [
-    {"display_name": "Free Models (Auto)", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 200000, "ids": {"openrouter": "openrouter/free"}},
+    {"display_name": "Free Models (Auto)", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 200000, "ids": {"openrouter": "openrouter/free"}},
     {"display_name": "DeepSeek V3", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 163840, "ids": {"deepseek": "deepseek-chat"}, "default_text": True},
     {"display_name": "DeepSeek V4 Flash", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 163840, "ids": {"together": "deepseek-ai/DeepSeek-V4-Flash-0731"}},
-    {"display_name": "MiniMax M3", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 1000000, "ids": {"together": "MiniMaxAI/MiniMax-M3"}, "default_text": True},
+    {"display_name": "MiniMax M3", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 1000000, "ids": {"together": "MiniMaxAI/MiniMax-M3"}, "default_text": True},
     {"display_name": "GPT-OSS 120B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 131072, "ids": {"together": "openai/gpt-oss-120b", "openrouter": "openai/gpt-oss-120b:nitro", "groq": "openai/gpt-oss-120b"}, "default_text": True},
     {"display_name": "GPT-OSS 20B", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 131072, "ids": {"together": "openai/gpt-oss-20b", "openrouter": "openai/gpt-oss-20b", "groq": "openai/gpt-oss-20b"}},
-    {"display_name": "Mistral Large 3", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 262144, "ids": {"openrouter": "mistralai/mistral-large-2512", "mistral": "mistral-large-latest"}},
+    {"display_name": "Mistral Large 3", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 262144, "ids": {"openrouter": "mistralai/mistral-large-2512", "mistral": "mistral-large-latest"}},
     {"display_name": "Voxtral Mini Transcribe", "capability": ModelCapability.AUDIO, "ids": {"openrouter": "mistralai/voxtral-mini-transcribe"}, "default_audio": True},
-    {"display_name": "Gemini 3.1 Flash Lite Preview", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 1048576, "ids": {"google": "gemini-3.1-flash-lite-preview", "openrouter": "google/gemini-3.1-flash-lite-preview"}},
-    {"display_name": "Gemini 3.1 Flash Lite", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 1048576, "ids": {"google": "gemini-3.1-flash-lite", "openrouter": "google/gemini-3.1-flash-lite"}},
-    {"display_name": "Gemini 3.1 Pro", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.VISION | ModelCapability.TOOLS, "context_length": 1048576, "ids": {"google": "gemini-3.1-pro", "openrouter": "google/gemini-3.1-pro"}},
+    {"display_name": "Gemini 3.1 Flash Lite Preview", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.TOOLS, "context_length": 1048576, "ids": {"google": "gemini-3.1-flash-lite-preview", "openrouter": "google/gemini-3.1-flash-lite-preview"}},
+    {"display_name": "Gemini 3.1 Flash Lite", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.TOOLS, "context_length": 1048576, "ids": {"google": "gemini-3.1-flash-lite", "openrouter": "google/gemini-3.1-flash-lite"}},
+    {"display_name": "Gemini 3.1 Pro", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.TOOLS, "context_length": 1048576, "ids": {"google": "gemini-3.1-pro", "openrouter": "google/gemini-3.1-pro"}},
     {"display_name": "FLUX.2 [dev]", "capability": ModelCapability.IMAGE, "ids": {"together": "black-forest-labs/FLUX.2-dev"}, "default_image": True},
     {"display_name": "Gemini Flash Image 2.5", "capability": ModelCapability.IMAGE, "ids": {"together": "google/flash-image-2.5"}},
     {"display_name": "Gemini 3.1 Flash Lite Image", "capability": ModelCapability.IMAGE, "ids": {"openrouter": "google/gemini-3.1-flash-lite-image"}, "default_image": True},
@@ -205,4 +205,20 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "GLM 5.2", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 200000, "ids": {"zai": "glm-5.2"}, "default_text": True},
     {"display_name": "GLM ASR 2512", "capability": ModelCapability.AUDIO, "ids": {"zai": "glm-asr-2512"}, "default_audio": True},
     {"display_name": "WriterAgent Mock", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.TOOLS, "context_length": 32768, "ids": {"mock": "writeragent-mock"}},
+    # Minimal vision fallbacks for providers whose /models API does not report
+    # input modalities or vision capabilities:
+    # - Groq GET /openai/v1/models returns id, context_window, active, owned_by only.
+    # - Z.ai GET /api/paas/v4/models does not report input_modalities or capabilities.vision.
+    {"display_name": "Qwen 3.8 27B", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "ids": {"groq": "qwen/qwen3.8-27b"}},
+    {"display_name": "GLM 5.3 Flash", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "ids": {"zai": "glm-5.3-flash"}},
+    {"display_name": "GLM 5.3 FlashX", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "ids": {"zai": "glm-5.3-flashx"}},
 ]
+
+
+# Providers where every chat model on the API takes image input and the models
+# API does not report vision capabilities:
+# - google: /v1beta/openai/models and /v1beta/models do not report input_modalities
+#   or vision; all Gemini / Gemma chat models on the Gemini API accept image input.
+# (Anthropic is looked up live via GET /v1/models capabilities.image_input.supported.)
+# has_native_vision consults this only after config, live memo, and catalog VISION.
+PROVIDER_VISION: dict[str, bool] = {"google": True}
