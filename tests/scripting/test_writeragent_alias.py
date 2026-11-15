@@ -153,7 +153,10 @@ def test_writeragent_api_in_process_rpc():
 
         mock_registry = MagicMock()
         mock_get_tools.return_value = mock_registry
-        mock_registry.execute.return_value = "mocked_sheets_list"
+        mock_registry.execute.return_value = {
+            "status": "ok",
+            "result": [{"name": "Sheet1", "protected": False, "visible": True}],
+        }
         mock_is_calc.return_value = True
         mock_get_ctx.return_value = MagicMock()
         mock_get_doc.return_value = MagicMock()
@@ -162,8 +165,8 @@ def test_writeragent_api_in_process_rpc():
 
         set_process_role(ROLE_HOST)
         try:
-            res = writeragent.sheet.list()
-            assert res == "mocked_sheets_list"
+            res = [s.name for s in writeragent.sheet]
+            assert res == ["Sheet1"]
             mock_registry.execute.assert_called_once()
             call_args = mock_registry.execute.call_args[0]
             assert call_args[0] == "sheet_list"
@@ -177,7 +180,7 @@ def test_venv_worker_bidirectional_tool_call():
 
     code = (
         "import writeragent\n"
-        "result = writeragent.bookmark.list()\n"
+        "result = [b.name for b in writeragent.bookmark]\n"
     )
 
     with patch("plugin.app.get_tools") as mock_get_tools, \
@@ -189,7 +192,11 @@ def test_venv_worker_bidirectional_tool_call():
 
         mock_registry = MagicMock()
         mock_get_tools.return_value = mock_registry
-        mock_registry.execute.return_value = "mocked_bookmarks_list"
+        mock_registry.execute.return_value = {
+            "status": "ok",
+            "bookmarks": [{"name": "A", "text": ""}],
+            "count": 1,
+        }
         mock_get_ctx.return_value = MagicMock()
         mock_get_doc.return_value = MagicMock()
         mock_is_calc.return_value = False
@@ -200,7 +207,7 @@ def test_venv_worker_bidirectional_tool_call():
         try:
             res = run_code_in_user_venv(code)
             assert res.get("status") == "ok", res.get("message")
-            assert res.get("result") == "mocked_bookmarks_list"
+            assert res.get("result") == ["A"]
         finally:
             shutdown_venv_workers_for_tests()
 
