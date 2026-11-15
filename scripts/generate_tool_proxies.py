@@ -626,6 +626,17 @@ def generate_module(tools: list["ToolBase"]) -> str:
             lines.append(f'        return call_host_tool("{tool.name}"{kwargs_body})')
             lines.append("")
 
+        if namespace == "structural":
+            # Thin aliases kept so existing scripts calling wa.structural.section_list/read keep working.
+            lines.append("    def section_list(self) -> dict[str, Any]:")
+            lines.append('        """Alias for wa.section.list()."""')
+            lines.append('        return call_host_tool("section_list")')
+            lines.append("")
+            lines.append("    def section_read(self, section: str) -> dict[str, Any]:")
+            lines.append('        """Alias for wa.section.read(name)."""')
+            lines.append('        return call_host_tool("section_read", name=section)')
+            lines.append("")
+
         # Singleton instance (keep DOMAIN_TOOLS key as registered domain string)
         lines.append(f"{safe_ns} = _{class_name}()")
         lines.append("")

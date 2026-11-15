@@ -155,6 +155,12 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'named_range_list',
                  'range_sort'],
     'search': ['search_cells', 'search_replace'],
+    'section': [   'section_create',
+                   'section_delete',
+                   'section_list',
+                   'section_read',
+                   'section_set_columns',
+                   'section_set_protection'],
     'shape': [   'shape_align',
                  'shape_connect',
                  'shape_delete',
@@ -180,12 +186,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'slide_master': ['slide_master_get', 'slide_master_list', 'slide_master_set'],
     'slide_transition': ['slide_transition_get', 'slide_transition_set'],
     'speaker_note': ['speaker_notes_get', 'speaker_notes_set'],
-    'structural': [   'nav_goto_page',
-                      'nav_heading',
-                      'nav_heading_children',
-                      'nav_surroundings',
-                      'section_list',
-                      'section_read'],
+    'structural': ['nav_goto_page', 'nav_heading', 'nav_heading_children', 'nav_surroundings'],
     'styles': ['style_clone', 'style_create', 'style_get_info', 'style_import', 'style_list', 'style_update'],
     'table': [   'table_delete',
                  'table_get_cells',
@@ -348,8 +349,12 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'search_in_document': ('writer', 'search_in_document'),
     'search_replace': ('search', 'replace'),
     'search_slides': ('draw', 'search_slides'),
-    'section_list': ('structural', 'section_list'),
-    'section_read': ('structural', 'section_read'),
+    'section_create': ('section', 'create'),
+    'section_delete': ('section', 'delete'),
+    'section_list': ('section', 'list'),
+    'section_read': ('section', 'read'),
+    'section_set_columns': ('section', 'set_columns'),
+    'section_set_protection': ('section', 'set_protection'),
     'set_active_page': ('draw', 'set_active_page'),
     'set_placeholder_text': ('draw', 'set_placeholder_text'),
     'set_selection': ('writer', 'set_selection'),
@@ -437,6 +442,7 @@ __all__ = [   'DOMAIN_TOOLS',
     'python',
     'python_sql',
     'search',
+    'section',
     'shape',
     'sheet',
     'slide_layout',
@@ -1935,6 +1941,61 @@ class _SearchProxy:
 search = _SearchProxy()
 
 
+class _SectionProxy:
+    """Proxy for section tools."""
+
+    def create(self, name: str, locator: str, *, end_locator: str | None = None) -> dict[str, Any]:
+        """Create a named text section wrapping whole paragraphs.
+
+        Args:
+            name (required): Unique name for the new section.
+            locator (required): First paragraph, e.g. paragraph:12, heading_text:Methods, bookmark:NAME, or the literal selection for the current selection.
+            end_locator (optional): Last paragraph, inclusive; defaults to locator; not allowed with selection.
+        """
+        return call_host_tool("section_create", name=name, locator=locator, end_locator=end_locator)
+
+    def delete(self, name: str) -> dict[str, Any]:
+        """Remove the section but keep its text; sections nested inside it stay.
+
+        Args:
+            name (required): Name of the section to delete.
+        """
+        return call_host_tool("section_delete", name=name)
+
+    def list(self) -> dict[str, Any]:
+        """List all named sections in the document."""
+        return call_host_tool("section_list")
+
+    def read(self, name: str) -> dict[str, Any]:
+        """Read the text content of a named section. Returns the full text within the section boundaries.
+
+        Args:
+            name (required): Name of the section to read.
+        """
+        return call_host_tool("section_read", name=name)
+
+    def set_columns(self, name: str, column_count: int, *, spacing_mm: float | None = None) -> dict[str, Any]:
+        """Set the number of columns and column spacing (in mm) for a text section.
+
+        Args:
+            name (required): Name of the section.
+            column_count (required): Number of columns (1-99).
+            spacing_mm (optional): Spacing between columns in mm. Defaults to 0.
+        """
+        return call_host_tool("section_set_columns", name=name, column_count=column_count, spacing_mm=spacing_mm)
+
+    def set_protection(self, name: str, protected: bool) -> dict[str, Any]:
+        """Set whether a text section is protected from editing (protection stops editing in the Writer UI only).
+
+        Args:
+            name (required): Name of the section.
+            protected (required): True to protect the section, False to unprotect.
+        """
+        return call_host_tool("section_set_protection", name=name, protected=protected)
+
+section = _SectionProxy()
+
+
 class _ShapeProxy:
     """Proxy for shape tools."""
 
@@ -2297,16 +2358,12 @@ class _StructuralProxy:
         return call_host_tool("nav_surroundings", locator=locator, radius=radius, include=include)
 
     def section_list(self) -> dict[str, Any]:
-        """List all named sections in the document."""
+        """Alias for wa.section.list()."""
         return call_host_tool("section_list")
 
     def section_read(self, section: str) -> dict[str, Any]:
-        """Read the text content of a named section. Returns the full text within the section boundaries.
-
-        Args:
-            section (required): Name of the section to read.
-        """
-        return call_host_tool("section_read", section=section)
+        """Alias for wa.section.read(name)."""
+        return call_host_tool("section_read", name=section)
 
 structural = _StructuralProxy()
 

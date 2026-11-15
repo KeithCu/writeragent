@@ -286,8 +286,12 @@ _.SaveFilter  # attribute: plugin/writer/specialized/mail_merge.py:553
 _.SearchInDocument  # class: plugin/writer/search.py:956
 _.SearchInSpreadsheet  # class: plugin/calc/search.py:31
 _.SearchNearbyFiles  # class: plugin/embeddings/document_research_fts_tool.py:21
+_.SectionCreate  # class: plugin/writer/specialized/sections.py:155
+_.SectionDelete  # class: plugin/writer/specialized/sections.py:231
 _.SectionList  # class: plugin/writer/structural.py:63
 _.SectionRead  # class: plugin/writer/structural.py:276
+_.SectionSetColumns  # class: plugin/writer/specialized/sections.py:266
+_.SectionSetProtection  # class: plugin/writer/specialized/sections.py:325
 _.SendPeerResult  # class: plugin/doc/peer_message.py:812
 _.SendPeerWork  # class: plugin/doc/peer_message.py:804
 _.SetActivePage  # class: plugin/draw/pages.py:274
