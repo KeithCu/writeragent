@@ -34,7 +34,7 @@ In `plugin/calc/manipulator.py`, we use a regular expression to normalize JSON a
 ### [Workaround] Explicit Prompt Rules
 In `plugin/framework/prompts.py`, the system prompt includes high-pressure instructions on formula syntax.
 - **Constraint**: "FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator. Wrong: =SUM(A1,A10) (no commas)."
-- **Duality**: We also explicitly warn about CSV: "CSV DATA: Use comma (,) for write_formula_range." to counteract the formula semicolon rule.
+- **Duality**: CSV delimiters are auto-detected (§1), so the prompt has no CSV line; the semicolon rule applies to formula text only.
 
 ## 5. Defensive Parameter Handling
 **Problem**: Models sometimes pass range names as lists or wrap them in extra quotes.
