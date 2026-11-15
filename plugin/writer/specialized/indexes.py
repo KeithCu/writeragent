@@ -11,13 +11,13 @@
 
 Bibliography v1 is an indexes overload, not ``domain=bibliography``. Cites are
 ``com.sun.star.text.textfield.Bibliography`` (a TextField), not index marks.
-The reference table is ``indexes_create(kind="bibliography")``. After cite
-changes, ``indexes_update_all`` refreshes that table. One TOC row is
-``indexes_refresh_toc_entry`` / ``indexes_insert_toc_entry`` /
-``indexes_delete_toc_entry``. Those three do not call ``update()`` and do not
-edit neighboring rows. ``indexes_list_toc_entries`` reads the same index
+The reference table is ``index_create(kind="bibliography")``. After cite
+changes, ``index_update_all`` refreshes that table. One TOC row is
+``index_refresh_toc_entry`` / ``index_insert_toc_entry`` /
+``index_delete_toc_entry``. Those three do not call ``update()`` and do not
+edit neighboring rows. ``index_list_toc_entries`` reads the same index
 paragraphs (visible text, Contents N level, HyperLinkURL) and also does not
-call ``update()`` or export the document. ``indexes_update_all`` still rebuilds
+call ``update()`` or export the document. ``index_update_all`` still rebuilds
 a TOC and drops customized formatting. Outline ``HyperLinkURL`` on refresh goes through
 ``hyperlink_fixup``, which skips a title-only URL rewrite when the whole-span
 write already set it. Insert sets ``#…|outline`` or ``#Name|table`` on the new
@@ -62,7 +62,7 @@ from ..target_resolver import insert_at_target
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
 
-# Creation service → indexes_create kind. Prefer XDocumentIndex.getServiceName()
+# Creation service → index_create kind. Prefer XDocumentIndex.getServiceName()
 # when listing: bibliography tables implement SwXDocumentIndex (same as
 # alphabetical), so getImplementationName() alone remaps them wrongly.
 _INDEX_SERVICE_TO_KIND = {
@@ -279,13 +279,13 @@ def set_bibliography_field_values(field: Any, pairs: dict[str, Any]) -> None:
 
 
 class IndexesUpdateAll(ToolWriterIndexBase):
-    name: str | None = "indexes_update_all"
+    name: str | None = "index_update_all"
     description: str = (
         "Refresh all document indexes (TOC, alphabetical, bibliography table). "
         "Call after inserting or editing bibliography cites so the reference list updates. "
         "A TOC refresh rebuilds every entry and drops customized direct formatting. "
-        "To change one entry without that rebuild, use indexes_refresh_toc_entry, "
-        "indexes_insert_toc_entry, or indexes_delete_toc_entry. "
+        "To change one entry without that rebuild, use index_refresh_toc_entry, "
+        "index_insert_toc_entry, or index_delete_toc_entry. "
         "Those tools do not call update() and do not recalculate page numbers."
     )
     parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
@@ -804,16 +804,16 @@ def _remove_paragraph(text: Any, para: Any, anchor: Any) -> None:
 
 
 class IndexesRefreshTocEntry(ToolWriterIndexBase):
-    name: str | None = "indexes_refresh_toc_entry"
+    name: str | None = "index_refresh_toc_entry"
     description: str = (
         "Replace one substring inside a single table-of-contents entry and, when that "
         "text sits in one outline hyperlink (#…|outline), update that URL. "
         "Does not call index update(), so other entries, tabs, page numbers, and direct "
         "formatting stay. Page numbers are left as they are. "
-        "indexes_update_all is the full rebuild and drops customized TOC formatting. "
+        "index_update_all is the full rebuild and drops customized TOC formatting. "
         "Pass hyperlink_url to set the outline target, including when content equals "
         "old_content. Bookmark targets are not rewritten. "
-        "To add or remove one row, use indexes_insert_toc_entry or indexes_delete_toc_entry."
+        "To add or remove one row, use index_insert_toc_entry or index_delete_toc_entry."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -821,7 +821,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             "old_content": {"type": "string", "description": "Substring to find inside the TOC entry."},
             "content": {"type": "string", "description": "Plain text to write in its place. May equal old_content when only hyperlink_url should change."},
             "hyperlink_url": {"type": "string", "description": "Exact outline URL (#…|outline) when the match overlaps exactly one outline link. Omit to substitute old_content once outside the |outline suffix."},
-            "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+            "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link."},
             "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
@@ -839,7 +839,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         content = _one_line(content, " ")
         if content_has_markup(content):
             return self._tool_error(
-                "indexes_refresh_toc_entry takes plain text so the entry's formatting stays.",
+                "index_refresh_toc_entry takes plain text so the entry's formatting stays.",
                 code="INVALID_PARAM")
         raw_url = kwargs.get("hyperlink_url")
         override = None
@@ -934,20 +934,20 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
 
 class IndexesDeleteTocEntry(ToolWriterIndexBase):
-    name: str | None = "indexes_delete_toc_entry"
+    name: str | None = "index_delete_toc_entry"
     description: str = (
         "Delete one table-of-contents entry (the whole paragraph). "
-        "Identify it the same way as indexes_refresh_toc_entry: old_content matched "
+        "Identify it the same way as index_refresh_toc_entry: old_content matched "
         "inside the TOC only, plus optional index and occurrence. "
         "Does not call index update(), so neighboring entries, tabs, and direct formatting stay. "
-        "indexes_update_all is the full rebuild and drops customized TOC formatting. "
+        "index_update_all is the full rebuild and drops customized TOC formatting. "
         "The agent decides which row is obsolete; this tool does not compare the outline."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "old_content": {"type": "string", "description": "Plain text to find inside the TOC entry to delete."},
-            "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+            "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry that would be removed) and an empty text_after."},
             "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
@@ -963,7 +963,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
         if content_has_markup(old_content):
             return self._tool_error(
-                "indexes_delete_toc_entry takes plain text so the entry match stays a substring.",
+                "index_delete_toc_entry takes plain text so the entry match stays a substring.",
                 code="INVALID_PARAM")
         idx, anchor, found, err = _locate_toc_entry(
             self,
@@ -1025,7 +1025,7 @@ def _outline_url(raw: Any) -> tuple[str | None, str | None]:
 
 
 class IndexesInsertTocEntry(ToolWriterIndexBase):
-    name: str | None = "indexes_insert_toc_entry"
+    name: str | None = "index_insert_toc_entry"
     description: str = (
         "Insert one new row into an existing table of contents. "
         "Does not call index update(), and does not modify neighboring entries. "
@@ -1036,7 +1036,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         "store digits in the entry, not a page field). Pass page to set that text when the "
         "new row is not on the sibling's page; omit it to copy the sibling's page text. "
         "position is before, after (both need old_content), or end (after the last TOC entry). "
-        "indexes_update_all is the full rebuild and drops customized TOC formatting. "
+        "index_update_all is the full rebuild and drops customized TOC formatting. "
         "The agent decides what is missing; this tool does not sync the outline."
     )
     parameters: dict[str, Any] | None = {
@@ -1051,7 +1051,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             ),
             "old_content": {"type": "string", "description": "Plain text of the existing TOC entry to insert before or after. Not used when position is end."},
             "level": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Contents N paragraph style (1-10). Omit to clone the sibling entry's style."},
-            "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+            "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only, when position is before or after. Omit for the first."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted)."},
             "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
@@ -1068,7 +1068,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         content = _one_line(content.strip(), " ")
         if content_has_markup(content):
             return self._tool_error(
-                "indexes_insert_toc_entry takes plain text so the new entry's formatting can be cloned.",
+                "index_insert_toc_entry takes plain text so the new entry's formatting can be cloned.",
                 code="INVALID_PARAM")
         page, page_error = _page_text(kwargs.get("page"))
         if page_error:
@@ -1189,12 +1189,12 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
 
 
 class IndexesList(ToolWriterIndexBase):
-    name: str | None = "indexes_list"
+    name: str | None = "index_list"
     description: str = (
         "List document indexes (TOC, alphabetical, user, bibliography tables). "
-        "type matches indexes_create kind (bibliography via getServiceName). "
-        "For in-flow cites use indexes_list_cites, not this tool. "
-        "For TOC row text and outline level use indexes_list_toc_entries."
+        "type matches index_create kind (bibliography via getServiceName). "
+        "For in-flow cites use index_list_cites, not this tool. "
+        "For TOC row text and outline level use index_list_toc_entries."
     )
     parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
     is_mutation: bool | None = False
@@ -1218,7 +1218,7 @@ class IndexesList(ToolWriterIndexBase):
 
 
 class IndexesListTocEntries(ToolWriterIndexBase):
-    name: str | None = "indexes_list_toc_entries"
+    name: str | None = "index_list_toc_entries"
     description: str = (
         "List table-of-contents rows by reading the index paragraphs. "
         "Each row is the visible text and the outline level (Contents 1-10). "
@@ -1226,14 +1226,14 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         "renames keep links without hyperlink_url. "
         "Does not export the document and does not call index update(). "
         "Use this to inspect or validate TOC entries. "
-        "indexes_list returns only the index name and type. "
-        "Do not use get_document_content for a linked TOC: that export runs "
+        "index_list returns only the index name and type. "
+        "Do not use get_content for a linked TOC: that export runs "
         "the XHTML Writer filter, entry text often comes back empty, and a long outline can hang."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+            "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
             "include_links": {"type": "boolean", "description": "Include internal hyperlink URLs on each row. Defaults to false; outline links are preserved automatically during renames.", "default": False},
         },
         "required": [],
@@ -1241,7 +1241,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        # Listing TOC rows must not call get_document_content. That
+        # Listing TOC rows must not call get_content. That
         # exports the whole document through the XHTML Writer filter on
         # the LibXSLT thread. A linked TOC comes back with empty entry
         # text, and a long outline can sit there for minutes, while the
@@ -1267,11 +1267,11 @@ class IndexesListTocEntries(ToolWriterIndexBase):
 
 
 class IndexesListCites(ToolWriterIndexBase):
-    name: str | None = "indexes_list_cites"
+    name: str | None = "index_list_cites"
     description: str = (
         "List native bibliography cite fields (TextField.Bibliography). "
         "Returns identifier, key Fields (Author, Title, Year, Pages, type), and location. "
-        "Does not list the bibliography table — use indexes_list for that."
+        "Does not list the bibliography table — use index_list for that."
     )
     parameters: dict[str, Any] | None = _EMPTY_PARAMETERS
     is_mutation: bool | None = False
@@ -1309,11 +1309,11 @@ class IndexesListCites(ToolWriterIndexBase):
 
 
 class IndexesCreate(ToolWriterIndexBase):
-    name: str | None = "indexes_create"
+    name: str | None = "index_create"
     description: str = (
         "Create a document index (toc, alphabetical, user, illustration, table, object, bibliography). "
         "kind=bibliography inserts the reference table (com.sun.star.text.Bibliography); "
-        "cites must already exist or be added with indexes_add_mark kind=bibliography, then indexes_update_all. "
+        "cites must already exist or be added with index_add_mark kind=bibliography, then index_update_all. "
         "Use target='beginning', 'end', or 'selection'. "
         "Use target='search' with old_content to find and replace text."
     )
@@ -1360,15 +1360,15 @@ class IndexesCreate(ToolWriterIndexBase):
 
 
 class IndexesAddMark(ToolWriterIndexBase):
-    name: str | None = "indexes_add_mark"
+    name: str | None = "index_add_mark"
     description: str = (
         "Insert an index mark or a bibliography cite at target. "
         "With target='search' the mark or cite is placed at the start of the match and the matched text is kept, not replaced. "
         "kind=alphabetical|user creates DocumentIndexMark / UserIndexMark (primary_key/secondary_key). "
         "kind=bibliography creates TextField.Bibliography — not an index mark; "
         "set Identifier/Author/Title/Year/Pages (text defaults to Identifier). "
-        "primary_key is ignored for cites. After cite changes call indexes_update_all "
-        "so the bibliography table refreshes. Do not use fields_insert for product cites."
+        "primary_key is ignored for cites. After cite changes call index_update_all "
+        "so the bibliography table refreshes. Do not use field_insert for product cites."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

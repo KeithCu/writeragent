@@ -146,7 +146,7 @@ class CreateSheet(ToolCalcSheetBase):
     """Create a new sheet."""
 
     name: str | None = "sheet_create"
-    description: str = "Creates a new empty sheet (tab exists; no cells copied). sheet_create is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet."
+    description: str = "Creates a new empty sheet (tab exists; no cells copied). sheet_create is not Sample/deliverable populate — after create, write_range with source to copy a block onto the new sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"sheet": {"type": "string", "description": ("Exact new sheet title from the request; preserve spaces (do not snake_case or invent aliases).")}, "position": {"type": "integer", "description": "Sheet position (0-based). Appended to end if not specified."}},

@@ -254,9 +254,9 @@ _DEFAULT_PYTHON_SCRIPTS = {
 
         # 1. Insert rich HTML
         if doc_type == "writer":
-            wa.writer.apply_document_content(content=["<h1>Hello from WriterAgent</h1>", "<p>Rich <b>HTML</b> at the end.</p>"], target="end")
+            wa.writer.apply_content(content=["<h1>Hello from WriterAgent</h1>", "<p>Rich <b>HTML</b> at the end.</p>"], target="end")
         elif doc_type == "calc":
-            wa.calc.insert_cell_html(cell="A1", html="<h1>Hello from WriterAgent</h1><p>Rich <b>HTML</b>.</p>")
+            wa.calc.insert_html(cell="A1", html="<h1>Hello from WriterAgent</h1><p>Rich <b>HTML</b>.</p>")
         else:
             print("Unsupported document type for rich text insertion.")
 
@@ -270,7 +270,15 @@ _DEFAULT_PYTHON_SCRIPTS = {
 # substring patch, so Monaco shows the one-line-call version.
 # ``if __name__ == "__main__": run()`` is the previous function-wrapped sample —
 # Run Python Script already execs at module top-level with ``__name__ == "__main__"``.
-_LEGACY_UNIVERSAL_SAMPLE_MARKERS = ('cell_address="A1"', "wa.shape.upsert_shape(", "Hello from Python SDK", 'if __name__ == "__main__":\n    run()')
+# Proxy method renames (WA-API-NAMES) also retire the sample's old call names.
+_LEGACY_UNIVERSAL_SAMPLE_MARKERS = (
+    'cell_address="A1"',
+    "wa.shape.upsert_shape(",
+    "Hello from Python SDK",
+    'if __name__ == "__main__":\n    run()',
+    "wa.writer.apply_document_content(",
+    "wa.calc.insert_cell_html(",
+)
 
 
 # Default endpoint normalizer.

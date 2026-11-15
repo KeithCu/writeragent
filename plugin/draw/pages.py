@@ -52,9 +52,9 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
 
     ``insertNewByIndex`` can leave a factory Default master even when the deck
     already has an assigned design master. Prefer the previous slide, then the
-    following one, so add_slide keeps the deck look.
+    following one, so slide_add keeps the deck look.
 
-    ``add_slide(page=0)`` can pass ``insert_at=0`` while the new
+    ``slide_add(page=0)`` can pass ``insert_at=0`` while the new
     page actually sits at index 1. The only candidate is then index
     1, which is the new page, so the copy assigns that page's own
     master. ``InsertSdPage`` cannot create a page at index 0, and a
@@ -90,7 +90,7 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
 
 
 class AddSlide(ToolBase):
-    name: str | None = "add_slide"
+    name: str | None = "slide_add"
     description: str = "Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -140,7 +140,7 @@ class AddSlide(ToolBase):
                 inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
                 if inherited:
                     result["master"] = inherited
-                result["placeholders_hint"] = "call list_placeholders on this page"
+                result["placeholders_hint"] = "call placeholder_list on this page"
                 # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
                 # leaves that id with 0 shapes; assigning it keeps the page empty.
                 # blank/none still call apply_slide_layout; only PowerPoint blank id 11 is avoided elsewhere.
@@ -156,7 +156,7 @@ class AddSlide(ToolBase):
                 if is_disposal(rm_exc):
                     raise
                 cleanup_failed = True
-                log.debug("add_slide cleanup remove failed", exc_info=True)
+                log.debug("slide_add cleanup remove failed", exc_info=True)
             return self._tool_error(
                 f"Failed to set layout or master on new slide: {exc}",
                 cleanup_failed=cleanup_failed,
@@ -177,7 +177,7 @@ class _SlideMutationTool(ToolBase):
 
 
 class DeleteSlide(_SlideMutationTool):
-    name: str | None = "delete_slide"
+    name: str | None = "slide_delete"
     description: str = "Deletes the slide (page) at the specified index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
 
@@ -220,7 +220,7 @@ def page_entries(pages: Any) -> list[dict[str, Any]]:
 
 
 class ListPages(ToolBase):
-    name: str | None = "list_pages"
+    name: str | None = "slide_list"
     description: str = (
         "Lists pages (slides) in deck order as {index, name, title}; index is 0-based. "
         "Unnamed slides have LibreOffice's positional default 'pageN' "
@@ -281,7 +281,7 @@ def iter_shape_text_units(page: Any, *, table_mode: Literal["per_cell", "tsv"] =
 class ReadSlideText(ToolBase):
     """Read all text content from a slide plus speaker notes."""
 
-    name: str | None = "read_slide_text"
+    name: str | None = "slide_read_text"
     description: str = (
         "Read text from shapes on a slide (including grouped descendants and table cells as TSV) "
         "and speaker notes. Returns structured text per shape or table."
@@ -309,7 +309,7 @@ class ReadSlideText(ToolBase):
 class SearchSlides(ToolBase):
     """Search shape text and speaker notes across Draw/Impress slides."""
 
-    name: str | None = "search_slides"
+    name: str | None = "slide_search"
     description: str = (
         "Search text in slide shapes (including grouped descendants and table cells) and speaker notes. "
         "Each match reports the page, shape name, matched text, and shape index when available."
@@ -402,7 +402,7 @@ class SearchSlides(ToolBase):
 class GetPresentationInfo(ToolBase):
     """Get presentation metadata."""
 
-    name: str | None = "get_presentation_info"
+    name: str | None = "get_deck_info"
     description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = DRAW_AND_IMPRESS
@@ -432,12 +432,12 @@ class GetPresentationInfo(ToolBase):
 
 
 class SetActivePage(ToolBase):
-    name: str | None = "set_active_page"
+    name: str | None = "slide_set_active"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     # View change only. None would still detect a mutation: the name
-    # set_active_page is not a read prefix. read_only_target and the MCP
+    # slide_set_active is not a read prefix. read_only_target and the MCP
     # document lock both follow detects_mutation.
     is_mutation: bool | None = False
 
@@ -453,7 +453,7 @@ class SetActivePage(ToolBase):
 
 
 class DuplicateSlide(_SlideMutationTool):
-    name: str | None = "duplicate_slide"
+    name: str | None = "slide_duplicate"
     description: str = "Duplicates the slide at the given 0-based index. The copy is inserted immediately after the source slide."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of the slide to duplicate"}, "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"}}, "required": ["page"]}
     tier: str = "core"
@@ -472,7 +472,7 @@ class DuplicateSlide(_SlideMutationTool):
 
 
 class MoveSlide(_SlideMutationTool):
-    name: str | None = "move_slide"
+    name: str | None = "slide_move"
     description: str = (
         "Moves the slide at from_page (0-based) so it ends at to_page (the 0-based index the slide ends at). "
         "Returns the final slide order."
@@ -511,7 +511,7 @@ class MoveSlide(_SlideMutationTool):
 
 
 class RenameSlide(_SlideMutationTool):
-    name: str | None = "rename_slide"
+    name: str | None = "slide_rename"
     description: str = "Sets the Name property of a slide (0-based page index)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
     tier: str = "core"

@@ -103,8 +103,8 @@ class TestMemory:
         assert ("'b'") in (line)
 
     def test_format_upsert_memory_chat_line_non_str_key_or_empty(self):
-        assert format_upsert_memory_chat_line({}) == "[Running tool: upsert_memory...]\n"
-        assert format_upsert_memory_chat_line({"key": 1}) == "[Running tool: upsert_memory...]\n"
+        assert format_upsert_memory_chat_line({}) == "[Running tool: memory_upsert...]\n"
+        assert format_upsert_memory_chat_line({"key": 1}) == "[Running tool: memory_upsert...]\n"
 
     def test_upsert_memory_arguments_dict(self):
         assert (upsert_memory_arguments_dict({"key": "x", "content": "y"})) == ({"key": "x", "content": "y"})
@@ -117,11 +117,11 @@ class TestMemory:
         assert upsert_memory_arguments_dict([]) is None
         assert upsert_memory_arguments_dict(None) is None
         assert upsert_memory_arguments_dict(1) is None
-        assert format_upsert_memory_chat_line([]) == "[Memory update: upsert_memory]\n"
+        assert format_upsert_memory_chat_line([]) == "[Memory update: memory_upsert]\n"
 
 
 def test_memory_tool_insert_update_and_nested_key(tmp_path):
-    """upsert_memory inserts, replaces, and nests keys in USER.md JSON.
+    """memory_upsert inserts, replaces, and nests keys in USER.md JSON.
 
     The old skipped case asserted YAML text ("favorite_language: Python").
     MemoryStore now writes json.dumps, so the same actions are checked on

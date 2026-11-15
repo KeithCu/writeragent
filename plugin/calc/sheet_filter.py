@@ -166,7 +166,7 @@ _CRITERION_ITEM_SCHEMA: dict[str, Any] = {
 class ApplySheetFilter(ToolCalcSheetBase):
     """Apply a standard sheet filter (AutoFilter-style) on a cell range."""
 
-    name: str | None = "sheet_filter_apply"
+    name: str | None = "sheet_apply_filter"
     description: str = "Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -194,8 +194,8 @@ class ApplySheetFilter(ToolCalcSheetBase):
 class ClearSheetFilter(ToolCalcSheetBase):
     """Remove the standard filter from a range (show all rows again)."""
 
-    name: str | None = "sheet_filter_clear"
-    description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_filter_apply. delegate_to_specialized_calc_toolset(domain='sheets')."
+    name: str | None = "sheet_clear_filter"
+    description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. delegate_to_specialized_calc_toolset(domain='sheets')."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -215,7 +215,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
 class GetSheetFilter(ToolCalcSheetBase):
     """Read back current filter criteria for a range (round-trip debugging)."""
 
-    name: str | None = "sheet_filter_get"
+    name: str | None = "sheet_get_filter"
     description: str = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets')."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": _RANGE_PARAM_SCHEMA}, "required": ["range"]}
 

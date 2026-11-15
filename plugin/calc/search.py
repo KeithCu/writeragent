@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Calc search tools: search_cells, search_replace."""
+"""Calc search tools: search_cells, replace_cells."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 class ReplaceInSpreadsheet(ToolCalcSearchBase):
     """Find and replace in the spreadsheet."""
 
-    name: str | None = "search_replace"
+    name: str | None = "replace_cells"
     description: str = "Find and replace text or values in a Calc spreadsheet. Returns count of replacements made."
     parameters: dict[str, Any] | None = {
         "type": "object",

@@ -277,7 +277,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     implement ``execute``.
 
     Attributes:
-        name:        Unique tool identifier (e.g. "get_document_tree").
+        name:        Unique tool identifier (e.g. "get_tree").
         description: Human-readable description shown to LLMs.
         parameters:  JSON Schema dict (MCP ``inputSchema`` format).
         uno_services: List of UNO services the tool supports (e.g.,
@@ -304,10 +304,10 @@ class ToolBase(_ToolErrorMixin, ABC):
     is_final_answer_tool: bool = False
     doc_types: list[str] | None = None
     # When False, the MCP executor runs the tool even with no document open (e.g. the
-    # find_tools discovery meta-tool); the default requires an open document.
+    # tool_find discovery meta-tool); the default requires an open document.
     requires_document: bool = True
     # Extra tools this domain's sub-agent should see, by name. Core readers
-    # (get_document_content) or one specialized tool from another domain
+    # (get_content) or one specialized tool from another domain
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
@@ -615,6 +615,7 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
+        self._duplicate_registrations: list[tuple[str, type[ToolBase], type[ToolBase]]] = []
         self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
         self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []
         # Shared names (shape_upsert / chart_upsert) last-wins the instance but
@@ -643,16 +644,13 @@ class ToolRegistry:
             # Same class object, including a re-import that got the cached module: return, no log.
             if type(existing_tool) is type(tool):
                 return
-            # A different class object replaces. Warn only when __name__ or __module__ differs
-            # (shared Writer/Calc/Draw names). Same __name__ and __module__ on a new class
-            # object replaces with no warning (reload).
-            if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
-                log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
-            # Shared names replace the instance (Writer loads last). Union both
-            # required_core_tools sets, plus any prior merge, or Calc
-            # shapes/charts never request get_sheet_summary / read_cell_range.
-            # get_tools still drops cores that fail tool_supports_document
-            # for the active doc.
+            # Same __name__ and __module__ on a new class object replaces with no warning (reload).
+            if type(existing_tool).__name__ == type(tool).__name__ and type(existing_tool).__module__ == type(tool).__module__:
+                self._tools[tool.name] = tool
+                return
+            # A different class object replaces with a warning.
+            log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
+            self._duplicate_registrations.append((tool.name, type(existing_tool), type(tool)))
             prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
             nxt = getattr(tool, "required_core_tools", None)
             if prev or nxt:
@@ -726,7 +724,7 @@ class ToolRegistry:
             ctx: Optional ToolContext or context for filtering vision specialized tools.
         """
         # crosshair: off
-        tools: Any = self._tools.values()
+        tools: Any = list(self._tools.values())
 
         # Doc-type probe is main-thread-only because get_document_type accesses UNO.
         # In release builds @main_thread_only logs and continues rather than raising,
@@ -824,9 +822,9 @@ class ToolRegistry:
         if protocol == "openai":
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
-            # Unknown (None) keeps get_image. Only a known text-only chat model drops it.
+            # Unknown (None) keeps image_get. Only a known text-only chat model drops it.
             if has_native_vision(get_text_model(), get_current_endpoint()) is False:
-                tools = [t for t in tools if t.name != "get_image"]
+                tools = [t for t in tools if t.name != "image_get"]
             convert = to_openai_schema
         else:
             convert = to_mcp_schema

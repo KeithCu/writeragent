@@ -152,7 +152,7 @@ class DrawBridge:
         Impress ``DrawPage.getNumber()`` is missing, so callers must use this
         index instead of ``get_active_page_index`` after the controller switches.
 
-        ``add_slide(page=N)`` must not pass ``N`` straight to
+        ``slide_add(page=N)`` must not pass ``N`` straight to
         ``insertNewByIndex`` and report ``active_page_index=N``. The new
         slide is created one slot later, and the next tool edits the
         previous slide. ``page=0`` never lands at 0, so master
@@ -841,7 +841,7 @@ def find_notes_shape(notes_page: Any) -> Any | None:
 
     A notes-master header, footer, date, or slide number can be inserted
     ahead of the notes body, so getByIndex(1) reads or overwrites the wrong
-    shape. Chat context, read_slide_text, the notes tools, and ppt-master
+    shape. Chat context, slide_read_text, the notes tools, and ppt-master
     notes import and enhance share this.
     """
     if notes_page is None:
@@ -950,7 +950,7 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         # whole block and drops the notes (and the shapes section) from
         # chat context. Same trap as get_active_page_index, which already
         # uses `is not None`. None means there is no page; a blank page
-        # is still a page, so notes on add_slide blank/none are included.
+        # is still a page, so notes on slide_add blank/none are included.
         if active_page is not None:
             # Impress-specific: Speaker Notes
             if is_impress_doc and hasattr(active_page, "getNotesPage"):

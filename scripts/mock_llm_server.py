@@ -80,14 +80,14 @@ _HTTP_URL_RE = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 # not OpenAI assistant.tool_calls. Require a line starting with Action: so the
 # system-prompt example ("Example Action:") is ignored even if a later blob
 # copies it. Packet E live soak: without this, every nested round re-issues
-# web_search (or skips get_document_tree).
+# web_search (or skips get_tree).
 _ACTION_NAME_RE = re.compile(r'(?m)^Action:\s*\{\s*"name"\s*:\s*"([^"]+)"')
-# Inner document_research often has no get_document_tree. Call *one* discovery
+# Inner document_research often has no get_tree. Call *one* discovery
 # tool first so Packet E7 shows nested status and E8 has time to click Stop.
 # Do not walk every discovery tool — delegate_read_document with an empty path
 # opens junk files and never reaches specialized_workflow_finished.
 _SPECIALIZED_INNER_PRE_FINISH = (
-    "get_document_tree",
+    "get_tree",
     "list_nearby_files",
     "search_nearby_files",
     "grep_nearby_files",
@@ -136,7 +136,7 @@ _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("mutate", re.compile(r"\b(insert filler|append a paragraph)\b", re.IGNORECASE)),
     ("ping", re.compile(r"\bsse pings\b", re.IGNORECASE)),
     ("sheet_list", re.compile(r"\blist sheets\b", re.IGNORECASE)),
-    ("list_pages", re.compile(r"\blist pages\b", re.IGNORECASE)),
+    ("slide_list", re.compile(r"\blist pages\b", re.IGNORECASE)),
     # Packet P: specialized-inner peer (#673). peer_wait locks the Scrolly hang.
     ("peer_wait", re.compile(r"\b(wait after accepted|do not finish peer)\b", re.IGNORECASE)),
     ("peer_total", re.compile(r"\b(add a total row|ask the budget workbook|peer total)\b", re.IGNORECASE)),
@@ -201,7 +201,7 @@ SCENARIO_IDS = frozenset(
         "event_ping",
         "ping",
         "sheet_list",
-        "list_pages",
+        "slide_list",
         "peer_total",
         "peer_wait",
         "overflow_once",
@@ -579,7 +579,7 @@ def _last_user_raw(messages: list[Any]) -> str:
 
 
 def _delegate_for_tools(tool_names: set[str]) -> str | None:
-    calc_tools = {"write_formula_range", "sheet_list", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
+    calc_tools = {"write_range", "sheet_list", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
     if _DELEGATE_CALC in tool_names and (bool(tool_names & calc_tools) or _DELEGATE_WRITER not in tool_names):
         return _DELEGATE_CALC
     for name in (_DELEGATE_WRITER, _DELEGATE_CALC, _DELEGATE_DRAW):
@@ -836,12 +836,12 @@ def _is_smol_research(tool_names: set[str]) -> bool:
 
 def _is_specialized_inner(tool_names: set[str]) -> bool:
     # Live document_research inner HTTP advertises specialized_workflow_finished
-    # plus domain tools; get_document_tree is often *not* on that list (core
+    # plus domain tools; get_tree is often *not* on that list (core
     # tree is not a specialized_domain tool). Phrase "outline this" must not
     # fall through to the main-chat delegate scenario (Packet E7).
     if "specialized_workflow_finished" in tool_names:
         return True
-    return "get_document_tree" in tool_names and bool(
+    return "get_tree" in tool_names and bool(
         tool_names & {"final_answer", "specialized_workflow_finished"}
     )
 
@@ -851,16 +851,16 @@ def _is_main_chat(tool_names: set[str]) -> bool:
         tool_names
         & {
             "web_research",
-            "add_comment",
-            "apply_document_content",
-            "search_in_document",
-            "get_document_tree",
+            "comment_add",
+            "apply_content",
+            "search",
+            "get_tree",
             _DELEGATE_WRITER,
             _DELEGATE_CALC,
             _DELEGATE_DRAW,
-            "write_formula_range",
+            "write_range",
             "sheet_list",
-            "list_pages",
+            "slide_list",
         }
     )
 
@@ -990,14 +990,14 @@ def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
         return _html_research_summary(user_text, tool_text)
     snippet = html.escape((tool_text or "").strip().replace("\n", " ")[:280])
     safe_user = html.escape((user_text or "that request").strip()[:80] or "that request")
-    if tool_name == "apply_document_content":
+    if tool_name == "apply_content":
         return f"<p>Inserted content into the document.</p><p>{snippet or '(empty)'}</p>"
     if tool_name.startswith("delegate_to_specialized"):
         return (
             f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
         )
-    if tool_name in {"search_in_document", "get_document_tree", "sheet_list", "list_pages"}:
+    if tool_name in {"search", "get_tree", "sheet_list", "slide_list"}:
         return (
             f"<p>Ran <code>{html.escape(tool_name)}</code>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
@@ -1107,7 +1107,7 @@ def _smol_research_completion(messages: list[Any], tool_names: set[str], config:
 
 
 def _specialized_inner_args(name: str) -> dict[str, Any]:
-    if name == "get_document_tree":
+    if name == "get_tree":
         return {"strategy": "heading_only", "depth": 1}
     if name == "search_nearby_files":
         return {"query": "outline"}
@@ -1130,7 +1130,7 @@ def _specialized_inner_discovery(tool_names: set[str]) -> Completion | None:
 def _peer_phrase(text: str) -> bool:
     # Include the live Calc-reply task ("reply to the peer" / send_peer_result).
     # Phrase-only "add a total row" matches the inbound envelope; after
-    # write_formula_range the specialized POST is the scripted Reply string
+    # write_range the specialized POST is the scripted Reply string
     # (P3). Without this, leftover-Calc discovery (list_nearby_files) wins.
     return bool(
         re.search(
@@ -1312,10 +1312,10 @@ def _specialized_inner_completion(
         )
     if empty:
         return _finish("")
-    if scenario == "ocr" and "extract_structure_from_image" in tool_names:
-        if "extract_structure_from_image" in called:
+    if scenario == "ocr" and "image_extract_structure" in tool_names:
+        if "image_extract_structure" in called:
             return _finish("Mock OCR task complete.")
-        return Completion(tool_name="extract_structure_from_image", tool_args={}, finish_reason="tool_calls")
+        return Completion(tool_name="image_extract_structure", tool_args={}, finish_reason="tool_calls")
     if scenario in ("image_one", "image_two") and "image_generate" in tool_names:
         if "image_generate" in called:
             return _finish("Mock image task complete.")
@@ -1461,18 +1461,18 @@ def _scenario_user_turn(
             turn,
         )
     if scenario == "mixed_tools":
-        have_apply = "apply_document_content" in tool_names
-        have_comment = "add_comment" in tool_names
+        have_apply = "apply_content" in tool_names
+        have_comment = "comment_add" in tool_names
         if have_apply and have_comment:
-            # add_comment with empty search → _tool_error("Provide search.");
+            # comment_add with empty search → _tool_error("Provide search.");
             # apply last so wrap-up is not the "Comment inserted" path.
             return Completion(
                 reasoning=reasoning,
-                tool_name="add_comment",
+                tool_name="comment_add",
                 tool_args={"search": "", "content": "mock mixed-tools fail"},
                 extra_tool_calls=[
                     (
-                        "apply_document_content",
+                        "apply_content",
                         {"target": "end", "content": ["<p>Mock filler paragraph from soak server.</p>"]},
                     )
                 ],
@@ -1483,27 +1483,27 @@ def _scenario_user_turn(
         # R3/R6: one in-paragraph replace = one undo step (an end-append is two).
         return Completion(
             reasoning=reasoning,
-            tool_name="apply_document_content",
+            tool_name="apply_content",
             tool_args={"target": "search", "old_content": "Welcome", "content": ["Welcome1"]},
             finish_reason="tool_calls",
         )
     if scenario == "adjacent_edits":
         return Completion(
             reasoning=reasoning,
-            tool_name="apply_document_content",
+            tool_name="apply_content",
             tool_args={"target": "search", "old_content": "Welcome", "content": ["Welcome1"]},
-            extra_tool_calls=[("apply_document_content", {"target": "search", "old_content": " to ", "content": [" to2 "]})],
+            extra_tool_calls=[("apply_content", {"target": "search", "old_content": " to ", "content": [" to2 "]})],
             finish_reason="tool_calls",
         )
     if scenario == "three_edits":
         # R9: one edit per paragraph of R9_BODY ("Alpha one." / "Bravo two." / "Charlie three.").
         return Completion(
             reasoning=reasoning,
-            tool_name="apply_document_content",
+            tool_name="apply_content",
             tool_args={"target": "search", "old_content": "Alpha", "content": ["Alpha1"]},
             extra_tool_calls=[
-                ("apply_document_content", {"target": "search", "old_content": "Bravo", "content": ["Bravo2"]}),
-                ("apply_document_content", {"target": "search", "old_content": "Charlie", "content": ["Charlie3"]}),
+                ("apply_content", {"target": "search", "old_content": "Bravo", "content": ["Bravo2"]}),
+                ("apply_content", {"target": "search", "old_content": "Charlie", "content": ["Charlie3"]}),
             ],
             finish_reason="tool_calls",
         )
@@ -1512,20 +1512,20 @@ def _scenario_user_turn(
             reasoning=reasoning,
             tool_name="apply_style",
             tool_args={"style": "Heading 1", "target": "search", "old_content": "Welcome"},
-            extra_tool_calls=[("get_document_tree", {"strategy": "heading_only", "depth": 1})],
+            extra_tool_calls=[("get_tree", {"strategy": "heading_only", "depth": 1})],
             finish_reason="tool_calls",
         )
     if scenario == "parallel":
-        have_search = "search_in_document" in tool_names
-        have_tree = "get_document_tree" in tool_names
+        have_search = "search" in tool_names
+        have_tree = "get_tree" in tool_names
         if have_search and have_tree:
             words = _extract_document_words(messages)
             pattern = words[0] if words else "the"
             return Completion(
                 reasoning=reasoning,
-                tool_name="search_in_document",
+                tool_name="search",
                 tool_args={"pattern": pattern},
-                extra_tool_calls=[("get_document_tree", {"strategy": "heading_only", "depth": 1})],
+                extra_tool_calls=[("get_tree", {"strategy": "heading_only", "depth": 1})],
                 finish_reason="tool_calls",
             )
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning, finish_reason="stop")
@@ -1547,7 +1547,7 @@ def _scenario_user_turn(
     if scenario == "mutate":
         return _tool_or_html(
             tool_names,
-            "apply_document_content",
+            "apply_content",
             {"target": "end", "content": ["<p>Mock filler paragraph from soak server.</p>"]},
             user_text,
             turn,
@@ -1557,8 +1557,8 @@ def _scenario_user_turn(
         # advertises get_sheet_summary instead — E12 uses that fallback.
         name = "sheet_list" if "sheet_list" in tool_names else "get_sheet_summary"
         return _tool_or_html(tool_names, name, {}, user_text, turn)
-    if scenario == "list_pages":
-        return _tool_or_html(tool_names, "list_pages", {}, user_text, turn)
+    if scenario == "slide_list":
+        return _tool_or_html(tool_names, "slide_list", {}, user_text, turn)
     if scenario in {"peer_total", "peer_wait"}:
         delegate = _delegate_for_tools(tool_names)
         if delegate:
@@ -1577,9 +1577,9 @@ def _scenario_user_turn(
             content=_html_chat(user_text, turn), reasoning=reasoning
         )
     if scenario == "ocr":
-        # Packet O: OCR is the specialized "vision" domain (extract_structure_from_image).
-        if "extract_structure_from_image" in tool_names:
-            return _tool_or_html(tool_names, "extract_structure_from_image", {}, user_text, turn)
+        # Packet O: OCR is the specialized "vision" domain (image_extract_structure).
+        if "image_extract_structure" in tool_names:
+            return _tool_or_html(tool_names, "image_extract_structure", {}, user_text, turn)
         delegate = _delegate_for_tools(tool_names)
         if delegate:
             return _tool_or_html(tool_names, delegate, {"domain": "vision", "task": user_text}, user_text, turn)
@@ -1623,7 +1623,7 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
     if _is_main_chat(tool_names) and last_role == "tool":
         last_called_tool = called[-1] if called else ""
         # Calc peer turn: after the Total formula, delegate document_research to reply.
-        if last_called_tool == "write_formula_range" and (
+        if last_called_tool == "write_range" and (
             envelope or scenario in {"peer_total", "peer_wait"}
         ):
             delegate = _delegate_for_tools(tool_names) or _DELEGATE_CALC
@@ -1639,18 +1639,18 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
                 tool_args={"domain": "document_research", "task": task},
                 finish_reason="tool_calls",
             )
-        if last_called_tool == "add_comment":
+        if last_called_tool == "comment_add":
             return Completion(
                 content="<p>Comment inserted successfully.</p>",
                 reasoning=reasoning,
                 finish_reason="stop",
             )
-        if last_called_tool == "apply_document_content" and _looks_like_comment(user_text):
+        if last_called_tool == "apply_content" and _looks_like_comment(user_text):
             words = _extract_document_words(messages)
             first_word = words[0] if words else "Hello"
             return Completion(
                 reasoning="Mock thinking: inserted text, now adding comment to first word.",
-                tool_name="add_comment",
+                tool_name="comment_add",
                 tool_args={"search": first_word, "content": f"Mock comment on '{first_word}'"},
                 finish_reason="tool_calls",
             )
@@ -1671,18 +1671,18 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
         # Calc receives a peer task: local formula work first, then (on the
         # tool-follow-up) document_research to send the reply. Writer follow-up
         # applies the HTML reply. Do this before phrase-triggered delegate.
-        if envelope and envelope.get("kind") != "result" and "write_formula_range" in tool_names:
+        if envelope and envelope.get("kind") != "result" and "write_range" in tool_names:
             return Completion(
                 reasoning=reasoning,
-                tool_name="write_formula_range",
+                tool_name="write_range",
                 tool_args={"range": ["A4:B4"], "values": '["Total","=SUM(B2:B3)"]'},
                 finish_reason="tool_calls",
             )
-        if envelope and envelope.get("kind") == "result" and "apply_document_content" in tool_names:
+        if envelope and envelope.get("kind") == "result" and "apply_content" in tool_names:
             body = user_raw.split("\n\n", 1)[-1].strip() or "Peer reply."
             return Completion(
                 reasoning=reasoning,
-                tool_name="apply_document_content",
+                tool_name="apply_content",
                 tool_args={"target": "end", "content": ["<p>%s</p>" % html.escape(body[:400])]},
                 finish_reason="tool_calls",
             )
@@ -1698,13 +1698,13 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
             first_word = words[0]
             return Completion(
                 reasoning="Mock thinking: found document text, adding comment to first word.",
-                tool_name="add_comment",
+                tool_name="comment_add",
                 tool_args={"search": first_word, "content": f"Mock comment on '{first_word}'"},
                 finish_reason="tool_calls",
             )
         return Completion(
-            reasoning="Mock thinking: document is empty, inserting initial text with apply_document_content.",
-            tool_name="apply_document_content",
+            reasoning="Mock thinking: document is empty, inserting initial text with apply_content.",
+            tool_name="apply_content",
             tool_args={"target": "beginning", "content": ["<p>Hello world from mock LLM.</p>"]},
             finish_reason="tool_calls",
         )

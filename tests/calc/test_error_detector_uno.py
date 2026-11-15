@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO tests for error_detect error.code matching Calc's displayed cell string."""
+"""UNO tests for detect_errors error.code matching Calc's displayed cell string."""
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.testing_runner import native_test
@@ -18,8 +18,8 @@ def test_error_detect_code_matches_calc_cell_string(ctx, doc):
         sheet.getCellByPosition(0, row_idx).setFormula(formula)
     doc.calculateAll()
 
-    res = execute_calc_tool(doc, ctx, "error_detect", {"range": "A1:A5"})
-    assert res.get("status") == "ok", f"error_detect failed: {res}"
+    res = execute_calc_tool(doc, ctx, "detect_errors", {"range": "A1:A5"})
+    assert res.get("status") == "ok", f"detect_errors failed: {res}"
     errors = res["result"]["errors"]
     assert len(errors) == len(formulas)
 
@@ -43,7 +43,7 @@ def test_detect_and_explain_errors(ctx, doc):
     tctx = ToolContext(doc, ctx, "calc", {}, "test")
     res = DetectErrors().execute(tctx, range="I1")
 
-    assert res.get("status") == "ok", f"error_detect failed: {res}"
+    assert res.get("status") == "ok", f"detect_errors failed: {res}"
     assert res.get("result", {}).get("error_count", 0) > 0, "No errors detected"
     errors = res.get("result", {}).get("errors", [])
     err0 = errors[0].get("error", {}) if errors else {}
@@ -52,7 +52,7 @@ def test_detect_and_explain_errors(ctx, doc):
     # Test #NAME?
     active_sheet.getCellByPosition(9, 0).setFormula("=UNKNOWN_NAME()")
     res2 = DetectErrors().execute(tctx, range="J1")
-    assert res2.get("status") == "ok", f"error_detect #NAME? failed: {res2}"
+    assert res2.get("status") == "ok", f"detect_errors #NAME? failed: {res2}"
     assert res2.get("result", {}).get("error_count", 0) > 0, "No errors detected"
     errors = res2.get("result", {}).get("errors", [])
     err0 = errors[0].get("error", {}) if errors else {}
@@ -61,7 +61,7 @@ def test_detect_and_explain_errors(ctx, doc):
     # Test #REF!
     active_sheet.getCellByPosition(10, 0).setFormula("=#REF!")
     res3 = DetectErrors().execute(tctx, range="K1")
-    assert res3.get("status") == "ok", f"error_detect #REF! failed: {res3}"
+    assert res3.get("status") == "ok", f"detect_errors #REF! failed: {res3}"
     assert res3.get("result", {}).get("error_count", 0) > 0, "No #REF! errors detected"
     errors = res3.get("result", {}).get("errors", [])
     err0 = errors[0].get("error", {}) if errors else {}

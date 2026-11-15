@@ -131,19 +131,19 @@ def test_draw_shapes_domain_advertises_upsert() -> None:
 
 def test_calc_ranges_domain_advertises_sort() -> None:
     names = {_schema_name(s) for s in build_eval_tool_schemas(kind="calc", active_domain="ranges")}
-    assert {"range_sort", "specialized_workflow_finished"} <= names
-    assert "range_sort" not in _names("calc")
+    assert {"sort_range", "specialized_workflow_finished"} <= names
+    assert "sort_range" not in _names("calc")
 
 
 def test_apply_schema_patches_rewrites_sort_range_description() -> None:
     schemas = build_eval_tool_schemas(kind="calc", active_domain="ranges")
     patched = apply_schema_patches(
-        schemas, {"range_sort": {"description": "PATCHED_SORT_DESC"}}
+        schemas, {"sort_range": {"description": "PATCHED_SORT_DESC"}}
     )
     found = False
     for row in patched:
         fn = row.get("function") if isinstance(row.get("function"), dict) else row
-        if fn.get("name") == "range_sort":
+        if fn.get("name") == "sort_range":
             assert fn["description"] == "PATCHED_SORT_DESC"
             found = True
     assert found
@@ -151,7 +151,7 @@ def test_apply_schema_patches_rewrites_sort_range_description() -> None:
     original = next(
         row
         for row in schemas
-        if (row.get("function") or row).get("name") == "range_sort"
+        if (row.get("function") or row).get("name") == "sort_range"
     )
     orig_fn = original.get("function") or original
     assert orig_fn["description"] != "PATCHED_SORT_DESC"
@@ -161,12 +161,12 @@ def test_apply_schema_patches_rewrites_values_param() -> None:
     schemas = build_eval_tool_schemas(kind="calc")
     patched = apply_schema_patches(
         schemas,
-        {"write_formula_range": {"parameters": {"values": "PATCHED_VALUES_DESC"}}},
+        {"write_range": {"parameters": {"values": "PATCHED_VALUES_DESC"}}},
     )
     fn = next(
         (row.get("function") or row)
         for row in patched
-        if (row.get("function") or row).get("name") == "write_formula_range"
+        if (row.get("function") or row).get("name") == "write_range"
     )
     assert fn["parameters"]["properties"]["values"]["description"] == "PATCHED_VALUES_DESC"
 
@@ -176,9 +176,9 @@ def test_parse_tools_spec_presets_and_names() -> None:
     assert parse_tools_spec("") == ("full", None)
     assert parse_tools_spec("full") == ("full", None)
     assert parse_tools_spec("calc_minimal") == ("calc_minimal", None)
-    assert parse_tools_spec("write_formula_range, get_sheet_summary") == (
+    assert parse_tools_spec("write_range, get_sheet_summary") == (
         None,
-        ["write_formula_range", "get_sheet_summary"],
+        ["write_range", "get_sheet_summary"],
     )
 
 
@@ -197,13 +197,13 @@ def test_resolve_allowlist_kind_and_specialized() -> None:
         is None
     )
     assert resolve_tool_allowlist(
-        "write_formula_range,get_sheet_summary", kind="calc"
-    ) == ["write_formula_range", "get_sheet_summary"]
+        "write_range,get_sheet_summary", kind="calc"
+    ) == ["write_range", "get_sheet_summary"]
 
 
 def test_filter_eval_tool_schemas_preserves_order_and_errors() -> None:
     schemas = build_eval_tool_schemas(kind="calc")
-    names = ["get_sheet_summary", "write_formula_range"]
+    names = ["get_sheet_summary", "write_range"]
     filtered = filter_eval_tool_schemas(schemas, names)
     assert [schema_tool_name(row) for row in filtered] == names
     with pytest.raises(ValueError, match="Unknown eval tool name"):
@@ -236,7 +236,7 @@ def test_apply_schema_density_skinny_blanks_descriptions() -> None:
     fat = next(
         row
         for row in schemas
-        if schema_tool_name(row) == "write_formula_range"
+        if schema_tool_name(row) == "write_range"
     )
     fat_fn = fat.get("function") or fat
     assert len(str(fat_fn.get("description") or "")) > 20
@@ -244,9 +244,9 @@ def test_apply_schema_density_skinny_blanks_descriptions() -> None:
     sk_fn = next(
         (row.get("function") or row)
         for row in skinny
-        if schema_tool_name(row) == "write_formula_range"
+        if schema_tool_name(row) == "write_range"
     )
-    assert sk_fn["name"] == "write_formula_range"
+    assert sk_fn["name"] == "write_range"
     assert sk_fn["description"] == ""
     props = (sk_fn.get("parameters") or {}).get("properties") or {}
     assert "range" in props
@@ -263,7 +263,7 @@ def test_apply_schema_density_skinny_blanks_descriptions() -> None:
 
 def test_prepare_keeps_specialized_inner_schemas() -> None:
     outer = prepare_eval_tool_schemas(kind="calc", tools_spec="calc_minimal")
-    assert "range_sort" not in {schema_tool_name(s) for s in outer}
+    assert "sort_range" not in {schema_tool_name(s) for s in outer}
     inner = prepare_eval_tool_schemas(
         kind="calc",
         active_domain="ranges",
@@ -271,11 +271,11 @@ def test_prepare_keeps_specialized_inner_schemas() -> None:
         schema_density="skinny",
     )
     names = {schema_tool_name(s) for s in inner}
-    assert {"range_sort", "specialized_workflow_finished"} <= names
+    assert {"sort_range", "specialized_workflow_finished"} <= names
     sort_fn = next(
         (row.get("function") or row)
         for row in inner
-        if schema_tool_name(row) == "range_sort"
+        if schema_tool_name(row) == "sort_range"
     )
     assert sort_fn["description"] == ""
 
@@ -285,7 +285,7 @@ def test_unsupported_core_names() -> None:
     draw = DrawWorld()
     calc = CalcWorld("A\t1")
     for state, name in (
-        (writer, "get_guidance"),
+        (writer, "manual_read"),
         (draw, "shape_delete"),
         (calc, "sheet_list"),
     ):

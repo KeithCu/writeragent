@@ -33,12 +33,12 @@ def _exec_tool(doc, ctx, name, args):
 @with_native_doc("impress")
 def test_slide_transitions(ctx, doc):
     # Initial transition state
-    result = _exec_tool(doc, ctx, "slide_transition_get", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_get_transition", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"slide_transition_get failed: {result}"
+    assert data.get("status") == "ok", f"slide_get_transition failed: {result}"
 
     # Set a transition
-    result = _exec_tool(doc, ctx, "slide_transition_set", {
+    result = _exec_tool(doc, ctx, "slide_set_transition", {
         "page": 0,
         "effect": "fade_from_left",
         "speed": "fast",
@@ -47,12 +47,12 @@ def test_slide_transitions(ctx, doc):
         "advance": "auto"
     })
     data = json.loads(result)
-    assert data.get("status") == "ok", f"slide_transition_set failed: {result}"
+    assert data.get("status") == "ok", f"slide_set_transition failed: {result}"
 
     # Verify the transition is set correctly
-    result = _exec_tool(doc, ctx, "slide_transition_get", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_get_transition", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"slide_transition_get failed: {result}"
+    assert data.get("status") == "ok", f"slide_get_transition failed: {result}"
     assert data.get("effect") == "fade_from_left", f"Effect mismatch: {data.get('effect')}"
     assert data.get("speed") == "fast", f"Speed mismatch: {data.get('speed')}"
     assert data.get("duration") == 5, f"Duration mismatch: {data.get('duration')}"
@@ -63,26 +63,26 @@ def test_slide_transitions(ctx, doc):
 @with_native_doc("impress")
 def test_speaker_notes(ctx, doc):
     # Set new notes
-    result = _exec_tool(doc, ctx, "speaker_notes_set", {
+    result = _exec_tool(doc, ctx, "slide_set_notes", {
         "page": 0,
         "text": "These are my speaker notes for the first slide."
     })
     data = json.loads(result)
-    assert data.get("status") == "ok", f"speaker_notes_set failed: {result}"
+    assert data.get("status") == "ok", f"slide_set_notes failed: {result}"
 
     # Append to notes
-    result = _exec_tool(doc, ctx, "speaker_notes_set", {
+    result = _exec_tool(doc, ctx, "slide_set_notes", {
         "page": 0,
         "text": "And some more notes.",
         "append": True
     })
     data = json.loads(result)
-    assert data.get("status") == "ok", f"speaker_notes_set append failed: {result}"
+    assert data.get("status") == "ok", f"slide_set_notes append failed: {result}"
 
     # Get notes and verify
-    result = _exec_tool(doc, ctx, "speaker_notes_get", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_get_notes", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"speaker_notes_get failed: {result}"
+    assert data.get("status") == "ok", f"slide_get_notes failed: {result}"
     notes = data.get("notes")
     assert "These are my speaker notes for the first slide." in notes, f"Expected notes not found: {notes}"
     assert "And some more notes." in notes, f"Expected appended notes not found: {notes}"
@@ -92,10 +92,10 @@ def test_speaker_notes(ctx, doc):
 @with_native_doc("impress")
 def test_speaker_notes_multiline_roundtrip(ctx, doc):
     text = "one\ntwo\nthree"
-    result = _exec_tool(doc, ctx, "speaker_notes_set", {"page": 0, "text": text})
+    result = _exec_tool(doc, ctx, "slide_set_notes", {"page": 0, "text": text})
     assert json.loads(result).get("status") == "ok", result
 
-    got = json.loads(_exec_tool(doc, ctx, "speaker_notes_get", {"page": 0}))
+    got = json.loads(_exec_tool(doc, ctx, "slide_get_notes", {"page": 0}))
     notes = got.get("notes")
     assert notes.splitlines() == ["one", "two", "three"], notes
     assert "\r" not in notes, notes
@@ -107,7 +107,7 @@ def test_speaker_notes_multiline_roundtrip(ctx, doc):
         paras.append(enum.nextElement().getString())
     assert paras == ["one", "two", "three"], paras
 
-    result = _exec_tool(doc, ctx, "speaker_notes_set",
+    result = _exec_tool(doc, ctx, "slide_set_notes",
                         {"page": 0, "text": "four", "append": True})
     assert json.loads(result).get("status") == "ok", result
     enum = find_notes_shape(page.getNotesPage()).getText().createEnumeration()
@@ -151,12 +151,12 @@ def test_move_slide_keeps_group_notes_and_layout(ctx, doc):
         # office after the post-designs recycle); the runner then aborted every
         # later suite. Linux passes. Skipped until the Windows crash is
         # isolated so the remaining native suites run.
-        raise unittest.SkipTest("move_slide with group/notes kills soffice on Windows; see GHA 37408662523")
-    layout = _exec_tool(doc, ctx, "slide_layout_set", {"page": 0, "layout": "title_only"})
+        raise unittest.SkipTest("slide_move with group/notes kills soffice on Windows; see GHA 37408662523")
+    layout = _exec_tool(doc, ctx, "slide_set_layout", {"page": 0, "layout": "title_only"})
     assert json.loads(layout).get("status") == "ok", layout
-    notes = _exec_tool(doc, ctx, "speaker_notes_set", {"page": 0, "text": "keep-these-notes"})
+    notes = _exec_tool(doc, ctx, "slide_set_notes", {"page": 0, "text": "keep-these-notes"})
     assert json.loads(notes).get("status") == "ok", notes
-    transition = _exec_tool(doc, ctx, "slide_transition_set", {
+    transition = _exec_tool(doc, ctx, "slide_set_transition", {
         "page": 0,
         "effect": "dissolve",
         "speed": "fast",
@@ -177,46 +177,46 @@ def test_move_slide_keeps_group_notes_and_layout(ctx, doc):
     grouped = _exec_tool(doc, ctx, "shape_group", {"page": 0, "indices": [before, before + 1]})
     assert json.loads(grouped).get("status") == "ok", grouped
 
-    added = _exec_tool(doc, ctx, "add_slide", {})
+    added = _exec_tool(doc, ctx, "slide_add", {})
     assert json.loads(added).get("status") == "ok", added
-    other = _exec_tool(doc, ctx, "slide_layout_set", {"page": 1, "layout": "blank"})
+    other = _exec_tool(doc, ctx, "slide_set_layout", {"page": 1, "layout": "blank"})
     assert json.loads(other).get("status") == "ok", other
 
-    moved = _exec_tool(doc, ctx, "move_slide", {"from_page": 0, "to_page": 1})
+    moved = _exec_tool(doc, ctx, "slide_move", {"from_page": 0, "to_page": 1})
     assert json.loads(moved).get("status") == "ok", moved
     dest = doc.getDrawPages().getByIndex(1)
     texts, groups = _impress_group_children(dest)
     assert "g-left" in texts and "g-right" in texts, texts
     assert 2 in groups, groups
-    got_notes = json.loads(_exec_tool(doc, ctx, "speaker_notes_get", {"page": 1}))
+    got_notes = json.loads(_exec_tool(doc, ctx, "slide_get_notes", {"page": 1}))
     assert got_notes.get("status") == "ok", got_notes
     assert "keep-these-notes" in (got_notes.get("notes") or ""), got_notes
-    left_behind = json.loads(_exec_tool(doc, ctx, "speaker_notes_get", {"page": 0}))
+    left_behind = json.loads(_exec_tool(doc, ctx, "slide_get_notes", {"page": 0}))
     assert "keep-these-notes" not in (left_behind.get("notes") or ""), left_behind
-    got_layout = json.loads(_exec_tool(doc, ctx, "slide_layout_get", {"page": 1}))
+    got_layout = json.loads(_exec_tool(doc, ctx, "slide_get_layout", {"page": 1}))
     assert got_layout.get("layout_name") == "title_only", got_layout
-    stayed = json.loads(_exec_tool(doc, ctx, "slide_layout_get", {"page": 0}))
+    stayed = json.loads(_exec_tool(doc, ctx, "slide_get_layout", {"page": 0}))
     assert stayed.get("layout_name") == "blank", stayed
-    got_fx = json.loads(_exec_tool(doc, ctx, "slide_transition_get", {"page": 1}))
+    got_fx = json.loads(_exec_tool(doc, ctx, "slide_get_transition", {"page": 1}))
     assert got_fx.get("effect") == "dissolve", got_fx
-    other_fx = json.loads(_exec_tool(doc, ctx, "slide_transition_get", {"page": 0}))
+    other_fx = json.loads(_exec_tool(doc, ctx, "slide_get_transition", {"page": 0}))
     assert other_fx.get("effect") != "dissolve", other_fx
 
-    back = _exec_tool(doc, ctx, "move_slide", {"from_page": 1, "to_page": 0})
+    back = _exec_tool(doc, ctx, "slide_move", {"from_page": 1, "to_page": 0})
     assert json.loads(back).get("status") == "ok", back
     home = doc.getDrawPages().getByIndex(0)
     texts, groups = _impress_group_children(home)
     assert 2 in groups, groups
-    home_notes = json.loads(_exec_tool(doc, ctx, "speaker_notes_get", {"page": 0}))
+    home_notes = json.loads(_exec_tool(doc, ctx, "slide_get_notes", {"page": 0}))
     assert "keep-these-notes" in (home_notes.get("notes") or ""), home_notes
-    home_layout = json.loads(_exec_tool(doc, ctx, "slide_layout_get", {"page": 0}))
+    home_layout = json.loads(_exec_tool(doc, ctx, "slide_get_layout", {"page": 0}))
     assert home_layout.get("layout_name") == "title_only", home_layout
 
 
 @native_test
 @with_native_doc("impress")
 def test_impress_read_slide_text_and_search_group(ctx, doc):
-    """Grouped shape text appears in read_slide_text and is found by search_slides."""
+    """Grouped shape text appears in slide_read_text and is found by slide_search."""
     from plugin.draw.shapes import GroupShapes, UpsertShape
     from plugin.framework.tool import ToolContext
 
@@ -240,11 +240,11 @@ def test_impress_read_slide_text_and_search_group(ctx, doc):
     grouped = GroupShapes().execute(tctx, indices=[base, base + 1], page=0)
     assert grouped.get("status") == "ok", grouped
 
-    read = json.loads(_exec_tool(doc, ctx, "read_slide_text", {"page": 0}))
+    read = json.loads(_exec_tool(doc, ctx, "slide_read_text", {"page": 0}))
     assert read.get("status") == "ok", read
     blob = json.dumps(read.get("texts") or [])
     assert "g-left" in blob and "g-right" in blob, blob
 
-    hits = json.loads(_exec_tool(doc, ctx, "search_slides", {"pattern": "g-left"}))
+    hits = json.loads(_exec_tool(doc, ctx, "slide_search", {"pattern": "g-left"}))
     assert hits.get("status") == "ok", hits
     assert hits.get("count", 0) >= 1, hits

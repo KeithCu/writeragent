@@ -215,12 +215,12 @@ def test_undo_null_steps_is_one_and_non_integer_steps_is_rejected_by_registry():
     reg.register(Undo())
     ctx = ToolContext(doc, MagicMock(), "writer", reg)
 
-    res = reg.execute("undo", ctx, steps=None)
+    res = reg.execute("document_undo", ctx, steps=None)
     assert res["status"] == "ok"
     assert res["undone"] == 1
 
     um.reset_mock()
-    err = reg.execute("undo", ctx, steps="abc")
+    err = reg.execute("document_undo", ctx, steps="abc")
     assert err["status"] == "error"
     assert err["code"] == "VALIDATION_ERROR"
     um.undo.assert_not_called()

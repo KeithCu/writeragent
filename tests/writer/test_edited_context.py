@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""edited_context: successful apply_document_content edits echo the touched paragraph(s).
+"""edited_context: successful apply_content edits echo the touched paragraph(s).
 
 The echo must be right or absent, never wrong: paragraph_window_text returns None whenever the
 paragraph walk fails, and attach_edited_context only adds the field when a snippet came back.
@@ -171,7 +171,7 @@ def test_collapsed_anchor_is_best_effort():
     ],
 )
 def test_apply_document_content_edited_context_wired(mode, kwargs):
-    """All six attach_edited_context call sites in apply_document_content are wired.
+    """All six attach_edited_context call sites in apply_content are wired.
 
     The 5s timeout guards against MagicMock.hasMoreElements() being truthy in the
     outline-hyperlink walk (enum_has_more requires UNO True). Review mode is patched

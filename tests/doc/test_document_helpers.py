@@ -743,7 +743,7 @@ def test_get_document_context_draw_uses_bridge(mock_doc_type, mock_draw):
 @patch("plugin.framework.doc_type.get_document_type")
 def test_get_document_context_shows_the_visible_length(mock_doc_type, mock_char_count, mock_read_slice, mock_len):
     """The excerpt windows use cursor steps, but the header shows the visible length that
-    get_document_content reports as document_length (they disagreed in review mode)."""
+    get_content reports as document_length (they disagreed in review mode)."""
     from plugin.framework.doc_type import DocumentType
 
     mock_doc_type.return_value = DocumentType.WRITER

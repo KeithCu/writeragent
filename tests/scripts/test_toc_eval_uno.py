@@ -28,7 +28,7 @@ def test_toc_fixture_export_and_read_rows_uno(ctx, doc):
     tctx = native_writer_tool_context(doc, ctx)
 
     def _execute(name, args):
-        if name == "indexes_create":
+        if name == "index_create":
             return IndexesCreate().execute(tctx, **args)
         raise ValueError(name)
 

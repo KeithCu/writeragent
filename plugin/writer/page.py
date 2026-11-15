@@ -334,7 +334,7 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
             if portion.getPropertyValue("TextPortionType") != "TextField":
                 continue
             field = portion.getPropertyValue("TextField")
-            # Same argument sense as fields_list: presentation is what the reader sees
+            # Same argument sense as field_list: presentation is what the reader sees
             # ("1"), content is what the field IS ("Page number"). Swapping them would have
             # the two tools describe the same field in opposite terms.
             out["fields"].append(
@@ -790,7 +790,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
     description: str = (
         "Get this page-style header or footer as HTML so you can edit structure "
         "(fields, tables, logos) and send it back to page_set_header_footer_text. "
-        "Uses the same XHTML export as get_document_content, pointed at the region's "
+        "Uses the same XHTML export as get_content, pointed at the region's "
         "XText. Also lists images, fields, and paragraph_count so structure is visible "
         "without parsing the HTML. Use header_first / footer_first when first_is_shared is false."
     )
@@ -881,7 +881,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
     name: str | None = "page_set_header_footer_text"
     description: str = (
         "Replace this page-style header or footer with HTML so logos, tables, and "
-        "page-number fields survive — the same StarWriter import as apply_document_content, "
+        "page-number fields survive — the same StarWriter import as apply_content, "
         "pointed at the region's XText. Call page_get_header_footer_text first and edit "
         "that HTML. Enables the region if it is off. Pass auto_height=true so a taller "
         "letterhead grows instead of overlapping the body. data-lo-style and data-lo-para "
@@ -1183,7 +1183,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
     description: str = (
         "Replace one substring in this page-style header or footer. Leaves page-number "
         "fields and floating graphics in place. One old_content/content pair per call — "
-        "call again for a second change, the same way apply_document_content search-replace "
+        "call again for a second change, the same way apply_content search-replace "
         "does. Does not turn the region on and does not rewrite it; use "
         "page_set_header_footer_text for a full HTML replacement. A region that only mirrors "
         "the shared header or footer is skipped. Refuses when an image is anchored to a "

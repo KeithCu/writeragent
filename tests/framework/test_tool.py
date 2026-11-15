@@ -703,11 +703,11 @@ class TestChartToolsSpecializedTier:
         )
         from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
 
-        assert "get_document_content" in (WriterUpsertShape.required_core_tools or ())
+        assert "get_content" in (WriterUpsertShape.required_core_tools or ())
         assert "get_sheet_summary" in (CalcUpsertShape.required_core_tools or ())
         for chart_cls in (WriterChartList, WriterChartGetInfo, WriterChartUpsert, WriterChartDelete):
             assert chart_cls.required_core_tools is not None
-            assert "read_cell_range" not in chart_cls.required_core_tools
+            assert "read_range" not in chart_cls.required_core_tools
 
         def _exec(self, ctx, **kwargs):
             return {"status": "ok"}
@@ -728,10 +728,10 @@ class TestChartToolsSpecializedTier:
         )
 
         reg = _make_registry(
-            core("get_document_content"),
-            core("get_document_tree"),
+            core("get_content"),
+            core("get_tree"),
             core("get_sheet_summary"),
-            core("read_cell_range"),
+            core("read_range"),
             WriterChartList(),
             WriterChartGetInfo(),
             WriterChartUpsert(),
@@ -739,9 +739,9 @@ class TestChartToolsSpecializedTier:
         )
         names = {t.name for t in reg.get_tools(active_domain="charts", filter_doc_type=False)}
         assert self._CHART_TOOL_NAMES <= names
-        assert "get_document_content" in names
-        assert "get_document_tree" in names
-        assert "read_cell_range" not in names
+        assert "get_content" in names
+        assert "get_tree" in names
+        assert "read_range" not in names
         assert "get_sheet_summary" not in names
 
     def test_chart_list_unions_required_core_tools_on_replace(self):
@@ -752,7 +752,7 @@ class TestChartToolsSpecializedTier:
         reg.register(CalcChartList())
         reg.register(WriterChartList())
         cores = reg._required_core_union.get("chart_list") or frozenset()
-        assert "get_document_content" in cores
+        assert "get_content" in cores
         assert "get_sheet_summary" in cores
 
     def test_shared_shape_upsert_unions_required_core_tools_on_replace(self):
@@ -766,10 +766,10 @@ class TestChartToolsSpecializedTier:
         tool = reg.get("shape_upsert")
         assert tool is not None
         cores = reg._required_core_union.get("shape_upsert") or frozenset()
-        assert "get_document_content" in cores
-        assert "get_document_tree" in cores
+        assert "get_content" in cores
+        assert "get_tree" in cores
         assert "get_sheet_summary" in cores
-        assert "read_cell_range" in cores
+        assert "read_range" in cores
 
         def _exec(self, ctx, **kwargs):
             return {"status": "ok"}
@@ -782,15 +782,15 @@ class TestChartToolsSpecializedTier:
             )
             return cls()
 
-        for name in ("get_document_content", "get_document_tree", "get_sheet_summary", "read_cell_range"):
+        for name in ("get_content", "get_tree", "get_sheet_summary", "read_range"):
             reg.register(core(name))
         # Last-wins would keep only Writer's readers. The shapes domain must
         # still request Calc's sheet readers from the replaced registration.
         names = {t.name for t in reg.get_tools(active_domain="shapes", filter_doc_type=False)}
-        assert "get_document_content" in names
-        assert "get_document_tree" in names
+        assert "get_content" in names
+        assert "get_tree" in names
         assert "get_sheet_summary" in names
-        assert "read_cell_range" in names
+        assert "read_range" in names
 
     def test_required_core_tools_includes_one_specialized_peer(self):
         """A domain may name one specialized tool from another domain."""
@@ -804,7 +804,7 @@ class TestChartToolsSpecializedTier:
             description = "page tool"
             parameters = {"type": "object", "properties": {}}
             specialized_domain = "page_peer_test"
-            required_core_tools = frozenset(["style_peer", "get_document_content", "finish_control"])
+            required_core_tools = frozenset(["style_peer", "get_content", "finish_control"])
             execute = _ok
 
         class StylePeer(ToolWriterSpecialBase):
@@ -822,7 +822,7 @@ class TestChartToolsSpecializedTier:
             execute = _ok
 
         class CoreReader(ToolBase):
-            name = "get_document_content"
+            name = "get_content"
             description = "read"
             parameters = {"type": "object", "properties": {}}
             tier = "core"
@@ -846,7 +846,7 @@ class TestChartToolsSpecializedTier:
         names = {t.name for t in reg.get_tools(active_domain="page_peer_test", filter_doc_type=False)}
         assert "page_example" in names
         assert "style_peer" in names
-        assert "get_document_content" in names
+        assert "get_content" in names
         assert "style_sibling" not in names
         assert "finish_control" not in names
 
@@ -959,7 +959,7 @@ class TestExecuteKwargsAndFailure:
         values_schema = WriteCellRange.parameters["properties"]["values"]
 
         class WriteFormulaRange(ToolBase):
-            name = "write_formula_range"
+            name = "write_range"
             description = "write"
             parameters = {
                 "type": "object",
@@ -985,14 +985,14 @@ class TestExecuteKwargsAndFailure:
             caller="mcp",
         )
 
-        listed = reg.execute("write_formula_range", ctx, range=["A1:B1"], values=["a", "b"])
+        listed = reg.execute("write_range", ctx, range=["A1:B1"], values=["a", "b"])
         assert listed["status"] == "ok"
         assert listed["values"] == ["a", "b"]
 
-        number = reg.execute("write_formula_range", ctx, range=["A1"], values=3)
+        number = reg.execute("write_range", ctx, range=["A1"], values=3)
         assert number["values"] == "3"
 
-        empty = reg.execute("write_formula_range", ctx, range=["A1"], values=[])
+        empty = reg.execute("write_range", ctx, range=["A1"], values=[])
         assert empty["values"] == []
 
         # A plain string parameter must still reject a list.

@@ -16,7 +16,7 @@ LibreOffice maintains a rigorous structural hierarchy of its documents via the U
 
 ### Draw and Impress (Draw Tree)
 
-The `get_draw_tree` tool extracts the hierarchical structure of a Draw page or Impress slide. It translates raw UNO objects (`com.sun.star.drawing.RectangleShape`) into semantic JSON nodes. Vision-capable chat can also call `get_image page=N` for a PNG of that page — a screenshot for layout QA, not a substitute for this tree. `get_image` `page` is **0-based**.
+The `get_tree` tool extracts the hierarchical structure of a Draw page or Impress slide. It translates raw UNO objects (`com.sun.star.drawing.RectangleShape`) into semantic JSON nodes. Vision-capable chat can also call `image_get page=N` for a PNG of that page — a screenshot for layout QA, not a substitute for this tree. `image_get` `page` is **0-based**.
 
 **Features of the Draw Tree:**
 * **Hierarchy:** Grouped shapes become parent nodes with nested children.
@@ -29,13 +29,13 @@ The `get_draw_tree` tool extracts the hierarchical structure of a Draw page or I
 
 ### Writer (Heading Tree)
 
-Writer documents use a different hierarchy based on `OutlineLevel`. The `get_document_tree` tool (backed by the `writer_tree` service, `TreeService` in `plugin/writer/tree.py`) constructs a navigable index of headings and body paragraphs. `get_document_tree` performs a single top-level paragraph range enumeration per call, reusing those ranges for tree construction, heading bookmarks, and body preview slices. This prevents the model from needing to read 100 pages of text linearly. Instead, it "skims" the table of contents and zooms into specific sections. When Tools → Chapter Numbering is on, each heading node includes `chapter_number` (the paint label Writer shows, e.g. `3.1`); the key is omitted when numbering is off. `heading:1.2` is sibling-ordinal addressing, not that label — use `chapter_number:3.1` when the field is present. See [chapter-numbering.md](chapter-numbering.md).
+Writer documents use a different hierarchy based on `OutlineLevel`. The `get_tree` tool (backed by the `writer_tree` service, `TreeService` in `plugin/writer/tree.py`) constructs a navigable index of headings and body paragraphs. `get_tree` performs a single top-level paragraph range enumeration per call, reusing those ranges for tree construction, heading bookmarks, and body preview slices. This prevents the model from needing to read 100 pages of text linearly. Instead, it "skims" the table of contents and zooms into specific sections. When Tools → Chapter Numbering is on, each heading node includes `chapter_number` (the paint label Writer shows, e.g. `3.1`); the key is omitted when numbering is off. `heading:1.2` is sibling-ordinal addressing, not that label — use `chapter_number:3.1` when the field is present. See [chapter-numbering.md](chapter-numbering.md).
 
 ### Writer (Page-by-Page Context & Embedded Shapes)
 
-While `get_document_tree` extracts the heading structure, language models suffer from the "Needle in a Haystack" problem when fed too much data. To solve this, WriterAgent employs a **Page-by-Page Strategy**.
+While `get_tree` extracts the heading structure, language models suffer from the "Needle in a Haystack" problem when fed too much data. To solve this, WriterAgent employs a **Page-by-Page Strategy**.
 
-The `get_page_objects` tool jumps the view cursor to a specific physical page and extracts a highly concentrated, multimodal JSON snapshot:
+The `page_get_objects` tool jumps the view cursor to a specific physical page and extracts a highly concentrated, multimodal JSON snapshot:
 *   **Paragraphs:** The exact text visible on that physical page.
 *   **Images & Tables:** Metadata about anchored graphical objects and text tables.
 *   **Embedded Draw Shapes:** Writer documents contain a hidden "draw page" layer (`doc.getDrawPage()`). Page-anchored shapes, frames, and graphics use `AnchorPageNo` (no view hop). Paragraph/character-anchored objects use the view-cursor page check (`gotoRange(anchor)` + `vc.getPage()`). Do not classify shapes by cloning the view cursor through the body `XText` after `jumpToEndOfPage` — that raises UNO `RuntimeException` when the page end sits in a table cell or frame. Scan order is leave nested XText → `lockControllers` → unlock-retry on table/frame/graphic anchors only → unlock before restore; see [get-page-objects-leave-lock.md](get-page-objects-leave-lock.md). The snapshot still includes geometry, text, and names for flowcharts and diagrams in the text report. Per-object read failures log a warning and continue, while document disposal propagates immediately, and shape text hides pending tracked deletions. A shape whose `Position`/`Size` cannot be read stays in `shapes` with `geometry` null and the page result is kept.

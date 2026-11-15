@@ -107,7 +107,7 @@ def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -
 class ListCalcFunctions(ToolBase):
     """Retrieve available spreadsheet functions inside LibreOffice Calc."""
 
-    name: str | None = "list_calc_functions"
+    name: str | None = "list_functions"
     description: str = "Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring to filter functions by (case-insensitive search anywhere in the name or description)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -268,6 +268,6 @@ class EvaluateFormula(ToolCalcErrorBase):
             eval_result["requires_array"] = True
             eval_result["note"] = (
                 "Calc does not spill arrays: only the top-left value is reported. "
-                "Write it with write_formula_range to get the full result."
+                "Write it with write_range to get the full result."
             )
         return eval_result

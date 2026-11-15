@@ -401,19 +401,19 @@ def test_coerce_call_args_wraps_array_range_and_formula_values():
             },
         },
     }
-    out = coerce_call_args("write_formula_range", props, {"range": "A1", "values": ["a", 1]})
+    out = coerce_call_args("write_range", props, {"range": "A1", "values": ["a", 1]})
     assert out["range"] == ["A1"]
     assert out["values"] == ["a", 1]
-    empty = coerce_call_args("write_formula_range", props, {"range": "A1", "values": []})
+    empty = coerce_call_args("write_range", props, {"range": "A1", "values": []})
     assert empty["values"] == []
-    number = coerce_call_args("write_formula_range", props, {"range": "A1", "values": 3})
+    number = coerce_call_args("write_range", props, {"range": "A1", "values": 3})
     assert number["values"] == "3"
     plain = coerce_call_args("other", {"range": {"type": "string"}}, {"range": "A1"})
     assert plain["range"] == "A1"
 
 
 def test_write_formula_range_values_schema_string_array_union():
-    """Chat and MCP share the source values union (same guard as apply_document_content)."""
+    """Chat and MCP share the source values union (same guard as apply_content)."""
     from plugin.calc.cells import WriteCellRange
 
     tool = WriteCellRange()

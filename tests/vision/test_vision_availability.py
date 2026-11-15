@@ -85,14 +85,14 @@ def test_filter_vision_delegate_schemas(available: bool, use_ctx: bool, expected
 @pytest.mark.parametrize(
     ("available", "use_ctx", "expected_names"),
     [
-        pytest.param(False, False, ["apply_document_content"], id="unavailable_ctx_none"),
-        pytest.param(False, True, ["apply_document_content"], id="unavailable_with_ctx"),
-        pytest.param(True, False, ["apply_document_content", "extract_structure_from_image"], id="available_ctx_none"),
-        pytest.param(True, True, ["apply_document_content", "extract_structure_from_image"], id="available_with_ctx"),
+        pytest.param(False, False, ["apply_content"], id="unavailable_ctx_none"),
+        pytest.param(False, True, ["apply_content"], id="unavailable_with_ctx"),
+        pytest.param(True, False, ["apply_content", "image_extract_structure"], id="available_ctx_none"),
+        pytest.param(True, True, ["apply_content", "image_extract_structure"], id="available_with_ctx"),
     ],
 )
 def test_filter_vision_specialized_tools(available: bool, use_ctx: bool, expected_names: list[str]) -> None:
-    tools = [_Tool("apply_document_content"), _Tool("extract_structure_from_image")]
+    tools = [_Tool("apply_content"), _Tool("image_extract_structure")]
     ctx = MagicMock() if use_ctx else None
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=available):
         filtered = filter_vision_specialized_tools(tools, ctx=ctx)

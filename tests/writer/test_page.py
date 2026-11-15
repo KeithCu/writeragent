@@ -348,7 +348,7 @@ def test_get_header_footer_returns_html_and_still_lists_logo_and_field():
     assert res["fields"] == [{"presentation": "1", "content": "Page Number"}]
     assert res["paragraph_count"] == 2
     assert "warning" not in res
-    assert "apply_document_content" not in str(res)
+    assert "apply_content" not in str(res)
 
 
 def test_get_header_propagates_export_error_and_disposal():

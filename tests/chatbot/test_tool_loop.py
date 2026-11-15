@@ -291,7 +291,7 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
     captured_q = None
     results = []
     tool_calls = [
-        {"id": "call_abc", "type": "function", "function": {"name": "apply_document_content", "arguments": '{"content": "hi"}'}}
+        {"id": "call_abc", "type": "function", "function": {"name": "apply_content", "arguments": '{"content": "hi"}'}}
     ]
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
@@ -318,8 +318,8 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
 
     assert results[0] is False
 
-    panel._set_status.assert_called_with("Running: apply_document_content")
-    panel._append_response.assert_called_with("[Running tool: apply_document_content...]\n")
+    panel._set_status.assert_called_with("Running: apply_content")
+    panel._append_response.assert_called_with("[Running tool: apply_content...]\n")
 
     # The tool runs on a worker so the drain can keep pumping. The result
     # was taken while that drain was still inside the send.
@@ -328,7 +328,7 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_dra
 
     assert queued_item[0] == StreamQueueKind.TOOL_DONE
     assert queued_item[1] == "call_abc"
-    assert queued_item[2] == "apply_document_content"
+    assert queued_item[2] == "apply_content"
     assert queued_item[4] == '{"success": true}'
 
 
@@ -399,7 +399,7 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_dr
 
     results = []
     tool_calls = [
-        {"id": "call_1", "type": "function", "function": {"name": "apply_document_content", "arguments": '{"content": "hi"}'}}
+        {"id": "call_1", "type": "function", "function": {"name": "apply_content", "arguments": '{"content": "hi"}'}}
     ]
 
     def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):

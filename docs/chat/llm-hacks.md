@@ -6,12 +6,12 @@ This document tracks technical workarounds and "hacks" implemented to handle the
 **Problem**: LLMs are inconsistent with CSV delimiters. Since Calc formula syntax favors semicolons (`;`), models often use them for CSV data even when asked for commas (`,`). This leads to data being imported into a single column.
 
 ### [Workaround] Auto-Detection
-Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now handles it automatically in `plugin/calc/manipulator.py` when CSV data is provided.
+Instead of requiring a `delimiter` parameter, the tool `write_range` now handles it automatically in `plugin/calc/manipulator.py` when CSV data is provided.
 - **Implementation**: The tool peeks at the first few lines. If semicolons are significantly more prevalent than commas, it switches the CSV reader to `;`. Otherwise, it defaults to `,`.
 - **Reasoning**: Reduces the cognitive load on the LLM and makes the tool "just work" regardless of the model's preferred separator.
 
 ## 2. Range Writing Semicolon Splitting
-**Problem**: When using `write_formula_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a native row array `[["Name", "Age", "Salary"]]` or a JSON-encoded flat array. Without a workaround, this writes the entire string into a single cell.
+**Problem**: When using `write_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a native row array `[["Name", "Age", "Salary"]]` or a JSON-encoded flat array. Without a workaround, this writes the entire string into a single cell.
 
 ### [Workaround] Raw String Splitting
 The internal `_parse_formula_or_values_string` helper in `plugin/calc/manipulator.py` detects raw semicolon-separated strings.
@@ -126,9 +126,9 @@ Tests: [`tests/contrib/smolagents/test_tool_call_parsing.py`](../../tests/contri
 
 ## 9. Optional tool params and strict provider validation (Groq)
 
-**Problem**: Some providers (notably Groq) validate tool calls against the JSON Schema before WriterAgent runs the tool. Models often send `"max_chars": null` (or omit meaning “use default”) for optional parameters. A wire schema of `"type": "integer"` rejects `null`, so the whole call fails upstream — e.g. `get_document_content` with `max_chars: null`.
+**Problem**: Some providers (notably Groq) validate tool calls against the JSON Schema before WriterAgent runs the tool. Models often send `"max_chars": null` (or omit meaning “use default”) for optional parameters. A wire schema of `"type": "integer"` rejects `null`, so the whole call fails upstream — e.g. `get_content` with `max_chars: null`.
 
-**Solution**: [`to_openai_schema` / `to_mcp_schema`](../../plugin/framework/tool_schema.py) (re-exported from `tool.py`) run `_normalize_schema_for_strict_providers`, which emits `"type": [scalar, "null"]` for **optional** scalar properties (`integer`, `number`, `boolean`, `string`), including an optional union of those scalars (`["string", "number"]` becomes `["string", "number", "null"]`). Required parameters stay non-nullable. Every other source type stays too: `apply_document_content` `content` remains `["array", "string"]` because `validate` and execute accept a string or a list. A schema with `properties` and no `type` is still walked. `items` stays when `type` is missing or includes `array`. Tool implementations already treat omitted/`null` as default (e.g. no truncation when `max_chars` is null).
+**Solution**: [`to_openai_schema` / `to_mcp_schema`](../../plugin/framework/tool_schema.py) (re-exported from `tool.py`) run `_normalize_schema_for_strict_providers`, which emits `"type": [scalar, "null"]` for **optional** scalar properties (`integer`, `number`, `boolean`, `string`), including an optional union of those scalars (`["string", "number"]` becomes `["string", "number", "null"]`). Required parameters stay non-nullable. Every other source type stays too: `apply_content` `content` remains `["array", "string"]` because `validate` and execute accept a string or a list. A schema with `properties` and no `type` is still walked. `items` stays when `type` is missing or includes `array`. Tool implementations already treat omitted/`null` as default (e.g. no truncation when `max_chars` is null).
 
 **MCP vs OpenAI**: ``to_mcp_schema`` passes ``for_mcp=True`` into ``_normalize_schema_for_strict_providers``, so optional properties with an ``enum`` do not get JSON ``null`` in ``type`` or ``enum`` (Gemini rejects null enum elements when agy forwards MCP schemas). Non-enum optional scalars on MCP still get ``["scalar", "null"]``. The OpenAI wire from ``to_openai_schema`` is unchanged.
 
@@ -224,8 +224,8 @@ Tests: [`tests/framework/client/test_openai_shim.py`](../../tests/framework/clie
 ## 14. gpt-oss harmony tag on tool names; unknown-tool suggestions
 
 **Problem**:
-1. Models using the harmony chat format (such as `gpt-oss`) sometimes leak a trailing channel tag onto a tool call's function name (e.g. `read_cell_range<|channel|>commentary`), causing `UNKNOWN_TOOL` even though the base tool name and arguments are valid.
-2. When a model genuinely hallucinates a tool name (e.g. `write_formulas`), an error that only says the name is not registered gives no hint toward the real tool (`write_formula_range`).
+1. Models using the harmony chat format (such as `gpt-oss`) sometimes leak a trailing channel tag onto a tool call's function name (e.g. `read_range<|channel|>commentary`), causing `UNKNOWN_TOOL` even though the base tool name and arguments are valid.
+2. When a model genuinely hallucinates a tool name (e.g. `write_formulas`), an error that only says the name is not registered gives no hint toward the real tool (`write_range`).
 
 **Workarounds**:
 - **Name cleanup** ([`coalesce_split_tool_calls`](../../plugin/framework/stream_delta.py)): `_tool_name_without_template_suffix` drops everything from the first `<|` onward on non-empty function names (leaving tag-only names intact so they are not merged as split fragments). Because `LlmClient` routes both streaming and sync tool calls through `coalesce_split_tool_calls`, main chat, smol/specialized sub-agents, and the eval harness all receive clean tool names before execution and history storage.
@@ -242,7 +242,7 @@ On Writer edit tasks (such as rewriting a paragraph or converting text to an HTM
 
 **Workaround** ([`should_nudge_zero_tool_edit`](../../plugin/chatbot/tool_loop_state.py)):
 - Both the production FSM (`next_state` on `EventKind.STREAM_DONE` in [`tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py)) and the eval harness ([`llm_chat_eval.py`](../../scripts/prompt_optimization/llm_chat_eval.py)) call the shared helper `should_nudge_zero_tool_edit`.
-- When `doc_type == "writer"`, `apply_document_content` is in the offered tools, no mutating tool has run yet (`not has_mutated`), `not edit_nudge_sent`, and the turn shows edit intent (imperative edit verb in the user query, or a `<table>` / `"apply_document_content"` JSON snippet in the assistant text), the loop commits the assistant message, appends `EDIT_NUDGE_MESSAGE` as a `user` turn, sets `edit_nudge_sent = True`, and spawns one follow-up LLM round (`round_num + 1 < max_rounds`).
+- When `doc_type == "writer"`, `apply_content` is in the offered tools, no mutating tool has run yet (`not has_mutated`), `not edit_nudge_sent`, and the turn shows edit intent (imperative edit verb in the user query, or a `<table>` / `"apply_content"` JSON snippet in the assistant text), the loop commits the assistant message, appends `EDIT_NUDGE_MESSAGE` as a `user` turn, sets `edit_nudge_sent = True`, and spawns one follow-up LLM round (`round_num + 1 < max_rounds`).
 - Plain questions without edit intent and turns where a mutating tool already ran (`has_mutated=True` set on `TOOL_RESULT`) exit normally without nudging.
 
 **Interleaving notes (`ToolLoopState`)**:

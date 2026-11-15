@@ -83,7 +83,7 @@ class ToolWriterSpecialBase(ToolBase):
     # Subclasses MUST override this.
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_document_content", "get_document_tree"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_content", "get_tree"])
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
 
@@ -118,7 +118,7 @@ def _writer_core_tools(*extra: str) -> frozenset[str]:
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
     specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterPageBase(ToolWriterSpecialBase):
@@ -195,21 +195,21 @@ class ToolWriterIndexBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "indexes"
     specialized_domain_description: ClassVar[str | None] = (
         "Manage Table of Contents, alphabetical indexes, and native bibliography cites plus the reference table. "
-        "Delegate every TOC job here as one task, including creating a new TOC (indexes_create kind=toc) "
+        "Delegate every TOC job here as one task, including creating a new TOC (index_create kind=toc) "
         "and editing rows; the indexes executor reads and edits rows in the document, so the main chat "
         "must not rebuild a TOC with document-content edits or pass rows read from the document back in. "
-        "Read TOC rows with indexes_list_toc_entries (entry text and level; links only on request); "
+        "Read TOC rows with index_list_toc_entries (entry text and level; links only on request); "
         "that reads the index and does not export the document or call update(). "
         "For a read-only request, report entry text and level. "
-        "Customized TOC rows: indexes_insert_toc_entry, indexes_delete_toc_entry, and indexes_refresh_toc_entry "
-        "edit one entry and do not call update(). indexes_update_all rebuilds the TOC and drops custom formatting."
+        "Customized TOC rows: index_insert_toc_entry, index_delete_toc_entry, and index_refresh_toc_entry "
+        "edit one entry and do not call update(). index_update_all rebuilds the TOC and drops custom formatting."
     )
 
 
 class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "fields"
     specialized_domain_description: ClassVar[str | None] = "Manage document fields, variables, and cross-references."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
@@ -225,18 +225,18 @@ class WriterAgentSpecialTracking(ToolWriterSpecialBase):
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "bookmarks"
     specialized_domain_description: ClassVar[str | None] = "Manage document bookmarks and navigation points."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterStructuralBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "structural"
     specialized_domain_description: ClassVar[str | None] = "Document navigation, headings, and structural summary."
-    # Discussion #2029: pull get_page_objects into the structural delegate toolset
+    # Discussion #2029: pull page_get_objects into the structural delegate toolset
     # so the delegate can resolve physical page locations without failing over to
     # full-document reads. The tool stays tier core so main chat still exposes it.
     # section_list lives in the sections domain and is pulled in here so structural
     # navigation can still list sections without a second tool definition.
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("get_page_objects", "section_list")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("page_get_objects", "section_list")
 
 
 class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
@@ -253,7 +253,7 @@ class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
 class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "footnotes"
     specialized_domain_description: ClassVar[str | None] = "Create and manage footnotes and endnotes."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFormBase):
@@ -280,7 +280,7 @@ class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
 class ToolWriterMailMergeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "mail_merge"
     specialized_domain_description: ClassVar[str | None] = "Configure data sources, insert database merge fields, and execute mail merge jobs."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search_in_document")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class SpecializedWorkflowFinished(ToolBase):

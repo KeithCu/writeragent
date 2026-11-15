@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Structural tools: nav_goto_page, get_page_objects, bookmark_resolve.
+"""Structural tools: nav_goto_page, page_get_objects, bookmark_resolve.
 
 (Index refresh, field refresh, section list/read, and bookmark list/cleanup live in specialized domains.)"""
 
@@ -79,7 +79,7 @@ class NavGotoPage(ToolWriterStructuralBase):
 
 
 class GetPageObjects(ToolBase):
-    name: str | None = "get_page_objects"
+    name: str | None = "page_get_objects"
     description: str = (
         "Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide "
         "page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the "

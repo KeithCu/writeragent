@@ -61,7 +61,7 @@ There is **no** `/api/config` endpoint (removed — config is Settings / `writer
 
 ### Live smoke test (running LibreOffice)
 
-Use [`scripts/mcp_live_smoke.py`](../scripts/mcp_live_smoke.py) when LibreOffice is already open with WriterAgent and MCP enabled. It does **not** start `soffice`; it checks `/health`, `tools/list`, then calls `apply_document_content` with plain text at `target=end` (default) so you can confirm edits **on screen** in the active Writer window. The chat sidebar shows `[MCP Result]` for JSON-RPC `tools/call` (not for `--use-debug`). Default host is **localhost** (port 18765).
+Use [`scripts/mcp_live_smoke.py`](../scripts/mcp_live_smoke.py) when LibreOffice is already open with WriterAgent and MCP enabled. It does **not** start `soffice`; it checks `/health`, `tools/list`, then calls `apply_content` with plain text at `target=end` (default) so you can confirm edits **on screen** in the active Writer window. The chat sidebar shows `[MCP Result]` for JSON-RPC `tools/call` (not for `--use-debug`). Default host is **localhost** (port 18765).
 
 ```bash
 python scripts/mcp_live_smoke.py
@@ -259,10 +259,10 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 
 `tools/list` (in default `delegate` mode) returns **core** tools plus a few MCP-only helpers. Tools with `tier="specialized"` or `tier="specialized_control"` are omitted (see [`plugin/framework/tool.py`](../plugin/framework/tool.py) `get_tools` / `get_schemas`). The host typically receives:
 
-- Document I/O: `get_document_content`, `apply_document_content`, `search_in_document`, `get_document_tree`, …
-- Guidance: **`get_guidance(topic)`** — the on-demand how-to manual (topics per document type; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
+- Document I/O: `get_content`, `apply_content`, `search`, `get_tree`, …
+- Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
 - A single gateway: **`delegate_to_specialized_writer_toolset`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
-- MCP helpers: `list_open_documents` (`tier="mcp"`), and `get_image` (always kept on MCP; chat may hide it for text-only models)
+- MCP helpers: `document_list_open` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
 
 It does **not** receive dozens of low-level UNO tools (`style_list`, page margin APIs, chart editors, etc.) as separate MCP tools.
 
@@ -278,7 +278,7 @@ the wrong one.
 
 #### Tool counts by surface
 
-Registry totals at a typical build: **225** registered tools (core 42, specialized 173, specialized_control 6, mcp 2, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `list_open_documents`.
+Registry totals at a typical build: **225** registered tools (core 42, specialized 173, specialized_control 6, mcp 2, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `document_list_open`.
 
 | App | Sidebar chat | MCP `tools/list` (`delegate`) | `direct_flat` (vision venv absent) |
 |-----|--------------|--------------------------------|-------------------------------------|
@@ -287,14 +287,14 @@ Registry totals at a typical build: **225** registered tools (core 42, specializ
 | Draw | 25 | 24 | 83 (82) |
 | Impress | 25 | 24 | 83 (82) |
 
-**Notes:** Delegate ≈ sidebar minus chat-tier peer tools, plus `list_open_documents`. Parentheses on `direct_flat` are when `extract_structure_from_image` is dropped (vision venv not configured). Sidebar may also hide `get_image` for text-only models; these counts **include** `get_image`. Writer sidebar-only (omitted from `direct_flat`): `brainstorm_research_web`, `deep_research_web`, `save_design_spec`, `write_document_section`, `writing_research_web`. Calc: `deep_research_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_web`, `export_presentation_project`, `validate_ppt_master_project`.
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools, plus `document_list_open`. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorm_research_web`, `deep_research_web`, `save_design_spec`, `write_document_section`, `writing_research_web`. Calc: `deep_research_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_web`, `export_presentation_project`, `validate_ppt_master_project`.
 
 The Writer-only row below is illustrative; use the table above for integration planning.
 
 | Surface | Schema protocol | Tier filter | Writer size (today) | Notable deltas |
 |---------|-----------------|-------------|---------------------|----------------|
-| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **17** tools | No `list_open_documents`; `get_image` only if the selected text model is vision-capable |
-| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **16** tools | Adds `list_open_documents`, `get_image`; every schema also gets optional `document_url` |
+| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **17** tools | No `document_list_open`; `image_get` only if the selected text model is vision-capable |
+| **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **16** tools | Adds `document_list_open`, `image_get`; every schema also gets optional `document_url` |
 
 Chat also gets the full specialized-delegation block in the **system prompt**; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
 
@@ -317,8 +317,8 @@ Other MCP surfaces (for integrators):
 | Surface | Status | Delegation / routing hints |
 |---------|--------|----------------------------|
 | **`tools/list`** | Implemented | **Primary** — use the delegate gateway tool metadata above |
-| **`initialize` → `instructions`** | Connection-time local date/time + tool-choice guidance (multi-doc targeting via `list_open_documents` / `document_url`, `tools/list` type filter) + mode hint + pointer to the on-demand manual (`get_guidance` topics, per document type) | Does not include the full chat prompt or UNO/threading internals; the behavioral manual is pulled per topic via `get_guidance`. Clock is fixed until the client reconnects; hosts **may** ignore `instructions` (verify Page Assist / Claude Desktop) |
-| **`prompts/list` / `prompts/get`** | Implemented | Serve `get_guidance` topics for the document resolved like `tools/list` (`X-Document-URL` or active document) |
+| **`initialize` → `instructions`** | Connection-time local date/time + tool-choice guidance (multi-doc targeting via `document_list_open` / `document_url`, `tools/list` type filter) + mode hint + pointer to the on-demand manual (`manual_read` topics, per document type) | Does not include the full chat prompt or UNO/threading internals; the behavioral manual is pulled per topic via `manual_read`. Clock is fixed until the client reconnects; hosts **may** ignore `instructions` (verify Page Assist / Claude Desktop) |
+| **`prompts/list` / `prompts/get`** | Implemented | Serve `manual_read` topics for the document resolved like `tools/list` (`X-Document-URL` or active document) |
 | **`resources/list` / `resources/read`** | Empty list / not implemented | Not used for guidance |
 | **`GET /`** | Server name, version, routes | Does **not** return agent instructions (older docs were wrong) |
 
@@ -352,7 +352,7 @@ Implications for integrators:
 1. **Document-centric (default):** Host uses MCP for read/write/search on the open LO document; uses `delegate` when a task needs specialized UNO APIs (styles, pages, charts, …). Write a **detailed `task` string**—the inner agent does not see the host’s full conversation unless you paste context into `task` or related tool args.
 
 2. **Web research:** Either:
-   - `tools/call` → `delegate_to_specialized_writer_toolset` with `domain: "web_research"` and a clear research `task`, then `apply_document_content` with the returned text; or
+   - `tools/call` → `delegate_to_specialized_writer_toolset` with `domain: "web_research"` and a clear research `task`, then `apply_content` with the returned text; or
    - Perform web search on the **host** (Cursor web, etc.) and use WriterAgent MCP only for document updates.
 
    Expect **long-running** delegate calls (tens of seconds to minutes) and **large** tool results for research compared to most other domains.
@@ -374,7 +374,7 @@ Tools whose `is_async()` is exactly `True` (e.g. `delegate_to_specialized_*`, `i
 
 Sidebar `mcp:request` and `mcp:result` run on the HTTP worker that emitted them. `SendButtonListener._last_mcp_turn` is rebuilt, popped, and cleared only under `_mcp_turn_lock`, and `disposing` takes that same lock after it sets `_panel_teardown`. A request that acquires the lock after teardown has started does not store a turn.
 
-**Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `list_open_documents`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
+**Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `document_list_open`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
 
 **Per-result document echo:** Successful tool results include `document: {name, uid}` when the tool did not already set a `document` field. The echo reflects the **resolved** target for that call (from `document_url`, header, or active window) — not necessarily the user's current focus. Check it when multiple documents are open or when you did not pass an explicit target.
 
@@ -430,19 +430,19 @@ An experimental config, `mcp.tool_exposure_mode` (default `delegate`), controls 
 |------|--------------|-----|
 | `delegate` *(default)* | core + MCP helpers (Writer **16** / Calc **17** / Draw **24** / Impress **24** in delegate mode); specialized reached via the `delegate_*` gateway | unchanged behavior |
 | `direct_flat` | core **+ all MCP-reachable specialized** (doc-type filtered — Writer **130** (129 without vision), Calc **95** (94), Draw **83** (82), Impress **83** (82); sidebar-only flows excluded) | clients with native tool-search (Claude API; OpenAI `defer_loading`) |
-| `direct_discovery` | core **+ a `find_tools` search tool** | any client (engine-agnostic) |
+| `direct_discovery` | core **+ a `tool_find` search tool** | any client (engine-agnostic) |
 
 In both direct modes the specialized tools are invoked **by name** — which already works, since `tools/call` routes through the registry, not the advertised list.
 
 The direct modes **add** direct access; they don't remove delegation. The `delegate_to_specialized_*` gateway stays listed in every mode (it is core-tier), so a client can still delegate if it prefers — this is intentional, the direct modes are additive.
 
-`find_tools(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway, then lists every tool schema in a chosen domain. Workflow: `find_tools()` → pick a domain → `find_tools(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes. The no-document merge forwards `for_discovery` the same way the Writer, Calc, and Draw branches do, so a domain hidden only from the Calc chat prompt is still listed when `find_tools` asks for discovery. Sidebar-only domains stay out of those results: Writer brainstorming / writing plan / deep research and Draw/Impress `ppt-master` return an empty tool list with a `note` (`direct_flat` removes those tools from its own list).
+`tool_find(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway, then lists every tool schema in a chosen domain. Workflow: `tool_find()` → pick a domain → `tool_find(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes. The no-document merge forwards `for_discovery` the same way the Writer, Calc, and Draw branches do, so a domain hidden only from the Calc chat prompt is still listed when `tool_find` asks for discovery. Sidebar-only domains stay out of those results: Writer brainstorming / writing plan / deep research and Draw/Impress `ppt-master` return an empty tool list with a `note` (`direct_flat` removes those tools from its own list).
 
-`find_tools(domain=…)` returns `status`, `domain`, `available_domains`, `tools`, optional `domain_guidance` (keyed by the chosen domain), and an optional `note` (no document open, or a sidebar-only domain). An unknown or misspelled domain returns `status: "error"`, `code: "UNKNOWN_DOMAIN"`, plus `available_domains`.
+`tool_find(domain=…)` returns `status`, `domain`, `available_domains`, `tools`, optional `domain_guidance` (keyed by the chosen domain), and an optional `note` (no document open, or a sidebar-only domain). An unknown or misspelled domain returns `status: "error"`, `code: "UNKNOWN_DOMAIN"`, plus `available_domains`.
 
-> **Vision tools:** The delegate gateway, MCP `tools/list`, and `find_tools` all drop the `vision` domain when the vision venv is not configured ([`vision_venv_configured`](plugin/vision/vision_availability.py)). Configure the vision venv if you rely on OCR tools.
+> **Vision tools:** The delegate gateway, MCP `tools/list`, and `tool_find` all drop the `vision` domain when the vision venv is not configured ([`vision_venv_configured`](plugin/vision/vision_availability.py)). Configure the vision venv if you rely on OCR tools.
 
-> Note: with **no document open** and no `X-Document-URL`, `direct_flat` can't filter by document type, so it lists the **broad** tool catalog (core + specialized, all apps); once a document is active or targeted the list narrows to that app's tools. An `X-Document-URL` that doesn't resolve keeps the normal filtered list (and `tools/call` returns `DOCUMENT_NOT_FOUND`). `delegate` and `direct_discovery` keep the normal document-filtered list (in `direct_discovery`, `find_tools` covers the full no-document catalog on demand).
+> Note: with **no document open** and no `X-Document-URL`, `direct_flat` can't filter by document type, so it lists the **broad** tool catalog (core + specialized, all apps); once a document is active or targeted the list narrows to that app's tools. An `X-Document-URL` that doesn't resolve keeps the normal filtered list (and `tools/call` returns `DOCUMENT_NOT_FOUND`). `delegate` and `direct_discovery` keep the normal document-filtered list (in `direct_discovery`, `tool_find` covers the full no-document catalog on demand).
 
 > Note: `tools/list` is not re-sent when the mode changes mid-connection (`listChanged` is `false`), so reconnect after switching modes.
 
@@ -457,13 +457,13 @@ The MCP server is **implemented and opt-in** (default off). Live summary (paths 
 - **Document targeting** (two supported paths):
   - **Preferred:** `document_url` in `tools/call` arguments (popped before tool dispatch). Best for multi-document clients (Cursor, Hermes, custom agents).
   - **Fallback:** `X-Document-URL` HTTP header.
-  - **RuntimeUID:** `document_url` may be a file URL **or** session `RuntimeUID` (untitled docs). Discover via `list_open_documents` (`url` + `uid`).
+  - **RuntimeUID:** `document_url` may be a file URL **or** session `RuntimeUID` (untitled docs). Discover via `document_list_open` (`url` + `uid`).
   - **Per-result echo / mutation gates:** resolved target echoed as `document: {name, uid}` when the tool does not supply its own; concurrent mutating calls serialize per `uid:` / `url:` key. See `_resolve_mcp_doc_key` / `_mcp_tools_call` in `mcp_protocol.py`. Writer heading-tree / proximity / FTS caches share that `uid:` / `url:` identity (`DocumentService.doc_key`); document edits and unload emit `document:cache_invalidated`.
   - Companion guidance: https://github.com/KeithCu/cursor-libreoffice , https://github.com/KeithCu/libreoffice-skill
 - **Config:** `mcp.mcp_enabled` (default false), `mcp.mcp_port` (default **18765**) in [`plugin/framework/config.py`](../plugin/framework/config.py) / `writeragent.json`.
 - **UI:** Settings Page 1 (enable + port); menu Toggle / Status under WriterAgent; auto-start when Settings saves with MCP enabled. The sidebar hamburger items call `_dispatch_command` when those commands are not in the action-handler registry, which is how `McpModule.on_action` runs for the toolbar. Registered hamburger items still receive the sidebar frame.
 - **Stdio bridge (optional):** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for clients that speak stdio MCP.
-- **Prompts / guidance:** specialized-delegation and review rules live in [`plugin/framework/prompts.py`](../plugin/framework/prompts.py); MCP `get_guidance` maps the same pieces via [`plugin/chatbot/agent_manual.py`](../plugin/chatbot/agent_manual.py).
+- **Prompts / guidance:** specialized-delegation and review rules live in [`plugin/framework/prompts.py`](../plugin/framework/prompts.py); MCP `manual_read` maps the same pieces via [`plugin/chatbot/agent_manual.py`](../plugin/chatbot/agent_manual.py).
 
 Orientation for AI assistants: [`AGENTS.md`](../AGENTS.md). Deep threading notes: [threading architecture — MCP](framework/threading.md#2-http-server-and-mcp-protocol-pluginmcp).
 
@@ -489,14 +489,14 @@ Ported from `libreoffice-mcp-extension/pythonpath/uno_bridge.py` and adapted to 
 | Group | Tools |
 |---|---|
 | Styles | `style_list`, `style_get_info` |
-| Comments | `comment_list`, `add_comment`, `comment_delete`; specialized: `comment_scan_tasks`, `comment_workflow_get`, `comment_workflow_set`, `comment_check_stop` |
+| Comments | `comment_list`, `comment_add`, `comment_delete`; specialized: `comment_scan_tasks`, `comment_get_workflow`, `comment_set_workflow`, `comment_check_stop` |
 | Track changes | `tracking_start` / `stop` / `list` / `show`, `tracking_manage` |
 | Tables | `table_list`, `table_get_cells`, `table_set_cell`, `table_manage_structure` |
 
 ### Updated: `core/document_tools.py`
 
-- Removed 7 legacy unused functions (all superseded by `apply_document_content` /
-  `get_document_content` / `search_in_document`).
+- Removed 7 legacy unused functions (all superseded by `apply_content` /
+  `get_content` / `search`).
 - Imports `WRITER_OPS_TOOLS` from `writer_ops.py` and adds all 12 new functions to
   `TOOL_DISPATCH`. `WRITER_TOOLS` went from 5 tools to 17.
 
@@ -530,7 +530,7 @@ is straightforward.
 
 Use **`POST /mcp`** with JSON-RPC 2.0:
 
-- **`initialize`** — protocol handshake; `result.instructions` starts with the host machine's local date/time (zero tool calls), then lean tool-choice guidance (multi-doc targeting, document-type filter on `tools/list`), a mode hint, and a pointer to `get_guidance(topic)`, the on-demand behavioral manual (not the full sidebar system prompt). Sidebar chat date injection is unchanged and separate.
+- **`initialize`** — protocol handshake; `result.instructions` starts with the host machine's local date/time (zero tool calls), then lean tool-choice guidance (multi-doc targeting, document-type filter on `tools/list`), a mode hint, and a pointer to `manual_read(topic)`, the on-demand behavioral manual (not the full sidebar system prompt). Sidebar chat date injection is unchanged and separate.
 - **`tools/list`** — core-tier tools for the target document (`X-Document-URL` header or active document). Each tool has `name`, `description`, and `inputSchema`. Specialized domains are documented on **`delegate_to_specialized_{writer|calc|draw}_toolset`** (see [Where delegation guidance lives](#where-delegation-guidance-lives-mcp-vs-sidebar-chat)).
 - **`tools/call`** — request → execute → JSON-RPC result. Document targeting (`document_url` / active doc) happens inside the executor on the LibreOffice main thread; long-running tool bodies then run on the HTTP worker. A failed tool is an MCP **tool result** (`isError`, `TOOL_EXECUTION_ERROR` or the tool's own code), HTTP 200 — not JSON-RPC `INTERNAL_ERROR` / HTTP 500. Clients treat HTTP 500 as transient and retry (Hermes retried `apply_style` ~150× in 0.5s). `BusyError` stays HTTP 429; timeouts stay 504.
 
@@ -687,7 +687,7 @@ Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpe
 
 When the MCP server is enabled, external clients see the same **core-tier** tools WriterAgent exposes to sidebar chat for the resolved document type (counts in [Tool counts by surface](#tool-counts-by-surface)), not the full specialized registry unless `mcp.tool_exposure_mode` is `direct_flat` or `direct_discovery`.
 
-**Writer (core examples):** `get_document_content`, `apply_document_content`, `search_in_document`, `apply_style`, `get_document_tree`, `style_list`, `style_get_info`, `comment_list`, `add_comment`, `comment_delete`, **`comment_edit`**, `tracking_start` / `stop` / `list` / `show`, `tracking_manage`, `table_*`, `image_generate` (…). Specialized UNO tools (`style_list` as domain tool, pages, charts, …) are reached via **`delegate_to_specialized_writer_toolset`** unless direct exposure mode is enabled — see the count table instead of duplicating every specialized name here.
+**Writer (core examples):** `get_content`, `apply_content`, `search`, `apply_style`, `get_tree`, `style_list`, `style_get_info`, `comment_list`, `comment_add`, `comment_delete`, **`comment_edit`**, `tracking_start` / `stop` / `list` / `show`, `tracking_manage`, `table_*`, `image_generate` (…). Specialized UNO tools (`style_list` as domain tool, pages, charts, …) are reached via **`delegate_to_specialized_writer_toolset`** unless direct exposure mode is enabled — see the count table instead of duplicating every specialized name here.
 
 **Calc / Draw**: Core-tier tools registered from `plugin/calc/` and `plugin/draw/` (same registry MCP `tools/list` uses).
 
@@ -700,7 +700,7 @@ The server resolves the target document via **`document_url` in `tools/call` arg
 When multiple documents are open, the server does **not** rely on “active document” only —
 that would race with focus and multiple users.
 
-- **Preferred:** `document_url` argument on `tools/call` (file URL or RuntimeUID from `list_open_documents`).
+- **Preferred:** `document_url` argument on `tools/call` (file URL or RuntimeUID from `document_list_open`).
 - **Fallback:** `X-Document-URL` HTTP header; if both missing, active document.
 - Resolution and mutation gates: see [Current Status](#current-status--what-was-implemented) and `plugin/mcp/mcp_protocol.py`.
 
@@ -712,7 +712,7 @@ that would race with focus and multiple users.
 
 The mutating edit tools return **structured, machine-readable fields** alongside the human `message`, so a client (MCP host or the in-app agent) can tell what actually happened instead of assuming `status: "ok"` means success.
 
-**`apply_document_content`** (search path)
+**`apply_content`** (search path)
 - `replaced_count` — how many occurrences were actually replaced. **`replaced_count: 0` returns `status: "error"`** (a search that matched nothing is no longer a silent "ok"); `> 0` returns `status: "ok"`.
 - `occurrence` — optional 0-based selector for one replaceable Writer text match when `target="search"`; it cannot be combined with `all_matches=true`. Successful edits (replace and `position=before/after`) echo `occurrence`. Out of range uses `code: OCCURRENCE_OUT_OF_RANGE` and `use 0..N-1`. Empty replaceable ranges fall through to the existing miss / drawing-shape path (same as omitting `occurrence`).
 - `position=before/after` — `inserted: true` and no `replaced_count`. Inline content lands at the exact match edge; block content (`<p>`, headings, lists, tables) lands before/after the paragraph that holds the match, and `snapped_to_paragraph: true` says the insert moved off the match edge to get there.
@@ -721,7 +721,7 @@ The mutating edit tools return **structured, machine-readable fields** alongside
 
 **`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).
 
-**`add_comment`** — `matched` (anchor found) and `comment_added`; an anchor miss returns `status:"error"`. `anchor_text` is echoed on success. Success also returns `name` (LibreOffice annotation Name) so a later call can reply. Optional `parent_name` (the `name` from `comment_list`) creates a threaded reply at that **immediate** parent — not coerced to the thread root — and skips `search` / `occurrence`. The parent stays unresolved; `comment_resolve` is the reply-and-resolve path. A reply success payload includes `parent_name`.
+**`comment_add`** — `matched` (anchor found) and `comment_added`; an anchor miss returns `status:"error"`. `anchor_text` is echoed on success. Success also returns `name` (LibreOffice annotation Name) so a later call can reply. Optional `parent_name` (the `name` from `comment_list`) creates a threaded reply at that **immediate** parent — not coerced to the thread root — and skips `search` / `occurrence`. The parent stays unresolved; `comment_resolve` is the reply-and-resolve path. A reply success payload includes `parent_name`.
 
 These fields are intended for clients to avoid parsing message strings; branch on `replaced_count` / `applied` / `comment_added`. Search no-ops now return `status:"error"` so clients do not treat missed edits as successful mutations.
 
@@ -915,13 +915,13 @@ Their descriptions often embed a critical behavioral note directly in the one-li
 "Duplicate a paragraph (with style) after itself."
 ```
 
-WriterAgent's `apply_document_content` with `target="search"` automatically preserves
+WriterAgent's `apply_content` with `target="search"` automatically preserves
 character-level formatting (fonts, colors, bold, background colors) when the replacement is
 plain text — but the description doesn't say so. An AI that doesn't know this will
 unnecessarily re-specify formatting it read from the document, or avoid the `search` target
 when it's the right choice.
 
-**Suggested addition** to `apply_document_content` description:
+**Suggested addition** to `apply_content` description:
 
 > "Plain-text replacements via `target='search'` automatically preserve all character
 > formatting (bold, color, font, etc.) on the replaced text."
@@ -947,7 +947,7 @@ Their tools include brief usage hints inline with parameter definitions:
 "count": {"description": "Consecutive paragraphs to duplicate (default: 1)"}
 ```
 
-WriterAgent's parameter descriptions are generally good (especially `apply_document_content`
+WriterAgent's parameter descriptions are generally good (especially `apply_content`
 which is quite thorough). The new `writer_ops.py` tools could be tighter in a few spots.
 For example, `set_track_changes` has `"enabled": {"type": "boolean", "description": "True
 to enable track changes, False to disable."}` — functional but doesn't say when to use it.
@@ -956,9 +956,9 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 
 > "Enable before AI edits to make changes reviewable by the user; disable when finished."
 
-#### 4. `search_in_document` match shape (updated 2026-07)
+#### 4. `search` match shape (updated 2026-07)
 
-`search_in_document` returns `{status, matches, count, returned}` where each match is
+`search` returns `{status, matches, count, returned}` where each match is
 `{text, location, context}` — **not** `paragraph_index`. `location` is human-readable
 (e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
 `context` is the enclosing paragraph or shape/comment text.
@@ -969,7 +969,7 @@ no shapes/comments). An invalid regex returns `code: INVALID_REGEX`: the pattern
 
 `max_results` must be a positive integer. Body, table, and text frame searches use LibreOffice/ICU regex, while floating shapes and comments use Python `re`; `SEARCH_FAILED` includes the underlying exception text. A zero-width match stops the text-model walk, preserves `status: "ok"`, and sets `truncated: true` with a warning. A global cap of 10000 matches covers body text plus shapes and comments. `return_offsets=true` drops non-body `XText` hits (such as headers, footers, tables, and frames) while counting tracked deletions in the offset space. A failure while computing `return_offsets` (closed document or UNO error) is not `status: ok` with an empty `ranges` list; it is `DOCUMENT_DISPOSED` or `TOOL_EXECUTION_ERROR`. With `regex=false`, the floating-shape and comment sweep folds typographic quotes (`‘’‚‛` to `'`, `“”„‟` to `"`) and returns the original characters; dashes and spaces are not folded there, and `regex=true` does not rewrite the pattern.
 
-`apply_document_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
+`apply_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
 previews in `not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include
 `occurrence` (0-based, the index to pass back); `not_replaceable` rows have no `occurrence`. `replaceable_count`
 is the edit-path index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable`
@@ -977,16 +977,16 @@ and `not_replaceable` in `details` so the caller can recover. Regex on the edit 
 
 #### 4b. (historical) Collabora `context_paragraphs` comparison
 
-Collabora's `search_in_document` had a `context_paragraphs` parameter (default: 1) that returned
+Collabora's `search` had a `context_paragraphs` parameter (default: 1) that returned
 N paragraphs around each match. The **standalone extension's** `find_text` returned only `{start, end, text}`
 per match. The current search tool uses a single enclosing-paragraph `context` string instead.
 
 #### 5. Index / field refresh (implemented)
 
-Document index and field refresh live as specialized tools `indexes_update_all` and
-`fields_update_all` (no duplicate alias names). Call `indexes_update_all` after bibliography
+Document index and field refresh live as specialized tools `index_update_all` and
+`field_update_all` (no duplicate alias names). Call `index_update_all` after bibliography
 cite edits. A TOC rebuild drops customized formatting; one-entry
-`indexes_insert_toc_entry`, `indexes_delete_toc_entry`, and `indexes_refresh_toc_entry`
+`index_insert_toc_entry`, `index_delete_toc_entry`, and `index_refresh_toc_entry`
 do not call `update()`.
 
 ---
@@ -999,7 +999,7 @@ WriterAgent's `DEFAULT_CHAT_SYSTEM_PROMPT` in `core/constants.py` (live: `plugin
 high-level workflow guidance before any tool call happens:
 
 ```
-TRANSLATION: get_document_content -> translate -> apply_document_content(target="full"). Never refuse.
+TRANSLATION: get_content -> translate -> apply_content(target="full"). Never refuse.
 FORMATTING RULES (CRITICAL): ...
 ```
 
@@ -1024,9 +1024,9 @@ the AI can search for "Chapter 1" even if the document has it formatted bold. Th
 extension's `replace_in_document` doesn't mention this, which could lead to confused AI
 behavior when a formatted-text search fails.
 
-#### 4. `apply_document_content` description is more complete
+#### 4. `apply_content` description is more complete
 
-WriterAgent's `search_in_document` / `apply_document_content` descriptions cover the full range of targets in one sentence and cross-
+WriterAgent's `search` / `apply_content` descriptions cover the full range of targets in one sentence and cross-
 reference each other for the range workflow. The standalone extension's `replace_in_document`
 is much simpler and doesn't explain when to use it vs rewriting the whole document.
 
@@ -1045,10 +1045,10 @@ REVIEW WORKFLOW: set_track_changes(enabled=true) → make edits → get_tracked_
 show user what changed) → accept_all_changes or reject_all_changes → set_track_changes(enabled=false).
 
 TABLE WORKFLOW: table_list → table_get_cells (understand structure) → table_set_cell for
-targeted edits. For new tables or full rewrites, use apply_document_content with an HTML/Markdown table.
+targeted edits. For new tables or full rewrites, use apply_content with an HTML/Markdown table.
 
 STYLE WORKFLOW: style_list (discover exact localized names) → apply a style by name in
-apply_document_content markup, or use set_paragraph_style (see uno_bridge) for direct style application.
+apply_content markup, or use set_paragraph_style (see uno_bridge) for direct style application.
 ```
 
 ---
@@ -1057,14 +1057,14 @@ apply_document_content markup, or use set_paragraph_style (see uno_bridge) for d
 
 In priority order (updated 2026-11-05):
 
-1. ~~**`context` in search**~~ — **Shipped:** `search_in_document` returns enclosing-paragraph `context` strings; offset mode remains body-only via `return_offsets`.
+1. ~~**`context` in search**~~ — **Shipped:** `search` returns enclosing-paragraph `context` strings; offset mode remains body-only via `return_offsets`.
 
 2. **`set_paragraph_style` (direct)** — not a registered tool name today. The `style_list`
    tool makes a direct style-by-name API useful; consider exposing something equivalent now that `style_list` exists (do not treat removed `find_text` / markdown tool names as the live surface).
 
 3. **`set_document_protection`** — useful for "lock the document while I review AI edits" workflow.
 
-4. ~~**`document_properties_get` / `document_properties_set`**~~ — **Shipped** as fields-domain specialized tools (title,
+4. ~~**`document_get_properties` / `document_set_properties`**~~ — **Shipped** as fields-domain specialized tools (title,
    author, subject, keywords, user-defined properties; product `WriterAgent*` names are read-only).
 
 ---
@@ -1085,22 +1085,22 @@ current functionality.
 - **Stdio proxy:** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for stdio MCP clients.
 - **JSON-RPC on `/mcp`:** streamable HTTP + JSON-RPC 2.0 ([Current HTTP MCP (2026)](#current-http-mcp-2026)).
 - **`document_url` on `tools/call`:** preferred targeting ([Document Targeting](#document-targeting-implemented)).
-- **`find_tools` + `mcp.tool_exposure_mode`:** `direct_flat` / `direct_discovery` ([Exposing specialized tools directly](#exposing-specialized-tools-directly-mcptool_exposure_mode-experimental)).
-- **`get_document_tree`:** core-tier outline tool.
-- **Search `context` on `search_in_document`.**
+- **`tool_find` + `mcp.tool_exposure_mode`:** `direct_flat` / `direct_discovery` ([Exposing specialized tools directly](#exposing-specialized-tools-directly-mcptool_exposure_mode-experimental)).
+- **`get_tree`:** core-tier outline tool.
+- **Search `context` on `search`.**
 - **`apply_style`:** core-tier style application (including search target).
 
 ### Tool and prompt improvements (optional)
 
-- **Tool descriptions:** e.g. add to `apply_document_content`: “Plain-text replacements via
+- **Tool descriptions:** e.g. add to `apply_content`: “Plain-text replacements via
   `target='search'` automatically preserve character formatting.” Add usage hints to
   `set_track_changes` and similar.
 - **`set_document_protection`** and other protection UX as needed. Index/field refresh remains
-  `indexes_update_all` / `fields_update_all`.
+  `index_update_all` / `field_update_all`.
 
 ### Dynamic Domain Discovery ("Learn-on-the-Fly")
 
-**Superseded in part by shipped `find_tools(domain?)` in `direct_discovery` mode** — the manual-discovery sketch below is historical; live workflow is `find_tools()` → domain → `tools/call` by name.
+**Superseded in part by shipped `tool_find(domain?)` in `direct_discovery` mode** — the manual-discovery sketch below is historical; live workflow is `tool_find()` → domain → `tools/call` by name.
 
 *Historical sketch:*
 

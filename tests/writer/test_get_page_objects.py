@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""get_page_objects must not clone the view cursor through the body XText.
+"""page_get_objects must not clone the view cursor through the body XText.
 
 jumpToEndOfPage can land inside a table cell. Body createTextCursorByRange then
 raises RuntimeException: End of content node doesn't have the proper start node.
@@ -396,7 +396,7 @@ def _quiet_writer(elements):
 
 
 class _RecordingDocumentService:
-    """Records the paragraph index get_page_objects resolved, then returns a page."""
+    """Records the paragraph index page_get_objects resolved, then returns a page."""
 
     def __init__(self, resolve=None):
         self.seen = []

@@ -11,13 +11,13 @@ WRITER_SEARCH_RULES, WRITER_NAVIGATION_RULES, WRITER_IMAGES_RULES). The sidebar 
 template assembles those pieces directly, adding its sidebar-only parts (persona, chat format,
 delegation routing, memory).
 
-This module is the on-demand assembly of the same pieces: get_guidance(topic) serves ONE topic at
+This module is the on-demand assembly of the same pieces: manual_read(topic) serves ONE topic at
 a time, mapping topic -> piece per document type and adding the MCP-only extras (the HTTP 429
 concurrency contract, which the in-process sidebar never needs). Its consumers:
 - external MCP clients (they drop/truncate connect-time instructions, so pull is their ONLY
   channel, plus JIT state in tool results);
 - the sidebar agent, for the reference pieces (search/navigation/images) its HYBRID prompt keeps
-  out of the ambient text — get_guidance is tier "core" so the sidebar can call it;
+  out of the ambient text — manual_read is tier "core" so the sidebar can call it;
   editing-html also appends HTML_MATH_AND_LINK_EXAMPLES that the ambient sidebar block leaves out;
 - the agent-backend path (send_handlers), which injects full_manual() — it talks to the HTTP
   server, so it takes the whole manual including the MCP extras.
@@ -26,7 +26,7 @@ Same pieces, different assembly per channel — update a rule in prompts.py and 
 sees it; only genuinely channel-specific text lives outside the shared pieces.
 
 Sections are per document type: Writer has the full manual; Calc and Draw have app-specific
-topics plus the shared concurrency section. ``get_guidance`` resolves the target document's type
+topics plus the shared concurrency section. ``manual_read`` resolves the target document's type
 the same way every other tool does, so a Calc session never reads Writer advice."""
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ _MCP_CONCURRENCY_RULES = (
     "- Long-running calls can overlap EXCEPT two edits to the SAME document (those are serialized), "
     "so parallel work is fine across different documents but avoid overlapping edits to one document.\n"
     "- With more than one document open, ALWAYS pass document_url (a url or uid from "
-    "list_open_documents): without it every call targets whatever window the user has focused, "
+    "document_list_open): without it every call targets whatever window the user has focused, "
     "which can change between your calls. Every result echoes the document it acted on "
     "(document: {name, uid}) — check it when in doubt."
 )
@@ -72,7 +72,7 @@ _MCP_CONCURRENCY_RULES = (
 # editing-html section follows immediately, so a "go read that topic" pointer would dangle.
 # ---------------------------------------------------------------------------
 _EDITING_HTML_POINTER = (
-    "\n\nFor apply_document_content's full contract (targets, the JSON array of HTML "
+    "\n\nFor apply_content's full contract (targets, the JSON array of HTML "
     "fragments, math, named styles, reach), read the editing-html topic."
 )
 
@@ -108,7 +108,7 @@ _WRITER_TOPICS: tuple[_Topic, ...] = (
     _Topic(
         "editing-html",
         WRITER_APPLY_DOCUMENT_HTML_RULES + HTML_MATH_AND_LINK_EXAMPLES,
-        "apply_document_content contract: targets, HTML array, math and heading-link examples, styles, reach",
+        "apply_content contract: targets, HTML array, math and heading-link examples, styles, reach",
     ),
     _Topic(
         "review-modes",
@@ -151,7 +151,7 @@ _DRAW_TOPICS: tuple[_Topic, ...] = (
     _Topic(
         "get-image",
         DRAW_GET_IMAGE_TOOL_LINE,
-        "get_image tool: page render and embedded shapes",
+        "image_get tool: page render and embedded shapes",
     ),
     _CONCURRENCY_TOPIC,
 )
@@ -248,17 +248,17 @@ def get_section(topic: str | None, doc_type: str | None = "writer") -> str | Non
 
 
 def manual_index(doc_type: str | None = "writer") -> str:
-    """Short index for get_guidance() with no topic — what can be pulled WITHOUT reading it all.
+    """Short index for manual_read() with no topic — what can be pulled WITHOUT reading it all.
 
     With doc_type=None (no document open) the index is neutral: it lists the always-available
     generic topics and says the full set follows the open document's type."""
     if doc_type is None:
         lines = [
-            "WriterAgent how-to topics — call get_guidance(topic) to read one. No document is open; "
+            "WriterAgent how-to topics — call manual_read(topic) to read one. No document is open; "
             "topics follow the open document's type (writer, calc, draw). Available now:"
         ]
     else:
-        lines = ["WriterAgent how-to topics — call get_guidance(topic) to read one:"]
+        lines = ["WriterAgent how-to topics — call manual_read(topic) to read one:"]
     lines += [f"- {t.id}: {t.summary}" for t in _MANUALS[_app(doc_type)]]
     return "\n".join(lines)
 

@@ -493,11 +493,11 @@ class SendHandlersMixin:
                     mcp_instructions = (
                         f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\n"
                         f"You can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\n"
-                        f"Target the current document by passing document_url (a url or uid from list_open_documents): {document_url}\n"
+                        f"Target the current document by passing document_url (a url or uid from document_list_open): {document_url}\n"
                     )
 
                 # Inject the FULL shared manual: the same prompt pieces (constants) that feed the
-                # sidebar's hybrid prompt and get_guidance's topics, concatenated by agent_manual
+                # sidebar's hybrid prompt and manual_read's topics, concatenated by agent_manual
                 # WITH the MCP extras (this backend talks to the HTTP server, so e.g. the 429
                 # concurrency contract applies here, unlike the in-process sidebar).
                 # full_manual(doc_type_str) is string-only — do not classify the document here.

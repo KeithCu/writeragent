@@ -1079,7 +1079,7 @@ def test_judge_only_for_quality_tasks() -> None:
 
 
 def test_solar_sld_grouped_tree_still_scores() -> None:
-    """Production get_draw_tree may wrap the diagram in a GroupShape."""
+    """Production get_tree may wrap the diagram in a GroupShape."""
     doc = json.dumps(
         {
             "status": "ok",

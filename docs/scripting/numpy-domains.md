@@ -99,7 +99,7 @@ Shipped domains prove the stack. New domains should mirror them—not invent par
 | Run Python Script | register in [`domain_registry.py`](../../plugin/scripting/domain_registry.py) `PICKER` / `RPS` | same | same | same | same | same | Host glue: [`helper_domain.py`](../../plugin/scripting/helper_domain.py) + registry; picker via [`document_scripts.py`](../../plugin/scripting/document_scripts.py) |
 | Run Python Script execution | venv + post-venv | venv + post-venv | venv + post-venv | venv + post-venv | venv + post-venv | venv + post-venv | All built-in helper samples execute visible `run_*()` Python. **Calc** helpers bind selected cells as `data`; **Writer text** injects `text` + `document_context`; **Vision** injects selected graphic bytes as `image`. Results route via post-venv insert in [`python_runner.py`](../../plugin/scripting/python_runner.py) using specs from [`domain_registry.py`](../../plugin/scripting/domain_registry.py). Calc sheet inserters are `(doc, ctx, result)`; Writer/Draw inserters are `(ctx, doc, result)`. |
 | Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | **Data Analysis / EDA** (`statsmodels`) | Per domain when shipped |
-| LLM surface | Hidden. Calc chat: `=PY()` only | `analyze_image` deferred | Calc chat: matplotlib via `=PY()` | Writer/Calc `domain="python"` — [`symbolic_math`](../../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | Chat hidden; RPS **Forecast Helpers** | Calc `analysis`/`python` domains hidden |
+| LLM surface | Hidden. Calc chat: `=PY()` only | `analyze_image` deferred | Calc chat: matplotlib via `=PY()` | Writer/Calc `domain="python"` — [`math_run_symbolic`](../../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | Chat hidden; RPS **Forecast Helpers** | Calc `analysis`/`python` domains hidden |
 
 ```mermaid
 flowchart TD
@@ -140,7 +140,7 @@ The implementation should follow the [Domain helper pattern](#domain-helper-patt
 | 0 | **Analysis** (numeric EDA, regression, clustering, …) | **Shipped** — [../calc/analysis-sub-agent.md](../calc/analysis-sub-agent.md); Viz auto-plot via [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py) | Maintenance |
 | 1 | **Visualization & Plotting** | **Shipped** (Phase A–C) | `plot_data`, `[Viz] quick_plot` |
 | 2 | **Time Series & Forecasting** | **Shipped (Phase 1)** — anomalies, viz bands, `auto_plot`; Prophet deferred | Optional `prophet` model (Phase 2) |
-| 3 | **Symbolic Mathematics** | **Shipped** (SymPy only; Sage deferred) | `symbolic_math`, `[Math] solve_equation` |
+| 3 | **Symbolic Mathematics** | **Shipped** (SymPy only; Sage deferred) | `math_run_symbolic`, `[Math] solve_equation` |
 | 4 | **Text / Document Analytics** | **Shipped** — spaCy + topics + sentiment; Writer dialog; no LLM tool yet | LLM tool surface |
 | 5 | **Optimization & OR** | **Partial** — `optimize_data` + scipy helpers shipped; pulp/ortools deferred | `pulp` / `ortools` |
 | 6 | **Geospatial** | Not started | `[Geo] map_data` |
@@ -464,7 +464,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 ### 3. Symbolic Mathematics & Equation Solving {#symbolic-math}
 
-**Status:** **Shipped (SymPy).** Trusted helpers via [`symbolic.py`](../../plugin/scripting/symbolic.py), Run Python Script **Math Helpers**, and `symbolic_math` chat tool (`domain="python"`). SageMath remains a future optional extension — see [sagemath-integration-dev-plan.md](../archive/sagemath-integration-dev-plan.md).
+**Status:** **Shipped (SymPy).** Trusted helpers via [`symbolic.py`](../../plugin/scripting/symbolic.py), Run Python Script **Math Helpers**, and `math_run_symbolic` chat tool (`domain="python"`). SageMath remains a future optional extension — see [sagemath-integration-dev-plan.md](../archive/sagemath-integration-dev-plan.md).
 
 **Goal:** Solve, simplify, integrate, and differentiate equations; round-trip LaTeX ↔ LibreOffice Math objects; bridge Writer, Calc `=PYTHON()`, and Vision OCR of handwritten equations.
 
@@ -485,7 +485,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 | Trusted module | Host [`symbolic.py`](../../plugin/scripting/symbolic.py); compute [`venv/symbolic.py`](../../plugin/scripting/venv/symbolic.py); RPC [`client.py`](../../plugin/scripting/client.py) `run_symbolic` |
 | Run Python Script | Direct import templates in [`symbolic.py`](../../plugin/scripting/symbolic.py), **Math Helpers** in [`document_scripts.py`](../../plugin/scripting/document_scripts.py) |
 | Writer Math insert | [`insert_symbolic_result_into_writer`](../../plugin/scripting/symbolic.py) in [`symbolic.py`](../../plugin/scripting/symbolic.py) → [`convert_latex_to_starmath`](../../plugin/writer/math/math_mml_convert.py) |
-| Chat tool | [`symbolic_math`](../../plugin/calc/symbolic_math.py) (`domain="python"`) |
+| Chat tool | [`math_run_symbolic`](../../plugin/calc/symbolic_math.py) (`domain="python"`) |
 
 **Packages:** `sympy` (required). Settings → Python **Computer Algebra** group lists sympy.
 

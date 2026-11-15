@@ -35,7 +35,7 @@ def test_structural_tools_execution(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_get_page_objects_with_table_at_page_end_uno(ctx, doc):
-    """Regression: get_page_objects from a table-cell cursor.
+    """Regression: page_get_objects from a table-cell cursor.
 
     Cloning the view cursor through doc.getText() after jumpToEndOfPage used to raise
     UNO RuntimeException "End of content node doesn't have the proper start node".
@@ -76,7 +76,7 @@ def test_get_page_objects_with_table_at_page_end_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_get_page_objects_from_table_cell_resolves_page_two_uno(ctx, doc):
-    """Repro #1422: get_page_objects with locator from a table-cell cursor.
+    """Repro #1422: page_get_objects with locator from a table-cell cursor.
 
     When the view cursor sits in a table cell, saving the cursor via doc.getText()
     raised RuntimeException, falling back to page 1 instead of page 2.

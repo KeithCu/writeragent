@@ -37,7 +37,7 @@ config:
     default: delegate
     widget: select
     label: Tool Exposure
-    helper: "How specialized tools are surfaced to MCP clients. delegate=reached via the delegate gateway (today's behavior); direct_flat=all MCP-reachable specialized tools listed directly, excluding sidebar-only flows (best for clients with their own tool-search); direct_discovery=small core list plus find_tools (domain catalog, then per-domain tool schemas; best for any client)."
+    helper: "How specialized tools are surfaced to MCP clients. delegate=reached via the delegate gateway (today's behavior); direct_flat=all MCP-reachable specialized tools listed directly, excluding sidebar-only flows (best for clients with their own tool-search); direct_discovery=small core list plus tool_find (domain catalog, then per-domain tool schemas; best for any client)."
     public: true
     label_x: 195
     label_width: 85
@@ -49,7 +49,7 @@ config:
       - value: direct_flat
         label: Direct — list all tools
       - value: direct_discovery
-        label: Direct — discovery (find_tools)
+        label: Direct — discovery (tool_find)
   _sep_tunnel:
     widget: separator
     label: Public tunnel
