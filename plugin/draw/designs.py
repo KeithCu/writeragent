@@ -47,9 +47,8 @@ import shutil
 import tempfile
 from typing import Any, NamedTuple
 
-from plugin.framework.doc_type import is_impress
+from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE, is_impress
 from plugin.doc.document_research import path_settings_from_ctx, resolve_lo_directory_path, should_skip_filename
-from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.design_look import derive_otp_look
 from plugin.draw.masters import find_master, iter_masters
 from plugin.draw.otp_zip import extract_member, read_member
@@ -949,7 +948,7 @@ class ListDesigns(ToolBase):
         "install prefix."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = DRAW_AND_IMPRESS
+    uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -982,13 +981,13 @@ class ApplyDesign(ToolBase):
         "Call list_designs first. Draw documents return a not-Impress error."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
-    uno_services: list[str] | None = DRAW_AND_IMPRESS
+    uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
     tier: str = "core"
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Draw and every other non-Impress doc share this error.
-        # _is_draw_only_doc returned the same payload.
+        # Probed Draw documents never list this tool, and callers that only pass the
+        # "draw" family label still reach execute, so the live document is checked here.
         if not is_impress(ctx.doc):
             return self._tool_error(
                 "apply_design requires an Impress presentation, not a Draw document.",

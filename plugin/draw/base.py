@@ -96,7 +96,7 @@ class ToolDrawCommentBase(ToolDrawSpecialBase):
 
 class ToolDrawSlideTransitionsBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_transitions"
-    specialized_domain_description: ClassVar[str | None] = "Slide transition effects, timing, and Impress slide layouts."
+    specialized_domain_description: ClassVar[str | None] = "Slide transition effects and timing."
     uno_services: list[str] | None = _IMPRESS_ONLY
 
 

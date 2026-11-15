@@ -95,3 +95,27 @@ def test_impress_active_domain_includes_slide_specialized_tools(domain: str, exp
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc(), active_domain=domain)}
     assert "specialized_workflow_finished" in names
     assert expected_subset <= names
+
+
+def test_drawing_tool_descriptions_name_no_impress_only_tool() -> None:
+    from plugin.app import get_tools
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
+
+    draw_doc = MagicMock()
+    draw_doc.supportsService.side_effect = lambda s: s == DRAW_DOCUMENT_SERVICE
+
+    registry = get_tools()
+    draw_openai = registry.get_schemas("openai", doc=draw_doc)
+    impress_openai = registry.get_schemas("openai", doc=_impress_doc())
+    impress_only = {s["function"]["name"] for s in impress_openai} - {s["function"]["name"] for s in draw_openai}
+    assert impress_only
+
+    for schema in draw_openai:
+        desc = schema["function"]["description"]
+        for name in impress_only:
+            assert name not in desc, f"{schema['function']['name']} OpenAI description names {name}"
+
+    for schema in registry.get_schemas("mcp", doc=draw_doc):
+        desc = schema["description"]
+        for name in impress_only:
+            assert name not in desc, f"{schema['name']} MCP description names {name}"

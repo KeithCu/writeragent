@@ -442,3 +442,89 @@ def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():
     # Inner instruction wins over the sheet_create fallback.
     out2 = attach_sheets_create_completion_instruction(finish, create_sheet_ran=True, tool_results=tool_results)
     assert out2["instruction"] == custom
+
+
+def _doc_stub_for_services(*services: str) -> MagicMock:
+    doc = MagicMock()
+    svc_set = frozenset(services)
+    doc.supportsService.side_effect = lambda s: s in svc_set
+    return doc
+
+
+@pytest.mark.parametrize("is_impress", [False, True], ids=["draw", "impress"])
+def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> None:
+    from plugin.app import get_tools
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+
+    draw_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE)
+    impress_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
+
+    registry = get_tools()
+    draw_tools = {s["function"]["name"] for s in registry.get_schemas("openai", doc=draw_doc)}
+    impress_tools = {s["function"]["name"] for s in registry.get_schemas("openai", doc=impress_doc)}
+    impress_only_tools = impress_tools - draw_tools
+    assert "list_placeholders" in impress_only_tools
+
+    gw = DelegateToSpecializedDraw()
+    impress_only_domains = set(gw.domains_for_services(frozenset({IMPRESS_DOCUMENT_SERVICE}))) - set(
+        gw.domains_for_services(frozenset({DRAW_DOCUMENT_SERVICE}))
+    )
+    assert impress_only_domains
+
+    target_doc = impress_doc if is_impress else draw_doc
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(target_doc)
+
+    for name in impress_only_tools | impress_only_domains:
+        if is_impress:
+            assert name in prompt
+        else:
+            assert name not in prompt
+
+
+@pytest.mark.parametrize(
+    ("gateway_cls_path", "service"),
+    [
+        ("plugin.writer.specialized_base.DelegateToSpecializedWriter", "com.sun.star.text.TextDocument"),
+        ("plugin.calc.specialized.DelegateToSpecializedCalc", "com.sun.star.sheet.SpreadsheetDocument"),
+        ("plugin.draw.specialized.DelegateToSpecializedDraw", "com.sun.star.drawing.DrawingDocument"),
+        ("plugin.draw.specialized.DelegateToSpecializedDraw", "com.sun.star.presentation.PresentationDocument"),
+    ],
+)
+def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path: str, service: str) -> None:
+    import importlib
+    from plugin.app import get_tools
+
+    get_tools()
+    mod_name, cls_name = gateway_cls_path.rsplit(".", 1)
+    gw = getattr(importlib.import_module(mod_name), cls_name)()
+    doc = _doc_stub_for_services(service)
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        prompt = get_chat_system_prompt_for_document(doc)
+
+    domains = gw.domains_for_services(frozenset({service}))
+    for dom in domains:
+        # Domains with a description render as "dom: desc"; bare domains (e.g. math) render as "dom".
+        assert f"{dom}:" in prompt or f"; {dom};" in prompt or f"; {dom}\n" in prompt
+    if service == "com.sun.star.sheet.SpreadsheetDocument":
+        # Calc documents must keep forms in both the prompt and the narrowed gateway enum.
+        assert "forms" in domains
+        assert "forms:" in prompt
+
+
+def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
+    from plugin.framework.prompts import get_chat_system_prompt_for_kind
+
+    with (
+        patch("plugin.framework.config.get_config", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
+    ):
+        assert "list_placeholders" in get_chat_system_prompt_for_kind("impress")
+        assert "list_placeholders" not in get_chat_system_prompt_for_kind("draw")

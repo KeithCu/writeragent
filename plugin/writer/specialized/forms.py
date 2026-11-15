@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-Form tools for Writer, Calc, and Draw/Impress (shared registration: ToolWriterFormBase ∪ ToolDrawFormBase).
+Form tools for Writer, Calc, and Draw/Impress (shared registration: union ``uno_services`` on ``ToolWriterFormBase``).
 Adapted from OnlyOfficeAI patterns. Original source: onlyofficeai/scripts/helpers/helpers.js (generateForm)
 
 These tools address live LibreOffice ControlShapes (com.sun.star.form.component.*).
@@ -43,11 +43,6 @@ from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger("writeragent.writer.forms")
-
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-
-# One registration per tool name; union services for Writer + Calc + Draw/Impress (see AGENTS.md shared tools).
-_FORM_DOC_SERVICES = list(ALL_DOCUMENT_SERVICES)
 
 
 def _no_form_draw_page_payload() -> dict[str, Any]:
@@ -347,7 +342,6 @@ class FormCreateControl(ToolWriterFormBase):
     """Creates a single interactive form control at the current cursor position."""
 
     name: str | None = "form_create_control"
-    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) "
         "because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. "
@@ -506,7 +500,6 @@ class FormCreate(ToolWriterFormBase):
     """Fat API: Creates multiple form controls at once."""
 
     name: str | None = "form_create"
-    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Create several live form widgets in one call (Writer/Calc/Draw/Impress). "
         "Use this for interactive ControlShapes, not to fill empty paper-form text boxes."
@@ -574,7 +567,6 @@ class FormGenerate(ToolWriterFormBase):
     """Thin API: Generates a form from a description using a specialized internal prompt."""
 
     name: str | None = "form_generate"
-    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Generate a layout with interactive form widgets from a description. "
         "Writer: HTML at the cursor. Calc: plain text in the active cell area; widgets on the sheet draw page. "
@@ -732,7 +724,6 @@ class FormListControls(ToolWriterFormBase):
     """Lists all interactive form controls in the document."""
 
     name: str | None = "form_list_controls"
-    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "List live form widgets (ControlShapes) with name, type, current text/State, and draw-page index "
         "so you can edit or delete by name. Writer: document draw page. Calc: active sheet only. "
@@ -788,7 +779,6 @@ class FormEditControl(ToolWriterFormBase):
     """Modifies properties of an existing form control."""
 
     name: str | None = "form_edit_control"
-    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Edit a live form widget by name (preferred) or draw-page index from form_list_controls. "
         "Set checkbox/radio State (0/1/2 or yes/no) and text-field Text. Writer/Calc/Draw/Impress. "
@@ -908,7 +898,6 @@ class FormDeleteControl(ToolWriterFormBase):
     """Deletes a form control by its index."""
 
     name: str | None = "form_delete_control"
-    uno_services: list[str] | None = _FORM_DOC_SERVICES
     description: str = (
         "Delete a live form widget by name (preferred) or draw-page index. "
         "Writer/Calc/Draw/Impress. Index shifts when non-controls sit between widgets."

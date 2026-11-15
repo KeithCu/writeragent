@@ -24,7 +24,7 @@ import logging
 from typing import Any, cast, Type, ClassVar
 
 from plugin.framework.errors import is_disposal
-from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
+from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
 from plugin.framework.prompts import (
     attach_sheets_create_completion_instruction,
     build_specialized_sub_agent_instructions,
@@ -44,6 +44,7 @@ from plugin.doc.specialized_catalog import (
     apply_inner_outcome,
     catalog_entries_from_base,
     expects_edits,
+    format_specialized_domains_description,
     loop_hint,
     start_inner_payload,
 )
@@ -301,13 +302,8 @@ class DelegateToSpecializedBase(ToolBase):
         Narrow domains by probed UNO services, not doc_type—Draw-only docs must not see Impress-only toolsets.
         """
         assert uno_services, "caller must skip narrowing when services are unknown"
-        supported = {
-            str(domain)
-            for cls in self._special_base_class.__subclasses__()
-            if (domain := getattr(cls, "specialized_domain", None))
-            and tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services)
-        }
-        return [d for d in self._domains if d in supported]
+        bound = {e["domain"] for e in catalog_entries_from_base(agent_label=self._agent_label, uno_services=uno_services)}
+        return [d for d in self._domains if d in bound]
 
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
@@ -375,7 +371,20 @@ class DelegateToSpecializedBase(ToolBase):
             lambda: _gather_domain_tools(ctx, domain)
         )
 
-        if not domain_tools:
+        if not any(t.name != "specialized_workflow_finished" for t in domain_tools):
+            # The registry has already filtered this domain's tools by the document's services,
+            # so having no domain tool beyond specialized_workflow_finished for an enum domain
+            # means it is bound to another document type (for example, Impress-only slide domains
+            # in a Draw document).
+            services = ctx.uno_services_supported
+            if services and domain in self._domains:
+                available = self.domains_for_services(services)
+                if domain not in available:
+                    return self._tool_error(
+                        f"Specialized domain '{domain}' does not support the current document. Use one of details.available.",
+                        code="UNSUPPORTED_DOCUMENT",
+                        available=available,
+                    )
             return self._tool_error(no_tools)
 
         # Specialized execute must see document_research so peer send tools'
@@ -497,5 +506,10 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
         params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
         domain_prop = params["properties"]["domain"]
         domain_prop["enum"] = tool.domains_for_services(uno_services)
+        if "inputSchema" in patched:
+            domain_prop["description"] = format_specialized_domains_description(
+                agent_label=tool._agent_label,
+                uno_services=uno_services,
+            )
         out.append(patched)
     return out

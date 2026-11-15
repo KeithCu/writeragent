@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar, Type
 
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -247,13 +248,13 @@ class ToolWriterFootnoteBase(ToolWriterSpecialBase):
 
 
 class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFormBase):
-    """Form tools for Writer, Calc, and Draw/Impress (single ``specialized_domain``; union ``uno_services`` on concrete tools)."""
+    """Form tools for Writer, Calc, and Draw/Impress (single ``specialized_domain``; union ``uno_services`` owned here)."""
 
     # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
-    # Concrete form tools override this with the Writer/Calc/Draw union.
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]  # type: ignore[assignment]
+    # Base owns the four-service union because the delegate catalog checks only this class.
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
 
 
 class ToolWriterWebResearchBase(ToolWriterSpecialBase):

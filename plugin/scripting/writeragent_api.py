@@ -876,7 +876,7 @@ class _DrawProxy:
     """Proxy for draw tools."""
 
     def add_slide(self, *, page: int | None = None, activate: bool | None = None, layout: str | None = None) -> dict[str, Any]:
-        """Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master. Call list_placeholders before set_placeholder_text.
+        """Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master.
 
         Args:
             page (optional): 0-based index where to insert the new slide (defaults to appending at the end if omitted).

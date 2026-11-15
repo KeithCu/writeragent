@@ -247,3 +247,29 @@ def test_start_inner_payload_plain_text() -> None:
     res3 = start_inner_payload("hi", domains, text_message="done")
     assert res3 == {"status": "ok", "result": "hi", "message": "done", "domains": ["footnotes"]}
 
+
+def test_catalog_entries_narrowed_by_uno_services() -> None:
+    import plugin.draw.headers_footers  # noqa: F401
+    import plugin.draw.notes  # noqa: F401
+    import plugin.draw.transitions  # noqa: F401
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+
+    impress_only = {"headers_footers", "speaker_notes", "slide_transitions", "slide_layouts"}
+    draw_domains = {
+        e["domain"]
+        for e in catalog_entries_from_base(agent_label="Draw", uno_services=frozenset({DRAW_DOCUMENT_SERVICE}))
+    }
+    assert impress_only.isdisjoint(draw_domains)
+    assert "shapes" in draw_domains
+
+    impress_domains = {
+        e["domain"]
+        for e in catalog_entries_from_base(agent_label="Draw", uno_services=frozenset({IMPRESS_DOCUMENT_SERVICE}))
+    }
+    assert impress_only <= impress_domains
+
+    assert catalog_entries_from_base(agent_label="Draw", uno_services=frozenset()) == catalog_entries_from_base(
+        agent_label="Draw"
+    )
+
