@@ -316,5 +316,5 @@ def test_excel_py_formula_string_roundtrip_uno(ctx, doc):
     )
     assert res.get("status") == "ok", res
     formula = sheet.getCellByPosition(1, 0).getFormula()
-    assert f'"{py_code}";A1:A3)' in formula, formula
+    assert f'"{py_code}";' in formula and formula.endswith("A1:A3)"), formula
     assert formula.upper().startswith("=PY(") or "PYTHONFUNCTION.PY(" in formula.upper(), formula
