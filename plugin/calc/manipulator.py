@@ -88,6 +88,7 @@ MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
 _MAX_REPORTED_CELLS = 10
+_CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 # Per-range write-report keys merged by multi-range callers.
 WRITE_REPORT_KEYS: tuple[str, ...] = ("error_cells", "text_that_looks_numeric", "apostrophe_removed", "warnings")
 _PY_PLACEMENT_SCAN_COLS = 26
@@ -117,7 +118,12 @@ class MergeOutcome(NamedTuple):
 
 
 class _DeleteHeldBack(Exception):
-    """Internal sentinel that rolls back a delete that would break formulas."""
+    """Internal sentinel that rolls back a delete that would break formulas.
+
+    Using a private sentinel ensures that only this refusal becomes
+    ``REFS_WOULD_BREAK``, while UNO and disposal errors from ``removeByIndex``
+    keep propagating unchanged.
+    """
 
 
 def _ref_formula_cells(doc: Any) -> set[tuple[str, int, int]]:
@@ -134,8 +140,7 @@ def _ref_formula_cells(doc: Any) -> set[tuple[str, int, int]]:
         name = str(sheet.getName())
         if not is_agent_visible_sheet(name):
             continue
-        # CellFlags.FORMULA = 16
-        formula_ranges = sheet.queryContentCells(16)
+        formula_ranges = sheet.queryContentCells(_CELL_FLAG_FORMULA)
         for ra in formula_ranges.getRangeAddresses():
             sc, sr, ec, er = int(ra.StartColumn), int(ra.StartRow), int(ra.EndColumn), int(ra.EndRow)
             formulas = sheet.getCellRangeByPosition(sc, sr, ec, er).getFormulaArray()
@@ -153,7 +158,11 @@ def _surviving_ref_cells(
     index: int,
     count: int,
 ) -> set[tuple[str, int, int]]:
-    """Map pre-delete ``#REF!`` coordinates to their post-delete positions."""
+    """Map pre-delete ``#REF!`` coordinates to their post-delete positions.
+
+    A ``#REF!`` that existed before the delete moves with its row or column
+    and must not be counted as newly broken.
+    """
     surviving: set[tuple[str, int, int]] = set()
     end = index + count
     for s_name, col, row in cells:
@@ -719,9 +728,8 @@ class CellManipulator:
         if start_col > c1 or start_row > r1:
             return
 
-        # Only formula cells can belong to an array, so probe just those
-        # (CellFlags.FORMULA = 16) instead of every cell: a big clear stays cheap.
-        formula_ranges = sheet.getCellRangeByPosition(start_col, start_row, c1, r1).queryContentCells(16)
+        # Only formula cells can belong to an array, so probe just those instead of every cell: a big clear stays cheap.
+        formula_ranges = sheet.getCellRangeByPosition(start_col, start_row, c1, r1).queryContentCells(_CELL_FLAG_FORMULA)
         contained: list[Any] = []
         for fa in formula_ranges.getRangeAddresses():
             for r in range(fa.StartRow, fa.EndRow + 1):
@@ -1894,14 +1902,17 @@ class CellManipulator:
         doc = self.bridge.doc
         before = _ref_formula_cells(doc)
         title = _("WriterAgent: Delete rows or columns")
+        # UNO has no dry run for row/column removal (sc/source/ui/unoobj/cellsuno.cxx),
+        # and predicting breaks across relative refs, names, 3-D refs, and INDIRECT
+        # is far more code than deleting inside an undo group and rolling back.
         group = UndoStepOrRollback(doc, title)
         result: dict[str, Any] = {}
         broken: list[tuple[str, int, int]] = []
-        held_back = False
         try:
             with group:
                 result = self._structure_mutate(structure_type, start, count, insert=False, sheet=target)
                 after = _ref_formula_cells(doc)
+                # Subtract shifted pre-existing #REF! cells so they are not reported as newly broken.
                 broken = sorted(
                     after - _surviving_ref_cells(before, name, rows, index, count),
                     key=lambda t: (t[0], t[2], t[1]),
@@ -1909,38 +1920,46 @@ class CellManipulator:
                 if broken and not confirm:
                     raise _DeleteHeldBack()
         except _DeleteHeldBack:
-            held_back = True
-            sample = [qualify_a1(s, format_address(c, r)) for s, c, r in broken[:_MAX_REPORTED_CELLS]]
-            if group.rolled_back:
-                um = doc.getUndoManager()
-                if um is not None and tuple(um.getAllRedoActionTitles() or ())[:1] == (title,):
-                    best_effort(um.clearRedo, "clearRedo after held-back delete failed")
-                n = len(broken)
-                raise CalcError(
-                    f"Deleting {count} {structure_type} on sheet {name} would turn {n} formula cell(s) "
-                    f"into #REF! (broken_cells lists {', '.join(sample)}). Nothing was deleted. "
-                    "Tell the user which formulas would break; call delete_structure again with confirm=true "
-                    "only if they still want it.",
-                    code="REFS_WOULD_BREAK",
-                    details={"sheet": name, "refs_broken": n, "broken_cells": sample},
-                ) from None
+            pass
 
         if broken:
             n = len(broken)
             sample = [qualify_a1(s, format_address(c, r)) for s, c, r in broken[:_MAX_REPORTED_CELLS]]
+            if not confirm:
+                if group.rolled_back:
+                    um = doc.getUndoManager()
+                    # Without clearing this redo entry, Ctrl+Y would perform the deletion that
+                    # was just refused.
+                    if um is not None and tuple(um.getAllRedoActionTitles() or ())[:1] == (title,):
+                        best_effort(um.clearRedo, "clearRedo after held-back delete failed")
+                    raise CalcError(
+                        f"Deleting {count} {structure_type} on sheet {name} would turn {n} formula cell(s) "
+                        f"into #REF! (broken_cells lists {', '.join(sample)}). Nothing was deleted. "
+                        "Tell the user which formulas would break; call delete_structure again with confirm=true "
+                        "only if they still want it.",
+                        code="REFS_WOULD_BREAK",
+                        details={"sheet": name, "refs_broken": n, "broken_cells": sample},
+                    )
+                if group.rollback_error is not None:
+                    raise CalcError(
+                        f"Rollback failed after refusing to delete {count} {structure_type} on sheet {name}; "
+                        f"the deletion may remain in the document ({group.rollback_error}).",
+                        code="ROLLBACK_FAILED",
+                        details={"sheet": name, "refs_broken": n, "broken_cells": sample},
+                    )
             result["refs_broken"] = n
             result["broken_cells"] = sample
-            if held_back:
-                warn_msg = (
-                    f"{n} formula cell(s) now show #REF! ({', '.join(sample)}). "
-                    "Undo was unavailable, so the deletion could not be held for confirmation."
+            undo_note = (
+                "One Ctrl+Z undoes the deletion."
+                if group.entered
+                else "Undo was unavailable, so the deletion could not be held for confirmation."
+            )
+            result["warnings"] = [
+                Diagnostic(
+                    code="REFS_BROKEN",
+                    message=f"{n} formula cell(s) now show #REF! ({', '.join(sample)}). {undo_note}",
                 )
-            else:
-                warn_msg = (
-                    f"{n} formula cell(s) now show #REF! ({', '.join(sample)}). "
-                    "One Ctrl+Z undoes the deletion."
-                )
-            result["warnings"] = [Diagnostic(code="REFS_BROKEN", message=warn_msg)]
+            ]
         return result
 
     def insert_structure(

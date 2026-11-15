@@ -810,7 +810,7 @@ class MergeCells(ToolBase):
                         code="MERGE_HIDES_CONTENT",
                         message=(
                             f"{hidden_count} cell(s) besides the top-left still hold content "
-                            f"({', '.join(hidden_cells)}). The merge hides it but keeps it, and "
+                            "(see hidden_cells). The merge hides it but keeps it, and "
                             'formulas still read it. Clear those cells with write_formula_range (values "") '
                             "if it should be gone, or write it into the top-left cell."
                         ),
