@@ -30,6 +30,7 @@ from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
 from plugin.calc.error_detector import ErrorDetector, truncation_hint
+from plugin.framework.errors import make_tool_ok
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -60,7 +61,7 @@ class DetectErrors(ToolCalcErrorBase):
         error_detector = ErrorDetector(bridge, inspector, ctx=ctx.ctx)
 
         if len(ranges) <= 1:
-            return {"status": "ok", "result": error_detector.detect_and_explain(range_str=ranges[0] if ranges else None)}
+            return make_tool_ok(result=error_detector.detect_and_explain(range_str=ranges[0] if ranges else None))
 
         results = [error_detector.detect_and_explain(range_str=r) for r in ranges]
         combined_errors: list[dict[str, Any]] = [
@@ -77,7 +78,4 @@ class DetectErrors(ToolCalcErrorBase):
         }
         if truncated:
             combined["hint"] = truncation_hint(len(combined_errors), total)
-        return {
-            "status": "ok",
-            "result": combined,
-        }
+        return make_tool_ok(result=combined)

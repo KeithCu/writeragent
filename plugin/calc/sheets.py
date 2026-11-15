@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import ToolExecutionError, is_disposal
+from plugin.framework.errors import ToolExecutionError, is_disposal, make_tool_ok
 from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 from plugin.framework.tool import ToolBase
 
@@ -120,7 +120,7 @@ class ListSheets(ToolCalcSheetBase):
                 }
             )
         log.info("Sheets listed: %s", [entry["name"] for entry in entries])
-        return {"status": "ok", "result": entries}
+        return make_tool_ok(result=entries)
 
 
 class SwitchSheet(ToolCalcSheetBase):
@@ -139,7 +139,7 @@ class SwitchSheet(ToolCalcSheetBase):
         controller = doc.getCurrentController()
         controller.setActiveSheet(sheet)
         log.info("Switched to sheet: %s", sheet_name)
-        return {"status": "ok", "message": f"Switched to sheet '{sheet_name}'."}
+        return make_tool_ok(message=f"Switched to sheet '{sheet_name}'.")
 
 
 class CreateSheet(ToolCalcSheetBase):
@@ -168,15 +168,14 @@ class CreateSheet(ToolCalcSheetBase):
 
         sheets.insertNewByName(sheet_name, position)
         log.info("New sheet created: %s (position: %d)", sheet_name, position)
-        return {
-            "status": "ok",
-            "sheet": sheet_name,
-            "message": (
+        return make_tool_ok(
+            sheet=sheet_name,
+            message=(
                 f"New sheet named '{sheet_name}' created; no cells copied. "
                 f"Not activated: qualify writes with the sheet name (e.g. '{sheet_name}'.A1)."
             ),
-            "instruction": SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
-        }
+            instruction=SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
+        )
 
 
 class RenameSheet(ToolCalcSheetBase):
@@ -201,7 +200,7 @@ class RenameSheet(ToolCalcSheetBase):
             return self._tool_error(f"LibreOffice did not rename '{old_name}' (invalid name or read-only document).")
         migrate_sheet_rename(doc, old_name, new_name)
         log.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
-        return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}
+        return make_tool_ok(message=f"Sheet renamed to '{new_name}'.")
 
 
 class DeleteSheet(ToolCalcSheetBase):
@@ -223,7 +222,7 @@ class DeleteSheet(ToolCalcSheetBase):
             return self._tool_error("Cannot delete the only sheet in the document.", code="INVALID_PARAM")
         sheets.removeByName(sheet_name)
         log.info("Sheet deleted: %s", sheet_name)
-        return {"status": "ok", "message": f"Sheet '{sheet_name}' deleted."}
+        return make_tool_ok(message=f"Sheet '{sheet_name}' deleted.")
 
 
 class ProtectSheet(ToolCalcSheetBase):
@@ -246,7 +245,7 @@ class ProtectSheet(ToolCalcSheetBase):
         is_currently_protected = sheet.isProtected()
         state = "protected" if should_protect else "unprotected"
         if should_protect == is_currently_protected:
-            return {"status": "ok", "message": f"Sheet '{actual_name}' is already {state}."}
+            return make_tool_ok(message=f"Sheet '{actual_name}' is already {state}.")
 
         try:
             if should_protect:
@@ -266,7 +265,7 @@ class ProtectSheet(ToolCalcSheetBase):
         msg = f"Sheet '{actual_name}' is now {state}."
 
         log.info("%s", msg)
-        return {"status": "ok", "message": msg}
+        return make_tool_ok(message=msg)
 
 
 class SheetCopy(ToolCalcSheetBase):
@@ -301,7 +300,7 @@ class SheetCopy(ToolCalcSheetBase):
 
         sheets.copyByName(source, new_name, position)
         log.info("Sheet copied from '%s' to '%s' at position %d.", source, new_name, position)
-        return {"status": "ok", "message": f"Sheet '{source}' copied to '{new_name}'."}
+        return make_tool_ok(message=f"Sheet '{source}' copied to '{new_name}'.")
 
 
 class SheetMove(ToolCalcSheetBase):
@@ -334,7 +333,7 @@ class SheetMove(ToolCalcSheetBase):
 
         sheets.moveByName(sheet_name, position)
         log.info("Sheet '%s' moved to position %d.", sheet_name, position)
-        return {"status": "ok", "message": f"Sheet '{sheet_name}' moved to position {position}."}
+        return make_tool_ok(message=f"Sheet '{sheet_name}' moved to position {position}.")
 
 
 class SheetHide(ToolCalcSheetBase):
@@ -372,7 +371,7 @@ class SheetHide(ToolCalcSheetBase):
         sheet.setPropertyValue("IsVisible", visible)
         state = "visible" if visible else "hidden"
         log.info("Sheet '%s' is now %s.", sheet_name, state)
-        return {"status": "ok", "message": f"Sheet '{sheet_name}' is now {state}."}
+        return make_tool_ok(message=f"Sheet '{sheet_name}' is now {state}.")
 
 
 class GetSheetSummary(ToolBase):
@@ -397,4 +396,4 @@ class GetSheetSummary(ToolBase):
         result = analyzer.get_sheet_summary(sheet_name=sheet_name)
         if not is_agent_visible_sheet(result.get("sheet_name", "")):
             return self._tool_error("Active sheet is a LibreOffice internal tab; specify a user-visible sheet.")
-        return {"status": "ok", "result": result}
+        return make_tool_ok(result=result)

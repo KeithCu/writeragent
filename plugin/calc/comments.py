@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.base import ToolCalcCommentBase
 from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import CalcBridge
+from plugin.framework.errors import make_tool_ok
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -91,7 +92,7 @@ class ListCellComments(ToolCalcCommentBase):
                     "is_visible": ann.getIsVisible(),
                 }
             )
-        return {"status": "ok", "comments": comments, "count": len(comments), "sheet": sheet.getName()}
+        return make_tool_ok(comments=comments, count=len(comments), sheet=sheet.getName())
 
 
 class AddCellComment(ToolCalcCommentBase):
@@ -125,7 +126,7 @@ class AddCellComment(ToolCalcCommentBase):
         else:
             sheet.getAnnotations().insertNew(sheet.getCellByPosition(col, row).getCellAddress(), text)
 
-        return {"status": "ok", "cell": cell_ref, "text": text, "sheet": sheet.getName()}
+        return make_tool_ok(cell=cell_ref, text=text, sheet=sheet.getName())
 
 
 class DeleteCellComment(ToolCalcCommentBase):
@@ -155,6 +156,6 @@ class DeleteCellComment(ToolCalcCommentBase):
             pos = ann.getPosition()
             if pos.Column == col and pos.Row == row:
                 annotations.removeByIndex(i)
-                return {"status": "ok", "cell": cell_ref, "message": "Comment deleted."}
+                return make_tool_ok(cell=cell_ref, message="Comment deleted.")
 
         return self._tool_error("No comment found at %s." % cell_ref)

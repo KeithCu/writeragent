@@ -67,7 +67,7 @@ from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names
 from plugin.calc.calc_utils import query_interface
 from plugin.doc.compound_undo import UndoStepOrRollback
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, name_miss_details, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, make_tool_ok, name_miss_details, reraise_if_disposed
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -352,13 +352,12 @@ class CreatePivotTable(ToolCalcPivotBase):
                     reraise_if_disposed(exc)
                     raise ToolExecutionError(f"Failed to refresh new pivot table '{pivot_name}': {exc}") from exc
 
-        return {
-            "status": "ok",
-            "message": f"Created pivot table '{pivot_name}' at {dest_sheet.getName()}!{dest_cell}.",
-            "name": pivot_name,
-            "destination_sheet": dest_sheet.getName(),
-            "destination_cell": dest_cell,
-        }
+        return make_tool_ok(
+            message=f"Created pivot table '{pivot_name}' at {dest_sheet.getName()}!{dest_cell}.",
+            name=pivot_name,
+            destination_sheet=dest_sheet.getName(),
+            destination_cell=dest_cell,
+        )
 
 
 class RefreshPivotTable(ToolCalcPivotBase):
@@ -382,7 +381,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
             return self._tool_error(f"Cannot access DataPilot interface for '{name}'.")
 
         dpt.refresh()
-        return {"status": "ok", "message": f"Refreshed pivot table '{name}'."}
+        return make_tool_ok(message=f"Refreshed pivot table '{name}'.")
 
 
 class DeletePivotTable(ToolCalcPivotBase):
@@ -409,7 +408,7 @@ class DeletePivotTable(ToolCalcPivotBase):
         _tbl, sheet = _find_pivot(doc, name, sheet_name=kwargs.get("sheet"))
         dp_tables = _get_dp_tables(sheet)
         dp_tables.removeByName(name)
-        return {"status": "ok", "message": f"Deleted pivot table '{name}' from sheet '{sheet.getName()}'."}
+        return make_tool_ok(message=f"Deleted pivot table '{name}' from sheet '{sheet.getName()}'.")
 
 
 class ListPivotTables(ToolCalcPivotBase):
@@ -436,4 +435,4 @@ class ListPivotTables(ToolCalcPivotBase):
                     entry["output_range"] = format_range_address(ora)
                 out.append(entry)
 
-        return {"status": "ok", "pivot_tables": out, "count": len(out)}
+        return make_tool_ok(pivot_tables=out, count=len(out))
