@@ -24,8 +24,10 @@ def _mock_uno_and_review(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _FakeShape:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, *, fail_dispose: bool = False, container: list[_FakeShape] | None = None) -> None:
         self._name = name
+        self._fail_dispose = fail_dispose
+        self._container = container
         self.disposed = False
 
     def getName(self) -> str:
@@ -35,12 +37,16 @@ class _FakeShape:
         return False
 
     def dispose(self) -> None:
+        if self._fail_dispose:
+            raise RuntimeError("dispose failed")
         self.disposed = True
+        if self._container is not None and self in self._container:
+            self._container.remove(self)
 
 
 class _FakeDrawPage:
     def __init__(self, shapes: list[_FakeShape] | None = None) -> None:
-        self.shapes: list[_FakeShape] = list(shapes or [])
+        self.shapes: list[_FakeShape] = shapes if shapes is not None else []
 
     def getCount(self) -> int:
         return len(self.shapes)
@@ -88,7 +94,7 @@ def _make_env(
     enabled: bool = True,
     apply_changes: bool = True,
     shapes: list[_FakeShape] | None = None,
-) -> tuple[Any, _FakeDispatchHelper, dict[str, Any], _FakeDrawPage]:
+) -> tuple[Any, _FakeDispatchHelper, dict[str, Any], _FakeDrawPage, _FakeDispatch]:
     state: dict[str, Any] = dict(
         initial_state
         or {
@@ -120,11 +126,11 @@ def _make_env(
         getDrawPage=lambda: draw_page,
     )
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=uno_ctx)
-    return tool_ctx, helper, state, draw_page
+    return tool_ctx, helper, state, draw_page, dispatch
 
 
 def test_set_keeps_current_fields_like_dialog() -> None:
-    tool_ctx, helper, _, _ = _make_env(
+    tool_ctx, helper, _, _, _ = _make_env(
         {
             "Text": "DRAFT",
             "Font": "DejaVu Sans",
@@ -156,7 +162,7 @@ def test_set_keeps_current_fields_like_dialog() -> None:
 
 
 def test_set_new_uses_lo_defaults() -> None:
-    tool_ctx, helper, _, _ = _make_env()
+    tool_ctx, helper, _, _, _ = _make_env()
     res = PageSetWatermark().execute(tool_ctx, text="CONFIDENTIAL", color="#123456")
     assert res["status"] == "ok"
     assert len(helper.calls) == 1
@@ -181,7 +187,7 @@ def test_set_new_uses_lo_defaults() -> None:
     ],
 )
 def test_set_rejects_out_of_range_without_dispatch(kwargs: dict[str, Any]) -> None:
-    tool_ctx, helper, _, _ = _make_env()
+    tool_ctx, helper, _, _, _ = _make_env()
     res = PageSetWatermark().execute(tool_ctx, **kwargs)
     assert res["status"] == "error"
     assert helper.calls == []
@@ -189,7 +195,7 @@ def test_set_rejects_out_of_range_without_dispatch(kwargs: dict[str, Any]) -> No
 
 def test_set_refuses_when_command_disabled() -> None:
     pic = _FakeShape("WordPictureWatermark1")
-    tool_ctx, helper, _, _ = _make_env(enabled=False, shapes=[pic])
+    tool_ctx, helper, _, _, _ = _make_env(enabled=False, shapes=[pic])
     res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
     assert res["status"] == "error"
     assert res["code"] == "UNSUPPORTED"
@@ -199,16 +205,32 @@ def test_set_refuses_when_command_disabled() -> None:
 
 def test_set_fails_closed_when_lo_ignores_dispatch() -> None:
     pic = _FakeShape("WordPictureWatermark1")
-    tool_ctx, helper, _, _ = _make_env(apply_changes=False, shapes=[pic])
+    tool_ctx, helper, _, _, _ = _make_env(apply_changes=False, shapes=[pic])
     res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
     assert res["status"] == "error"
     assert len(helper.calls) == 1
     assert pic.disposed is False
 
 
+def test_set_fails_closed_when_only_color_ignored() -> None:
+    tool_ctx, helper, _, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "Liberation Sans",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        },
+        apply_changes=False,
+    )
+    res = PageSetWatermark().execute(tool_ctx, text="DRAFT", color="#ff0000")
+    assert res["status"] == "error"
+    assert len(helper.calls) == 1
+
+
 def test_get_normalises_360_angle() -> None:
     # edfcol.cxx lcl_GetAngle returns 360 for a 0-degree watermark shape.
-    tool_ctx, _, _, _ = _make_env(
+    tool_ctx, _, _, _, dispatch = _make_env(
         {
             "Text": "DRAFT",
             "Font": "Liberation Sans",
@@ -221,23 +243,56 @@ def test_get_normalises_360_angle() -> None:
     assert res["status"] == "ok"
     assert res["watermark"]["angle"] == 0
     assert res["picture_watermark"] is False
+    assert dispatch.removed is True
+
+
+def test_get_fails_closed_when_status_missing_key() -> None:
+    tool_ctx, _, _, _, dispatch = _make_env(
+        {
+            "Text": "DRAFT",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        }
+    )
+    res = PageGetWatermark().execute(tool_ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "UNSUPPORTED"
+    assert dispatch.removed is True
 
 
 def test_set_and_remove_dispose_only_picture_watermarks() -> None:
-    pic = _FakeShape("WordPictureWatermark1")
-    logo = _FakeShape("Logo")
-    tool_ctx, _, _, draw_page = _make_env(shapes=[pic, logo])
+    shapes: list[_FakeShape] = []
+    pic = _FakeShape("WordPictureWatermark1", container=shapes)
+    logo = _FakeShape("Logo", container=shapes)
+    shapes.extend([pic, logo])
+    tool_ctx, _, _, _, _ = _make_env(shapes=shapes)
 
     res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
     assert res["status"] == "ok"
     assert res["picture_watermarks_removed"] == 1
+    assert res["picture_watermark"] is False
     assert pic.disposed is True
     assert logo.disposed is False
 
-    # Simulate LO removing the disposed shape before the remove call.
-    draw_page.shapes = [logo]
     rem = PageSetWatermark().execute(tool_ctx, text="")
     assert rem["status"] == "ok"
     assert rem["watermark"] is None
     assert rem["picture_watermarks_removed"] == 0
+    assert rem["picture_watermark"] is False
     assert logo.disposed is False
+
+
+def test_set_reports_remaining_picture_watermark_when_dispose_fails() -> None:
+    shapes: list[_FakeShape] = []
+    ok_pic = _FakeShape("WordPictureWatermark1", container=shapes)
+    bad_pic = _FakeShape("WordPictureWatermark2", fail_dispose=True, container=shapes)
+    shapes.extend([ok_pic, bad_pic])
+    tool_ctx, _, _, _, _ = _make_env(shapes=shapes)
+
+    res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
+    assert res["status"] == "ok"
+    assert res["picture_watermarks_removed"] == 1
+    assert res["picture_watermark"] is True
+    assert ok_pic.disposed is True
+    assert bad_pic.disposed is False

@@ -102,26 +102,24 @@ def read_watermark(uno_ctx: Any, doc: Any) -> dict[str, Any] | None:
     finally:
         dispatch.removeStatusListener(listener, url)
 
-    if event is None or not getattr(event, "IsEnabled", False):
+    if event is None or not event.IsEnabled:
         return None
-    state = getattr(event, "State", None)
+    state = event.State
     if not isinstance(state, tuple):
         return None
 
     # SwDocShell::StateStyleSheet (sw/source/uibase/app/docst.cxx) packs SfxWatermarkItem into State.
-    raw: dict[str, Any] = {}
-    for pv in state:
-        name = getattr(pv, "Name", None)
-        if name:
-            raw[name] = getattr(pv, "Value", None)
+    raw = {pv.Name: pv.Value for pv in state if pv.Name}
+    if not {"Text", "Font", "Angle", "Transparency", "Color"}.issubset(raw):
+        return None
 
     # edfcol.cxx lcl_GetAngle returns 360 for a 0-degree shape; normalize to 0..359.
     return {
-        "text": str(raw.get("Text", "")),
-        "font": str(raw.get("Font", "Liberation Sans")),
-        "angle": int(raw.get("Angle", 45)) % 360,
-        "transparency": int(raw.get("Transparency", 50)),
-        "color": int(raw.get("Color", 0xC0C0C0)) & 0xFFFFFF,
+        "text": str(raw["Text"]),
+        "font": str(raw["Font"]),
+        "angle": int(raw["Angle"]) % 360,
+        "transparency": int(raw["Transparency"]),
+        "color": int(raw["Color"]) & 0xFFFFFF,
     }
 
 
@@ -154,6 +152,15 @@ def _public_watermark(state: dict[str, Any]) -> dict[str, Any] | None:
 _UNSUPPORTED_MSG = (
     "The watermark command is not available for this document (read-only, or no Writer window)."
 )
+
+
+def _optional_int_in_range(kwargs: dict[str, Any], name: str, lo: int, hi: int) -> int | None | str:
+    val = kwargs.get(name)
+    if val is None:
+        return None
+    if isinstance(val, bool) or not isinstance(val, int) or not (lo <= val <= hi):
+        return f"{name} must be an integer between {lo} and {hi}."
+    return val
 
 
 class PageGetWatermark(ToolWriterPageBase):
@@ -234,32 +241,25 @@ class PageSetWatermark(ToolWriterPageBase):
             return self._tool_error("text must be a string.")
 
         font_val: str | None = None
-        if "font" in kwargs and kwargs["font"] is not None:
-            raw_font = kwargs["font"]
+        if (raw_font := kwargs.get("font")) is not None:
             if not isinstance(raw_font, str) or not raw_font.strip():
                 return self._tool_error("font must be a non-empty string.")
             font_val = raw_font.strip()
 
-        angle_val: int | None = None
-        if "angle" in kwargs and kwargs["angle"] is not None:
-            raw_angle = kwargs["angle"]
-            if isinstance(raw_angle, bool) or not isinstance(raw_angle, int) or not (0 <= raw_angle <= 359):
-                return self._tool_error("angle must be an integer between 0 and 359.")
-            angle_val = raw_angle
+        angle_val = _optional_int_in_range(kwargs, "angle", 0, 359)
+        if isinstance(angle_val, str):
+            return self._tool_error(angle_val)
 
-        tr_val: int | None = None
-        if "transparency" in kwargs and kwargs["transparency"] is not None:
-            raw_tr = kwargs["transparency"]
-            if isinstance(raw_tr, bool) or not isinstance(raw_tr, int) or not (0 <= raw_tr <= 100):
-                return self._tool_error("transparency must be an integer between 0 and 100.")
-            tr_val = raw_tr
+        tr_val = _optional_int_in_range(kwargs, "transparency", 0, 100)
+        if isinstance(tr_val, str):
+            return self._tool_error(tr_val)
 
         color_val: int | None = None
-        if "color" in kwargs and kwargs["color"] is not None:
-            color_val = parse_color_to_uno_int(kwargs["color"])
+        if (raw_color := kwargs.get("color")) is not None:
+            color_val = parse_color_to_uno_int(raw_color)
             if color_val is None:
                 return self._tool_error(
-                    f"Invalid color: {kwargs['color']!r}. Expected '#rrggbb', 'rgb(...)', or a color name."
+                    f"Invalid color: {raw_color!r}. Expected '#rrggbb', 'rgb(...)', or a color name."
                 )
 
         uno_ctx = resolve_uno_context(ctx)
@@ -268,19 +268,22 @@ class PageSetWatermark(ToolWriterPageBase):
             return self._tool_error(_UNSUPPORTED_MSG, code="UNSUPPORTED")
 
         # Match SwWatermarkDialog::InitFields: omitted fields keep the current watermark's values.
-        final_font = font_val if font_val is not None else current["font"]
-        final_angle = angle_val if angle_val is not None else current["angle"]
-        final_tr = tr_val if tr_val is not None else current["transparency"]
-        final_color = color_val if color_val is not None else current["color"]
+        expected = {
+            "text": text,
+            "font": font_val if font_val is not None else current["font"],
+            "angle": angle_val if angle_val is not None else current["angle"],
+            "transparency": tr_val if tr_val is not None else current["transparency"],
+            "color": color_val if color_val is not None else current["color"],
+        }
 
         args = tuple(
             create_property_value(name, value)
             for name, value in (
-                ("Text", text),
-                ("Font", final_font),
-                ("Angle", final_angle),
-                ("Transparency", final_tr),
-                ("Color", final_color),
+                ("Text", expected["text"]),
+                ("Font", expected["font"]),
+                ("Angle", expected["angle"]),
+                ("Transparency", expected["transparency"]),
+                ("Color", expected["color"]),
             )
         )
         # Do not wrap in WriterCompoundUndo: SwXPageStyle::SetPropertyValues_Impl calls DelAllUndoObj()
@@ -288,8 +291,8 @@ class PageSetWatermark(ToolWriterPageBase):
         execute_dispatch(uno_ctx, ctx.doc.getCurrentController(), WATERMARK_COMMAND, args)
 
         after = read_watermark(uno_ctx, ctx.doc)
-        if after is None or after["text"] != text:
-            return self._tool_error("LibreOffice did not apply the watermark; the document was not changed.")
+        if after is None or after != expected:
+            return self._tool_error("LibreOffice did not apply the watermark.")
 
         # Word has one watermark per document, and DOCX export would write the picture next to
         # the new text, so Word would show both. Dispose any WordPictureWatermark* shapes.
@@ -307,6 +310,7 @@ class PageSetWatermark(ToolWriterPageBase):
             "status": "ok",
             "watermark": _public_watermark(after),
             "picture_watermarks_removed": removed_pictures,
+            "picture_watermark": bool(_picture_watermarks(ctx.doc)),
         }
         flag_style_unreviewed(result)
         return result

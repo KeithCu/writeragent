@@ -146,10 +146,14 @@ def test_picture_watermark_kept_by_get_removed_by_set_uno(ctx: Any, doc: Any) ->
     got = PageGetWatermark().execute(tool_ctx)
     assert got["status"] == "ok", got
     assert got["picture_watermark"] is True
+    assert any(
+        s.getName() == "WordPictureWatermark123" for s in iter_draw_shapes(doc.getDrawPage())
+    )
 
     res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
     assert res["status"] == "ok", res
     assert res["picture_watermarks_removed"] == 1
+    assert res["picture_watermark"] is False
     assert not any(
         s.getName().startswith("WordPictureWatermark") for s in iter_draw_shapes(doc.getDrawPage())
     )
