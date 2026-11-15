@@ -31,7 +31,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
-from plugin.calc.address_utils import format_range, format_range_address
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_range, format_range_address, index_to_column
 from plugin.calc.bridge import (
     CalcBridge,
     filter_agent_sheet_names,
@@ -117,8 +117,8 @@ class SheetAnalyzer:
 
         Returns:
             dict with keys: sheet_name, used_range, row_count, col_count,
-            headers, and optionally chart_count, charts, annotation_count,
-            has_merges, shape_count.
+            first_empty_col, first_empty_row, headers, and optionally
+            chart_count, charts, annotation_count, has_merges, shape_count.
         """
         sheet = self.bridge.sheet_or_active(sheet_name)
 
@@ -136,6 +136,13 @@ class SheetAnalyzer:
         header_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, start_row)
         header_data = header_range.getDataArray()
 
+        first_empty_col: str | None = index_to_column(end_col + 1) if end_col < MAX_COL else None
+        first_empty_row: int | None = end_row + 2 if end_row < MAX_ROW else None
+        # An empty sheet's used area collapses to the cursor cell A1, so without
+        # this check the summary would point past an empty A1.
+        if row_count == col_count == 1 and not header_range.getCellByPosition(0, 0).getFormula():
+            first_empty_col, first_empty_row = "A", 1
+
         headers: list[str | None] = []
         for offset, val in enumerate(header_data[0] if header_data else ()):
             if val is not None and not isinstance(val, str):
@@ -148,6 +155,8 @@ class SheetAnalyzer:
             "used_range": used_range,
             "row_count": row_count,
             "col_count": col_count,
+            "first_empty_col": first_empty_col,
+            "first_empty_row": first_empty_row,
             "headers": headers,
         }
 

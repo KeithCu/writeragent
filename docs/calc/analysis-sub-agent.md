@@ -31,7 +31,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 
 **Existing narrow analysis (as of inspection of `plugin/calc/`):**
 - `plugin/calc/analysis.py`: `AnalyzeDataTool` (`analyze_data`), `GoalSeekTool` (`calc_goal_seek`), and `SolverTool` (`calc_solver`). Trusted helpers call `plugin.scripting.client.run_analysis` → venv worker; solvers use direct UNO (`doc.seekGoal`, `XSolver`). These are `ToolBaseDummy` and are not registered for chat (see the module docstring).
-- `plugin/calc/analyzer.py`: `SheetAnalyzer.get_sheet_summary()` — structural (used range, row/col counts, headers, chart_count, annotations, merges, shapes). Not numeric analysis.
+- `plugin/calc/analyzer.py`: `SheetAnalyzer.get_sheet_summary()` — structural (used range, row/col counts, first_empty_col/first_empty_row, headers, chart_count, annotations, merges, shapes). Not numeric analysis.
 - `plugin/calc/calc_addin_data.py` + `inspector.py`: Solid data extraction and shaping for Python (`read_range` → values, `pack_calc_data_for_wire`, NaN handling, size limits).
 - Python execution (the current "escape hatch" for real numpy work):
   - `plugin/calc/python/venv.py`: `RunVenvPythonScript` (`run_venv_python_script`, domain="python", `ToolCalcPythonBase`). Supports `code`, `data_range` (injected as `data`), or direct `data`. Uses `run_code_in_user_venv` + payload codec. Works cross-app via `specialized_cross_cutting`.

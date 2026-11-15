@@ -54,6 +54,7 @@ from plugin.calc.address_utils import (
     column_to_index,
     format_address,
     format_range,
+    index_to_column,
     local_a1,
     parse_range_string,
     qualify_a1,
@@ -62,7 +63,7 @@ from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_arra
 from plugin.calc.bridge import is_agent_visible_sheet
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.error_detector import formula_error_cells
-from plugin.calc.formula_fill import expand_single_formula
+from plugin.calc.formula_fill import dot_sheet_refs, expand_single_formula, repeated_formula_columns
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_edit import repair_py_code_newlines
@@ -200,6 +201,7 @@ class WritePlan(NamedTuple):
     formula measured with ``_probe_array_formula``), or ``"cells"`` (a row-major ``values``
     list ready for ``plan_writes``/``commit``). ``expanded`` is ``True`` when a 2-D array
     targeted a single cell and ``range_str`` / ``end`` grew to match the array's size.
+    ``notes`` holds planner ``Diagnostic`` warnings attached to the commit result.
     """
 
     kind: Literal["clear", "array", "cells"]
@@ -212,6 +214,58 @@ class WritePlan(NamedTuple):
     expanded: bool = False
     literal_text: bool = False
     data_text: bool = False
+    notes: tuple[Diagnostic, ...] = ()
+
+
+def _dot_sheet_refs_in_values(
+    doc: Any, sheet: Any, items: list[Any]
+) -> tuple[list[Any], Diagnostic | None]:
+    """Rewrite Excel ``Sheet!A1`` refs to Calc ``Sheet.A1`` for existing unshadowed sheets."""
+    if not any(isinstance(v, str) and v.startswith("=") and "!" in v for v in items):
+        return items, None
+    names = {str(n).casefold(): str(n) for n in doc.getSheets().getElementNames()}
+    cache: dict[str, str | None] = {}
+
+    def _sheet_for(name: str) -> str | None:
+        key = name.casefold()
+        if key in cache:
+            return cache[key]
+        real = names.get(key)
+        if real is not None and (sheet.NamedRanges.hasByName(name) or doc.NamedRanges.hasByName(name)):
+            real = None
+        cache[key] = real
+        return real
+
+    out: list[Any] = []
+    changed = 0
+    sample: tuple[str, str] | None = None
+    for item in items:
+        if isinstance(item, str) and item.startswith("=") and "!" in item:
+            updated = dot_sheet_refs(item, _sheet_for)
+            if updated != item:
+                changed += 1
+                if sample is None:
+                    sample = (item, updated)
+            out.append(updated)
+        else:
+            out.append(item)
+
+    if changed == 0 or sample is None:
+        return out, None
+    before, after = sample
+    return out, {
+        "code": "SHEET_REF_REWRITTEN",
+        "message": (
+            f"Rewrote Excel-style sheet refs to Calc's dot form in {changed} cell(s) "
+            f"(e.g. {before} → {after}); Calc reads Sheet!A1 as #NAME?."
+        ),
+    }
+
+
+def _with_notes(result: dict[str, Any], notes: Sequence[Diagnostic]) -> dict[str, Any]:
+    if notes:
+        result["warnings"] = [*notes, *result.get("warnings", [])]
+    return result
 
 
 def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, rows: int, cols: int) -> str:
@@ -385,6 +439,8 @@ def _write_report(
             # Calc's API grammar uses ';', and =SUM(1,2) gives 525, so a comma in a failing formula is the cue.
             if any(e["error"]["error_code"] in (501, 508, 525) and "," in e["formula"] for e in errors):
                 warn_msg += " Calc separates function arguments with ';', not ','."
+            if any(e["error"]["error_code"] == 525 and "!" in e["formula"] for e in errors):
+                warn_msg += " Other sheets are Sheet.A1 (dot), not Excel's Sheet!A1; check the sheet name."
             warnings.append({"code": "FORMULA_ERROR", "message": warn_msg})
 
     if scan_text:
@@ -1455,12 +1511,20 @@ class CellManipulator:
             sheet = cell_range.getSpreadsheet()
             start = (addr.StartColumn, addr.StartRow)
             end = (addr.EndColumn, addr.EndRow)
+            notes: list[Diagnostic] = []
+            formulas_on = not literal_text and not data_text
+
+            if formulas_on and isinstance(values, str) and values.startswith("="):
+                rewritten, note = _dot_sheet_refs_in_values(self.bridge.doc, sheet, [values])
+                values = rewritten[0]
+                if note is not None:
+                    notes.append(note)
 
             # LibreOffice does not spill: setFormula on =SORT(FILTER(...)) shows only
             # the first value. A top-level dynamic-array function is entered with
             # setArrayFormula over its result size instead of being filled down;
             # =SUM(FILTER()) stays a scalar formula.
-            if not literal_text and not data_text and _requests_array_formula(values, array):
+            if formulas_on and _requests_array_formula(values, array):
                 # Repair literal \n in model-written =PY() code before probing or planning.
                 values = repair_py_code_newlines(values)
                 return WritePlan(
@@ -1471,6 +1535,7 @@ class CellManipulator:
                     end,
                     values,
                     array_size=self._probe_array_formula(sheet, values, start, end, premeasured_array_size),
+                    notes=tuple(notes),
                 )
 
             num_rows = addr.EndRow - addr.StartRow + 1
@@ -1484,6 +1549,7 @@ class CellManipulator:
                 parsed = _parse_formula_or_values_string(values, single_cell_range=start == end)
                 if parsed is not None:
                     values = parsed
+            caller_list = isinstance(values, (list, tuple))
 
             rows_2d = isinstance(values, (list, tuple)) and bool(values) and isinstance(values[0], (list, tuple))
             r_cnt = 0
@@ -1516,12 +1582,33 @@ class CellManipulator:
                 # One formula written to a multi-cell range is filled like Calc's
                 # fill-down: relative A1 refs shift per cell (expand_single_formula), and
                 # =PY formulas follow the direction-aware span policy in formula_fill.
-                if not literal_text and not data_text and isinstance(values, str) and values.startswith("=") and total > 1:
+                if formulas_on and isinstance(values, str) and values.startswith("=") and total > 1:
                     values = expand_single_formula(values, num_rows, num_cols)
                 else:
                     values = [values] * total
 
-            if not literal_text and not data_text:
+            if formulas_on and caller_list:
+                values, note = _dot_sheet_refs_in_values(self.bridge.doc, sheet, list(values))
+                if note is not None:
+                    notes.append(note)
+                rows = end[1] - start[1] + 1
+                cols = end[0] - start[0] + 1
+                sheet_name = sheet.getName()
+                for col_offset, head in repeated_formula_columns(values, start[1], rows, cols):
+                    col_idx = start[0] + col_offset
+                    col_letter = index_to_column(col_idx)
+                    col_range = format_range(col_idx, start[1], col_idx, end[1])
+                    target_range = qualify_a1(sheet_name, col_range) if isinstance(sheet_name, str) and sheet_name else col_range
+                    notes.append({
+                        "code": "REPEATED_FORMULA",
+                        "message": (
+                            f"Column {col_letter} repeated {head} on every row, so every row stayed pinned to {head}. "
+                            "If you meant fill-down, resend as a single formula string (or use $ to pin intentionally)."
+                        ),
+                        "suggested_call": suggest_call("write_formula_range", range=[target_range], values=head),
+                    })
+
+            if formulas_on:
                 self._refuse_py_inside_own_data(sheet, start, end, list(values))
 
             return WritePlan(
@@ -1534,6 +1621,7 @@ class CellManipulator:
                 expanded=expanded,
                 literal_text=literal_text,
                 data_text=data_text,
+                notes=tuple(notes),
             )
 
     def commit_write(self, plan: WritePlan) -> dict[str, Any]:
@@ -1543,12 +1631,15 @@ class CellManipulator:
                 self.clear_range(plan.range_str)
                 return {"message": f"Range {plan.range_str} cleared."}
             if plan.kind == "array":
-                return self._write_array_formula(
-                    plan.sheet,
-                    plan.values,
-                    plan.start,
-                    plan.end,
-                    premeasured_array_size=plan.array_size,
+                return _with_notes(
+                    self._write_array_formula(
+                        plan.sheet,
+                        plan.values,
+                        plan.start,
+                        plan.end,
+                        premeasured_array_size=plan.array_size,
+                    ),
+                    plan.notes,
                 )
 
             range_str = plan.range_str
@@ -1620,17 +1711,20 @@ class CellManipulator:
             )
 
             log.info("%s", msg)
-            return {
-                "message": msg,
-                **_write_report(
-                    sheet,
-                    start,
-                    end,
-                    values,
-                    cell_metas,
-                    scan_text=not literal_text and not data_text,
-                ),
-            }
+            return _with_notes(
+                {
+                    "message": msg,
+                    **_write_report(
+                        sheet,
+                        start,
+                        end,
+                        values,
+                        cell_metas,
+                        scan_text=not literal_text and not data_text,
+                    ),
+                },
+                plan.notes,
+            )
 
     def write_formula_range(
         self,
@@ -1654,6 +1748,10 @@ class CellManipulator:
                 relative A1 adjust. ``=PY`` uses a span-peek (multi-row
                 DataRange stays verbatim). A 2-D range plus one formula
                 is an error — pass an explicit array instead.
+                Excel-style ``Sheet!A1`` prefixes for existing unshadowed sheets
+                are rewritten to Calc's ``Sheet.A1`` dot form, and list columns
+                repeating one row-aligned formula stay as sent with a
+                ``REPEATED_FORMULA`` warning.
                 A top-level FILTER/SORT/UNIQUE (or ``array=True``) is
                 entered with ``setArrayFormula`` so the whole result shows.
             array: Optional override. ``True`` forces an array formula

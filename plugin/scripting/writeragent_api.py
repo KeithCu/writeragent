@@ -522,7 +522,7 @@ class _CalcProxy:
         return call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm)
 
     def get_sheet_summary(self, *, sheet: str | None = None) -> dict[str, Any]:
-        """Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes.
+        """Returns a comprehensive summary of the active or specified sheet: used area, first_empty_col / first_empty_row (first column right of / row below the used area — a safe output spot), column headers, charts, merged cells, annotations, and shapes.
 
         Args:
             sheet (optional): Sheet name (active sheet if empty).
