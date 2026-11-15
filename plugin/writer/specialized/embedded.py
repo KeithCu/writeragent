@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from plugin.calc.formula_dialect import to_api
 from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import create_property_value
@@ -72,7 +73,7 @@ def _spreadsheet_clsid(uno_ctx: Any) -> str:
     return class_id
 
 
-def _write_cell(cell: Any, value: Any) -> None:
+def _write_cell(cell: Any, value: Any, doc: Any) -> None:
     if isinstance(value, bool):
         raise ValueError("boolean cell values are not supported")
     if value is None or value == "":
@@ -83,7 +84,7 @@ def _write_cell(cell: Any, value: Any) -> None:
     if isinstance(value, str):
         stripped = value.lstrip()
         if stripped.startswith("="):
-            cell.setFormula(stripped)
+            cell.setFormula(to_api(doc, stripped, cell.getCellAddress()))
         else:
             cell.setString(value)
         return
@@ -244,7 +245,7 @@ def _insert_spreadsheet(tool: Any, doc: Any, cursor: Any, clsid: str, req: _Embe
     for r_idx, row in enumerate(req.data):
         for c_idx, cell_val in enumerate(row):
             try:
-                _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val)
+                _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val, inner)
             except ValueError as ve:
                 return tool._tool_error(str(ve))
 

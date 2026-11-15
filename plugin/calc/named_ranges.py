@@ -31,6 +31,7 @@ from plugin.calc.address_utils import (
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
 from plugin.calc.calc_utils import range_args
+from plugin.calc.formula_dialect import make_cell_address, to_api
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, make_tool_ok, name_miss_details, uno_read
 from plugin.framework.i18n import _
@@ -200,9 +201,7 @@ def _parse_base_address(doc: Any, base_cell: str | None, sheet_obj: Any = None) 
             sheet_idx = CalcBridge(doc).get_sheet(prefix).getRangeAddress().Sheet
         col_idx, row_idx = parse_address(address)
 
-    from com.sun.star.table import CellAddress
-
-    return CellAddress(Sheet=sheet_idx, Column=col_idx, Row=row_idx)
+    return make_cell_address(sheet_idx, col_idx, row_idx)
 
 
 def _extract_range_info(nr: Any, scope: str, doc: Any) -> dict[str, Any]:
@@ -307,7 +306,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces."},
-            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)')."},
+            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)'). (Sheet1!A1:B5 is accepted too)."},
             "scope": {"type": "string", "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1')."},
             "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
@@ -341,6 +340,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
         except ValueError as ve:
             return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
+        content = to_api(doc, content, pos)
         container.addNewByName(name, content, pos, type_mask)
         log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
         return make_tool_ok(message=f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'.")
@@ -356,7 +356,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
         "properties": {
             "name": {"type": "string", "description": "Current name of the range to edit."},
             "new_name": {"type": "string", "description": "New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces."},
-            "content": {"type": "string", "description": "New formula or range address content."},
+            "content": {"type": "string", "description": "New formula or range address content (Sheet1!A1:B5 is accepted too)."},
             "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."},
             "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
@@ -407,7 +407,8 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
         pending: list[tuple[Callable[[Any], Any], Any]] = []
         if content is not None:
-            pending.append((nr.setContent, content.strip()))
+            ref_pos = pos if pos is not None else nr.getReferencePosition()
+            pending.append((nr.setContent, to_api(doc, content.strip(), ref_pos)))
         if type_mask is not None:
             pending.append((nr.setType, type_mask))
         if pos is not None:

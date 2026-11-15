@@ -787,10 +787,10 @@ class _CalcProxy:
         """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; a 2-D array (one inner array per row) must match the range; or multiline CSV from a start cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
 
         Args:
-            range_name (required): Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
-            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. In formulas, other sheets are Sheet.A1 (dot), not Excel Sheet!A1. 2-D array: one inner array per row; must match the range. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same =B2*…-style formula in every cell pins every row to the first ref — use one formula string over the whole column range instead. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
+            range_name (required): Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"] or ["Sheet1!B2:D2"]). A sheet prefix targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
+            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not mix them in one formula. 2-D array: one inner array per row; must match the range. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same =B2*…-style formula in every cell pins every row to the first ref — use one formula string over the whole column range instead. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
             array (optional): Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).
-            source (optional): Optional source block to copy (A1 or Sheet.A1, dot sheet prefix, never Excel Sheet1!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
+            source (optional): Optional source block to copy (A1, Sheet.A1 or Sheet!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
         """
         return call_host_tool("write_range", range=range_name, values=values, array=array, source=source)
 
@@ -983,7 +983,7 @@ class _ConditionalFormattingProxy:
         Args:
             range_name (required): Cell range to apply the rule to (e.g. ["A1:D10"]).
             operator (required): Condition operator. One of: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE.
-            formula1 (optional): First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
+            formula1 (optional): First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
             formula2 (optional): Second value (required for BETWEEN and NOT_BETWEEN).
             style (optional): Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.
             bg_color (optional): Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting.
@@ -1726,7 +1726,7 @@ class _NamedRangeProxy:
 
         Args:
             name (required): Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces.
-            content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)').
+            content (required): The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)'). (Sheet1!A1:B5 is accepted too).
             scope (optional): Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1').
             base_cell (optional): Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
@@ -1758,7 +1758,7 @@ class _NamedRangeProxy:
         Args:
             name (required): Current name of the range to edit.
             new_name (optional): New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces.
-            content (optional): New formula or range address content.
+            content (optional): New formula or range address content (Sheet1!A1:B5 is accepted too).
             scope (optional): Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container.
             base_cell (optional): New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error.
             flags (optional): Range type flags as an array of names: 'filter_criteria', 'print_area', 'column_header', 'row_header'.
