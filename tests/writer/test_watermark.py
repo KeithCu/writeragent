@@ -84,7 +84,19 @@ class _FakeDispatchHelper:
         recorded = {pv.Name: pv.Value for pv in args}
         self.calls.append((command, recorded))
         if self._apply_changes:
-            self._state.update(recorded)
+            if recorded.get("Text") == "":
+                # SwEditShell::GetWatermark returns default SfxWatermarkItem once no shape exists.
+                self._state.update(
+                    {
+                        "Text": "",
+                        "Font": "Liberation Sans",
+                        "Angle": 45,
+                        "Transparency": 50,
+                        "Color": 0xC0C0C0,
+                    }
+                )
+            else:
+                self._state.update(recorded)
         return 0
 
 
@@ -281,6 +293,21 @@ def test_set_and_remove_dispose_only_picture_watermarks() -> None:
     assert rem["picture_watermarks_removed"] == 0
     assert rem["picture_watermark"] is False
     assert logo.disposed is False
+
+
+def test_remove_non_default_watermark_succeeds() -> None:
+    tool_ctx, _, _, _, _ = _make_env(
+        {
+            "Text": "CONFIDENTIAL",
+            "Font": "DejaVu Sans",
+            "Angle": 0,
+            "Transparency": 30,
+            "Color": 0xFF0000,
+        }
+    )
+    res = PageSetWatermark().execute(tool_ctx, text="")
+    assert res["status"] == "ok", res
+    assert res["watermark"] is None
 
 
 def test_set_reports_remaining_picture_watermark_when_dispose_fails() -> None:

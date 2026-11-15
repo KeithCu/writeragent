@@ -291,7 +291,14 @@ class PageSetWatermark(ToolWriterPageBase):
         execute_dispatch(uno_ctx, ctx.doc.getCurrentController(), WATERMARK_COMMAND, args)
 
         after = read_watermark(uno_ctx, ctx.doc)
-        if after is None or after != expected:
+        if after is None:
+            return self._tool_error("LibreOffice did not apply the watermark.")
+        # On removal (text == ""), SwEditShell::GetWatermark returns the default SfxWatermarkItem
+        # once no shape exists, so only text is verifiable.
+        if text == "":
+            if after["text"] != "":
+                return self._tool_error("LibreOffice did not apply the watermark.")
+        elif after != expected:
             return self._tool_error("LibreOffice did not apply the watermark.")
 
         # Word has one watermark per document, and DOCX export would write the picture next to

@@ -122,6 +122,10 @@ def test_watermark_docx_and_odt_round_trip_uno(ctx: Any, doc: Any) -> None:
             "transparency": 50,
             "color": "#ff0000",
         }
+
+        rem = PageSetWatermark().execute(tool_ctx, text="")
+        assert rem["status"] == "ok", rem
+        assert rem["watermark"] is None
     finally:
         for reloaded in (reloaded_docx, reloaded_odt):
             if reloaded is not None:
