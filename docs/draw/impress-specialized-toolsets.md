@@ -545,7 +545,7 @@ This pattern could be extended to other domains.
 
 These ideas came out of an Opus review of the Draw and Impress prompts and tools in November 2026. They are recorded here so they are not forgotten. They are not scheduled work. Some are harder, or would be useful later, but they were deferred for the reasons below.
 
-- **Exposing nested tool schemas (review row 3, schema half only).** The structured-result half of this row (status, created and changed shape names, page, counts, warnings) is being handled separately. The deferred half is: optionally let the outer agent see the nested tool schemas of a `shapes` delegation, so it can check arguments instead of writing a prose task and getting prose back. Deferred because exposing nested schemas redesigns delegation.
+- **Exposing nested tool schemas (review row 3, schema half only).** The structured-result half of this row (status, created and changed shape names, page, counts, warnings) shipped in PR 3562. The deferred half is: optionally let the outer agent see the nested tool schemas of a `shapes` delegation, so it can check arguments instead of writing a prose task and getting prose back. Deferred because exposing nested schemas redesigns delegation.
 
 - **OCR overlap (review row 9).** The prompt requires vision delegation for OCR even though `get_image` already lets the model see the image. The idea is to have `get_image` return OCR text alongside pixels, or to have `get_image` say: for text extraction call vision. Deferred because it overlaps vision/OCR design.
 
