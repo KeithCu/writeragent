@@ -54,7 +54,7 @@ A bare `RuntimeException` is not disposal: the callback logs it and returns `Non
 
 ## Structured edit diagnostic codes
 
-Writer editing tools (`apply_document_content`, `apply_style`, `search_in_document`, `set_selection`) report stable `code` identifiers on hard errors and in `warnings` entries (`Diagnostic`).
+Writer editing tools (`apply_content`, `apply_style`, `search`, `set_selection`) report stable `code` identifiers on hard errors and in `warnings` entries (`Diagnostic`).
 
 Inside a tool method, report errors via `self._tool_error(message, code=..., top_level={...}, **details)`. In a module helper that returns a payload, call `make_tool_error(...)` with the same keywords. In a helper that aborts, `raise ToolExecutionError(message, code=..., details=...)` and let `execute_safe` format it (no top-level fields on that path). For example, `self._tool_error("Not found", code="NOT_FOUND", top_level={"count": 0})` places `count` at the top level next to `code` and `message`. A `{"status": "error", ...}` literal is allowed only where a comment names the top-level field or the cache reason that forces it; today that is the search-miss builder in `search.py`, the edit-path dicts in `apply_document_content.py`, and the undo-context dicts in `compound_undo.py`.
 
@@ -64,7 +64,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 
 | Code | Kind | Trigger site(s) | `suggested_call` |
 |------|------|-----------------|------------------|
-| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`), reached by `apply_document_content`, `apply_style`, `set_selection`, `comment_add`, `footnotes_insert`, `page_insert_break` through `occurrence_range_or_error` | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
+| `OLD_CONTENT_NOT_FOUND` | error | `build_search_not_found_response` (`search.py`), reached by `apply_content`, `apply_style`, `set_selection`, `comment_add`, `footnote_insert`, `page_insert_break` through `occurrence_range_or_error` | None in v1 (near-miss `closest_match` is a 16-character preview + ellipsis; replaying would replace the wrong text). |
 | `OLD_CONTENT_TOO_LARGE` | error | Oversized old_content refusal (`search.py`) | None (suggesting blank content violates tool schema). |
 | `SEARCH_FAILED` | error | Search execution or regex evaluation failed (`search.py`, `apply_document_content.py`) | None |
 | `ANCHOR_START_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="start"` (`apply_document_content.py`) | None |
@@ -81,7 +81,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `ROLLBACK_FAILED` | error | `apply_document_content.py`, `styles.py`, `target_resolver.py` (`insert_at_target`) | None |
 | `UNDO_CONTEXT_LEAK` | error | `commit_or_rollback` (`compound_undo.py`) when `leaveUndoContext` fails after a successful edit; reworded by `page.py` and `styles.py`, returned as-is by `commit_or_rollback_mutation` | None |
 | `VALIDATION_ERROR` | error | Produced by `prepare_tool_call` / `ToolBase.validate` for missing required, unknown, wrong-type or non-enum arguments before `execute`. Tool bodies check only ranges, conditional requirements and nested items, with `INVALID_PARAM`. | None |
-| `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_document_content` parameter conflicts/empty strings; Calc argument refusals, including `range_args` and the sheet-filter criteria | None |
+| `INVALID_PARAM` | error | Parameter validation failures (`INVALID_PARAM` is the only spelling; `INVALID_PARAMETER` is not used): missing query/pattern (`search.py`); invalid style/clear_direct (`styles.py`); selection parameter conflicts/empty values (`selection.py`); `apply_content` parameter conflicts/empty strings; Calc argument refusals, including `range_args` and the sheet-filter criteria | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None |
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`html_import.py`, `html_import_styles.attach_write_report`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` when every check in `_partial_match_style_suggestion` (`apply_document_content.py`) passes; never for `target='selection'` or while recording. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`html_import.py`, `html_import_styles.attach_write_report`) | None (`apply_style` is not tracked). |

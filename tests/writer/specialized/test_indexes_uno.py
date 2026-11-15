@@ -151,7 +151,7 @@ def _portion_color(doc, needle):
 @native_test
 @with_native_doc("writer")
 def test_toc_update_clears_direct_character_color_uno(ctx, doc):
-    """indexes_update_all rebuilds the TOC. A direct color on one entry does not survive.
+    """index_update_all rebuilds the TOC. A direct color on one entry does not survive.
 
     A default content index is protected. The one-entry tool has to clear that
     around its edit; this test only records the flag and the update() wipe.
@@ -296,7 +296,7 @@ def _paragraph_looks(para):
 @native_test
 @with_native_doc("writer")
 def test_refresh_toc_entry_keeps_black_and_no_underline_uno(ctx, doc):
-    """indexes_refresh_toc_entry must not apply Internet-link chrome to a black TOC line.
+    """index_refresh_toc_entry must not apply Internet-link chrome to a black TOC line.
 
     The title is replaced with a longer string so new fragments are created.
     Numbering and the page number were black / not underlined before and stay that way.
@@ -473,7 +473,7 @@ def _set_direct_tabs(para, position):
 def test_delete_toc_entry_removes_one_row_uno(ctx, doc):
     """One obsolete TOC row goes away. The neighbor, its color, and the body heading stay.
 
-    indexes_update_all would rebuild the row from the heading and wipe the direct
+    index_update_all would rebuild the row from the heading and wipe the direct
     color. The row staying gone, with the neighbor still green, means update()
     did not run.
     """
@@ -927,7 +927,7 @@ def test_list_toc_entries_links_on_request_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_indexes_add_mark_search_keeps_the_matched_text(ctx, doc):
-    """indexes_add_mark on target='search' places mark at start and keeps matched text."""
+    """index_add_mark on target='search' places mark at start and keeps matched text."""
     from plugin.framework.uno_context import enum_has_more
 
     doc.getText().setString("alpha TARGET omega")
@@ -960,7 +960,7 @@ def test_indexes_add_mark_search_keeps_the_matched_text(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_indexes_create_end_is_one_undo_step(ctx, doc):
-    """indexes_create at target='end' groups insertion into one undo step."""
+    """index_create at target='end' groups insertion into one undo step."""
     tctx = _tool_ctx(ctx, doc)
     um = doc.getUndoManager()
     um.clear()

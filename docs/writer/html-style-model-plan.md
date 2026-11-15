@@ -4,12 +4,12 @@
 
 ## Problem Statement
 
-Currently, when the agent reads a Writer document via `get_document_content`, the extension flattens LibreOffice paragraph and character styles into computed inline CSS (e.g., `<p style="font-size: 10pt; font-style: italic">`).
+Currently, when the agent reads a Writer document via `get_content`, the extension flattens LibreOffice paragraph and character styles into computed inline CSS (e.g., `<p style="font-size: 10pt; font-style: italic">`).
 
 This creates a significant gap in the agent's understanding:
 1. **Loss of Semantic Context:** The agent cannot tell that a paragraph uses the `Caption` or `Heading 1` named style. It only sees the final visual properties.
 2. **Indistinguishable Overrides:** The agent cannot differentiate between properties inherited from a named style and manual "direct overrides" applied by the user (e.g., highlighting a single word).
-3. **Write-Path Degradation:** Because the agent only sees inline styles, it generates inline styles when writing back to the document via `apply_document_content`. This bypasses LibreOffice's style system and pollutes the document with hardcoded formatting.
+3. **Write-Path Degradation:** Because the agent only sees inline styles, it generates inline styles when writing back to the document via `apply_content`. This bypasses LibreOffice's style system and pollutes the document with hardcoded formatting.
 
 While the original proposal to add a `get_paragraph_metadata` tool provides accurate data, it introduces overhead by forcing the agent to make secondary tool calls to inspect the document structure piecemeal.
 
@@ -60,7 +60,7 @@ Two phases solve different problems. **v1** fixes read→write→read idempotenc
 
 **Entry points (v1):** [`document_to_content()`](../../plugin/writer/html_export.py) calls `_export_xhtml` + `_autostyle_maps`, then `xhtml_to_semantic_html(xhtml, parents)`. Write path in [`html_import.py`](../../plugin/writer/html_import.py): `extract_block_lo_styles` → StarWriter import → `apply_block_lo_styles`. Search text is this pure function, and the write path is still StarWriter. Callers import from `plugin.writer.html_export`.
 
-**v1 cost:** Two full `storeToURL` exports on every `get_document_content(scope=full)` (XHTML + FODT). Acceptable for correctness; **not** the long-doc architecture.
+**v1 cost:** Two full `storeToURL` exports on every `get_content(scope=full)` (XHTML + FODT). Acceptable for correctness; **not** the long-doc architecture.
 
 **Explicitly out of scope for v1:**
 - Custom full Flat ODF → HTML parser (would duplicate xmloff + odf2xhtml — ~7.5k lines XSL + ~158k lines xmloff; see feasibility notes in maintainer research)
@@ -76,8 +76,8 @@ LibreOffice has **no filter** for “styles only.” Any `storeToURL` path (XHTM
 **Recommended shape:**
 
 1. **Cached UNO paragraph style index** — one `text.createEnumeration()` pass per document revision: top-level block index → compact token via `ParaStyleName` + `compact_lo_style_name()`. Cache invalidated on `document:cache_invalidated` (same pattern as [`TreeService`](../../plugin/writer/tree.py)). Cost: O(paragraphs) RPC, **no filter pipeline**.
-2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/html_export.py) already copies `ParaStyleName` into temp docs, copying missing styles from the source document ancestors first). Merge styles from the index for that para range only.
-3. **Navigation first** — `get_document_tree`, `search_in_document`, `nav_heading_children` before full reads ([`lo-dom-semantic-tree.md`](lo-dom-semantic-tree.md), [`../chat/multi-document-dev-plan.md`](../chat/multi-document-dev-plan.md)).
+2. **Scoped HTML export** — agent uses `get_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../../plugin/writer/html_export.py) already copies `ParaStyleName` into temp docs, copying missing styles from the source document ancestors first). Merge styles from the index for that para range only.
+3. **Navigation first** — `get_tree`, `search`, `nav_list_heading_children` before full reads ([`lo-dom-semantic-tree.md`](lo-dom-semantic-tree.md), [`../chat/multi-document-dev-plan.md`](../chat/multi-document-dev-plan.md)).
 
 **Why UNO index is better than FODT sidecar for scale:** Probe B proved UNO `ParaStyleName` stays correct when XHTML export lies. The sidecar fixes the same gap via export strings (v1 purity bet); UNO is lighter and more authoritative for **paragraph names only**.
 
@@ -95,7 +95,7 @@ LibreOffice has **no filter** for “styles only.” Any `storeToURL` path (XHTM
 
 A contributor explored reading `ParaStyleName` from the UNO model in lockstep with XHTML body blocks (one `getPropertyValue` per paragraph) to recover real style names when the export emits autostyle classes like `paragraph-P1` instead of `paragraph-Standard`.
 
-**We reject per-paragraph UNO walks paired with every full `get_document_content` in v1** because:
+**We reject per-paragraph UNO walks paired with every full `get_content` in v1** because:
 - v1 bet is export-string normalization (XHTML + sidecar), not mixing UNO RPC with HTML block alignment on every read.
 - Lockstep model-walk + XHTML body blocks reintroduces ordering fragility (tables, frames, lists).
 
@@ -152,7 +152,7 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 
 ---
 
-## Phase 1: Update the Read Path (`get_document_content`)
+## Phase 1: Update the Read Path (`get_content`)
 
 *Target files:* [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py), new [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) (pure string/CSS — no UNO).
 
@@ -160,7 +160,7 @@ See **Phase 0: Filter probe** at the bottom of this doc for the active probe wor
 
 1. **Export (read path only):** Switch `document_to_content()` / `_range_to_content_via_temp_doc()` from `HTML (StarWriter)` to `XHTML Writer File`. Keep `HTML (StarWriter)` for **import** until Phase 2 applies styles via UNO after insert.
 
-1b. **Embedded images (optional):** XHTML export inlines graphics as `data:image/...;base64,...`. `get_document_content` accepts **`include_images`** (default `false`); when false, [`strip_embedded_image_data()`](../../plugin/writer/html_export.py) removes base64 payloads after post-processing. External `<img src="...">` URLs are unchanged. Either way, [`shorten_outline_anchor_ids()`](../../plugin/writer/html_export.py) renames LibreOffice's heading outline anchors (`<a id="a__…">`) longer than 200 characters to `a__<crc32>`, together with any `href="#…"` that points to them. The export names those anchors after the heading text, and a picture anchored in the heading put its whole base64 into the id (40-65 KB per heading).
+1b. **Embedded images (optional):** XHTML export inlines graphics as `data:image/...;base64,...`. `get_content` accepts **`include_images`** (default `false`); when false, [`strip_embedded_image_data()`](../../plugin/writer/html_export.py) removes base64 payloads after post-processing. External `<img src="...">` URLs are unchanged. Either way, [`shorten_outline_anchor_ids()`](../../plugin/writer/html_export.py) renames LibreOffice's heading outline anchors (`<a id="a__…">`) longer than 200 characters to `a__<crc32>`, together with any `href="#…"` that points to them. The export names those anchors after the heading text, and a picture anchored in the heading put its whole base64 into the id (40-65 KB per heading).
 
 2. **Parse `<style>` block:** Build `class → declaration` map for `.text-*` and `.paragraph-*`. Normalize whitespace for fingerprint comparison.
 
@@ -208,7 +208,7 @@ FODT fixes probe B (write→read style **name** recovery). It does **not** repla
 
 ---
 
-## Phase 2: Update the Write Path (`apply_document_content`)
+## Phase 2: Update the Write Path (`apply_content`)
 
 *Target file:* [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) + [`plugin/writer/html_import_styles.py`](../../plugin/writer/html_import_styles.py)
 
@@ -279,7 +279,7 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 | **Table cell paragraph styles** | `paragraph-*` stripped inside `<table>`; no `data-lo-style` on cell blocks | `apply_style` on cell text; don't rely on agent HTML for table styling | Table-aware style index or cell-level tokens |
 | **Partial edits** (`beginning` / `end`) | Content inserted; `data-lo-style` **applied** after absorb prep (beginning: LO inserts before current para; end: `PARAGRAPH_BREAK` into empty trailing when absorb para has text) | Prefer `beginning`/`end` for styled append/prepend; `apply_style` to restyle existing text | — |
 | **Partial edits** (`search` / `selection`) | Content inserted; `data-lo-style` applied only when range covers whole paragraphs and Track Changes is off; partial or recording matches skip style and warn | `apply_style` to restyle partial matches or after accepting tracked changes | — |
-| **Dual export cost** | Full reads run both XHTML and Flat ODF exports. Range and selection exports skip Flat ODF when slice XHTML has no `paragraph-P<n>` class | `scope=range`, `get_document_tree`, `search_in_document` before full reads | Cached UNO paragraph-style index; drop FODT on `scope=full` |
+| **Dual export cost** | Full reads run both XHTML and Flat ODF exports. Range and selection exports skip Flat ODF when slice XHTML has no `paragraph-P<n>` class | `scope=range`, `get_tree`, `search` before full reads | Cached UNO paragraph-style index; drop FODT on `scope=full` |
 | **Token collision** (two UNO names compact to same token, e.g. `Heading 1` + literal `Heading1`) | Read omits token; write falls back to `Standard` | Use tokens exactly as returned; avoid duplicate style names | Per-document disambiguation or spaced-token policy |
 | **Unresolvable autostyle** (no FODT map, ambiguous fingerprint) | No `data-lo-style`; write treats as default body | Accept as Standard on rewrite | UNO `ParaStyleName` index as authoritative fallback |
 | **XHTML export failure** | Falls back to legacy StarWriter HTML (inline CSS, no tokens) | — | Log/monitor; same as pre-v1 read |
@@ -315,7 +315,7 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 
 - **Read:** `data-lo-style="Heading1"` — always space-free.
 - **Write:** resolve compact token against `ParagraphStyles` in the target document; apply the matched UNO name.
-- **Collision rule:** if two paragraph styles compact to the same token (rare), **read** omits `data-lo-style` for both; **write** resolves only when exactly one UNO name matches (exact name or unique compact match), else falls back to `Standard`. Prompt: use tokens exactly as returned by `get_document_content`.
+- **Collision rule:** if two paragraph styles compact to the same token (rare), **read** omits `data-lo-style` for both; **write** resolves only when exactly one UNO name matches (exact name or unique compact match), else falls back to `Standard`. Prompt: use tokens exactly as returned by `get_content`.
 
 ### Localization
 
@@ -323,7 +323,7 @@ On localized LibreOffice, UNO names may be translated (`Überschrift 1`). Compac
 
 ### Unsupported styles
 
-If `apply_document_content` cannot resolve a compact `data-lo-style` token to a document style, fall back to `Standard`.
+If `apply_content` cannot resolve a compact `data-lo-style` token to a document style, fall back to `Standard`.
 
 ### Performance
 

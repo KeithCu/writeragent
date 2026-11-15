@@ -4,7 +4,7 @@
 
 This document covers PyUNO cell values, read-path format enrichment, MCP clock context, and conversion of date/time strings into Calc serial values.
 
-**Not the `=PY()` egress contract.** Chat `write_formula_range` uses Calc serial days. `=PY()` returns naive ISO-8601 strings (or timedelta as fractional days) — see [calc-py-data-shapes dates](py-data-shapes.md#dates-and-datetimes) and hub [coercion](../enabling_numpy_in_libreoffice.md#1-the-libreoffice-type-coercion-quirk-the-value-trap).
+**Not the `=PY()` egress contract.** Chat `write_range` uses Calc serial days. `=PY()` returns naive ISO-8601 strings (or timedelta as fractional days) — see [calc-py-data-shapes dates](py-data-shapes.md#dates-and-datetimes) and hub [coercion](../enabling_numpy_in_libreoffice.md#1-the-libreoffice-type-coercion-quirk-the-value-trap).
 
 **Not `=PY()` ingress either.** Formula `data` / `ranges` stay raw serials or text. There is no Settings toggle that parses date strings in the worker; use `data.to_pandas(date_cols=…)` / `parse_strings=True`.
 
@@ -12,7 +12,7 @@ This document covers PyUNO cell values, read-path format enrichment, MCP clock c
 
 Each requested range has its own entry in `result`, with the range's payload at `result[i].result[0]`.
 
-For LLM tools (`read_cell_range` with format enrichment; the same strings are the write target), the default **`format=rows`** payload looks like:
+For LLM tools (`read_range` with format enrichment; the same strings are the write target), the default **`format=rows`** payload looks like:
 
 ```json
 {
@@ -80,7 +80,7 @@ Earlier revisions claimed that `NumberFormat.DURATION` (8196) excluded elapsed c
 | `[MM]:SS` | 5 | `"time"` | `"duration"` |
 | `HH:MM:SS` | 4 | `"time"` | `"time"` (clock) |
 
-Consequence (pre-fix): a cell holding `1.25` under `[HH]:MM:SS` displayed `30:00:00`, but `read_cell_range` reported `"value": "06:00:00"` with `type: "time"` because `.time()` in `iso8601_from_serial` dropped whole days. **Shipped fix:** enrich as `"duration"` / `PT30H` — see [§3.2](#32-elapsed-times-over-24-hours-fixed).
+Consequence (pre-fix): a cell holding `1.25` under `[HH]:MM:SS` displayed `30:00:00`, but `read_range` reported `"value": "06:00:00"` with `type: "time"` because `.time()` in `iso8601_from_serial` dropped whole days. **Shipped fix:** enrich as `"duration"` / `PT30H` — see [§3.2](#32-elapsed-times-over-24-hours-fixed).
 
 ### 1.2 The LLM Friction Point
 
@@ -118,7 +118,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 | A. MCP clock context (`initialize` + tool piggyback) | Done | [`plugin/mcp/mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), [`plugin/doc/document_research_tools.py`](../../plugin/doc/document_research_tools.py) |
 | B. Read enrichment + duration wire + `format_code` | Done | [`plugin/calc/inspector.py`](../../plugin/calc/inspector.py), [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py) |
 | Sidebar Calc selection enrichment | Done | [`plugin/calc/analyzer.py`](../../plugin/calc/analyzer.py) `get_calc_context_for_chat` |
-| C. ISO + PT duration write ingestion | Done | [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `write_formula_range`, [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py) |
+| C. ISO + PT duration write ingestion | Done | [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `write_range`, [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py) |
 | P1 column format inheritance on apply | Done | [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `_find_column_temporal_templates` |
 | MCP `values` string\|array union (source schema) | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py) `WriteCellRange.parameters`, [`plugin/framework/tool_schema.py`](../../plugin/framework/tool_schema.py) |
 | MCP `range` string\|array widen | Done | [`plugin/framework/tool_schema.py`](../../plugin/framework/tool_schema.py) `to_mcp_schema` (array-typed tools only; OpenAI stays array) |
@@ -134,7 +134,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 
 ### 3.1 Mechanism
 
-When `read_cell_range` runs the LLM tool path (`include_format_info=True`), enrichment follows the wire schema above and the tool returns the compact **`rows`** shape by default (`format=cells` keeps the per-cell grid).
+When `read_range` runs the LLM tool path (`include_format_info=True`), enrichment follows the wire schema above and the tool returns the compact **`rows`** shape by default (`format=cells` keeps the per-cell grid).
 
 1. **Pre-flight Check**: To prevent performance degradation on large datasets, `CellInspector._range_format_rows()` scans the range for cell formats. If no date/time formats or formulas exist in the target block, format inspection returns early.
 2. **Format grouping**: Queries `cell_range.getUniqueCellFormatRanges()` to group cells sharing a format. The response still requires an O(N*M) serialization walk, but format-related UNO round-trips scale with format groups rather than cells.
@@ -153,7 +153,7 @@ When `read_cell_range` runs the LLM tool path (`include_format_info=True`), enri
 
 **Why `format_code`:** Without the display pattern (e.g. German short `TT.MM.JJ` vs full year), the model cannot tell how neighboring rows look and tends to invent a new style via detect-on-write or `set_style`. Models must not hardcode locale letters into `queryKey` (§6); `set_style(number_format=...)` accepts presets (`"currency"`, `"percent"`, `"general"`) or en-US format codes converted to the document locale via `addNewConverted`.
 
-**Sidebar vs internal:** Chat/MCP `read_cell_range` always enriches and defaults to compact `rows`. `get_calc_context_for_chat` also uses `include_format_info=True` so the first Calc selection block is ISO/`PT…`, not raw serials. NumPy / DuckDB / `=PY` keep the inspector default `False` (raw floats). Do not collapse those wires.
+**Sidebar vs internal:** Chat/MCP `read_range` always enriches and defaults to compact `rows`. `get_calc_context_for_chat` also uses `include_format_info=True` so the first Calc selection block is ISO/`PT…`, not raw serials. NumPy / DuckDB / `=PY` keep the inspector default `False` (raw floats). Do not collapse those wires.
 
 ### 3.2 Elapsed times over 24 hours (fixed)
 
@@ -177,9 +177,9 @@ The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_ela
 Example string prepended to system instructions:
 `Current local date and time: Friday, 2026-08-07T11:04:25 (EDT).`
 
-The numeric stamp is the local wall clock in Calc's accepted ISO shape (no `+HH:MM` / `Z`). Weekday and timezone *name* are locale/OS-facing; the stamp itself stays copy-pasteable into `write_formula_range`.
+The numeric stamp is the local wall clock in Calc's accepted ISO shape (no `+HH:MM` / `Z`). Weekday and timezone *name* are locale/OS-facing; the stamp itself stays copy-pasteable into `write_range`.
 
-**Why a second channel (tool piggyback):** MCP treats `InitializeResult.instructions` as an optional client hint (`MAY` add to the system prompt). Some hosts never forward that field to the model, so connection-time clock alone is unreliable. The same `format_mcp_clock_context` stamp is therefore also returned as `current_local_datetime` on [`list_open_documents`](../../plugin/doc/document_research_tools.py) and on no-topic [`get_guidance()`](../../plugin/doc/document_research_tools.py) — tools models already call early. No dedicated clock tool; one shared formatter everywhere. Sidebar chat separately injects a short “Today's date is …” line via [`llm_client.py`](../../plugin/framework/client/llm_client.py) and does not use the MCP initialize path.
+**Why a second channel (tool piggyback):** MCP treats `InitializeResult.instructions` as an optional client hint (`MAY` add to the system prompt). Some hosts never forward that field to the model, so connection-time clock alone is unreliable. The same `format_mcp_clock_context` stamp is therefore also returned as `current_local_datetime` on [`document_list_open`](../../plugin/doc/document_research_tools.py) and on no-topic [`manual_read()`](../../plugin/doc/document_research_tools.py) — tools models already call early. No dedicated clock tool; one shared formatter everywhere. Sidebar chat separately injects a short “Today's date is …” line via [`llm_client.py`](../../plugin/framework/client/llm_client.py) and does not use the MCP initialize path.
 
 **Policy (resolved):** Calc serials are timezone-less, and offset-bearing strings such as `2026-08-08T08:00:00-04:00` stay literal text. This costs nothing to enforce — Calc's own scanner rejects both `Z` and numeric offsets in every locale tested (§8). The write-tool description and MCP Calc hint still tell the model not to re-append an offset or `Z` from other sources.
 
@@ -187,8 +187,8 @@ The previously "unresolved" alternative — accept offset-bearing input on write
 
 ### 4.2 Tool Schema Definitions
 
-- **`ReadCellRange`** (`read_cell_range` in [plugin/calc/cells.py](../../plugin/calc/cells.py)): see the LLM wire schema above.
-- **`WriteCellRange`** (`write_formula_range`): ISO guidance is **shipped** on the tool description, including one sentence preferring plain values/ISO for static cells and `=` only when the cell must stay live.
+- **`ReadCellRange`** (`read_range` in [plugin/calc/cells.py](../../plugin/calc/cells.py)): see the LLM wire schema above.
+- **`WriteCellRange`** (`write_range`): ISO guidance is **shipped** on the tool description, including one sentence preferring plain values/ISO for static cells and `=` only when the cell must stay live.
 
 **Shipped description text** (paid for on every request; part of the contract):
 
@@ -208,7 +208,7 @@ The same MCP pass widens **top-level** array-typed `range` to `["string","array"
 
 ## 5. Write Path (Shipped)
 
-*v1 is in code.* Pure helpers live in [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py); UNO write logic in [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `write_formula_range` (sole cell-writing entry point for this tool).
+*v1 is in code.* Pure helpers live in [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py); UNO write logic in [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `write_range` (sole cell-writing entry point for this tool).
 
 ### 5.1 Decision Ledger
 
@@ -226,7 +226,7 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 | S7 | Never pass ASCII format codes such as `"YYYY-MM-DD"` to `queryKey` for defaults (§6). |
 | S8 | Batch the value commit; apply formats as coalesced rectangles: horizontal same-decision row runs after S25, then vertically merge identical `(c0, c1, key)` spans on consecutive rows (prefer range sets over a per-cell loop; checkerboard may still need multiple runs — see S25 / §5.6). |
 | S9 | The mixed-formula commit fix (§5.5 step 2) merges independently of the feature. |
-| S10 | Scope is `write_formula_range` and `=PY()` deferred spill (`perform_deferred_spill`). `spreadsheet_import/preserve.py`, `insert_cell_html`, and `editselection` keep current semantics, because they carry real Python types or source-file formats. `CalcRange.to_pandas()` provides `date_cols` convenience. |
+| S10 | Scope is `write_range` and `=PY()` deferred spill (`perform_deferred_spill`). `spreadsheet_import/preserve.py`, `insert_html`, and `editselection` keep current semantics, because they carry real Python types or source-file formats. `CalcRange.to_pandas()` provides `date_cols` convenience. |
 | S11 | Tests split unit and UNO per [AGENTS.md](../../AGENTS.md). |
 | S12 | Fractional seconds, leap seconds, `24:00`, calendar durations (`PnD` / Y/M/W), and locale display forms stay out of scope. Strict `PTnHnMnS` duration input is in scope. |
 | S13 | Inspect destination formats only when at least one value passed the gate. |
@@ -260,7 +260,7 @@ These are not re-opened product debates. Each is implemented as written; reopen 
 
 #### M1 decision — deciding S14 preserve
 
-**Status: Settled and shipped.** S14–S17 state the product outcomes; M1 is implemented as `should_preserve_temporal_format` in [`datetime_wire.py`](../../plugin/calc/datetime_wire.py) and applied after commit in `write_formula_range`.
+**Status: Settled and shipped.** S14–S17 state the product outcomes; M1 is implemented as `should_preserve_temporal_format` in [`datetime_wire.py`](../../plugin/calc/datetime_wire.py) and applied after commit in `write_range`.
 
 ##### What problem M1 solves
 
@@ -269,7 +269,7 @@ After the write path converts an ISO string to a Calc serial float and commits i
 Every cell has a `NumberFormat` key — an integer that picks a display style from the document’s format registry (`YYYY-MM-DD`, `MM/DD/YYYY`, `HH:MM:SS AM/PM`, `[HH]:MM`, General, `@`, …). The serial value and the format key are independent:
 
 - Writing `2026-08-08` into a column already formatted as `MM/DD/YYYY` should usually **keep** that column style (user preference), not force ISO.
-- Writing `2026-08-08` into a General or Text (`@`) cell must **apply** a date format, or the cell shows `46242` and `read_cell_range` will not enrich it as a date.
+- Writing `2026-08-08` into a General or Text (`@`) cell must **apply** a date format, or the cell shows `46242` and `read_range` will not enrich it as a date.
 
 So for each converted cell the code chooses one of two actions:
 
@@ -431,7 +431,7 @@ Adopt the matrix and integer-second midnight predicate above. Existing playgroun
 
 #### M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`
 
-**Status: Settled and shipped.** Locale comes from `resolve_document_locale` in `plugin/calc/calc_utils.py` (document `CharLocale` + en-US fallback), shared by `write_formula_range`, `set_style`, and the `=PY()` deferred spill, which also takes its elapsed-time key from `elapsed_format_key` there.
+**Status: Settled and shipped.** Locale comes from `resolve_document_locale` in `plugin/calc/calc_utils.py` (document `CharLocale` + en-US fallback), shared by `write_range`, `set_style`, and the `=PY()` deferred spill, which also takes its elapsed-time key from `elapsed_format_key` there.
 
 ##### What problem M2 solves
 
@@ -446,7 +446,7 @@ S28 already settled one constraint: **pass that Locale explicitly** to `getStand
 
 M2 was the remaining choice: **where does that one Locale struct come from?**
 
-This is **not** “per-cell language vs document language.” The adopted rule resolves locale **once per `write_formula_range` call** and reuses it for every cell in that write. The reviewed choice was which *source* supplies that single struct.
+This is **not** “per-cell language vs document language.” The adopted rule resolves locale **once per `write_range` call** and reuses it for every cell in that write. The reviewed choice was which *source* supplies that single struct.
 
 ##### Why locale matters here (and why it mostly does not)
 
@@ -491,7 +491,7 @@ Important honesty: `CharLocale` is **document text language**, not the Options a
 
 ##### Adopted rule
 
-1. Once at the start of `write_formula_range`, read **`doc.getPropertyValue("CharLocale")`**.
+1. Once at the start of `write_range`, read **`doc.getPropertyValue("CharLocale")`**.
 2. Pass that struct into `formats.getStandardIndex(locale)`, then use the returned `std_key` for every `detectNumberFormat` / `convertStringToNumber` call in this write.
 3. Pass the **same** source into the shared helper required by S26 for date/time `set_style` — one locale policy for both paths.
 4. Do **not** walk per-cell CharLocale overrides. Document-level only.
@@ -546,7 +546,7 @@ Adopt document **`CharLocale`** for v1. It matches the existing Calc number-form
 
 #### M3 decision — `setDataArray` floats vs NumberFormat
 
-**Status: Settled and shipped.** Float commits leave formats alone; ordinary-text S29 snapshot/restore runs in `write_formula_range`.
+**Status: Settled and shipped.** Float commits leave formats alone; ordinary-text S29 snapshot/restore runs in `write_range`.
 
 ##### What problem M3 solves
 
@@ -624,7 +624,7 @@ All seven probe checks passed; `M3 float-preserve conclusion: YES`.
 
 ##### Edge cases the implementation must not invent
 
-- Today’s [`write_formula_range`](../../plugin/calc/manipulator.py) already `float()`-coerces numeric-looking strings before `setDataArray` (~596–598). S29 targets true text leftovers after the ISO gate, not `"123"` (that already became a float).
+- Today’s [`write_range`](../../plugin/calc/manipulator.py) already `float()`-coerces numeric-looking strings before `setDataArray` (~596–598). S29 targets true text leftovers after the ISO gate, not `"123"` (that already became a float).
 - Mixed ranges: only ordinary text-fallback cells need S29 restore; float cells and apostrophe-forced cells do not.
 - M3 only answers the **pre-commit snapshot** question. S14 / M1 still run **after** commit to decide keep vs detected key for successful ISO cells.
 
@@ -657,7 +657,7 @@ Probe measurements in §8 closed the former product-level open questions. The no
 
 ### 5.2 Write conversion design
 
-Per gated cell, convert and obtain a format key through `XNumberFormatter` (locked at the top of this document). Hand-rolling serial arithmetic or ASCII format codes is rejected: localized format letters differ by locale (§6.1), and `detectNumberFormat` already returns the right key. Relying on `setFormula` alone is also rejected: it converts the value but leaves the cell **General**, so the cell displays `46242` and `read_cell_range` does not enrich it as a date (§8.1, §8.4).
+Per gated cell, convert and obtain a format key through `XNumberFormatter` (locked at the top of this document). Hand-rolling serial arithmetic or ASCII format codes is rejected: localized format letters differ by locale (§6.1), and `detectNumberFormat` already returns the right key. Relying on `setFormula` alone is also rejected: it converts the value but leaves the cell **General**, so the cell displays `46242` and `read_range` does not enrich it as a date (§8.1, §8.4).
 
 ```python
 # formatter: com.sun.star.util.NumberFormatter, attached to the document's
@@ -768,7 +768,7 @@ Shipped workflow:
 
 Value commit (step 4) is the semantic commit point. Per S30 the format pass is **best-effort**: log the exception and return success with an explicit warning such as `could not apply date/time formats to 2 cells in A1:D1` (count = cells whose M1 decision was **apply**, not preserve) rather than failing the whole write or using ordinary success wording alone. If every temporal cell was preserve-only, the warning names the range without a cell count.
 
-`WriteCellRange.execute` in [plugin/calc/cells.py](../../plugin/calc/cells.py) already opens `WriterCompoundUndo`, so all steps collapse into one undo entry **only if** the format pass lives inside `write_formula_range`. The scripting API path in [plugin/scripting/writeragent_api.py](../../plugin/scripting/writeragent_api.py) has no compound undo.
+`WriteCellRange.execute` in [plugin/calc/cells.py](../../plugin/calc/cells.py) already opens `WriterCompoundUndo`, so all steps collapse into one undo entry **only if** the format pass lives inside `write_range`. The scripting API path in [plugin/scripting/writeragent_api.py](../../plugin/scripting/writeragent_api.py) has no compound undo.
 
 #### Coercion report
 
@@ -784,7 +784,7 @@ This is the only signal the model gets that `2026-08-08T08:00:00Z` silently beca
 
 Input `["2026-08-08", "08:00", "PT30H", "08/05/2026", "=A1+1"]` into `A1:E1`, all cells General, `en-US`:
 
-| Cell | Committed as | Format key applied | Displays | `read_cell_range` returns |
+| Cell | Committed as | Format key applied | Displays | `read_range` returns |
 | :--- | :--- | :--- | :--- | :--- |
 | A1 | `46242.0` | detected date | `2026-08-08` | `value: "2026-08-08"`, `type: "date"` |
 | B1 | `0.3333…` | detected time | `08:00:00 AM` (locale-preferred; S27) | `value: "08:00:00"`, `type: "time"` |
@@ -890,13 +890,13 @@ End-to-end write and readback against the LLM wire schema:
 ```python
 @native_test
 def test_write_and_read_date_time_cells():
-    res = _execute_calc_tool("write_formula_range", {
+    res = _execute_calc_tool("write_range", {
         "range": ["A26:B26"],
         "values": "[\"2026-08-08\", \"08:00\"]",
     })
     assert res.get("status") == "ok"
 
-    read_res = _execute_calc_tool("read_cell_range", {"range": ["A26:B26"], "format": "cells"})
+    read_res = _execute_calc_tool("read_range", {"range": ["A26:B26"], "format": "cells"})
     row = read_res["result"][0]["result"][0][0]
 
     assert row[0]["value"] == "2026-08-08"
@@ -937,7 +937,7 @@ PYTHONPATH=. python3 scripts/playground/probe_calc_datetime_locale.py
 
 `setFormula("2026-08-08")` produces `VALUE 46242.0` with the format left **General**, displaying `46242`. This holds for pristine cells and for cells explicitly reset to key 0, and it applies to times and datetimes too.
 
-The often-cited guarantee from LibreOffice's i18n maintainer — that ISO input "leads to the YYYY-MM-DD format being applied" ([date acceptance patterns](https://erack.org/blog/archives/8-LibreOffice-date-acceptance-patterns.html)) — describes **interactive** cell input. It does not hold on the UNO API path. Any design that relies on it will ship cells that display raw serials and are not enriched as dates by `read_cell_range`.
+The often-cited guarantee from LibreOffice's i18n maintainer — that ISO input "leads to the YYYY-MM-DD format being applied" ([date acceptance patterns](https://erack.org/blog/archives/8-LibreOffice-date-acceptance-patterns.html)) — describes **interactive** cell input. It does not hold on the UNO API path. Any design that relies on it will ship cells that display raw serials and are not enriched as dates by `read_range`.
 
 ### 8.2 Locale behavior of the scanner
 
@@ -973,7 +973,7 @@ The ISO subset is universal. `08/05/2026` differing by 89 days between `en-US` a
 
 Through the production `CellInspector.read_range(include_format_info=True)`:
 
-| Write method | `read_cell_range` result |
+| Write method | `read_range` result |
 | :--- | :--- |
 | `setFormula` only | General format → LLM sees `{"value": 46242.0, "type": "value"}` (no date enrichment) |
 | `detectNumberFormat` + value + detected key | LLM sees `{"value": "2026-08-08", "type": "date", "format_category": "date"}`, cell displays `2026-08-08` |

@@ -87,7 +87,7 @@ Smaller, same area: `_parse_finished` in `plugin/ppt_master/venv/runner.py` keep
 
 `_app` maps every unknown label, including `"impress"`, to `"writer"` (`plugin/chatbot/agent_manual.py` around line 159). `_SECTIONS_BY_APP` has no `impress` key. The agent-backend worker passes the cached label `"impress"` straight into `full_manual` (`plugin/chatbot/send_handlers.py`). Core directives already treat Impress as Draw (`get_core_directives_for_type` in `plugin/framework/prompts.py`). Map `impress` to `draw` in `_app`. One place, same topic tables.
 
-Sidebar `get_guidance` on the main thread is fine, because `doc_type_of` sees a Draw model (`is_draw` is true for Impress). Do not classify the document on the worker, and do not add a second topic list.
+Sidebar `manual_read` on the main thread is fine, because `doc_type_of` sees a Draw model (`is_draw` is true for Impress). Do not classify the document on the worker, and do not add a second topic list.
 
 ## Settings and panel shell
 
@@ -197,7 +197,7 @@ Verified and not a fix:
 - Research stays plain text. `WEB_RESEARCH_PLAIN_TEXT_FORMAT` forbids HTML. Workers build `LlmClient` plus `WriterAgentSmolModel`. Deep vs shallow cache keys do not cross-match. Stop during planning, extraction, or synthesis returns `USER_STOPPED` and is not cached. `history_text` for sub-agents skips `system` and `tool`, so a stale `[DOCUMENT CONTENT]` row is not copied into research.
 - Compaction v1 keeps `messages[0]`, summarizes `messages[prev_kept:new_cut]` with `prev_kept >= 1`, strips a `[DOCUMENT CONTENT]` span from the summary slice only, snaps the cut onto a user or assistant message, and aborts if `session.messages` was replaced. `chat_compaction_enabled` is the only kill switch. Do not add an OpenClaw-style wrapper layer. The 200-character tool stub in the summary input is the written policy in `docs/chat/compaction-dev-plan.md`.
 - Librarian history stays on `LIBRARIAN_HISTORY_SESSION_ID`. Web research is `session_id + "_web"`. Do not gate `_do_send` on a missing `USER.md`. Default selection uses `chatbot.librarian_invoked`.
-- `upsert_memory` is tier `core`. Writes hold `_MEMORY_WRITE_LOCK`, use `mkstemp` plus `os.replace`, refuse invalid JSON and non-objects, and refuse a dotted key that would replace a string with `{}`. `MEMORY_GUIDANCE` stays in `plugin/framework/prompts.py`.
+- `memory_upsert` is tier `core`. Writes hold `_MEMORY_WRITE_LOCK`, use `mkstemp` plus `os.replace`, refuse invalid JSON and non-objects, and refuse a dotted key that would replace a string with `{}`. `MEMORY_GUIDANCE` stays in `plugin/framework/prompts.py`.
 - One guidance map. `MANUAL_SECTIONS` / `_TOPIC_SUMMARY` are the writer topics. Calc, draw, and generic share `_GENERIC_SECTIONS`. `GetGuidance` calls into `agent_manual.py`.
 - Brainstorming and writing already share `run_subagent_tool` and `run_smol_side_turn`. Instruction order is mode text, then `WRITER_APPLY_DOCUMENT_HTML_RULES`, then `get_chat_response_format_instructions`. A third copy of `collect_*_tools` would be the time to share one collector. Writing's missing `target` coerce is not reachable through `execute_safe`.
 - Audio does not start raw threads. The stdout monitor is `run_in_background(..., dedicated=True)`. WAV paths use `mkstemp`. `STOP_REC` is a no-op unless `is_recording` and emits one stop plus one send. The update check fetches only `raw.githubusercontent.com/KeithCu/writeragent/...` on a dedicated thread and refuses to notify when the identifier does not match.

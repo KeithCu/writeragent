@@ -236,7 +236,7 @@ def summarize_shape_calls(calls: Sequence[InnerToolCall]) -> dict[str, Any]:
             _record_name(created_names, res.get("name"))
         elif name == "shape_connect":
             connectors_created += 1
-        elif name == "shape_diagram":
+        elif name == "shape_create_diagram":
             shapes_created += len(res.get("nodes", []))
             connectors_created += len(res.get("connections", []))
         elif name == "shape_fill_fields":

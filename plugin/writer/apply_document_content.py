@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer apply_document_content tool — write HTML/text content into document."""
+"""Writer apply_content tool — write HTML/text content into document."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import build_heading_tree, iter_heading_nodes
+from plugin.doc.text_helpers import KeepViewSelection, build_heading_tree, iter_heading_nodes
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import safe_json_loads
 from plugin.writer import html_import, html_import_styles, record_changes, search as search_mod
@@ -230,7 +230,7 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
     """Tables whose last text this empty replacement removes.
 
     Asked to delete a table, agents empty its text with
-    apply_document_content and get status ok — the shell stays and
+    apply_content and get status ok — the shell stays and
     the agent reports success. A hint on every empty cell is the
     wrong signal: clearing one cell of a fee table is a normal
     edit. The table goes only when every cell is already empty or
@@ -484,7 +484,7 @@ class ApplyDocumentContent(ToolBase):
       inline and keeps the host paragraph and its style. Anchor replacements skip outline URL fixup.
     """
 
-    name: str | None = "apply_document_content"
+    name: str | None = "apply_content"
     description: str = (
         "Insert or replace content. "
         f"IMPORTANT: {APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT} "
@@ -596,7 +596,7 @@ class ApplyDocumentContent(ToolBase):
         the caller rejects it.
         """
         # Invariant: a failed outline read is HYPERLINK_UPDATE_FAILED (never "no link"); disposal propagates.
-        snapshot = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink preview failed")
+        snapshot = self._read_outline_snapshot(found, "apply_content: outline hyperlink preview failed")
         if not snapshot.links:
             if override:
                 raise ToolExecutionError(_OVERRIDE_NEEDS_ONE_LINK, code="INVALID_PARAM")
@@ -653,7 +653,7 @@ class ApplyDocumentContent(ToolBase):
         if outcome.mutate_error is not None:
             mutate_err = outcome.mutate_error
             reraise_if_disposed(mutate_err)
-            log.exception("apply_document_content: outline hyperlink update failed")
+            log.exception("apply_content: outline hyperlink update failed")
             if outcome.nothing_landed:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({mutate_err})."
             else:
@@ -751,7 +751,7 @@ class ApplyDocumentContent(ToolBase):
         if fix_outline:
             anchor = collapsed_anchor(found)
             # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
-            snapshot = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
+            snapshot = self._read_outline_snapshot(found, "apply_content: outline hyperlink capture failed")
             if override and len(snapshot.links) != 1:
                 # Before the text edit. One override on two outline links would stamp
                 # both with the same target. Zero links would paint a bookmark or plain text.
@@ -818,7 +818,7 @@ class ApplyDocumentContent(ToolBase):
         try:
             return edit_review_wait_seconds()
         except Exception:
-            log.exception("apply_document_content: could not read review wait seconds")
+            log.exception("apply_content: could not read review wait seconds")
             return 0
 
     def _wait_enabled_globally(self) -> bool:
@@ -905,7 +905,7 @@ class ApplyDocumentContent(ToolBase):
         try:
             ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, all_matches=True)
         except Exception as e:
-            log.exception("apply_document_content dry_run search failed")
+            log.exception("apply_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         labeler = search_mod.LocationLabeler(ctx.doc)
         replaceable: list[dict[str, Any]] = []
@@ -967,7 +967,7 @@ class ApplyDocumentContent(ToolBase):
             "edit_reach_note": (
                 "count includes body, table, frame, shapes, and comments. replaceable is the edit-path preview. "
                 "replaceable_count is the full index space and can exceed the preview. not_replaceable is the "
-                "shape and comment preview. search_in_document uses the same split. Only floating shapes are "
+                "shape and comment preview. search uses the same split. Only floating shapes are "
                 "editable in review-off mode or via the shapes toolset."
             ),
         }
@@ -996,7 +996,7 @@ class ApplyDocumentContent(ToolBase):
         try:
             _run_on_main_thread(session.cleanup)
         except Exception:
-            log.exception("apply_document_content: review session cleanup failed")
+            log.exception("apply_content: review session cleanup failed")
 
     def _resolve_heading_links(
         self, doc: Any, params: EditParams
@@ -1037,7 +1037,7 @@ class ApplyDocumentContent(ToolBase):
 
         if kwargs.get("dry_run"):
             # The preview reads ranges and text through UNO, so a worker-thread call
-            # (tool-sync-apply_document_content) marshals it like the edit path does.
+            # (tool-sync-apply_content) marshals it like the edit path does.
             # The preview's outline helpers raise like the edit path; this is the one
             # place the dry-run turns them into the payload.
             try:
@@ -1101,7 +1101,7 @@ class ApplyDocumentContent(ToolBase):
             try:
                 status_cb("Review the agent's changes in the document — accept or reject the tracked changes.")
             except Exception:
-                log.debug("apply_document_content: status_callback failed", exc_info=True)
+                log.debug("apply_content: status_callback failed", exc_info=True)
 
         # Stop comes from ctx.send_cancellation; ToolContext has no stop_checker. MCP has no scope (None).
         # still_reviewing: review mode toggled off aborts the wait; that is not a user Stop.
@@ -1368,7 +1368,9 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         target = params.target
         tables_before = _doc_table_count(ctx.doc) if has_table else None
-        with session:
+        # The insert can land at the end of a selection at the document edge; Writer
+        # stretches the view selection over text inserted at its end, so put it back.
+        with KeepViewSelection(uno_read(lambda: ctx.doc.getCurrentController(), None)), session:
             report = session.record_mutation(
                 lambda: html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, target
@@ -1423,7 +1425,7 @@ class ApplyDocumentContent(ToolBase):
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
         # An explicit regex or case_sensitive uses the literal descriptor so that call matches
-        # search_in_document; an omitted flag stays on the chained matcher.
+        # search; an omitted flag stays on the chained matcher.
         ranges = _find_ranges(
             doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
         if not ranges:
@@ -1478,7 +1480,7 @@ class ApplyDocumentContent(ToolBase):
                 code="UNDO_UNAVAILABLE")
         if outcome.mutate_error is not None:
             e = outcome.mutate_error
-            log.exception("apply_document_content all_matches failed mid-batch")
+            log.exception("apply_content all_matches failed mid-batch")
             payload: dict[str, Any]
             if isinstance(e, ToolExecutionError):
                 payload = format_error_payload(e)
@@ -1691,7 +1693,9 @@ class ApplyDocumentContent(ToolBase):
                 raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
         anchor = collapsed_anchor(found)
-        with session:
+        # The insert lands at the end of a match the user often has selected; Writer
+        # stretches the view selection over text inserted at its end, so put it back.
+        with KeepViewSelection(uno_read(lambda: doc.getCurrentController(), None)), session:
             record_html_atomically(
                 session, doc, _insert_next_to_match,
                 proposed_preview=plain)

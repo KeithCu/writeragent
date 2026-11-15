@@ -858,7 +858,9 @@ class ToolCallingMixin:
                 from plugin.app import get_tools as _get_tools_registry
 
                 tool = _get_tools_registry().get(item[2])
-                if tool and tool.detects_mutation():
+                # Pass the call's arguments so a delegate to a read-only domain
+                # does not refresh the document context.
+                if tool and tool.detects_mutation(item[3]):
                     mutates = True
             return ToolLoopEvent(
                 kind=EventKind.TOOL_RESULT,

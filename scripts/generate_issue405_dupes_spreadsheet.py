@@ -116,7 +116,7 @@ def build_ods(out_path: Path) -> None:
         ),
         (
             "Pass",
-            "write_formula_range of =PY(\"result = …drop_duplicates…\"; A1:H500) into J1 "
+            "write_range of =PY(\"result = …drop_duplicates…\"; A1:H500) into J1 "
             "(or another empty column / new sheet). Not A1 or H1. Not domain=python.",
         ),
         (

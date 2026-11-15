@@ -39,7 +39,7 @@ def _tool_ctx(doc, ctx):
 
 
 def _get_document_content(doc, ctx, params):
-    """Call real get_document_content tool; returns dict."""
+    """Call real get_content tool; returns dict."""
     from plugin.app import get_tools
     scope = params.get("scope", "full")
     kwargs = {"scope": scope}
@@ -51,13 +51,13 @@ def _get_document_content(doc, ctx, params):
         if params.get("end") is not None:
             kwargs["end"] = params["end"]
     try:
-        return get_tools().execute("get_document_content", _tool_ctx(doc, ctx), **kwargs)
+        return get_tools().execute("get_content", _tool_ctx(doc, ctx), **kwargs)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 def _apply_document_content(doc, ctx, params):
-    """Call real apply_document_content tool; returns dict."""
+    """Call real apply_content tool; returns dict."""
     from plugin.app import get_tools
     content = params.get("content", "")
     if isinstance(content, list):
@@ -70,7 +70,7 @@ def _apply_document_content(doc, ctx, params):
     if params.get("all_matches") is not None:
         kwargs["all_matches"] = params["all_matches"]
     try:
-        return get_tools().execute("apply_document_content", _tool_ctx(doc, ctx), **kwargs)
+        return get_tools().execute("apply_content", _tool_ctx(doc, ctx), **kwargs)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -159,7 +159,7 @@ def test_search_and_replace(ctx, doc):
 def test_get_document_content_scope_range(ctx, doc):
     doc.getText().setString("0123456789abcdef")
     result = _get_document_content(doc, ctx, {"scope": "range", "start": 0, "end": 10})
-    assert result.get("status") == "ok", f"get_document_content scope=range failed: {result}"
+    assert result.get("status") == "ok", f"get_content scope=range failed: {result}"
     assert result.get("start") == 0 and result.get("end") == 10, f"Malformed response: {result}"
     assert "0123456789" in result.get("content", ""), f"Unexpected range content: {result}"
 
@@ -188,7 +188,7 @@ def test_find_text(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_html_linebreak_preservation(ctx, doc):
-    """Plain newlines survive apply_document_content(target='full_document').
+    """Plain newlines survive apply_content(target='full_document').
 
     Helper coverage of the HTML conversion lives in tests/doc/test_linebreak.py,
     but that never writes a Writer document. This checks the apply round-trip.

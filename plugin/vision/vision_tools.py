@@ -29,7 +29,7 @@ _VISION_DOCS = [
 class ExtractStructureFromImage(ToolCalcVisionBase):
     """Run trusted extract_structure OCR on an embedded graphic via the user venv."""
 
-    name: str | None = "extract_structure_from_image"
+    name: str | None = "image_extract_structure"
     specialized_cross_cutting: ClassVar[bool] = True
     description: str = (
         "Extract text and structure (layout, tables, etc.) from embedded document image(s). "

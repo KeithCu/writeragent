@@ -29,7 +29,7 @@ _TOOL_MODULES = (
 
 
 class CommonModule(ModuleBase):
-    """Registers the shared document tools: research and search, find_tools, the python and research delegates, peer messaging, and undo."""
+    """Registers the shared document tools: research and search, tool_find, the python and research delegates, peer messaging, and undo."""
 
     def initialize(self, services: Any) -> None:
         for name in _TOOL_MODULES:

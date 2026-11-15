@@ -74,7 +74,7 @@ class ListNearbyFiles(ToolBase):
 class ListOpenDocuments(ToolBase):
     """List all currently open documents in LibreOffice, returning their URLs, names, and types."""
 
-    name: str | None = "list_open_documents"
+    name: str | None = "document_list_open"
     description: str = (
         "List all currently open documents in LibreOffice. "
         "Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). "
@@ -111,7 +111,7 @@ class ListOpenDocuments(ToolBase):
 class GetGuidance(ToolBase):
     """On-demand how-to-use manual for the WriterAgent tools (agent pulls one topic at a time)."""
 
-    name: str | None = "get_guidance"
+    name: str | None = "manual_read"
     description: str = (
         "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
         "call with a topic to read just that section (so you don't load everything). Topics follow the "

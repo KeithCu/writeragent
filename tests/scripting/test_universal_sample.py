@@ -23,7 +23,7 @@ def test_get_active_document_type_writer(wa_module):
         }
         doc_type = wa_module.get_active_document_type()
         assert doc_type == "writer"
-        mock_rpc.assert_called_once_with("list_open_documents")
+        mock_rpc.assert_called_once_with("document_list_open")
 
 def test_get_active_document_type_calc(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:
@@ -58,8 +58,8 @@ def test_get_active_document_type_propagates_rpc_error(wa_module):
 def test_universal_sample_dispatches_by_doc_type(wa_module, doc_type):
     with (
         patch("writeragent.get_active_document_type", return_value=doc_type),
-        patch.object(wa_module.writer, "apply_document_content", return_value={}) as mock_apply,
-        patch.object(wa_module.calc, "insert_cell_html", return_value={}) as mock_insert,
+        patch.object(wa_module.writer, "apply_content", return_value={}) as mock_apply,
+        patch.object(wa_module.calc, "insert_html", return_value={}) as mock_insert,
         patch.object(wa_module.shape, "upsert", return_value={}) as mock_upsert,
     ):
         from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS

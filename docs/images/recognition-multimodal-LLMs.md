@@ -15,11 +15,11 @@ Native multimodal vision lets a vision-capable LLM **see** document images — f
 ```mermaid
 flowchart TB
   subgraph lazy [Default read path]
-    GDC["get_document_content<br/>(include_images=false)"]
+    GDC["get_content<br/>(include_images=false)"]
     GDC --> TextModel[Text model — no vision tokens]
   end
   subgraph ondemand [On-demand vision]
-    GI[get_image core tool]
+    GI[image_get core tool]
     GI --> MCP[MCP tools/call]
     MCP --> ImageBlock["native MCP image block"]
     GI --> Chat[Chat tool loop]
@@ -34,7 +34,7 @@ flowchart TB
   end
 ```
 
-**Lazy perception:** Embedded image bytes are stripped from `get_document_content` by default (`include_images=false`). When the model actually needs to *see* one image, it calls the core [`get_image`](../../plugin/writer/get_image.py) tool (by graphic name, current selection, or `page=<n>` for a whole-page PNG — 0-based, unified with Draw/Impress `list_pages`). That avoids upfront vision-token cost on every document read.
+**Lazy perception:** Embedded image bytes are stripped from `get_content` by default (`include_images=false`). When the model actually needs to *see* one image, it calls the core [`image_get`](../../plugin/writer/get_image.py) tool (by graphic name, current selection, or `page=<n>` for a whole-page PNG — 0-based, unified with Draw/Impress `slide_list`). That avoids upfront vision-token cost on every document read.
 
 ---
 
@@ -46,7 +46,7 @@ Status as of PR #364 and related multimodal work. Code paths below are live; do 
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → in-process provider memos (OpenRouter/Together/DeepSeek `input_modalities`, Mistral `capabilities.vision`, and Anthropic `capabilities.image_input.supported` from `/v1/models`; xAI `input_modalities` from `/v1/language-models`; LM Studio `capabilities.vision` from `/api/v1/models`; Ollama `POST /api/show`) → `DEFAULT_MODELS` / `PROVIDER_VISION` fallback when API fetch failed or provider has no vision API (`ModelCapability.VISION` → True, `PROVIDER_VISION` Google → True, catalog row without `VISION` → False) → None. The UI thread never fetches: it schedules background resolution and returns None (unknown). Off the UI thread, a cold memo fetches inline. Stored config answers are read but never written by lookups (in-process memo only; `set_native_vision_support` writes only for user settings / image error recovery). Callers attach images on `is True` and hide `get_image` on `is False`. No name heuristics. |
+| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → in-process provider memos (OpenRouter/Together/DeepSeek `input_modalities`, Mistral `capabilities.vision`, and Anthropic `capabilities.image_input.supported` from `/v1/models`; xAI `input_modalities` from `/v1/language-models`; LM Studio `capabilities.vision` from `/api/v1/models`; Ollama `POST /api/show`) → `DEFAULT_MODELS` / `PROVIDER_VISION` fallback when API fetch failed or provider has no vision API (`ModelCapability.VISION` → True, `PROVIDER_VISION` Google → True, catalog row without `VISION` → False) → None. The UI thread never fetches: it schedules background resolution and returns None (unknown). Off the UI thread, a cold memo fetches inline. Stored config answers are read but never written by lookups (in-process memo only; `set_native_vision_support` writes only for user settings / image error recovery). Callers attach images on `is True` and hide `image_get` on `is False`. No name heuristics. |
 | `set_native_vision_support(model_id, endpoint, supported)` | same | Persists to `vision_support_map` |
 | `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe (shared cache also keeps runtime `num_ctx` for the #570 crash sentence; never trained `model_info["*.context_length"]`) |
 | Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | Minimal fallback only for providers whose `/models` API does not report vision (Groq `qwen/qwen3.8-27b`, Z.ai `glm-5.3-flash`, `glm-5.3-flashx`) |
@@ -69,9 +69,9 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 - `normalize_multimodal_messages(messages, provider)` — re-attaches extracted base64 images and remote `http(s)` URLs per provider rules (OpenAI-compatible: move to nearest preceding `user` message; Anthropic: can stay in `tool`; Gemini: flexible).
 - Called from [`llm_client.py`](../../plugin/framework/client/llm_client.py) `make_chat_request` before the shim builds the wire payload.
 
-**Covers:** `get_document_content(include_images=true)` HTML with embedded `data:image` URIs, and remote `http(s)` `image_url` blocks in tool/assistant turns. **Does not yet cover:** `_mcp_image` tool results (see follow-ups).
+**Covers:** `get_content(include_images=true)` HTML with embedded `data:image` URIs, and remote `http(s)` `image_url` blocks in tool/assistant turns. **Does not yet cover:** `_mcp_image` tool results (see follow-ups).
 
-### Core `get_image` tool (lazy on-demand vision)
+### Core `image_get` tool (lazy on-demand vision)
 
 | Item | Location | Notes |
 |------|----------|-------|
@@ -79,7 +79,7 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 | Modes | same | `image=<name>`, `selection=true` (or implicit when no name), `page=<n>` (0-based whole-page PNG) |
 | Page render | `_render_page_png` | Writer: native `writer_png_Export` after `jumpToPage` (XRenderable abandoned — BUG-5). Draw/Impress: `GraphicExportFilter` on the `XDrawPage` (`MediaType=image/png`; same bytes as `draw_png_Export` / `impress_png_Export` after `setCurrentPage`, without a view jump). Fail-loud — never returns empty PNG. |
 | Wire marker | same | Returns `{"status":"ok","source":...,"_mcp_image":{"data":"<b64>","mimeType":"image/png"}}` |
-| Schema gating | [`tool.py`](../../plugin/framework/tool.py) `get_schemas` | On **openai** schema path only: drops `get_image` when `has_native_vision` `is False`. MCP path always exposes it (client assumed vision-capable). |
+| Schema gating | [`tool.py`](../../plugin/framework/tool.py) `get_schemas` | On **openai** schema path only: drops `image_get` when `has_native_vision` `is False`. MCP path always exposes it (client assumed vision-capable). |
 
 ### MCP native image content blocks
 
@@ -115,9 +115,9 @@ Host capability table row: [recognition.md §6](recognition.md).
 
 Do not start these without coordinating — others may already be working on them. Ordered by impact.
 
-### 1. Chat sidebar: wire `get_image` results into multimodal messages (high impact)
+### 1. Chat sidebar: wire `image_get` results into multimodal messages (high impact)
 
-**Gap:** On the chat path, tool results are `json.dumps(res)` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py). `normalize_multimodal_messages` only extracts `data:image/...` URIs — it does **not** recognize `_mcp_image`. A vision-capable chat model that calls `get_image` receives a huge JSON string with embedded base64, not a native image part.
+**Gap:** On the chat path, tool results are `json.dumps(res)` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py). `normalize_multimodal_messages` only extracts `data:image/...` URIs — it does **not** recognize `_mcp_image`. A vision-capable chat model that calls `image_get` receives a huge JSON string with embedded base64, not a native image part.
 
 **Suggested approach (pick one, keep minimal):**
 - Before storing the tool result (or inside `normalize_multimodal_messages`), detect `_mcp_image` in parsed tool JSON:
@@ -146,9 +146,9 @@ When `_mcp_image` is present, [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.
 
 **Suggested fix:** Dual content blocks — short text JSON (`source`, `status`) plus image — MCP allows multiple content entries. Extend `call_tool_result_image` or add a variant.
 
-### 4. Calc parity for `get_image` (shipped)
+### 4. Calc parity for `image_get` (shipped)
 
-Core **`get_image`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names. **`page=`** errors on Calc before render (Writer/Draw/Impress only). Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
+Core **`image_get`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names. **`page=`** errors on Calc before render (Writer/Draw/Impress only). Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
 
 ### 5. Page render fidelity — live UNO test (medium)
 
@@ -162,16 +162,16 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 |------|-----|
 | MCP `_mcp_image` branch | Mock `StreamResponseEffect`; assert `tools/call` content `type == "image"` |
 | `GetImage.execute` | Mock doc/graphic for three modes + param errors |
-| `get_schemas("openai")` integration | Assert `get_image` excluded when `has_native_vision` false |
+| `get_schemas("openai")` integration | Assert `image_get` excluded when `has_native_vision` false |
 | `image_get_info` crop reporting | Mock graphic with `GraphicCrop` struct |
 
 ### 7. Documentation elsewhere (low–medium)
 
 | Doc | Update |
 |-----|--------|
-| [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) | Note **core** `get_image` alongside specialized Images tools |
+| [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) | Note **core** `image_get` alongside specialized Images tools |
 | [../mcp-protocol.md](../mcp-protocol.md) | Document `_mcp_image` → native image content blocks |
-| [AGENTS.md](../../AGENTS.md) quick-orientation | Optional: `get_image` under Writer / vision |
+| [AGENTS.md](../../AGENTS.md) quick-orientation | Optional: `image_get` under Writer / vision |
 
 ### 8. Minor code-quality (low)
 
@@ -197,7 +197,7 @@ Priority order for `has_native_vision(model_id, endpoint)`:
    - Catalog row without `VISION` (`caps != ModelCapability.NONE`) → `False`.
    - Else `None`. No name heuristics.
 
-`get_image` is hidden only on `is False` and images are attached only on `is True` because a UI-thread `None` is transient while a cold lookup runs in the background.
+`image_get` is hidden only on `is False` and images are attached only on `is True` because a UI-thread `None` is transient while a cold lookup runs in the background.
 
 | Provider | Field | List URL | Smart default |
 |---|---|---|---|
@@ -240,8 +240,8 @@ Two sources of images in tool results:
 
 | Source | Format | Normalization today |
 |--------|--------|---------------------|
-| `get_document_content(include_images=true)` | `data:image/...;base64,...` in HTML/text | **Done** — `normalize_multimodal_messages` |
-| `get_image` | `_mcp_image: {data, mimeType}` in JSON tool result | **Not done** on chat path; **done** on MCP path |
+| `get_content(include_images=true)` | `data:image/...;base64,...` in HTML/text | **Done** — `normalize_multimodal_messages` |
+| `image_get` | `_mcp_image: {data, mimeType}` in JSON tool result | **Not done** on chat path; **done** on MCP path |
 
 Required behavior for any new source (including `_mcp_image`):
 
@@ -269,10 +269,10 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 ### Manual
 
 1. Writer doc + selected image + vision model → Send "Describe this image" (send-path attachment).
-2. Vision model + `get_image` via **MCP** → client shows native image block.
-3. Vision model + `get_image` via **chat sidebar** → confirm whether model sees image (**expected gap** until follow-up §1).
-4. `get_document_content(include_images=true)` in tool loop → model receives image, not only `[Image Ref]` text.
-5. Text-only model → `get_image` absent from tool list (openai schema path); selected image ignored on send.
+2. Vision model + `image_get` via **MCP** → client shows native image block.
+3. Vision model + `image_get` via **chat sidebar** → confirm whether model sees image (**expected gap** until follow-up §1).
+4. `get_content(include_images=true)` in tool loop → model receives image, not only `[Image Ref]` text.
+5. Text-only model → `image_get` absent from tool list (openai schema path); selected image ignored on send.
 6. Ollama vision model → `/api/show` or `vision_support_map` records capability.
 
 ---
@@ -283,8 +283,8 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - **Not all vision models support tools** on local stacks.
 - **Send-path selection:** Raster images in Writer/Calc selection only; Draw/Impress vectors use other paths.
 - **Main chat model only** for send-path attachment; sub-agents/delegates have separate rules.
-- **`get_image`** is on Writer, Draw, Impress, and Calc (named/selection on Calc; page render on layout apps only). Draw/Impress `page=N` (0-based, unified with `list_pages` / `get_draw_tree`) is a screenshot; `get_draw_tree` stays the structure read.
-- **Complementary OCR:** Use `domain=vision` + `extract_structure_from_image` for text and structure + insert; use native multimodal for visual reasoning.
+- **`image_get`** is on Writer, Draw, Impress, and Calc (named/selection on Calc; page render on layout apps only). Draw/Impress `page=N` (0-based, unified with `slide_list` / `get_tree`) is a screenshot; `get_tree` stays the structure read.
+- **Complementary OCR:** Use `domain=vision` + `image_extract_structure` for text and structure + insert; use native multimodal for visual reasoning.
 
 ---
 
@@ -294,4 +294,4 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - Reuse `get_selected_image_base64` and graphic export machinery from the vision stack.
 - Session/DB may store list-style user `content` when an image was attached; UI must tolerate placeholders.
 - MCP image wire shape: `_mcp_image` dict in tool result → `call_tool_result_image` in protocol handler only (do not duplicate serializer elsewhere).
-- Fail-open when vision capability cannot be determined (`get_image` is hidden in [`tool.py`](../../plugin/framework/tool.py) `get_schemas` only when `has_native_vision(...) is False`).
+- Fail-open when vision capability cannot be determined (`image_get` is hidden in [`tool.py`](../../plugin/framework/tool.py) `get_schemas` only when `has_native_vision(...) is False`).

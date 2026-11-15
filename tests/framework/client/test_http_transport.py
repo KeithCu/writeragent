@@ -283,13 +283,12 @@ def test_transport_stop_during_connect_does_not_wait_or_send():
         release.set()
 
 
-def test_transport_connect_timeout_does_not_wait_for_read_budget(monkeypatch):
+def test_transport_connect_timeout_does_not_wait_for_read_budget():
     """A hung connect must use the connect budget, not Settings request_timeout."""
     import threading
     import time
 
-    monkeypatch.setattr("plugin.framework.client.http_transport.LLM_CONNECT_TIMEOUT_SEC", 0.2)
-    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30, connect_timeout=0.2)
     mock_conn = MagicMock()
     mock_conn.sock = None
     transport.get_connection = lambda: mock_conn

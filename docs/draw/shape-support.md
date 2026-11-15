@@ -58,6 +58,8 @@ When the user requests a `shape_type`:
 
 The tool's JSON schema summarizes CustomShape types **by category** (with a few examples each); the full set is defined by LibreOffice (see `svx/source/customshapes/EnhancedCustomShapeTypeNames.cxx` in LibreOffice core). Any valid type string from that catalog can be passed as `shape_type`.
 
+New shapes created by `shape_upsert` (and `shape_diagram`), `shape_connect`, and `shape_group` always carry a page-unique `Name` (`Shape<n>` when omitted on Draw, Impress, and Calc; Writer's `SwXDrawPage::add` already assigns one) and return it as `name`. Explicit duplicate `name` values on create or index-addressed rename are rejected (`INVALID_PARAM`).
+
 ## Grouping
 
 `shape_group` (`GroupShapes` in `plugin/draw/shapes.py`, also the Writer and Calc subclasses) passes a temporary `com.sun.star.drawing.ShapeCollection` to `XDrawPage.group`. That service is the global implementation `com.sun.star.drawing.SvxShapeCollection`. Create it with the component-context service manager (`createInstanceWithContext`). Document `createInstance` does not provide it: Writer and Draw raise `ServiceNotRegisteredException`, and Calc returns None.

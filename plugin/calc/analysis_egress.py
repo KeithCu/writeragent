@@ -12,7 +12,7 @@ from plugin.calc.tabular_egress import format_tabular_helper_for_calc, insert_ta
 
 
 def format_analysis_for_calc(result: dict[str, Any]) -> list[list[Any]]:
-    """Turn an analysis helper result dict into a row-major grid for ``write_formula_range``."""
+    """Turn an analysis helper result dict into a row-major grid for ``write_range``."""
     return format_tabular_helper_for_calc(result, domain_label="Analysis", default_helper="analysis", failed_message="Analysis failed.", metadata_keys=("n_rows", "n_cols", "numeric_cols", "categorical_cols", "datetime_cols"))
 
 

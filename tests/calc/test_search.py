@@ -79,7 +79,7 @@ def test_search_in_spreadsheet_case_sensitive_explicit():
 
 
 def test_replace_in_spreadsheet_matched_case_sensitive():
-    tool = _tool("search_replace")
+    tool = _tool("replace_cells")
     sheet = MagicMock()
     rd = MagicMock()
     sheet.createReplaceDescriptor.return_value = rd
@@ -109,7 +109,7 @@ def test_search_in_spreadsheet_invalid_regex():
 
 
 def test_replace_in_spreadsheet_invalid_regex():
-    tool = _tool("search_replace")
+    tool = _tool("replace_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock())
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
     res = tool.execute_safe(ctx, search="([a-", replace="x", regex=True)

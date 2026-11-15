@@ -20,7 +20,7 @@ def test_excel_commas_nested_and_strings_uno(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "write_range",
         {
             "range": ["C1:C3"],
             "values": [
@@ -51,7 +51,7 @@ def test_excel_inline_arrays_and_calc_only_functions_uno(ctx, doc):
     sheet.getCellByPosition(0, 0).setValue(1)
     sheet.getCellByPosition(0, 1).setValue(2)
 
-    arr_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["D1"], "values": "=TRANSPOSE({1,2;3,4})"})
+    arr_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D1"], "values": "=TRANSPOSE({1,2;3,4})"})
     assert arr_res.get("status") == "ok", arr_res
     assert arr_res.get("array_range") == "Sheet1.D1:E2", arr_res
     assert sheet.getCellRangeByPosition(3, 0, 4, 1).getDataArray() == ((1.0, 3.0), (2.0, 4.0))
@@ -59,7 +59,7 @@ def test_excel_inline_arrays_and_calc_only_functions_uno(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "write_range",
         {
             "range": ["C1:C3"],
             "values": [
@@ -93,7 +93,7 @@ def test_excel_cross_sheet_and_mixed_refs_uno(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "write_range",
         {
             "range": ["D1:D4"],
             "values": [
@@ -126,14 +126,14 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     active.getCellByPosition(1, 0).setValue(4)
     active.getCellByPosition(1, 1).setValue(5)
 
-    bad_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["D1"], "values": "=SUM(Orders.A1,B1)"})
+    bad_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D1"], "values": "=SUM(Orders.A1,B1)"})
     assert bad_res.get("error_cells"), bad_res
     assert bad_res["error_cells"][0]["error"] == "Err:508"
     assert active.getCellByPosition(3, 0).getFormula() == "=SUM(Orders.A1,B1)"
     warns = [w for w in bad_res.get("warnings", []) if w.get("code") == "FORMULA_ERROR"]
     assert warns and "Excel syntax" in warns[0]["message"], warns
 
-    name_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["D2"], "values": "=FOO(1,2)"})
+    name_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D2"], "values": "=FOO(1,2)"})
     assert name_res.get("error_cells") and name_res["error_cells"][0]["error"] == "#NAME?", name_res
 
     # Calc syntax stays verbatim, including union (~), intersection (!),
@@ -141,7 +141,7 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     calc_res = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "write_range",
         {
             "range": ["E1:E4"],
             "values": [
@@ -166,7 +166,7 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     calc_arr = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "write_range",
         {"range": ["F1"], "values": "={1;2|3;4}", "array": True},
     )
     assert calc_arr.get("status") == "ok", calc_arr
@@ -179,7 +179,7 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     active.getCellByPosition(0, 6).setValue(20)
     db_range = active.getCellRangeByPosition(0, 4, 0, 6).getRangeAddress()
     doc.DatabaseRanges.addNewByName("Table1", db_range)
-    struct_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["E3"], "values": "=SUM(Table1[Col])"})
+    struct_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["E3"], "values": "=SUM(Table1[Col])"})
     assert struct_res.get("status") == "ok", struct_res
     assert "error_cells" not in struct_res, struct_res
     assert active.getCellByPosition(4, 2).getValue() == 30.0
@@ -194,7 +194,7 @@ def test_excel_fill_down_bulk_dynamic_array_and_roundtrip_uno(ctx, doc):
         sheet.getCellByPosition(0, row_idx).setValue(row_idx + 1)
         sheet.getCellByPosition(1, row_idx).setValue((row_idx + 1) * 10)
 
-    fill_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["C1:C3"], "values": "=SUM(A1,B1)"})
+    fill_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["C1:C3"], "values": "=SUM(A1,B1)"})
     assert fill_res.get("status") == "ok", fill_res
     assert "error_cells" not in fill_res, fill_res
     assert sheet.getCellByPosition(2, 2).getFormula() == "=SUM(A3;B3)"
@@ -203,7 +203,7 @@ def test_excel_fill_down_bulk_dynamic_array_and_roundtrip_uno(ctx, doc):
     bulk_res = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "write_range",
         {"range": ["D1:E2"], "values": [["=SUM(A1,B1)", "=A1*2"], ["=SUM(A2;B2)", "x"]]},
     )
     assert bulk_res.get("status") == "ok", bulk_res
@@ -213,23 +213,23 @@ def test_excel_fill_down_bulk_dynamic_array_and_roundtrip_uno(ctx, doc):
     assert sheet.getCellByPosition(3, 1).getValue() == 22.0
     assert sheet.getCellByPosition(4, 1).getString() == "x"
 
-    dyn_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["F1"], "values": "=FILTER(A1:A5,A1:A5>2)"})
+    dyn_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["F1"], "values": "=FILTER(A1:A5,A1:A5>2)"})
     assert dyn_res.get("status") == "ok", dyn_res
     assert dyn_res.get("array_range") == "Sheet1.F1:F3", dyn_res
     assert sheet.getCellRangeByPosition(5, 0, 5, 2).getDataArray() == ((3.0,), (4.0,), (5.0,))
 
     xlook_res = _execute_calc_tool(
-        doc, ctx, "write_formula_range", {"range": ["G1"], "values": "=_xlfn.XLOOKUP(2,A1:A5,B1:B5)"}
+        doc, ctx, "write_range", {"range": ["G1"], "values": "=_xlfn.XLOOKUP(2,A1:A5,B1:B5)"}
     )
     assert xlook_res.get("status") == "ok", xlook_res
     assert sheet.getCellByPosition(6, 0).getValue() == 20.0
 
     # Read-back round trip
-    _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["H1"], "values": '=IF(A1>0,"Yes, sir","No")'})
-    read_res = _execute_calc_tool(doc, ctx, "read_cell_range", {"range": ["H1"]})
+    _execute_calc_tool(doc, ctx, "write_range", {"range": ["H1"], "values": '=IF(A1>0,"Yes, sir","No")'})
+    read_res = _execute_calc_tool(doc, ctx, "read_range", {"range": ["H1"]})
     read_formula = read_res["cells"][0]["formula"]
     assert read_formula == '=IF(A1>0;"Yes, sir";"No")', read_res
-    _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["H2"], "values": read_formula})
+    _execute_calc_tool(doc, ctx, "write_range", {"range": ["H2"], "values": read_formula})
     assert sheet.getCellByPosition(7, 1).getFormula() == read_formula
     assert sheet.getCellByPosition(7, 1).getString() == "Yes, sir"
 
@@ -255,17 +255,17 @@ def test_excel_evaluate_conditional_and_named_range_uno(ctx, doc):
     cf_res = _execute_calc_tool(
         doc,
         ctx,
-        "conditional_format_add",
+        "conditional_formatting_add",
         {"range": ["A1:A5"], "operator": "FORMULA", "formula1": "AND($A1>1,$A1<5)", "bold": True},
     )
     assert cf_res.get("status") == "ok", cf_res
-    cf_list = _execute_calc_tool(doc, ctx, "conditional_format_list", {"range": ["A1:A5"]})
+    cf_list = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["A1:A5"]})
     assert cf_list["rules"][0]["formula1"] == "AND($A1>1;$A1<5)", cf_list
 
     nr_res = _execute_calc_tool(
         doc,
         ctx,
-        "named_range_create",
+        "named_range_add",
         {"name": "OrderNums", "content": "Orders!$A$1:$A$5"},
     )
     assert nr_res.get("status") == "ok", nr_res
@@ -273,7 +273,7 @@ def test_excel_evaluate_conditional_and_named_range_uno(ctx, doc):
     ra = nr.getReferredCells().getRangeAddress()
     assert (ra.Sheet, ra.StartRow, ra.EndRow) == (1, 0, 4)
 
-    sum_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["D1"], "values": "=SUM(OrderNums)"})
+    sum_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D1"], "values": "=SUM(OrderNums)"})
     assert sum_res.get("status") == "ok", sum_res
     assert active.getCellByPosition(3, 0).getValue() == 15.0
 
@@ -281,14 +281,14 @@ def test_excel_evaluate_conditional_and_named_range_uno(ctx, doc):
     local_nr = _execute_calc_tool(
         doc,
         ctx,
-        "named_range_create",
+        "named_range_add",
         {"name": "Rate", "content": "0.15", "scope": "Orders"},
     )
     assert local_nr.get("status") == "ok", local_nr
     local_formula = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "write_range",
         {"range": ["Orders.B1"], "values": "=ROUND(Rate*A1,2)"},
     )
     assert local_formula.get("status") == "ok", local_formula

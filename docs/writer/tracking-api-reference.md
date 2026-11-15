@@ -52,7 +52,7 @@ When enumerating the collection returned by `getRedlines()`, each element repres
 
 ## Comments / Annotations
 
-In LibreOffice Writer, "Comments" are internally referred to as `Annotation` text fields. They are a different UNO subsystem from redlines. WriterAgent exposes them as core `add_comment` plus the comments domain (`comment_list`, `comment_delete`, `comment_resolve`, workflow tools) — not as `track_changes_*` tools.
+In LibreOffice Writer, "Comments" are internally referred to as `Annotation` text fields. They are a different UNO subsystem from redlines. WriterAgent exposes them as core `comment_add` plus the comments domain (`comment_list`, `comment_delete`, `comment_resolve`, workflow tools) — not as `track_changes_*` tools.
 
 ### Inserting an Annotation
 1. Instantiate the `com.sun.star.text.textfield.Annotation` service via `doc.createInstance()`.
@@ -60,7 +60,7 @@ In LibreOffice Writer, "Comments" are internally referred to as `Annotation` tex
    - `Author` (string): The author's name.
    - `Content` (string): The comment text.
    - `Date` (com.sun.star.util.Date): The date the comment was made.
-3. Attach the field to a `TextRange` (e.g., a search match, not only the view cursor) using `insertTextContent` on that range. `add_comment` spans the matched passage and can reply via `parent_name`.
+3. Attach the field to a `TextRange` (e.g., a search match, not only the view cursor) using `insertTextContent` on that range. `comment_add` spans the matched passage and can reply via `parent_name`.
 
 ### Managing Annotations
 - **Listing:** Annotations are part of the document's text fields. You can retrieve them via `doc.getTextFields()`. Iterate through the enumeration, and if `field.supportsService("com.sun.star.text.textfield.Annotation")`, it is a comment. Agent-facing list is `comment_list` (name + author + resolved), not an index from tracking. `comment_list` reports `location` (body, table cell, header/footer) via `describe_match_location`; `paragraph_index` is present only when the comment anchor belongs to the main body text (`uno_same(anchor.getText(), doc.getText())`). Results are paged (`start_index`, `max_comments`, `has_more`, `next_index`) like `tracking_list`.

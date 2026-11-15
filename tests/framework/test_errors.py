@@ -881,8 +881,8 @@ def test_suggest_call_shape():
         "arguments": {"target": "search", "style": "Heading 2"},
     }
 
-    no_args = suggest_call("get_document_content")
-    assert no_args == {"tool": "get_document_content", "arguments": {}}
+    no_args = suggest_call("get_content")
+    assert no_args == {"tool": "get_content", "arguments": {}}
 
 
 def test_format_error_payload_suggested_call():

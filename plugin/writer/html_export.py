@@ -131,7 +131,7 @@ def _truncate_html(content: str, max_chars: int) -> str:
 
     A plain slice ``content[:max_chars]`` can hand the model an unclosed
     ``<a href="…`` or a trailing ``&nb``. The marker stays so
-    get_document_content can set ``truncated``.
+    get_content can set ``truncated``.
     """
     window = content[:max_chars]
     last_lt = window.rfind("<")
@@ -663,7 +663,7 @@ def document_to_content(
     except Exception as e:
         # Disposal is not a double export failure.
         reraise_if_disposed(e)
-        # If both exports fail, returning "" would make get_document_content
+        # If both exports fail, returning "" would make get_content
         # answer status ok with empty content, and neither the agent nor the
         # log reader could tell why. Raise a tool error that names both
         # reasons (a full /tmp, a filter error, ...).
@@ -803,7 +803,7 @@ def xtext_to_content(
 
     Full-document XHTML omits page-style headers/footers, so the region is
     copied into a hidden Writer body's text and run through the same
-    XHTML + postprocess stack as ``get_document_content``.
+    XHTML + postprocess stack as ``get_content``.
     """
     if text_obj is None:
         return ""

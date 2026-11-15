@@ -45,7 +45,7 @@ from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 log = logging.getLogger(__name__)
 
 # Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
-# main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
+# main agent applies HTML, memory colors, and apply_content when the user wanted a doc edit.
 WEB_RESEARCH_PLAIN_TEXT_FORMAT = """Research output: plain text only in final_answer.
 - Use clear section headings (plain lines) and bullet lists (- item).
 - Include facts, names, dates, ratings, and sources where relevant.
@@ -469,7 +469,12 @@ def _run_web_agent(
     )
     agent = WebResearchToolCallingAgent(
         tools=[
-            DuckDuckGoSearchTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days),
+            DuckDuckGoSearchTool(
+                cache_path=params.cache_path,
+                cache_max_mb=params.cache_max_mb,
+                cache_max_age_days=params.cache_max_age_days,
+                cancel=params.cancel,
+            ),
             visit_tool,
         ],
         model=params.smol_model,
@@ -553,7 +558,7 @@ def _run_deep_web_research(
     replaces the original before the preview, the loop, and the caller's
     cache write.
     """
-    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
+    from plugin.contrib.smolagents.default_tools import SEARCH_ERROR_PREFIX, DuckDuckGoSearchTool
     from plugin.framework.config import get_config
     from plugin.chatbot.web_research_deep import run_deep_research
     from plugin.framework.client.llm_client import LlmClient
@@ -637,8 +642,16 @@ def _run_deep_web_research(
 
     initial_snippet = ""
     try:
-        preview = DuckDuckGoSearchTool(cache_path=agent_params.cache_path, cache_max_mb=agent_params.cache_max_mb, cache_max_age_days=agent_params.cache_max_age_days)
-        initial_snippet = str(preview.forward(query_str))[:4000]
+        preview = DuckDuckGoSearchTool(
+            cache_path=agent_params.cache_path,
+            cache_max_mb=agent_params.cache_max_mb,
+            cache_max_age_days=agent_params.cache_max_age_days,
+            cancel=agent_params.cancel,
+        )
+        preview_text = str(preview.forward(query_str))
+        # Do not leak tool-level error/stop instructions into the deep planner prompt.
+        if not preview_text.startswith(SEARCH_ERROR_PREFIX):
+            initial_snippet = preview_text[:4000]
     except Exception as preview_exc:
         log.debug("deep_research preview search skipped: %s", preview_exc)
 
@@ -668,6 +681,11 @@ class WebResearchTool(ToolBase):
     name: str | None = "web_research"
     description: str = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    # Web research only reads the web and the document locale; it never writes
+    # the document. The name has no read verb, so without this flag it would be
+    # treated as an edit, and the sidebar would re-read the live selection into
+    # the context after every result.
+    is_mutation: bool | None = False
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

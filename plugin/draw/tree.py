@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Tree (LO-DOM) tools for Draw/Impress documents.
 
-``get_draw_tree`` is the main-agent read of a page. Paper-form blanks
+``shape_get_tree`` is the main-agent read of a page. Paper-form blanks
 (empty/near-empty text boxes) are marked ``fillable`` with an optional
 ``label_hint`` (nearest text to the left or above). ControlShapes are
 surfaced with type/name/value/state so the main agent can see widgets
@@ -283,6 +283,7 @@ def find_shape_on_page(
     index: int page index, or dotted string "2.0.1" (also "2" for page level). No separate path_index parameter.
     address: int for a page-level shape, dotted str for a group child. Name lookup of a child returns that path, not None and not the group's page index.
     parent: the page or the GroupShape. None only on error.
+    Duplicate names return an error listing all matching addresses.
     """
     if index is not None:
         if isinstance(index, bool) or not isinstance(index, (int, str)):
@@ -338,7 +339,10 @@ def find_shape_on_page(
         return hits[0][0], hits[0][1], hits[0][2], None
     if not hits:
         return None, None, None, "No shape named %r on this page." % wanted
-    return None, None, None, "Several shapes named %r; pass index as well." % wanted
+    return None, None, None, "Several shapes named %r at %s; pass index instead." % (
+        wanted,
+        ", ".join(str(h[0]) for h in hits),
+    )
 
 
 def resolve_shape_ref(
@@ -444,7 +448,7 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
 
 
 class GetDrawTree(ToolBase):
-    name: str | None = "get_draw_tree"
+    name: str | None = "shape_get_tree"
     description: str = (
         "Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. "
         "Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a "

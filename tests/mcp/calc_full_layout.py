@@ -54,7 +54,7 @@ def get_calc_tool_registry(
     calc_mod = CalcModule()
     calc_mod.initialize(services)
 
-    # Discover shared doc tools (such as find_tools, list_open_documents)
+    # Discover shared doc tools (such as tool_find, document_list_open)
     tools.auto_discover_package("plugin.doc")
 
     return services, tools

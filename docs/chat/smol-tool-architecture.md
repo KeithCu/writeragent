@@ -91,7 +91,7 @@ flowchart TB
 | Smol wire policy **send generated schemas** | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `WriterAgentSmolModel.generate` |
 | Smol agent construction | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `build_toolcalling_agent` |
 | Shared build-and-execute runner | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `run_inner_tool_agent` (used by specialized gateway, the two inner agents, and `run_smol_side_turn`; librarian owns its own `execute_safe`; web research and PPT-Master do not use the helper) |
-| Brainstorming, writing plan, deep research turns | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `run_smol_side_turn` (librarian keeps its own `execute_safe` call so `upsert_memory` can write the chat line; PPT-Master stays on `run_ppt_master_venv_turn`) |
+| Brainstorming, writing plan, deep research turns | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `run_smol_side_turn` (librarian keeps its own `execute_safe` call so `memory_upsert` can write the chat line; PPT-Master stays on `run_ppt_master_venv_turn`) |
 | Smol few-shot examples (Action/Observation) | [`plugin/chatbot/smol_examples.py`](../../plugin/chatbot/smol_examples.py) — edit in place |
 | `ToolBase` → smol `inputs` | [`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py) — `to_smol_inputs` / `SmolToolAdapter` |
 | Sub-agent runner error boundary | [`plugin/chatbot/sub_agent_tools.py`](../../plugin/chatbot/sub_agent_tools.py) — `SubAgentSessionToolBase.execute` |

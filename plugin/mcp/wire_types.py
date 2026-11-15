@@ -178,7 +178,7 @@ def deal_image_b64_ok(data_b64: object, mime_type: object = "image/png") -> bool
 def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
     """Tool result carrying an IMAGE content block (MCP image type) instead of text.
 
-    Used by get_image so a vision-capable client receives the picture itself rather than base64
+    Used by image_get so a vision-capable client receives the picture itself rather than base64
     pasted as text. data_b64 is the raw base64 (no data: URI prefix), per the MCP image content shape."""
     out: dict[str, Any] = {"content": [{"type": "image", "data": data_b64, "mimeType": mime_type}]}
     if is_error:

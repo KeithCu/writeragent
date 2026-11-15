@@ -91,10 +91,10 @@ def _trace_has_domain_python(trace: list[dict[str, Any]]) -> bool:
 
 
 def _py_writes(trace: list[dict[str, Any]]) -> list[tuple[str, str]]:
-    """Return (dest, formula) pairs from write_formula_range calls."""
+    """Return (dest, formula) pairs from write_range calls."""
     out: list[tuple[str, str]] = []
     for item in trace:
-        if item.get("name") not in ("write_formula_range", "write_cell_range"):
+        if item.get("name") not in ("write_range", "write_cell_range"):
             continue
         args = as_dict(item.get("arguments"))
         values = args.get("values")
@@ -123,7 +123,7 @@ def check_process(
 
     writes = _py_writes(items)
     if not writes:
-        fails.append("no write_formula_range dest for =PY")
+        fails.append("no write_range dest for =PY")
         return fails
     any_py_outside = False
     for dest, formula in writes:
@@ -142,12 +142,12 @@ def check_process(
 
     if task_id == "py_no_bulk_read":
         for item in items:
-            if item.get("name") != "read_cell_range":
+            if item.get("name") != "read_range":
                 continue
             args = as_dict(item.get("arguments"))
             for rng in _range_list(args):
                 if _is_bulk_read(rng, data_range):
-                    fails.append(f"bulk read_cell_range of {rng}")
+                    fails.append(f"bulk read_range of {rng}")
     return fails
 
 
