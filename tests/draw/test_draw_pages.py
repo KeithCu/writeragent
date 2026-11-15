@@ -223,7 +223,7 @@ class _FakePages:
     def __init__(self, names: list[str]) -> None:
         from types import SimpleNamespace
 
-        self._pages = [SimpleNamespace(Name=name) for name in names]
+        self._pages = [SimpleNamespace(Name=name, getCount=lambda: 0) for name in names]
 
     def getCount(self) -> int:
         return len(self._pages)
@@ -242,80 +242,8 @@ def test_move_slide_ok():
         out = MoveSlide().execute(ctx, from_page=0, to_page=1)
     assert out["status"] == "ok"
     assert out["to_page"] == 1
-    assert out["pages"] == [{"index": 0, "name": "A"}, {"index": 1, "name": "B"}]
+    assert out["pages"] == [{"index": 0, "name": "A", "title": ""}, {"index": 1, "name": "B", "title": ""}]
     bridge.move_slide.assert_called_once_with(0, 1)
-
-
-@pytest.mark.parametrize(
-    ("from_page", "dest_kwargs", "expected_to"),
-    [
-        (3, {"before": "B"}, 1),
-        (0, {"after": "B"}, 1),
-        (0, {"before": "D"}, 2),
-        (1, {"after": "B"}, 1),
-    ],
-)
-def test_move_slide_before_and_after_named_slide(from_page, dest_kwargs, expected_to):
-    ctx = _ctx()
-    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
-        bridge = bridge_cls.return_value
-        bridge.get_pages.return_value = _FakePages(["A", "B", "C", "D"])
-        bridge.move_slide.return_value = True
-        bridge.get_active_page_index.return_value = expected_to
-        out = MoveSlide().execute(ctx, from_page=from_page, **dest_kwargs)
-    assert out["status"] == "ok"
-    assert out["to_page"] == expected_to
-    bridge.move_slide.assert_called_once_with(from_page, expected_to)
-
-
-@pytest.mark.parametrize(
-    "dest_kwargs",
-    [
-        {},
-        {"to_page": 1, "before": "B"},
-        {"before": "A", "after": "B"},
-    ],
-)
-def test_move_slide_needs_exactly_one_destination(dest_kwargs):
-    ctx = _ctx()
-    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
-        bridge = bridge_cls.return_value
-        out = MoveSlide().execute(ctx, from_page=0, **dest_kwargs)
-    assert out["status"] == "error"
-    assert out["code"] == "INVALID_PARAM"
-    bridge.move_slide.assert_not_called()
-
-
-def test_move_slide_unknown_or_duplicate_slide_name():
-    ctx = _ctx()
-    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
-        bridge = bridge_cls.return_value
-        bridge.get_pages.return_value = _FakePages(["A", "B", "B"])
-
-        missing = MoveSlide().execute(ctx, from_page=0, before="Missing")
-        assert missing["status"] == "error"
-        assert missing["code"] == "INVALID_PARAM"
-        assert missing["details"]["available"] == ["A", "B", "B"]
-
-        dup = MoveSlide().execute(ctx, from_page=0, before="B")
-        assert dup["status"] == "error"
-        assert dup["code"] == "INVALID_PARAM"
-        assert "1, 2" in dup["message"]
-        bridge.move_slide.assert_not_called()
-
-
-def test_move_slide_rejects_default_slide_name():
-    ctx = _ctx()
-    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
-        bridge = bridge_cls.return_value
-        bridge.get_pages.return_value = _FakePages(["Intro", "page2", "End"])
-
-        out = MoveSlide().execute(ctx, from_page=0, before="page2")
-        assert out["status"] == "error"
-        assert out["code"] == "INVALID_PARAM"
-        assert "default name" in out["message"]
-        assert out["details"]["available"] == ["Intro", "End"]
-        bridge.move_slide.assert_not_called()
 
 
 def test_rename_slide_ok():
@@ -476,16 +404,26 @@ def test_add_slide_activate_false_does_not_switch():
     bridge.set_current_page_index.assert_not_called()
 
 
-def test_list_pages_returns_index_and_name():
+def test_list_pages_returns_index_name_and_title():
     ctx = _ctx()
+    title_shape = MagicMock()
+    title_shape.Name = ""
+    title_shape.getShapeType.return_value = "com.sun.star.presentation.TitleTextShape"
+    title_shape.getString.return_value = "Agenda Title"
+
     p0 = MagicMock()
     p0.Name = "Agenda"
+    p0.getCount.return_value = 1
+    p0.getByIndex.return_value = title_shape
     p1 = MagicMock()
     p1.Name = ""
+    p1.getCount.return_value = 0
     p2 = MagicMock()
     p2.Name = "   "
+    p2.getCount.return_value = 0
     p3 = MagicMock()
     p3.Name = "page4"
+    p3.getCount.return_value = 0
     pages_mock = MagicMock()
     pages_mock.getCount.return_value = 4
     pages_mock.getByIndex.side_effect = [p0, p1, p2, p3]
@@ -498,10 +436,10 @@ def test_list_pages_returns_index_and_name():
     assert out["status"] == "ok"
     assert out["count"] == 4
     assert out["pages"] == [
-        {"index": 0, "name": "Agenda"},
-        {"index": 1, "name": "", "default_name": True},
-        {"index": 2, "name": "", "default_name": True},
-        {"index": 3, "name": "page4", "default_name": True},
+        {"index": 0, "name": "Agenda", "title": "Agenda Title"},
+        {"index": 1, "name": "", "title": "", "default_name": True},
+        {"index": 2, "name": "", "title": "", "default_name": True},
+        {"index": 3, "name": "page4", "title": "", "default_name": True},
     ]
 
 

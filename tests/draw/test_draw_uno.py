@@ -525,15 +525,33 @@ def test_list_pages_reports_lo_default_names(ctx, doc):
     out = ListPages().execute(tctx)
     assert out.get("status") == "ok", out
     assert out["pages"] == [
-        {"index": 0, "name": "page1", "default_name": True},
-        {"index": 1, "name": "page2", "default_name": True},
-        {"index": 2, "name": "page3", "default_name": True},
+        {"index": 0, "name": "page1", "title": "", "default_name": True},
+        {"index": 1, "name": "page2", "title": "", "default_name": True},
+        {"index": 2, "name": "page3", "title": "", "default_name": True},
     ]
 
 
 @native_test
 @with_native_doc("impress", reuse=False)
-def test_move_slide_after_named_slide_reports_final_order(ctx, doc):
+def test_list_pages_reports_slide_title(ctx, doc):
+    from plugin.draw.pages import AddSlide, ListPages
+    from plugin.draw.placeholders import SetPlaceholderText
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    assert AddSlide().execute(tctx, layout="text").get("status") == "ok"
+    assert SetPlaceholderText().execute(tctx, role="title", text="Pricing", page=1).get("status") == "ok"
+    assert AddSlide().execute(tctx, layout="blank").get("status") == "ok"
+
+    out = ListPages().execute(tctx)
+    assert out.get("status") == "ok", out
+    assert out["pages"][1]["title"] == "Pricing"
+    assert out["pages"][2]["title"] == ""
+
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_move_slide_reports_final_order(ctx, doc):
     from plugin.draw.pages import AddSlide, MoveSlide, RenameSlide
     from plugin.draw.shapes import UpsertShape
     from plugin.framework.tool import ToolContext
@@ -562,7 +580,7 @@ def test_move_slide_after_named_slide_reports_final_order(ctx, doc):
         == "ok"
     )
 
-    out = MoveSlide().execute(tctx, from_page=0, after="End")
+    out = MoveSlide().execute(tctx, from_page=0, to_page=2)
     assert out.get("status") == "ok", out
     assert out["to_page"] == 2
     assert [p["name"] for p in out["pages"]] == ["Body", "End", "Intro"]

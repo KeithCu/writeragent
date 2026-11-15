@@ -45,6 +45,7 @@ class _RecordingShape:
     def __init__(self, events: list):
         self._events = events
         self._props: dict = {}
+        self.Name = ""
 
     def setPosition(self, position):
         self._events.append(("setPosition", position.X, position.Y))

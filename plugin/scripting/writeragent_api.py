@@ -937,7 +937,7 @@ class _DrawProxy:
         return call_host_tool("list_designs")
 
     def list_pages(self) -> dict[str, Any]:
-        """Lists pages (slides) in deck order as {index, name}; index is 0-based. Unnamed slides have LibreOffice's positional default 'pageN' (N = 1-based position) and include default_name: true; they cannot be targeted by move_slide before/after (use to_page or rename_slide)."""
+        """Lists pages (slides) in deck order as {index, name, title}; index is 0-based. Unnamed slides have LibreOffice's positional default 'pageN' (N = 1-based position) and include default_name: true."""
         return call_host_tool("list_pages")
 
     def list_placeholders(self, *, page: int | None = None) -> dict[str, Any]:
@@ -948,16 +948,14 @@ class _DrawProxy:
         """
         return call_host_tool("list_placeholders", page=page)
 
-    def move_slide(self, from_page: int, *, to_page: int | None = None, before: str | None = None, after: str | None = None) -> dict[str, Any]:
-        """Moves the slide at from_page (0-based). Give exactly one destination: to_page = the 0-based index the slide ends at, or before/after = the user-set name of another slide from list_pages (slides with default_name: true must use to_page). Returns the final slide order.
+    def move_slide(self, from_page: int, to_page: int) -> dict[str, Any]:
+        """Moves the slide at from_page (0-based) so it ends at to_page (the 0-based index the slide ends at). Returns the final slide order.
 
         Args:
             from_page (required): 0-based source slide index.
-            to_page (optional): 0-based destination slide index.
-            before (optional): User-set name of the slide to place this slide before (from list_pages).
-            after (optional): User-set name of the slide to place this slide after (from list_pages).
+            to_page (required): 0-based index the slide ends at.
         """
-        return call_host_tool("move_slide", from_page=from_page, to_page=to_page, before=before, after=after)
+        return call_host_tool("move_slide", from_page=from_page, to_page=to_page)
 
     def read_slide_text(self, *, page: int | None = None) -> dict[str, Any]:
         """Read text from shapes on a slide (including grouped descendants and table cells as TSV) and speaker notes. Returns structured text per shape or table.

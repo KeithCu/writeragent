@@ -23,6 +23,7 @@ from plugin.framework.doc_type import is_impress
 from plugin.draw.bridge import DrawBridge, page_size
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.masters import iter_masters
+from plugin.draw.placeholders import slide_title
 from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
 from plugin.draw.tree import is_group, iter_shape_addresses
 from plugin.framework.errors import available_miss_details, is_disposal
@@ -200,18 +201,18 @@ class DeleteSlide(_SlideMutationTool):
 
 
 def page_entries(pages: Any) -> list[dict[str, Any]]:
-    """Return ``[{index, name, ...}, ...]`` for every page in *pages*.
+    """Return ``[{index, name, title, ...}, ...]`` for every page in *pages*.
 
     An unnamed slide reports LibreOffice's default ``pageN``, where ``N`` is
     its 1-based position (``sd/source/ui/unoidl/unopage.cxx:getPageApiName``).
     That default shifts when slides are inserted or moved, so entries with a
-    blank name or ``page<index + 1>`` are marked ``default_name: True`` and
-    cannot be used as ``before`` / ``after`` targets in ``move_slide``.
+    blank name or ``page<index + 1>`` are marked ``default_name: True``.
     """
     entries: list[dict[str, Any]] = []
     for i in range(pages.getCount()):
-        name = str(pages.getByIndex(i).Name or "").strip()
-        entry: dict[str, Any] = {"index": i, "name": name}
+        page = pages.getByIndex(i)
+        name = str(page.Name or "").strip()
+        entry: dict[str, Any] = {"index": i, "name": name, "title": slide_title(page)}
         if not name or name == f"page{i + 1}":
             entry["default_name"] = True
         entries.append(entry)
@@ -221,10 +222,9 @@ def page_entries(pages: Any) -> list[dict[str, Any]]:
 class ListPages(ToolBase):
     name: str | None = "list_pages"
     description: str = (
-        "Lists pages (slides) in deck order as {index, name}; index is 0-based. "
+        "Lists pages (slides) in deck order as {index, name, title}; index is 0-based. "
         "Unnamed slides have LibreOffice's positional default 'pageN' "
-        "(N = 1-based position) and include default_name: true; "
-        "they cannot be targeted by move_slide before/after (use to_page or rename_slide)."
+        "(N = 1-based position) and include default_name: true."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = DRAW_AND_IMPRESS
@@ -471,88 +471,28 @@ class DuplicateSlide(_SlideMutationTool):
         return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": active_idx}
 
 
-def _index_relative_to(from_page: int, anchor: int, *, after: bool) -> int:
-    """Compute the ``to_page`` index to place *from_page* before or after *anchor*.
-
-    ``DrawBridge.move_slide`` removes the source and then inserts, so the
-    anchor shifts down by one when the source sat before it.
-    """
-    if anchor == from_page:
-        return from_page
-    j = anchor - 1 if from_page < anchor else anchor
-    return j + 1 if after else j
-
-
-def _slide_index_by_name(
-    tool: ToolBase,
-    entries: list[dict[str, Any]],
-    wanted: str,
-) -> int | dict[str, Any]:
-    """Resolve *wanted* to a 0-based page index; only user-set names are accepted (UNO allows duplicates, so multiple hits fail)."""
-    key = wanted.strip()
-    named_entries = [e for e in entries if not e.get("default_name")]
-    hits = [e["index"] for e in named_entries if key and e["name"] == key]
-    if len(hits) == 1:
-        return hits[0]
-    if not hits:
-        names = [e["name"] for e in named_entries]
-        if key and any(e.get("default_name") and e["name"] == key for e in entries):
-            return tool._tool_error(
-                "Slide %r has a positional default name that changes when slides move; pass to_page instead or rename_slide first." % wanted,
-                code="INVALID_PARAM",
-                available=names,
-                **available_miss_details(wanted, names),
-            )
-        return tool._tool_error(
-            "No slide named %r." % wanted,
-            code="INVALID_PARAM",
-            available=names,
-            **available_miss_details(wanted, names),
-        )
-    return tool._tool_error(
-        "Several slides named %r at index %s; pass to_page instead." % (wanted, ", ".join(str(i) for i in hits)),
-        code="INVALID_PARAM",
-        candidates=hits,
-    )
-
-
 class MoveSlide(_SlideMutationTool):
     name: str | None = "move_slide"
     description: str = (
-        "Moves the slide at from_page (0-based). Give exactly one destination: "
-        "to_page = the 0-based index the slide ends at, or before/after = the user-set name of another slide from list_pages "
-        "(slides with default_name: true must use to_page). Returns the final slide order."
+        "Moves the slide at from_page (0-based) so it ends at to_page (the 0-based index the slide ends at). "
+        "Returns the final slide order."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "from_page": {"type": "integer", "description": "0-based source slide index"},
-            "to_page": {"type": "integer", "description": "0-based destination slide index"},
-            "before": {"type": "string", "description": "User-set name of the slide to place this slide before (from list_pages)"},
-            "after": {"type": "string", "description": "User-set name of the slide to place this slide after (from list_pages)"},
+            "to_page": {"type": "integer", "description": "0-based index the slide ends at"},
         },
-        "required": ["from_page"],
+        "required": ["from_page", "to_page"],
     }
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import PageExchangeRollbackError
 
-        dests = [k for k in ("to_page", "before", "after") if kwargs.get(k) is not None]
-        if len(dests) != 1:
-            return self._tool_error("Pass exactly one of to_page, before, or after.", code="INVALID_PARAM")
-
         from_page = kwargs["from_page"]
+        to_page = kwargs["to_page"]
         bridge = DrawBridge(ctx.doc)
-        pages = bridge.get_pages()
-        if dests[0] == "to_page":
-            to_page = kwargs["to_page"]
-        else:
-            anchor = _slide_index_by_name(self, page_entries(pages), str(kwargs[dests[0]]))
-            if isinstance(anchor, dict):
-                return anchor
-            to_page = _index_relative_to(from_page, anchor, after=(dests[0] == "after"))
-
         try:
             ok = bridge.move_slide(from_page, to_page)
         except PageExchangeRollbackError as exc:
@@ -565,7 +505,7 @@ class MoveSlide(_SlideMutationTool):
             "message": "Slide moved",
             "from_page": from_page,
             "to_page": to_page,
-            "pages": page_entries(pages),
+            "pages": page_entries(bridge.get_pages()),
             "active_page_index": bridge.get_active_page_index(),
         }
 

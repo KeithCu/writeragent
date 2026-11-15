@@ -64,7 +64,7 @@ def _ensure_shape_name(page: Any, shape: Any) -> str:
     Uses one more than the highest existing ``Shape<n>`` number on the page so
     deleting a shape never hands its old name to a newly created shape.
     """
-    current = str(getattr(shape, "Name", "") or "").strip()
+    current = str(shape.Name or "").strip()
     if current:
         return current
     highest = 0
@@ -740,7 +740,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         # Without this check, renaming by index to an existing name would
         # create a duplicate on the page.
         new_name = str(kwargs.get("name") or "").strip()
-        if "index" in kwargs and new_name and new_name != str(getattr(shape, "Name", "") or "").strip() and new_name in _page_shape_names(page):
+        if "index" in kwargs and new_name and new_name != str(shape.Name or "").strip() and new_name in _page_shape_names(page):
             return _name_taken_error(tool, new_name)
 
         if "x" in kwargs or "y" in kwargs:
@@ -755,7 +755,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             size = shape.getSize()
             shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
-        result = {"status": "ok", "action": "edit", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
+        result = {"status": "ok", "action": "edit", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": shape.Name or ""}
         if failed_props:
             result["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
         if _outside_page(page, shape):
