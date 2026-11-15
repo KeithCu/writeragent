@@ -28,11 +28,15 @@ log = logging.getLogger(__name__)
 # Prepended to the first string `system` message in LlmClient for non-release bundles only
 # (``make build`` includes ``plugin/tests``; ``make release`` / ``--no-tests`` does not).
 # See `should_prepend_dev_llm_system_prefix()`.
+# This text is prepended above the app prompts (Writer, Calc, Draw), which ask for short
+# confirmations. The prefix states the one precedence explicitly: short by default, detail on
+# request or on failure; otherwise the model receives two contradicting length rules.
 LLM_DEV_BUILD_SYSTEM_PREFIX = (
     "[WriterAgent development build]\n"
     "You are running a development version of the WriterAgent extension. The user is a plugin developer. "
-    "If you run into a problem, explain in detail what failed and why so they can improve the extension. "
-    "If they ask detailed questions about tool-calling APIs, prompts, or how the software works, answer helpfully so developers can improve the plugin."
+    "Keep replies as short as the instructions below ask, unless the developer asks about tool-calling APIs, "
+    "prompts, or how the software works; then answer helpfully so they can improve the plugin. "
+    "The one exception: when a tool call fails or you cannot finish the request, explain in detail what failed and why."
 )
 
 
