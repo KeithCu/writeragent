@@ -698,6 +698,64 @@ def test_render_calc_cell_refs_passthrough():
     assert render_calc_cell_refs("") == ""
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        ("<p>See Sheet1.B2</p>", '<p>See <a href="cell://Sheet1.B2">Sheet1.B2</a></p>'),
+        ("<p>See Sheet1!B2</p>", '<p>See <a href="cell://Sheet1.B2">Sheet1!B2</a></p>'),
+        ("<p>See 'My Sheet'.C3</p>", '<p>See <a href="cell://My Sheet.C3">\'My Sheet\'.C3</a></p>'),
+        ("<p>See 'My Sheet'!C3</p>", '<p>See <a href="cell://My Sheet.C3">\'My Sheet\'!C3</a></p>'),
+        ("<p>Cell $A$1 and $B2</p>", '<p>Cell <a href="cell://A1">$A$1</a> and <a href="cell://B2">$B2</a></p>'),
+        ("<p>Range A1:B5</p>", '<p>Range <a href="cell://A1:B5">A1:B5</a></p>'),
+        ("<p>Range Orders.A1:H500</p>", '<p>Range <a href="cell://Orders.A1:H500">Orders.A1:H500</a></p>'),
+        ("<p>Abs $Sheet1.$A$1:$B$5</p>", '<p>Abs <a href="cell://Sheet1.A1:B5">$Sheet1.$A$1:$B$5</a></p>'),
+        ("<p>Same Sheet1.A1:Sheet1.B5</p>", '<p>Same <a href="cell://Sheet1.A1:B5">Sheet1.A1:Sheet1.B5</a></p>'),
+        ("<p>See Données.C3</p>", '<p>See <a href="cell://Données.C3">Données.C3</a></p>'),
+        ("<p>See sheet1.B2</p>", '<p>See <a href="cell://sheet1.B2">sheet1.B2</a></p>'),
+    ],
+)
+def test_link_plain_cell_refs_links_qualified_absolute_and_ranges(html, expected):
+    from plugin.chatbot.rich_text import link_plain_cell_refs
+
+    sheets = ("Sheet1", "My Sheet", "Orders", "Données")
+    assert link_plain_cell_refs(html, sheets) == expected
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        "<p>MP3 and H2O and an A1 grade</p>",
+        "<p>version 1.2.3 and v2.A1x</p>",
+        "<p>song.mp3, Python3.11, e.g. B2</p>",
+        "<p>US$100, A$50, C$20</p>",
+        "<p>John 3:16 at 10:30</p>",
+        '<p><a href="cell://Sheet1.B2">Sheet1.B2</a> <code>$A$1</code> <pre>A1:B5</pre></p>',
+        "<p>https://x.com/data.B2 and user@Sheet1.A1</p>",
+        "<p>A1:B2:C3 and Sheet1.A1.foo and LOG10(A1)</p>",
+        "<p>R&amp;D.A1</p>",
+        "<p>Sheet1.ZZZZ9 and A1:ZZZ9</p>",
+        '<p title="Sheet1.A1">ok</p>',
+        "Plain Sheet1.B2 and $A$1 and A1:B5 with no tags",
+        "<p>file.MP3, Q1.FY24, Sheet9.B2</p>",
+        "<p>'O''Brien'.A1</p>",
+    ],
+)
+def test_link_plain_cell_refs_leaves_prose_alone(html):
+    from plugin.chatbot.rich_text import link_plain_cell_refs
+
+    sheets = ("Sheet1", "My Sheet", "Orders", "Données", "O'Brien")
+    assert link_plain_cell_refs(html, sheets) == html
+
+
+def test_link_plain_cell_refs_feeds_existing_link_pipeline():
+    from plugin.chatbot.rich_text import link_plain_cell_refs, render_calc_cell_refs
+    from plugin.chatbot.rich_text_paste import extract_cell_links_from_html
+
+    linked = link_plain_cell_refs("<p>See 'My Sheet'.C3 and A1:B5</p>", ["My Sheet"])
+    pairs = extract_cell_links_from_html(render_calc_cell_refs(linked))
+    assert pairs == [("'My Sheet'.C3", "My Sheet.C3"), ("A1:B5", "A1:B5")]
+
+
 class TestStripLegacyAiLabel:
     def test_strips_ai_prefix(self):
         from plugin.chatbot.rich_text import strip_legacy_ai_label

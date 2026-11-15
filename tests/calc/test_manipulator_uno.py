@@ -218,11 +218,10 @@ def test_bang_ref_formula_evaluates_uno(ctx, doc):
     )
     assert res.get("status") == "ok", res
     assert "error_cells" not in res, res
-    assert any(w.get("code") == "SHEET_REF_REWRITTEN" for w in res.get("warnings", [])), res
     c1 = active.getCellByPosition(3, 0)
     c2 = active.getCellByPosition(3, 1)
     assert c1.getError() == 0 and c1.getValue() == 10.0, (c1.getError(), c1.getValue())
-    assert c1.getFormula() == "=Orders.A1*2", c1.getFormula()
+    assert c1.getFormula() == "=$Orders.A1*2", c1.getFormula()
     assert c2.getError() == 0 and c2.getValue() == 11.0, (c2.getError(), c2.getValue())
 
     missing_res = _execute_calc_tool(
@@ -233,7 +232,7 @@ def test_bang_ref_formula_evaluates_uno(ctx, doc):
     )
     assert missing_res.get("error_cells"), missing_res
     formula_warns = [w for w in missing_res.get("warnings", []) if w.get("code") == "FORMULA_ERROR"]
-    assert formula_warns and "Sheet.A1" in formula_warns[0]["message"], formula_warns
+    assert formula_warns and "Formulas use Calc syntax:" in formula_warns[0]["message"], formula_warns
 
 
 @native_test

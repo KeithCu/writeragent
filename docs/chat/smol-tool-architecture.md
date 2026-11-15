@@ -184,7 +184,7 @@ Shipped behavior: **`WriterAgentSmolModel`** passes **`completion_kwargs.get("to
 
 Chat-mode and orchestration tools use the `<domain>_<verb>[_<object>]` naming convention:
 
-- **Specialized gateways:** `writer_delegate_specialized`, `calc_delegate_specialized`, `draw_delegate_specialized`
+- **Specialized gateways:** `delegate_to_subagent`, `delegate_to_subagent`, `delegate_to_subagent`
 - **Python / domain delegation:** `python_run_script`, `python_delegate_domains`
 - **Finish:** `workflow_finished`, `ppt_master_finished`
 - **Peer orchestration:** `peer_send_work`, `peer_send_result`

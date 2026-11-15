@@ -218,9 +218,9 @@ SCENARIO_IDS = frozenset(
 )
 FAIL_MODES = ("none", "http500", "http429", "hang")
 
-_DELEGATE_WRITER = "writer_delegate_specialized"
-_DELEGATE_CALC = "calc_delegate_specialized"
-_DELEGATE_DRAW = "draw_delegate_specialized"
+_DELEGATE_WRITER = "delegate_to_subagent"
+_DELEGATE_CALC = "delegate_to_subagent"
+_DELEGATE_DRAW = "delegate_to_subagent"
 # Packet E24: the venv-worker tool and a script slow enough to kill mid-run.
 PYTHON_TOOL = "python_run_script"
 PYTHON_SLOW_CODE = "import time\ntime.sleep(20)\nresult = 'slept'"
@@ -992,7 +992,7 @@ def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
     safe_user = html.escape((user_text or "that request").strip()[:80] or "that request")
     if tool_name == "apply_content":
         return f"<p>Inserted content into the document.</p><p>{snippet or '(empty)'}</p>"
-    if tool_name.endswith("_delegate_specialized"):
+    if tool_name == "delegate_to_subagent":
         return (
             f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
             f"<p>{snippet or '(empty)'}</p>"

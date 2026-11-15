@@ -8,7 +8,7 @@ from typing import Any
 # Module import, not a name import: tests patch plugin.doc.peer_message.list_v1_peers
 # at the owner, and that one patch must also cover this prompt builder.
 from plugin.doc import peer_message
-from plugin.framework.doc_type import is_calc, is_draw
+from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
 from plugin.framework.queue_executor import main
 
 PEER_OUTER_IDLE_AFTER_SEND = "Stop calling tools and finish this turn. Why: the peer reply arrives as a later user turn; more document_research, python, or query tools in this turn race the peer."
@@ -147,19 +147,9 @@ PEER_INNER_CHOICE_RULES = (
 )
 
 
-def _agent_for_model(model: Any) -> str:
-    # Unknown document types and None are treated as Writer.
-    if is_calc(model):
-        return "Calc"
-    if is_draw(model):
-        return "Draw"
-    return "Writer"
-
-
 def format_peer_outer_delegate_hint(model: Any) -> str:
-    """Outer DO+why with the matching specialized gateway name."""
-    delegate = f"{_agent_for_model(model).lower()}_delegate_specialized"
-    return PEER_OUTER_DELEGATE_HINT.format(delegate=delegate)
+    """Outer DO+why with the sub-agent gateway name."""
+    return PEER_OUTER_DELEGATE_HINT.format(delegate=DELEGATE_SUBAGENT_TOOL)
 
 
 def _peer_block_on_main_thread(build: Any, fail_log: str) -> str:

@@ -14,30 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Gateway tool to delegate tasks to specialized Calc toolsets."""
+"""Calc specialized toolset metadata (gateway lives in ``plugin.doc.specialized_base.DelegateToSubagent``)."""
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING, ClassVar, Type
-
-from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.calc.base import ToolCalcSpecialBase
-from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
-
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolBase
-
-
-class DelegateToSpecializedCalc(DelegateToSpecializedBase):
-    """Gateway tool to delegate tasks to specialized Calc toolsets.
-
-    This spins up a sub-agent with a limited set of tools (e.g., only Table tools)
-    to focus on the user's specific request, preventing context pollution.
-    """
-
-    name: str | None = "calc_delegate_specialized"
-    description: str = f"Delegates a specialized Calc task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: images, vision (extract text and structure from images when configured), sheets, ranges, search, charts, shapes, pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
-
-    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
-    _special_base_class: ClassVar[Type[ToolBase]] = ToolCalcSpecialBase  # type: ignore[type-abstract]
-    _agent_label: ClassVar[str] = "Calc"

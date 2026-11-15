@@ -25,14 +25,18 @@ from __future__ import annotations
 from collections import Counter
 import logging
 import re
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
+from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX, normalize_cell_address
 from plugin.chatbot.dialogs import set_prop
 from plugin.framework.appearance import get_theme_colors
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
 from plugin.framework.i18n import _
+
+if TYPE_CHECKING:
+    from collections.abc import Collection
 
 log = logging.getLogger(__name__)
 
@@ -147,6 +151,90 @@ def render_calc_cell_refs(text: str) -> str:
         return f"{prefix}{quote}{WRITERAGENT_CELL_URL_PREFIX}{addr}{quote}"
 
     return _CELL_LINK_HTML_RE.sub(_rewrite_href, text)
+
+
+# Elements whose text is never auto-linked: an existing link, code samples,
+# and script/style bodies the user never sees.
+_AUTOLINK_SKIP_TAGS = frozenset({"a", "code", "pre", "script", "style"})
+# A comment or a tag. Quoted attribute values may contain ">".
+_AUTOLINK_TAG_RE = re.compile(r"""<!--.*?-->|<(/?)([A-Za-z][\w:-]*)(?:[^>"']|"[^"]*"|'[^']*')*>""", re.DOTALL)
+_A1_PART = r"\$?[A-Z]{1,3}\$?[0-9]{1,7}"
+_SHEET_PART = r"\$?'(?:[^'\n]|'')+'|\$?[^\W\d]\w*"
+# Lookbehind excludes: & and ; (HTML entities like R&amp;D.A1), / and @ (URLs
+# and emails), : and - (chained ranges like A1:B2:C3 and identifiers), and
+# word/dot/quote/bang/$/# characters attached to a prefix.
+# Lookahead excludes: ( (function calls like LOG10(A1)), [.:!]\w (dotted
+# versions and chained ranges like Sheet1.A1.foo or A1:B2:C3), and trailing
+# word/$ characters.
+# Standalone abs requires a leading $ so mixed A$1 does not match currency
+# like US$100 or A$50.
+_PLAIN_CELL_REF_RE = re.compile(
+    rf"""(?<![\w.$'!/\\@#&;:-])
+    (?:(?P<sheet>{_SHEET_PART})[.!](?P<qcell>{_A1_PART})(?::(?:(?:{_SHEET_PART})[.!])?(?P<qend>{_A1_PART}))?
+      |(?P<start>{_A1_PART}):(?P<end>{_A1_PART})
+      |(?P<abs>\$[A-Z]{{1,3}}\$?[0-9]{{1,7}}))
+    (?![\w$(]|[.:!]\w)""",
+    re.VERBOSE,
+)
+
+
+def link_plain_cell_refs(html: str, sheet_names: Collection[str]) -> str:
+    """Wrap plain Calc cell references in ``cell://`` anchors for sidebar links.
+
+    Only three forms are linked: sheet-qualified references (where the sheet
+    exists in *sheet_names*, matched case-insensitively like Calc),
+    ``$``-absolute references (``$A$1``, ``$A1``), and ``A1:B5`` ranges
+    (which select the whole range). Bare ``B2`` is never linked because prose
+    is full of ``A1 grade`` and ``MP3``. Text with no real HTML tag is returned
+    unchanged so plain replies are not pushed through the HTML filter.
+    """
+    if not html or not contains_html_tag(html):
+        return html
+    known = {name.casefold() for name in sheet_names}
+
+    def _link(match: re.Match[str]) -> str:
+        sheet = match.group("sheet")
+        if sheet is not None:
+            sheet_name = split_sheet_prefix(match.group(0))[0]
+            if sheet_name is None or sheet_name.casefold() not in known:
+                return match.group(0)
+            first = match.group("qcell")
+            end = match.group("qend")
+        elif match.group("start") is not None:
+            first = match.group("start")
+            end = match.group("end")
+        else:
+            first = match.group("abs")
+            end = None
+        span = f"{first}:{end}" if end is not None else first
+        target = normalize_cell_address(f"{sheet}.{span}" if sheet is not None else span)
+        # Skip quote-bearing targets: _CELL_LINK_HTML_RE (rich_text.py),
+        # _CELL_LINK_ANCHOR_RE (rich_text_paste.py), and _CELL_HREF_RE (navigation.py)
+        # all stop at ' or ".
+        if not target or "'" in target or '"' in target:
+            return match.group(0)
+        return f'<a href="cell://{target}">{match.group(0)}</a>'
+
+    out: list[str] = []
+    pos = 0
+    skip_depth = 0
+    for tag_match in _AUTOLINK_TAG_RE.finditer(html):
+        segment = html[pos:tag_match.start()]
+        if segment:
+            out.append(segment if skip_depth else _PLAIN_CELL_REF_RE.sub(_link, segment))
+        tag = tag_match.group(0)
+        out.append(tag)
+        pos = tag_match.end()
+        tag_name = tag_match.group(2)
+        if tag_name is not None and tag_name.lower() in _AUTOLINK_SKIP_TAGS and not tag.endswith("/>"):
+            if tag_match.group(1) == "/":
+                skip_depth = max(0, skip_depth - 1)
+            else:
+                skip_depth += 1
+    tail = html[pos:]
+    if tail:
+        out.append(tail if skip_depth else _PLAIN_CELL_REF_RE.sub(_link, tail))
+    return "".join(out)
 
 
 class ChatTheme:

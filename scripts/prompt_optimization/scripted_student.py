@@ -196,7 +196,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "flowchart_gen": [
         _tools(
             _tc(
-                "draw_delegate_specialized",
+                "delegate_to_subagent",
                 {
                     "domain": "shapes",
                     "task": (
@@ -280,7 +280,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "org_chart_gen": [
         _tools(
             _tc(
-                "draw_delegate_specialized",
+                "delegate_to_subagent",
                 {
                     "domain": "shapes",
                     "task": (
@@ -452,7 +452,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "solar_sld_gen": [
         _tools(
             _tc(
-                "draw_delegate_specialized",
+                "delegate_to_subagent",
                 {
                     "domain": "shapes",
                     "task": (
@@ -625,7 +625,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "data_sorting": [
         _tools(
             _tc(
-                "calc_delegate_specialized",
+                "delegate_to_subagent",
                 {
                     "domain": "ranges",
                     "task": (
@@ -734,7 +734,7 @@ _TOC_LIST_ANSWER = "\n".join(
 SCRIPTS["toc_list_entries"] = [
     _tools(
         _tc(
-            "writer_delegate_specialized",
+            "delegate_to_subagent",
             {
                 "domain": "indexes",
                 "task": "List table of contents entries without hyperlinks.",
@@ -764,7 +764,7 @@ _TOC_REFRESH_CALLS = [
 SCRIPTS["toc_renumber_insert"] = [
     _tools(
         _tc(
-            "writer_delegate_specialized",
+            "delegate_to_subagent",
             {
                 "domain": "indexes",
                 "task": (

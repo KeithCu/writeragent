@@ -17,7 +17,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
 **Related / prior art to draw from:**
 - [../chat/multi-document-dev-plan.md](../chat/multi-document-dev-plan.md): two-tier (outer discovery + inner per-file) delegation for `document_research`.
 - [../embeddings.md](../embeddings.md): primary per-directory semantic index for cross-sibling discovery (outer router only; locators → precise inner reads). No other search indexes.
-- [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md), [specialized-toolsets.md](specialized-toolsets.md), [../draw/impress-specialized-toolsets.md](../draw/impress-specialized-toolsets.md): nested delegation via `*_delegate_specialized(domain=...)`, tier filtering, ephemeral sub-agents.
+- [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md), [specialized-toolsets.md](specialized-toolsets.md), [../draw/impress-specialized-toolsets.md](../draw/impress-specialized-toolsets.md): nested delegation via `delegate_to_subagent(domain=...)`, tier filtering, ephemeral sub-agents.
 - [analysis-tools.md](analysis-tools.md): existing narrow `"analysis"` / `"solvers"` domain (Goal Seek + Solver). This plan generalizes it to data-driven numpy work.
 - [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoffice.md): trusted extension code pattern (e.g. `embeddings_index.py`), payload_codec / split-grid for efficient numeric handoff, full venv stack without AST sandbox for shipped modules.
 - [../chat/smol-tool-architecture.md](../chat/smol-tool-architecture.md): sub-agents (librarian, specialized) often run via smol/ ReAct for focused tasks.
@@ -37,7 +37,7 @@ This is the focused evolution of the high-level analysis ideas previously sketch
   - `plugin/calc/python/venv.py`: `RunVenvPythonScript` (`python_run_script`, domain="python", `ToolCalcPythonBase`). Supports `code`, `data_range` (injected as `data`), or direct `data`. Uses `run_code_in_user_venv` + payload codec. Works cross-app via `specialized_cross_cutting`.
   - Full scientific stack is already available in the user venv (as per `sandbox.py`, `../enabling_numpy_in_libreoffice.md`).
 - Delegation & sub-agents:
-  - `plugin/calc/specialized.py`: `DelegateToSpecializedCalc` (gateway, `calc_delegate_specialized`).
+  - `plugin/calc/specialized.py`: `DelegateToSpecializedCalc` (gateway, `delegate_to_subagent`).
   - `plugin/calc/base.py`: Many `ToolCalc*Base` with `specialized_domain` (solvers, python, pivot_tables, charts, ranges, search, sheets, conditional_formatting, etc.).
   - `plugin/doc/specialized_base.py` (shared): Spins smol `ToolCallingAgent` with `SmolToolAdapter`s from `registry.get_tools(..., active_domain=domain)`. The gateway calls `run_inner_tool_agent`, which calls `build_toolcalling_agent` and `SmolAgentExecutor`. Supports `workflow_finished`.
 - No broad "data_analysis", "numeric_analysis", or expanded "analysis" domain yet that combines data discovery + trusted heavy compute. The "python" domain + raw code is the current way to do pandas/numpy work. Sheet summary and solvers are the only dedicated analysis surface.
@@ -85,7 +85,7 @@ Calc documents are an excellent fit (ranges, sheets, named ranges, pivot caches,
   - High-level "standard functions" and reusable helpers/classes (e.g. `describe_data`, `clean_and_prepare`, `run_regression`, `cluster_numeric`, `kpi_summary`, formatting utilities, analytical classes) that the LLM or sub-agent can reliably invoke by name or high-level spec. These are implemented via trusted modules (unsandboxed, full stack) and exposed through the analysis domain. This directly copies the spirit of Microsoft Python-in-Excel's initialization scripts (global helpers + OOP analysis classes like `QuickStats`) and object-oriented extensibility.
   - Full raw access remains available via the `python` domain (`=PYTHON` / `python_run_script`) for anything novel or not covered by the standard helpers. The LLM can still write arbitrary code when needed.
 - **Two-tier (or multi-step) like document_research, but Calc-centric**: Outer layer (when cross-doc) focuses on *finding* relevant Calc data sources (sheets, ranges, named ranges, pivot tables, chart data — using `research_list_nearby_files`, the primary per-directory embeddings index, `get_sheet_summary`, range heuristics, etc.). Inner / execution layer does preparation + numpy work on specific extracted Calc data. Main chat (whether Writer or Calc) stays stable.
-- **Specialized delegation primarily on Calc**: Expose via `calc_delegate_specialized(domain="analysis")`. The gateway can be called from a Writer main agent when a Calc document is open (via document awareness or explicit delegation). Specialized analysis tools are not on the main wire schema. Builds directly on the existing narrow `"analysis"` / `"solvers"` domain in [analysis-tools.md](analysis-tools.md) (Goal Seek + Solver).
+- **Specialized delegation primarily on Calc**: Expose via `delegate_to_subagent(domain="analysis")`. The gateway can be called from a Writer main agent when a Calc document is open (via document awareness or explicit delegation). Specialized analysis tools are not on the main wire schema. Builds directly on the existing narrow `"analysis"` / `"solvers"` domain in [analysis-tools.md](analysis-tools.md) (Goal Seek + Solver).
 - **Trusted execution for the heavy lifting (always in Calc context)**: Never ask the LLM to write the pandas/sklearn code for real work when a standard helper exists. Use shipped trusted modules (e.g. `plugin/calc/analysis.py` or shared under `plugin/scripting/`) called from the host with fixed stubs — full venv access (numpy stack, optional DBs/caches), efficient data handoff via existing `payload_codec` / split-grid. This is the pattern proven by `embeddings_index.py`. Analysis execution is always against a Calc model/context. Raw code via the python domain is the escape hatch.
 - **Data discovery reuses the primary index + Calc tools**: The per-directory embeddings index (see [../embeddings.md](../embeddings.md)) is the *sole* semantic cross-sibling router. Within a Calc file, use existing precise tools (`read_range`, sheet summaries, named ranges, etc.). No new parallel indexes. Writer data sources are out of scope for core analysis in MVP.
 - **Host extracts (from Calc), venv computes, results are compact**: Host (UNO) pulls Calc ranges/sheets into arrays/records (reuse and extend `calc_addin_data` patterns). Passes via IPC. Trusted code returns summaries, transformed data, metrics, suggested writes, chart inputs, etc. The *calling* main agent (Writer or Calc) decides what to apply.
@@ -103,7 +103,7 @@ Main agent (active doc — can be Writer or Calc)
   |
   +-- (optional) document_research delegation to surface open Calc sibling
   |
-  +-- calc_delegate_specialized(domain="analysis", task="Clean sales data, compute YoY by region, flag outliers")
+  +-- delegate_to_subagent(domain="analysis", task="Clean sales data, compute YoY by region, flag outliers")
         |
         v
 Analysis sub-agent (specialized, ephemeral — runs with Calc ToolContext / model)
@@ -193,7 +193,7 @@ User (in Writer report): "Pull the latest sales data from the Budget.ods file, c
 
 Writer main agent:
 1. Uses `document_research` (or direct awareness) to confirm Budget.ods is open / nearby.
-2. Delegates something like: `calc_delegate_specialized(domain="analysis", task="From the sales data in Budget.ods: clean the data, compute YoY growth by region, flag outliers, return compact results + suggested Writer-friendly summary table and bullet findings")`.
+2. Delegates something like: `delegate_to_subagent(domain="analysis", task="From the sales data in Budget.ods: clean the data, compute YoY growth by region, flag outliers, return compact results + suggested Writer-friendly summary table and bullet findings")`.
 3. Receives compact payload.
 4. Either:
    - Applies directly to the Writer doc (cleanup path), or

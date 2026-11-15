@@ -47,9 +47,9 @@ from string_eval_tools import dispatch_string_tool
 
 DELEGATE_TOOL_NAMES = frozenset(
     {
-        "writer_delegate_specialized",
-        "calc_delegate_specialized",
-        "draw_delegate_specialized",
+        "delegate_to_subagent",
+        "delegate_to_subagent",
+        "delegate_to_subagent",
     }
 )
 SPECIALIZED_FINISH = "workflow_finished"
@@ -201,7 +201,7 @@ def _eval_tools(
 
     ``tools_spec`` filters the *outer* catalog only. Specialized inner loops
     pass ``active_domain`` and still get the full domain schemas (plus
-    density + patches) so ``*_delegate_specialized`` keeps working.
+    density + patches) so ``delegate_to_subagent`` keeps working.
     """
     return prepare_eval_tool_schemas(
         kind=kind,

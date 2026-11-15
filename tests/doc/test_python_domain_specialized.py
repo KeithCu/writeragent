@@ -19,10 +19,10 @@ from plugin.doc.python_domain_specialized import (
     run_inner_domain_tool_agent,
     validate_requested_domains,
 )
+from plugin.doc.specialized_base import DelegateToSubagent
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, prepare_tool_call
 from plugin.writer.specialized.footnotes import FootnotesInsert
 from plugin.writer.specialized_base import (
-    DelegateToSpecializedWriter,
     SpecializedWorkflowFinished,
     ToolWriterFootnoteBase,
     ToolWriterShapeBase,
@@ -552,7 +552,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     registry = ToolRegistry(services={})
     registry.register(DelegateToolDomains())
     registry.register(SpecializedWorkflowFinished())
-    registry.register(DelegateToSpecializedWriter())
+    registry.register(DelegateToSubagent())
 
     mock_get_config.return_value = {}
     mock_agent_instance = MagicMock()
@@ -567,7 +567,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     ctx.send_cancellation = None
     ctx.doc_type = "writer"
 
-    gateway = registry.get("writer_delegate_specialized")
+    gateway = registry.get("delegate_to_subagent")
     result = gateway.execute_safe(ctx, domain="python", task="Add a footnote after the revenue sentence")
     assert result["status"] == "incomplete"
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"

@@ -110,7 +110,7 @@ def test_coalesce_split_tool_calls_merges_empty_name_continuation():
             "id": "chatcmpl-tool-abc",
             "type": "function",
             "function": {
-                "name": "writer_delegate_specialized",
+                "name": "delegate_to_subagent",
                 "arguments": '{"message": "back to the Writer',
             },
         },
@@ -124,7 +124,7 @@ def test_coalesce_split_tool_calls_merges_empty_name_continuation():
     out = coalesce_split_tool_calls(tool_calls)
     assert len(out) == 1
     assert out[0]["id"] == "chatcmpl-tool-abc"
-    assert out[0]["function"]["name"] == "writer_delegate_specialized"
+    assert out[0]["function"]["name"] == "delegate_to_subagent"
     assert out[0]["function"]["arguments"] == '{"message": "back to the Writer sidebar."\n}'
     assert out[0]["index"] == 0
 

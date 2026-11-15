@@ -74,7 +74,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `flood history` / `pad the context` | Packet K: large ASCII pad (hand-test / mock unit). Live Packet K grows `ChatSession` via debug `INFLATE_HISTORY` so the 24k HTML stream does not have to land on `session.messages`. |
 | `overflow once` / `prompt too large once` | Packet K: first **stream** POST returns HTTP 400 `prompt is too long`, then OK. Non-stream summarizer is never this fault. |
 | `llama process died` | Packet K: HTTP 400 `llama-server process has terminated` (process death, not overflow retry). |
-| `outline this` / `use the writer toolset` | Calls `writer_delegate_specialized` (`document_research`). |
+| `outline this` / `use the writer toolset` | Calls `delegate_to_subagent` (`document_research`). |
 | `empty nested answer` | Specialized delegate emits inner `final_answer` with an empty `answer`. |
 | `endless nested outline` | Specialized delegate loops without finishing until `max_tool_rounds`. |
 | `mixed tools` / `one tool fails` | Calls `comment_add` (empty search → error) + `apply_content` filler. |
@@ -299,7 +299,7 @@ Every test must satisfy:
 | **E4** | CI | **Empty** doc, `insert a comment` | Send query | Two-round loop: `apply_content` then `comment_add`; doc nonempty; `next_hello_ok()` | **OK / Landed** |
 | **E5** | CI | `insert filler` | Send query | Paragraph appended; next turn's system prompt includes updated length (`refresh_document_context`); `next_hello_ok()` | **OK / Landed** |
 | **E6** | CI | `two tools` / `in parallel` | Send query | Both `search` and `get_tree` execute in one turn; single HTML summary; `next_hello_ok()` | **OK / Landed** |
-| **E7** | CI | `outline this` | Send query | Calls `writer_delegate_specialized`; inner discovery executes; returns canned outline; `next_hello_ok()` | **OK / Landed** |
+| **E7** | CI | `outline this` | Send query | Calls `delegate_to_subagent`; inner discovery executes; returns canned outline; `next_hello_ok()` | **OK / Landed** |
 | **E8a** | CI | `outline this`, `delay_ms=80`, `sync_delay_ms=8000` | Call `press_stop()` during nested POST | Nested agent stops; `is_busy` becomes False; log shows `SendCancellation` / `USER_STOPPED`; `next_hello_ok()` | **OK / Landed** |
 | **E8b** | CI | Same as E8a | Cancel with `press_stop_mouse()` | Same cancellation behavior via mouse listener | **Dropped** (mouse; E8a covers Stop) |
 | **E9** | CI | Prompt for web research on | Send query triggering HITL approval | Send button label becomes `Accept`; Stop label becomes `Change` / `Reject`; `is_busy` remains True | **OK / Landed** |

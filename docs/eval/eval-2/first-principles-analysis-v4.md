@@ -127,7 +127,7 @@ Leave **interactive** Ready alone — no AFC predicates in the general product R
 Deepseek ~450 `getCellAddress` errors then Ready. ~50 rounds **without** a brake lengthens storms.
 
 - Lives in **host / interpreter** (`tool_loop` layer) where tool results (including **delegated** specialized errors) are visible — **not** inside pure `next_state`.  
-- Signature must see through `delegate_to_specialized_*` results.  
+- Signature must see through `delegate_to_subagent` results.  
 - Pair with ~50 as **one eval-2 rollout**.
 
 **Not adopting (DeepSeek):** inventing a full product **“Stuck”** terminal status as the required design (host + FSM + UI). See §6. Prefer a host circuit-breaker that stops further tools and ends the turn with a clear **reason string** (logs / harness), reusing existing stop/exhaust paths where possible. If trials show operators confuse that with success, *then* consider distinct UI chrome.

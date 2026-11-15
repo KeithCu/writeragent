@@ -63,7 +63,8 @@ from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_arra
 from plugin.calc.bridge import is_agent_visible_sheet
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.error_detector import formula_error_cells
-from plugin.calc.formula_fill import dot_sheet_refs, expand_single_formula, repeated_formula_columns
+from plugin.calc.formula_dialect import FormulaDialects, make_cell_address
+from plugin.calc.formula_fill import expand_single_formula, repeated_formula_columns
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_edit import repair_py_code_newlines
@@ -217,49 +218,13 @@ class WritePlan(NamedTuple):
     notes: tuple[Diagnostic, ...] = ()
 
 
-def _dot_sheet_refs_in_values(
-    doc: Any, sheet: Any, items: list[Any]
-) -> tuple[list[Any], Diagnostic | None]:
-    """Rewrite Excel ``Sheet!A1`` refs to Calc ``Sheet.A1`` for existing unshadowed sheets."""
-    if not any(isinstance(v, str) and v.startswith("=") and "!" in v for v in items):
-        return items, None
-    names = {str(n).casefold(): str(n) for n in doc.getSheets().getElementNames()}
-    cache: dict[str, str | None] = {}
+def _calc_grammar_in_values(dialects: FormulaDialects, items: list[Any], pos: Any = None) -> list[Any]:
+    """Every formula in *items* in Calc's API grammar.
 
-    def _sheet_for(name: str) -> str | None:
-        key = name.casefold()
-        if key in cache:
-            return cache[key]
-        real = names.get(key)
-        if real is not None and (sheet.NamedRanges.hasByName(name) or doc.NamedRanges.hasByName(name)):
-            real = None
-        cache[key] = real
-        return real
-
-    out: list[Any] = []
-    changed = 0
-    sample: tuple[str, str] | None = None
-    for item in items:
-        if isinstance(item, str) and item.startswith("=") and "!" in item:
-            updated = dot_sheet_refs(item, _sheet_for)
-            if updated != item:
-                changed += 1
-                if sample is None:
-                    sample = (item, updated)
-            out.append(updated)
-        else:
-            out.append(item)
-
-    if changed == 0 or sample is None:
-        return out, None
-    before, after = sample
-    return out, {
-        "code": "SHEET_REF_REWRITTEN",
-        "message": (
-            f"Rewrote Excel-style sheet refs to Calc's dot form in {changed} cell(s) "
-            f"(e.g. {before} → {after}); Calc reads Sheet!A1 as #NAME?."
-        ),
-    }
+    Excel-style text (commas, Sheet!A1, {1,2;3,4}) is translated by
+    ``FormulaDialects``; Calc text is returned as sent.
+    """
+    return [dialects.to_api(v, pos) if isinstance(v, str) and v.startswith("=") else v for v in items]
 
 
 def _with_notes(result: dict[str, Any], notes: Sequence[Diagnostic]) -> dict[str, Any]:
@@ -436,11 +401,18 @@ def _write_report(
                 "A text label that starts with '=' must be written with a leading apostrophe ('=label). "
                 "Use detect_errors on a cell for the cause."
             )
-            # Calc's API grammar uses ';', and =SUM(1,2) gives 525, so a comma in a failing formula is the cue.
-            if any(e["error"]["error_code"] in (501, 508, 525) and "," in e["formula"] for e in errors):
-                warn_msg += " Calc separates function arguments with ';', not ','."
-            if any(e["error"]["error_code"] == 525 and "!" in e["formula"] for e in errors):
-                warn_msg += " Other sheets are Sheet.A1 (dot), not Excel's Sheet!A1; check the sheet name."
+            # Err:539 is unsupported inline array content ({1,2;3,4}), 525 is unresolved Sheet!A1, and
+            # 501/508/509 cover bad separators/brackets. FormulaDialects.to_api already translated
+            # single-dialect formulas before writing, so a failure still containing ',' or '!' means a mixed formula.
+            if any(
+                e["error"]["error_code"] in (501, 508, 509, 525, 539)
+                and ("," in e["formula"] or "!" in e["formula"])
+                for e in errors
+            ):
+                warn_msg += (
+                    " Formulas use Calc syntax: ; between arguments, Sheet.A1 for other sheets,"
+                    " and {1;2|3;4} for inline arrays (e.g. =IF(A1>0; 1; 0), Orders.A1)."
+                )
             warnings.append({"code": "FORMULA_ERROR", "message": warn_msg})
 
     if scan_text:
@@ -762,6 +734,13 @@ class CellManipulator:
             bridge: CalcBridge instance.
         """
         self.bridge = bridge
+        self._dialects: FormulaDialects | None = None
+
+    @property
+    def dialects(self) -> FormulaDialects:
+        if self._dialects is None:
+            self._dialects = FormulaDialects(self.bridge.doc)
+        return self._dialects
 
     def _resolve_range_sheet(self, range_str: str) -> tuple[Any, Any, Any]:
         cell_range = self.bridge.resolve_range_or_address(range_str)
@@ -1511,14 +1490,12 @@ class CellManipulator:
             sheet = cell_range.getSpreadsheet()
             start = (addr.StartColumn, addr.StartRow)
             end = (addr.EndColumn, addr.EndRow)
+            ref_pos = make_cell_address(addr.Sheet, addr.StartColumn, addr.StartRow)
             notes: list[Diagnostic] = []
             formulas_on = not literal_text and not data_text
 
             if formulas_on and isinstance(values, str) and values.startswith("="):
-                rewritten, note = _dot_sheet_refs_in_values(self.bridge.doc, sheet, [values])
-                values = rewritten[0]
-                if note is not None:
-                    notes.append(note)
+                values = self.dialects.to_api(values, ref_pos)
 
             # LibreOffice does not spill: setFormula on =SORT(FILTER(...)) shows only
             # the first value. A top-level dynamic-array function is entered with
@@ -1588,9 +1565,7 @@ class CellManipulator:
                     values = [values] * total
 
             if formulas_on and caller_list:
-                values, note = _dot_sheet_refs_in_values(self.bridge.doc, sheet, list(values))
-                if note is not None:
-                    notes.append(note)
+                values = _calc_grammar_in_values(self.dialects, list(values), ref_pos)
                 rows = end[1] - start[1] + 1
                 cols = end[0] - start[0] + 1
                 sheet_name = sheet.getName()
@@ -1748,9 +1723,9 @@ class CellManipulator:
                 relative A1 adjust. ``=PY`` uses a span-peek (multi-row
                 DataRange stays verbatim). A 2-D range plus one formula
                 is an error — pass an explicit array instead.
-                Excel-style ``Sheet!A1`` prefixes for existing unshadowed sheets
-                are rewritten to Calc's ``Sheet.A1`` dot form, and list columns
-                repeating one row-aligned formula stay as sent with a
+                Excel-style formula text (commas, Sheet!A1, {1,2;3,4}) is
+                translated to Calc's API grammar by ``formula_dialect``, and
+                list columns repeating one row-aligned formula stay as sent with a
                 ``REPEATED_FORMULA`` warning.
                 A top-level FILTER/SORT/UNIQUE (or ``array=True``) is
                 entered with ``setArrayFormula`` so the whole result shows.
@@ -1921,8 +1896,6 @@ class CellManipulator:
         Dest is the top-left (or a range whose start is used); size is the
         source extent.
         """
-        from com.sun.star.table import CellAddress
-
         try:
             source_obj = self.bridge.resolve_range_or_address(source_str)
             source_ra = _uno_range_address(source_obj)
@@ -1930,10 +1903,7 @@ class CellManipulator:
             rows = int(source_ra.EndRow) - int(source_ra.StartRow) + 1
             cols = int(source_ra.EndColumn) - int(source_ra.StartColumn) + 1
 
-            dest_cell = CellAddress()
-            dest_cell.Sheet = dest_ra.Sheet
-            dest_cell.Column = dest_ra.StartColumn
-            dest_cell.Row = dest_ra.StartRow
+            dest_cell = make_cell_address(dest_ra.Sheet, dest_ra.StartColumn, dest_ra.StartRow)
 
             dest_sheet.copyRange(dest_cell, source_ra)
 

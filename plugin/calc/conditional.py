@@ -29,9 +29,9 @@ from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.cells import opt_color
+from plugin.calc.formula_dialect import make_cell_address, to_api
 
 from com.sun.star.awt import FontWeight
-from com.sun.star.table import CellAddress
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -156,7 +156,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range to apply the rule to (e.g. ["A1:D10"]).'},
             "operator": {"type": "string", "enum": _OPS[1:], "description": "Condition operator."},
-            "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
+            "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style": {"type": "string", "description": ("Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.")},
             "bg_color": {"type": "string", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
@@ -213,10 +213,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         # Resolve the target range before creating an inline style so an invalid range leaves no orphan style.
         cell_range = bridge.resolve_range_or_address(range_str)
         ra = cell_range.getRangeAddress()
-        addr = CellAddress()
-        addr.Sheet = ra.Sheet
-        addr.Column = ra.StartColumn
-        addr.Row = ra.StartRow
+        addr = make_cell_address(ra.Sheet, ra.StartColumn, ra.StartRow)
 
         created: bool | None = None
         if inline:
@@ -243,6 +240,9 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         else:
             assert isinstance(style_name, str)
             resolved_style = style_name
+
+        formula1 = to_api(ctx.doc, formula1, addr)
+        formula2 = to_api(ctx.doc, formula2, addr)
 
         props = [
             create_property_value("Operator", idx),

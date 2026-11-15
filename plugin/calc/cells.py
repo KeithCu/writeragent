@@ -450,7 +450,7 @@ class WriteCellRange(ToolBase):
             "range": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
+                "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"] or ["Sheet1!B2:D2"]). A sheet prefix targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
             },
             # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
             # first ref) live only here; read_range's description and hint just point here.
@@ -468,8 +468,9 @@ class WriteCellRange(ToolBase):
                     "(use '=' prefix for formulas). One ordinary formula into a "
                     "multi-cell column or row is fill-down/across — relative A1 refs "
                     "adjust per cell ($ stays absolute). Prefer that for a related "
-                    "rate or tax column. In formulas, other sheets are Sheet.A1 "
-                    "(dot), not Excel Sheet!A1. 2-D array: one inner array per row; "
+                    "rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) "
+                    "and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not "
+                    "mix them in one formula. 2-D array: one inner array per row; "
                     "must match the range. Cells are string, number, boolean, or null "
                     '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
                     "=B2*…-style formula in every cell pins every row to the "
@@ -483,7 +484,7 @@ class WriteCellRange(ToolBase):
                 ),
             },
             "array": {"type": "boolean", "description": ("Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).")},
-            "source": {"type": "string", "description": ("Optional source block to copy (A1 or Sheet.A1, dot sheet prefix, never Excel Sheet1!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.")},
+            "source": {"type": "string", "description": ("Optional source block to copy (A1, Sheet.A1 or Sheet!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.")},
         },
         "required": ["range"],
     }

@@ -1296,6 +1296,53 @@ class TestFlattenTextTableCopy:
         finally:
             cell_link_registry.clear(control)
 
+    def test_click_tag_only_on_text_drawn_as_link(self):
+        """Underlined or href portions get the click tag; a code sample matching a pending label does not."""
+        from plugin.calc.navigation import cell_link_registry
+        from plugin.chatbot.rich_text_paste import _copy_formatted_from_hidden_doc_to_control
+
+        control = MagicMock()
+        model = MagicMock()
+        model.createTextCursor.return_value = MagicMock()
+        control.getModel.return_value = model
+        src_doc = MagicMock()
+        para = _para(
+            [
+                _portion("$A$1"),  # inline code: matches the pending label but is not drawn as a link
+                _portion("Sheet2.B3", href="writeragent-cell://Sheet2.B3"),
+                _portion("Q1 Data.C5", underline=1),
+            ]
+        )
+        src_doc.getText.return_value.createEnumeration.return_value = _uno_enum([para])
+        theme = MagicMock(user_color=1, assistant_color=2)
+
+        cell_link_registry.clear(control)
+        try:
+            with _copy_patches(theme), patch("plugin.chatbot.rich_text_paste._tag_cell_link") as tag:
+                reason = _copy_formatted_from_hidden_doc_to_control(
+                    src_doc,
+                    control,
+                    MagicMock(),
+                    role="assistant",
+                    cell_link_targets=[("$A$1", "A1")],
+                )
+            assert reason is None
+            assert [c.args[3] for c in tag.call_args_list] == ["Sheet2.B3", "Q1 Data.C5"]
+        finally:
+            cell_link_registry.clear(control)
+
+    def test_tag_cell_link_tags_inserted_range(self):
+        from plugin.chatbot.rich_text_paste import _tag_cell_link
+
+        model = MagicMock()
+        sel = model.createTextCursor.return_value
+        start, dest = MagicMock(), MagicMock()
+        with patch("plugin.chatbot.rich_text_paste.mark_cell_link_range") as mark:
+            _tag_cell_link(model, start, dest, "Sheet2.B3")
+        sel.gotoRange.assert_any_call(start, False)
+        sel.gotoRange.assert_any_call(dest.getStart.return_value, True)
+        mark.assert_called_once_with(sel, "Sheet2.B3")
+
     def test_copy_loop_partial_element_breaks_and_does_not_insert_next_element(self):
         p1_portion1 = _portion("portion1")
         p1_portion2 = MagicMock()

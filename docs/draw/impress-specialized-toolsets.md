@@ -17,12 +17,12 @@ Draw/Impress tools follow the same **nested delegation** pattern as Writer:
 | `ToolDrawSpecialBase` | Base class for specialized Draw tools | `plugin/draw/base.py` |
 | `specialized_domain` | Domain identifier (e.g., `"charts"`, `"web_research"`, `"forms"`) | Class attribute |
 | `tier = "specialized"` | Marks tool for domain-specific sub-agent | Class attribute |
-| `draw_delegate_specialized` | Gateway tool for delegation | `plugin/draw/specialized.py` |
+| `delegate_to_subagent` | Gateway tool for delegation | `plugin/draw/specialized.py` |
 | `uno_services` | Document type filtering | Class attribute |
 
 **Delegation flow:**
 ```
-Main chat → draw_delegate_specialized → Sub-agent (filtered tools) → final_answer
+Main chat → delegate_to_subagent → Sub-agent (filtered tools) → final_answer
 ```
 
 ----
@@ -52,11 +52,11 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `placeholder_list` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
 | `placeholder_get_text` | `placeholders.py` | Presentation | Get text from a placeholder |
 | `placeholder_set_text` | `placeholders.py` | Presentation | Set text in a placeholder |
-| `draw_delegate_specialized` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
+| `delegate_to_subagent` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
 
 ### 2.2 Specialized Tools (tier = "specialized")
 
-These are available only via `draw_delegate_specialized`:
+These are available only via `delegate_to_subagent`:
 
 Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps (see [Writer specialized toolsets](../writer/specialized-toolsets.md)).
 
@@ -99,7 +99,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 > `transform_schema.py`. Do not extend the DSL; deleting or finishing it is a
 > separate change.
 
-**Python domain (two-level).** `draw_delegate_specialized(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `python_delegate_domains` with `domains` (for example `shapes`, `tables`, `images`) and `task` when those domain tools are required. The inner agent gets `python_run_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
+**Python domain (two-level).** `delegate_to_subagent(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `python_delegate_domains` with `domains` (for example `shapes`, `tables`, `images`) and `task` when those domain tools are required. The inner agent gets `python_run_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
 
 ### 2.3 Unit & Coordinate System
 
@@ -236,7 +236,7 @@ Legacy class names in this section (`CreateShape`, `EditShape`, …) map to regi
 
 ### 4.2 Impress-Only vs Delegated APIs
 
-The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`draw_delegate_specialized`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
+The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`delegate_to_subagent`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
 
 **Slide master** tools (`slide_list_masters`, `slide_get_master`, `slide_set_master`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_deck_info` summarizes.
 
@@ -541,7 +541,25 @@ This pattern could be extended to other domains.
 
 ----
 
-## 9. References
+## 9. Future ideas (from Opus prompt review, Nov 2026)
+
+These ideas came out of an Opus review of the Draw and Impress prompts and tools in November 2026. They are recorded here so they are not forgotten. They are not scheduled work. Some are harder, or would be useful later, but they were deferred for the reasons below.
+
+- **Exposing nested tool schemas (review row 3, schema half only).** The structured-result half of this row (status, created and changed shape names, page, counts, warnings) is being handled separately. The deferred half is: optionally let the outer agent see the nested tool schemas of a `shapes` delegation, so it can check arguments instead of writing a prose task and getting prose back. Deferred because exposing nested schemas redesigns delegation.
+
+- **OCR overlap (review row 9).** The prompt requires vision delegation for OCR even though `get_image` already lets the model see the image. The idea is to have `get_image` return OCR text alongside pixels, or to have `get_image` say: for text extraction call vision. Deferred because it overlaps vision/OCR design.
+
+- **Delegation payload rules (review row 10).** Mechanical rules tell the model not to paste document data into `task`, to name a location instead, to pass user text verbatim, and how to word img2img. The idea is to let `delegate` accept structured refs (`page`, `shape_name`, `range`) as fields instead of prose conventions. Deferred because this is an API shape change to delegation.
+
+- **Routing rules (review row 11).** `python` vs `shapes` for computed shapes, `document_research` for any other file, `web_research` for public topics, and never ask where a file is. Routing by keyword is brittle. Keep the user-facing part (never ask the user to upload) in the prompt; let a wrong domain return a redirect error. Deferred as a later routing-error design.
+
+- **Peer protocol (review row 12).** After a peer message, stop tool use; peer work must be delivered via `document_research` `send_peer_result`; a peer result must not be acked. A multi-state protocol is enforced only by model memory. The idea is to have the runtime deliver peer results automatically at turn end and block extra tool calls while waiting. Deferred because it changes the peer-delivery runtime.
+
+Review row 14 is keep-as-is, with no work: the undo stack is shared with the user; only undo the model's own last edit and say so. That is a behaviour rule, not an API change.
+
+----
+
+## 10. References
 
 - [LibreOffice API Reference — Draw](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1drawing_1_1XDrawPage.html)
 - [LibreOffice API Reference — Presentation](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1star_1_1presentation_1_1XPresentation.html)
