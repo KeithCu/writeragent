@@ -1138,7 +1138,7 @@ class _FakeDialects:
         self._mapping = mapping
         self.calls: list[str] = []
 
-    def to_api(self, text: str) -> str:
+    def to_api(self, text: str, _pos=None, *, sheet: int | None = None) -> str:
         self.calls.append(text)
         return self._mapping.get(text, text)
 

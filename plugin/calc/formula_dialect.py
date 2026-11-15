@@ -95,21 +95,35 @@ class FormulaDialects:
     """Per-document ``FormulaParser`` cascade for accepting Excel-dialect formulas."""
 
     def __init__(self, doc: Any) -> None:
-        mapper = doc.createInstance("com.sun.star.sheet.FormulaOpCodeMapper")
-        self._bad: int = int(mapper.getAvailableMappings(XL_ENGLISH, GROUP_SPECIAL)[SPECIAL_BAD].Token.OpCode)
+        self._doc: Any = doc
+        self._initialized: bool = False
+        self._bad: int = 0
+        self._array_open: int | None = None
+        self._array_seps: frozenset[int] = frozenset()
+        self._api: Any = None
+        self._excel: Any = None
+        self._excel_refs: Any = None
+        self._default_pos: Any = None
+
+    def _ensure_parsers(self) -> None:
+        if self._initialized:
+            return
+        mapper = self._doc.createInstance("com.sun.star.sheet.FormulaOpCodeMapper")
+        self._bad = int(mapper.getAvailableMappings(XL_ENGLISH, GROUP_SPECIAL)[SPECIAL_BAD].Token.OpCode)
         seps = {
             str(entry.Name): int(entry.Token.OpCode)
             for entry in mapper.getAvailableMappings(XL_ENGLISH, GROUP_ARRAY_SEPARATORS)
         }
-        self._array_open: int | None = seps.get("{")
-        self._array_seps: frozenset[int] = frozenset(v for k, v in seps.items() if k in (";", ","))
+        self._array_open = seps.get("{")
+        self._array_seps = frozenset(v for k, v in seps.items() if k in (";", ","))
 
         api_map = mapper.getAvailableMappings(API_LANGUAGE, GROUP_ALL)
         xl_map = mapper.getAvailableMappings(XL_ENGLISH, GROUP_ALL)
-        self._api: Any = self._make_parser(doc, CONV_OOO, api_map)
-        self._excel: Any = self._make_parser(doc, CONV_XL_A1, xl_map)
-        self._excel_refs: Any = self._make_parser(doc, CONV_XL_A1, None)
-        self._pos: Any = uno.createUnoStruct("com.sun.star.table.CellAddress")
+        self._api = self._make_parser(self._doc, CONV_OOO, api_map)
+        self._excel = self._make_parser(self._doc, CONV_XL_A1, xl_map)
+        self._excel_refs = self._make_parser(self._doc, CONV_XL_A1, None)
+        self._default_pos = uno.createUnoStruct("com.sun.star.table.CellAddress")
+        self._initialized = True
 
     @staticmethod
     def _make_parser(doc: Any, conv: int, opmap: Any) -> Any:
@@ -120,27 +134,39 @@ class FormulaDialects:
             parser.OpCodeMap = opmap
         return parser
 
-    def _clean(self, parser: Any, text: str) -> bool:
-        tokens = parser.parseFormula(text, self._pos)
+    def _clean(self, parser: Any, text: str, pos: Any) -> bool:
+        tokens = parser.parseFormula(text, pos)
         return accepted([int(t.OpCode) for t in tokens], self._bad, self._array_open, self._array_seps)
 
-    def to_api(self, text: str) -> str:
+    def to_api(self, text: str, pos: Any = None, *, sheet: int | None = None) -> str:
         """Return *text* in Calc's API grammar if an Excel dialect parses cleanly.
 
         Returns *text* unchanged if it already parses in Calc API grammar, does
         not need a dialect check, or fails to parse cleanly in every fallback
         grammar (so Calc reports its normal cell error on write).
+
+        *pos* (a ``CellAddress``) or *sheet* sets the reference scope used for
+        sheet-local named ranges.
         """
         if not needs_dialect_check(text):
             return text
-        if self._clean(self._api, text):
+        self._ensure_parsers()
+        if pos is not None:
+            ref_pos = pos
+        elif sheet is not None:
+            addr: Any = uno.createUnoStruct("com.sun.star.table.CellAddress")
+            addr.Sheet = sheet
+            ref_pos = addr
+        else:
+            ref_pos = self._default_pos
+        if self._clean(self._api, text, ref_pos):
             return text
         for parser, candidate in ((self._excel, strip_xlfn(text)), (self._excel_refs, text)):
-            tokens = parser.parseFormula(candidate, self._pos)
+            tokens = parser.parseFormula(candidate, ref_pos)
             if not accepted([int(t.OpCode) for t in tokens], self._bad, self._array_open, self._array_seps):
                 continue
-            out = ("=" if text.startswith("=") else "") + str(self._api.printFormula(tokens, self._pos))
-            if self._clean(self._api, out):
+            out = ("=" if text.startswith("=") else "") + str(self._api.printFormula(tokens, ref_pos))
+            if self._clean(self._api, out, ref_pos):
                 log.debug("Translated formula dialect: %r -> %r", text, out)
                 return out
         return text

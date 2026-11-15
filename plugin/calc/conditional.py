@@ -29,7 +29,7 @@ from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.cells import opt_color
-from plugin.calc.formula_dialect import FormulaDialects, needs_dialect_check
+from plugin.calc.formula_dialect import FormulaDialects
 
 from com.sun.star.awt import FontWeight
 from com.sun.star.table import CellAddress
@@ -199,11 +199,6 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         if operator not in ("DUPLICATE", "NOT_DUPLICATE") and not formula1.strip():
             return self._tool_error("formula1 is required for this operator.", code="MISSING_FORMULA")
 
-        if needs_dialect_check(formula1) or needs_dialect_check(formula2):
-            dialects = FormulaDialects(ctx.doc)
-            formula1 = dialects.to_api(formula1)
-            formula2 = dialects.to_api(formula2)
-
         cell_styles = ctx.doc.getStyleFamilies().getByName("CellStyles")
         if style_name and not cell_styles.hasByName(style_name):
             return self._tool_error(
@@ -249,6 +244,10 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         else:
             assert isinstance(style_name, str)
             resolved_style = style_name
+
+        dialects = FormulaDialects(ctx.doc)
+        formula1 = dialects.to_api(formula1, addr)
+        formula2 = dialects.to_api(formula2, addr)
 
         props = [
             create_property_value("Operator", idx),

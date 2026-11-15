@@ -136,14 +136,20 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     name_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["D2"], "values": "=FOO(1,2)"})
     assert name_res.get("error_cells") and name_res["error_cells"][0]["error"] == "#NAME?", name_res
 
-    # Calc syntax stays verbatim, including union (~) and inline array ({1;2|3;4}).
+    # Calc syntax stays verbatim, including union (~), intersection (!),
+    # string with comma, and inline array ({1;2|3;4}).
     calc_res = _execute_calc_tool(
         doc,
         ctx,
         "write_formula_range",
         {
-            "range": ["E1:E2"],
-            "values": [["=SUM(A1;B1)"], ["=SUM(A1:A2~B1:B2)"]],
+            "range": ["E1:E4"],
+            "values": [
+                ["=SUM(A1;B1)"],
+                ["=SUM(A1:A2~B1:B2)"],
+                ["=SUM(A1:B2!B1:C3)"],
+                ['=IF(A1>0;"a,b";0)'],
+            ],
         },
     )
     assert calc_res.get("status") == "ok", calc_res
@@ -152,6 +158,20 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     assert active.getCellByPosition(4, 0).getValue() == 6.0
     assert active.getCellByPosition(4, 1).getFormula() == "=SUM(A1:A2~B1:B2)"
     assert active.getCellByPosition(4, 1).getValue() == 14.0
+    assert active.getCellByPosition(4, 2).getFormula() == "=SUM(A1:B2!B1:C3)"
+    assert active.getCellByPosition(4, 2).getValue() == 9.0
+    assert active.getCellByPosition(4, 3).getFormula() == '=IF(A1>0;"a,b";0)'
+    assert active.getCellByPosition(4, 3).getString() == "a,b"
+
+    calc_arr = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_formula_range",
+        {"range": ["F1"], "values": "={1;2|3;4}", "array": True},
+    )
+    assert calc_arr.get("status") == "ok", calc_arr
+    assert calc_arr.get("array_range") == "Sheet1.F1:G2", calc_arr
+    assert active.getCellRangeByPosition(5, 0, 6, 1).getDataArray() == ((1.0, 2.0), (3.0, 4.0))
 
     # Structured reference (Calc-clean, raw) stays working.
     active.getCellByPosition(0, 4).setString("Col")
@@ -256,3 +276,22 @@ def test_excel_evaluate_conditional_and_named_range_uno(ctx, doc):
     sum_res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["D1"], "values": "=SUM(OrderNums)"})
     assert sum_res.get("status") == "ok", sum_res
     assert active.getCellByPosition(3, 0).getValue() == 15.0
+
+    # Sheet-local named range resolved on target sheet during Excel-dialect translation.
+    local_nr = _execute_calc_tool(
+        doc,
+        ctx,
+        "named_range_create",
+        {"name": "Rate", "content": "0.15", "scope": "Orders"},
+    )
+    assert local_nr.get("status") == "ok", local_nr
+    local_formula = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_formula_range",
+        {"range": ["Orders.B1"], "values": "=ROUND(Rate*A1,2)"},
+    )
+    assert local_formula.get("status") == "ok", local_formula
+    assert "error_cells" not in local_formula, local_formula
+    assert orders.getCellByPosition(1, 0).getFormula() == "=ROUND(Rate*A1;2)"
+    assert orders.getCellByPosition(1, 0).getValue() == 0.15

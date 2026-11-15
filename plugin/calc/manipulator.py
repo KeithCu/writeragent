@@ -218,13 +218,13 @@ class WritePlan(NamedTuple):
     notes: tuple[Diagnostic, ...] = ()
 
 
-def _calc_grammar_in_values(dialects: FormulaDialects, items: list[Any]) -> list[Any]:
+def _calc_grammar_in_values(dialects: FormulaDialects, items: list[Any], *, sheet: int | None = None) -> list[Any]:
     """Every formula in *items* in Calc's API grammar.
 
     Excel-style text (commas, Sheet!A1, {1,2;3,4}) is translated by
     ``FormulaDialects``; Calc text is returned as sent.
     """
-    return [dialects.to_api(v) if isinstance(v, str) and v.startswith("=") else v for v in items]
+    return [dialects.to_api(v, sheet=sheet) if isinstance(v, str) and v.startswith("=") else v for v in items]
 
 
 def _with_notes(result: dict[str, Any], notes: Sequence[Diagnostic]) -> dict[str, Any]:
@@ -401,6 +401,9 @@ def _write_report(
                 "A text label that starts with '=' must be written with a leading apostrophe ('=label). "
                 "Use error_detect on a cell for the cause."
             )
+            # Err:539 is unsupported inline array content ({1,2;3,4}), 525 is unresolved Sheet!A1, and
+            # 501/508/509 cover bad separators/brackets. FormulaDialects.to_api already translated
+            # single-dialect formulas before writing, so a failure still containing ',' or '!' means a mixed formula.
             if any(
                 e["error"]["error_code"] in (501, 508, 509, 525, 539)
                 and ("," in e["formula"] or "!" in e["formula"])
@@ -1491,7 +1494,7 @@ class CellManipulator:
             formulas_on = not literal_text and not data_text
 
             if formulas_on and isinstance(values, str) and values.startswith("="):
-                values = self.dialects.to_api(values)
+                values = self.dialects.to_api(values, sheet=getattr(addr, "Sheet", 0))
 
             # LibreOffice does not spill: setFormula on =SORT(FILTER(...)) shows only
             # the first value. A top-level dynamic-array function is entered with
@@ -1561,7 +1564,7 @@ class CellManipulator:
                     values = [values] * total
 
             if formulas_on and caller_list:
-                values = _calc_grammar_in_values(self.dialects, list(values))
+                values = _calc_grammar_in_values(self.dialects, list(values), sheet=getattr(addr, "Sheet", 0))
                 rows = end[1] - start[1] + 1
                 cols = end[0] - start[0] + 1
                 sheet_name = sheet.getName()

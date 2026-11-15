@@ -18,7 +18,7 @@ def _identity_formula_dialects(monkeypatch):
         def __init__(self, _doc):
             pass
 
-        def to_api(self, text: str) -> str:
+        def to_api(self, text: str, _pos=None, *, sheet=None) -> str:
             return text
 
     monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _IdentityDialects)
@@ -450,7 +450,7 @@ def test_evaluate_formula_writes_calc_grammar(monkeypatch):
         def __init__(self, _doc):
             pass
 
-        def to_api(self, text: str) -> str:
+        def to_api(self, text: str, _pos=None, *, sheet=None) -> str:
             return "=SUM(A1;B1)" if text == "=SUM(A1,B1)" else text
 
     monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _MappedDialects)

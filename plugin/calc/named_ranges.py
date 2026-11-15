@@ -31,7 +31,7 @@ from plugin.calc.address_utils import (
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
 from plugin.calc.calc_utils import range_args
-from plugin.calc.formula_dialect import FormulaDialects, needs_dialect_check
+from plugin.calc.formula_dialect import FormulaDialects
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, make_tool_ok, name_miss_details, uno_read
 from plugin.framework.i18n import _
@@ -333,8 +333,6 @@ class NamedRangeAdd(ToolCalcRangeBase):
             return self._tool_error(str(e), code="INVALID_FLAGS")
 
         doc = ctx.doc
-        if needs_dialect_check(content):
-            content = FormulaDialects(doc).to_api(content)
         container, effective_scope, sheet_obj = _resolve_container(doc, scope)
         if container.hasByName(name):
             return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
@@ -344,6 +342,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
         except ValueError as ve:
             return self._tool_error(f"Invalid base_cell address '{base_cell}': {ve}", code="INVALID_BASE_CELL")
 
+        content = FormulaDialects(doc).to_api(content, pos)
         container.addNewByName(name, content, pos, type_mask)
         log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
         return make_tool_ok(message=f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'.")
@@ -410,10 +409,8 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
         pending: list[tuple[Callable[[Any], Any], Any]] = []
         if content is not None:
-            new_content = content.strip()
-            if needs_dialect_check(new_content):
-                new_content = FormulaDialects(doc).to_api(new_content)
-            pending.append((nr.setContent, new_content))
+            ref_pos = pos if pos is not None else nr.getReferencePosition()
+            pending.append((nr.setContent, FormulaDialects(doc).to_api(content.strip(), ref_pos)))
         if type_mask is not None:
             pending.append((nr.setType, type_mask))
         if pos is not None:

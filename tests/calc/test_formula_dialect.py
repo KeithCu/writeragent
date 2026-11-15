@@ -83,8 +83,10 @@ class _FakeDoc:
     def __init__(self, parsers: list[_ScriptedParser]) -> None:
         self._mapper = _FakeMapper()
         self._parsers = iter(parsers)
+        self.create_calls: list[str] = []
 
     def createInstance(self, service: str) -> Any:
+        self.create_calls.append(service)
         if service == "com.sun.star.sheet.FormulaOpCodeMapper":
             return self._mapper
         if service == "com.sun.star.sheet.FormulaParser":
@@ -135,12 +137,11 @@ def test_to_api_clean_returns_input_without_printing() -> None:
     xl_refs = _ScriptedParser(lambda _t: [_BAD_OP])
     dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs]))
 
+    assert dialects.to_api('="a,b"') == '="a,b"'
     assert api.FormulaConvention == CONV_OOO
     assert xl.FormulaConvention == CONV_XL_A1
     assert xl_refs.FormulaConvention == CONV_XL_A1
     assert xl_refs.OpCodeMap is None
-
-    assert dialects.to_api('="a,b"') == '="a,b"'
     assert api.print_calls == []
     assert xl.parse_calls == []
 
@@ -191,3 +192,11 @@ def test_to_api_returns_input_when_all_grammars_fail() -> None:
     dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs]))
 
     assert dialects.to_api("=SUM(Orders.A1,B1)") == "=SUM(Orders.A1,B1)"
+
+
+def test_to_api_skips_create_instance_for_plain_formula() -> None:
+    fake_doc = _FakeDoc([])
+    dialects = FormulaDialects(fake_doc)
+
+    assert dialects.to_api("=A1*2") == "=A1*2"
+    assert fake_doc.create_calls == []
