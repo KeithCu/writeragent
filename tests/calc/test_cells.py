@@ -1768,7 +1768,48 @@ def test_set_cell_style_validation():
         manipulator.reset_mock()
         res_fmt = _tool("set_style").execute_safe(ctx, range=["A1"], number_format="#,##0.00 ")
         assert res_fmt["status"] == "ok"
-        assert manipulator.set_cell_style.call_args.kwargs["number_format"] == "#,##0.00 "
+        assert manipulator.set_cell_style.call_args.kwargs["number_format_key"] is manipulator.number_format_key.return_value
+
+
+def test_set_style_border_mode_none_with_color_is_refused():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = _tool("set_style").execute_safe(ctx, range=["A1:B2"], border_mode="none", border_color="red")
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+
+def test_set_style_border_color_alone_draws_all():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = _tool("set_style").execute_safe(ctx, range=["A1:B2"], border_color="#112233")
+        assert res["status"] == "ok"
+        assert manipulator.set_cell_style.call_args.kwargs["border_mode"] == "all"
+        assert manipulator.set_cell_style.call_args.kwargs["border_color"] == 0x112233
+
+
+def test_set_style_layout_validation():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+
+        res_zero = _tool("set_style").execute_safe(ctx, range=["A1"], column_width_mm=0)
+        assert res_zero["status"] == "error"
+        assert res_zero["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+        res_conflict = _tool("set_style").execute_safe(ctx, range=["A1"], autofit="both", row_height_mm=10)
+        assert res_conflict["status"] == "error"
+        assert res_conflict["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+        res_ok = _tool("set_style").execute_safe(ctx, range=["A1"], autofit="rows", column_width_mm=15)
+        assert res_ok["status"] == "ok"
+        assert manipulator.set_cell_style.call_args.kwargs["column_width"] == 1500
+        assert manipulator.set_cell_style.call_args.kwargs["autofit"] == "rows"
 
 
 def test_merge_cells_validation():

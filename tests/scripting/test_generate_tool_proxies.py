@@ -591,29 +591,6 @@ def test_union_array_string_type_emits_union_annotation():
     assert "def apply_document_content(self, content: list[str] | str) -> dict[str, Any]:" in code
 
 
-def test_scripting_only_extra_in_signature_doc_and_rpc():
-    class ToolWithExtra(MockTool):
-        scripting_only_parameters = ("number_format",)
-
-    tool = ToolWithExtra(
-        "set_style",
-        "Set cell style.",
-        {
-            "type": "object",
-            "properties": {"range_name": {"type": "string"}},
-            "required": ["range_name"],
-        },
-    )
-    pos, kw = schema_to_signature(_as_tool(tool))
-    assert pos == ["range_name: str"]
-    assert kw == ["number_format: str | None = None"]
-    code = generate_module([_as_tool(tool)])
-    compile(code, "<generated>", "exec")
-    assert "def set_style(self, range_name: str, *, number_format: str | None = None) -> dict[str, Any]:" in code
-    assert "number_format (optional): Scripting-only parameter." in code
-    assert 'return call_host_tool("set_style", range_name=range_name, number_format=number_format)' in code
-
-
 def test_proxy_qualifies_list_annotation_when_list_method_present():
     chart_upsert = MockTool(
         "chart_upsert",

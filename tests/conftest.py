@@ -504,6 +504,7 @@ lang = _create_mock_module("com.sun.star.lang")
 
 util = _create_mock_module("com.sun.star.util")
 setattr(util, "XModifyListener", MockBase)  # ReviewModifyListener in review_view_attachment subclasses it
+setattr(util, "MalformedNumberFormatException", type("MalformedNumberFormatException", (Exception,), {}))
 
 
 class MockXEventListener:

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-    from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
+    from com.sun.star.table import BorderLineStyle, TableSortField
     from plugin.calc.python.diagnostics import DiagnosticEntry
     from plugin.calc.python.formula_edit import PyFormula
 else:
@@ -43,7 +43,7 @@ else:
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-        from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
+        from com.sun.star.table import BorderLineStyle, TableSortField
     except ImportError:
         pass
 
@@ -88,6 +88,9 @@ _MAX_REPORTED_CELLS = 10
 # Per-range write-report keys merged by multi-range callers.
 WRITE_REPORT_KEYS: tuple[str, ...] = ("error_cells", "text_that_looks_numeric", "apostrophe_removed", "warnings")
 _PY_PLACEMENT_SCAN_COLS = 26
+_BORDER_LINE_WIDTH = 50  # 1/100 mm
+# com.sun.star.util.NumberFormat type constants (offapi/com/sun/star/util/NumberFormat.idl).
+_NUMBER_FORMAT_PRESETS: dict[str, int] = {"general": 16, "currency": 8, "percent": 128}
 
 # Calc declares VertJustify as a long (sc/source/ui/unoobj/cellsuno.cxx,
 # SC_UNONAME_CELLVJUS). SvxVerJustifyItem::PutValue
@@ -668,33 +671,39 @@ class CellManipulator:
                     arr_name = format_range(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow)
                     raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
 
-    def _apply_borders(self, obj: Any, color: int) -> None:
-        """Apply borders to a cell or range object."""
+    def _apply_borders(self, obj: Any, mode: str, color: int) -> None:
+        """Apply or clear borders on a cell or range using ``TableBorder2``."""
+        import uno
 
-        def borders2() -> bool:
-            import uno
-            line = uno.createUnoStruct("com.sun.star.table.BorderLine2")
-            setattr(line, "Color", color)
-            setattr(line, "OuterLineWidth", 50)
-            setattr(line, "LineStyle", BorderLineStyle.SOLID)
-
-            obj.setPropertyValue("TopBorder2", line)
-            obj.setPropertyValue("BottomBorder2", line)
-            obj.setPropertyValue("LeftBorder2", line)
-            obj.setPropertyValue("RightBorder2", line)
-            return True
-
-        if uno_read(borders2, False):
-            return
-
-        line = BorderLine()
-        setattr(line, "Color", color)
-        line.OuterLineWidth = 50  # 1/100 mm; 50 == 0.5 mm
-
-        obj.setPropertyValue("TopBorder", line)
-        obj.setPropertyValue("BottomBorder", line)
-        obj.setPropertyValue("LeftBorder", line)
-        obj.setPropertyValue("RightBorder", line)
+        # Per-side TopBorder2/BottomBorder2/LeftBorder2/RightBorder2 on a range boxes every cell
+        # (cellsuno.cxx comment above lcl_GetCellsPropertySet), whereas TableBorder2 separates the
+        # outer frame from inner grid lines (ScHelperFunctions::FillBoxItems). Setting Is*LineValid=True
+        # with an empty BorderLine2 removes that line.
+        line = uno.createUnoStruct(
+            "com.sun.star.table.BorderLine2",
+            Color=color,
+            OuterLineWidth=_BORDER_LINE_WIDTH,
+            LineStyle=BorderLineStyle.SOLID,
+        )
+        empty = uno.createUnoStruct("com.sun.star.table.BorderLine2")
+        outer = line if mode in ("all", "outline") else empty
+        inner = line if mode in ("all", "inner") else empty
+        tb = uno.createUnoStruct(
+            "com.sun.star.table.TableBorder2",
+            TopLine=outer,
+            BottomLine=outer,
+            LeftLine=outer,
+            RightLine=outer,
+            HorizontalLine=inner,
+            VerticalLine=inner,
+            IsTopLineValid=True,
+            IsBottomLineValid=True,
+            IsLeftLineValid=True,
+            IsRightLineValid=True,
+            IsHorizontalLineValid=True,
+            IsVerticalLineValid=True,
+        )
+        obj.setPropertyValue("TableBorder2", tb)
 
     # ── Style operations ───────────────────────────────────────────────
 
@@ -710,9 +719,13 @@ class CellManipulator:
         v_align: str | None = None,
         wrap_text: bool | None = None,
         border_color: int | None = None,
-        number_format: str | None = None,
+        border_mode: str | None = None,
+        number_format_key: int | None = None,
+        column_width: int | None = None,
+        row_height: int | None = None,
+        autofit: str | None = None,
     ) -> None:
-        """Apply style to a cell or range.
+        """Apply style and layout to a cell or range.
 
         Args:
             address_or_range: Cell address, range, or named range (e.g. "A1", "A1:D10", or "Totals").
@@ -725,7 +738,11 @@ class CellManipulator:
             v_align: Vertical alignment ("top", "center", "bottom").
             wrap_text: Wrap text flag.
             border_color: Border colour (RGB int).
-            number_format: Number format string (e.g. "#,##0.00").
+            border_mode: Border mode ("all", "outline", "inner", "none").
+            number_format_key: Resolved Calc NumberFormat key.
+            column_width: Column width in 1/100 mm.
+            row_height: Row height in 1/100 mm.
+            autofit: Autofit mode ("columns", "rows", "both").
         """
         target = self.bridge.resolve_range_or_address(address_or_range)
         if bold is not None:
@@ -748,20 +765,48 @@ class CellManipulator:
                 target.setPropertyValue("VertJustify", vert)
         if wrap_text is not None:
             target.setPropertyValue("IsTextWrapped", wrap_text)
-        if border_color is not None:
-            self._apply_borders(target, border_color)
-        if number_format:
-            self._set_number_format(target, number_format)
+        if border_mode is not None:
+            self._apply_borders(target, border_mode, 0 if border_color is None else border_color)
+        if number_format_key is not None:
+            target.setPropertyValue("NumberFormat", number_format_key)
+        # Apply layout last so autofit measures the final font, wrap, and number format.
+        # Setting Width/Height or OptimalWidth/OptimalHeight on the column/row collection
+        # records an undo step; OptimalWidth=False has no effect (docuno.cxx
+        # ScTableColumnsObj::setPropertyValue).
+        if column_width is not None:
+            target.getColumns().setPropertyValue("Width", column_width)
+        elif autofit in ("columns", "both"):
+            target.getColumns().setPropertyValue("OptimalWidth", True)
+        if row_height is not None:
+            target.getRows().setPropertyValue("Height", row_height)
+        elif autofit in ("rows", "both"):
+            target.getRows().setPropertyValue("OptimalHeight", True)
         log.info("%s style updated.", address_or_range.upper())
 
-    def _set_number_format(self, target: Any, format_str: str) -> None:
+    def number_format_key(self, format_str: str) -> int:
+        """Resolve a preset name or en-US format code to a document NumberFormat key."""
+        import uno
+        from com.sun.star.util import MalformedNumberFormatException
+
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
         locale = resolve_document_locale(doc)
-        format_id = formats.queryKey(format_str, locale, False)
-        if format_id == -1:
-            format_id = formats.addNew(format_str, locale)
-        target.setPropertyValue("NumberFormat", format_id)
+        preset = _NUMBER_FORMAT_PRESETS.get(format_str.strip().lower())
+        if preset is not None:
+            # Presets match LibreOffice's toolbar buttons (viewfunc.cxx ScViewFunc::SetNumberFormat);
+            # getFormatIndex currency indices return legacy DM/F codes. "general" is a preset
+            # because addNewConverted("General") throws when General is key 0 (numfmuno.cxx).
+            return int(formats.getStandardFormat(preset, locale))
+        en_us = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
+        try:
+            # Format codes are parsed as en-US and converted to the document locale (matching oox
+            # numberformatsbuffer.cxx lclCreateFormat) so "#,##0.00" is not garbled in e.g. de-DE.
+            return int(formats.addNewConverted(format_str, en_us, locale))
+        except MalformedNumberFormatException:
+            raise CalcError(
+                f"Invalid number_format {format_str!r}: use currency, percent, general, or an en-US code such as '#,##0.00'.",
+                code="INVALID_PARAM",
+            ) from None
 
     # ── Range operations ───────────────────────────────────────────────
 

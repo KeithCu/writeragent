@@ -1014,3 +1014,29 @@ def test_commit_quotes_the_py_run_error():
             res_spill = manipulator.commit_write(plan_spill)
     assert "B1 shows #SPILL!" in res_spill["message"]
     assert "Sheet1.B1:C1" in res_spill["message"]
+
+
+def test_number_format_key_malformed_code_is_invalid_param():
+    from com.sun.star.util import MalformedNumberFormatException
+
+    doc = MagicMock()
+    formats = doc.getNumberFormats.return_value
+    formats.addNewConverted.side_effect = MalformedNumberFormatException("bad format")
+    manipulator = CellManipulator(SimpleNamespace(doc=doc))
+    with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+        with pytest.raises(CalcError) as exc_info:
+            manipulator.number_format_key("bogus[[[")
+    assert exc_info.value.code == "INVALID_PARAM"
+
+
+def test_number_format_key_general_preset_skips_conversion():
+    doc = MagicMock()
+    formats = doc.getNumberFormats.return_value
+    formats.getStandardFormat.return_value = 0
+    locale = MagicMock()
+    manipulator = CellManipulator(SimpleNamespace(doc=doc))
+    with patch("plugin.calc.manipulator.resolve_document_locale", return_value=locale):
+        key = manipulator.number_format_key("General")
+    assert key == 0
+    formats.getStandardFormat.assert_called_once_with(16, locale)
+    formats.addNewConverted.assert_not_called()
