@@ -515,6 +515,8 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '',
     '    Raises the tool failure for status error or a non-dict response. An ok',
     '    status key is dropped; other statuses (skipped, partial) stay readable.',
+    '    Callers must not check res.get("status") == "ok" because ok is stripped;',
+    '    errors raise RuntimeError instead.',
     '    """',
     '    if not isinstance(res, dict) or res.get("status") == "error":',
     '        raise _tool_failure(res)',
@@ -537,8 +539,7 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '        yield from items',
     '        if not items or not (res.get("has_more") or res.get("truncated")):',
     '            return',
-    '        next_idx = res.get("next_index")',
-    '        start = next_idx if isinstance(next_idx, int) else start + len(items)',
+    '        start = res.get("next_index", start + len(items))',
     '',
     '',
     'def _require_str_key(key: object) -> str:',
@@ -979,7 +980,8 @@ def _paged_doc(ns: str, dropped_optionals: list[str]) -> str:
     return (
         f"Iterator form: ``for item in wa.{ns}`` reads every page lazily, one host RPC per page, "
         "as dict items whose keys also read as attributes. Each page is a fresh snapshot, so "
-        f"collect ``list(wa.{ns})`` before deleting in a loop. It passes no optional arguments"
+        f"collect ``list(wa.{ns})`` before deleting in a loop. Membership (``in``) compares rows, "
+        f"not names; test ``any(r.get('name') == n for r in wa.{ns})``. It passes no optional arguments"
         f"{arg_note}; filter the items in Python."
     )
 

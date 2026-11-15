@@ -952,24 +952,53 @@ def test_collection_drops_optional_arguments():
                 {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
             ),
         ],
-        # Paged list parameter on a collection namespace
-        [
-            MockTool(
-                "bookmark_list",
-                "List.",
-                {"type": "object", "properties": {"start_index": {"type": "integer"}}},
-            ),
-            MockTool(
-                "bookmark_delete",
-                "Delete.",
-                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
-            ),
-        ],
     ],
 )
 def test_collection_namespace_shape_errors(bad_tools):
     with pytest.raises(ValueError, match="bookmark"):
         generate_module([_as_tool(t) for t in bad_tools])
+
+
+def test_collection_namespace_rejects_paging_parameter():
+    tools = [
+        _as_tool(
+            MockTool(
+                "bookmark_list",
+                "List.",
+                {"type": "object", "properties": {"start_index": {"type": "integer"}}},
+            )
+        ),
+        _as_tool(
+            MockTool(
+                "bookmark_delete",
+                "Delete.",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            )
+        ),
+    ]
+    with pytest.raises(ValueError, match="paging parameter"):
+        generate_module(tools)
+
+
+def test_paging_start_param_rejects_required_parameters():
+    tools = [
+        _as_tool(
+            MockTool(
+                "comment_list",
+                "List.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "scope": {"type": "string"},
+                        "start_index": {"type": "integer"},
+                    },
+                    "required": ["scope"],
+                },
+            )
+        ),
+    ]
+    with pytest.raises(ValueError, match="must not have required parameters"):
+        generate_module(tools)
 
 
 def test_collection_rejects_non_dict_list_entries():

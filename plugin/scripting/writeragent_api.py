@@ -88,6 +88,8 @@ def _result(res: Any) -> _Item:
 
     Raises the tool failure for status error or a non-dict response. An ok
     status key is dropped; other statuses (skipped, partial) stay readable.
+    Callers must not check res.get("status") == "ok" because ok is stripped;
+    errors raise RuntimeError instead.
     """
     if not isinstance(res, dict) or res.get("status") == "error":
         raise _tool_failure(res)
@@ -110,8 +112,7 @@ def _iter_pages(tool_name: str, start_key: str) -> Iterator[_Item]:
         yield from items
         if not items or not (res.get("has_more") or res.get("truncated")):
             return
-        next_idx = res.get("next_index")
-        start = next_idx if isinstance(next_idx, int) else start + len(items)
+        start = res.get("next_index", start + len(items))
 
 
 def _require_str_key(key: object) -> str:
@@ -981,7 +982,7 @@ class _CommentProxy:
             start_index (optional): Zero-based row to start this page at (default 0).
             max_comments (optional): Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.
 
-        Iterator form: ``for item in wa.comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.comment)`` before deleting in a loop. It passes no optional arguments (author_filter, max_comments); filter the items in Python.
+        Iterator form: ``for item in wa.comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.comment)`` before deleting in a loop. Membership (``in``) compares rows, not names; test ``any(r.get('name') == n for r in wa.comment)``. It passes no optional arguments (author_filter, max_comments); filter the items in Python.
         """
         return _result(call_host_tool("comment_list", author_filter=author_filter, start_index=start_index, max_comments=max_comments))
 
@@ -2041,7 +2042,7 @@ class _PageCommentProxy:
             page (optional): 0-based page index (all pages if omitted).
             offset (optional): Skip this many comments in deck order (default 0).
 
-        Iterator form: ``for item in wa.page_comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.page_comment)`` before deleting in a loop. It passes no optional arguments (page); filter the items in Python.
+        Iterator form: ``for item in wa.page_comment`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.page_comment)`` before deleting in a loop. Membership (``in``) compares rows, not names; test ``any(r.get('name') == n for r in wa.page_comment)``. It passes no optional arguments (page); filter the items in Python.
         """
         return _result(call_host_tool("page_comment_list", page=page, offset=offset))
 
@@ -2875,7 +2876,7 @@ class _TrackingProxy:
             start_index (optional): Zero-based row to start this page at (default 0).
             max_changes (optional): Maximum rows to return (default 100).
 
-        Iterator form: ``for item in wa.tracking`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.tracking)`` before deleting in a loop. It passes no optional arguments (max_changes); filter the items in Python.
+        Iterator form: ``for item in wa.tracking`` reads every page lazily, one host RPC per page, as dict items whose keys also read as attributes. Each page is a fresh snapshot, so collect ``list(wa.tracking)`` before deleting in a loop. Membership (``in``) compares rows, not names; test ``any(r.get('name') == n for r in wa.tracking)``. It passes no optional arguments (max_changes); filter the items in Python.
         """
         return _result(call_host_tool("tracking_list", start_index=start_index, max_changes=max_changes))
 
