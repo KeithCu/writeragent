@@ -469,7 +469,12 @@ def _run_web_agent(
     )
     agent = WebResearchToolCallingAgent(
         tools=[
-            DuckDuckGoSearchTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days),
+            DuckDuckGoSearchTool(
+                cache_path=params.cache_path,
+                cache_max_mb=params.cache_max_mb,
+                cache_max_age_days=params.cache_max_age_days,
+                cancel=params.cancel,
+            ),
             visit_tool,
         ],
         model=params.smol_model,
@@ -637,7 +642,12 @@ def _run_deep_web_research(
 
     initial_snippet = ""
     try:
-        preview = DuckDuckGoSearchTool(cache_path=agent_params.cache_path, cache_max_mb=agent_params.cache_max_mb, cache_max_age_days=agent_params.cache_max_age_days)
+        preview = DuckDuckGoSearchTool(
+            cache_path=agent_params.cache_path,
+            cache_max_mb=agent_params.cache_max_mb,
+            cache_max_age_days=agent_params.cache_max_age_days,
+            cancel=agent_params.cancel,
+        )
         initial_snippet = str(preview.forward(query_str))[:4000]
     except Exception as preview_exc:
         log.debug("deep_research preview search skipped: %s", preview_exc)

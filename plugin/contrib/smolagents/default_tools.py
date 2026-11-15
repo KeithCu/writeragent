@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 
+from plugin.framework.client.requests import sync_request
 from plugin.framework.constants import BROWSER_USER_AGENT, USER_AGENT
+from plugin.framework.errors import NetworkError
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.url_utils import get_url_hostname, is_pdf_url
 try:
     from plugin.chatbot.history_db import HAS_SQLITE, sqlite3
@@ -268,6 +271,16 @@ class UserInputTool(Tool):
 '''
 
 _RECENCY_TO_DF = {"day": "d", "week": "w", "month": "m", "year": "y"}
+_SEARCH_URL = "https://lite.duckduckgo.com/lite/"
+_SEARCH_READ_TIMEOUT_SEC = 10
+# DDG handshakes succeed in ~0.07 s; a stalled one gets 5 s per attempt instead of waiting the full LLM connect timeout.
+_SEARCH_CONNECT_TIMEOUT_SEC = 5
+_SEARCH_UNAVAILABLE = (
+    "Error fetching search results: the search service did not answer after several attempts. "
+    "This is a network or rate-limit problem, not a problem with the query, so rewording the query will not help. "
+    "Use visit_webpage on URLs you already have, or call final_answer with what you found and say that web search was unavailable."
+)
+_SEARCH_STOPPED = "Error fetching search results: stopped by user."
 
 def _norm_recency(value):
     """Normalize recency to a cache-key token. Unknown or unset values are 'any'."""
@@ -299,12 +312,21 @@ class DuckDuckGoSearchTool(Tool):
     }
     output_type = "string"
 
-    def __init__(self, cache_max_age_days: int, max_results: int = 10, cache_path: str | None = None, cache_max_mb: int = 50, **kwargs):
+    def __init__(
+        self,
+        cache_max_age_days: int,
+        max_results: int = 10,
+        cache_path: str | None = None,
+        cache_max_mb: int = 50,
+        cancel: SendCancellation | None = None,
+        **kwargs,
+    ):
         super().__init__()
         self.max_results = max_results
         self._cache_path = cache_path
         self._cache_max_mb = max(cache_max_mb, 0)
         self._cache_max_age_days = max(cache_max_age_days, 1)
+        self._cancel = cancel
 
     def forward(self, query: str, recency: str | None = None) -> str:
         cache_key = _search_cache_key(query, recency)
@@ -315,20 +337,37 @@ class DuckDuckGoSearchTool(Tool):
                 return cached
             log.debug("web_cache: search miss: %s" % (cache_key[:60] + "..." if len(cache_key) > 60 else cache_key))
 
-        import urllib.request
         import urllib.parse
         from html.parser import HTMLParser
 
-        url = "https://lite.duckduckgo.com/lite/"
         params = {"q": query}
         df = _RECENCY_TO_DF.get(_norm_recency(recency))
         if df:
             params["df"] = df
         data = urllib.parse.urlencode(params).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers={"User-Agent": _get_user_agent_for_url(url)})
+        # http.client does not add Content-Type automatically; without it DDG Lite answers 200 with an empty page.
+        headers = {
+            "User-Agent": _get_user_agent_for_url(_SEARCH_URL),
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
         try:
-            with urllib.request.urlopen(req, timeout=10) as response:
-                html = response.read().decode("utf-8")
+            # Retry, backoff, Stop cancellation, and per-host cooldown come from LlmHttpTransport.exchange.
+            raw = sync_request(
+                _SEARCH_URL,
+                data,
+                headers,
+                parse_json=False,
+                timeout=_SEARCH_READ_TIMEOUT_SEC,
+                connect_timeout=_SEARCH_CONNECT_TIMEOUT_SEC,
+                cancel=self._cancel,
+            )
+            html = raw.decode("utf-8")
+        except NetworkError as e:
+            if e.code == "STOPPED":
+                return _SEARCH_STOPPED
+            log.warning("web_search failed after shared retries: %s", e)
+            # Fixed message tells the model that rewording the query will not fix a network or rate-limit failure.
+            return _SEARCH_UNAVAILABLE
         except Exception as e:
             return f"Error fetching search results: {str(e)}"
 

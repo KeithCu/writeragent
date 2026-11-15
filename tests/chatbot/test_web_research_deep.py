@@ -953,6 +953,22 @@ def test_deep_preview_approval_uses_edited_query():
     assert captured["approval"] is None
 
 
+def test_deep_preview_search_honours_stop():
+    from plugin.chatbot.web_research import _run_deep_web_research
+
+    params = _deep_preview_params(None)
+    params.cancel.cancel()
+    with patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
+         patch("plugin.framework.config.get_config", return_value=1), \
+         patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
+         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
+         patch("http.client.HTTPSConnection") as https_conn:
+        out = _run_deep_web_research(MagicMock(), "topic", params)
+    assert out == ("report", "topic")
+    https_conn.assert_not_called()
+    assert "stopped by user" in run_deep.call_args.kwargs["initial_search_snippet"]
+
+
 class _RecordingClient:
     instances: list["_RecordingClient"] = []
 

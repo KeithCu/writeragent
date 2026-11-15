@@ -36,6 +36,8 @@ Exposed in [`plugin/chatbot/web_research.py`](../../plugin/chatbot/web_research.
 
 `web_search` accepts an optional `recency` (`day`/`week`/`month`/`year`/`any`) that maps to DuckDuckGo Lite's `df` time filter. Search-cache keys include that token so filtered hits do not collide with evergreen ones. Today's date is injected by [`LlmClient`](../../plugin/framework/client/llm_client.py), not a second research prompt.
 
+`web_search` POSTs to DuckDuckGo Lite through [`sync_request`](../../plugin/framework/client/requests.py) with an explicit `Content-Type: application/x-www-form-urlencoded` header (which `http.client` does not add automatically). Each search gets up to 3 attempts on a fresh connection with the shared jittered backoff and per-host cooldown, a 5 s connect budget, and a 10 s read budget. Stop (`SendCancellation`) aborts the connect worker or backoff wait and returns a stopped message. A non-200 response (including DDG's 202) or exhausted retries returns a fixed "service unavailable, do not reword" message to the model and is not cached.
+
 ### Prompt for web research (HITL)
 
 When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), a shallow run blocks on each internal `web_search` until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via `web_research` / delegate) and in dedicated **Web Research** sidebar mode. Deep research asks once. Reject returns `USER_STOPPED` and does not start the loop. Change uses the edited query for the preview, the research loop, and the cache write. Sub-queries do not ask again: the sidebar has one approval slot, and a second prompt is treated as Stop. If approval setup itself fails, the search does not run.
@@ -57,7 +59,7 @@ This is the core engine of the sub-agent approach. It contains the `ToolCallingA
 This file defines the base `Tool` class and the infrastructure for exposing Python functions to the LLM. It contains the logic for inspecting function signatures, generating JSON schemas, and securely mapping the LLM's requested arguments to the actual Python execution. It is vital for ensuring the agent can understand what tools are available and how to call them correctly.
 
 **`plugin/contrib/smolagents/default_tools.py`**
-This file houses the actual tools that the web search sub-agent relies on to achieve its goals. Most notably, it contains `DuckDuckGoSearchTool` for querying the web and `VisitWebpageTool` for scraping actual page content. We have completely overhauled this file to use only standard Python libraries (`urllib.request` and `html.parser`), eliminating the need for `requests`, `beautifulsoup4`, or `markdownify`.
+This file houses the actual tools that the web search sub-agent relies on to achieve its goals. Most notably, it contains `DuckDuckGoSearchTool` for querying the web (via [`sync_request`](../../plugin/framework/client/requests.py)) and `VisitWebpageTool` for scraping actual page content (via `urllib.request`), using `html.parser` instead of `requests`, `beautifulsoup4`, or `markdownify`.
 
 **[`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py)**
 This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provides `WriterAgentSmolModel` (implements `smolagents.models.Model`), plus `to_smol_inputs` / `SmolToolAdapter` and `build_toolcalling_agent`. This ensures the sub-agent uses the exact same model preferences, API keys, and enterprise endpoints configured by the user.
@@ -78,7 +80,7 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 
 **What is Done:**
 - **Vendoring core files**: Copied `agents.py`, `models.py`, `tools.py`, `default_tools.py`, etc. to `plugin/contrib/smolagents`.
-- **Tool Adaptation**: Completely rewrote `DuckDuckGoSearchTool` and `VisitWebpageTool` in `default_tools.py` to use `urllib.request` and standard library parsers, with a realistic Firefox user agent to reduce 403s.
+- **Tool Adaptation**: Rewrote `DuckDuckGoSearchTool` (using [`sync_request`](../../plugin/framework/client/requests.py)) and `VisitWebpageTool` (using `urllib.request`) in `default_tools.py` with standard library HTML parsers and a realistic Firefox user agent to reduce 403s.
 - **Model Wrapper**: Built `WriterAgentSmolModel` ([`plugin/chatbot/smol_agent.py`](../../plugin/chatbot/smol_agent.py)) to connect the sub-agent directly to WriterAgent's existing `LlmClient`.
 - **Tool Registration**: Registered the `search_web` / web-research path so the ReAct loop runs via the shared smol agent construction.
 - **YAML/Jinja2 removal for ToolCallingAgent**: Replaced `populate_template()` in `ToolCallingAgent.initialize_system_prompt()` with `_render_toolcalling_system_prompt()` and prompts in `toolcalling_agent_prompts.py` using simple placeholders. The search_web path no longer depends on Jinja2.

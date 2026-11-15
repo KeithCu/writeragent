@@ -13,8 +13,7 @@ Concurrency: each ``LlmHttpTransport`` owns one keep-alive HTTP connection
 (the stdlib ``http.client`` object). That object is not safe for two threads
 to ``request`` / ``getresponse`` at once, so callers create a **new**
 ``LlmClient`` (and thus a new transport) per job — sidebar chat, grammar, a
-Calc ``=PROMPT()`` cell, and smolagents each have their own. Catalog, speech,
-and image-URL downloads use a short-lived transport around ``exchange``.
+Calc ``=PROMPT()`` cell, and smolagents each have their own. Catalog, speech, image-URL downloads, and web search use a short-lived transport around ``exchange``.
 When the user hits Stop, another thread calls ``close()`` and shuts the
 socket while the worker may still be blocked in ``getresponse``. That abort
 is intentional. Do not put a lock around ``send()`` to make HTTP thread-safe:
@@ -109,6 +108,7 @@ class LlmHttpTransport:
     _timeout_getter: Callable[[], int | float]
     _pacer: RequestPacer
     _openrouter_getter: Callable[[], bool] | None
+    _connect_timeout: float
 
     def __init__(
         self,
@@ -116,11 +116,14 @@ class LlmHttpTransport:
         timeout_getter: Callable[[], int | float],
         *,
         openrouter_getter: Callable[[], bool] | None = None,
+        connect_timeout: float | None = None,
     ) -> None:
         self._endpoint_getter = endpoint_getter
         self._timeout_getter = timeout_getter
         self._pacer = RequestPacer()
         self._openrouter_getter = openrouter_getter
+        # Read default at construction time so tests monkeypatching LLM_CONNECT_TIMEOUT_SEC still apply.
+        self._connect_timeout = LLM_CONNECT_TIMEOUT_SEC if connect_timeout is None else float(connect_timeout)
         self._persistent_conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
         self._conn_key: tuple[str, str, int, str] | None = None
         # Set while exchange follows a redirect onto a different origin.
@@ -175,9 +178,9 @@ class LlmHttpTransport:
         # connect returns.
         if scheme == "https":
             ssl_context = get_verified_ssl_context() if ssl_mode == "verified" else get_unverified_ssl_context()
-            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=LLM_CONNECT_TIMEOUT_SEC)
+            self._persistent_conn = http.client.HTTPSConnection(host, port, context=ssl_context, timeout=self._connect_timeout)
         else:
-            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=LLM_CONNECT_TIMEOUT_SEC)
+            self._persistent_conn = http.client.HTTPConnection(host, port, timeout=self._connect_timeout)
 
         # http.client defaults auto_open=1, so Stop's conn.close() between the
         # last stop check and conn.request() would silently reconnect and send.
@@ -300,7 +303,7 @@ class LlmHttpTransport:
         """
         outcome: dict[str, Any] = {}
         cancelled = threading.Event()
-        conn.timeout = LLM_CONNECT_TIMEOUT_SEC
+        conn.timeout = self._connect_timeout
 
         def _do_connect() -> None:
             try:
@@ -315,7 +318,7 @@ class LlmHttpTransport:
         # dedicated: the caller joins this worker. A pooled job joined from
         # a pool thread deadlocks the two-worker background pool.
         handle = run_in_background(_do_connect, name="http-connect", dedicated=True)
-        deadline = time.monotonic() + float(LLM_CONNECT_TIMEOUT_SEC)
+        deadline = time.monotonic() + float(self._connect_timeout)
         while not outcome.get("done"):
             if is_cancelled(cancel):
                 cancelled.set()
