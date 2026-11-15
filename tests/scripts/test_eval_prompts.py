@@ -124,3 +124,19 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     assert worker.is_alive() is False
     assert result and isinstance(result[0], str)
     assert FLAG_HARNESS_NOTE in result[0]
+
+
+def test_eval_system_prompt_builds_calc_writer_draw_without_uno(monkeypatch) -> None:
+    """Eval system prompts for calc, writer, and draw must build without a live office context."""
+    from plugin.framework.config import reset_config_for_tests
+
+    reset_config_for_tests()
+    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: None)
+    try:
+        for task_id in ("data_sorting", "table_from_mess", "flowchart_gen"):
+            prompt = get_eval_system_prompt(task_id)
+            assert isinstance(prompt, str) and prompt
+            assert EVAL_HARNESS_NOTE in prompt
+            assert "CHAT RESPONSE FORMAT:" in prompt
+    finally:
+        reset_config_for_tests()

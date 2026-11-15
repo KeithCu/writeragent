@@ -1428,3 +1428,33 @@ class TestValidateApiConfigPlaceholders:
         })
         assert (ok)
         assert (err) == ("")
+
+
+def test_resolve_config_path_from_ctx_wraps_uno_attribute_error_as_config_error():
+    class _FailingPathSettings:
+        @property
+        def UserConfig(self):
+            raise RuntimeError("non-RuntimeException occurred when accessing an interface type attribute")
+
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = _FailingPathSettings()
+    with pytest.raises(ConfigError) as exc:
+        _resolve_config_path_from_ctx(ctx)
+    assert exc.value.code == "CONFIG_PATH_ERROR"
+
+
+def test_get_config_before_init_returns_default_when_uno_user_config_raises():
+    reset_config_for_tests()
+
+    class _FailingPathSettings:
+        @property
+        def UserConfig(self):
+            raise RuntimeError("non-RuntimeException occurred when accessing an interface type attribute")
+
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = _FailingPathSettings()
+    try:
+        with patch("plugin.framework.uno_context.get_ctx", return_value=ctx):
+            assert get_config("chatbot.rich_text_control_sidebar") is True
+    finally:
+        reset_config_for_tests()
