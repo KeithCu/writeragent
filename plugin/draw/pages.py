@@ -90,7 +90,7 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
 
 class AddSlide(ToolBase):
     name: str | None = "add_slide"
-    description: str = "Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master. Call list_placeholders before set_placeholder_text."
+    description: str = "Inserts a new slide (page) at the specified index. Impress defaults to the Title + Content ('text') layout. New slides inherit the deck's assigned master."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
