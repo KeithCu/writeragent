@@ -92,8 +92,23 @@ class CellLinkSpanRegistry:
 cell_link_registry = CellLinkSpanRegistry()
 
 
+def _normalize_a1(a1: str) -> tuple[int, int] | None:
+    """Parse one A1 cell (``B2`` or ``$B$2``) to ``(col, row)``, or *None* if invalid."""
+    # parse_address has a @deal.pre string bound; a long or non-ASCII href
+    # is external input and must return None, not raise, under pytest.
+    if not a1 or not a1.isascii() or len(a1) > 32:
+        return None
+    try:
+        col, row = parse_address(a1)
+    except Exception:
+        return None
+    if not (0 <= col <= MAX_COL and 0 <= row <= MAX_ROW):
+        return None
+    return col, row
+
+
 def normalize_cell_address(raw: str) -> str | None:
-    """Return a canonical cell address (``Sheet1.B2`` or ``B2``) or *None*."""
+    """Return a canonical cell or range address (``Sheet1.B2``, ``B2``, ``Sheet1.A1:B5``) or *None*."""
     text = (raw or "").strip()
     for prefix in ("cell://", WRITERAGENT_CELL_URL_PREFIX):
         if text.lower().startswith(prefix):
@@ -106,17 +121,20 @@ def normalize_cell_address(raw: str) -> str | None:
     if not text:
         return None
     sheet, a1 = split_sheet_prefix(text)
-    # parse_address has a @deal.pre string bound; a long or non-ASCII href
-    # is external input and must return None, not raise, under pytest.
-    if not a1 or not a1.isascii() or len(a1) > 32:
+    start, sep, end = a1.partition(":")
+    first = _normalize_a1(start)
+    if first is None:
         return None
-    try:
-        col, row = parse_address(a1)
-    except Exception:
-        return None
-    if not (0 <= col <= MAX_COL and 0 <= row <= MAX_ROW):
-        return None
-    addr = format_address(col, row)
+    addr = format_address(*first)
+    if sep:
+        # A range end may repeat the sheet (Sheet2.A1:Sheet2.B5); the start's sheet wins.
+        last = _normalize_a1(split_sheet_prefix(end)[1])
+        if last is None:
+            return None
+        if last != first:
+            top_left = (min(first[0], last[0]), min(first[1], last[1]))
+            bottom_right = (max(first[0], last[0]), max(first[1], last[1]))
+            addr = f"{format_address(*top_left)}:{format_address(*bottom_right)}"
     if sheet is None:
         return addr
     # Keep a plain name plain: the sidebar HTML link regexes in
@@ -129,20 +147,26 @@ def normalize_cell_address(raw: str) -> str | None:
 
 
 def navigate_to_cell(doc: Any, address: str) -> bool:
-    """Select *address* in the Calc document (PyUNO select, not sidebar dispatch)."""
-    resolved = resolve_sheet_and_cell(doc, normalize_cell_address(address) or "")
+    """Select *address* (a cell, or a whole ``A1:B5`` range) in the Calc document (PyUNO select, not sidebar dispatch)."""
+    normalized = normalize_cell_address(address) or ""
+    head, sep, tail = normalized.rpartition(":") if ":" in split_sheet_prefix(normalized)[1] else (normalized, "", "")
+    resolved = resolve_sheet_and_cell(doc, head)
     if not resolved:
         log.debug("navigate_to_cell: could not resolve %r", address)
         return False
     sheet, col, row = resolved
+    end = _normalize_a1(tail) if sep else None
     try:
         controller = doc.getCurrentController()
         if controller is None:
             return False
         if controller.getActiveSheet().getName() != sheet.getName():
             controller.setActiveSheet(sheet)
-        cell = sheet.getCellByPosition(col, row)
-        controller.select(cell)
+        if end is not None:
+            target = sheet.getCellRangeByPosition(col, row, end[0], end[1])
+        else:
+            target = sheet.getCellByPosition(col, row)
+        controller.select(target)
         return True
     except Exception:
         log.exception("navigate_to_cell failed for %r", address)

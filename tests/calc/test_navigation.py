@@ -62,7 +62,8 @@ def test_normalize_cell_address_valid_and_round_trips(raw, expected, expected_sh
         "A0",
         "A1048577",
         "ZZZ1",
-        "Sheet1.A1:B2",
+        "A1:ZZZZ9",
+        "Sheet1.A1:",
         "B" * 300,
         "Bé1",
     ],
@@ -357,3 +358,53 @@ def test_status_dispatch_disposing_keeps_mouse_listener():
     assert listener in _CELL_LINK_LISTENERS.values()
     listener.disposing(MagicMock())
     assert listener not in _CELL_LINK_LISTENERS.values()
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("A1:B5", "A1:B5"),
+        ("Sheet2.A1:B5", "Sheet2.A1:B5"),
+        # A repeated end sheet is dropped; the start's sheet wins.
+        ("Sheet2.A1:Sheet2.B5", "Sheet2.A1:B5"),
+        # Corners are ordered top-left to bottom-right, and $ markers dropped.
+        ("$B$5:$A$1", "A1:B5"),
+        (f"{WRITERAGENT_CELL_URL_PREFIX}Q1%20Data.C5:D9", "Q1 Data.C5:D9"),
+        # A one-cell range collapses to the cell.
+        ("A1:A1", "A1"),
+    ],
+)
+def test_normalize_cell_address_keeps_ranges(raw, expected):
+    assert normalize_cell_address(raw) == expected
+
+
+def _nav_doc(sheet_name="Sheet2"):
+    doc = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = sheet_name
+    controller = doc.getCurrentController.return_value
+    controller.getActiveSheet.return_value = sheet
+    return doc, sheet, controller
+
+
+def test_navigate_to_cell_selects_whole_range():
+    from plugin.calc.navigation import navigate_to_cell
+
+    doc, sheet, controller = _nav_doc()
+    with patch("plugin.calc.navigation.resolve_sheet_and_cell", return_value=(sheet, 0, 0)) as resolve:
+        assert navigate_to_cell(doc, "Sheet2.A1:B5")
+    resolve.assert_called_once_with(doc, "Sheet2.A1")
+    sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 4)
+    controller.select.assert_called_once_with(sheet.getCellRangeByPosition.return_value)
+    sheet.getCellByPosition.assert_not_called()
+
+
+def test_navigate_to_cell_selects_single_cell():
+    from plugin.calc.navigation import navigate_to_cell
+
+    doc, sheet, controller = _nav_doc()
+    with patch("plugin.calc.navigation.resolve_sheet_and_cell", return_value=(sheet, 1, 2)):
+        assert navigate_to_cell(doc, "Sheet2.B3")
+    sheet.getCellByPosition.assert_called_once_with(1, 2)
+    controller.select.assert_called_once_with(sheet.getCellByPosition.return_value)
+    sheet.getCellRangeByPosition.assert_not_called()

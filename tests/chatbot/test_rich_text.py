@@ -706,10 +706,10 @@ def test_render_calc_cell_refs_passthrough():
         ("<p>See 'My Sheet'.C3</p>", '<p>See <a href="cell://My Sheet.C3">\'My Sheet\'.C3</a></p>'),
         ("<p>See 'My Sheet'!C3</p>", '<p>See <a href="cell://My Sheet.C3">\'My Sheet\'!C3</a></p>'),
         ("<p>Cell $A$1 and $B2</p>", '<p>Cell <a href="cell://A1">$A$1</a> and <a href="cell://B2">$B2</a></p>'),
-        ("<p>Range A1:B5</p>", '<p>Range <a href="cell://A1">A1:B5</a></p>'),
-        ("<p>Range Orders.A1:H500</p>", '<p>Range <a href="cell://Orders.A1">Orders.A1:H500</a></p>'),
-        ("<p>Abs $Sheet1.$A$1:$B$5</p>", '<p>Abs <a href="cell://Sheet1.A1">$Sheet1.$A$1:$B$5</a></p>'),
-        ("<p>Same Sheet1.A1:Sheet1.B5</p>", '<p>Same <a href="cell://Sheet1.A1">Sheet1.A1:Sheet1.B5</a></p>'),
+        ("<p>Range A1:B5</p>", '<p>Range <a href="cell://A1:B5">A1:B5</a></p>'),
+        ("<p>Range Orders.A1:H500</p>", '<p>Range <a href="cell://Orders.A1:H500">Orders.A1:H500</a></p>'),
+        ("<p>Abs $Sheet1.$A$1:$B$5</p>", '<p>Abs <a href="cell://Sheet1.A1:B5">$Sheet1.$A$1:$B$5</a></p>'),
+        ("<p>Same Sheet1.A1:Sheet1.B5</p>", '<p>Same <a href="cell://Sheet1.A1:B5">Sheet1.A1:Sheet1.B5</a></p>'),
         ("<p>See Données.C3</p>", '<p>See <a href="cell://Données.C3">Données.C3</a></p>'),
         ("<p>See sheet1.B2</p>", '<p>See <a href="cell://sheet1.B2">sheet1.B2</a></p>'),
     ],
@@ -753,7 +753,7 @@ def test_link_plain_cell_refs_feeds_existing_link_pipeline():
 
     linked = link_plain_cell_refs("<p>See 'My Sheet'.C3 and A1:B5</p>", ["My Sheet"])
     pairs = extract_cell_links_from_html(render_calc_cell_refs(linked))
-    assert pairs == [("'My Sheet'.C3", "My Sheet.C3"), ("A1:B5", "A1")]
+    assert pairs == [("'My Sheet'.C3", "My Sheet.C3"), ("A1:B5", "A1:B5")]
 
 
 class TestStripLegacyAiLabel:

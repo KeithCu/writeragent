@@ -184,7 +184,7 @@ def link_plain_cell_refs(html: str, sheet_names: Collection[str]) -> str:
     Only three forms are linked: sheet-qualified references (where the sheet
     exists in *sheet_names*, matched case-insensitively like Calc),
     ``$``-absolute references (``$A$1``, ``$A1``), and ``A1:B5`` ranges
-    (which link to their first cell). Bare ``B2`` is never linked because prose
+    (which select the whole range). Bare ``B2`` is never linked because prose
     is full of ``A1 grade`` and ``MP3``. Text with no real HTML tag is returned
     unchanged so plain replies are not pushed through the HTML filter.
     """
@@ -206,13 +206,12 @@ def link_plain_cell_refs(html: str, sheet_names: Collection[str]) -> str:
         else:
             first = match.group("abs")
             end = None
-        target = normalize_cell_address(f"{sheet}.{first}" if sheet is not None else first)
+        span = f"{first}:{end}" if end is not None else first
+        target = normalize_cell_address(f"{sheet}.{span}" if sheet is not None else span)
         # Skip quote-bearing targets: _CELL_LINK_HTML_RE (rich_text.py),
         # _CELL_LINK_ANCHOR_RE (rich_text_paste.py), and _CELL_HREF_RE (navigation.py)
         # all stop at ' or ".
         if not target or "'" in target or '"' in target:
-            return match.group(0)
-        if end is not None and normalize_cell_address(end) is None:
             return match.group(0)
         return f'<a href="cell://{target}">{match.group(0)}</a>'
 
