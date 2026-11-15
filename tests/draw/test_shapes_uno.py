@@ -363,3 +363,65 @@ def test_draw_shape_upsert_names_new_shapes(ctx, doc):
     assert dup.get("code") == "INVALID_PARAM"
     assert page.getCount() == count_before
 
+
+@native_test
+@with_native_doc("draw")
+def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
+    from plugin.doc.specialized_catalog import InnerToolCall
+    from plugin.doc.specialized_shapes_context import summarize_shape_calls
+    from plugin.draw.shapes import ConnectShapes, CreateDiagram, UpsertShape
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = doc.getDrawPages().getByIndex(0)
+    start_count = page.getCount()
+
+    upsert = UpsertShape()
+    r1 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=2000,
+        height=1200,
+        name="Start",
+    )
+    assert r1.get("status") == "ok", r1
+    r2 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=5000,
+        y=1000,
+        width=2000,
+        height=1200,
+    )
+    assert r2.get("status") == "ok", r2
+    r3 = ConnectShapes().execute(tctx, start=start_count + 1, end="Start", page=0)
+    assert r3.get("status") == "ok", r3
+    r4 = CreateDiagram().execute(
+        tctx,
+        page=0,
+        layout="horizontal_flow",
+        nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+        connections=[{"from": "a", "to": "b"}],
+    )
+    assert r4.get("status") == "ok", r4
+
+    assert UpsertShape.name and ConnectShapes.name and CreateDiagram.name
+    summary = summarize_shape_calls([
+        InnerToolCall(UpsertShape.name, r1, True),
+        InnerToolCall(UpsertShape.name, r2, True),
+        InnerToolCall(ConnectShapes.name, r3, True),
+        InnerToolCall(CreateDiagram.name, r4, True),
+    ])
+    assert summary["shapes_created"] == 4
+    assert summary["connectors_created"] == 2
+    assert summary["shapes_created"] + summary["connectors_created"] == page.getCount() - start_count
+    assert summary["created_names"] == ["Start", r2["name"]]
+    assert summary["pages"] == [0]
+    assert page.getByIndex(start_count + 1).Name == r2["name"] != ""
+

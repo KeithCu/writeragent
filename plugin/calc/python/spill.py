@@ -14,6 +14,7 @@ import logging
 import math
 from typing import Any
 
+from plugin.calc.address_utils import format_address, format_range, qualify_a1
 from plugin.calc.calc_utils import EMPTY, NumberFormatCategories, resolve_document_locale, standard_temporal_format_keys
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
@@ -26,6 +27,7 @@ from plugin.calc.python.addin_values import (
     spill_value_from_json,
 )
 from plugin.calc.python.cell_discovery import is_py_formula_text
+from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.formula_locator_cache import (
     FormulaOrigin,
     is_matching_py_formula,
@@ -36,7 +38,7 @@ from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener, migrat
 from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.doc.udprops import get_document_property, set_document_property
-from plugin.framework.errors import uno_read
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.queue_executor import main
 
 log = logging.getLogger(__name__)
@@ -436,6 +438,45 @@ class PreparedSpill:
     code: str
 
 
+def _record_spill_blocked(
+    doc: Any,
+    code: str,
+    sheet_name: str,
+    row: int,
+    col: int,
+    num_rows: int,
+    num_cols: int,
+    blocker: tuple[int, int] | None,
+) -> str:
+    """Record why a =PY spill was blocked in the diagnostics store and return ``#SPILL!``."""
+    if blocker is not None:
+        needed = qualify_a1(
+            sheet_name,
+            format_range(col, row, col + num_cols - 1, row + num_rows - 1, collapse_single=True),
+        )
+        msg = (
+            f"#SPILL!: the {num_rows} x {num_cols} result needs {needed}, "
+            f"but {format_address(blocker[0], blocker[1])} is not empty. "
+            "Nothing beside the formula was written; clear that cell or move the formula."
+        )
+    else:
+        origin_ref = qualify_a1(sheet_name, format_address(col, row))
+        msg = (
+            f"#SPILL!: the {num_rows} x {num_cols} result from {origin_ref} "
+            "runs past the edge of the sheet. Move the formula up or left."
+        )
+    best_effort(
+        lambda: get_diagnostics_store().record(
+            workbook_key=diagnostics_workbook_key(doc),
+            code=code,
+            status="error",
+            message=msg,
+        ),
+        "record blocked spill",
+    )
+    return "#SPILL!"
+
+
 def prepare_auto_spill(
     ctx: Any,
     doc: Any,
@@ -448,8 +489,10 @@ def prepare_auto_spill(
 
     Called with the origin already located and known not to be an array block
     (``CellContext.is_matrix`` on the main path, ``cell_is_matrix`` in the off-main
-    callback). Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the neighbor
-    write should proceed, or ``None`` when ``state.key`` is empty.
+    callback). Returns ``"#SPILL!"`` on collision (recording the reason in the
+    diagnostics store, which the LibrePy sidebar and ``write_formula_range`` read),
+    ``PreparedSpill`` when the neighbor write should proceed, or ``None`` when
+    ``state.key`` is empty.
     """
     if not state.key:
         return None
@@ -488,14 +531,32 @@ def prepare_auto_spill(
             target_c = formula_col + c_idx
             if target_r >= max_rows or target_c >= max_cols:
                 log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
-                return "#SPILL!"
+                return _record_spill_blocked(
+                    doc=doc,
+                    code=code,
+                    sheet_name=sheet_name,
+                    row=formula_row,
+                    col=formula_col,
+                    num_rows=num_rows,
+                    num_cols=num_cols,
+                    blocker=None,
+                )
             if (target_r, target_c) in prev_spill_set:
                 continue
             cell = sheet.getCellByPosition(target_c, target_r)
             cell_type = cell.getType()
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
-                return "#SPILL!"
+                return _record_spill_blocked(
+                    doc=doc,
+                    code=code,
+                    sheet_name=sheet_name,
+                    row=formula_row,
+                    col=formula_col,
+                    num_rows=num_rows,
+                    num_cols=num_cols,
+                    blocker=(target_c, target_r),
+                )
     return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key, code=code)
 
 

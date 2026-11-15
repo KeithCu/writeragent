@@ -7,13 +7,21 @@
 # (at your option) any later version.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Page/slide canvas facts for specialized shapes sub-agents (delegation only)."""
+"""Shapes-domain delegation helpers: canvas facts in, outcome summary out."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
 
 from plugin.framework.errors import uno_read
 from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.uno_context import uno_same
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import TypeGuard
+
+    from plugin.doc.specialized_catalog import InnerToolCall
 
 
 def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
@@ -149,3 +157,118 @@ def format_shapes_canvas_context(doc: Any) -> str:
         if doc.supportsService(service):
             return handler(doc) or ""
     return ""
+
+
+# Matches _lookup_ref's available-names cap in plugin/draw/shapes.py.
+_SHAPE_NAME_CAP = 40
+
+
+def _is_int(value: Any) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _record_name(target: list[str], raw_name: Any) -> None:
+    if not isinstance(raw_name, str):
+        return
+    name = raw_name.strip()
+    if not name or name in target or len(target) >= _SHAPE_NAME_CAP:
+        return
+    target.append(name)
+
+
+def _add_warning(warnings: list[Any], item: Any) -> None:
+    # Diagnostic is a TypedDict (unhashable), so check membership instead of dict.fromkeys.
+    if item and item not in warnings:
+        warnings.append(item)
+
+
+def _failed_field_label(entry: dict[str, Any], pos: int) -> str:
+    for key in ("name", "label_hint"):
+        val = entry.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    for key in ("index", "path_index"):
+        val = entry.get(key)
+        if val is not None:
+            return str(val)
+    return f"field {pos}"
+
+
+def summarize_shape_calls(calls: Sequence[InnerToolCall]) -> dict[str, Any]:
+    """What a shapes delegation placed or changed, read from its own inner tool results.
+
+    Counts lead because LibreOffice leaves API-created shapes unnamed unless
+    ``name=`` is passed (``svx/source/unodraw/unoshape.cxx:SvxShape::getName``).
+    Indices are omitted because a later ``shape_group`` or ``shape_delete`` in
+    the same run shifts page indices. Only gateway ``shapes`` delegations use
+    this helper; the Python ``delegate_tool_domains`` path creates shapes inside
+    scripts that never enter ``InnerToolCall`` logs.
+    """
+    shapes_created = 0
+    connectors_created = 0
+    shapes_changed = 0
+    shapes_deleted = 0
+    pages_set: set[int] = set()
+    created_names: list[str] = []
+    changed_names: list[str] = []
+    warnings: list[Any] = []
+
+    for call in calls:
+        if not call.mutating:
+            continue
+        res = call.result
+        if not isinstance(res, dict):
+            continue
+        if res.get("status") not in ("ok", "partial"):
+            continue
+
+        page = res.get("page")
+        if _is_int(page):
+            pages_set.add(page)
+
+        for w in res.get("warnings") or ():
+            _add_warning(warnings, w)
+        _add_warning(warnings, res.get("warning"))
+
+        name = call.name
+        if name == "shape_upsert" and res.get("action") == "create":
+            shapes_created += 1
+            _record_name(created_names, res.get("name"))
+        elif name == "shape_connect":
+            connectors_created += 1
+        elif name == "shape_diagram":
+            shapes_created += len(res.get("nodes", []))
+            connectors_created += len(res.get("connections", []))
+        elif name == "shape_fill_fields":
+            shapes_changed += int(res.get("ok_count", 0))
+            failed_labels: list[str] = []
+            for pos, entry in enumerate(res.get("results", ())):
+                if entry.get("ok"):
+                    _record_name(changed_names, entry.get("name"))
+                else:
+                    failed_labels.append(_failed_field_label(entry, pos))
+            fail_count = int(res.get("fail_count", 0))
+            if fail_count > 0:
+                suffix = f": {', '.join(failed_labels)}" if failed_labels else ""
+                _add_warning(warnings, f"shape_fill_fields left {fail_count} field(s) unfilled{suffix}")
+        elif name == "shape_delete":
+            shapes_deleted += 1
+        else:
+            shapes_changed += len(res.get("indices") or ()) or 1
+            _record_name(changed_names, res.get("name"))
+
+    out: dict[str, Any] = {
+        "shapes_created": shapes_created,
+        "connectors_created": connectors_created,
+        "shapes_changed": shapes_changed,
+        "shapes_deleted": shapes_deleted,
+    }
+    if pages_set:
+        out["pages"] = sorted(pages_set)
+    if created_names:
+        out["created_names"] = created_names
+    if changed_names:
+        out["changed_names"] = changed_names
+    if warnings:
+        out["warnings"] = warnings
+    return out

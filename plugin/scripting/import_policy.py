@@ -25,9 +25,7 @@ PYTHON_VENV_SANDBOX_CONTEXT_PREFIX = (
     "PYTHON VENV SANDBOX: You are running in a Python sandbox (AST import blocklist) inside a "
     "same-user venv subprocess — not a second OS account, and not LibreOffice/UNO. "
     "Pass inputs via data/data_range; assign outputs (any type: string, list, NumPy array, "
-    "or dictionary with structured keys) to the 'result' variable. Prefer NumPy arrays in 'result' for faster serialization. "
-    "Note: While the sandboxed venv has NumPy/Pandas, the LibreOffice host environment does not. "
-    "Therefore, the specialized_workflow_finished tool API only accepts basic Python types (strings, lists, numbers, dicts)."
+    "or dictionary with structured keys) to the 'result' variable. Prefer NumPy arrays in 'result' for faster serialization."
 )
 
 _ALLOW_ALL_NOTE = (
@@ -39,44 +37,38 @@ _ALLOW_ALL_NOTE = (
 def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     """Sandbox context prefix first, then import rules for LLM prompts."""
     aliases: list[str] = []
-    modules: list[str] = []
     for module_name, import_stmt in auto_imports().items():
         marker = " as "
         if marker in import_stmt:
             aliases.append(import_stmt.rsplit(marker, 1)[-1].strip())
         else:
             aliases.append(module_name)
-        modules.append(module_name)
     alias_list = ", ".join(aliases)
-    do_not_import = ", ".join(modules[:-1]) + f", or {modules[-1]}"
     auto_imports_blurb = (
-        f"Pre-imported (do not write import lines): {alias_list}. "
+        f"Pre-imported (no import line needed; importing them again is harmless): {alias_list}. "
         "When =PY has data range args, xl(\"%Pn%\") is also injected (binding-only Excel bridge; not a live sheet read). "
-        f"DO NOT import {do_not_import}. "
         "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts."
     )
-    host_escape = (
-        ", ".join(
-            m
-            for m in DANGEROUS_MODULES
-            if m not in ("plugin", "writeragent.framework") and m not in PROCESS_MODULES
-        )
-        + "; plugin internals"
-    )
-    processes = ", ".join(m for m in DANGEROUS_MODULES if m in PROCESS_MODULES)
-    networking = ", ".join(NETWORK_BLOCKED_MODULES)
-    file_writes = ", ".join(FILE_BLOCKED_MODULES)
 
     parts = [PYTHON_VENV_SANDBOX_CONTEXT_PREFIX, auto_imports_blurb]
 
     if compact:
         parts.append(
-            f"Blocked in this sandbox: host escape ({host_escape}); "
-            f"running programs ({processes}, raw os) unless Allow OS access; "
-            f"networking ({networking}); "
-            f"file read/write access ({file_writes}, open, pathlib, and os file reads) unless Allow file access. {_ALLOW_ALL_NOTE}"
+            "Host-escape modules, running programs, networking, and file read/write access are blocked "
+            f"unless enabled in Settings; a blocked import's error names the setting. {_ALLOW_ALL_NOTE}"
         )
     else:
+        host_escape = (
+            ", ".join(
+                m
+                for m in DANGEROUS_MODULES
+                if m not in ("plugin", "writeragent.framework") and m not in PROCESS_MODULES
+            )
+            + "; plugin internals"
+        )
+        processes = ", ".join(m for m in DANGEROUS_MODULES if m in PROCESS_MODULES)
+        networking = ", ".join(NETWORK_BLOCKED_MODULES)
+        file_writes = ", ".join(FILE_BLOCKED_MODULES)
         parts.append(f"Blocked host escape (by default): {host_escape}.")
         parts.append(f"Blocked running programs (unless Allow OS access): {processes}, raw os.")
         parts.append(f"Blocked networking (unless Allow network access): {networking}.")
