@@ -138,11 +138,13 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'page': [   'page_get_columns',
                 'page_get_header_footer_text',
                 'page_get_style_properties',
+                'page_get_watermark',
                 'page_insert_break',
                 'page_replace_header_footer_text',
                 'page_set_columns',
                 'page_set_header_footer_text',
-                'page_set_style_properties'],
+                'page_set_style_properties',
+                'page_set_watermark'],
     'page_comment': ['page_comment_add', 'page_comment_delete', 'page_comment_list'],
     'pivot_table': ['pivot_table_create', 'pivot_table_delete', 'pivot_table_list', 'pivot_table_refresh'],
     'python': ['symbolic_math'],
@@ -327,11 +329,13 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'page_get_columns': ('page', 'get_columns'),
     'page_get_header_footer_text': ('page', 'get_header_footer_text'),
     'page_get_style_properties': ('page', 'get_style_properties'),
+    'page_get_watermark': ('page', 'get_watermark'),
     'page_insert_break': ('page', 'insert_break'),
     'page_replace_header_footer_text': ('page', 'replace_header_footer_text'),
     'page_set_columns': ('page', 'set_columns'),
     'page_set_header_footer_text': ('page', 'set_header_footer_text'),
     'page_set_style_properties': ('page', 'set_style_properties'),
+    'page_set_watermark': ('page', 'set_watermark'),
     'pivot_table_create': ('pivot_table', 'create'),
     'pivot_table_delete': ('pivot_table', 'delete'),
     'pivot_table_list': ('pivot_table', 'list'),
@@ -1619,6 +1623,10 @@ class _PageProxy:
         """
         return call_host_tool("page_get_style_properties", style=style)
 
+    def get_watermark(self) -> dict[str, Any]:
+        """Read the document's text watermark (text, font, angle, transparency, color) and report whether a Word picture watermark exists."""
+        return call_host_tool("page_get_watermark")
+
     def insert_break(self, *, before_text: str | None = None, after_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None, page_style: str | None = None, restart_page_number: int | None = None) -> dict[str, Any]:
         """Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). Pass before_text or after_text to break the page at a specific passage instead, so a headless client can place it deterministically (e.g. before_text of the signature block). Pass page_style to apply an existing page style from that new page onward (often the name returned by style_clone of the current page, for an annex). Pass restart_page_number (integer >= 1) only together with page_style to restart page numbering at that value. An unknown page_style is an error and changes nothing.
 
@@ -1697,6 +1705,18 @@ class _PageProxy:
             page_style_layout (optional): 0=ALL, 1=LEFT, 2=RIGHT, 3=MIRRORED.
         """
         return call_host_tool("page_set_style_properties", style=style, width_mm=width_mm, height_mm=height_mm, is_landscape=is_landscape, left_margin_mm=left_margin_mm, right_margin_mm=right_margin_mm, top_margin_mm=top_margin_mm, bottom_margin_mm=bottom_margin_mm, gutter_margin_mm=gutter_margin_mm, header_is_on=header_is_on, footer_is_on=footer_is_on, header_is_shared=header_is_shared, footer_is_shared=footer_is_shared, first_is_shared=first_is_shared, header_height_mm=header_height_mm, footer_height_mm=footer_height_mm, header_body_distance_mm=header_body_distance_mm, footer_body_distance_mm=footer_body_distance_mm, back_color=back_color, back_transparent=back_transparent, numbering_type=numbering_type, footnote_height_mm=footnote_height_mm, register_paragraph_style=register_paragraph_style, page_style_layout=page_style_layout)
+
+    def set_watermark(self, text: str, *, font: str | None = None, angle: int | None = None, transparency: int | None = None, color: str | None = None) -> dict[str, Any]:
+        """Set, update, or remove the document's text watermark (same as Format > Watermark). Omitted fields keep the current watermark's values, or LibreOffice defaults (Liberation Sans, angle 45, transparency 50, color #c0c0c0) when none exists. Font size is automatic (fitted to one line). Angle is anticlockwise degrees (0-359); Word's menu offers 45 (diagonal) and 0 (horizontal). Pass empty text ('') to remove the watermark. Setting or removing also deletes any Word picture watermark. Note: LibreOffice turns on the header of every page style and clears the undo history.
+
+        Args:
+            text (required): Watermark text. Pass an empty string '' to remove the watermark.
+            font (optional): Font family name. Omit to keep current (default 'Liberation Sans').
+            angle (optional): Anticlockwise rotation angle in degrees (0-359). Omit to keep current (default 45).
+            transparency (optional): Transparency percentage (0-100). Omit to keep current (default 50).
+            color (optional): Color as '#rrggbb', 'rgb(...)', or a color name. Omit to keep current (default '#c0c0c0').
+        """
+        return call_host_tool("page_set_watermark", text=text, font=font, angle=angle, transparency=transparency, color=color)
 
 page = _PageProxy()
 

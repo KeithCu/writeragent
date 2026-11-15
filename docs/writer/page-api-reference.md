@@ -189,3 +189,20 @@ Properties defining how footnotes are displayed at the bottom of the page.
 * `NumberingType` (short): Page numbering format (e.g., 0=CHARS_UPPER_LETTER, 1=CHARS_LOWER_LETTER, 2=ROMAN_UPPER, 3=ROMAN_LOWER, 4=ARABIC).
 * `PageStyleLayout` (short): 0=ALL, 1=LEFT, 2=RIGHT, 3=MIRRORED.
 * `RegisterParagraphStyle` (string): Register-true (line up lines of text on both sides of a page).
+
+---
+
+## 6. Watermarks
+
+Text watermarks are driven through LibreOffice's own `.uno:Watermark` command (`plugin/writer/watermark.py`, `page` domain):
+
+* **`page_get_watermark`**: Queries `.uno:Watermark` status (`SwDocShell::StateStyleSheet` → `SwEditShell::GetWatermark`) via `URLTransformer.parseStrict` (`SfxBaseController::queryDispatch` requires `.uno:` protocol) and a synchronous `XStatusListener` (`SfxDispatchController_Impl::addStatusListener` in `sfx2/source/control/unoctitm.cxx`). Returns `watermark` (`{"text", "font", "angle", "transparency", "color"}` with `angle` normalized via `% 360` because `edfcol.cxx` `lcl_GetAngle` returns `360` for `0°`, or `null` when `Text` is empty) and `picture_watermark` (whether any draw-page shape's name starts with `WordPictureWatermark`, `oox/source/export/vmlexport.cxx` `IsWaterMarkShape`).
+* **`page_set_watermark`**: Validates inputs (`text`, `font`, `angle` `0..359`, `transparency` `0..100`, `color`), reads the current state so omitted fields preserve existing values (or LibreOffice defaults: `Liberation Sans`, `45`, `50`, `#c0c0c0` from `SfxWatermarkItem` in `sfx2/source/doc/watermarkitem.cxx`), dispatches `.uno:Watermark` (`SwDocShell::Execute` case `SID_WATERMARK` → `SwWrtShell::SetWatermark`), verifies the state changed, and disposes any `WordPictureWatermark*` shapes so DOCX export does not show both text and picture watermarks. Returns `style_unreviewed: true`.
+
+### LibreOffice behaviour and quirks
+
+* **Shape & DOCX/ODT round-trip**: `lcl_placeWatermarkInHeader` (`sw/source/core/edit/edfcol.cxx`) inserts a `fontwork-plain-text` shape named `PowerPlusWaterMarkObject…` anchored `AT_CHARACTER` in the header (`THROUGH` wrap, `Opaque=False`). Font size is fitted automatically to one line. VML export (`vmlexport.cxx`) round-trips text, font, angle, and color; transparency may drift by 1 on some values due to VML opacity rounding (50 round-trips exactly).
+* **Headers forced on**: `SwEditShell::SetWatermark` turns on `HeaderIsOn` for every page style and leaves headers on after removal (`text=""`).
+* **Undo stack cleared**: `SwXPageStyle::SetPropertyValues_Impl` (`sw/source/core/unocore/unostyle.cxx`) calls `DelAllUndoObj()` on every page-style property write (`i64460`), so setting or removing a watermark clears the undo history and cannot be wrapped in `WriterCompoundUndo`.
+* **Read-only documents**: `SID_WATERMARK` has `ReadOnlyDoc = FALSE`. Both tools check `IsEnabled` and return `UNSUPPORTED` when disabled or when no controller/frame exists.
+* **Inactive Word headers**: Stale `PowerPlusWaterMarkObject…` shapes in inactive first/even Word headers are not touched by `SetWatermark` and survive set/remove.

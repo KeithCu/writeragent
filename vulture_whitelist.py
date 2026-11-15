@@ -260,11 +260,13 @@ _.OutputURL  # attribute: plugin/writer/specialized/mail_merge.py:546
 _.PageGetColumns  # class: plugin/writer/page.py:1611
 _.PageGetHeaderFooterText  # class: plugin/writer/page.py:930
 _.PageGetStyleProperties  # class: plugin/writer/page.py:763
+_.PageGetWatermark  # class: plugin/writer/watermark.py
 _.PageInsertBreak  # class: plugin/writer/page.py:1759
 _.PageReplaceHeaderFooterText  # class: plugin/writer/page.py:1436
 _.PageSetColumns  # class: plugin/writer/page.py:1644
 _.PageSetHeaderFooterText  # class: plugin/writer/page.py:1026
 _.PageSetStyleProperties  # class: plugin/writer/page.py:779
+_.PageSetWatermark  # class: plugin/writer/watermark.py
 _.PlotDataTool  # class: plugin/calc/viz.py:22
 _.ProtectSheet  # class: plugin/calc/sheets.py:156
 _.QueryFolderSqlTool  # class: plugin/calc/duckdb_tools.py:37

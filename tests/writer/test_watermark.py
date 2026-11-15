@@ -1,0 +1,243 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Unit tests for plugin/writer/watermark.py (no live LibreOffice)."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from plugin.tests.testing_utils import TestingFactory
+from plugin.writer.watermark import PageGetWatermark, PageSetWatermark
+
+
+@pytest.fixture(autouse=True)
+def _mock_uno_and_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    import uno
+
+    monkeypatch.setattr(uno, "createUnoStruct", lambda type_name: SimpleNamespace())
+    monkeypatch.setattr("plugin.writer.edit_review.review_recording_enabled", lambda: True)
+
+
+class _FakeShape:
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self.disposed = False
+
+    def getName(self) -> str:
+        return self._name
+
+    def supportsService(self, service: str) -> bool:
+        return False
+
+    def dispose(self) -> None:
+        self.disposed = True
+
+
+class _FakeDrawPage:
+    def __init__(self, shapes: list[_FakeShape] | None = None) -> None:
+        self.shapes: list[_FakeShape] = list(shapes or [])
+
+    def getCount(self) -> int:
+        return len(self.shapes)
+
+    def getByIndex(self, idx: int) -> _FakeShape:
+        return self.shapes[idx]
+
+
+class _FakeURLTransformer:
+    def parseStrict(self, url: Any) -> tuple[bool, Any]:
+        return True, url
+
+
+class _FakeDispatch:
+    def __init__(self, state: dict[str, Any], *, enabled: bool = True) -> None:
+        self._state = state
+        self._enabled = enabled
+        self.removed = False
+
+    def addStatusListener(self, listener: Any, url: Any) -> None:
+        pvs = tuple(SimpleNamespace(Name=k, Value=v) for k, v in self._state.items())
+        listener.statusChanged(SimpleNamespace(IsEnabled=self._enabled, State=pvs))
+
+    def removeStatusListener(self, listener: Any, url: Any) -> None:
+        self.removed = True
+
+
+class _FakeDispatchHelper:
+    def __init__(self, state: dict[str, Any], *, apply_changes: bool = True) -> None:
+        self._state = state
+        self._apply_changes = apply_changes
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def executeDispatch(self, frame: Any, command: str, target: str, flags: int, args: Any) -> int:
+        recorded = {pv.Name: pv.Value for pv in args}
+        self.calls.append((command, recorded))
+        if self._apply_changes:
+            self._state.update(recorded)
+        return 0
+
+
+def _make_env(
+    initial_state: dict[str, Any] | None = None,
+    *,
+    enabled: bool = True,
+    apply_changes: bool = True,
+    shapes: list[_FakeShape] | None = None,
+) -> tuple[Any, _FakeDispatchHelper, dict[str, Any], _FakeDrawPage]:
+    state: dict[str, Any] = dict(
+        initial_state
+        or {
+            "Text": "",
+            "Font": "Liberation Sans",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        }
+    )
+    helper = _FakeDispatchHelper(state, apply_changes=apply_changes)
+    transformer = _FakeURLTransformer()
+    dispatch = _FakeDispatch(state, enabled=enabled)
+    draw_page = _FakeDrawPage(shapes)
+
+    class _FakeServiceManager:
+        def createInstanceWithContext(self, service: str, ctx: Any) -> Any:
+            if service == "com.sun.star.util.URLTransformer":
+                return transformer
+            if service == "com.sun.star.frame.DispatchHelper":
+                return helper
+            raise AssertionError(f"Unexpected service: {service}")
+
+    uno_ctx = SimpleNamespace(getServiceManager=lambda: _FakeServiceManager())
+    frame = SimpleNamespace(queryDispatch=lambda url, target, flags: dispatch)
+    controller = SimpleNamespace(getFrame=lambda: frame)
+    doc = SimpleNamespace(
+        getCurrentController=lambda: controller,
+        getDrawPage=lambda: draw_page,
+    )
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=uno_ctx)
+    return tool_ctx, helper, state, draw_page
+
+
+def test_set_keeps_current_fields_like_dialog() -> None:
+    tool_ctx, helper, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "DejaVu Sans",
+            "Angle": 0,
+            "Transparency": 30,
+            "Color": 0xFF0000,
+        }
+    )
+    res = PageSetWatermark().execute(tool_ctx, text="FINAL")
+    assert res["status"] == "ok", res
+    assert res["style_unreviewed"] is True
+    assert len(helper.calls) == 1
+    cmd, dispatched = helper.calls[0]
+    assert cmd == ".uno:Watermark"
+    assert dispatched == {
+        "Text": "FINAL",
+        "Font": "DejaVu Sans",
+        "Angle": 0,
+        "Transparency": 30,
+        "Color": 0xFF0000,
+    }
+    assert res["watermark"] == {
+        "text": "FINAL",
+        "font": "DejaVu Sans",
+        "angle": 0,
+        "transparency": 30,
+        "color": "#ff0000",
+    }
+
+
+def test_set_new_uses_lo_defaults() -> None:
+    tool_ctx, helper, _, _ = _make_env()
+    res = PageSetWatermark().execute(tool_ctx, text="CONFIDENTIAL", color="#123456")
+    assert res["status"] == "ok"
+    assert len(helper.calls) == 1
+    _, dispatched = helper.calls[0]
+    assert dispatched == {
+        "Text": "CONFIDENTIAL",
+        "Font": "Liberation Sans",
+        "Angle": 45,
+        "Transparency": 50,
+        "Color": 0x123456,
+    }
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"text": "X", "angle": 360},
+        {"text": "X", "angle": True},
+        {"text": "X", "transparency": 101},
+        {"text": "X", "color": "nope"},
+        {"text": "X", "font": " "},
+    ],
+)
+def test_set_rejects_out_of_range_without_dispatch(kwargs: dict[str, Any]) -> None:
+    tool_ctx, helper, _, _ = _make_env()
+    res = PageSetWatermark().execute(tool_ctx, **kwargs)
+    assert res["status"] == "error"
+    assert helper.calls == []
+
+
+def test_set_refuses_when_command_disabled() -> None:
+    pic = _FakeShape("WordPictureWatermark1")
+    tool_ctx, helper, _, _ = _make_env(enabled=False, shapes=[pic])
+    res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
+    assert res["status"] == "error"
+    assert res["code"] == "UNSUPPORTED"
+    assert helper.calls == []
+    assert pic.disposed is False
+
+
+def test_set_fails_closed_when_lo_ignores_dispatch() -> None:
+    pic = _FakeShape("WordPictureWatermark1")
+    tool_ctx, helper, _, _ = _make_env(apply_changes=False, shapes=[pic])
+    res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
+    assert res["status"] == "error"
+    assert len(helper.calls) == 1
+    assert pic.disposed is False
+
+
+def test_get_normalises_360_angle() -> None:
+    # edfcol.cxx lcl_GetAngle returns 360 for a 0-degree watermark shape.
+    tool_ctx, _, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "Liberation Sans",
+            "Angle": 360,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        }
+    )
+    res = PageGetWatermark().execute(tool_ctx)
+    assert res["status"] == "ok"
+    assert res["watermark"]["angle"] == 0
+    assert res["picture_watermark"] is False
+
+
+def test_set_and_remove_dispose_only_picture_watermarks() -> None:
+    pic = _FakeShape("WordPictureWatermark1")
+    logo = _FakeShape("Logo")
+    tool_ctx, _, _, draw_page = _make_env(shapes=[pic, logo])
+
+    res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
+    assert res["status"] == "ok"
+    assert res["picture_watermarks_removed"] == 1
+    assert pic.disposed is True
+    assert logo.disposed is False
+
+    # Simulate LO removing the disposed shape before the remove call.
+    draw_page.shapes = [logo]
+    rem = PageSetWatermark().execute(tool_ctx, text="")
+    assert rem["status"] == "ok"
+    assert rem["watermark"] is None
+    assert rem["picture_watermarks_removed"] == 0
+    assert logo.disposed is False
