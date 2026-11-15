@@ -478,10 +478,10 @@ class WriteCellRange(ToolBase):
                     "rate or tax column. In formulas, other sheets are Sheet.A1 "
                     "(dot), not Excel Sheet!A1. 2-D array: one inner array per row; "
                     "must match the range. Cells are string, number, boolean, or null "
-                    '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
-                    "=B2*…-style formula in every cell pins every row to the "
-                    "first ref — use one formula string over the whole column "
-                    "range instead. A JSON string of a flat or 2-D array is still "
+                    '(e.g. [["a", 1], ["b", null]] for A1:B2). Prefer one formula '
+                    "string over the whole column; a list repeating the same "
+                    "row-aligned formula (=B2*… on every row from row 2) is "
+                    "filled down the same way. A JSON string of a flat or 2-D array is still "
                     "accepted. Empty string or empty array clears. "
                     "A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other "
                     "array functions) is entered as an array formula over its "

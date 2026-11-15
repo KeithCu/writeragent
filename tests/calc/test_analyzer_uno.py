@@ -29,4 +29,6 @@ def test_analyzer_get_sheet_summary(ctx, doc):
     assert summary.get("sheet_name") == active_sheet.getName(), "Sheet name mismatch"
     assert (summary.get("row_count") or 0) >= 6, f"Row count mismatch: {summary}"
     assert "2024" in summary.get("headers", []), f"Header 2024 not found in: {summary}"
+    assert summary.get("first_empty_col") == "C", summary
+    assert summary.get("first_empty_row") == 7, summary
 

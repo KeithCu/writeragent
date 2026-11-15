@@ -1098,3 +1098,97 @@ def test_delete_structure_confirm_without_undo_does_not_promise_ctrl_z():
     msg = res["warnings"][0]["message"]
     assert "Ctrl+Z" not in msg
     assert "Undo was unavailable" in msg
+
+
+def test_plan_write_rewrites_bang_refs_to_existing_sheets() -> None:
+    doc = MagicMock()
+    doc.getSheets.return_value.getElementNames.return_value = ("Sheet1", "Orders")
+    doc.NamedRanges.hasByName.return_value = False
+    sheet = MagicMock()
+    sheet.NamedRanges.hasByName.return_value = False
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+
+    bridge = MagicMock(doc=doc)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write("A1", "=Orders!A1*2")
+    assert plan.values == ["=Orders.A1*2"]
+    assert plan.notes[0]["code"] == "SHEET_REF_REWRITTEN"
+
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=1)
+    list_plan = manipulator.plan_write("A1:A2", [["=Orders!A1"], ["=Missing!A1"]])
+    assert list_plan.values == ["=Orders.A1", "=Missing!A1"]
+    assert list_plan.notes[0]["code"] == "SHEET_REF_REWRITTEN"
+
+    doc.NamedRanges.hasByName.side_effect = lambda name: name == "Orders"
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+    shadowed = manipulator.plan_write("A1", "=Orders!A1*2")
+    assert shadowed.values == ["=Orders!A1*2"]
+    assert shadowed.notes == ()
+
+    doc.NamedRanges.hasByName.side_effect = None
+    doc.NamedRanges.hasByName.return_value = False
+    data_txt = manipulator.plan_write("A1", "=Orders!A1*2", data_text=True)
+    assert data_txt.values == ["=Orders!A1*2"]
+    assert data_txt.notes == ()
+
+
+def test_plan_write_fills_repeated_row_formula_down() -> None:
+    sheet = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=3)
+
+    bridge = MagicMock(doc=MagicMock())
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write("C2:C4", [["=B2*2"]] * 3)
+    assert plan.values == ["=B2*2", "=B3*2", "=B4*2"]
+    assert plan.notes[0]["code"] == "FILLED_DOWN"
+
+    pinned = manipulator.plan_write("C2:C4", [["=B1"]] * 3)
+    assert pinned.values == ["=B1", "=B1", "=B1"]
+    assert pinned.notes == ()
+
+
+@pytest.mark.parametrize(
+    ("formula", "expect_hint"),
+    [
+        ("=missing!A1", True),
+        ("=SUMM(G1)", False),
+    ],
+)
+def test_write_report_bang_hint_on_name_error(formula: str, expect_hint: bool) -> None:
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    err_cell = MagicMock()
+    err_cell.getError.return_value = 525
+    err_cell.getFormula.return_value = formula
+    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = err_cell
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    metas = CellManipulator(MagicMock()).plan_writes([formula], None, 0)
+    res = _write_report(sheet, (0, 0), (0, 0), [formula], metas, scan_text=True)
+    msg = res["warnings"][0]["message"]
+    assert ("Sheet.A1" in msg) is expect_hint
+
+
+def test_commit_write_prepends_plan_notes() -> None:
+    manipulator = CellManipulator(MagicMock())
+    note = {"code": "SHEET_REF_REWRITTEN", "message": "rewritten"}
+    with patch.object(manipulator, "_write_array_formula", return_value={"message": "m"}):
+        res = manipulator.commit_write(WritePlan("array", "A1", notes=(note,)))
+    assert res["warnings"] == [note]

@@ -518,7 +518,7 @@ class _CalcProxy:
         return call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm)
 
     def get_sheet_summary(self, *, sheet: str | None = None) -> dict[str, Any]:
-        """Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes.
+        """Returns a comprehensive summary of the active or specified sheet: used area, first_empty_col / first_empty_row (first column right of / row below the used area — a safe output spot), column headers, charts, merged cells, annotations, and shapes.
 
         Args:
             sheet (optional): Sheet name (active sheet if empty).
@@ -598,7 +598,7 @@ class _CalcProxy:
 
         Args:
             range_name (required): Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
-            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. In formulas, other sheets are Sheet.A1 (dot), not Excel Sheet!A1. 2-D array: one inner array per row; must match the range. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same =B2*…-style formula in every cell pins every row to the first ref — use one formula string over the whole column range instead. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
+            values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. In formulas, other sheets are Sheet.A1 (dot), not Excel Sheet!A1. 2-D array: one inner array per row; must match the range. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Prefer one formula string over the whole column; a list repeating the same row-aligned formula (=B2*… on every row from row 2) is filled down the same way. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
             array (optional): Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).
             source (optional): Optional source block to copy (A1 or Sheet.A1, dot sheet prefix, never Excel Sheet1!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
         """

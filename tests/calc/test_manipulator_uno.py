@@ -198,3 +198,57 @@ def test_py_inside_its_data_range_is_refused(ctx, doc):
     assert res.get("code") == "PY_CIRCULAR", res
     assert res.get("suggested_call", {}).get("arguments", {}).get("range") == ["Sheet1.B1"], res
     assert sheet.getCellByPosition(0, 0).getValue() == 1.0
+
+
+@native_test
+@with_native_doc("calc")
+def test_bang_ref_formula_evaluates_uno(ctx, doc):
+    sheets = doc.getSheets()
+    sheets.insertNewByName("Orders", 1)
+    sheets.insertNewByName("My Sheet", 2)
+    sheets.getByName("Orders").getCellByPosition(0, 0).setValue(5)
+    sheets.getByName("My Sheet").getCellByPosition(0, 0).setValue(11)
+    active = doc.getCurrentController().getActiveSheet()
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_formula_range",
+        {"range": ["D1:D2"], "values": [["=Orders!A1*2"], ["='My Sheet'!A1"]]},
+    )
+    assert res.get("status") == "ok", res
+    assert "error_cells" not in res, res
+    assert any(w.get("code") == "SHEET_REF_REWRITTEN" for w in res.get("warnings", [])), res
+    c1 = active.getCellByPosition(3, 0)
+    c2 = active.getCellByPosition(3, 1)
+    assert c1.getError() == 0 and c1.getValue() == 10.0, (c1.getError(), c1.getValue())
+    assert c1.getFormula() == "=Orders.A1*2", c1.getFormula()
+    assert c2.getError() == 0 and c2.getValue() == 11.0, (c2.getError(), c2.getValue())
+
+    missing_res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_formula_range",
+        {"range": ["D3"], "values": "=Missing!A1"},
+    )
+    assert missing_res.get("error_cells"), missing_res
+    formula_warns = [w for w in missing_res.get("warnings", []) if w.get("code") == "FORMULA_ERROR"]
+    assert formula_warns and "Sheet.A1" in formula_warns[0]["message"], formula_warns
+
+
+@native_test
+@with_native_doc("calc")
+def test_repeated_row_formula_fills_down_uno(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    for row_idx, val in enumerate((1, 2, 3), start=1):
+        sheet.getCellByPosition(1, row_idx).setValue(val)
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_formula_range",
+        {"range": ["C2:C4"], "values": [["=B2*2"], ["=B2*2"], ["=B2*2"]]},
+    )
+    assert res.get("status") == "ok", res
+    assert any(w.get("code") == "FILLED_DOWN" for w in res.get("warnings", [])), res
+    assert [sheet.getCellByPosition(2, r).getValue() for r in (1, 2, 3)] == [2.0, 4.0, 6.0]

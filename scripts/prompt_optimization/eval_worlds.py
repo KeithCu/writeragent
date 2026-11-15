@@ -1018,10 +1018,12 @@ class CalcWorld:
             return ([], (c0, r0, c1, r1))
 
         values: Any = raw_values
+        caller_list = isinstance(values, (list, tuple))
         if isinstance(values, str):
             parsed = _parse_formula_or_values_string(
                 values, single_cell_range=(c0 == c1 and r0 == r1)
             )
+            caller_list = parsed is not None
             values = parsed if parsed is not None else [values]
         elif isinstance(values, (list, tuple)):
             values = list(values)
@@ -1051,6 +1053,13 @@ class CalcWorld:
                     rng, len(values), total, num_rows, num_cols
                 )
             flat = values
+        if caller_list and len(flat) == (r1 - r0 + 1) * (c1 - c0 + 1):
+            from plugin.calc.formula_fill import fill_repeated_formula_columns
+
+            flat, filled_cols = fill_repeated_formula_columns(
+                flat, r0, r1 - r0 + 1, c1 - c0 + 1
+            )
+            del filled_cols
         return (flat, (c0, r0, c1, r1))
 
     def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
@@ -1124,11 +1133,9 @@ class CalcWorld:
             self.sheets[self.active_sheet] = self._grid
             return 0
         # Production write_formula_range fill-down-adjusts relative A1 refs
-        # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
-        # The harness used values * n and pinned the same text on every cell,
-        # so Tip A / tax_column false-red'd a correct =B2*0.08 into C2:C5
-        # (Banana stayed =B2*0.08). JSON arrays stay exact. 2-D / import
-        # failure keeps the honest pin.
+        # (plugin.calc.formula_fill) when one formula string hits a 1-D range,
+        # or when a list column repeats one row-aligned formula.
+        # Non-aligned JSON arrays (e.g. =B1 or =$B$2) stay exact.
         formula_src = raw_values if isinstance(raw_values, str) else ""
         single = values[0] if values else None
         is_formula = isinstance(single, str) and single.lstrip().startswith("=")
