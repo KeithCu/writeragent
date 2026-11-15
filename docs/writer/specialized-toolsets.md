@@ -409,7 +409,7 @@ Deferred capabilities (file link, DDE, footnote scoping, background, rename) sho
 
 #### Implemented tools (Phase 1 — `sections` domain, `wa.section.*` in scripting)
 
-All section tools (`section_list`, `section_read`, `section_create`, `section_delete`, `section_set_columns`, `section_set_protection`) live in `sections.py` (`sections` domain); `ToolWriterStructuralBase` pulls `section_list` into the `structural` delegate toolset via `required_core_tools`. Scripts call `wa.section.list()` / `wa.section.read(name)`; the `structural` allowlist includes `section_list` (`_DOMAIN_EXTRA_TOOLS`).
+All section tools (`section_list`, `section_read`, `section_create`, `section_delete`, `section_set_columns`, `section_set_protection`) live in `sections.py` (`sections` domain); `ToolWriterStructuralBase` pulls `section_list` into the `structural` delegate toolset via `required_core_tools`. Scripts use `for s in wa.section`, `wa.section[name]` and `wa.section.read(name)`; the `structural` allowlist includes `section_list` (`_DOMAIN_EXTRA_TOOLS`).
 
 - **`section_list()`**
   - Lists all named sections with `name`, `is_visible`, `is_protected`, `is_index` (`DocumentIndex is not None`, including `_Head` children), `has_password` (non-empty `ProtectionKey`), and `column_count` so callers can tell which sections mutations will refuse.

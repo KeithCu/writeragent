@@ -388,8 +388,10 @@ def _append_docstring(lines: list[str], doc_lines: list[str]) -> None:
 
 
 # Every wa.<domain> namespace for domain-prefixed tools (<domain>_<verb>[_<object>], e.g.
-# frame_list -> wa.frame.list, sheet_get_filter -> wa.sheet.get_filter). The longest entry
+# footnote_list -> wa.footnote.list, sheet_get_filter -> wa.sheet.get_filter). The longest entry
 # that prefixes the name followed by "_" becomes wa.<domain>; the rest becomes the method.
+# Unscoped document-wide collections in COLLECTION_NAMESPACES emit Python container dunders
+# instead of flat list / get / delete methods.
 # App-level tools (read_range, apply_content, get_tree, ...) omit the app prefix in their
 # tool name and land on wa.writer, wa.calc, or wa.draw (APP_NAMESPACES) from the app they
 # are registered for. make proxy-stubs stops on a tool name that starts with writer_/calc_/draw_
@@ -403,6 +405,18 @@ API_DOMAINS: frozenset[str] = frozenset({
 })
 APP_NAMESPACES: frozenset[str] = frozenset({"writer", "calc", "draw"})
 
+# Unscoped document-wide collections exposed as Python containers (for item in wa.<ns>,
+# len(wa.<ns>), name in wa.<ns>, wa.<ns>[name], del wa.<ns>[name]). Declared explicitly
+# because schemas cannot express document-wide uniqueness: scoped families (image, named_range)
+# and positional/multi-key families (slide, field, table) stay plain methods.
+COLLECTION_NAMESPACES: frozenset[str] = frozenset({
+    "bookmark",
+    "frame",
+    "pivot_table",
+    "section",
+    "sheet",
+})
+
 # Top-level preamble of the generated writeragent_api.py, kept in one place so
 # check_api_domains derives reserved names from the AST instead of a hand copy.
 _PREAMBLE_LINES: tuple[str, ...] = (
@@ -412,6 +426,9 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     'Provides Python-native access to WriterAgent tools from venv subprocess scripts.',
     'Tool names follow <domain>_<verb>[_<object>] (wa.<domain>.<rest>) or omit the app',
     'prefix for app-level tools (wa.writer.<name>, wa.calc.<name>, wa.draw.<name>).',
+    'Collection namespaces (bookmark, frame, pivot_table, section, sheet) expose Python',
+    'container access (iteration, len, in, [], del) returning dict snapshots whose keys',
+    'also read as attributes.',
     'Method docstrings include the full tool description and an Args section',
     '(schema description, enum values, and required or optional).',
     '',
@@ -420,16 +437,105 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     'generator if the file is too large; do not slim the generated module by hand.',
     '"""',
     'from __future__ import annotations',
-    'from typing import Any, TYPE_CHECKING',
+    'from typing import Any, NoReturn, TYPE_CHECKING',
     'from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES',
     '',
     'if TYPE_CHECKING:',
     '    import builtins  # proxy methods named list/dict shadow builtins in annotations',
+    '    from collections.abc import Iterator',
     '',
     '# Re-export so venv scripts and tests share the comment-scan prefix tuple.',
     'WORKFLOW_TASK_PREFIXES = _WORKFLOW_TASK_PREFIXES',
     '',
     'from plugin.scripting.host_tool_call import call_host_tool',
+    '',
+    '',
+    'class _Item(dict[str, Any]):',
+    '    """Collection entry snapshot whose keys also read as attributes."""',
+    '',
+    '    __slots__: tuple[str, ...] = ()',
+    '',
+    '    def __getattr__(self, key: str) -> Any:',
+    '        try:',
+    '            return self[key]',
+    '        except KeyError:',
+    '            raise AttributeError(key) from None',
+    '',
+    '',
+    'def _tool_failure(res: Any) -> RuntimeError:',
+    '    """Build a RuntimeError with .code matching ipc.exchange_tool_call.',
+    '',
+    '    Host tool errors arrive as dicts over RPC rather than exceptions, so',
+    '    containers inspect status and raise this uniform error shape.',
+    '    """',
+    '    if isinstance(res, dict):',
+    '        msg = str(res.get("message") or res.get("error") or res)',
+    '        err = RuntimeError(msg)',
+    '        code = res.get("code")',
+    '        if code is not None:',
+    '            setattr(err, "code", code)',
+    '        return err',
+    '    return RuntimeError(str(res))',
+    '',
+    '',
+    'def _list_items(res: Any) -> list[_Item]:',
+    '    """Extract the single list of entry dicts from a *_list tool response.',
+    '',
+    '    Ignores status and warnings; raises RuntimeError if the tool failed or',
+    '    returned a shape without a single list payload.',
+    '    """',
+    '    if not isinstance(res, dict) or res.get("status") == "error":',
+    '        raise _tool_failure(res)',
+    '    list_vals = [val for key, val in res.items() if key != "warnings" and isinstance(val, list)]',
+    '    if len(list_vals) != 1:',
+    '        raise RuntimeError(f"Expected one list in tool result, got keys {sorted(res)}")',
+    '    return [_Item(entry) if isinstance(entry, dict) else entry for entry in list_vals[0]]',
+    '',
+    '',
+    'def _find_item(res: Any, name: object) -> _Item | None:',
+    '    """Return the item with matching name from a *_list response, or None."""',
+    '    if not isinstance(name, str):',
+    '        return None',
+    '    for item in _list_items(res):',
+    '        if item.get("name") == name:',
+    '            return item',
+    '    return None',
+    '',
+    '',
+    'def _raise_keyed_failure(res: Any, name: str, list_call: Any) -> NoReturn:',
+    '    """Distinguish a missing key from other tool errors using one list call.',
+    '',
+    '    Tool not-found error codes differ across families, so containers confirm',
+    '    absence via list_call before raising KeyError; otherwise they raise the',
+    '    original tool failure.',
+    '    """',
+    '    try:',
+    '        missing = _find_item(list_call(), name) is None',
+    '    except RuntimeError:',
+    '        missing = False',
+    '    if missing:',
+    '        raise KeyError(name)',
+    '    raise _tool_failure(res)',
+    '',
+    '',
+    'def _get_item(res: Any, name: str, list_call: Any) -> _Item:',
+    '    """Unwrap a get/get_info response into an _Item, or raise KeyError/RuntimeError."""',
+    '    if not isinstance(res, dict) or res.get("status") == "error":',
+    '        _raise_keyed_failure(res, name, list_call)',
+    '    payload = {k: v for k, v in res.items() if k != "status"}',
+    '    if len(payload) == 1:',
+    '        only_val = next(iter(payload.values()))',
+    '        if isinstance(only_val, dict):',
+    '            payload = dict(only_val)',
+    '    item = _Item(payload)',
+    '    item.setdefault("name", name)',
+    '    return item',
+    '',
+    '',
+    'def _check_keyed(res: Any, name: str, list_call: Any) -> None:',
+    '    """Validate a keyed mutation response, or raise KeyError/RuntimeError."""',
+    '    if not isinstance(res, dict) or res.get("status") == "error":',
+    '        _raise_keyed_failure(res, name, list_call)',
     '',
     '',
     'def get_active_document_type() -> str:',
@@ -598,10 +704,202 @@ def _proxy_method_name(short_name: str) -> str:
     return short_name + "_" if keyword.iskeyword(short_name) else short_name
 
 
+class CollectionPlan(NamedTuple):
+    """Validated list / optional get / delete mapping for a COLLECTION_NAMESPACES proxy."""
+
+    list_tool: "ToolBase"
+    get_tool: "ToolBase | None"
+    delete_tool: "ToolBase"
+    key: ParamRecord
+
+    def dunder(self, tool: "ToolBase") -> str | None:
+        if tool is self.list_tool:
+            return "__iter__"
+        if tool is self.get_tool:
+            return "__getitem__"
+        if tool is self.delete_tool:
+            return "__delitem__"
+        return None
+
+
+def collection_plan(namespace: str, tool_list: list[tuple[str, "ToolBase"]]) -> CollectionPlan:
+    """Validate and plan container dunder emission for a COLLECTION_NAMESPACES namespace."""
+    by_method = {method: tool for method, tool in tool_list}
+    list_tool = by_method.get("list")
+    delete_tool = by_method.get("delete")
+    if list_tool is None or delete_tool is None:
+        raise ValueError(f"collection namespace {namespace!r} must have both 'list' and 'delete' tools")
+
+    list_req = [p for p in _collect_params(list_tool) if p.required]
+    if list_req:
+        raise ValueError(
+            f"collection namespace {namespace!r} list tool {list_tool.name!r} must not have required parameters"
+        )
+
+    del_req = [p for p in _collect_params(delete_tool) if p.required]
+    if len(del_req) != 1 or del_req[0].annotation != "str":
+        raise ValueError(
+            f"collection namespace {namespace!r} delete tool {delete_tool.name!r} "
+            "must have exactly one required str parameter"
+        )
+    key = del_req[0]
+
+    get_tool = by_method.get("get")
+    get_info_tool = by_method.get("get_info")
+    if get_tool is not None and get_info_tool is not None:
+        raise ValueError(f"collection namespace {namespace!r} has both 'get' and 'get_info' tools")
+    get_tool = get_tool or get_info_tool
+    if get_tool is not None:
+        get_req = [p for p in _collect_params(get_tool) if p.required]
+        if [p.schema_key for p in get_req] != [key.schema_key]:
+            raise ValueError(
+                f"collection namespace {namespace!r} get tool {get_tool.name!r} "
+                f"required parameters must be [{key.schema_key!r}]"
+            )
+
+    return CollectionPlan(list_tool=list_tool, get_tool=get_tool, delete_tool=delete_tool, key=key)
+
+
+def _rpc_kwargs(params: list[ParamRecord]) -> str:
+    """Build the trailing ', key=val, ...' argument fragment for call_host_tool."""
+    rpc_args: list[str] = []
+    for p in params:
+        if p.is_keyword:
+            rpc_args.append(f'**{{"{p.schema_key}": {p.py_name}}}')
+        else:
+            rpc_args.append(f"{p.schema_key}={p.py_name}")
+    return (", " + ", ".join(rpc_args)) if rpc_args else ""
+
+
+def _collection_doc(
+    kind: str,
+    ns: str,
+    key_name: str,
+    list_tool_name: str,
+    dropped_optionals: list[str],
+    has_get: bool,
+) -> str:
+    form = {
+        "iter": f"for item in wa.{ns}",
+        "getitem": f"wa.{ns}[{key_name}]",
+        "delitem": f"del wa.{ns}[{key_name}]",
+    }[kind]
+    if kind == "iter":
+        detail = (
+            f"Collection form: ``{form}`` (also ``len(wa.{ns})`` and ``{key_name} in wa.{ns}``). "
+            "Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys "
+            "also read as attributes. Tool errors raise RuntimeError with .code."
+        )
+    elif kind == "getitem":
+        source = "one host RPC" if has_get else f"one ``{list_tool_name}`` RPC"
+        detail = (
+            f"Collection form: ``{form}``. Fetches a fresh dict snapshot whose keys also read as "
+            f"attributes ({source}). Missing names raise KeyError; other tool errors raise "
+            "RuntimeError with .code."
+        )
+    else:
+        detail = (
+            f"Collection form: ``{form}``. Deletes in one host RPC; missing names raise KeyError "
+            "and other tool errors raise RuntimeError with .code."
+        )
+    if dropped_optionals:
+        joined = ", ".join(dropped_optionals)
+        detail += f" The collection form passes no optional arguments ({joined}); filter the items in Python."
+    return detail
+
+
+def _with_collection_doc(base_doc: list[str], note: str) -> list[str]:
+    return [*base_doc, "", note] if base_doc else [note]
+
+
+def _collection_lines(ns: str, plan: CollectionPlan) -> list[str]:
+    """Emit __iter__, __len__, __contains__, __getitem__ and __delitem__ for a collection proxy."""
+    key = plan.key
+    key_name = key.py_name
+    key_rpc = _rpc_kwargs([key])
+    list_name = plan.list_tool.name or ""
+    del_name = plan.delete_tool.name or ""
+    dropped_list = [p.py_name for p in _collect_params(plan.list_tool) if not p.required]
+    dropped_del = [p.py_name for p in _collect_params(plan.delete_tool) if not p.required]
+
+    lines: list[str] = []
+
+    # __iter__
+    lines.append("    def __iter__(self) -> Iterator[_Item]:")
+    iter_doc = _with_collection_doc(
+        _method_doc_lines(plan.list_tool, params=[]),
+        _collection_doc("iter", ns, key_name, list_name, dropped_list, plan.get_tool is not None),
+    )
+    _append_docstring(lines, iter_doc)
+    lines.append(f'        return iter(_list_items(call_host_tool("{list_name}")))')
+    lines.append("")
+
+    # __len__
+    lines.append("    def __len__(self) -> int:")
+    _append_docstring(lines, [f"Return the number of {ns} items (calls {list_name})."])
+    lines.append(f'        return len(_list_items(call_host_tool("{list_name}")))')
+    lines.append("")
+
+    # __contains__
+    lines.append(f"    def __contains__(self, {key_name}: object) -> bool:")
+    _append_docstring(lines, [f"Return True if a {ns} item named {key_name} exists (calls {list_name})."])
+    lines.append(f'        return _find_item(call_host_tool("{list_name}"), {key_name}) is not None')
+    lines.append("")
+
+    # __getitem__
+    lines.append(f"    def __getitem__(self, {key_name}: str) -> _Item:")
+    if plan.get_tool is not None:
+        get_name = plan.get_tool.name or ""
+        dropped_get = [p.py_name for p in _collect_params(plan.get_tool) if not p.required]
+        get_doc = _with_collection_doc(
+            _method_doc_lines(plan.get_tool, params=[key]),
+            _collection_doc("getitem", ns, key_name, list_name, dropped_get, True),
+        )
+        _append_docstring(lines, get_doc)
+        lines.append(f"        if not isinstance({key_name}, str):")
+        lines.append(f"            raise KeyError({key_name})")
+        lines.append(
+            f'        return _get_item(call_host_tool("{get_name}"{key_rpc}), {key_name}, '
+            f'lambda: call_host_tool("{list_name}"))'
+        )
+    else:
+        get_doc = _with_collection_doc(
+            [f"Get a {ns} item snapshot by {key_name} from {list_name}."],
+            _collection_doc("getitem", ns, key_name, list_name, dropped_list, False),
+        )
+        _append_docstring(lines, get_doc)
+        lines.append(f'        item = _find_item(call_host_tool("{list_name}"), {key_name})')
+        lines.append("        if item is None:")
+        lines.append(f"            raise KeyError({key_name})")
+        lines.append("        return item")
+    lines.append("")
+
+    # __delitem__
+    lines.append(f"    def __delitem__(self, {key_name}: str) -> None:")
+    del_doc = _with_collection_doc(
+        _method_doc_lines(plan.delete_tool, params=[key]),
+        _collection_doc("delitem", ns, key_name, list_name, dropped_del, plan.get_tool is not None),
+    )
+    _append_docstring(lines, del_doc)
+    lines.append(f"        if not isinstance({key_name}, str):")
+    lines.append(f"            raise KeyError({key_name})")
+    lines.append(
+        f'        _check_keyed(call_host_tool("{del_name}"{key_rpc}), {key_name}, '
+        f'lambda: call_host_tool("{list_name}"))'
+    )
+    lines.append("")
+
+    return lines
+
+
 def generate_module(tools: list["ToolBase"]) -> str:
     """Generate the complete writeragent_api.py module."""
     check_api_domains(API_DOMAINS | APP_NAMESPACES)
     groups = group_tools(tools)
+    plans = {
+        ns: collection_plan(ns, groups[ns])
+        for ns in sorted(COLLECTION_NAMESPACES & groups.keys())
+    }
 
     lines = list(_PREAMBLE_LINES)
 
@@ -610,6 +908,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
     seen_methods: dict[tuple[str, str], str] = {}
     seen_tools: dict[str, "ToolBase"] = {}
     for ns, tool_list in sorted(groups.items()):
+        plan = plans.get(ns)
         for method, t in tool_list:
             tool_name = t.name or ""
             key = (ns, method)
@@ -628,7 +927,8 @@ def generate_module(tools: list["ToolBase"]) -> str:
                     f"duplicate tool name {tool_name!r} in proxy generation (TOOL_METHODS requires one entry per tool)"
                 )
             seen_tools[tool_name] = t
-            tool_methods_map[tool_name] = (ns, method)
+            mapped_method = (plan.dunder(t) if plan is not None else None) or method
+            tool_methods_map[tool_name] = (ns, mapped_method)
 
     pretty_map = pprint.pformat(domain_tools_map, indent=4, width=120)
     lines.append(f"DOMAIN_TOOLS = {pretty_map}")
@@ -659,10 +959,16 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
         import builtins as _builtins_mod
 
-        proxy_method_names = frozenset(n for n, _unused in tool_list)
+        plan = plans.get(namespace)
+        emitted_tools = [
+            (method, tool)
+            for method, tool in tool_list
+            if plan is None or plan.dunder(tool) is None
+        ]
+        proxy_method_names = frozenset(n for n, _unused in emitted_tools)
         shadowed_names = proxy_method_names & set(dir(_builtins_mod))
 
-        for method, tool in sorted(tool_list, key=lambda x: x[0]):
+        for method, tool in sorted(emitted_tools, key=lambda x: x[0]):
             params = _collect_params(tool)
 
             pos = [
@@ -682,19 +988,15 @@ def generate_module(tools: list["ToolBase"]) -> str:
                 all_params_list.extend(kw)
             all_params = ", ".join(all_params_list)
 
-            rpc_args: list[str] = []
-            for p in params:
-                if p.is_keyword:
-                    rpc_args.append(f'**{{"{p.schema_key}": {p.py_name}}}')
-                else:
-                    rpc_args.append(f"{p.schema_key}={p.py_name}")
-
-            kwargs_body = (", " + ", ".join(rpc_args)) if rpc_args else ""
+            kwargs_body = _rpc_kwargs(params)
 
             lines.append(f"    def {method}({all_params}) -> dict[str, Any]:")
             _append_docstring(lines, _method_doc_lines(tool, params=params))
             lines.append(f'        return call_host_tool("{tool.name}"{kwargs_body})')
             lines.append("")
+
+        if plan is not None:
+            lines.extend(_collection_lines(namespace, plan))
 
         lines.append(f"{namespace} = _{class_name}()")
         lines.append("")

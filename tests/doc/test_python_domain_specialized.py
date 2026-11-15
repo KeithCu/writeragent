@@ -384,7 +384,7 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert "document_undo" in allowed
     assert "run_venv_python_script" not in allowed
     calc_instructions = mock_build.call_args.kwargs["instructions"]
-    assert "wa.sheet.list" in calc_instructions
+    assert "for item in wa.sheet" in calc_instructions
     assert "wa.document.undo" in calc_instructions
     assert "wa.shape.upsert" not in calc_instructions
 

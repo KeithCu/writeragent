@@ -175,6 +175,15 @@ def _proxy_methods_by_tool() -> dict[str, tuple[str, Any]] | None:
     return found
 
 
+# Dunder proxy methods in COLLECTION_NAMESPACES are displayed as Python container
+# syntax in the script catalog and wa.help() instead of wa.<ns>.__iter__().
+_CONTAINER_FORMS: dict[str, str] = {
+    "__iter__": "for item in wa.{ns}",
+    "__getitem__": "wa.{ns}[{key}]",
+    "__delitem__": "del wa.{ns}[{key}]",
+}
+
+
 def _format_proxy_call(namespace: str, method: Any) -> str:
     """``wa.shape.upsert(action, *, ...)`` without the return annotation.
 
@@ -182,6 +191,9 @@ def _format_proxy_call(namespace: str, method: Any) -> str:
     is already keyword-escaped.
     """
     sig = inspect.signature(method)
+    form = _CONTAINER_FORMS.get(method.__name__)
+    if form is not None:
+        return form.format(ns=namespace, key=next(iter(sig.parameters), ""))
     if sig.return_annotation is not inspect.Signature.empty:
         sig = sig.replace(return_annotation=inspect.Signature.empty)
     return f"wa.{namespace}.{method.__name__}{sig}"
@@ -285,14 +297,20 @@ def format_script_api_help(
             continue
         if allowed_tools is not None and tool_name not in allowed_tools:
             continue
-        by_qualified[f"{ns}.{method.__name__}"] = (ns, method)
         by_tool[tool_name] = (ns, method)
-        ns_methods.setdefault(ns, []).append(method.__name__)
+        if method.__name__ in _CONTAINER_FORMS:
+            ns_methods.setdefault(ns, []).append(f"{_format_proxy_call(ns, method)} ({tool_name})")
+        else:
+            by_qualified[f"{ns}.{method.__name__}"] = (ns, method)
+            ns_methods.setdefault(ns, []).append(method.__name__)
 
     if name is None or not name.strip():
         if not ns_methods:
             return "No writeragent APIs are available in this Python tool domain."
-        lines = ["Available wa.<namespace>.<method> APIs (call wa.help('namespace.method') for details):"]
+        lines = [
+            "Available wa.<namespace>.<method> APIs "
+            "(call wa.help('namespace.method') or wa.help('tool_name') for details):"
+        ]
         for ns in sorted(ns_methods):
             lines.append(f"{ns}: {', '.join(sorted(ns_methods[ns]))}")
         return "\n".join(lines)
