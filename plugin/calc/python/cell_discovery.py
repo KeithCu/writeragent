@@ -62,7 +62,8 @@ def sheet_name_of(sheet: Any) -> str:
     return str(best_effort(lambda: sheet.getName(), "sheet name read failed", "") or "")
 
 
-def _py_formula_or_none(formula: str) -> PyFormula | None:
+def py_formula_or_none(formula: str) -> PyFormula | None:
+    """Parse *formula* as ``=PY(...)`` or return None for non-PY formulas."""
     # Every alias in formula_edit's table contains "PY", so the substring test
     # skips the parser for the ordinary formulas a sheet is mostly made of.
     if "PY" not in (formula or "").upper():
@@ -72,7 +73,7 @@ def _py_formula_or_none(formula: str) -> PyFormula | None:
 
 def is_py_formula_text(formula: str) -> bool:
     """True when *formula* is PY/PYTHON, including fully qualified add-in form."""
-    return _py_formula_or_none(formula) is not None
+    return py_formula_or_none(formula) is not None
 
 
 def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
@@ -99,7 +100,7 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
         if scanned >= _MAX_CELLS_TO_SCAN:
             truncated = True
             break
-        parsed = _py_formula_or_none(formula)
+        parsed = py_formula_or_none(formula)
         if parsed is None:
             continue
         if len(found) >= MAX_PYTHON_CELLS_FOUND:

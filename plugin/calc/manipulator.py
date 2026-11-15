@@ -35,6 +35,8 @@ if TYPE_CHECKING:
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
     from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
+    from plugin.calc.python.diagnostics import DiagnosticEntry
+    from plugin.calc.python.formula_edit import PyFormula
 else:
     try:
         from com.sun.star.awt import FontWeight
@@ -45,10 +47,22 @@ else:
         pass
 
 
-from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_address, format_range
+from plugin.calc.address_utils import (
+    MAX_COL,
+    MAX_ROW,
+    column_to_index,
+    format_address,
+    format_range,
+    local_a1,
+    parse_range_string,
+    qualify_a1,
+)
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.formula_fill import expand_single_formula
+from plugin.calc.python.cell_discovery import py_formula_or_none
+from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+from plugin.calc.python.geometric_recalc_core import arg_covers_cell
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
     duration_serial_from_iso,
@@ -57,7 +71,7 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
-from plugin.framework.errors import CalcError, WriterAgentException, best_effort, is_disposal, uno_read
+from plugin.framework.errors import CalcError, WriterAgentException, best_effort, is_disposal, suggest_call, uno_read
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_ctx
@@ -68,6 +82,7 @@ log = logging.getLogger("writeragent.calc")
 MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
+_PY_PLACEMENT_SCAN_COLS = 26
 
 # Calc declares VertJustify as a long (sc/source/ui/unoobj/cellsuno.cxx,
 # SC_UNONAME_CELLVJUS). SvxVerJustifyItem::PutValue
@@ -280,6 +295,25 @@ def _range_has_blank_cell(sheet: Any, start: tuple[int, int], end: tuple[int, in
     return False
 
 
+def _occupied_cells(
+    sheet: Any,
+    left: int,
+    top: int,
+    right: int,
+    bottom: int,
+    *,
+    skip: Sequence[tuple[int, int, int, int]] = (),
+) -> list[tuple[int, int]]:
+    """Return ``(col, row)`` coordinates of non-empty cells in the inclusive box."""
+    formulas = sheet.getCellRangeByPosition(left, top, right, bottom).getFormulaArray()
+    return [
+        (left + c, top + r)
+        for r, row in enumerate(formulas)
+        for c, text in enumerate(row)
+        if text and not any(b[0] <= left + c <= b[2] and b[1] <= top + r <= b[3] for b in skip)
+    ]
+
+
 def refuse_occupied_cells(sheet: Any, left: int, top: int, right: int, bottom: int, *, skip: Sequence[tuple[int, int, int, int]] = ()) -> None:
     """Raise CalcError when a cell in the inclusive box holds a value, text or formula.
 
@@ -292,19 +326,63 @@ def refuse_occupied_cells(sheet: Any, left: int, top: int, right: int, bottom: i
     being replaced and the formula's own origin. Nothing has been written when
     this raises, so the caller can refuse cleanly.
     """
-    formulas = sheet.getCellRangeByPosition(left, top, right, bottom).getFormulaArray()
-    occupied = [
-        (left + c, top + r)
-        for r, row in enumerate(formulas)
-        for c, text in enumerate(row)
-        if text and not any(b[0] <= left + c <= b[2] and b[1] <= top + r <= b[3] for b in skip)
-    ]
+    occupied = _occupied_cells(sheet, left, top, right, bottom, skip=skip)
     if occupied:
+        needed = format_range(left, top, right, bottom, collapse_single=True)
         first_c, first_r = occupied[0]
         raise CalcError(
             "The result needs %s, but %d cell(s) there are not empty (first: %s). Nothing was written; clear them or start elsewhere."
-            % (format_range(left, top, right, bottom, collapse_single=True), len(occupied), format_address(first_c, first_r))
+            % (needed, len(occupied), format_address(first_c, first_r)),
+            code="SPILL_BLOCKED",
+            details={
+                "needed_range": needed,
+                "blocking_cells": [format_address(c, r) for c, r in occupied[:10]],
+                "blocking_count": len(occupied),
+            },
         )
+
+
+def _free_cell_right_of(sheet: Any, sheet_name: str, arg: str, args: list[str]) -> str | None:
+    """Find the first free column right of *arg* on its top row, or None."""
+    local = local_a1(arg)
+    if not local:
+        return None
+    try:
+        (c0, r0), (c1, r1) = parse_range_string(local)
+    except (TypeError, ValueError):
+        return None
+    top = min(r0, r1)
+    bottom = max(r0, r1)
+    right = max(c0, c1)
+    scan_end = min(MAX_COL, right + _PY_PLACEMENT_SCAN_COLS)
+    for col in range(right + 1, scan_end + 1):
+        candidate = format_address(col, top)
+        if any(arg_covers_cell(other, candidate, sheet_name=sheet_name) for other in args):
+            continue
+        if not _occupied_cells(sheet, col, top, col, bottom):
+            return qualify_a1(sheet_name, candidate)
+    return None
+
+
+def _latest_py_diagnostic(doc: Any, parts: PyFormula | None) -> DiagnosticEntry | None:
+    if parts is None or parts.code_is_ref:
+        return None
+    return best_effort(
+        lambda: get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), parts.code),
+        "lookup py diagnostics",
+    )
+
+
+def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) -> str:
+    """Return the =PY run's new error text from diagnostics, or empty string."""
+    # The cell itself can only show Err:519 or #SPILL!. The add-in records a
+    # new entry in the diagnostics store on every failed run; comparing
+    # identity against the entry present before setFormula ignores older runs
+    # without relying on wall-clock timestamps.
+    latest = _latest_py_diagnostic(doc, parts)
+    if latest is None or latest is prior or not latest.is_error:
+        return ""
+    return f" ({' '.join(latest.message.split())[:400]})"
 
 
 def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
@@ -914,12 +992,18 @@ class CellManipulator:
         formula_warning = ""
         for col, row, formula in formula_cells:
             cell = sheet.getCellByPosition(col, row)
+            parts = py_formula_or_none(formula) if not formula_warning else None
+            prior = _latest_py_diagnostic(self.bridge.doc, parts) if parts is not None else None
             cell.setFormula(formula)
             if not formula_warning:
                 err = int(cell.Error)
                 if err != 0:
                     hint = " (hint: Calc uses ';' as the argument separator)" if err in (508, 525, 501) else ""
-                    formula_warning = f"; warning: formula gives Err:{err}{hint}"
+                    detail = _py_run_detail(self.bridge.doc, parts, prior) if parts is not None else ""
+                    formula_warning = f"; warning: formula gives Err:{err}{hint}{detail}"
+                elif parts is not None and cell.getString() == "#SPILL!":
+                    detail = _py_run_detail(self.bridge.doc, parts, prior)
+                    formula_warning = f"; warning: {format_address(col, row)} shows #SPILL!{detail}"
 
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
@@ -1006,6 +1090,46 @@ class CellManipulator:
             msg = str(e) or getattr(e, "Message", None) or type(e).__name__
             log.exception("Range formula write failed for %s", range_str)
             raise CalcError(msg) from e
+
+    def _refuse_py_inside_own_data(
+        self,
+        sheet: Any,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        values: list[Any],
+    ) -> None:
+        """Refuse writing a =PY formula onto a cell covered by its own data argument."""
+        sheet_name = sheet.getName()
+        width = end[0] - start[0] + 1
+        for idx, value in enumerate(values):
+            # Plain text is never a formula; skip before py_formula_or_none so
+            # long string writes cannot hit PyFormula.parse's 8192-char @deal contract.
+            if not isinstance(value, str) or not value.startswith("="):
+                continue
+            parts = py_formula_or_none(value)
+            # formula_edit.parse_data_binding_text has an ASCII CrossHair contract
+            # (deal.PreContractError on non-ASCII sheet names); Calc still reports
+            # the circular reference itself in that case.
+            if parts is None or not parts.data_suffix.isascii():
+                continue
+            args = parts.data_args()
+            col = start[0] + (idx % width)
+            row = start[1] + (idx // width)
+            target = format_address(col, row)
+            for arg in args:
+                if arg_covers_cell(arg, target, sheet_name=sheet_name):
+                    dest = _free_cell_right_of(sheet, sheet_name, arg, args) if len(values) == 1 else None
+                    details: dict[str, Any] = {"data_range": arg}
+                    if dest:
+                        details["suggested_call"] = suggest_call("write_formula_range", range=[dest], values=value)
+                    raise CalcError(
+                        f"=PY in {target} reads {arg}, which includes {target} itself, "
+                        "so Calc would show an error and the value there would be lost. "
+                        f"Nothing was written; put the formula in an empty cell outside the data"
+                        f"{', e.g. ' + dest if dest else ''}.",
+                        code="PY_CIRCULAR",
+                        details=details,
+                    )
 
     def plan_write(
         self,
@@ -1098,6 +1222,9 @@ class CellManipulator:
                     values = expand_single_formula(values, num_rows, num_cols)
                 else:
                     values = [values] * total
+
+            if not literal_text and not data_text:
+                self._refuse_py_inside_own_data(sheet, start, end, list(values))
 
             return WritePlan(
                 "cells",

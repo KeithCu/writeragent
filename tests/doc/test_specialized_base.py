@@ -397,13 +397,14 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     import plugin.draw.headers_footers  # noqa: F401
     import plugin.draw.notes  # noqa: F401
     import plugin.draw.comments  # noqa: F401
+    import plugin.draw.transitions  # noqa: F401
     from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
     from plugin.doc.specialized_base import narrow_delegate_domain_enums
     from plugin.draw.specialized import DelegateToSpecializedDraw
     from plugin.framework.tool_schema import to_mcp_schema, to_openai_schema
 
     gateway = DelegateToSpecializedDraw()
-    impress_only = {"headers_footers", "speaker_notes"}
+    impress_only = {"headers_footers", "speaker_notes", "slide_transitions", "slide_layouts"}
     assert gateway.parameters is not None
     assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
 
@@ -424,6 +425,13 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     mcp = to_mcp_schema(gateway, doc_type="draw")
     [draw_mcp] = narrow_delegate_domain_enums([mcp], [gateway], draw)
     assert not impress_only & set(draw_mcp["inputSchema"]["properties"]["domain"]["enum"])
+    draw_mcp_desc = draw_mcp["inputSchema"]["properties"]["domain"]["description"]
+    for dom in impress_only:
+        assert dom not in draw_mcp_desc
+    [impress_mcp] = narrow_delegate_domain_enums([mcp], [gateway], impress)
+    impress_mcp_desc = impress_mcp["inputSchema"]["properties"]["domain"]["description"]
+    for dom in impress_only:
+        assert dom in impress_mcp_desc
     # Unknown services leave the schema alone; the shared instance enum is never mutated.
     assert narrow_delegate_domain_enums([oa], [gateway], None) == [oa]
     assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
@@ -1014,3 +1022,50 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
     assert result["status"] == "error"
     assert result["code"] == "SPECIALIZED_TOOL_ERROR"
     assert result["shapes_created"] == 1
+
+
+def test_calc_gateway_enum_keeps_forms_on_spreadsheet() -> None:
+    # Before this fix the base declared TextDocument only, so Calc documents lost forms.
+    import plugin.writer.specialized.forms  # noqa: F401
+    from plugin.calc.specialized import DelegateToSpecializedCalc
+    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
+
+    assert "forms" in DelegateToSpecializedCalc().domains_for_services(frozenset({CALC_DOCUMENT_SERVICE}))
+
+
+def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_document() -> None:
+    from unittest.mock import patch
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.draw.transitions import GetSlideLayout, SetSlideLayout
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
+    from plugin.framework.tool import ToolContext, ToolRegistry
+    from plugin.writer.specialized_base import SpecializedWorkflowFinished
+
+    gw = DelegateToSpecializedDraw()
+    reg = ToolRegistry(services={})
+    reg.register(gw)
+    reg.register(SetSlideLayout())
+    reg.register(GetSlideLayout())
+    reg.register(SpecializedWorkflowFinished())
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == DRAW_DOCUMENT_SERVICE
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc = doc
+    ctx.doc_type = "draw"
+    ctx.uno_services_supported = frozenset({DRAW_DOCUMENT_SERVICE})
+    ctx.services = {"tools": reg}
+    ctx.status_callback = None
+
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        out = gw.execute(ctx, domain="slide_layouts", task="Set layout")
+        assert out["status"] == "error"
+        assert out["code"] == "UNSUPPORTED_DOCUMENT"
+        assert "slide_layouts" not in out["details"]["available"]
+        assert "shapes" in out["details"]["available"]
+
+        ctx.uno_services_supported = frozenset()
+        out_unknown = gw.execute(ctx, domain="slide_layouts", task="Set layout")
+        assert out_unknown["status"] == "error"
+        assert "No specialized tools found" in out_unknown["message"]

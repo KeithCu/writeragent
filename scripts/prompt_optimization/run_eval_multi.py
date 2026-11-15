@@ -57,7 +57,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 
-def _parse_model_ids(arg: str | None) -> Sequence[str]:
+def parse_model_ids(arg: str | None) -> Sequence[str]:
     if not arg:
         return [m.openrouter_id for m in get_default_models()]
     return [MODEL_ALIASES.get(s.strip(), s.strip()) for s in arg.split(",") if s.strip()]
@@ -356,9 +356,14 @@ def _sort_pareto_display(summaries: list[dict[str, Any]]) -> None:
     )
 
 
+def details_path_for(out_path: Path) -> Path:
+    """Return the companion ``_details`` path for a summary output path."""
+    return out_path.parent / (out_path.stem + "_details" + out_path.suffix)
+
+
 def _write_details(out_path: Path, all_details: list[dict[str, Any]]) -> None:
     """Write detailed per-example results to a separate file (e.g. eval_details.json/csv)."""
-    detailed_path = out_path.parent / (out_path.stem + "_details" + out_path.suffix)
+    detailed_path = details_path_for(out_path)
     detailed_path.parent.mkdir(parents=True, exist_ok=True)
 
     as_csv = detailed_path.suffix.lower() == ".csv"
@@ -717,7 +722,7 @@ def main(argv: list[str] | None = None) -> int:
 
     model_summaries: list[dict[str, Any]] = []
     all_details: list[dict[str, Any]] = []
-    model_ids = _parse_model_ids(args.models)
+    model_ids = parse_model_ids(args.models)
     if not args.models and not args.yes_all_models and not args.generate_golds:
         print(
             "Refusing: omit --models only with --yes-all-models "
