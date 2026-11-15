@@ -1,6 +1,6 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
-"""Tests for the two-level python specialized agent (delegate_tool_domains)."""
+"""Tests for the two-level python specialized agent (python_delegate_domains)."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class _ShapeUpsertProbe(ToolWriterShapeBase):
 class _VenvScriptProbe(ToolBase):
     """Fetched by name. Not a shapes-domain tool, so gather must not rely on active_domain."""
 
-    name = "run_venv_python_script"
+    name = "python_run_script"
     description = "Run a Python script in the user venv."
     tier = "specialized"
     parameters = {
@@ -81,7 +81,7 @@ class _ShapeProbe(ToolWriterShapeBase):
 class _NestedDelegateProbe(ToolWriterFootnoteBase):
     """Same name as the outer hop, registered on footnotes, so gather must drop it."""
 
-    name = "delegate_tool_domains"
+    name = "python_delegate_domains"
     description = "Must not be given to the inner domain agent."
     parameters = {"type": "object", "properties": {}}
 
@@ -201,10 +201,10 @@ def test_delegate_tool_domains_visible_on_python_domain_for_each_app():
             tool.name
             for tool in registry.get_tools(doc=doc, doc_type=doc_type, active_domain="python", exclude_tiers=())
         }
-        assert "delegate_tool_domains" in names
-        assert "specialized_workflow_finished" in names
+        assert "python_delegate_domains" in names
+        assert "workflow_finished" in names
         default_names = {tool.name for tool in registry.get_tools(doc=doc, doc_type=doc_type)}
-        assert "delegate_tool_domains" not in default_names
+        assert "python_delegate_domains" not in default_names
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
@@ -258,9 +258,9 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "footnote_insert" in by_name
     assert "shape_get_summary" in by_name
     assert "shape_upsert" not in by_name
-    assert "run_venv_python_script" in by_name
-    assert "delegate_tool_domains" not in by_name
-    assert tools_arg[-1].name == "specialized_workflow_finished"
+    assert "python_run_script" in by_name
+    assert "python_delegate_domains" not in by_name
+    assert tools_arg[-1].name == "workflow_finished"
     note = by_name["footnote_insert"].inputs["note"]
     assert note["enum"] == ["footnote", "endnote"]
     assert note["nullable"] is False
@@ -287,11 +287,11 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert "footnote_insert" in allowed
     assert "document_list_open" in allowed
     assert "document_undo" in allowed
-    assert "run_venv_python_script" not in allowed
+    assert "python_run_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
     assert format_script_api_catalog(["footnotes", "shapes"]) in instructions
-    assert mock_build.call_args.kwargs["final_answer_tool_name"] == "specialized_workflow_finished"
-    # Inner loop must use the script examples block, not the outer *:python block that calls delegate_tool_domains.
+    assert mock_build.call_args.kwargs["final_answer_tool_name"] == "workflow_finished"
+    # Inner loop must use the script examples block, not the outer *:python block that calls python_delegate_domains.
     assert mock_build.call_args.kwargs["examples_block"] == get_examples_block("domain_tools:shapes")
 
 
@@ -382,7 +382,7 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert "sort_range" in allowed
     assert "shape_upsert" not in allowed
     assert "document_undo" in allowed
-    assert "run_venv_python_script" not in allowed
+    assert "python_run_script" not in allowed
     calc_instructions = mock_build.call_args.kwargs["instructions"]
     assert "wa.sheet.list" in calc_instructions
     assert "wa.document.undo" in calc_instructions
@@ -416,7 +416,7 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
     def fake_run_inner(inner_ctx, tools, **kwargs):
         by_name = {tool.name: tool for tool in tools}
         by_name["failing_footnote_tool"]()
-        return by_name["specialized_workflow_finished"](answer="Tried the note")
+        return by_name["workflow_finished"](answer="Tried the note")
 
     with patch("plugin.doc.python_domain_specialized.run_inner_tool_agent", side_effect=fake_run_inner):
         result = run_inner_domain_tool_agent(parent, ["footnotes"], "Add a note")
@@ -435,7 +435,7 @@ def test_run_inner_domain_tool_agent_inner_tool_error_is_error():
     [
         pytest.param(FootnotesInsert, "footnotes", None, "No footnote added", True, id="editing_finish_only_has_note"),
         pytest.param(ListNearbyFiles, "document_research", None, "Research completed", False, id="readonly_finish_only_no_note"),
-        pytest.param(ListNearbyFiles, "document_research", "list_nearby_files", "Found files", False, id="readonly_with_call_no_note"),
+        pytest.param(ListNearbyFiles, "document_research", "research_list_nearby_files", "Found files", False, id="readonly_with_call_no_note"),
     ],
 )
 def test_run_inner_domain_tool_agent_finish_only_and_read_only_note(
@@ -456,7 +456,7 @@ def test_run_inner_domain_tool_agent_finish_only_and_read_only_note(
         by_name = {tool.name: tool for tool in tools}
         if call_tool_name is not None:
             by_name[call_tool_name]()
-        return by_name["specialized_workflow_finished"](answer=answer)
+        return by_name["workflow_finished"](answer=answer)
 
     with (
         patch.object(ListNearbyFiles, "execute", return_value={"status": "ok", "files": []}),
@@ -513,11 +513,11 @@ def test_gather_domain_tools_marshals_off_main_thread():
     ) as mock_main:
         tools = gather_domain_tools(parent, ["footnotes"])
     assert mock_main.called
-    assert {tool.name for tool in tools} >= {"footnote_insert", "specialized_workflow_finished"}
+    assert {tool.name for tool in tools} >= {"footnote_insert", "workflow_finished"}
     names = [tool.name for tool in tools]
-    assert names.count("specialized_workflow_finished") == 1
-    assert names.count("run_venv_python_script") == 1
-    assert names[-1] == "specialized_workflow_finished"
+    assert names.count("workflow_finished") == 1
+    assert names.count("python_run_script") == 1
+    assert names[-1] == "workflow_finished"
 
 
 @patch("plugin.doc.python_domain_specialized.run_inner_domain_tool_agent", return_value={"status": "ok", "domains": ["footnotes"], "result": "noted"})
@@ -567,19 +567,19 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     ctx.send_cancellation = None
     ctx.doc_type = "writer"
 
-    gateway = registry.get("delegate_to_specialized_writer_toolset")
+    gateway = registry.get("writer_delegate_specialized")
     result = gateway.execute_safe(ctx, domain="python", task="Add a footnote after the revenue sentence")
     assert result["status"] == "incomplete"
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     by_name = {tool.name: tool for tool in smol_tools}
-    assert "delegate_tool_domains" in by_name
-    assert "specialized_workflow_finished" in by_name
-    domains_input = by_name["delegate_tool_domains"].inputs["domains"]
+    assert "python_delegate_domains" in by_name
+    assert "workflow_finished" in by_name
+    domains_input = by_name["python_delegate_domains"].inputs["domains"]
     assert domains_input["type"] == "array"
     assert domains_input["minItems"] == 1
     assert domains_input["items"]["type"] == "string"
-    assert "task" in by_name["delegate_tool_domains"].inputs
+    assert "task" in by_name["python_delegate_domains"].inputs
     instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
     mock_canvas.assert_not_called()
     assert "Document canvas" not in instructions

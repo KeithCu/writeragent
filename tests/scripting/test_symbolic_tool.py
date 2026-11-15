@@ -71,7 +71,7 @@ def test_symbolic_math_in_python_domain():
     doc.supportsService.return_value = True
     names = {t.name for t in registry.get_tools(doc=doc, active_domain="python", exclude_tiers=())}
     assert "math_run_symbolic" in names
-    assert "run_venv_python_script" in names
+    assert "python_run_script" in names
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
 @patch("plugin.framework.queue_executor.main.call")

@@ -45,7 +45,7 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     user's specific request, preventing context pollution.
     """
 
-    name: str | None = "delegate_to_specialized_draw_toolset"
+    name: str | None = "draw_delegate_specialized"
     description: str = (
         f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
         f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "

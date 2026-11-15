@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 _VISION_DOMAIN = "vision"
 _VISION_TOOL_NAME = "image_extract_structure"
-_DELEGATE_GATEWAY_NAMES = frozenset({"delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset"})
+_DELEGATE_GATEWAY_NAMES = frozenset({"writer_delegate_specialized", "calc_delegate_specialized", "draw_delegate_specialized"})
 
 
 def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
@@ -95,14 +95,14 @@ def get_vision_core_directive(model: Any, ctx: Any) -> str:
     if _doc_type.is_draw(model):
         return (
             'When the user wants OCR or content from an embedded image, '
-            'delegate_to_specialized_draw_toolset(domain="vision", task=""). '
+            'draw_delegate_specialized(domain="vision", task=""). '
             "That extracts text and structure from the selected graphic and returns the text only "
             "(nothing is inserted into the slide). You must use this call to perform OCR."
         )
     if not _doc_type.is_calc(model):
         return ""
     return (
-        'When the user wants OCR or content from an embedded image, delegate_to_specialized_calc_toolset(domain="vision", task=""). '
+        'When the user wants OCR or content from an embedded image, calc_delegate_specialized(domain="vision", task=""). '
         "That extracts text and structure from the selected graphic and inserts a high-quality representation "
         "into the document (no sub-agent; task is ignored). You must use this call to perform OCR."
     )

@@ -113,7 +113,7 @@ Rev 2 file-level core — `plugin/draw/deck.py`, `DeckTheme`, `DECK_THEMES`, `co
 
 ### 3.4 Host defaults in core (new, and load-bearing)
 
-The reason rev 3 would still under-deliver: masters, layouts, and HF are **specialized**, so a weak model must make several long-running `delegate_to_specialized_draw_toolset` round-trips per deck (`slide_masters`, `slide_layouts`, `headers_footers`) just to use LO features. The mercury findings show prompt-only steering fades; the fix is to make the **defaults** do the LO-right thing, in tools the main chat already has.
+The reason rev 3 would still under-deliver: masters, layouts, and HF are **specialized**, so a weak model must make several long-running `draw_delegate_specialized` round-trips per deck (`slide_masters`, `slide_layouts`, `headers_footers`) just to use LO features. The mercury findings show prompt-only steering fades; the fix is to make the **defaults** do the LO-right thing, in tools the main chat already has.
 
 Two concrete pieces, both small:
 
@@ -196,7 +196,7 @@ Per `AGENTS.md`, probe with `plugin/testing_runner.py` on a live Impress instanc
 1. **Apply-design path.** How do we apply a shipped `.otp` design (or its master pages) to the current document? Candidates: `XStyleLoader.loadStylesFromURL`, master-page supply/copy, or create-from-template. Also: how to enumerate designs (LO `PathSettings`/`Paths` template dir; `<install>/share/template/common/presnt/`).
 2. **Master restyle + page background.** Set background fill (solid / gradient / bitmap) on the master page or draw page, and set the master’s Title/Body text styles. Confirm property names on the live instance.
 3. **Theme API (probe, not assume).** Does this LO expose any color/font scheme service for ODF Impress? Expect no. Record the answer; it decides whether row 6 exists.
-4. **HF + masters reachability.** Confirm the main chat can reach `slide_masters` / `slide_layouts` / `headers_footers` via `delegate_to_specialized_draw_toolset`, and that §3.4’s core defaults remove the need for that in the deck setup path.
+4. **HF + masters reachability.** Confirm the main chat can reach `slide_masters` / `slide_layouts` / `headers_footers` via `draw_delegate_specialized`, and that §3.4’s core defaults remove the need for that in the deck setup path.
 
 ---
 

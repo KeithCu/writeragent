@@ -88,7 +88,7 @@ class StickyReplyToUserTool(ToolBase):
         if mode.tracks_spec_saved:
             properties["spec_saved"] = {
                 "type": "boolean",
-                "description": "Recorded from a successful save_design_spec this turn.",
+                "description": "Recorded from a successful brainstorming_save_design_spec this turn.",
             }
         self.parameters = {
             "type": "object",
@@ -101,7 +101,7 @@ class StickyReplyToUserTool(ToolBase):
 
     def record_tool_result(self, tool_name: str, result: Any) -> None:
         """Record tool results executed this turn to observe side effects."""
-        if tool_name == "save_design_spec" and isinstance(result, dict) and result.get("status") == "ok":
+        if tool_name == "brainstorming_save_design_spec" and isinstance(result, dict) and result.get("status") == "ok":
             self.spec_saved = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

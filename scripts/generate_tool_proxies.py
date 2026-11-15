@@ -203,7 +203,7 @@ class ParamRecord(NamedTuple):
 def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
     # Read tool.parameters directly, not get_parameters(doc_type). Chart tools' get_parameters
     # strips Calc or Writer/Draw fields per doc_type, but proxy stubs must keep the union.
-    # The only other get_parameters override is run_venv_python_script
+    # The only other get_parameters override is python_run_script
     # (in API_EXCLUDED_TOOLS).
     props = (tool.parameters or {}).get("properties", {})
     required_set = set((tool.parameters or {}).get("required", []))
@@ -277,16 +277,16 @@ API_EXCLUDED_DOMAINS = frozenset({
 # LLM specialized-toolset orchestration. Chat/MCP still registers these; venv
 # scripts call document tools directly and do not run the delegate/finish loop.
 API_EXCLUDED_TOOLS = frozenset({
-    "delegate_to_specialized_writer_toolset",
-    "delegate_to_specialized_calc_toolset",
-    "delegate_to_specialized_draw_toolset",
+    "writer_delegate_specialized",
+    "calc_delegate_specialized",
+    "draw_delegate_specialized",
     # Python outer→inner LLM hop. The inner smol agent still calls
-    # specialized_workflow_finished as a registered ToolBase, not via this proxy.
-    "delegate_tool_domains",
-    "specialized_workflow_finished",
+    # workflow_finished as a registered ToolBase, not via this proxy.
+    "python_delegate_domains",
+    "workflow_finished",
     # Re-entering the venv worker from a script deadlocks the pipe. The host
     # already rejects the call; the generated proxy must not advertise it.
-    "run_venv_python_script",
+    "python_run_script",
 })
 
 

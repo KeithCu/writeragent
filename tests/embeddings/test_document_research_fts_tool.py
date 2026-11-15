@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for search_nearby_files tool."""
+"""Tests for research_search_nearby_files tool."""
 
 from __future__ import annotations
 

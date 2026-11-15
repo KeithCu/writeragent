@@ -1,4 +1,4 @@
-"""Unit tests for A1 send_peer_work / send_peer_result (no live soffice)."""
+"""Unit tests for A1 peer_send_work / peer_send_result (no live soffice)."""
 
 from __future__ import annotations
 
@@ -234,8 +234,8 @@ def test_list_v1_peers_magicmock_ctx_does_not_hang():
     model.supportsService.return_value = False
     prompt = get_chat_system_prompt_for_document(model, ctx=ctx)
     assert isinstance(prompt, str)
-    assert "send_peer_work" not in prompt
-    assert "send_peer_result" not in prompt
+    assert "peer_send_work" not in prompt
+    assert "peer_send_result" not in prompt
 
 
 def test_visibility_filter_alone_hides_tool():
@@ -414,7 +414,7 @@ def _patch_peer_target(panel):
 
 
 def test_p3_execute_queues_reply_while_writer_busy():
-    """Calc send_peer_result while Writer is rambling: accept, no inject, start later."""
+    """Calc peer_send_result while Writer is rambling: accept, no inject, start later."""
     tool = SendPeerResult()
     ctx = _ctx()
     listener = _Listener()

@@ -5,7 +5,7 @@
 """Named My Scripts / This Document libraries for venv code (``wa.scripts`` / ``wa.doc``).
 
 Library bodies are fetched over the existing ``tool_call`` pipe (not
-``run_venv_python_script``). Defs are eval'd into a private namespace on the
+``python_run_script``). Defs are eval'd into a private namespace on the
 current ``LocalPythonExecutor`` so later calls do not re-fetch the source.
 Across runs the cache lives on that executor — document-keyed shared kernel
 when session mode is shared.

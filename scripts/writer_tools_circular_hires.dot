@@ -8,7 +8,7 @@ digraph WriterTools {
     edge [arrowsize=0.7, penwidth=2.0];
     
     // Main Toolset - Center with blue fill
-    MainTools [label="Main Toolset\nget_document_content\napply_document_content\nget_selection\nset_selection\nget_document_info\nlist_styles\nget_style_info\nstyles_apply\nget_document_stats\nget_document_tree\nget_heading_children\nnavigate_heading\nget_surroundings\nsearch_in_document\nget_index_stats\ndelegate_to_specialized_writer_toolset", 
+    MainTools [label="Main Toolset\nget_document_content\napply_document_content\nget_selection\nset_selection\nget_document_info\nlist_styles\nget_style_info\nstyles_apply\nget_document_stats\nget_document_tree\nget_heading_children\nnavigate_heading\nget_surroundings\nsearch_in_document\nget_index_stats\nwriter_delegate_specialized", 
                fillcolor="#4a90e2", fontcolor="white", 
                width=2.5, height=3.5, fixedsize=true];
     

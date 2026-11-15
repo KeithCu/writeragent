@@ -226,7 +226,7 @@ You have a persistent file-backed memory tool.
 Prioritize what reduces future user steering."""
 
 
-# Shared venv Python prompt text (run_venv_python_script, =PY(), delegate domain=python).
+# Shared venv Python prompt text (python_run_script, =PY(), delegate domain=python).
 # CALC_FORMULA_SYNTAX still shows inline =PY("…"; range). Typical scripts fit in
 # Calc MAXSTRLEN (1024) because of auto-imports and domain helpers. If Err:513
 # becomes common for generated formulas, prefer the two-cell pattern
@@ -253,7 +253,7 @@ def build_specialized_sub_agent_instructions(
 
 
 def images_specialized_sub_agent_hint() -> str:
-    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"images\").
+    """Smol sub-agent instructions suffix for *_delegate_specialized (domain=\"images\").
 
     Edit/change/restyle of an existing or selected image must go through
     ``image_generate(source_image='selection')``. That path reads the
@@ -273,23 +273,23 @@ def images_specialized_sub_agent_hint() -> str:
 
 
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
-    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\").
+    """Smol sub-agent instructions suffix for *_delegate_specialized (domain=\"python\").
 
     The outer python agent does venv / symbolic work itself and has no specialized
-    domain tools. Those go through ``delegate_tool_domains`` (``domains`` + ``task``).
-    The inner agent places many shapes with one ``run_venv_python_script`` for-loop
+    domain tools. Those go through ``python_delegate_domains`` (``domains`` + ``task``).
+    The inner agent places many shapes with one ``python_run_script`` for-loop
     over ``writeragent`` (``wa.shape.upsert``). Page size is not injected here.
     When the task includes shapes, the inner agent gets ``format_shapes_canvas_context``.
     """
     if agent_label == "Calc":
         data_hint = (
-            " For bulk data use data_range with run_venv_python_script "
+            " For bulk data use data_range with python_run_script "
             "(one A1 address, comma-separated addresses, or an array); "
             "`data` is the range when one address is passed, or the same list as `ranges` when several are. "
             "The host resolves addresses out-of-band. Avoid passing large values in the data parameter."
         )
     else:
-        data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
+        data_hint = " python_run_script does not inject spreadsheet `data`—use document tools for content."
     if (
         _python_sub_agent_policy is None
         or _python_sub_agent_plot_hint is None
@@ -308,23 +308,23 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         domain_examples = "shapes, footnotes, tables"
     domain_rule = (
         " Do Python, venv scripts, symbolic math, and helpers already on this domain yourself"
-        " when the task does not need other WriterAgent specialized tools, then call specialized_workflow_finished."
+        " when the task does not need other WriterAgent specialized tools, then call workflow_finished."
         " Computing coordinates, JSON, or a matplotlib figure does not place Writer/Calc/Draw domain objects in the document."
         " If the user needs those objects in the document"
         f" ({domain_examples}, and the other specialized domains for this document),"
-        " you MUST call delegate_tool_domains with domains (a list of those domain names) and task"
+        " you MUST call python_delegate_domains with domains (a list of those domain names) and task"
         " (what the inner agent should accomplish, including sizes, colors, and positions or the computed layout)"
-        " BEFORE specialized_workflow_finished."
+        " BEFORE workflow_finished."
         " When placing shapes, that task must use page-scale absolute positions in HMM (1/100 mm)"
         " from the top-left of the page, not a tiny origin-centered cluster around (0,0)."
-        " When placing many shapes, tell the inner agent to use one run_venv_python_script"
+        " When placing many shapes, tell the inner agent to use one python_run_script"
         " with a Python for-loop (import writeragent as wa; wa.shape.upsert),"
         " not one LLM tool call per shape."
         " The inner shapes agent reads the page canvas and places that layout; this loop does not receive page size."
-        ' Do not finish and expect the main chat agent to call delegate_to_specialized_*(domain="shapes") for you.'
+        ' Do not finish and expect the main chat agent to call *_delegate_specialized(domain="shapes") for you.'
         " Do not call those domain tools on this loop."
     )
-    return f" PYTHON (venv): {policy}{data_hint}{plot_suffix} Prefer math_run_symbolic for solve/simplify/integrate/differentiate over raw sp/run_venv_python_script. {units_hint}{domain_rule}"
+    return f" PYTHON (venv): {policy}{data_hint}{plot_suffix} Prefer math_run_symbolic for solve/simplify/integrate/differentiate over raw sp/python_run_script. {units_hint}{domain_rule}"
 
 
 def get_document_research_workflow_hint(ctx: Any | None = None, doc: Any | None = None) -> str:
@@ -338,27 +338,27 @@ def get_document_research_workflow_hint(ctx: Any | None = None, doc: Any | None 
 
     common = (
         "\n\nDocument research workflow:\n"
-        "To do the task (summarize, extract, analyze, answer from document content), use delegate_read_document. "
+        "To do the task (summarize, extract, analyze, answer from document content), use research_delegate_read. "
         "That opens the file and runs one or more specialized read tasks with full read tools on that document — this is the main path.\n"
-        "To find the proper filename when the user gives a partial or inexact name, use list_nearby_files first. "
-        "Use file_kind=images on list_nearby_files for photos/images. "
+        "To find the proper filename when the user gives a partial or inexact name, use research_list_nearby_files first. "
+        "Use file_kind=images on research_list_nearby_files for photos/images. "
         "Pass filter with a substring from their description (e.g. filter='budget' for \"the budget spreadsheet\"), "
-        "then delegate_read_document on the matched file name. One delegate_read_document per office file.\n"
+        "then research_delegate_read on the matched file name. One research_delegate_read per office file.\n"
     )
     grep_hint = (
         "When you are unsure which file — the task names a keyword but no filename — "
-        "use grep_nearby_files to see which nearby files match. "
-        "It returns snippet only, not enough for any real work; use it only for file name discovery, then delegate_read_document for the real task on that document.\n"
-        "Do not use grep_nearby_files when list_nearby_files can resolve the filename (including partial matches, or when you already know "
-        "the target file). If you know which file(s) to read — go straight to delegate_read_document instead.\n"
+        "use research_grep_nearby_files to see which nearby files match. "
+        "It returns snippet only, not enough for any real work; use it only for file name discovery, then research_delegate_read for the real task on that document.\n"
+        "Do not use research_grep_nearby_files when research_list_nearby_files can resolve the filename (including partial matches, or when you already know "
+        "the target file). If you know which file(s) to read — go straight to research_delegate_read instead.\n"
     )
     index_hint = (
-        "For cross-file discovery when the filename is unknown, use search_nearby_files(query, k) on the active folder index; "
+        "For cross-file discovery when the filename is unknown, use research_search_nearby_files(query, k) on the active folder index; "
         "it combines keyword ranking (BM25/NEAR) and semantic embeddings into one fused result list. "
         "Returns ranked doc_url, score, snippet, and optional para_index (weak hint). "
-        "Open the top one or few hits with delegate_read_document and tell the inner read agent to search for the snippet "
+        "Open the top one or few hits with research_delegate_read and tell the inner read agent to search for the snippet "
         "or topic with search — do not rely on para_index or character offsets as exact LO coordinates.\n"
-        "If search_nearby_files returns status indexing, retry after the background index finishes.\n"
+        "If research_search_nearby_files returns status indexing, retry after the background index finishes.\n"
     )
     hint = common + (index_hint if folder_search_enabled() else grep_hint)
     peer = _call_system_prompt_block("peer_inner", ctx, doc) if ctx is not None else ""
@@ -386,7 +386,7 @@ Follow CHAT RESPONSE FORMAT for that short reply."""
 # the research `task` hint are in DelegateToSpecializedWriter.description.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
-- You MUST call delegate_to_specialized_writer_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required)."""
+- You MUST call writer_delegate_specialized(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required)."""
 
 
 TRANSLATION_RULES = """TRANSLATION: get_content(scope=full) -> translate -> apply_content(target='full_document', content=translated).
@@ -462,7 +462,7 @@ HTML_MATH_AND_LINK_EXAMPLES = """MORE EXAMPLES:
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED WRITER (nested tools): The default tool list hides deep Writer features. "
-    "When the user needs those, call delegate_to_specialized_writer_toolset with: domain one of: {domains} "
+    "When the user needs those, call writer_delegate_specialized with: domain one of: {domains} "
     "and a `task` string that fully specifies what the specialized task must do. The executor has the real tools for that domain. "
     f"{SPECIALIZED_TASK_RULES}"
 )
@@ -492,7 +492,7 @@ WRITER_IMAGES_RULES = """IMAGES:
   For a bulk read with pictures embedded, pass include_images=true to get_content."""
 
 
-# Writer sidebar modes — not exposed on delegate_to_specialized_writer_toolset (user picks from dropdown).
+# Writer sidebar modes — not exposed on writer_delegate_specialized (user picks from dropdown).
 WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan", "deep_research"})
 
 
@@ -537,11 +537,11 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 # The sort and has_header lines keep distinct shapes so small models do not merge them. Fill-down is taught on write_range's values parameter, not here.
 CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
-- You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
-When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_calc_toolset(domain="web_research").
+- You MUST call calc_delegate_specialized(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
+When the user wants {DELEGATION_PUBLIC_WEB_HINT}, calc_delegate_specialized(domain="web_research").
 Python on sheet data: write_range of =PY (that tool's description).
 SORT:
-Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
+Do calc_delegate_specialized(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
@@ -561,7 +561,7 @@ CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python", "python/sql"}
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED CALC (nested tools): The default tool list hides advanced Calc features. "
-    "When the user needs those, call delegate_to_specialized_calc_toolset with: domain one of: {domains} "
+    "When the user needs those, call calc_delegate_specialized with: domain one of: {domains} "
     "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
     f"{SPECIALIZED_TASK_RULES}"
 )
@@ -604,12 +604,12 @@ set_style: fixed properties only — not mixed rich text in a cell; use insert_h
 # Route flowcharts/process diagrams through the shapes sub-agent and verify via its return payload.
 DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
-- You MUST call delegate_to_specialized_draw_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
-When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_draw_toolset(domain="web_research").
+- You MUST call draw_delegate_specialized(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
+When the user wants {DELEGATION_PUBLIC_WEB_HINT}, draw_delegate_specialized(domain="web_research").
 
-{delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_draw_toolset")}
-{python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_draw_toolset")}
-For flowcharts and process diagrams, call delegate_to_specialized_draw_toolset(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
+{delegation_math_to_python_hint(delegate_toolset="draw_delegate_specialized")}
+{python_orchestrator_routing_line(delegate_toolset="draw_delegate_specialized")}
+For flowcharts and process diagrams, call draw_delegate_specialized(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
 
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.
@@ -618,7 +618,7 @@ IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS = frozenset({"ppt-master"})
 
 DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
     "SPECIALIZED DRAW (nested tools): The default tool list hides advanced Draw/Impress features. "
-    "When the user needs those, call delegate_to_specialized_draw_toolset with: domain one of: {domains} "
+    "When the user needs those, call draw_delegate_specialized with: domain one of: {domains} "
     "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
     f"{SPECIALIZED_TASK_RULES}"
 )
@@ -631,7 +631,7 @@ DRAW_GET_IMAGE_TOOL_LINE = "- image_get: page=N (0-based) renders that page as a
 IMPRESS_TEXT_FILLS_BLOCK = (
     "IMPRESS TEXT FILLS:\n"
     "1. Prefer placeholder_list(page=N) before placeholder_set_text.\n"
-    "2. If count=0 or placeholder_set_text returns available=[], delegate_to_specialized_draw_toolset(domain=\"slide_layouts\", task=\"set layout 'text' on page N\") then placeholder_list again.\n"
+    "2. If count=0 or placeholder_set_text returns available=[], draw_delegate_specialized(domain=\"slide_layouts\", task=\"set layout 'text' on page N\") then placeholder_list again.\n"
     "3. If roles are missing but indices exist, placeholder_set_text(index=i, text=…).\n"
     "4. page on these tools is 0-based.\n"
     "5. Users and the slide pane count from 1, so slide 3 is index 2.\n\n"
