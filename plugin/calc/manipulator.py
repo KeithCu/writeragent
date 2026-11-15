@@ -28,7 +28,6 @@ import csv
 import io
 from itertools import chain
 import logging
-import time
 from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard
 
 if TYPE_CHECKING:
@@ -36,6 +35,8 @@ if TYPE_CHECKING:
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
     from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
+    from plugin.calc.python.diagnostics import DiagnosticEntry
+    from plugin.calc.python.formula_edit import PyFormula
 else:
     try:
         from com.sun.star.awt import FontWeight
@@ -59,8 +60,8 @@ from plugin.calc.address_utils import (
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.formula_fill import expand_single_formula
+from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
-from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.geometric_recalc_core import arg_covers_cell
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
@@ -363,20 +364,25 @@ def _free_cell_right_of(sheet: Any, sheet_name: str, arg: str, args: list[str]) 
     return None
 
 
-def _py_run_detail(doc: Any, parts: PyFormula, since: float) -> str:
-    """Return the =PY run's newest error text from diagnostics, or empty string."""
-    # The cell itself can only show Err:519 or #SPILL!. The add-in records the
-    # underlying Python or spill error in the diagnostics store on every failed
-    # run; older entries belong to an earlier run and are ignored.
-    if parts.code_is_ref:
-        return ""
-    entry = best_effort(
+def _latest_py_diagnostic(doc: Any, parts: PyFormula | None) -> DiagnosticEntry | None:
+    if parts is None or parts.code_is_ref:
+        return None
+    return best_effort(
         lambda: get_diagnostics_store().latest_for_code(diagnostics_workbook_key(doc), parts.code),
         "lookup py diagnostics",
     )
-    if entry is None or entry.status != "error" or entry.timestamp < since:
+
+
+def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) -> str:
+    """Return the =PY run's new error text from diagnostics, or empty string."""
+    # The cell itself can only show Err:519 or #SPILL!. The add-in records a
+    # new entry in the diagnostics store on every failed run; comparing
+    # identity against the entry present before setFormula ignores older runs
+    # without relying on wall-clock timestamps.
+    latest = _latest_py_diagnostic(doc, parts)
+    if latest is None or latest is prior or not latest.is_error:
         return ""
-    return f" ({' '.join(entry.message.split())[:400]})"
+    return f" ({' '.join(latest.message.split())[:400]})"
 
 
 def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
@@ -983,20 +989,20 @@ class CellManipulator:
         for col, row, key in s29_snapshots:
             sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
 
-        since = time.time()
         formula_warning = ""
         for col, row, formula in formula_cells:
             cell = sheet.getCellByPosition(col, row)
+            parts = py_formula_or_none(formula) if not formula_warning else None
+            prior = _latest_py_diagnostic(self.bridge.doc, parts) if parts is not None else None
             cell.setFormula(formula)
             if not formula_warning:
                 err = int(cell.Error)
-                parts = PyFormula.parse(formula) if "PY" in formula.upper() else None
                 if err != 0:
                     hint = " (hint: Calc uses ';' as the argument separator)" if err in (508, 525, 501) else ""
-                    detail = _py_run_detail(self.bridge.doc, parts, since) if parts is not None else ""
+                    detail = _py_run_detail(self.bridge.doc, parts, prior) if parts is not None else ""
                     formula_warning = f"; warning: formula gives Err:{err}{hint}{detail}"
                 elif parts is not None and cell.getString() == "#SPILL!":
-                    detail = _py_run_detail(self.bridge.doc, parts, since)
+                    detail = _py_run_detail(self.bridge.doc, parts, prior)
                     formula_warning = f"; warning: {format_address(col, row)} shows #SPILL!{detail}"
 
         for col, row, text_value in literal_text_cells:
@@ -1096,9 +1102,9 @@ class CellManipulator:
         sheet_name = sheet.getName()
         width = end[0] - start[0] + 1
         for idx, value in enumerate(values):
-            if not isinstance(value, str) or not value.startswith("=") or "PY" not in value.upper():
+            if not isinstance(value, str):
                 continue
-            parts = PyFormula.parse(value)
+            parts = py_formula_or_none(value)
             # formula_edit.parse_data_binding_text has an ASCII CrossHair contract
             # (deal.PreContractError on non-ASCII sheet names); Calc still reports
             # the circular reference itself in that case.

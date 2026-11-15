@@ -782,6 +782,13 @@ def test_plan_write_refuses_py_inside_its_data_range():
     assert exc_multi.value.code == "PY_CIRCULAR"
     assert "suggested_call" not in (exc_multi.value.details or {})
 
+    # Whole-column and whole-row arguments also trigger PY_CIRCULAR.
+    for open_arg in ("A:A", "1:3"):
+        with pytest.raises(CalcError) as exc_open:
+            manipulator.plan_write("A1", f'=PY("result = np.sum(data)"; {open_arg})')
+        assert exc_open.value.code == "PY_CIRCULAR"
+        assert exc_open.value.details == {"data_range": open_arg}
+
 
 def test_commit_quotes_the_py_run_error():
     from plugin.calc.python.diagnostics import get_diagnostics_store
@@ -817,7 +824,8 @@ def test_commit_quotes_the_py_run_error():
     assert "Err:519" in res["message"]
     assert "TypeError: unsupported operand type" in res["message"]
 
-    # An entry recorded before commit is not quoted.
+    # An entry recorded before commit is not quoted (even for the same code),
+    # whereas a new entry recorded during setFormula is quoted.
     stale_code = "result = 1 / 0"
     stale_formula = f'=PY("{stale_code}"; A1:A2)'
     store.record(workbook_key="wb", code=stale_code, status="error", message="ZeroDivisionError: old")
@@ -827,6 +835,15 @@ def test_commit_quotes_the_py_run_error():
         with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
             res_stale = manipulator.commit_write(plan_stale)
     assert "ZeroDivisionError: old" not in res_stale["message"]
+
+    def _set_formula_new_for_same_code(_f):
+        store.record(workbook_key="wb", code=stale_code, status="error", message="ZeroDivisionError: fresh")
+
+    cell.setFormula.side_effect = _set_formula_new_for_same_code
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res_fresh = manipulator.commit_write(plan_stale)
+    assert "ZeroDivisionError: fresh" in res_fresh["message"]
 
     # Error=0 with #SPILL! quotes the spill range from diagnostics.
     spill_code = "result = [[1, 2]]"

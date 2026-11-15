@@ -17,7 +17,17 @@ import logging
 from dataclasses import dataclass
 from typing import Literal, Mapping
 
-from plugin.calc.address_utils import format_address, local_a1, parse_address, parse_local, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import (
+    MAX_COL,
+    MAX_ROW,
+    column_to_index,
+    format_address,
+    local_a1,
+    parse_address,
+    parse_local,
+    parse_range_string,
+    split_sheet_prefix,
+)
 from plugin.calc.python.formula_edit import (
     PyFormula,
     assemble_python_formula,
@@ -77,6 +87,23 @@ def same_cell_ref(left: str, right: str) -> bool:
     return bool(left) and bool(right) and local_a1(left) == local_a1(right)
 
 
+def _parse_open_axis_range(local: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
+    """Parse whole-column (``A:A``) or whole-row (``1:3``) bounds, or None."""
+    left, sep, right = local.partition(":")
+    if not sep:
+        return None
+    if left.isascii() and left.isalpha() and right.isascii() and right.isalpha():
+        if len(left) <= 3 and len(right) <= 3:
+            c0, c1 = column_to_index(left), column_to_index(right)
+            if c0 <= MAX_COL and c1 <= MAX_COL:
+                return (c0, 0), (c1, MAX_ROW)
+    elif left.isascii() and left.isdigit() and right.isascii() and right.isdigit():
+        r0, r1 = int(left) - 1, int(right) - 1
+        if 0 <= r0 <= MAX_ROW and 0 <= r1 <= MAX_ROW:
+            return (0, r0), (MAX_COL, r1)
+    return None
+
+
 def arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
     """True when a data-arg token (cell or range) includes *target_a1*."""
     sheet, _rest = split_sheet_prefix(arg or "")
@@ -86,8 +113,9 @@ def arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) 
     if not local or not target_a1:
         return False
     try:
-        (c0, r0), (c1, r1) = parse_range_string(local)
         tcol, trow = parse_address(target_a1)
+        bounds = _parse_open_axis_range(local)
+        (c0, r0), (c1, r1) = bounds if bounds is not None else parse_range_string(local)
     except (TypeError, ValueError):
         return False
     c_lo, c_hi = (c0, c1) if c0 <= c1 else (c1, c0)

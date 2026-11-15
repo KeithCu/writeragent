@@ -532,7 +532,14 @@ def prepare_auto_spill(
             if target_r >= max_rows or target_c >= max_cols:
                 log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
                 return _record_spill_blocked(
-                    doc, code, sheet_name, formula_row, formula_col, num_rows, num_cols, None
+                    doc=doc,
+                    code=code,
+                    sheet_name=sheet_name,
+                    row=formula_row,
+                    col=formula_col,
+                    num_rows=num_rows,
+                    num_cols=num_cols,
+                    blocker=None,
                 )
             if (target_r, target_c) in prev_spill_set:
                 continue
@@ -541,7 +548,14 @@ def prepare_auto_spill(
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return _record_spill_blocked(
-                    doc, code, sheet_name, formula_row, formula_col, num_rows, num_cols, (target_c, target_r)
+                    doc=doc,
+                    code=code,
+                    sheet_name=sheet_name,
+                    row=formula_row,
+                    col=formula_col,
+                    num_rows=num_rows,
+                    num_cols=num_cols,
+                    blocker=(target_c, target_r),
                 )
     return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key, code=code)
 
