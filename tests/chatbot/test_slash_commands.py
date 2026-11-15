@@ -513,7 +513,7 @@ def test_slash_compact_sync_passes_tool_schema_list():
     session = MagicMock()
     session.messages = [{"role": "user", "content": "hi"}]
     client = MagicMock()
-    schema_list = [{"name": "read_cell_range"}]
+    schema_list = [{"name": "calc_read_range"}]
     with patch("plugin.framework.config.get_config", return_value=True):
         with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
             compact_mod.return_value = MagicMock(compacted=True, reason="ok")
@@ -595,7 +595,7 @@ def test_run_slash_compact_resolves_document_on_main_thread_only():
     listener.cached_uno_services = None
     listener.slash_document_model = slash_document_model
 
-    schema_list = [{"name": "read_cell_range"}]
+    schema_list = [{"name": "calc_read_range"}]
     registry = MagicMock()
     registry.get_schemas.return_value = schema_list
 

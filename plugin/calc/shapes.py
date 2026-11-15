@@ -9,7 +9,7 @@ comes first in the MRO, so name, schema, execute, domain and uno_services
 (every document type) are Draw's. The Calc base adds one thing:
 ``ToolRegistry.register`` keeps the union of ``required_core_tools`` for
 tools that share a name, so registering these classes puts Calc's
-``get_sheet_summary`` and ``read_cell_range`` into the shape sub-agent's
+``calc_get_sheet_summary`` and ``calc_read_range`` into the shape sub-agent's
 tool list. The "shapes" row of the Calc delegate catalog comes from
 ``ToolCalcShapeBase`` in ``base.py``.
 """

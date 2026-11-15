@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Page-render control flow for get_image — Writer jumpToPage + Draw GraphicExportFilter.
+"""Page-render control flow for image_get — Writer jumpToPage + Draw GraphicExportFilter.
 
 The old XRenderable/DIB math was removed with that route (its getRendererCount reports 1 page on
 real multi-page docs; see BUG-5). What is testable without LibreOffice is the control flow of
@@ -240,7 +240,7 @@ def test_get_image_registers_draw_and_impress():
     ):
         doc = MagicMock()
         doc.supportsService = lambda candidate, target=svc: candidate == target
-        assert "get_image" in {t.name for t in registry.get_tools(doc=doc)}
+        assert "image_get" in {t.name for t in registry.get_tools(doc=doc)}
 
 
 def _tctx(doc, doc_type="draw"):
@@ -339,13 +339,13 @@ def test_draw_page_filter_disposal_propagates():
 def test_wrong_argument_types_are_rejected_before_execute(args):
     # The registry and the smolagents adapter both run prepare_tool_call before execute,
     # so a wrong type never reaches GetImage.execute.
-    prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "get_image", args)
+    prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "image_get", args)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
 
 
 def test_whole_float_page_is_coerced_to_int_before_execute():
-    prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "get_image", {"page": 2.0})
+    prep = prepare_tool_call(GetImage(), _tctx(FakeDrawDoc()), "image_get", {"page": 2.0})
     assert prep.error is None
     assert prep.kwargs == {"page": 2}
     assert type(prep.kwargs["page"]) is int

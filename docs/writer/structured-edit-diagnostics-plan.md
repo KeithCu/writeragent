@@ -1,7 +1,7 @@
 # Structured Edit Diagnostics: `code` + `suggested_call` on Errors and Warnings (Plan)
 
 **Status:** Plan, incorporating the 2026-11-09 Opus review. Tracks row 22 (standardized `code` on errors and warnings) of the editing-API status report (`docs/chat/opuswriteragentprompt.md`, "Seven principles" 1 and 2). Note: "error_code" in row 22 refers to the existing `code` key; no new key is added.
-**Scope:** Writer editing tools first (`apply_document_content`, `apply_style`, `search_in_document`, `set_selection`). The mechanism is shared and generic, so Calc and Draw can adopt it later.
+**Scope:** Writer editing tools first (`writer_apply_content`, `writer_apply_style`, `writer_search`, `writer_set_selection`). The mechanism is shared and generic, so Calc and Draw can adopt it later.
 
 ## 1. Goal
 
@@ -15,7 +15,7 @@ Every non-success outcome of a Writer edit (a hard error, or a success with drop
 
 Why: prompt instructions carry complex API-mechanics rules largely because tool failures are prose that models must parse. A stable error code paired with a ready-to-execute suggested call allows trimming those defensive rules from the prompt, improving tool-use reliability especially for smaller models.
 
-**Also in scope: status-report item 4 (partial-match style skips).** When `data-lo-style` is skipped because a search match covers only part of a paragraph, the result returns a structured `STYLE_IGNORED_PARTIAL_MATCH` warning containing a `suggested_call` for `apply_style(target="search", ...)`. Today this remediation is only described in prose in `message` and `warning`. Item 4 serves as the primary concrete consumer of the shared `Diagnostic` mechanism. Details are in §3.5 and Phase 1.
+**Also in scope: status-report item 4 (partial-match style skips).** When `data-lo-style` is skipped because a search match covers only part of a paragraph, the result returns a structured `STYLE_IGNORED_PARTIAL_MATCH` warning containing a `suggested_call` for `writer_apply_style(target="search", ...)`. Today this remediation is only described in prose in `message` and `warning`. Item 4 serves as the primary concrete consumer of the shared `Diagnostic` mechanism. Details are in §3.5 and Phase 1.
 
 **Non-goals**
 - No change to which edits succeed or fail. This is a diagnostics and metadata layer, not an edit behavior change.
@@ -119,33 +119,33 @@ Code constants remain string literals across call sites, consistent with the cod
 | `ANCHOR_END_NOT_FOUND` | error | `_anchor_miss` with `miss_kind="end"` (`apply_document_content.py:1550`) | None |
 | `ANCHOR_TEXT_DIFFERENT` | error | `_anchor_miss` with `miss_kind="different_text"` (`apply_document_content.py:1550`) | None |
 | `SHAPE_TEXT_NEEDS_DELEGATION` | error | `shape_only_search_message` in `search.py:1315`, `apply_document_content.py:684, 1545`, `selection.py:147` | None (delegation tool requires free-text task and active inner-agent endpoint). |
-| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py:518-525` | Optional: `apply_style` with corrected `style` only if exactly one match in `similar`. |
+| `STYLE_NOT_FOUND` | error | `_missing_style_error` in `styles.py:518-525` | Optional: `writer_apply_style` with corrected `style` only if exactly one match in `similar`. |
 | `OCCURRENCE_OUT_OF_RANGE` | error | `apply_document_content.py:895`, `styles.py:1385`, `selection.py:142` | None |
 | `TABLE_IN_ANCHOR_RANGE` | error | `apply_document_content.py:1579` | None |
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py:739`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py:644, 722, 1468`, `styles.py:1403` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py:1481, 1499`, `styles.py:1423` | None |
-| `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py:1401, 1526`); invalid style/clear_direct (`styles.py:1312, 1338-1347`); selection parameter conflicts/empty values (`selection.py:75-106`); `apply_document_content` parameter conflicts/empty strings (`892, 903, 1186, 1188, 1192, 1207, 1211, 1214, 1631, 1639`) | None |
+| `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py:1401, 1526`); invalid style/clear_direct (`styles.py:1312, 1338-1347`); selection parameter conflicts/empty values (`selection.py:75-106`); `writer_apply_content` parameter conflicts/empty strings (`892, 903, 1186, 1188, 1192, 1207, 1211, 1214, 1631, 1639`) | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None (item 21 shipped; validated via ICU engine; `details.engine` dropped). |
-| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`_LO_STYLE_PARTIAL_MATCH_NOTE`, `html_import.py:507`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if conditions in §3.5 hold. |
-| `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`_LO_STYLE_RECORDING_NOTE`, `html_import.py:511`) | None (`apply_style` is not tracked). |
+| `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`_LO_STYLE_PARTIAL_MATCH_NOTE`, `html_import.py:507`) | `writer_apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if conditions in §3.5 hold. |
+| `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`_LO_STYLE_RECORDING_NOTE`, `html_import.py:511`) | None (`writer_apply_style` is not tracked). |
 | `PARA_PROPERTY_UNSUPPORTED` | warning | Unapplied `data-lo-para` property (`html_import_styles.attach_write_report`) | None |
 | `LINK_TARGET_NOT_FOUND` | warning | `resolve_heading_links` (`html_import_styles.py`) | None |
 
 *Heading link resolution:* `resolve_heading_links` rewrites bare `href="#Heading"` fragments to `href="#Heading|outline"` when the fragment matches an outline heading text (derived from headings written in the HTML plus existing body headings; skipped for `full_document`). Targets matching an element `id` or `name` in the written HTML, or an existing bookmark in the document, are exempted from rewrite and warning. Unmatched bare fragments emit a `LINK_TARGET_NOT_FOUND` diagnostic warning once per distinct fragment.
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
-*Note on dropped items:* `TABLE_DELETED` is not emitted as a warning or undo suggestion; table deletion is already exposed via structured fields `table_deleted: true` and `pending_review` (`apply_document_content.py:147-165`), and invoking `undo` during change recording is unsafe.
+*Note on dropped items:* `TABLE_DELETED` is not emitted as a warning or undo suggestion; table deletion is already exposed via structured fields `table_deleted: true` and `pending_review` (`apply_document_content.py:147-165`), and invoking `document_undo` during change recording is unsafe.
 
 ### 3.4 Building `suggested_call` safely
 
 Rules for constructing suggestions:
 1. **Emit only when all arguments are known:** Never produce incomplete or placeholder arguments. If the model must provide additional parameters, omit `suggested_call` and explain in `message`.
-2. **Focus on cross-tool workflows:** In v1, `suggested_call` is reserved for cross-tool corrections the model would not otherwise infer (specifically item 4's `apply_style` after a partial match write, and unambiguous single-match `STYLE_NOT_FOUND`).
+2. **Focus on cross-tool workflows:** In v1, `suggested_call` is reserved for cross-tool corrections the model would not otherwise infer (specifically item 4's `writer_apply_style` after a partial match write, and unambiguous single-match `STYLE_NOT_FOUND`).
 3. **Centralized construction per tool:** Construct suggestions in one place per tool from code and parsed arguments (e.g. in `_do_edit` after `_dispatch_edit` in `apply_document_content.py`), rather than plumbing `kwargs` through lower-level helpers.
 4. **Filter to schema properties:** Validate arguments against `parameters["properties"]` of the target tool schema. This automatically filters out internal execution flags and MCP's `document_url`.
 5. **Bound payload size:** Never echo raw HTML `content` back in a suggestion. Bound string arguments to short targets.
-6. **Gate against change recording:** Do not suggest `apply_style` while tracked changes are recording (`record_changes.is_recording_changes(model)`), because `apply_style` is not recorded as a tracked change (`plugin/framework/prompts.py:391`).
+6. **Gate against change recording:** Do not suggest `writer_apply_style` while tracked changes are recording (`record_changes.is_recording_changes(model)`), because `writer_apply_style` is not recorded as a tracked change (`plugin/framework/prompts.py:391`).
 7. **MCP transport independence:** MCP clients manage their own `document_url`; suggestions emit only standard tool arguments without transport-specific fields.
 8. **No gettext formatting:** Argument values and code names must never pass through `_()`.
 
@@ -160,9 +160,9 @@ For each style skip, `result["warnings"]` receives a `Diagnostic`:
 ```json
 {
   "code": "STYLE_IGNORED_PARTIAL_MATCH",
-  "message": "data-lo-style='Heading 2' was not applied because the match does not cover whole paragraphs; applying it would restyle neighboring text in the host paragraph. Restyle with apply_style(target='search', old_content='...').",
+  "message": "data-lo-style='Heading 2' was not applied because the match does not cover whole paragraphs; applying it would restyle neighboring text in the host paragraph. Restyle with writer_apply_style(target='search', old_content='...').",
   "suggested_call": {
-    "tool": "apply_style",
+    "tool": "writer_apply_style",
     "arguments": {
       "target": "search",
       "old_content": "Quarterly results",
@@ -175,23 +175,23 @@ For each style skip, `result["warnings"]` receives a `Diagnostic`:
 }
 ```
 
-**Rules for building the `apply_style` suggestion:**
-1. **Target new visible text (`params.plain`):** Always target the newly inserted visible text, NOT the original search string. The edit has already executed and replaced the original text; `apply_style` must search for text that currently exists in the document.
+**Rules for building the `writer_apply_style` suggestion:**
+1. **Target new visible text (`params.plain`):** Always target the newly inserted visible text, NOT the original search string. The edit has already executed and replaced the original text; `writer_apply_style` must search for text that currently exists in the document.
 2. **Single paragraph check:** `params.plain` must be a single paragraph (no `\n`).
 3. **Single distinct style token:** Content must contain exactly one distinct non-empty `data-lo-style` token (`extract_block_lo_styles`).
 4. **Resolved style token:** Resolve the style using `resolve_paragraph_style_token` (`plugin/writer/html_import_styles.py:547`). If it falls back to `"Standard"` for a token that was not `"Standard"`, treat the style as unresolved and omit `suggested_call`.
 5. **Exact post-write match count:** After the write, verify the new text matches the expected count in the document: exactly 1 match (or exactly `replaced_count` matches when `all_matches=True`).
 6. **Case sensitivity:** Always supply `case_sensitive: true`.
-7. **Host paragraph restyling notice:** Paragraph styles apply to the entire paragraph enclosing the match. The warning `message` must clearly state that `apply_style` will restyle the entire host paragraph.
-8. **Aggregated counts for `all_matches`:** Emit a single aggregated warning with `matches_skipped` and `matches_total`. The suggestion includes `all_matches: true` (which `apply_style` already supports).
-9. **Recording gate:** Check `not record_changes.is_recording_changes(model)`. Because `_lo_style_for_replaced_range` checks partial match before recording, a partial match during recording triggers `STYLE_IGNORED_PARTIAL_MATCH`. Gating on recording status prevents emitting an untracked `apply_style` suggestion during redline recording.
+7. **Host paragraph restyling notice:** Paragraph styles apply to the entire paragraph enclosing the match. The warning `message` must clearly state that `writer_apply_style` will restyle the entire host paragraph.
+8. **Aggregated counts for `all_matches`:** Emit a single aggregated warning with `matches_skipped` and `matches_total`. The suggestion includes `all_matches: true` (which `writer_apply_style` already supports).
+9. **Recording gate:** Check `not record_changes.is_recording_changes(model)`. Because `_lo_style_for_replaced_range` checks partial match before recording, a partial match during recording triggers `STYLE_IGNORED_PARTIAL_MATCH`. Gating on recording status prevents emitting an untracked `writer_apply_style` suggestion during redline recording.
 10. **Selection target:** Omit `suggested_call` for `target="selection"`. Following insertion, the view selection is not guaranteed to span the inserted content.
 11. **Before/after insertions:** Before/after inserts currently drop `data-lo-style` silently via `apply_styles=False`. In v1, leave before/after style behavior scoped out; any future warning for before/after must account for boundary snapping (`_paragraph_boundary_cursor`).
 
 **Tests for item 4:**
 - `tests/writer/test_apply_document_content.py`: verify `Diagnostic` payload, `code`, flat count fields, and omission of `suggested_call` when recording changes, style is unresolvable, or text contains newlines.
 - `tests/writer/test_content_style_model_uno.py` (UNO replay): Execute the `suggested_call` against a live LibreOffice instance. Assert that the host paragraph receives the style and that **neighbouring paragraphs** retain their original styles.
-- Schema validation: run the test validator over emitted suggestions to ensure they match `apply_style` schema requirements.
+- Schema validation: run the test validator over emitted suggestions to ensure they match `writer_apply_style` schema requirements.
 
 ## 4. Implementation phases
 
@@ -206,7 +206,7 @@ Each phase is independently shippable, maintains green tests, and requires no te
 ### Phase 1: Item 4 — Partial-match style skips as diagnostics (Writer)
 - Migrate `_attach_style_notes` in `plugin/writer/apply_document_content.py` (now `html_import_styles.attach_write_report`) to append `Diagnostic` dicts to `result["warnings"]` and discontinue writing singular `warning`.
 - Update `_lo_style_for_replaced_range` in `plugin/writer/html_import.py` to return diagnostic codes (`STYLE_IGNORED_PARTIAL_MATCH`, `STYLE_IGNORED_RECORDING`) rather than note strings, simplifying aggregation.
-- Build `suggested_call` for `apply_style` adhering strictly to §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
+- Build `suggested_call` for `writer_apply_style` adhering strictly to §3.5 rules (new text `params.plain`, single paragraph, unique resolved style, exact match count, gated on recording).
 - Update `attach_para_warnings` in `plugin/writer/html_import_styles.py` to emit `Diagnostic` dicts (`PARA_PROPERTY_UNSUPPORTED`). (This simultaneously updates `page.py:1017` header/footer writes).
 - Note: Full-document replacement already routes through `attach_para_warnings`, automatically picking up the new diagnostic shape.
 - Tests: `tests/writer/test_apply_document_content.py`, `tests/writer/test_apply_document_content_structured_return.py`, `tests/writer/test_page.py`, `tests/writer/test_html_import.py`, and UNO replay in `tests/writer/test_content_style_model_uno.py`.
@@ -239,8 +239,8 @@ Each phase is independently shippable, maintains green tests, and requires no te
 
 | Risk | Mitigation |
 |------|------------|
-| Suggestion succeeds but performs the wrong edit | Do not suggest replacements for search near-misses (preview text is truncated). For style skips, clearly notify that `apply_style` restyles the host paragraph; assert neighbouring paragraphs retain their styles in UNO replay tests. |
-| Inadvertent execution during change recording | Explicitly gate `suggested_call` on `not record_changes.is_recording_changes(model)`. `apply_style` is not tracked. |
+| Suggestion succeeds but performs the wrong edit | Do not suggest replacements for search near-misses (preview text is truncated). For style skips, clearly notify that `writer_apply_style` restyles the host paragraph; assert neighbouring paragraphs retain their styles in UNO replay tests. |
+| Inadvertent execution during change recording | Explicitly gate `suggested_call` on `not record_changes.is_recording_changes(model)`. `writer_apply_style` is not tracked. |
 | Token bloat and large payloads | Never echo `content` HTML in suggestions. Filter arguments strictly against the target tool's parameter schema. `warnings` remains omitted when empty. |
 | LibrePy bundle breakage | Define all types and helpers in existing `plugin/framework/errors.py`, which is already bundled in `scripts/librepy_bundle_paths.py`. |
 | Broken external readers of top-level error fields | Preserve existing top-level fields (`replaced_count`, `closest_match`, `diff_at`, `oversized`) on hand-built error dicts. Add `"code"` directly without routing through `make_tool_error`. |

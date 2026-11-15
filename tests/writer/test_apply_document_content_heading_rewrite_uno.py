@@ -62,9 +62,9 @@ def test_apply_document_content_preserves_heading_level_span_uno(ctx, doc):
         old_content=_HEADING_TEXT,
         target="search",
     )
-    assert res.get("status") == "ok", f"apply_document_content failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_content failed: {res}"
     assert _para_style_at_start(text) == "Heading 3", \
-        "apply_document_content demoted the heading to '%s'" % _para_style_at_start(text)
+        "writer_apply_content demoted the heading to '%s'" % _para_style_at_start(text)
 
 
 @native_test
@@ -79,9 +79,9 @@ def test_apply_document_content_preserves_heading_level_b_uno(ctx, doc):
         old_content=_HEADING_TEXT,
         target="search",
     )
-    assert res.get("status") == "ok", f"apply_document_content failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_content failed: {res}"
     assert _para_style_at_start(text) == "Heading 3", \
-        "apply_document_content demoted the heading to '%s'" % _para_style_at_start(text)
+        "writer_apply_content demoted the heading to '%s'" % _para_style_at_start(text)
 
 
 @native_test
@@ -96,7 +96,7 @@ def test_apply_document_content_block_markup_changes_heading_level_uno(ctx, doc)
         old_content=_HEADING_TEXT,
         target="search",
     )
-    assert res.get("status") == "ok", f"apply_document_content failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_content failed: {res}"
     para_style = _para_style_at_start(text)
     assert para_style == "Heading 2", \
         "block markup should set Heading 2, got '%s'" % para_style
@@ -117,7 +117,7 @@ def test_apply_document_content_preserves_inline_color_on_heading_uno(ctx, doc):
         old_content=_HEADING_TEXT,
         target="search",
     )
-    assert res.get("status") == "ok", f"apply_document_content failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_content failed: {res}"
     assert _para_style_at_start(text) == "Heading 3", \
         "demoted the heading to '%s'" % _para_style_at_start(text)
     color = _char_prop_over_paragraph(text, "CharColor")
@@ -138,7 +138,7 @@ def test_apply_document_content_preserves_inline_highlight_on_heading_uno(ctx, d
         old_content=_HEADING_TEXT,
         target="search",
     )
-    assert res.get("status") == "ok", f"apply_document_content failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_content failed: {res}"
     assert _para_style_at_start(text) == "Heading 3", \
         "demoted the heading to '%s'" % _para_style_at_start(text)
     back = _char_prop_over_paragraph(text, "CharBackColor")

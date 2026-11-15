@@ -19,7 +19,7 @@ from eval_worlds import CalcWorld, DrawWorld, WriterWorld, parse_a1_range
 def test_html_apply_round_trip_heading_and_table() -> None:
     world = WriterWorld("plain")
     html = "<h1>Intro</h1><table><tr><td>A</td></tr></table>"
-    world.apply_document_content(target="full_document", content=html)
+    world.writer_apply_content(target="full_document", content=html)
     types = [b["type"] for b in world.blocks]
     assert "heading" in types
     assert "table" in types
@@ -28,7 +28,7 @@ def test_html_apply_round_trip_heading_and_table() -> None:
 
 def test_style_field_from_class() -> None:
     world = WriterWorld("")
-    world.apply_document_content(
+    world.writer_apply_content(
         target="full_document",
         content='<p class="Quotations">Default style paragraph one.</p>',
     )
@@ -39,7 +39,7 @@ def test_style_field_from_class() -> None:
 
 def test_add_comment_on_uncertain() -> None:
     world = WriterWorld("The results are uncertain at this point.")
-    res = world.add_comment(search="uncertain", content="Review this before finalizing")
+    res = world.comment_add(search="uncertain", content="Review this before finalizing")
     assert res["comment_added"] is True
     assert "[Review this before finalizing]" in world.get_html()
     commented = [b for b in world.blocks if b["comments"]]
@@ -48,7 +48,7 @@ def test_add_comment_on_uncertain() -> None:
 
 def test_search_in_document_offsets() -> None:
     world = WriterWorld("<p>Hello world</p>")
-    found = world.search_in_document(pattern="world")
+    found = world.writer_search(pattern="world")
     assert found["status"] == "ok"
     assert found["ranges"]
 
@@ -59,7 +59,7 @@ def test_draw_connect_tree() -> None:
     draw.shape_upsert(action="create", shape_type="flowchart-process", text="Process")
     res = draw.shape_connect(start=0, end=1)
     assert res["status"] == "ok"
-    tree = draw.get_draw_tree()
+    tree = draw.draw_get_tree()
     assert tree["connections"]
     nodes = tree["tree"]
     assert any(n.get("connected_end") or n.get("connected_start") for n in nodes)
@@ -67,7 +67,7 @@ def test_draw_connect_tree() -> None:
 
 def test_calc_py_dest_snapshot() -> None:
     calc = CalcWorld("Name\tAmt\nAnn\t1")
-    calc.write_formula_range(
+    calc.calc_write_range(
         range=["J1"],
         values='=PY("result = 1"; A1:H500)',
     )
@@ -81,7 +81,7 @@ def test_calc_py_dest_snapshot() -> None:
 
 def test_apply_style_heading_html() -> None:
     world = WriterWorld("<p>Background</p><p>Other</p>")
-    res = world.apply_style(style="Heading 1", target="search", old_content="Background")
+    res = world.writer_apply_style(style="Heading 1", target="search", old_content="Background")
     assert res["status"] == "ok"
     html = world.get_html()
     assert "<h1>" in html
@@ -93,15 +93,15 @@ def test_sort_two_pass_stable_device_before_widget() -> None:
     calc = CalcWorld(
         "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"
     )
-    calc.range_sort(sort_column=0, ascending=True, has_header=True)
-    calc.range_sort(sort_column=1, ascending=False, has_header=True)
+    calc.calc_sort_range(sort_column=0, ascending=True, has_header=True)
+    calc.calc_sort_range(sort_column=1, ascending=False, has_header=True)
     names = [row[0] for row in calc._grid[1:]]
     assert names == ["Aardvark", "Tool", "Device", "Widget", "Gadget"]
 
 
 def test_calc_write_formula_range_rejects_length_mismatch() -> None:
     calc = CalcWorld("Item\tAmt\nAnn\t1\nBea\t2\nCal\t3\nDee\t4")
-    res = calc.write_formula_range(range=["C2:C9"], values=["a", "b", "c", "d"])
+    res = calc.calc_write_range(range=["C2:C9"], values=["a", "b", "c", "d"])
     assert res["status"] == "error"
     assert "4 values" in res["message"]
     assert "8 cells" in res["message"]
@@ -111,7 +111,7 @@ def test_calc_write_formula_range_rejects_length_mismatch() -> None:
 
 def test_calc_write_formula_range_accepts_scalar_fill() -> None:
     calc = CalcWorld("Item\tAmt\nAnn\t1")
-    res = calc.write_formula_range(range=["C2:C5"], values="=B2+1")
+    res = calc.calc_write_range(range=["C2:C5"], values="=B2+1")
     assert res["status"] == "ok"
     assert res["written"] == 4
 
@@ -119,7 +119,7 @@ def test_calc_write_formula_range_accepts_scalar_fill() -> None:
 def test_calc_single_formula_fill_down_adjusts_relative_refs() -> None:
     """One formula string into a 1-D Tax column matches production fill-down."""
     calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5")
-    res = calc.write_formula_range(range=["C2:C5"], values="=B2*0.08")
+    res = calc.calc_write_range(range=["C2:C5"], values="=B2*0.08")
     assert res["status"] == "ok"
     assert res["written"] == 4
     assert calc.formulas["C2"] == "=B2*0.08"
@@ -134,7 +134,7 @@ def test_calc_json_array_of_identical_formulas_stays_pinned() -> None:
     """JSON array is exact per-cell; repeating =B2*0.08 still pins every row."""
     calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5")
     pinned = '["=B2*0.08","=B2*0.08","=B2*0.08","=B2*0.08"]'
-    res = calc.write_formula_range(range=["C2:C5"], values=pinned)
+    res = calc.calc_write_range(range=["C2:C5"], values=pinned)
     assert res["status"] == "ok"
     assert res["written"] == 4
     assert calc.formulas["C2"] == "=B2*0.08"
@@ -146,7 +146,7 @@ def test_calc_json_array_of_identical_formulas_stays_pinned() -> None:
 
 def test_sheet_summary_includes_all_rows() -> None:
     calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5\nNote\tn/a\nTotal\t?")
-    summary = calc.get_sheet_summary()
+    summary = calc.calc_get_sheet_summary()
     assert summary["row_count"] == 7
     assert len(summary["grid"]) == 7
     assert any("Note" in [str(c) for c in row] for row in summary["grid"])
@@ -157,7 +157,7 @@ def test_read_cell_range_matches_grid_to_rows() -> None:
 
     calc = CalcWorld("X\tY\n1\t2")
     calc.formulas["B2"] = "=A2+1"
-    res = calc.read_cell_range(range=["A1:B2"])
+    res = calc.calc_read_range(range=["A1:B2"])
     expected = grid_to_rows(calc._inspector_grid("A1:B2"), range_name="A1:B2")
     assert res["status"] == "ok"
     assert "range" not in res
@@ -167,7 +167,7 @@ def test_read_cell_range_matches_grid_to_rows() -> None:
 
 def test_read_cell_range_multi_range_envelope() -> None:
     calc = CalcWorld("a\tb")
-    res = calc.read_cell_range(range=["A1", "B1"])
+    res = calc.calc_read_range(range=["A1", "B1"])
     assert res["status"] == "ok"
     assert "range" not in res
     assert len(res["result"]) == 2
@@ -177,18 +177,18 @@ def test_read_cell_range_multi_range_envelope() -> None:
 
 
 def test_range_sort_respects_range_and_relative_header() -> None:
-    """H1: range_sort sorts only the given range; has_header applies to the range's first row."""
+    """H1: calc_sort_range sorts only the given range; has_header applies to the range's first row."""
     calc = CalcWorld(
         "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"
     )
     # Data-only range A2:B6 with has_header=False must keep row 1 ("Product") at top.
-    res = calc.range_sort(range=["A2:B6"], sort_column=0, ascending=True, has_header=False)
+    res = calc.calc_sort_range(range=["A2:B6"], sort_column=0, ascending=True, has_header=False)
     assert res["status"] == "ok"
     assert calc._grid[0] == ["Product", "Revenue"]
     assert [row[0] for row in calc._grid[1:]] == ["Aardvark", "Device", "Gadget", "Tool", "Widget"]
 
     # Range A2:B6 with has_header=True treats row 2 ("Aardvark") as header and sorts rows 3..6.
-    res2 = calc.range_sort(range=["A2:B6"], sort_column=1, ascending=False, has_header=True)
+    res2 = calc.calc_sort_range(range=["A2:B6"], sort_column=1, ascending=False, has_header=True)
     assert res2["status"] == "ok"
     assert calc._grid[0] == ["Product", "Revenue"]
     assert calc._grid[1][0] == "Aardvark"
@@ -198,7 +198,7 @@ def test_range_sort_respects_range_and_relative_header() -> None:
 def test_range_sort_subcolumns_leave_outside_columns_untouched() -> None:
     """H1: sorting B1:C4 only reorders columns B and C, and sort_column is 0-based in range."""
     calc = CalcWorld("Keep\tItem\tVal\nr1\tB\t20\nr2\tA\t10\nr3\tC\t30")
-    res = calc.range_sort(range=["B1:C4"], sort_column=1, ascending=True, has_header=True)
+    res = calc.calc_sort_range(range=["B1:C4"], sort_column=1, ascending=True, has_header=True)
     assert res["status"] == "ok"
     assert [row[0] for row in calc._grid] == ["Keep", "r1", "r2", "r3"]
     assert [row[1:] for row in calc._grid] == [
@@ -211,7 +211,7 @@ def test_range_sort_subcolumns_leave_outside_columns_untouched() -> None:
 
 def test_range_sort_invalid_sort_column_errors() -> None:
     calc = CalcWorld("A\tB\n1\t2\n3\t4")
-    res = calc.range_sort(range=["A1:B3"], sort_column=2, has_header=True)
+    res = calc.calc_sort_range(range=["A1:B3"], sort_column=2, has_header=True)
     assert res["status"] == "error"
     assert "sort_column must be an integer from 0 to 1" in res["message"]
 
@@ -219,11 +219,11 @@ def test_range_sort_invalid_sort_column_errors() -> None:
 def test_range_sort_reports_no_rows_moved() -> None:
     """H4: unchanged key column reports the production 'no rows moved' message."""
     calc = CalcWorld("Item\tVal\nA\t10\nB\t20\nC\t30")
-    res = calc.range_sort(range=["A1:B4"], sort_column=1, ascending=True, has_header=True)
+    res = calc.calc_sort_range(range=["A1:B4"], sort_column=1, ascending=True, has_header=True)
     assert res["status"] == "ok"
     assert res["message"] == "Range A1:B4: key column 1 unchanged by the sort; no rows moved."
 
-    res_moved = calc.range_sort(range=["A1:B4"], sort_column=1, ascending=False, has_header=True)
+    res_moved = calc.calc_sort_range(range=["A1:B4"], sort_column=1, ascending=False, has_header=True)
     assert res_moved["status"] == "ok"
     assert res_moved["message"] == "Range A1:B4 sorted descending by column 1."
 
@@ -231,7 +231,7 @@ def test_range_sort_reports_no_rows_moved() -> None:
 def test_write_formula_range_flattens_2d_array_and_rejects_mismatch() -> None:
     """H2: 2-D arrays fill row-by-row; shape mismatch returns an error without mutating."""
     calc = CalcWorld("Product\tRevenue\nWidget\t1200\nGadget\t850")
-    res = calc.write_formula_range(
+    res = calc.calc_write_range(
         range=["A2:B3"],
         values=[["Tool", 2100], ["Device", 1200]],
     )
@@ -240,7 +240,7 @@ def test_write_formula_range_flattens_2d_array_and_rejects_mismatch() -> None:
     assert calc._grid[1] == ["Tool", 2100]
     assert calc._grid[2] == ["Device", 1200]
 
-    bad = calc.write_formula_range(range=["A2:B4"], values=[["X", 1], ["Y", 2]])
+    bad = calc.calc_write_range(range=["A2:B4"], values=[["X", 1], ["Y", 2]])
     assert bad["status"] == "error"
     assert "2x2" in bad["message"]
     assert "3x2" in bad["message"]
@@ -249,7 +249,7 @@ def test_write_formula_range_flattens_2d_array_and_rejects_mismatch() -> None:
 
 def test_write_formula_range_expands_2d_from_single_cell() -> None:
     calc = CalcWorld("A\tB")
-    res = calc.write_formula_range(range=["A2"], values=[["x", 1], ["y", 2]])
+    res = calc.calc_write_range(range=["A2"], values=[["x", 1], ["y", 2]])
     assert res["status"] == "ok"
     assert res["written"] == 4
     assert calc._grid[1] == ["x", 1]
@@ -260,7 +260,7 @@ def test_write_formula_range_does_not_json_parse_py_formula_with_brackets() -> N
     """H2b: =PY(...) containing [...] must not be split into a list."""
     calc = CalcWorld("Product\tRevenue\nWidget\t1200")
     formula = '=PY("result = df[\'Revenue\'].sum()"; A1:B2)'
-    res = calc.write_formula_range(range=["C2"], values=formula)
+    res = calc.calc_write_range(range=["C2"], values=formula)
     assert res["status"] == "ok"
     assert res["written"] == 1
     assert calc.formulas["C2"] == formula
@@ -273,7 +273,7 @@ def test_parse_a1_range_sheet_qualified_and_range_sort() -> None:
     assert parse_a1_range("'Q1.Sales'!B2:C4") == (1, 1, 2, 3)
 
     calc = CalcWorld("Item\tVal\nB\t20\nA\t10\nC\t30")
-    res = calc.range_sort(range=["'My Sheet'!A1:B4"], sort_column=1, ascending=True, has_header=True)
+    res = calc.calc_sort_range(range=["'My Sheet'!A1:B4"], sort_column=1, ascending=True, has_header=True)
     assert res["status"] == "ok"
     assert "sorted ascending" in res["message"]
     assert [row[0] for row in calc._grid[1:]] == ["A", "B", "C"]
@@ -281,14 +281,14 @@ def test_parse_a1_range_sheet_qualified_and_range_sort() -> None:
 
 def test_range_sort_mixed_ascending() -> None:
     calc = CalcWorld("Item\tVal\nalpha\tbeta\nnum10\t10\nempty\t\nnum2\t2\napple\tapple")
-    res = calc.range_sort(range=["A1:B6"], sort_column=1, ascending=True, has_header=True)
+    res = calc.calc_sort_range(range=["A1:B6"], sort_column=1, ascending=True, has_header=True)
     assert res["status"] == "ok"
     assert [row[1] for row in calc._grid[1:]] == ["2", "10", "apple", "beta", ""]
 
 
 def test_range_sort_mixed_descending_with_empties() -> None:
     calc = CalcWorld("Item\tVal\nnum2\t2\nempty1\t\napple\tapple\nnum10\t10\nbeta\tbeta\nempty2\t")
-    res = calc.range_sort(range=["A1:B7"], sort_column=1, ascending=False, has_header=True)
+    res = calc.calc_sort_range(range=["A1:B7"], sort_column=1, ascending=False, has_header=True)
     assert res["status"] == "ok"
     assert [row[1] for row in calc._grid[1:]] == ["beta", "apple", "10", "2", "", ""]
     assert [row[0] for row in calc._grid[1:]] == ["beta", "apple", "num10", "num2", "empty1", "empty2"]

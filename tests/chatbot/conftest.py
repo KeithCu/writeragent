@@ -14,7 +14,7 @@ from plugin.framework.tool import ToolBase
 
 
 class _ApplyDocumentContentStub(ToolBase):
-    name = "apply_document_content"
+    name = "writer_apply_content"
     description = "stub"
     tier = "core"
     parameters = {"type": "object", "properties": {}, "required": []}

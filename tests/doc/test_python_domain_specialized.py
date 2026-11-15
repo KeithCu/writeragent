@@ -64,7 +64,7 @@ class _VenvScriptProbe(ToolBase):
 
 
 class _ShapeProbe(ToolWriterShapeBase):
-    name = "shape_summary"
+    name = "shape_get_summary"
     description = "Summarize shapes on the page, including position and type."
     parameters = {
         "type": "object",
@@ -255,13 +255,13 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
 
     tools_arg = mock_build.call_args[0][1]
     by_name = {tool.name: tool for tool in tools_arg}
-    assert "footnotes_insert" in by_name
-    assert "shape_summary" in by_name
+    assert "footnote_insert" in by_name
+    assert "shape_get_summary" in by_name
     assert "shape_upsert" not in by_name
     assert "run_venv_python_script" in by_name
     assert "delegate_tool_domains" not in by_name
     assert tools_arg[-1].name == "specialized_workflow_finished"
-    note = by_name["footnotes_insert"].inputs["note"]
+    note = by_name["footnote_insert"].inputs["note"]
     assert note["enum"] == ["footnote", "endnote"]
     assert note["nullable"] is False
 
@@ -284,9 +284,9 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
     assert allowed is not None
     assert set(DOMAIN_TOOLS["core"]) <= allowed
     assert "shape_upsert" in allowed
-    assert "footnotes_insert" in allowed
-    assert "list_open_documents" in allowed
-    assert "undo" in allowed
+    assert "footnote_insert" in allowed
+    assert "document_list_open" in allowed
+    assert "document_undo" in allowed
     assert "run_venv_python_script" not in allowed
     instructions = mock_build.call_args.kwargs["instructions"]
     assert format_script_api_catalog(["footnotes", "shapes"]) in instructions
@@ -367,10 +367,10 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     tools_arg = mock_build.call_args[0][1]
     names = {tool.name for tool in tools_arg}
     assert "sheet_list" in names
-    assert "range_sort" in names
-    assert "footnotes_insert" not in names
+    assert "calc_sort_range" in names
+    assert "footnote_insert" not in names
     by_name = {tool.name: tool for tool in tools_arg}
-    assert by_name["range_sort"].inputs["range"]["type"] == "array"
+    assert by_name["calc_sort_range"].inputs["range"]["type"] == "array"
     assert "shape_upsert" not in names
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.python_tool_domain == "sheets,ranges,core"
@@ -379,13 +379,13 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
     assert allowed is not None
     assert "sheet_list" in allowed
-    assert "range_sort" in allowed
+    assert "calc_sort_range" in allowed
     assert "shape_upsert" not in allowed
-    assert "undo" in allowed
+    assert "document_undo" in allowed
     assert "run_venv_python_script" not in allowed
     calc_instructions = mock_build.call_args.kwargs["instructions"]
     assert "wa.sheet.list" in calc_instructions
-    assert "wa.core.undo" in calc_instructions
+    assert "wa.document.undo" in calc_instructions
     assert "wa.shape.upsert" not in calc_instructions
 
 
@@ -513,7 +513,7 @@ def test_gather_domain_tools_marshals_off_main_thread():
     ) as mock_main:
         tools = gather_domain_tools(parent, ["footnotes"])
     assert mock_main.called
-    assert {tool.name for tool in tools} >= {"footnotes_insert", "specialized_workflow_finished"}
+    assert {tool.name for tool in tools} >= {"footnote_insert", "specialized_workflow_finished"}
     names = [tool.name for tool in tools]
     assert names.count("specialized_workflow_finished") == 1
     assert names.count("run_venv_python_script") == 1

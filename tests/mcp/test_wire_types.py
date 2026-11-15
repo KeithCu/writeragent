@@ -48,7 +48,7 @@ def test_call_tool_result_json_serializable():
 
 
 def test_call_tool_result_image_content():
-    # get_image returns a native MCP image block (not base64-as-text) so vision clients see the picture.
+    # image_get returns a native MCP image block (not base64-as-text) so vision clients see the picture.
     payload = wire_types.call_tool_result_image("QUJD", mime_type="image/png")
     block = payload["content"][0]
     assert block["type"] == "image"
@@ -140,8 +140,8 @@ def test_jsonrpc_success_tools_list_golden_envelope():
 
 
 def test_call_tool_request_params_from_params():
-    params = wire_types.CallToolRequestParams.from_params({"name": "get_document_content", "arguments": {"scope": "full"}})
-    assert params.name == "get_document_content"
+    params = wire_types.CallToolRequestParams.from_params({"name": "writer_get_content", "arguments": {"scope": "full"}})
+    assert params.name == "writer_get_content"
     assert params.arguments == {"scope": "full"}
 
 
@@ -159,7 +159,7 @@ def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     payload = wire_types.call_tool_result_image("A" * (DEAL_MAX_SOURCE + 8), mime_type="image/png")
     assert payload["content"][0]["data"].startswith("A")
     params = wire_types.CallToolRequestParams.from_params(
-        {"name": "get_document_content", "arguments": {"n": 1, "items": [1, 2], "text": "é" * 100}, "timeout": 3}
+        {"name": "writer_get_content", "arguments": {"n": 1, "items": [1, 2], "text": "é" * 100}, "timeout": 3}
     )
     assert params.arguments["n"] == 1
     wide = {"jsonrpc": "2.0", "id": 1, "method": "ping", **{f"k{i}": i for i in range(40)}}

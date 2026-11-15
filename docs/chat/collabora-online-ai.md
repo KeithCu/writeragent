@@ -45,16 +45,16 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 | Collabora capability | Status | WriterAgent location | Collabora source |
 | :--- | :--- | :--- | :--- |
 | `image_generate` | **Implemented** | [`plugin/writer/images/`](../../plugin/writer/images/), [../images/generation.md](../images/generation.md) | `AIChatSession.cpp` — terminal tool, ends loop |
-| `extract_document_structure` | **Partial** | [`get_document_tree`](../../plugin/writer/outline.py), [`plugin/draw/tree.py`](../../plugin/draw/tree.py) | Kit `extractdocumentstructure`; optional `filter=` |
+| `extract_document_structure` | **Partial** | [`writer_get_tree`](../../plugin/writer/outline.py), [`plugin/draw/tree.py`](../../plugin/draw/tree.py) | Kit `extractdocumentstructure`; optional `filter=` |
 | `transform_document_structure` | **Partial (V1)** | [`plugin/draw/transform.py`](../../plugin/draw/transform.py), [`transform_engine.py`](../../plugin/draw/transform_engine.py), [`transform_schema.py`](../../plugin/draw/transform_schema.py) — Impress `SlideCommands`; DSL: [DocumentToolDescriptions.hpp](https://github.com/CollaboraOnline/online/blob/master/wsd/DocumentToolDescriptions.hpp) | `DocumentToolDescriptions.hpp`, `.uno:TransformDocumentStructure` |
 | `extract_link_targets` | **Partial** | Bookmarks / tree locators in [`plugin/writer/tree.py`](../../plugin/writer/tree.py) | LOKit `extractRequest` / `extractlinktargets` |
-| `list_calc_functions` | **Implemented** | [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) | `.uno:CalcFunctionList` |
-| `evaluate_formula` | **Implemented** | [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) (moved to specialized `errors` tier to avoid chatbot context pollution, allowing LLMs to try it in planning flows) | `.uno:EvaluateFormula` |
-| `set_cell_formula` | **Partial** | [`write_formula_range`](../../plugin/calc/cells.py) | Approval + `.uno:GoToCell` / `.uno:EnterString` batch |
-| Formula diagnosis | **Partial** | [`error_detect`](../../plugin/calc/errors.py), [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py) | Browser `.uno:FormulaDepChain` + `helpfixformulaerror` |
+| `calc_list_functions` | **Implemented** | [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) | `.uno:CalcFunctionList` |
+| `calc_evaluate_formula` | **Implemented** | [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) (moved to specialized `errors` tier to avoid chatbot context pollution, allowing LLMs to try it in planning flows) | `.uno:EvaluateFormula` |
+| `set_cell_formula` | **Partial** | [`calc_write_range`](../../plugin/calc/cells.py) | Approval + `.uno:GoToCell` / `.uno:EnterString` batch |
+| Formula diagnosis | **Partial** | [`calc_detect_errors`](../../plugin/calc/errors.py), [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py) | Browser `.uno:FormulaDepChain` + `helpfixformulaerror` |
 | `fetch_models` | **Implemented** | [`plugin/framework/client/model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | `wsd/FileServer.cpp` `/fetch-models` |
 | SSRF / endpoint validation | **Implemented** | `model_fetcher.py`, [`llm_client.py`](../../plugin/framework/client/llm_client.py) | `KIT_HOST_ALLOWLIST` env regex |
-| Undo grouping | **Partial** | [`WriterCompoundUndo`](../../plugin/doc/compound_undo.py) on `write_formula_range`; edit-selection / transform | LOKit batch dispatches; chat/tools not fully grouped |
+| Undo grouping | **Partial** | [`WriterCompoundUndo`](../../plugin/doc/compound_undo.py) on `calc_write_range`; edit-selection / transform | LOKit batch dispatches; chat/tools not fully grouped |
 | Approval / HITL tiers | **Partial** | [`dialogs.py`](../../plugin/chatbot/dialogs.py), [`send_handlers.py`](../../plugin/chatbot/send_handlers.py) | Inspect vs mutate tool tiers in `executeToolCall` |
 | Tool-round cap | **Implemented** | `chat_max_tool_rounds` in tool loop | Default 5 rounds in `AIChatSession.hpp` |
 | Tool progress UI | **Partial** | [`StreamQueueKind`](../../plugin/framework/async_stream.py) | `aichatprogress:` WebSocket frames |
@@ -66,13 +66,13 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 
 Collabora Online has implemented several robust, structured AI interactions. Since WriterAgent runs in-process with a full PyUNO bridge, we can implement gaps **more efficiently and natively** without WebSocket serialization.
 
-### 1. Spreadsheet Function Discovery (`list_calc_functions`) - Implemented
+### 1. Spreadsheet Function Discovery (`calc_list_functions`) - Implemented
 
 *   **The Feature**: The LLM needs to know what Calc functions are available to prevent hallucinating formulas or using incorrect localized names.
 *   **Collabora's Path**: `commandvalues command=.uno:CalcFunctionList` via kit (`AIChatSession.cpp`).
 *   **WriterAgent Path**: **Implemented** in [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py). Uses PyUNO `com.sun.star.sheet.FunctionDescriptions` with case-insensitive partial substring searching (searching both function names and descriptions) to avoid context bloat.
 
-### 2. Calc Formula Pre-evaluation (`evaluate_formula`) - Implemented
+### 2. Calc Formula Pre-evaluation (`calc_evaluate_formula`) - Implemented
 
 *   **The Feature**: Evaluates a formula *before* writing it, returning result or error to the LLM.
 *   **Collabora's Path**: `.uno:EvaluateFormula?cell=…&formula=…`.
@@ -102,7 +102,7 @@ Collabora Online has implemented several robust, structured AI interactions. Sin
 
 *   **The Feature**: Unified structural JSON before complex edits; optional **filters** (`contentcontrol`, `charts`, `docprops`, `slides`).
 *   **Collabora's Path**: Kit `extractdocumentstructure` (`wsd/protocol.txt`).
-*   **WriterAgent Path**: Prefer existing **`get_document_tree`** (appendix F); add `filter=` parameter for parity.
+*   **WriterAgent Path**: Prefer existing **`writer_get_tree`** (appendix F); add `filter=` parameter for parity.
 
 ### 7. Transactional Undo Context Grouping (`XUndoManager`)
 
@@ -129,13 +129,13 @@ Collabora Online has implemented several robust, structured AI interactions. Sin
 ### 10. Batch Formula Commit with Approval (`set_cell_formula`)
 
 *   **Collabora**: Batch `{cell, formula}` array; `aichatapproval` summary; on approve runs `.uno:GoToCell` then `.uno:EnterString` per pair (`AIChatSession::handleApprove`).
-*   **WriterAgent**: Extend `write_formula_range` or add `set_cell_formula` tool; wrap in `WriterCompoundUndo`; reuse `show_approval_dialog`. System prompt: always `evaluate_formula` first.
+*   **WriterAgent**: Extend `calc_write_range` or add `set_cell_formula` tool; wrap in `WriterCompoundUndo`; reuse `show_approval_dialog`. System prompt: always `calc_evaluate_formula` first.
 *   **Priority**: P0 (see roadmap).
 
 ### 11. Formula Dependency Diagnosis (`.uno:FormulaDepChain`)
 
 *   **Collabora**: `Control.AIChatSidebar.ts` — `fetchFormulaDependencyChain`, `diagnoseFormulaError`, entry `helpfixformulaerror` / formula error menu.
-*   **WriterAgent**: Complement `error_detect` with UNO dependency JSON → structured user message (appendix K).
+*   **WriterAgent**: Complement `calc_detect_errors` with UNO dependency JSON → structured user message (appendix K).
 *   **Priority**: P0.
 
 ### 12. Rich Impress Slide DSL (`EditTextObject`, extended `SlideCommands`)
@@ -162,13 +162,13 @@ WriterAgent today uses **atomic** Draw tools ([`plugin/draw/`](../../plugin/draw
 ### 14. Filtered Structure Extraction
 
 *   **Collabora**: `extract_document_structure` optional `filter` per `wsd/protocol.txt`.
-*   **WriterAgent**: Extend `get_document_tree` or add `get_document_structure(filter=…)` tool.
+*   **WriterAgent**: Extend `writer_get_tree` or add `get_document_structure(filter=…)` tool.
 
 ### 15. Inspect vs Mutate Approval Tiers
 
 | Tier | Collabora tools (no approval) | Collabora tools (approval required) |
 | :--- | :--- | :--- |
-| Read-only | `list_calc_functions`, `evaluate_formula`, `extract_link_targets` | — |
+| Read-only | `calc_list_functions`, `calc_evaluate_formula`, `extract_link_targets` | — |
 | Sensitive read | — | `extract_document_structure` |
 | Mutate | — | `transform_document_structure`, `set_cell_formula` |
 
@@ -210,10 +210,10 @@ WriterAgent mapping: `ToolBase.is_mutation` + optional `requires_approval` → `
 
 Reference sketches for **gaps** or patterns not yet wrapped as tools. Snippets marked **not yet in plugin** are design targets — check the parity table for production code.
 
-### A. Dynamic Calc Function Catalog (`list_calc_functions`) — Implemented in plugin
+### A. Dynamic Calc Function Catalog (`calc_list_functions`) — Implemented in plugin
 
 
-### B. Formula Pre-evaluation (`evaluate_formula`) — Implemented in plugin
+### B. Formula Pre-evaluation (`calc_evaluate_formula`) — Implemented in plugin
 
 
 ### C. Unified Slide Transform (`transform_document_structure`) — partial in plugin
@@ -261,7 +261,7 @@ def get_document_link_targets(ctx) -> dict[str, list[str]]:
 
 ### F. Document Structure / Outline (`extract_document_structure`)
 
-**Production path**: use tool **`get_document_tree`** — [`plugin/writer/outline.py`](../../plugin/writer/outline.py), [`plugin/writer/tree.py`](../../plugin/writer/tree.py), Draw variant in [`plugin/draw/tree.py`](../../plugin/draw/tree.py).
+**Production path**: use tool **`writer_get_tree`** — [`plugin/writer/outline.py`](../../plugin/writer/outline.py), [`plugin/writer/tree.py`](../../plugin/writer/tree.py), Draw variant in [`plugin/draw/tree.py`](../../plugin/draw/tree.py).
 
 **Gap**: optional `filter=` (`contentcontrol`, `charts`, `slides`, …) as in Collabora `wsd/protocol.txt`. Extension sketch:
 
@@ -344,7 +344,7 @@ def build_formula_diagnosis_prompt(dep_chain: dict, cell_address: str, formula: 
         f"Analyze this Calc formula error.\n"
         f"Cell: {cell_address}\nFormula: {formula}\n"
         f"Dependency chain: {dep_chain}\n"
-        "Suggest a fix using evaluate_formula before set_cell_formula."
+        "Suggest a fix using calc_evaluate_formula before set_cell_formula."
     )
 ```
 
@@ -388,8 +388,8 @@ Prioritized for WriterAgent impact vs effort. Each item lists Collabora referenc
 
 ### P0 — Calc reliability (high impact, medium effort)
 
-1. **`list_calc_functions`** — **Implemented** in [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py).
-2. **`evaluate_formula`** — **Implemented** in [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) using the side-effect-free Sheet-Copy Pattern.
+1. **`calc_list_functions`** — **Implemented** in [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py).
+2. **`calc_evaluate_formula`** — **Implemented** in [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) using the side-effect-free Sheet-Copy Pattern.
 3. **`FormulaDepChain` diagnosis** — appendix K + Calc error UI entry → complement [`plugin/calc/errors.py`](../../plugin/calc/errors.py).
 
 ### P1 — Chat UX parity (medium impact, low–medium effort)

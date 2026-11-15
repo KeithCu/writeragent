@@ -39,12 +39,12 @@ atomic action ListTools:
         last_call_mode = mode
 
 atomic action CallTool:
-    tool_name = oneof ["apply_document_content", "get_document_content", "find_tools", "invalid_tool"]
+    tool_name = oneof ["writer_apply_content", "writer_get_content", "tool_find", "invalid_tool"]
     if status != State.INITIALIZED:
         last_error = "SERVER_NOT_INITIALIZED"
     elif tool_name == "invalid_tool":
         last_error = "UNKNOWN_TOOL"
-    elif tool_name == "find_tools" and mode != ExposureMode.DIRECT_DISCOVERY:
+    elif tool_name == "tool_find" and mode != ExposureMode.DIRECT_DISCOVERY:
         last_error = "UNKNOWN_TOOL"
     else:
         last_error = None
@@ -57,6 +57,6 @@ always assertion Inv_InitializedBeforeCalls:
     return True
 
 always assertion Inv_FindToolsGating:
-    if last_tool == "find_tools" and last_error == None:
+    if last_tool == "tool_find" and last_error == None:
         return last_call_mode == ExposureMode.DIRECT_DISCOVERY
     return True

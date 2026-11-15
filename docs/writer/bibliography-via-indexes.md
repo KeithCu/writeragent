@@ -39,15 +39,15 @@ These use the word “bibliography” or “citation” and are **out of scope**
 
 | Tool | Today | Bibliography-relevant gap |
 |------|--------|---------------------------|
-| `indexes_create` | `kind` enum includes `"bibliography"` → `doc.createInstance("com.sun.star.text.Bibliography")`, insert at `target`, `index.update()`. | No FieldMaster settings (brackets, numbering, sort). |
-| `indexes_list` | Enumerates `doc.getDocumentIndexes()`. Prefers `XDocumentIndex.getServiceName()` so a bib table is `type=bibliography` (impl name is `SwXDocumentIndex`, same as alphabetical). Keeps `SwX*` remaps as fallback. | — |
-| `indexes_update_all` | `idx.update()` on every document index, including a bibliography table if one exists. | Enough for “refresh the list after cites change.” A TOC rebuild drops customized formatting. One TOC row is `indexes_insert_toc_entry`, `indexes_delete_toc_entry`, or `indexes_refresh_toc_entry` — those do not call `update()`. |
-| `indexes_add_mark` | `kind` includes **`bibliography`**. Creates `textfield.Bibliography` and sets `Fields` (typed `[]PropertyValue` via `uno.invoke`). Identifier / Author / Title / Year / Pages / `BibiliographicType`. | Not an index mark — name stretch documented on the tool; search target keeps the matched text. |
-| `indexes_list_cites` | Walks `getTextFields()`, keeps bibliography text fields, returns identifier + key Fields + location. | — |
+| `index_create` | `kind` enum includes `"bibliography"` → `doc.createInstance("com.sun.star.text.Bibliography")`, insert at `target`, `index.update()`. | No FieldMaster settings (brackets, numbering, sort). |
+| `index_list` | Enumerates `doc.getDocumentIndexes()`. Prefers `XDocumentIndex.getServiceName()` so a bib table is `type=bibliography` (impl name is `SwXDocumentIndex`, same as alphabetical). Keeps `SwX*` remaps as fallback. | — |
+| `index_update_all` | `idx.update()` on every document index, including a bibliography table if one exists. | Enough for “refresh the list after cites change.” A TOC rebuild drops customized formatting. One TOC row is `index_insert_toc_entry`, `index_delete_toc_entry`, or `index_refresh_toc_entry` — those do not call `update()`. |
+| `index_add_mark` | `kind` includes **`bibliography`**. Creates `textfield.Bibliography` and sets `Fields` (typed `[]PropertyValue` via `uno.invoke`). Identifier / Author / Title / Year / Pages / `BibiliographicType`. | Not an index mark — name stretch documented on the tool; search target keeps the matched text. |
+| `index_list_cites` | Walks `getTextFields()`, keeps bibliography text fields, returns identifier + key Fields + location. | — |
 
 Module docstring already says “TOC, bibliography.” `ToolWriterIndexBase.specialized_domain` is `"indexes"` ([`specialized_base.py`](../../plugin/writer/specialized_base.py)). The gateway prompt lists `indexes`, not `bibliography`.
 
-[`plugin/writer/specialized/fields.py`](../../plugin/writer/specialized/fields.py) `fields_insert` can instantiate `com.sun.star.text.textfield.Bibliography` if the model passes `field="Bibliography"`, but it only `setPropertyValue`s scalar properties. Cite payload is the **`Fields` sequence** (`PropertyValue` name/value pairs), which that loop will not populate usefully. `fields_list`’s `KNOWN_PROPERTIES` tuple also omits `Fields`. Do not treat the fields domain as the product cite API; keep cite insert/list on the indexes overload so one domain owns the workflow.
+[`plugin/writer/specialized/fields.py`](../../plugin/writer/specialized/fields.py) `field_insert` can instantiate `com.sun.star.text.textfield.Bibliography` if the model passes `field="Bibliography"`, but it only `setPropertyValue`s scalar properties. Cite payload is the **`Fields` sequence** (`PropertyValue` name/value pairs), which that loop will not populate usefully. `field_list`’s `KNOWN_PROPERTIES` tuple also omits `Fields`. Do not treat the fields domain as the product cite API; keep cite insert/list on the indexes overload so one domain owns the workflow.
 
 ### What must not be productized
 
@@ -74,9 +74,9 @@ flowchart LR
 
 1. **Cite (in-flow):** `com.sun.star.text.textfield.Bibliography` (IDL also written `TextField.Bibliography`). A `DependentTextField`. Payload is `Fields`: a sequence of `beans.PropertyValue`. Names are the `BibliographyDataField` identifiers (`Identifier`, `Author`, `Title`, `Year`, `ISBN`, `URL`, `Pages`, …). `BIBILIOGRAPHIC_TYPE` (IDL spelling — one L missing) holds a `BibliographyDataType` constant (book, article, …). `Identifier` is the short key shown when the field master is not in numbered mode.
 
-2. **Document-level settings (park fat here):** `com.sun.star.text.fieldmaster.Bibliography`, reached from `doc.getTextFieldMasters()` and attached with `XDependentTextField.attachTextFieldMaster`. Properties: `IsNumberEntries`, `IsSortByPosition`, `BracketBefore`, `BracketAfter`, `SortKeys`, `Locale`, `SortAlgorithm`. Put numbering / brackets / sort **on the master**, not on every cite tool call and not on `indexes_create`’s required schema. Optional kwargs on an update-table tool can write the master when the model supplies them.
+2. **Document-level settings (park fat here):** `com.sun.star.text.fieldmaster.Bibliography`, reached from `doc.getTextFieldMasters()` and attached with `XDependentTextField.attachTextFieldMaster`. Properties: `IsNumberEntries`, `IsSortByPosition`, `BracketBefore`, `BracketAfter`, `SortKeys`, `Locale`, `SortAlgorithm`. Put numbering / brackets / sort **on the master**, not on every cite tool call and not on `index_create`’s required schema. Optional kwargs on an update-table tool can write the master when the model supplies them.
 
-3. **Reference list:** `com.sun.star.text.Bibliography` (the **index**, not the field). Same `BaseIndex` / `XDocumentIndex` as TOC. Create is already `indexes_create kind=bibliography`. After cites change, call `update()` (or `indexes_update_all`).
+3. **Reference list:** `com.sun.star.text.Bibliography` (the **index**, not the field). Same `BaseIndex` / `XDocumentIndex` as TOC. Create is already `index_create kind=bibliography`. After cites change, call `update()` (or `index_update_all`).
 
 Implementation classes in Writer (`sw`): field → `SwAuthorityField`, master → `SwAuthorityFieldType`. Source walk-through: [OOo bibliographic component](https://wiki.openoffice.org/wiki/Bibliographic/Developer_Page/Current_Implementation_of_the_Bibliographic_Component). IDL: [textfield.Bibliography](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1text_1_1textfield_1_1Bibliography.html), [text.Bibliography](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1text_1_1Bibliography.html), [BibliographyDataField](https://api.libreoffice.org/docs/idl/ref/BibliographyDataField_8idl.html), [fieldmaster.Bibliography](https://www.openoffice.org/api/docs/common/ref/com/sun/star/text/fieldmaster/Bibliography.html).
 
@@ -88,11 +88,11 @@ Sketch. Names can stay `indexes_*`. Extra properties are optional so a TOC-only 
 
 | Intent | Sketch | Notes |
 |--------|--------|--------|
-| Create / place the table | Existing `indexes_create` `kind=bibliography` (+ optional title, `target`) | Already implemented. |
-| List tables | Existing `indexes_list` | Teach bibliography via `getServiceName()` (and keep today’s `SwX*` remaps). |
-| Update / refresh table | Existing `indexes_update_all`, or a thin `indexes_update` that takes an index id | After cite insert/edit. Optional FieldMaster writes live here if the schema would otherwise get fat. |
-| Insert / update a cite | Widen `indexes_add_mark` (or a sibling `indexes_cite`) with `kind=bibliography` plus optional `fields` / `identifier` / `author` / `title` / `year` / … | Required today: `text`. For bibliography, `identifier` (or `fields.Identifier`) is the real key; `text` can default to it. Unused optional keys are ignored. |
-| List cites | New `indexes_list_cites` (or `indexes_list` `kind=bibliography` cites branch) | Walk `doc.getTextFields()`, keep instances that support `textfield.Bibliography` / have `Fields`. Return identifier + mapped fields + location (`describe_match_location` as `fields_list` does). |
+| Create / place the table | Existing `index_create` `kind=bibliography` (+ optional title, `target`) | Already implemented. |
+| List tables | Existing `index_list` | Teach bibliography via `getServiceName()` (and keep today’s `SwX*` remaps). |
+| Update / refresh table | Existing `index_update_all`, or a thin `indexes_update` that takes an index id | After cite insert/edit. Optional FieldMaster writes live here if the schema would otherwise get fat. |
+| Insert / update a cite | Widen `index_add_mark` (or a sibling `indexes_cite`) with `kind=bibliography` plus optional `fields` / `identifier` / `author` / `title` / `year` / … | Required today: `text`. For bibliography, `identifier` (or `fields.Identifier`) is the real key; `text` can default to it. Unused optional keys are ignored. |
+| List cites | New `index_list_cites` (or `index_list` `kind=bibliography` cites branch) | Walk `doc.getTextFields()`, keep instances that support `textfield.Bibliography` / have `Fields`. Return identifier + mapped fields + location (`describe_match_location` as `field_list` does). |
 
 **Do not** add `bibliography_insert_citation` / `bibliography_generate` as registered names.
 
@@ -102,12 +102,12 @@ Optional-params rule (decision 2): a model that only knows TOC continues to pass
 
 This is the main v1 design tension.
 
-- Alphabetical / user indexes collect **`DocumentIndexMark` / `UserIndexMark`** (`MarkEntry`, `PrimaryKey`, `SecondaryKey`). `indexes_add_mark` matches that.
+- Alphabetical / user indexes collect **`DocumentIndexMark` / `UserIndexMark`** (`MarkEntry`, `PrimaryKey`, `SecondaryKey`). `index_add_mark` matches that.
 - Bibliography collects **`TextField.Bibliography`** entries. The index does not read index marks. Inserting a `DocumentIndexMark` with `kind=bibliography` would silently fail to appear in the table.
 
 So “widen add_mark” is a **name stretch**, not a UNO stretch: same tool family and `kind` discriminator, different `createInstance` service and property bag. Document that in the tool description so the model does not pass `primary_key` for a cite.
 
-`fields_insert` is the other existing insert path, but it sits in `domain=fields` and does not understand `Fields`. Crossing domains for one cite is worse than stretching `indexes_add_mark`.
+`field_insert` is the other existing insert path, but it sits in `domain=fields` and does not understand `Fields`. Crossing domains for one cite is worse than stretching `index_add_mark`.
 
 ---
 
@@ -174,7 +174,7 @@ user: cite smith 2024 climate
   → resolve citekey + item key
   → map itemType/creators/title/date/… → Fields
   → indexes cite/mark kind=bibliography (v1 UNO)
-  → indexes_update_all
+  → index_update_all
 ```
 
 Update: find the existing field by `Identifier` / stored Zotero key, replace `Fields`, `update()` the index. Same tools as v1; Zotero is only a **source**.
@@ -184,7 +184,7 @@ Update: find the existing field by `Identifier` / stored Zotero key, replace `Fi
 1. List native cites (`Fields`).
 2. For each stored Zotero key / citekey, `GET /items/{key}` (or BBT lookup).
 3. Rewrite `Fields`; do not recreate the field if the anchor is still valid.
-4. `index.update()` / `indexes_update_all`.
+4. `index.update()` / `index_update_all`.
 5. If Zotero is down, keep existing `Fields` and return a structured error (see below). Do not delete cites.
 
 ### Failure modes
@@ -201,7 +201,7 @@ Update: find the existing field by `Identifier` / stored Zotero key, replace `Fi
 | CSL field with no `BibliographyDataField` | Drop or park in `CUSTOM1`–`CUSTOM5`; say so in the tool result. |
 | Duplicate `Identifier` | Refuse or suffix; LO treats identifier as the short name. |
 | Official Zotero plugin marks already in the doc | Detect ReferenceMark/Bookmark codes; do not write a second system into the same paragraph. |
-| `apply_document_content` full replace | Same HTML-destruction risk as other fields ([specialized-toolsets.md §6.9](specialized-toolsets.md)); not a bibliography-specific fix. |
+| `writer_apply_content` full replace | Same HTML-destruction risk as other fields ([specialized-toolsets.md §6.9](specialized-toolsets.md)); not a bibliography-specific fix. |
 | User edited the LO Bibliography `.odb` | Not the cite object; ignore unless we later add an import. |
 
 ### Sources
@@ -218,7 +218,7 @@ Update: find the existing field by `Identifier` / stored Zotero key, replace `Fi
 
 - Exact JSON path for `citationKey` on local-API item payloads across 7.0.31 / 8 / 9 / 10 — probe against a running client before coding the resolver.
 - Whether `Fields` `PropertyValue.Name` is the IDL constant name (`IDENTIFIER`) or the pretty name (`Identifier`) on current LO — **native test**, do not copy old Basic snippets blindly.
-- `indexes_list` implementation name for `kind=bibliography` on current LO (`getServiceName()` should be authoritative).
+- `index_list` implementation name for `kind=bibliography` on current LO (`getServiceName()` should be authoritative).
 - How much of `BibliographyDataField` we must fill before `index.update()` shows a useful line.
 - Whether a document can have more than one bibliography index and whether cites are global to the FieldMaster (expected: yes, one master).
 - Coexistence with JabRef / other LO cite extensions (they may also avoid native fields).
@@ -230,7 +230,7 @@ Update: find the existing field by `Identifier` / stored Zotero key, replace `Fi
 
 | Stage | Scope | Out |
 |-------|--------|-----|
-| **v1** | Native `TextField.Bibliography` + `Fields`; `indexes_create` / list / `update()`; widen cite/mark + list cites; FieldMaster for fat settings. Tests: unit on mapping/list filters; UNO `@native_test` for insert → list → index line. | Zotero. New domain. Mock `bibliography_*` names. CSL appearance. |
+| **v1** | Native `TextField.Bibliography` + `Fields`; `index_create` / list / `update()`; widen cite/mark + list cites; FieldMaster for fat settings. Tests: unit on mapping/list filters; UNO `@native_test` for insert → list → index line. | Zotero. New domain. Mock `bibliography_*` names. CSL appearance. |
 | **v2** | Local API search + citekey resolve; map → **same** insert/update; refresh; failure strings. Optional BBT JSON-RPC. Settings: remember “Always Allow” key only if we later write to Zotero. | Official plugin. ReferenceMarks. Duck-typed second cite. Web API as the default path (local-first; web is a fallback only if Zotero is not running **and** the user has a zotero.org key — not required for v2 MVP). |
 
 The library of record is LibreOffice (v1) or Zotero’s own database via its API (v2).
@@ -239,14 +239,14 @@ The library of record is LibreOffice (v1) or Zotero’s own database via its API
 
 ## Open questions
 
-1. **Widen `indexes_add_mark` vs add `indexes_cite`.** **v1: widen `indexes_add_mark`.** Same domain either way. Widening keeps tool count down (fat-leaning, optional keys). A sibling cite tool is clearer for small models. Pick at implement time with one schema trial.
+1. **Widen `index_add_mark` vs add `indexes_cite`.** **v1: widen `index_add_mark`.** Same domain either way. Widening keeps tool count down (fat-leaning, optional keys). A sibling cite tool is clearer for small models. Pick at implement time with one schema trial.
 2. **Where to park Zotero `key` vs citekey** on `Fields` (`Identifier` vs `CUSTOM*`).
 3. **Locator / pages** (`p. 12`): LO has `Pages` / `Chapter`; no CSL locator object.
 4. **Documents that already have the Zotero LO plugin** — refuse, import, or ignore?
 5. **Default FieldMaster** (`IsNumberEntries` vs short identifier; bracket characters) so v1 cites match Insert → Bibliographic Entry.
-6. **`indexes_list` type string** for bibliography — **v1: `"bibliography"`** via `getServiceName()`, matching `indexes_create` `kind`.
+6. **`index_list` type string** for bibliography — **v1: `"bibliography"`** via `getServiceName()`, matching `index_create` `kind`.
 7. **Prompt teaching:** one sentence on `ToolWriterIndexBase.specialized_domain_description` (cite + table), not a new domain bullet.
 
-v1 shipped as `indexes_add_mark kind=bibliography`, `indexes_list_cites`, existing create/list/update. [specialized-toolsets.md](specialized-toolsets.md) lists those names. Keep this page as the why.
+v1 shipped as `index_add_mark kind=bibliography`, `index_list_cites`, existing create/list/update. [specialized-toolsets.md](specialized-toolsets.md) lists those names. Keep this page as the why.
 
 **Live UNO spelling (probed):** `Fields` `PropertyValue.Name` is the pretty string (`Identifier`, `Author`, `Title`, `Year`, `Pages`). Type is **`BibiliographicType`** (IDL `BIBILIOGRAPHIC_TYPE` — not `BibliographicType`). A Python tuple passed to `setPropertyValue("Fields", …)` is silently dropped; use `uno.Any("[]com.sun.star.beans.PropertyValue", seq)` through `uno.invoke`. Set Fields on the descriptor *before* insert. `getServiceName()` on the table is `com.sun.star.text.Bibliography`; `getImplementationName()` is `SwXDocumentIndex`. FieldMaster attach is not required for insert.

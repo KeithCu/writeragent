@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live MCP smoke test against a running LibreOffice + WriterAgent instance.
 
-Exercises /health, tools/list, and apply_document_content so you can verify
+Exercises /health, tools/list, and writer_apply_content so you can verify
 on-screen edits in the active Writer document (and [MCP Result] in the sidebar).
 
 Does not start LibreOffice. Enable MCP in WriterAgent Settings first.
@@ -99,7 +99,7 @@ def _print_step(label: str) -> None:
 
 def _default_smoke_text() -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    return f"MCP smoke test — {ts} — if you see this, apply_document_content works."
+    return f"MCP smoke test — {ts} — if you see this, writer_apply_content works."
 
 
 def _debug_token_path() -> Path:
@@ -176,14 +176,14 @@ def run_smoke(
     _print_step("tools/list")
     if use_debug:
         print("(Skipping JSON-RPC tools/list — --use-debug uses POST /debug only for apply)")
-        tool_names = ["apply_document_content"]
+        tool_names = ["writer_apply_content"]
     else:
         listed = _mcp_post(mcp_url, "tools/list", {}, 1, document_url=document_url, timeout=timeout)
         tools = listed.get("result", {}).get("tools", [])
         tool_names = [t.get("name") for t in tools if isinstance(t, dict)]
         print(f"Tools ({len(tool_names)}): {', '.join(n for n in tool_names if n)}")
-        if "apply_document_content" not in tool_names:
-            print("apply_document_content not in tools/list — wrong document type or registry?", file=sys.stderr)
+        if "writer_apply_content" not in tool_names:
+            print("writer_apply_content not in tools/list — wrong document type or registry?", file=sys.stderr)
             sys.exit(1)
 
     if skip_apply:
@@ -193,7 +193,7 @@ def run_smoke(
     content = [insert_text]
     args = {"content": content, "target": target}
 
-    _print_step("apply_document_content")
+    _print_step("writer_apply_content")
     print(f"target={target!r}")
     print(f"text={insert_text!r}")
     print("Watch the Writer window (and chat sidebar [MCP Result] if open).")
@@ -206,7 +206,7 @@ def run_smoke(
         status, data = _request(
             "POST",
             debug_url,
-            body={"action": "call_tool", "tool": "apply_document_content", "args": args},
+            body={"action": "call_tool", "tool": "writer_apply_content", "args": args},
             extra_headers=extra_headers,
             timeout=timeout,
         )
@@ -219,7 +219,7 @@ def run_smoke(
         called = _mcp_post(
             mcp_url,
             "tools/call",
-            {"name": "apply_document_content", "arguments": args},
+            {"name": "writer_apply_content", "arguments": args},
             2,
             document_url=document_url,
             timeout=timeout,
@@ -263,7 +263,7 @@ def main() -> None:
         "--target",
         choices=("beginning", "end", "selection", "full_document", "search"),
         default="end",
-        help="apply_document_content target (default: end)",
+        help="writer_apply_content target (default: end)",
     )
     parser.add_argument("--document-url", default=None, help="X-Document-URL for a specific open document")
     parser.add_argument(

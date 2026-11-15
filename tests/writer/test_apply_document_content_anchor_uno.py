@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Anchor-based range replace tests for apply_document_content."""
+"""Anchor-based range replace tests for writer_apply_content."""
 
 import uno  # noqa: F401
 

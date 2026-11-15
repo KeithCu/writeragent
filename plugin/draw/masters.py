@@ -6,7 +6,7 @@
 """Impress/Draw master slide tools.
 
 Master collection order is not slide order, master names are not guaranteed
-unique (``slide_master_set`` assigns the first name match), and the
+unique (``slide_set_master`` assigns the first name match), and the
 assignment is per slide (``page.MasterPage``); the same quirks apply to
 master chrome in ``headers_footers.py``.
 """
@@ -71,7 +71,7 @@ def find_master(doc: Any, *, name: str | None = None, index: int | None = None) 
 class ListMasterSlides(ToolDrawSlideMastersBase):
     """List all master slides in a Draw/Impress document."""
 
-    name: str | None = "slide_master_list"
+    name: str | None = "slide_list_masters"
     description: str = "List all master slides (master pages) in the document with name and dimensions."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
@@ -90,7 +90,7 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
 class GetSlideMaster(ToolDrawSlideMastersBase):
     """Get which master slide is assigned to a slide."""
 
-    name: str | None = "slide_master_get"
+    name: str | None = "slide_get_master"
     description: str = "Get the master slide assigned to a specific slide. Returns the master slide name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
@@ -102,8 +102,8 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
 class SetSlideMaster(ToolDrawSlideMastersBase):
     """Assign a master slide to a slide."""
 
-    name: str | None = "slide_master_set"
-    description: str = "Assign a master slide to a specific slide by master name. Use slide_master_list to see available masters."
+    name: str | None = "slide_set_master"
+    description: str = "Assign a master slide to a specific slide by master name. Use slide_list_masters to see available masters."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "master": {"type": "string", "description": "Name of the master slide to assign."}}, "required": ["master"]}
     is_mutation: bool | None = True
 

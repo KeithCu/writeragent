@@ -210,7 +210,7 @@ def classify_array_cell(raw_value: Any, raw_formula: str, is_formula: bool) -> t
     the formula text cannot tell a formula from a text cell typed as '=abc', and
     array-formula cells read '{=...}'. A formula whose result is an error reads None,
     because getDataArray gives void for it (rangeseq.cxx ScRangeToSequence::FillMixedArray);
-    error_detect reports its token.
+    calc_detect_errors reports its token.
     """
     if is_formula:
         return raw_value, "formula", raw_formula

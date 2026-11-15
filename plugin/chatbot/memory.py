@@ -162,7 +162,7 @@ def format_user_memory_prompt_block() -> str:
     return ""
 
 
-# Chat preview when upsert_memory runs (sidebar / librarian); value truncated for huge strings.
+# Chat preview when memory_upsert runs (sidebar / librarian); value truncated for huge strings.
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
@@ -192,17 +192,17 @@ def _deal_memory_chat_line_ok(*args: Any, **kwargs: Any) -> bool:
 @deal.pre(lambda arguments: _deal_memory_chat_line_ok(arguments))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(arguments: object) -> str:
-    """One-line chat preview when upsert_memory starts (main chat tool loop)."""
+    """One-line chat preview when memory_upsert starts (main chat tool loop)."""
     # crosshair: off
     if not isinstance(arguments, Mapping):
         arguments = upsert_memory_arguments_dict(arguments)
         if arguments is None:
-            return "[Memory update: upsert_memory]\n"
+            return "[Memory update: memory_upsert]\n"
 
     mapping = cast("Mapping[str, Any]", arguments)
     key = mapping.get("key")
     if not isinstance(key, str):
-        return "[Running tool: upsert_memory...]\n"
+        return "[Running tool: memory_upsert...]\n"
     raw = mapping.get("content", "")
     val = "" if raw is None else str(raw)
     one_line = val.replace("\n", " ").replace("\r", " ")
@@ -214,7 +214,7 @@ def format_upsert_memory_chat_line(arguments: object) -> str:
 class MemoryTool(ToolBase):
     """Persistent file-backed memory for the agent (USER profile)."""
 
-    name: str | None = "upsert_memory"
+    name: str | None = "memory_upsert"
     description: str = (
         "Persistent memory stored as a JSON object. Stores user profile, preferences, and durable facts "
         "using short stable keys. Dotted keys nest (e.g. 'writing.tone'). To delete a memory, set content to an empty string."

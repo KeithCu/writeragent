@@ -5,8 +5,8 @@
 """direct_flat and direct_discovery must expose the same capabilities.
 
 The two MCP exposure modes reach the specialized tools by different routes: direct_flat lists
-them straight from the registry, direct_discovery advertises a domain catalog that find_tools
-expands. Nothing kept the two in agreement, and they drifted — extract_structure_from_image was
+them straight from the registry, direct_discovery advertises a domain catalog that tool_find
+expands. Nothing kept the two in agreement, and they drifted — image_extract_structure was
 listed and callable in direct_flat while no catalog domain mentioned it, so a model driving
 direct_discovery could not know it existed.
 
@@ -142,7 +142,7 @@ def test_every_listed_specialized_tool_has_a_catalogued_domain(label, lister, ne
 @pytest.mark.parametrize("label", ["Writer", "Calc"])
 def test_parity_holds_when_a_domains_backend_is_not_configured(label, monkeypatch):
     """The drift that prompted this file. The catalog drops the vision domain when its venv does
-    not resolve — most installs — while the MCP tool list advertised extract_structure_from_image
+    not resolve — most installs — while the MCP tool list advertised image_extract_structure
     anyway. Whatever the availability rule is, one exposure mode must not apply it alone."""
     import plugin.framework.prompts as prompts
     from plugin.mcp.mcp_protocol import drop_unavailable_domains
@@ -178,14 +178,14 @@ class _FakeRegistry:
 
 
 def test_an_unavailable_domains_tools_are_dropped_from_the_list(monkeypatch):
-    """The concrete bug: extract_structure_from_image stayed in tools/list on an install whose
+    """The concrete bug: image_extract_structure stayed in tools/list on an install whose
     vision venv does not resolve, while the discovery catalog hid the domain."""
     from plugin.mcp.mcp_protocol import drop_unavailable_domains
 
     monkeypatch.setattr("plugin.vision.vision_availability.vision_venv_configured",
                         lambda _ctx: False)
-    registry = _FakeRegistry({"extract_structure_from_image": "vision", "style_list": "styles"})
-    schemas = [{"name": "extract_structure_from_image"}, {"name": "style_list"}]
+    registry = _FakeRegistry({"image_extract_structure": "vision", "style_list": "styles"})
+    schemas = [{"name": "image_extract_structure"}, {"name": "style_list"}]
 
     kept = drop_unavailable_domains(schemas, registry, object())
 
@@ -195,9 +195,9 @@ def test_an_unavailable_domains_tools_are_dropped_from_the_list(monkeypatch):
 @pytest.mark.parametrize(
     "venv_configured, tool_name, domain",
     [
-        pytest.param(True, "extract_structure_from_image", "vision", id="configured_domain_stays_listed"),
+        pytest.param(True, "image_extract_structure", "vision", id="configured_domain_stays_listed"),
         # Core tools have no specialized domain and must pass through whatever the gate says.
-        pytest.param(False, "get_document_content", None, id="tools_without_domain_never_dropped"),
+        pytest.param(False, "writer_get_content", None, id="tools_without_domain_never_dropped"),
     ],
 )
 def test_a_configured_domain_stays_listed(monkeypatch, venv_configured, tool_name, domain):
@@ -214,8 +214,8 @@ def test_no_context_means_no_filtering():
     """tools/list before a document resolves has no ctx to ask; advertising is the safe default."""
     from plugin.mcp.mcp_protocol import drop_unavailable_domains
 
-    registry = _FakeRegistry({"extract_structure_from_image": "vision"})
-    schemas = [{"name": "extract_structure_from_image"}]
+    registry = _FakeRegistry({"image_extract_structure": "vision"})
+    schemas = [{"name": "image_extract_structure"}]
 
     assert drop_unavailable_domains(schemas, registry, None) == schemas
 

@@ -88,7 +88,7 @@ class _EvalSheet:
 
     def getCellRangeByName(self, name: str):
         # Document-wide resolution: a qualified name or defined name returns
-        # the live cell, which is the bug evaluate_formula must not hit.
+        # the live cell, which is the bug calc_evaluate_formula must not hit.
         self.range_calls.append(name)
 
         class _Range:
@@ -409,7 +409,7 @@ def test_evaluate_formula_empty_formula_and_calc_error_codes():
     from plugin.calc.formulas import formula_evaluation_error_message
 
     doc = _EvalDoc()
-    tool = get_tools().get("evaluate_formula")
+    tool = get_tools().get("calc_evaluate_formula")
 
     res_empty = tool.execute_safe(_eval_ctx(doc), formula="  ")
     assert res_empty["status"] == "error"

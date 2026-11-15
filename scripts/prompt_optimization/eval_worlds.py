@@ -336,7 +336,7 @@ class WriterWorld:
         """Hook for a later multi-turn refresh. Same as get_html today."""
         return self._html
 
-    def get_document_content(self, **kwargs: Any) -> dict[str, Any]:
+    def writer_get_content(self, **kwargs: Any) -> dict[str, Any]:
         scope = kwargs.get("scope", "full")
         max_chars = kwargs.get("max_chars")
         text = self._html
@@ -357,7 +357,7 @@ class WriterWorld:
             "document_length": len(self._html),
         }
 
-    def apply_document_content(self, **kwargs: Any) -> dict[str, Any]:
+    def writer_apply_content(self, **kwargs: Any) -> dict[str, Any]:
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         target = kwargs.get("target")
@@ -467,7 +467,7 @@ class WriterWorld:
                 break
         return {"status": "ok", "ranges": ranges}
 
-    def search_in_document(self, **kwargs: Any) -> dict[str, Any]:
+    def writer_search(self, **kwargs: Any) -> dict[str, Any]:
         """Production name. Offsets are into exported HTML (same as find_text)."""
         pattern = str(kwargs.get("pattern") or kwargs.get("search") or "")
         if not pattern:
@@ -497,7 +497,7 @@ class WriterWorld:
         found["matches"] = matches
         return found
 
-    def add_comment(self, **kwargs: Any) -> dict[str, Any]:
+    def comment_add(self, **kwargs: Any) -> dict[str, Any]:
         """Anchor a visible ``[comment]`` after the search hit (no UNO annotation)."""
         content = str(kwargs.get("content") or "")
         search = str(kwargs.get("search") or "")
@@ -535,8 +535,8 @@ class WriterWorld:
             "anchor_text": search,
         }
 
-    def apply_style(self, **kwargs: Any) -> dict[str, Any]:
-        """Map production apply_style onto HTML tags / data-lo-style (no UNO families)."""
+    def writer_apply_style(self, **kwargs: Any) -> dict[str, Any]:
+        """Map production writer_apply_style onto HTML tags / data-lo-style (no UNO families)."""
         style_name = str(kwargs.get("style") or "").strip()
         if not style_name:
             return {"status": "error", "message": "style is required."}
@@ -569,12 +569,12 @@ class WriterWorld:
                 return {"status": "ok", "message": "Applied Quotations to Default paragraphs."}
             return {
                 "status": "error",
-                "message": "full_document apply_style in the string harness needs target=search.",
+                "message": "full_document writer_apply_style in the string harness needs target=search.",
             }
         if target not in ("search", "selection") or old_content is None:
             return {
                 "status": "error",
-                "message": "Provide target='search' and old_content for apply_style.",
+                "message": "Provide target='search' and old_content for writer_apply_style.",
             }
         needle = str(old_content).strip()
         if not needle:
@@ -607,7 +607,7 @@ class DrawWorld:
     def export_for_prompt(self) -> str:
         import json
 
-        return json.dumps(self.get_draw_tree(), ensure_ascii=False)
+        return json.dumps(self.draw_get_tree(), ensure_ascii=False)
 
     def shape_upsert(
         self,
@@ -700,7 +700,7 @@ class DrawWorld:
     def _shape_by_index(self, idx: int) -> dict[str, Any] | None:
         return next((s for s in self.shapes if s["index"] == idx), None)
 
-    def get_draw_tree(self, **kwargs: Any) -> dict[str, Any]:
+    def draw_get_tree(self, **kwargs: Any) -> dict[str, Any]:
         unused = kwargs
         del unused
         by_idx = {s["index"]: s for s in self.shapes}
@@ -816,7 +816,7 @@ class CalcWorld:
 
         return json.dumps(self.snapshot(), ensure_ascii=False)
 
-    def get_sheet_summary(self, **kwargs: Any) -> dict[str, Any]:
+    def calc_get_sheet_summary(self, **kwargs: Any) -> dict[str, Any]:
         unused = kwargs
         del unused
         rows = len(self._grid)
@@ -864,7 +864,7 @@ class CalcWorld:
             out.append(row_data)
         return out
 
-    def read_cell_range(self, **kwargs: Any) -> dict[str, Any]:
+    def calc_read_range(self, **kwargs: Any) -> dict[str, Any]:
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
             ranges = [ranges]
@@ -884,7 +884,7 @@ class CalcWorld:
             ],
         }
 
-    def range_sort(self, **kwargs: Any) -> dict[str, Any]:
+    def calc_sort_range(self, **kwargs: Any) -> dict[str, Any]:
         """One-column stable sort over the given range(s) (sort_column is 0-based within range)."""
         col = kwargs.get("sort_column", 0)
         ascending = kwargs.get("ascending", True)
@@ -1005,7 +1005,7 @@ class CalcWorld:
         }
 
     def write_cell_range(self, **kwargs: Any) -> dict[str, Any]:
-        return self.write_formula_range(**kwargs)
+        return self.calc_write_range(**kwargs)
 
     @staticmethod
     def _plan_eval_write(
@@ -1054,7 +1054,7 @@ class CalcWorld:
             flat = values
         return (flat, (c0, r0, c1, r1))
 
-    def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
+    def calc_write_range(self, **kwargs: Any) -> dict[str, Any]:
         raw_values = kwargs.get("values", [])
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
@@ -1124,7 +1124,7 @@ class CalcWorld:
                 self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
             self.sheets[self.active_sheet] = self._grid
             return 0
-        # Production write_formula_range fill-down-adjusts relative A1 refs
+        # Production calc_write_range fill-down-adjusts relative A1 refs
         # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
         # JSON arrays / explicit lists stay exact (and warn if a column repeats
         # one row-aligned formula).

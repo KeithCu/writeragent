@@ -121,8 +121,8 @@ def test_mcp_calc_tools_list_direct_flat(calc_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     assert len(tools_list) >= 50
-    assert "read_cell_range" in tool_names
-    assert "write_formula_range" in tool_names
+    assert "calc_read_range" in tool_names
+    assert "calc_write_range" in tool_names
     assert "sheet_create" in tool_names
     assert "named_range_add" in tool_names
     assert "run_venv_python_script" in tool_names
@@ -148,8 +148,8 @@ def test_mcp_calc_tools_list_delegate_mode(calc_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     # Core tools only
-    assert "read_cell_range" in tool_names
-    assert "write_formula_range" in tool_names
+    assert "calc_read_range" in tool_names
+    assert "calc_write_range" in tool_names
     # Specialized domain tools must be omitted
     assert "sheet_create" not in tool_names
     assert "named_range_add" not in tool_names
@@ -157,7 +157,7 @@ def test_mcp_calc_tools_list_delegate_mode(calc_mcp_setup):
 
 
 def test_mcp_calc_tools_list_direct_discovery(calc_mcp_setup):
-    """In direct_discovery mode, tools/list includes find_tools for Calc."""
+    """In direct_discovery mode, tools/list includes tool_find for Calc."""
     handler = calc_mcp_setup["handler"]
     config_dict = calc_mcp_setup["config_dict"]
     config_dict["tool_exposure_mode"] = "direct_discovery"
@@ -174,8 +174,8 @@ def test_mcp_calc_tools_list_direct_discovery(calc_mcp_setup):
     tools_list = result["result"]["tools"]
     tool_names = {t["name"] for t in tools_list}
 
-    assert "find_tools" in tool_names
-    assert "read_cell_range" in tool_names
+    assert "tool_find" in tool_names
+    assert "calc_read_range" in tool_names
     assert "sheet_create" not in tool_names
 
 

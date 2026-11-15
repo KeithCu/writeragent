@@ -18,7 +18,7 @@ from plugin.framework.prompts import (
 
 # NOTE: the EXTERNAL_AGENT_GUIDANCE pin test moved to tests/chatbot/test_agent_manual.py —
 # the blob was retired; the single source is the shared prompt pieces in constants.py (the
-# sidebar embeds them, get_guidance serves them per topic, full_manual() feeds the agent backend).
+# sidebar embeds them, manual_read serves them per topic, full_manual() feeds the agent backend).
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +59,7 @@ def test_html_fragment_rules_appear_once_in_writer_prompt():
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     assert prompt.count("Use <br> for line breaks within an element") == 1
-    assert get_sub_agent_instructions("BASE", tool_names=["apply_document_content"]).count("Use <br> for line breaks within an element") == 1
+    assert get_sub_agent_instructions("BASE", tool_names=["writer_apply_content"]).count("Use <br> for line breaks within an element") == 1
 
 
 def test_writer_chat_prompt_section_order_matches_assembly():
@@ -132,8 +132,8 @@ def test_draw_prompt_omits_get_image_when_model_has_no_vision():
     ):
         prompt = get_chat_system_prompt_for_document(model)
     assert DRAW_GET_IMAGE_TOOL_LINE not in prompt
-    assert "get_image" not in prompt
-    assert "get_draw_tree" in prompt
+    assert "image_get" not in prompt
+    assert "draw_get_tree" in prompt
 
 
 def test_draw_prompt_keeps_get_image_when_model_has_vision():
@@ -461,7 +461,7 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
     draw_tools = {s["function"]["name"] for s in registry.get_schemas("openai", doc=draw_doc)}
     impress_tools = {s["function"]["name"] for s in registry.get_schemas("openai", doc=impress_doc)}
     impress_only_tools = impress_tools - draw_tools
-    assert "list_placeholders" in impress_only_tools
+    assert "placeholder_list" in impress_only_tools
 
     gw = DelegateToSpecializedDraw()
     impress_only_domains = set(gw.domains_for_services(frozenset({IMPRESS_DOCUMENT_SERVICE}))) - set(
@@ -528,8 +528,8 @@ def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
         patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
     ):
-        assert "list_placeholders" in get_chat_system_prompt_for_kind("impress")
+        assert "placeholder_list" in get_chat_system_prompt_for_kind("impress")
         draw_prompt = get_chat_system_prompt_for_kind("draw")
-        assert "list_placeholders" not in draw_prompt
-        for tool_name in ("add_slide", "delete_slide", "duplicate_slide", "move_slide", "rename_slide", "set_active_page", "undo", "redo"):
+        assert "placeholder_list" not in draw_prompt
+        for tool_name in ("slide_add", "slide_delete", "slide_duplicate", "slide_move", "slide_rename", "slide_set_active", "document_undo", "document_redo"):
             assert f"- {tool_name}:" in draw_prompt

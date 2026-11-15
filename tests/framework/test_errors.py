@@ -875,20 +875,20 @@ from tests.framework.suggested_call_access import (
 def test_suggest_call_shape():
     from plugin.framework.errors import suggest_call
 
-    suggestion = suggest_call("apply_style", target="search", style="Heading 2")
+    suggestion = suggest_call("writer_apply_style", target="search", style="Heading 2")
     assert suggestion == {
-        "tool": "apply_style",
+        "tool": "writer_apply_style",
         "arguments": {"target": "search", "style": "Heading 2"},
     }
 
-    no_args = suggest_call("get_document_content")
-    assert no_args == {"tool": "get_document_content", "arguments": {}}
+    no_args = suggest_call("writer_get_content")
+    assert no_args == {"tool": "writer_get_content", "arguments": {}}
 
 
 def test_format_error_payload_suggested_call():
     from plugin.framework.errors import WriterAgentException, format_error_payload, suggest_call
 
-    call = suggest_call("apply_style", style="Heading 1")
+    call = suggest_call("writer_apply_style", style="Heading 1")
 
     # With WriterAgentException and details
     exc = WriterAgentException("Style application failed", code="STYLE_FAILED", details={"pos": 10})
@@ -916,7 +916,7 @@ def test_format_error_payload_suggested_call():
 def test_make_tool_error_suggested_call():
     from plugin.framework.errors import make_tool_error, suggest_call
 
-    call = suggest_call("apply_style", target="search", old_content="Intro", style="Heading 1")
+    call = suggest_call("writer_apply_style", target="search", old_content="Intro", style="Heading 1")
 
     # With suggested_call and extra kwargs (kwargs must go under details)
     res = make_tool_error(
@@ -951,7 +951,7 @@ def test_tool_base_error_formatting_with_suggested_call():
     from plugin.framework.errors import suggest_call
 
     tool = DummyTool()
-    call = suggest_call("apply_style", style="Heading 1")
+    call = suggest_call("writer_apply_style", style="Heading 1")
     result = tool._tool_error(
         "Style lookup failed",
         code="STYLE_NOT_FOUND",
@@ -968,9 +968,9 @@ def test_tool_base_error_formatting_with_suggested_call():
 def test_validate_suggested_call_against_apply_style():
     from plugin.framework.errors import suggest_call
 
-    # Valid apply_style suggestion
+    # Valid writer_apply_style suggestion
     valid_call = suggest_call(
-        "apply_style",
+        "writer_apply_style",
         target="search",
         old_content="Quarterly results",
         style="Heading 2",
@@ -980,7 +980,7 @@ def test_validate_suggested_call_against_apply_style():
 
     # Missing required parameter ('style')
     missing_style = suggest_call(
-        "apply_style",
+        "writer_apply_style",
         target="search",
         old_content="Quarterly results",
     )
@@ -990,7 +990,7 @@ def test_validate_suggested_call_against_apply_style():
 
     # Unknown parameter (e.g. MCP's document_url or internal flag)
     unknown_param = suggest_call(
-        "apply_style",
+        "writer_apply_style",
         style="Heading 2",
         document_url="vnd.sun.star.tdoc:/1",
     )
@@ -1000,7 +1000,7 @@ def test_validate_suggested_call_against_apply_style():
 
     # Invalid parameter type (style must be string, not integer)
     bad_type = suggest_call(
-        "apply_style",
+        "writer_apply_style",
         style=42,
     )
     ok, err = validate_suggested_call(bad_type)
@@ -1009,7 +1009,7 @@ def test_validate_suggested_call_against_apply_style():
 
     # Invalid enum value (target must be in INSERT_TARGETS)
     bad_enum = suggest_call(
-        "apply_style",
+        "writer_apply_style",
         style="Heading 2",
         target="unsupported_target",
     )

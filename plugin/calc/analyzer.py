@@ -225,7 +225,7 @@ def get_calc_context_for_chat(
                         # Check for selected values if small
                         if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
                             inspector = CellInspector(vs.bridge)
-                            # LLM-facing context: enrich dates the same way read_cell_range does.
+                            # LLM-facing context: enrich dates the same way calc_read_range does.
                             cells = inspector.read_range(sel_range, include_format_info=True)
                             ctx_str += "Selection Content (CSV-like):\n"
                             for row in cells:

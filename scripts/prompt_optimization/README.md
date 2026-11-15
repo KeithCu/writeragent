@@ -97,7 +97,7 @@ python run_optimize.py --auto light -j 1 \
   -e table_from_mess,table_engineering --slice apply_html
 ```
 
-Other slices: `writer_core`, `apply_html`, `range_sort`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
+Other slices: `writer_core`, `apply_html`, `calc_sort_range`, `calc_write_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 
@@ -182,14 +182,14 @@ DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to r
 
 Production sidebar registration is unchanged. These flags only reshape the **advertised** eval catalog.
 
-**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `range_sort` / ranges-domain schemas.
+**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `calc_sort_range` / ranges-domain schemas.
 
 | Preset | Kind | Outer tools (production names) |
 |--------|------|--------------------------------|
 | `full` | any | Today's unfiltered `get_schemas` catalog (Writer 14 / Calc 14 / Draw 19). |
-| `calc_minimal` | calc | `write_formula_range`, `get_sheet_summary`, `delegate_to_specialized_calc_toolset` — smallest set that can still pass `data_sorting` + `tax_column`. |
-| `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `web_research`, `upsert_memory`, `get_guidance`, `redo`, `undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
-| `writer_minimal` | writer | `apply_document_content`, `get_document_content` — smallest set for apply-HTML Writer tasks (`table_from_mess`, `bulk_cleanup`, …). |
+| `calc_minimal` | calc | `calc_write_range`, `calc_get_sheet_summary`, `delegate_to_specialized_calc_toolset` — smallest set that can still pass `data_sorting` + `tax_column`. |
+| `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `web_research`, `memory_upsert`, `manual_read`, `document_redo`, `document_undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
+| `writer_minimal` | writer | `writer_apply_content`, `writer_get_content` — smallest set for apply-HTML Writer tasks (`table_from_mess`, `bulk_cleanup`, …). |
 
 **`--schema-density full|skinny`** (default `full`): `skinny` is a pure transform (after the name filter, before MIPRO `apply_schema_patches`). Tool names and param names/types stay; tool and param **descriptions** are blanked so you can measure whether fat prose confuses small models without removing tools.
 

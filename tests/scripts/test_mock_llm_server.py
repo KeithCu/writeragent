@@ -74,7 +74,7 @@ def test_response_delay_s_sync_override():
 
 def test_chit_chat_html():
     out = decide_completion(
-        {"messages": [{"role": "user", "content": "hello there"}], "tools": _tools("web_research", "apply_document_content")},
+        {"messages": [{"role": "user", "content": "hello there"}], "tools": _tools("web_research", "writer_apply_content")},
         MockLLMConfig(delay_ms=0),
         _TurnState(),
     )
@@ -444,11 +444,11 @@ def test_comment_with_document_text_calls_add_comment():
                 {"role": "system", "content": doc_system_msg},
                 {"role": "user", "content": "Please add a comment to this document"},
             ],
-            "tools": _tools("add_comment", "apply_document_content"),
+            "tools": _tools("comment_add", "writer_apply_content"),
         },
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "add_comment"
+    assert out.tool_name == "comment_add"
     assert out.tool_args is not None
     assert out.tool_args["search"] == "Welcome"
     assert bool(out.tool_args["content"])
@@ -467,11 +467,11 @@ def test_comment_with_empty_document_calls_apply_document_content():
                 {"role": "system", "content": empty_system_msg},
                 {"role": "user", "content": "insert a comment"},
             ],
-            "tools": _tools("add_comment", "apply_document_content"),
+            "tools": _tools("comment_add", "writer_apply_content"),
         },
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "apply_document_content"
+    assert out.tool_name == "writer_apply_content"
     assert out.tool_args is not None
     assert out.tool_args["target"] == "beginning"
     assert len(out.tool_args["content"]) > 0
@@ -490,7 +490,7 @@ def test_comment_after_apply_content_step():
                             "id": "c1",
                             "type": "function",
                             "function": {
-                                "name": "apply_document_content",
+                                "name": "writer_apply_content",
                                 "arguments": '{"target":"beginning","content":["<p>Hello world</p>"]}',
                             },
                         }
@@ -498,11 +498,11 @@ def test_comment_after_apply_content_step():
                 },
                 {"role": "tool", "tool_call_id": "c1", "content": '{"status": "ok", "inserted": true}'},
             ],
-            "tools": _tools("add_comment", "apply_document_content"),
+            "tools": _tools("comment_add", "writer_apply_content"),
         },
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "add_comment"
+    assert out.tool_name == "comment_add"
     assert out.tool_args is not None
     assert out.tool_args["search"] == "Hello"
 
@@ -520,7 +520,7 @@ def test_comment_after_add_comment_step():
                             "id": "c2",
                             "type": "function",
                             "function": {
-                                "name": "add_comment",
+                                "name": "comment_add",
                                 "arguments": '{"search":"Hello","content":"Mock comment"}',
                             },
                         }
@@ -528,7 +528,7 @@ def test_comment_after_add_comment_step():
                 },
                 {"role": "tool", "tool_call_id": "c2", "content": '{"status": "ok", "comment_added": true}'},
             ],
-            "tools": _tools("add_comment", "apply_document_content"),
+            "tools": _tools("comment_add", "writer_apply_content"),
         },
         MockLLMConfig(delay_ms=0),
     )
@@ -603,7 +603,7 @@ def test_history_flood_and_compaction_summarizer():
 
 def test_overflow_once_then_ok_and_process_death():
     cfg = MockLLMConfig(delay_ms=0)
-    tools = _tools("web_research", "add_comment")
+    tools = _tools("web_research", "comment_add")
     first = decide_completion(
         {"stream": True, "messages": [{"role": "user", "content": "overflow once"}], "tools": tools},
         cfg,
@@ -725,8 +725,8 @@ def test_delegate_when_advertised_else_html():
     ("tool_names", "first_tool", "followup_msg", "finish_tool"),
     [
         pytest.param(
-            ("get_document_tree", "final_answer"),
-            "get_document_tree",
+            ("writer_get_tree", "final_answer"),
+            "writer_get_tree",
             [
                 {
                     "role": "assistant",
@@ -734,7 +734,7 @@ def test_delegate_when_advertised_else_html():
                         {
                             "id": "c1",
                             "type": "function",
-                            "function": {"name": "get_document_tree", "arguments": "{}"},
+                            "function": {"name": "writer_get_tree", "arguments": "{}"},
                         }
                     ],
                 },
@@ -793,7 +793,7 @@ def test_specialized_inner_finish_only_when_no_discovery_tools():
 
 
 def test_empty_nested_answer_delegates_then_empty_finish():
-    main = _tools("delegate_to_specialized_writer_toolset", "web_research", "apply_document_content")
+    main = _tools("delegate_to_specialized_writer_toolset", "web_research", "writer_apply_content")
     out = decide_completion(
         {"messages": [{"role": "user", "content": "empty nested answer"}], "tools": main},
         MockLLMConfig(delay_ms=0),
@@ -809,13 +809,13 @@ def test_empty_nested_answer_delegates_then_empty_finish():
 
 
 def test_mixed_tools_apply_and_failing_comment():
-    tools = _tools("apply_document_content", "add_comment", "web_research")
+    tools = _tools("writer_apply_content", "comment_add", "web_research")
     out = decide_completion(
         {"messages": [{"role": "user", "content": "mixed tools"}], "tools": tools},
         MockLLMConfig(delay_ms=0),
     )
     names = [n for n, _a in completion_tool_calls(out)]
-    assert names == ["add_comment", "apply_document_content"]
+    assert names == ["comment_add", "writer_apply_content"]
     assert (out.tool_args or {}).get("search") == ""
 
 
@@ -950,24 +950,24 @@ def test_fail_native_audio_400_then_stt_ok():
     [
         pytest.param(
             "insert filler",
-            "apply_document_content",
+            "writer_apply_content",
             '{"status": "ok", "message": "Inserted content at end."}',
-            ("apply_document_content", "web_research"),
-            id="apply_document_content",
+            ("writer_apply_content", "web_research"),
+            id="writer_apply_content",
         ),
         pytest.param(
             "outline this",
             "delegate_to_specialized_writer_toolset",
             "Mock outline complete.",
-            ("delegate_to_specialized_writer_toolset", "get_document_tree", "web_research"),
+            ("delegate_to_specialized_writer_toolset", "writer_get_tree", "web_research"),
             id="delegate_to_specialized_writer_toolset",
         ),
         pytest.param(
             "two tools",
-            "get_document_tree",
+            "writer_get_tree",
             '{"headings": []}',
-            ("delegate_to_specialized_writer_toolset", "get_document_tree", "web_research"),
-            id="get_document_tree",
+            ("delegate_to_specialized_writer_toolset", "writer_get_tree", "web_research"),
+            id="writer_get_tree",
         ),
     ],
 )
@@ -1010,12 +1010,12 @@ def test_parallel_two_core_tools():
     out = decide_completion(
         {
             "messages": [{"role": "user", "content": "run two tools please"}],
-            "tools": _tools("search_in_document", "get_document_tree", "web_research"),
+            "tools": _tools("writer_search", "writer_get_tree", "web_research"),
         },
         MockLLMConfig(delay_ms=0),
     )
     names = [n for n, _a in completion_tool_calls(out)]
-    assert names == ["search_in_document", "get_document_tree"]
+    assert names == ["writer_search", "writer_get_tree"]
     body = sync_response_body(out, "m")
     tcs = body["choices"][0]["message"]["tool_calls"]
     assert len(tcs) == 2
@@ -1043,10 +1043,10 @@ def test_parallel_missing_tools_falls_back_html():
 @pytest.mark.parametrize(
     ("user_text", "tool_name", "expected_target"),
     [
-        pytest.param("insert filler", "apply_document_content", "end", id="writer_apply"),
+        pytest.param("insert filler", "writer_apply_content", "end", id="writer_apply"),
         pytest.param("list sheets", "sheet_list", None, id="calc_sheet_list"),
-        pytest.param("list sheets", "get_sheet_summary", None, id="calc_sheet_summary"),
-        pytest.param("list pages", "list_pages", None, id="draw_list_pages"),
+        pytest.param("list sheets", "calc_get_sheet_summary", None, id="calc_sheet_summary"),
+        pytest.param("list pages", "slide_list", None, id="draw_list_pages"),
     ],
 )
 def test_mutate_and_calc_draw_thin_tools(user_text: str, tool_name: str, expected_target: str | None):
@@ -1212,7 +1212,7 @@ def test_summarize_chat_payload_doc_len_and_current_query():
 
     payload = {
         "stream": True,
-        "tools": _tools("web_research", "add_comment"),
+        "tools": _tools("web_research", "comment_add"),
         "messages": [
             {
                 "role": "system",
@@ -1235,7 +1235,7 @@ def test_summarize_chat_payload_doc_len_and_current_query():
     )
     assert rec["decided_tools"] == ["web_research"]
     assert rec["last_assistant_tool_calls"] == []
-    assert "add_comment" in rec["advertised_tools"]
+    assert "comment_add" in rec["advertised_tools"]
 
     with_tools = {
         "messages": payload["messages"]
@@ -1314,7 +1314,7 @@ def test_fail_tool_followup_http500():
 
         user_turn = {
             "messages": [{"role": "user", "content": "add a comment"}],
-            "tools": _tools("add_comment"),
+            "tools": _tools("comment_add"),
             "stream": False,
         }
         post(user_turn)
@@ -1327,13 +1327,13 @@ def test_fail_tool_followup_http500():
                         {
                             "id": "c1",
                             "type": "function",
-                            "function": {"name": "add_comment", "arguments": "{}"},
+                            "function": {"name": "comment_add", "arguments": "{}"},
                         }
                     ],
                 },
                 {"role": "tool", "content": '{"status": "ok"}'},
             ],
-            "tools": _tools("add_comment"),
+            "tools": _tools("comment_add"),
             "stream": False,
         }
         with pytest.raises(HTTPError) as err:
@@ -1603,13 +1603,13 @@ def test_http_models_lists_stt_id(mock_http):
 
 _WRITER_OUTER = (
     "web_research",
-    "apply_document_content",
+    "writer_apply_content",
     "delegate_to_specialized_writer_toolset",
-    "get_document_tree",
+    "writer_get_tree",
 )
 _CALC_OUTER = (
     "sheet_list",
-    "write_formula_range",
+    "calc_write_range",
     "delegate_to_specialized_calc_toolset",
 )
 _INNER_PEER = (
@@ -1724,10 +1724,10 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
         "Add a Total row under the numbers."
     )
     write = decide_completion(_payload(envelope, _CALC_OUTER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
-    assert write.tool_name == "write_formula_range"
+    assert write.tool_name == "calc_write_range"
     assert "A4" in str((write.tool_args or {}).get("range"))
     delegate = decide_completion(
-        _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("write_formula_range", '{"status":"ok"}')),
+        _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("calc_write_range", '{"status":"ok"}')),
         MockLLMConfig(delay_ms=0),
     )
     assert delegate.tool_name == "delegate_to_specialized_calc_toolset"
@@ -1774,7 +1774,7 @@ def test_writer_followup_applies_peer_reply():
         "Total row written at A4:B4."
     )
     out = decide_completion(_payload(envelope, _WRITER_OUTER), MockLLMConfig(delay_ms=0))
-    assert out.tool_name == "apply_document_content"
+    assert out.tool_name == "writer_apply_content"
     assert "send_peer_work" not in [n for n, _a in completion_tool_calls(out)]
 
 
@@ -1789,9 +1789,9 @@ def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
         "Add a Total row under the numbers."
     )
     write = decide_completion(_payload(envelope, _CALC_OUTER, system=_WRITER_SYS), cfg)
-    assert write.tool_name == "write_formula_range"
+    assert write.tool_name == "calc_write_range"
     reply = decide_completion(
-        _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("write_formula_range", '{"status":"ok"}')),
+        _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("calc_write_range", '{"status":"ok"}')),
         cfg,
     )
     assert reply.tool_name == "delegate_to_specialized_calc_toolset"
@@ -1802,8 +1802,8 @@ def test_scripted_rules_branch_writer_vs_calc():
     cfg = MockLLMConfig(
         delay_ms=0,
         rules=[
-            CompletionRule(tools_any=("write_formula_range",), tool_name="sheet_list", tool_args={}),
-            CompletionRule(tools_any=("apply_document_content",), content="<p>writer branch</p>"),
+            CompletionRule(tools_any=("calc_write_range",), tool_name="sheet_list", tool_args={}),
+            CompletionRule(tools_any=("writer_apply_content",), content="<p>writer branch</p>"),
         ],
     )
     calc = decide_completion(_payload("hello", _CALC_OUTER), cfg)

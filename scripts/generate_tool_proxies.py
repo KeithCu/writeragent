@@ -173,7 +173,7 @@ def _param_default(schema: dict) -> str:
     """Derive a Python default value from a JSON Schema property.
 
     Only called when "default" in schema. There is no per-type default table
-    because a boolean True made apply_document_content(..., dry_run=True) a
+    because a boolean True made writer_apply_content(..., dry_run=True) a
     silent no-op. Optionals without a schema default stay None in
     schema_to_signature so call_host_tool can drop them.
     """
@@ -386,125 +386,124 @@ def _append_docstring(lines: list[str], doc_lines: list[str]) -> None:
     lines.append('        """')
 
 
-# Namespaces whose tools all share an extra sub-prefix that repeats the namespace.
-_FAMILY_PREFIXES: dict[str, str] = {
-    "range": "named_range_",
-    "structural": "nav_",
-    "textframe": "frame_",
-}
+# Every wa.* namespace, which is also every tool-name domain. A tool name is
+# <domain>_<verb>[_<object>] (frame_list, sheet_get_filter, calc_get_sheet_summary).
+# The longest entry that prefixes the name followed by "_" becomes wa.<domain>; the rest
+# becomes the method (wa.frame.list, wa.sheet.get_filter). make proxy-stubs stops on a
+# tool name that starts with none of these, so a new family adds its domain here.
+API_DOMAINS: frozenset[str] = frozenset({
+    "bookmark", "calc", "cell_comment", "chart", "comment", "conditional_formatting",
+    "design", "document", "draw", "embedded", "field", "footnote", "form", "frame",
+    "image", "index", "mail_merge", "manual", "math", "memory", "named_range", "nav",
+    "page", "page_comment", "pivot_table", "placeholder", "section", "shape", "sheet",
+    "slide", "sql", "style", "table", "tool", "tracking", "web", "writer",
+})
 
-# Trailing verbs rotated to the front so Pythonic calls read verb_noun (e.g. settings_get -> get_settings).
-_TRAILING_VERBS: frozenset[str] = frozenset({"apply", "clear", "get", "set", "update"})
-
-# Calc, writer, draw and core tools have no namespace prefix to strip, so the words that repeat
-# the namespace are removed by hand. Keys are tool names; values are final method names.
-METHOD_NAME_OVERRIDES: dict[str, str] = {
-    "read_cell_range": "read_range",
-    "write_formula_range": "write_range",
-    "get_sheet_summary": "summary",
-    "list_calc_functions": "list_functions",
-    "insert_cell_html": "insert_html",
-    "get_document_content": "get_content",
-    "apply_document_content": "apply_content",
-    "get_document_tree": "get_tree",
-    "search_in_document": "search",
-    "get_draw_tree": "get_tree",
-    "get_presentation_info": "info",
-    "query_folder_sql": "query_folder",
-    "extract_structure_from_image": "extract_structure",
-}
+# Module-level names in the generated writeragent_api, plus wa.scripts / wa.doc that
+# named_scripts.attach_named_script_libraries sets at run time. A namespace with one of
+# these names would replace that object on the module.
+_MODULE_NAMES = frozenset({
+    "Any", "TYPE_CHECKING", "annotations", "builtins", "call_host_tool", "DOMAIN_TOOLS",
+    "TOOL_METHODS", "WORKFLOW_TASK_PREFIXES", "get_active_document_type", "help",
+    "scripts", "doc",
+})
 
 
-def _short_method_name(namespace: str, rest: str, tool_name: str) -> str:
-    """Shorten a proxy method name after namespace-prefix stripping."""
-    if tool_name in METHOD_NAME_OVERRIDES:
-        return METHOD_NAME_OVERRIDES[tool_name]
-    family_prefix = _FAMILY_PREFIXES.get(namespace)
-    if family_prefix and rest.startswith(family_prefix):
-        rest = rest[len(family_prefix) :]
-    parts = rest.split("_")
-    if len(parts) > 1 and parts[-1] in _TRAILING_VERBS:
-        rest = f"{parts[-1]}_{'_'.join(parts[:-1])}"
-    if rest == "get_info":
-        rest = "info"
-    return rest
+def _alias_import_names() -> frozenset[str]:
+    """First components a script may import as ``writeragent.<name>``.
+
+    The sandbox allows those imports (``from writeragent.vision import run_vision``).
+    Python then sets the submodule as an attribute of the parent module, so a
+    ``wa.vision`` namespace would turn into that submodule for the rest of the run.
+    """
+    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
+
+    return frozenset(
+        entry.split(".")[1]
+        for entry in VENV_AUTHORIZED_IMPORTS
+        if entry.startswith(("plugin.", "writeragent.")) and "." in entry
+    )
 
 
-def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"]]]:
-    """Group tools by namespace and give each a short Python method name (see `_short_method_name`)."""
-    from plugin.scripting.host_rpc import singularize_domain
+def check_api_domains(domains: frozenset[str]) -> None:
+    """Raise ValueError for a domain that cannot be a ``wa.<domain>`` attribute."""
+    import builtins
 
-    groups: dict[str, list[tuple[str, "ToolBase"]]] = defaultdict(list)
+    reserved = _MODULE_NAMES | _alias_import_names()
+    for domain in sorted(domains):
+        if not domain.isidentifier() or keyword.iskeyword(domain):
+            raise ValueError(f"API domain {domain!r} is not a Python identifier")
+        if domain in reserved or hasattr(builtins, domain):
+            raise ValueError(f"API domain {domain!r} would shadow writeragent.{domain} or a builtin")
+
+
+def split_tool_name(name: str) -> tuple[str, str]:
+    """Tool name -> (``wa`` namespace, method). Keywords get a trailing ``_`` (style_import -> import_)."""
+    domain = max((d for d in API_DOMAINS if name.startswith(d + "_")), key=len, default=None)
+    if domain is None:
+        raise ValueError(
+            f"tool {name!r} does not start with an API domain; name it <domain>_<verb>[_<object>] "
+            "and add a new domain to API_DOMAINS in scripts/generate_tool_proxies.py"
+        )
+    return domain, _proxy_method_name(name[len(domain) + 1 :])
+
+
+def _api_tools(tools: list["ToolBase"]) -> list["ToolBase"]:
+    """Tools that get a proxy: drop orchestration tools and sidebar/chat-mode domains."""
+    kept = []
     for tool in tools:
         name = tool.name or ""
-        # Orchestration names stay on the chat tool list; skip before namespace grouping
-        # so they never become methods or DOMAIN_TOOLS entries.
-        if name in API_EXCLUDED_TOOLS:
+        if not name or name in API_EXCLUDED_TOOLS:
             continue
-        # 1. Check specialized_domain
         domain = getattr(tool, "specialized_domain", None)
         if _domain_excluded(domain if isinstance(domain, str) else None):
             continue
-        if domain:
-            namespace = domain
-            # Strip prefix if it matches domain (e.g. footnotes_insert -> insert)
-            prefix = domain
-            # This probe is only for the method-name prefix; it is not
-            # singularize_domain; indexes_add_mark starts with index_
-            # (the namespace) and would become method es_add_mark.
-            if domain.endswith("s"):
-                singular = domain[:-1]
-                if name.startswith(singular + "_"):
-                    prefix = singular
-                elif name.startswith(domain + "_"):
-                    prefix = domain
+        kept.append(tool)
+    return kept
 
-            if name.startswith(prefix + "_"):
-                rest = name[len(prefix) + 1 :]
-            else:
-                rest = name
-        else:
-            # Break up "core" tools by document type
-            doc_types = getattr(tool, "doc_types", []) or []
-            uno_services = getattr(tool, "uno_services", []) or []
 
-            # Infer doc_types from uno_services if missing
-            if not doc_types and uno_services:
-                inferred = set()
-                for svc in uno_services:
-                    if "text.TextDocument" in svc: inferred.add("writer")
-                    elif "sheet.SpreadsheetDocument" in svc: inferred.add("calc")
-                    elif "drawing.DrawingDocument" in svc: inferred.add("draw")
-                    elif "presentation.PresentationDocument" in svc: inferred.add("draw")
-                doc_types = list(inferred)
+def _allowlist_domain(tool: "ToolBase") -> str:
+    """``DOMAIN_TOOLS`` key: the raw specialized_domain, else the single document type, else core.
 
-            if len(doc_types) == 1:
-                namespace = doc_types[0]
-            elif set(doc_types) == {"draw", "impress"}:
-                namespace = "draw"
-            elif not doc_types:
-                # Truly universal tools stay in core (e.g. web_research, upsert_memory)
-                namespace = "core"
-            else:
-                # Mixed support (Writer + Calc etc)
-                namespace = "core"
-            rest = name
+    host_rpc.resolve_allowed_tools looks these keys up with the specialized domain names
+    the chat passes (``shapes``, ``ranges``, ``python/sql``) and with ``writer`` / ``calc`` /
+    ``draw`` / ``core``. One key can span several wa namespaces (``ranges`` holds
+    calc_sort_range and named_range_*).
+    """
+    domain = getattr(tool, "specialized_domain", None)
+    if isinstance(domain, str) and domain:
+        return domain
+    doc_types = set(getattr(tool, "doc_types", []) or [])
+    if not doc_types:
+        for svc in getattr(tool, "uno_services", []) or []:
+            if "text.TextDocument" in svc:
+                doc_types.add("writer")
+            elif "sheet.SpreadsheetDocument" in svc:
+                doc_types.add("calc")
+            elif "drawing.DrawingDocument" in svc or "presentation.PresentationDocument" in svc:
+                doc_types.add("draw")
+    if doc_types == {"draw", "impress"}:
+        return "draw"
+    if len(doc_types) == 1:
+        return next(iter(doc_types))
+    return "core"
 
-        # Singularize namespace for nicer usage: footnote.insert instead of footnotes.insert
-        namespace = singularize_domain(namespace)
 
-        # Catch hyphen/underscore spellings that only show up as the namespace key.
-        if _domain_excluded(namespace):
-            continue
-
-        rest = _short_method_name(namespace, rest, name)
-        groups[namespace].append((rest, tool))
+def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"]]]:
+    """Group proxy tools by ``wa`` namespace with their method names (see split_tool_name)."""
+    groups: dict[str, list[tuple[str, "ToolBase"]]] = defaultdict(list)
+    for tool in _api_tools(tools):
+        namespace, method = split_tool_name(tool.name or "")
+        groups[namespace].append((method, tool))
     return dict(groups)
 
 
-def _proxy_namespace_attr(namespace: str) -> str:
-    """Namespace -> Python attribute / class name prefix (e.g. 'python/sql' -> 'python_sql')."""
-    return re.sub(r"\W", "_", namespace)
+def domain_tools(tools: list["ToolBase"]) -> dict[str, list[str]]:
+    """``DOMAIN_TOOLS``: allowlist key -> sorted tool names (see _allowlist_domain)."""
+    keyed: dict[str, set[str]] = defaultdict(set)
+    for tool in _api_tools(tools):
+        keyed[_allowlist_domain(tool)].add(tool.name or "")
+    return {key: sorted(names) for key, names in sorted(keyed.items())}
 
 
 def _proxy_method_name(short_name: str) -> str:
@@ -514,6 +513,7 @@ def _proxy_method_name(short_name: str) -> str:
 
 def generate_module(tools: list["ToolBase"]) -> str:
     """Generate the complete writeragent_api.py module."""
+    check_api_domains(API_DOMAINS)
     groups = group_tools(tools)
 
     lines = [
@@ -521,6 +521,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '',
         'Generated by scripts/generate_tool_proxies.py — DO NOT EDIT.',
         'Provides Python-native access to WriterAgent tools from venv subprocess scripts.',
+        'Tool names follow <domain>_<verb>[_<object>], giving wa.<domain>.<rest>.',
         'Method docstrings include the full tool description and an Args section',
         '(schema description, enum values, and required or optional).',
         '',
@@ -543,7 +544,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '',
         'def get_active_document_type() -> str:',
         '    """Return the active document\'s type (\'writer\', \'calc\', \'draw\', or \'unknown\')."""',
-        '    res = call_host_tool("list_open_documents")',
+        '    res = call_host_tool("document_list_open")',
         '    for doc in res.get("documents", []):',
         '        if doc.get("is_active"):',
         '            return doc.get("doc_type", "unknown")',
@@ -557,33 +558,24 @@ def generate_module(tools: list["ToolBase"]) -> str:
         '',
     ]
 
-    # Domain tools whitelist for host-side enforcement
-    domain_tools_map = {}
+    domain_tools_map = domain_tools(tools)
     tool_methods_map = {}
     seen_methods: dict[tuple[str, str], str] = {}
     for ns, tool_list in sorted(groups.items()):
-        domain_tools_map[ns] = sorted([t.name for _, t in tool_list if t.name])
-        for short_name, t in tool_list:
+        for method, t in tool_list:
             if not t.name:
                 continue
-            safe_ns = _proxy_namespace_attr(ns)
-            method = _proxy_method_name(short_name)
-            key = (safe_ns, method)
+            key = (ns, method)
             prev = seen_methods.get(key)
             if prev is not None and prev != t.name:
                 # Two tools that strip to one method would emit def twice: the later
                 # def would win and the catalog would advertise one call for two
                 # tools. make proxy-stubs stops instead.
                 raise ValueError(
-                    f"proxy method {safe_ns}.{method} is produced by both {prev!r} and {t.name!r}"
+                    f"proxy method {ns}.{method} is produced by both {prev!r} and {t.name!r}"
                 )
             seen_methods[key] = t.name
-            # TOOL_METHODS stores the attribute names the class body emits, not the
-            # raw domain and short name. host_rpc._proxy_methods_by_tool does
-            # getattr(api, ns) then getattr(proxy, method); a raw "python/sql" or
-            # "import" is missing there, and format_script_api_catalog would omit
-            # query_folder_sql and style_import.
-            tool_methods_map[t.name] = (safe_ns, method)
+            tool_methods_map[t.name] = (ns, method)
 
     pretty_map = pprint.pformat(domain_tools_map, indent=4, width=120)
     lines.append(f"DOMAIN_TOOLS = {pretty_map}")
@@ -591,12 +583,8 @@ def generate_module(tools: list["ToolBase"]) -> str:
     pretty_methods = pprint.pformat(tool_methods_map, indent=4, width=120)
     lines.append(f"TOOL_METHODS = {pretty_methods}")
     lines.append("")
-    import builtins
-
-    builtin_names = set(dir(builtins))
-    # Keep builtin names (range) out of __all__ so a star-import does not shadow them.
     all_exports = sorted(
-        {_proxy_namespace_attr(ns) for ns in groups if _proxy_namespace_attr(ns) not in builtin_names}
+        set(groups)
         | {
             "DOMAIN_TOOLS",
             "TOOL_METHODS",
@@ -609,35 +597,19 @@ def generate_module(tools: list["ToolBase"]) -> str:
     lines.append("")
     lines.append("")
 
-    seen_namespaces: dict[str, str] = {}
-    for ns in sorted(groups.keys()):
-        safe_ns = _proxy_namespace_attr(ns)
-        prev = seen_namespaces.get(safe_ns)
-        if prev is not None and prev != ns:
-            raise ValueError(
-                f"proxy namespace collision: {ns!r} and {prev!r} both map to attribute {safe_ns!r}"
-            )
-        seen_namespaces[safe_ns] = ns
-
     for namespace in sorted(groups.keys()):
         tool_list = groups[namespace]
-        # Emit a class that acts as a namespace. Domain names may hold characters that are invalid
-        # in Python identifiers: hyphens, and the slash in "python/sql" (plugin/calc/base.py),
-        # which produced "class _Python/sqlProxy:" and a module that does not import.
-        safe_ns = _proxy_namespace_attr(namespace)
-        class_name = "".join(part.capitalize() for part in safe_ns.split("_")) + "Proxy"
+        class_name = "".join(part.capitalize() for part in namespace.split("_")) + "Proxy"
         lines.append(f"class _{class_name}:")
         lines.append(f'    """Proxy for {namespace} tools."""')
         lines.append("")
 
         import builtins as _builtins_mod
 
-        proxy_method_names = frozenset(_proxy_method_name(n) for n, _unused in tool_list)
+        proxy_method_names = frozenset(n for n, _unused in tool_list)
         shadowed_names = proxy_method_names & set(dir(_builtins_mod))
 
-        for short_name, tool in sorted(tool_list, key=lambda x: x[0]):
-            # domain_verb strip can yield a Python keyword (style_import -> import).
-            short_name = _proxy_method_name(short_name)
+        for method, tool in sorted(tool_list, key=lambda x: x[0]):
             params = _collect_params(tool)
 
             pos = [
@@ -666,13 +638,12 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
             kwargs_body = (", " + ", ".join(rpc_args)) if rpc_args else ""
 
-            lines.append(f"    def {short_name}({all_params}) -> dict[str, Any]:")
+            lines.append(f"    def {method}({all_params}) -> dict[str, Any]:")
             _append_docstring(lines, _method_doc_lines(tool, params=params))
             lines.append(f'        return call_host_tool("{tool.name}"{kwargs_body})')
             lines.append("")
 
-        # Singleton instance (keep DOMAIN_TOOLS key as registered domain string)
-        lines.append(f"{safe_ns} = _{class_name}()")
+        lines.append(f"{namespace} = _{class_name}()")
         lines.append("")
         lines.append("")
 
@@ -702,8 +673,8 @@ def validate_generated(code: str) -> None:
     if not isinstance(domain_tools, dict) or not domain_tools:
         raise ValueError("Validation failed: DOMAIN_TOOLS is empty")
     core_tools = domain_tools.get("core", [])
-    if "list_open_documents" not in core_tools:
-        raise ValueError("Validation failed: DOMAIN_TOOLS['core'] missing 'list_open_documents'")
+    if "document_list_open" not in core_tools:
+        raise ValueError("Validation failed: DOMAIN_TOOLS['core'] missing 'document_list_open'")
 
 
 def _atomic_write(target_path: str, content: str) -> None:

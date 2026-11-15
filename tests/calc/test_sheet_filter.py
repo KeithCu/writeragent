@@ -321,7 +321,7 @@ def test_sheet_filter_registry_invalid_param_and_no_filter_call():
             "com.sun.star.beans.XPropertySet": MagicMock(),
             "com.sun.star.sheet.XSheetFilterDescriptor2": MagicMock(),
         }.get(iface)
-        res_apply = get_tools().get("sheet_filter_apply").execute_safe(
+        res_apply = get_tools().get("sheet_apply_filter").execute_safe(
             ctx,
             range=["A1:B10"],
             criteria=[{"field": 5, "operator": "EQUAL", "value": "x"}],
@@ -331,7 +331,7 @@ def test_sheet_filter_registry_invalid_param_and_no_filter_call():
     xf.filter.assert_not_called()
 
     ctx_get = SimpleNamespace(doc=MagicMock())
-    res_get = get_tools().get("sheet_filter_get").execute_safe(ctx_get, range=["A1:B2", "C1:D2"])
+    res_get = get_tools().get("sheet_get_filter").execute_safe(ctx_get, range=["A1:B2", "C1:D2"])
     assert res_get["status"] == "error"
     assert res_get["code"] == "INVALID_PARAM"
     ctx_get.doc.getSheets.assert_not_called()

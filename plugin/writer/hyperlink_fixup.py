@@ -479,7 +479,7 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
         new_plain = fallback_plain if fallback_plain is not None else snapshot.matched
 
     plans = plan_outline_updates(snapshot.links, snapshot.matched, new_plain, override)
-    # An override with no outline link is rejected in apply_document_content
+    # An override with no outline link is rejected in writer_apply_content
     # before the edit. Do not paint it onto a bookmark or plain text here.
 
     writable = [plan for plan in plans if plan["new_url"] is not None]

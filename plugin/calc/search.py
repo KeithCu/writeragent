@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Calc search tools: search_cells, search_replace."""
+"""Calc search tools: calc_search_cells, calc_replace_cells."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ def _validate_regex(ctx: ToolContext, pattern: str) -> None:
 class SearchInSpreadsheet(ToolCalcSearchBase):
     """Search for text in the spreadsheet."""
 
-    name: str | None = "search_cells"
+    name: str | None = "calc_search_cells"
     description: str = "Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -85,7 +85,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 class ReplaceInSpreadsheet(ToolCalcSearchBase):
     """Find and replace in the spreadsheet."""
 
-    name: str | None = "search_replace"
+    name: str | None = "calc_replace_cells"
     description: str = "Find and replace text or values in a Calc spreadsheet. Returns count of replacements made."
     parameters: dict[str, Any] | None = {
         "type": "object",

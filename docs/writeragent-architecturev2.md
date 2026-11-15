@@ -106,9 +106,9 @@ WriterAgent embeds an **MCP (Model Context Protocol) HTTP server** (`plugin/mcp/
 
 Most AI tools see a document as a flat "wall of text." WriterAgent sees the **structure**, via an LO-DOM (LibreOffice Document Object Model) that extracts LibreOffice's hierarchy into semantic JSON instead of relying on screenshots.
 
-- **Draw/Impress `get_draw_tree`** translates raw UNO shapes into semantic nodes with hierarchy (grouped shapes → nested children), spatial geometry (`x`, `y`, `width`, `height`), attributes (`text`, `name`, `alt_title`), and style (`FillColor`, `ZOrder`). For `ConnectorShape`s it extracts `StartShape` and `EndShape` directly — so in a flowchart the agent knows *which boxes are connected to which*, not just the labels.
+- **Draw/Impress `draw_get_tree`** translates raw UNO shapes into semantic nodes with hierarchy (grouped shapes → nested children), spatial geometry (`x`, `y`, `width`, `height`), attributes (`text`, `name`, `alt_title`), and style (`FillColor`, `ZOrder`). For `ConnectorShape`s it extracts `StartShape` and `EndShape` directly — so in a flowchart the agent knows *which boxes are connected to which*, not just the labels.
 - **Writer `writer_tree`** builds a navigable index of headings/body paragraphs from `OutlineLevel`, letting the model "skim" a TOC and zoom into sections rather than read 100 pages linearly.
-- **Writer `get_page_objects`** jumps the view cursor to a specific physical page and returns a multimodal snapshot: exact visible paragraph text, anchored images/tables, and embedded draw shapes (cross-referenced from Writer's hidden draw page against physical page boundaries). This solves the "what am I looking at on page 12?" needle-in-a-haystack problem.
+- **Writer `page_get_objects`** jumps the view cursor to a specific physical page and returns a multimodal snapshot: exact visible paragraph text, anchored images/tables, and embedded draw shapes (cross-referenced from Writer's hidden draw page against physical page boundaries). This solves the "what am I looking at on page 12?" needle-in-a-haystack problem.
 
 **Proximity awareness** lets the agent navigate by headings, sections, and bookmarks; **tracked-changes integration** (`tracking_start/stop/list`, `tracking_manage`) respects the editorial process — and `get_string_without_tracked_deletions()` in `text_helpers` ensures prompts and edits never see text the author has already deleted.
 
@@ -118,7 +118,7 @@ Most AI tools see a document as a flat "wall of text." WriterAgent sees the **st
 
 Writer's edit paths support a **review mode** (`doc.agent_edit_review_mode`: `off`/`record`/`wait`) where agent changes land as native LibreOffice tracked changes (redlines) the user accepts or rejects. `EditReviewSession` (`plugin/writer/edit_review.py`) snapshots pre-edit redline identifiers, runs the edit, and tags every *new* redline with a `wa-review:<session>:<n>` token — **fail-closed**: if the scan is incomplete, edits apply but redlines stay untagged so "Accept All" can never touch a misclassified user redline. Word-level diff splitting (`word_diff_split.py`) splits large replacements into tight Delete+Insert pairs when the changed-word fraction is below a threshold, producing one reviewable change per sub-edit with per-change outcomes (`accepted`/`rejected`/`modified`/`pending`) and `final_text` previews. A dedicated review toolbar and inline accept/reject popups scope resolution strictly to `wa-review` changes.
 
-Format preservation is the default: edits flow through LibreOffice's native `HTML (StarWriter)` import, with a symmetric **`data-lo-style`** convention — `get_document_content` exports each block with its style name as a compact token (`Heading 1` → `Heading1`), and `apply_document_content` resolves that token back to the real paragraph style, layering inline `style="..."` as direct overrides. Bold, italics, highlights, font sizes, tables, and nested lists survive the round-trip.
+Format preservation is the default: edits flow through LibreOffice's native `HTML (StarWriter)` import, with a symmetric **`data-lo-style`** convention — `writer_get_content` exports each block with its style name as a compact token (`Heading 1` → `Heading1`), and `writer_apply_content` resolves that token back to the real paragraph style, layering inline `style="..."` as direct overrides. Bold, italics, highlights, font sizes, tables, and nested lists survive the round-trip.
 
 #### Specialized Tool Tiers
 
@@ -158,7 +158,7 @@ The Calc add-in executes Python expressions with **extension-owned array spill**
 
 #### Two-Phase Orchestration
 
-Python computes in the venv; the agent still uses existing Calc tools (`write_formula_range`, `create_chart`, etc.) to place results — no UNO inside the child process today. Chat Python and `=PY()` run in the user venv.
+Python computes in the venv; the agent still uses existing Calc tools (`calc_write_range`, `create_chart`, etc.) to place results — no UNO inside the child process today. Chat Python and `=PY()` run in the user venv.
 
 #### Domain Helpers
 
@@ -192,7 +192,7 @@ An in-LibreOffice **LLM Evaluation Suite** benchmarks models on real Writer/Calc
 
 #### Cross-Document Intelligence
 
-An optional **embeddings + FTS** engine (`writeragent_embeddings/corpus.db`, sqlite-vec) enables hybrid search over a document's sibling files: BM25/FTS5 and semantic vectors fused with **reciprocal-rank fusion**, optional cross-encoder reranking — all heavy compute (sentence-transformers, sqlite-vec) confined to the user venv. **Memory** (`upsert_memory` → `USER.md`, injected via `MEMORY_GUIDANCE`) persists cross-session agent knowledge, and the **librarian** mode maintains a per-profile ReAct transcript.
+An optional **embeddings + FTS** engine (`writeragent_embeddings/corpus.db`, sqlite-vec) enables hybrid search over a document's sibling files: BM25/FTS5 and semantic vectors fused with **reciprocal-rank fusion**, optional cross-encoder reranking — all heavy compute (sentence-transformers, sqlite-vec) confined to the user venv. **Memory** (`memory_upsert` → `USER.md`, injected via `MEMORY_GUIDANCE`) persists cross-session agent knowledge, and the **librarian** mode maintains a per-profile ReAct transcript.
 
 ---
 

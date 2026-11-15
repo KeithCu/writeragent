@@ -152,13 +152,13 @@ class _PreparedMcpCall:
 
 
 # On-demand manual index (editing, editing-html, …). Full how-to lives in docs/chat/.
-# review-modes, search, navigation, images, concurrency — is served per topic by get_guidance(topic), so the model
+# review-modes, search, navigation, images, concurrency — is served per topic by manual_read(topic), so the model
 # pulls one section when needed instead of front-loading a manual here (Claude Desktop doesn't read
 # `instructions`; Claude Code truncates it). The topic texts are the shared prompt pieces in
 # constants.py (single source with the sidebar prompt), mapped per doc type by agent_manual.py.
 _MCP_GUIDANCE_POINTER = (
-    " HOW TO USE THESE TOOLS: call get_guidance(topic) for the manual — topics follow the open "
-    f"document's type (for Writer: {writer_topic_list_text()}); call get_guidance() for the current list. "
+    " HOW TO USE THESE TOOLS: call manual_read(topic) for the manual — topics follow the open "
+    f"document's type (for Writer: {writer_topic_list_text()}); call manual_read() for the current list. "
     "Confirm edits by the tool result's structured fields, and in Writer note tracked changes are "
     "the user's to accept/reject, not yours."
 )
@@ -169,7 +169,7 @@ def format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
 
     Emits the local wall clock in Calc's accepted ISO shape (no offset / ``Z``).
     Weekday and timezone *name* follow the process locale / OS tzname; the numeric
-    stamp itself stays locale-independent so models can copy it into ``write_formula_range``.
+    stamp itself stays locale-independent so models can copy it into ``calc_write_range``.
     """
     local_now = now.astimezone() if now is not None else datetime.datetime.now().astimezone()
     # Drop tzinfo so isoformat() cannot emit +HH:MM / Z — Calc serials are timezone-less.
@@ -189,12 +189,12 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
 
     Pure function (no server/UNO) so the wording is unit-testable. `mode` is one of
     'direct_flat', 'direct_discovery', or anything else (treated as the delegate default)."""
-    # Tool-choice only: targeting + type filter. Edit/nav/bulk stay in get_guidance — not a second manual.
-    base = "WriterAgent MCP — AI document workspace. WORKFLOW: 1) With more than one document open, call list_open_documents and pass document_url (url or uid) on later tools; do not assume focus is stable. 2) tools/list is filtered by active document type (writer/calc/draw)."
+    # Tool-choice only: targeting + type filter. Edit/nav/bulk stay in manual_read — not a second manual.
+    base = "WriterAgent MCP — AI document workspace. WORKFLOW: 1) With more than one document open, call document_list_open and pass document_url (url or uid) on later tools; do not assume focus is stable. 2) tools/list is filtered by active document type (writer/calc/draw)."
     if mode == "direct_flat":
         mode_hint = " Specialized tools are listed directly in tools/list; call them by name. No WriterAgent LLM endpoint is required."
     elif mode == "direct_discovery":
-        mode_hint = " Call find_tools with no arguments for the full specialized domain catalog, then find_tools(domain=…) for tool schemas in that area; call tools by name. No WriterAgent LLM endpoint is required."
+        mode_hint = " Call tool_find with no arguments for the full specialized domain catalog, then tool_find(domain=…) for tool schemas in that area; call tools by name. No WriterAgent LLM endpoint is required."
     else:
         mode_hint = " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task (requires a WriterAgent chat endpoint for the inner agent)."
     return format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
@@ -235,7 +235,7 @@ def _permit() -> Generator[None, None, None]:
 def _exclude_tiers(mode: str, *, listing: bool) -> frozenset[str]:
     """Tiers to exclude for tools/list or tools/call in the given exposure mode.
 
-    direct_discovery advertises specialized tools via find_tools, so invoking
+    direct_discovery advertises specialized tools via tool_find, so invoking
     them must work (using MCP_DIRECT_FLAT_EXCLUDE_TIERS for calling). When
     listing, only direct_flat advertises specialized tools directly; all other
     listing modes keep core-only.
@@ -266,7 +266,7 @@ def _real_active_document(doc_svc: Any) -> Any:
     unsupported type like Math/Base -- supports ``com.sun.star.document.OfficeDocument``;
     the Start Center does not. So only the Start Center is normalized to None (real but
     unsupported docs are left to fail with the clearer "unsupported document" error). This
-    keeps the MCP layer (NO_DOCUMENT_OPEN, find_tools' no-doc catalog, direct_flat's no-doc
+    keeps the MCP layer (NO_DOCUMENT_OPEN, tool_find' no-doc catalog, direct_flat's no-doc
     broadening) consistent in the real "no document open" state.
     """
     doc = doc_svc.get_active_document()
@@ -747,12 +747,12 @@ class MCPProtocolHandler:
 
         schemas = self.queue_executor.call(_collect, timeout=10.0)
 
-        # find_tools is the discovery search tool, useful only in direct_discovery mode
+        # tool_find is the discovery search tool, useful only in direct_discovery mode
         # (small core list + on-demand search). delegate advertises the gateway and
         # direct_flat already lists everything, so hide it by name in those modes.
         # Pure name filtering -- no UNO -- so it stays off the main thread.
         if mode != "direct_discovery":
-            schemas = [s for s in schemas if s.get("name") != "find_tools"]
+            schemas = [s for s in schemas if s.get("name") != "tool_find"]
 
         return {"tools": schemas}
 
@@ -806,12 +806,12 @@ class MCPProtocolHandler:
         if arg_document_url:
             document_url = arg_document_url
 
-        # find_tools is the discovery search tool; it is only advertised in
+        # tool_find is the discovery search tool; it is only advertised in
         # direct_discovery mode, so reject calling it by name in other modes -- otherwise
         # the default (delegate) behavior would not really be unchanged.
         mode = self._tool_exposure_mode()
-        if tool_name == "find_tools" and mode != "direct_discovery":
-            return _mcp_unknown_tool_result("Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'.")
+        if tool_name == "tool_find" and mode != "direct_discovery":
+            return _mcp_unknown_tool_result("Tool 'tool_find' is only available when mcp.tool_exposure_mode is 'direct_discovery'.")
 
         if tool:
             tier = getattr(tool, "tier", "core")
@@ -834,7 +834,7 @@ class MCPProtocolHandler:
         except Exception as e:
             # Tool failures must be MCP tool results (isError), not JSON-RPC
             # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
-            # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
+            # (Hermes retried writer_apply_style ~150× in 0.5s). BusyError/TimeoutError
             # Map unexpected tool errors to MCP isError results, not HTTP 500 retries.
             log.exception("MCP tool %s raised unexpectedly", tool_name)
             code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
@@ -847,7 +847,7 @@ class MCPProtocolHandler:
             event_bus.emit("mcp:result", tool=tool_name, result_snippet=snippet, args=arguments, req_id=req_id)
 
         # A tool may return an image: {"_mcp_image": {"data": <b64>, "mimeType": ...}} ->
-        # emit a native MCP image content block (get_image) instead of base64-as-text.
+        # emit a native MCP image content block (image_get) instead of base64-as-text.
         is_error = isinstance(res, dict) and res.get("status") == "error"
         img = res.get("_mcp_image") if isinstance(res, dict) else None
         if isinstance(img, dict) and img.get("data"):
@@ -1046,7 +1046,7 @@ class MCPProtocolHandler:
                 doc_type = doc_svc.detect_doc_type(doc)
 
         if doc is None and document_url:
-            return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": ("No open document matches document_url '%s'. Call list_open_documents and retry with one of the returned url or uid values." % document_url), "details": {"document_url": document_url}}
+            return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": ("No open document matches document_url '%s'. Call document_list_open and retry with one of the returned url or uid values." % document_url), "details": {"document_url": document_url}}
         if doc is None and getattr(tool, "requires_document", True):
             # Without document_url, resolve among open documents instead of denying when focus is elsewhere.
             # Count DOCUMENTS, not types: with two Writer documents open and neither active,
@@ -1066,10 +1066,10 @@ class MCPProtocolHandler:
                 return {
                     "status": "error",
                     "code": "NO_ACTIVE_DOCUMENT",
-                    "message": ("No document is active in LibreOffice (its window may not have focus), but %d are open: %s. Call list_open_documents and pass document_url (url or uid) to say which one you mean." % (len(open_docs), ", ".join(_doc_titles(open_docs)))),
+                    "message": ("No document is active in LibreOffice (its window may not have focus), but %d are open: %s. Call document_list_open and pass document_url (url or uid) to say which one you mean." % (len(open_docs), ", ".join(_doc_titles(open_docs)))),
                 }
             else:
-                return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": ("No document open in LibreOffice. Ask the user to open or create a document; list_open_documents works in this state to check what is open.")}
+                return {"status": "error", "code": "NO_DOCUMENT_OPEN", "message": ("No document open in LibreOffice. Ask the user to open or create a document; document_list_open works in this state to check what is open.")}
 
         ctx = uno_context.get_ctx()
         uno_services = uno_services_for_document(doc, doc_type)

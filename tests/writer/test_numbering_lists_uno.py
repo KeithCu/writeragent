@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""List-only multi-level numbering after apply_document_content HTML.
+"""List-only multi-level numbering after writer_apply_content HTML.
 
 Scope is nested Writer *lists* (NumberingRules / NumberingLevel / ListId /
 generated labels). This suite does not enable or assert Tools → Chapter
@@ -15,7 +15,7 @@ Live lock (StarWriter HTML import on a default Writer doc):
   nested levels are *not* hierarchical ``1.2.3``.
 - A second ``<ol>`` after a body paragraph is a new ListId and starts at ``1.``
   (ParaIsNumberingRestart stays false; restart is the new list instance).
-- ``search_in_document("1.")`` / ``("1.2")`` miss generated labels (known
+- ``writer_search("1.")`` / ``("1.2")`` miss generated labels (known
   XSearchable blind spot). Item *text* still matches.
 - Title-only search replace keeps NumberingLevel / style / ListId on the item.
 - Mixed ``<ul>`` + nested ``<ol>`` works; the following normal paragraph is
@@ -232,7 +232,7 @@ def test_nested_ol_levels_share_list_id_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_xhtml_export_shows_list_markers_not_hierarchy_uno(ctx, doc):
-    """get_document_content XHTML paints Numbering_20_Symbols / Bullet_20_Symbols."""
+    """writer_get_content XHTML paints Numbering_20_Symbols / Bullet_20_Symbols."""
     tool_ctx = _apply_list_fixture(doc, ctx)
     exported = GetDocumentContent().execute(tool_ctx, scope="full")
     assert exported.get("status") == "ok", exported
@@ -255,7 +255,7 @@ def test_xhtml_export_shows_list_markers_not_hierarchy_uno(ctx, doc):
 def test_search_misses_generated_list_labels_uno(ctx, doc):
     """Known blind spot: XSearchable does not see generated list labels.
 
-    search_in_document uses the document text, not ListLabelString / XHTML
+    writer_search uses the document text, not ListLabelString / XHTML
     Numbering_20_Symbols. ``1.`` and hierarchical ``1.2`` therefore return 0
     even though the on-screen / export markers exist. Item text still hits.
     """

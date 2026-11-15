@@ -167,8 +167,8 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 | `=PY()` parse/rebuild | [`python_formula_edit.py`](../../plugin/calc/python/formula_edit.py) |
 | `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`function.py`](../../plugin/calc/python/function.py) |
 | Precedents | [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py), regex in inspector |
-| Function catalog | [`list_calc_functions`](../../plugin/calc/formulas.py) → `FunctionDescriptions` |
-| Formula pre-eval / oracle | [`evaluate_formula`](../../plugin/calc/formulas.py) (sheet-copy pattern) |
+| Function catalog | [`calc_list_functions`](../../plugin/calc/formulas.py) → `FunctionDescriptions` |
+| Formula pre-eval / oracle | [`calc_evaluate_formula`](../../plugin/calc/formulas.py) (sheet-copy pattern) |
 | Error scan | [`error_detector.py`](../../plugin/calc/error_detector.py) |
 
 ### What does not exist
@@ -229,7 +229,7 @@ flowchart LR
 | `pipeline.py` | Run the sheet → `=PY()` import stages in order |
 | `import_dialog.py` | Options dialog (`SpreadsheetImportDialog.xdl`) |
 
-**Optional dependency (evaluate in Phase 3 spike):** vendored or dev-only [`formulas`](https://github.com/vinci1it2000/formulas) for ODS AST — only if a minimal in-tree parser is too costly. Default path: **small hand-rolled parser** for P1 grammar + `list_calc_functions` metadata.
+**Optional dependency (evaluate in Phase 3 spike):** vendored or dev-only [`formulas`](https://github.com/vinci1it2000/formulas) for ODS AST — only if a minimal in-tree parser is too costly. Default path: **small hand-rolled parser** for P1 grammar + `calc_list_functions` metadata.
 
 ---
 
@@ -256,7 +256,7 @@ flowchart LR
 |------|------|
 | **Open in Calc** | User already has `.ods` / `.xlsx` open — primary path |
 | **File picker** | Same as above; LO opens file, then user runs convert |
-| **Chat attachment** | Future — agent reads `read_cell_range` then proposes conversions |
+| **Chat attachment** | Future — agent reads `calc_read_range` then proposes conversions |
 
 There is **no separate file importer** in v1: LibreOffice is the loader. Conversion operates on the **open document model**.
 
@@ -392,11 +392,11 @@ flowchart TB
 | `Document.getCommandValues(".uno:FormulaDepChain")` | Rich dep JSON | JSON | 4 Graph |
 | `FunctionDescriptions` | Built-in catalog | Name, args, category | 3 Translate |
 | `FormulaOpCodeMapper` | Localized names | English opcode | 3 Translate |
-| `read_cell_range` (tool) | Chat read path | JSON grid | 5 Chat |
-| `get_sheet_summary` | Bounds + headers hint | Dict | 1 |
-| `list_calc_functions` | Filterable catalog | List[dict] | 3 / docs |
-| `evaluate_formula` | Oracle for one cell | Evaluated value | 9 Verify |
-| `error_detect` | Pre-flight errors | Error report | 1 optional |
+| `calc_read_range` (tool) | Chat read path | JSON grid | 5 Chat |
+| `calc_get_sheet_summary` | Bounds + headers hint | Dict | 1 |
+| `calc_list_functions` | Filterable catalog | List[dict] | 3 / docs |
+| `calc_evaluate_formula` | Oracle for one cell | Evaluated value | 9 Verify |
+| `calc_detect_errors` | Pre-flight errors | Error report | 1 optional |
 
 ### Table B — Emission & execution APIs
 
@@ -405,7 +405,7 @@ flowchart TB
 | `=PY()` / `=PYTHON()` add-in | Target cell format | Venv required; timeout from settings |
 | `calc_addin_data_to_python` | Shape check for `data` | Max cells `scripting.python_max_data_cells` |
 | `to_calc_compatible` | Egress type coercion | No raw int in matrices |
-| `write_formula_range` | Apply converted grid | Semicolon formulas; `=` prefix → formula |
+| `calc_write_range` | Apply converted grid | Semicolon formulas; `=` prefix → formula |
 | `PyFormula.parse` / `PyFormula.compose` | Round-trip existing PY | String-level only |
 | `python_editor` / Monaco | Edit generated code | Manual fix for TODO cells |
 | `run_venv_python_script` | Chat dry-run | Does not write sheet alone |
@@ -415,11 +415,11 @@ flowchart TB
 
 | Tool | Use in import workflow |
 |------|------------------------|
-| `read_cell_range` | Agent inspect before convert |
-| `write_formula_range` | Agent apply after user confirms |
+| `calc_read_range` | Agent inspect before convert |
+| `calc_write_range` | Agent apply after user confirms |
 | `convert_spreadsheet_to_python` | Menu action (Calc → Convert Sheet to Python…), not an agent tool |
-| `list_calc_functions` | Agent lookup unsupported function |
-| `error_detect` | Pre/post validation |
+| `calc_list_functions` | Agent lookup unsupported function |
+| `calc_detect_errors` | Pre/post validation |
 | `delegate_to_specialized_calc_toolset` | N/A for v1 |
 
 ### Table D — External libraries (research; not shipped)
@@ -618,7 +618,7 @@ Curated from [LibreOffice Functions by Category](https://help.libreoffice.org/la
 | **Planned (P3)** | Financial, database, matrix, or LLM-assist tier (Tier D deferred) |
 | **N/A** | Leave as Calc (dynamic refs, meta cells, hyperlinks) |
 
-Use `list_calc_functions` (chat tool) against a live Calc session for the authoritative runtime catalog and descriptions.
+Use `calc_list_functions` (chat tool) against a live Calc session for the authoritative runtime catalog and descriptions.
 
 ### Database (12/12 shipped)
 | Function | Status |

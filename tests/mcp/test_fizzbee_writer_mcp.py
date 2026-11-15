@@ -122,9 +122,9 @@ def test_mcp_tools_list_direct_flat_exposes_full_layout(writer_mcp_setup):
 
     # In direct_flat, all specialized + core tools are listed (specialized_control excluded)
     assert len(tools_list) >= 95
-    assert "apply_document_content" in tool_names
+    assert "writer_apply_content" in tool_names
     assert "bookmark_create" in tool_names
-    assert "footnotes_insert" in tool_names
+    assert "footnote_insert" in tool_names
     assert "table_list" in tool_names
     assert "table_manage_structure" in tool_names
     assert "specialized_workflow_finished" not in tool_names  # control tool excluded
@@ -149,14 +149,14 @@ def test_mcp_tools_list_delegate_mode_only_core(writer_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     # Specialized tools must not be listed in delegate mode
-    assert "apply_document_content" in tool_names
+    assert "writer_apply_content" in tool_names
     assert "bookmark_create" not in tool_names
-    assert "footnotes_insert" not in tool_names
+    assert "footnote_insert" not in tool_names
     assert "table_list" not in tool_names
 
 
 def test_mcp_tools_list_direct_discovery_mode(writer_mcp_setup):
-    """In direct_discovery mode, tools/list includes find_tools for dynamic lookup."""
+    """In direct_discovery mode, tools/list includes tool_find for dynamic lookup."""
     handler = writer_mcp_setup["handler"]
     config_dict = writer_mcp_setup["config_dict"]
     config_dict["tool_exposure_mode"] = "direct_discovery"
@@ -173,8 +173,8 @@ def test_mcp_tools_list_direct_discovery_mode(writer_mcp_setup):
     tools_list = result["result"]["tools"]
     tool_names = {t["name"] for t in tools_list}
 
-    assert "find_tools" in tool_names
-    assert "apply_document_content" in tool_names
+    assert "tool_find" in tool_names
+    assert "writer_apply_content" in tool_names
     assert "bookmark_create" not in tool_names
 
 
@@ -227,7 +227,7 @@ def test_fizzbee_trace_tool_call_dispatch_and_error_invariants(writer_mcp_setup)
     })
     assert bad_res["result"].get("isError") is True
 
-    # 2. Gating invariant: Calling find_tools in delegate mode fails with UNKNOWN_TOOL error
+    # 2. Gating invariant: Calling tool_find in delegate mode fails with UNKNOWN_TOOL error
     config_dict = writer_mcp_setup["config_dict"]
     config_dict["tool_exposure_mode"] = "delegate"
 
@@ -235,7 +235,7 @@ def test_fizzbee_trace_tool_call_dispatch_and_error_invariants(writer_mcp_setup)
         "jsonrpc": "2.0",
         "id": 6,
         "method": "tools/call",
-        "params": {"name": "find_tools", "arguments": {"domain": "bookmarks"}},
+        "params": {"name": "tool_find", "arguments": {"domain": "bookmarks"}},
     })
     assert find_tools_res.get("isError") is True or (
         isinstance(find_tools_res.get("result"), dict) and find_tools_res["result"].get("isError") is True

@@ -25,7 +25,7 @@ DEFAULT_CHAT_SYSTEM_PROMPT = get_writer_eval_chat_system_prompt()
 class WriterAssistant(dspy.Module):
     """
     Writer assistant: document_context + user_question -> result.
-    Uses mock get_document_content / apply_document_content / find_text.
+    Uses mock writer_get_content / writer_apply_content / find_text.
     The instruction (system prompt) is what we optimize.
     """
 
@@ -43,7 +43,7 @@ class WriterAssistant(dspy.Module):
     def forward(self, document_content: str, user_question: str, task_id: str = ""):
         # task_id is a DSPy input on the live student; ReAct mocks ignore kind.
         set_document(document_content)
-        # Pass document as context so the model can read it via get_document_content (or it's already in the prompt).
+        # Pass document as context so the model can read it via writer_get_content (or it's already in the prompt).
         document_context = document_content
         pred = self.react(document_context=document_context, user_question=user_question)
         html = get_content_as_html()

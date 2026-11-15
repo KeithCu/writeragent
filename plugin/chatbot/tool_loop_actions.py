@@ -176,7 +176,7 @@ def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tupl
     # crosshair: off
     if func_name in DELEGATE_GATEWAY_TOOL_NAMES:
         return f"Running: delegate ({domain_from_delegate_args(func_args)})", format_delegate_running_chat_line(func_args)
-    if func_name == "upsert_memory":
+    if func_name == "memory_upsert":
         return f"Running: {func_name}", format_upsert_memory_chat_line(func_args)
     return f"Running: {func_name}", f"[Running tool: {func_name}...]\n"
 
@@ -210,14 +210,14 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
 
 
 def format_replaced_zero_debug_line(func_args_str: str) -> str:
-    """Preview parameters when apply_document_content finds 0 occurrences."""
+    """Preview parameters when writer_apply_content finds 0 occurrences."""
     # crosshair: off
     params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
     return f"[Debug: params {params_display}]\n"
 
 
 def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
-    """True when apply_document_content reported zero replacements (structured or legacy message)."""
+    """True when writer_apply_content reported zero replacements (structured or legacy message)."""
     # crosshair: off
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
     # Only a real int zero counts. ``replaced_count == 0`` is also true
@@ -735,7 +735,7 @@ def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: B
 
 
 def drop_mcp_image_without_vision(res: dict[str, Any], turn: Any) -> dict[str, Any]:
-    """Keep get_image's ``_mcp_image`` only when the turn's chat model is known to have vision.
+    """Keep image_get's ``_mcp_image`` only when the turn's chat model is known to have vision.
 
     Discussion #2268: the sidebar sent the base64 as tool text (about 300k
     chars), and Ollama returned HTTP 500. Runs on the tool worker, so
@@ -772,7 +772,7 @@ def tool_message_content(content: Any) -> Any:
     assert isinstance(data, dict)
     b64 = image.get("data")
     mime = image.get("mimeType")
-    assert isinstance(b64, str) and isinstance(mime, str), "get_image always sets data and mimeType"
+    assert isinstance(b64, str) and isinstance(mime, str), "image_get always sets data and mimeType"
     text = {key: value for key, value in data.items() if key != "_mcp_image"}
     text["image"] = "[image: %s, %d KB attached]" % (mime, (len(b64) * 3 // 4 + 1023) // 1024)
     return [{"type": "text", "text": json.dumps(text, default=str)}, {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}]
@@ -1032,7 +1032,7 @@ class ToolLoopEffectInterpreter:
             result_data = effect.result_data or {}
             chat_text = format_tool_result_chat_text(effect.func_name, func_args, result_data)
             host._append_response(chat_text)
-            if effect.func_name == "apply_document_content" and is_replaced_zero_result(result_data):
+            if effect.func_name == "writer_apply_content" and is_replaced_zero_result(result_data):
                 host._append_response(format_replaced_zero_debug_line(effect.func_args_str))
         elif effect.kind == UIEffectKind.EMPTY_MODEL_DEBUG:
             debug = "[Debug: %s]" % format_empty_model_response_debug(effect.round_num, effect.response or {})

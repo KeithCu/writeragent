@@ -10,7 +10,7 @@
 - **librarian** — onboarding (`reply_to_user`; leave with ``switch_to_document_mode=true``).
 - **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
 - **writing_plan** — document section drafting (`reply_to_user`, `write_document_section`).
-- **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
+- **deep_research** — multi-step web research + `writer_apply_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`; ``web_search`` arguments are ``{"query": "..."}``).
 - **ppt-master** — venv PPT-Master agent (`ppt_master_finished`).
 - **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (``delegate_tool_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
@@ -32,7 +32,7 @@ LIBRARIAN_EXAMPLES = """Task: User confirmed they want to be called Joe after th
 
 Action:
 {
-  "name": "upsert_memory",
+  "name": "memory_upsert",
   "arguments": {"key": "name", "content": "Joe"}
 }
 Observation: {"status": "ok"}
@@ -59,7 +59,7 @@ BRAINSTORMING_EXAMPLES = """Task: "Brainstorm a sidebar export feature for Write
 
 Action:
 {
-  "name": "get_document_tree",
+  "name": "writer_get_tree",
   "arguments": {}
 }
 Observation: {"status": "ok", "tree": "..."}
@@ -308,7 +308,7 @@ Observation: {"status": "ok", "result": "Plain text report with findings..."}
 
 Action:
 {
-  "name": "apply_document_content",
+  "name": "writer_apply_content",
   "arguments": {
     "content": ["<h1>Solid-State Batteries</h1>", "<p>Summary paragraph...</p>", "<ul><li>Key finding one</li></ul>"],
     "target": "end"

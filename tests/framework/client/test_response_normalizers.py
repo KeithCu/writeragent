@@ -74,7 +74,7 @@ def test_normalize_multimodal_messages_provider_placement(provider: str, expecte
     messages = [
         {"role": "user", "content": "Tell me about this document"},
         {"role": "assistant", "content": "Let me read it."},
-        {"role": "tool", "tool_call_id": "call_123", "name": "get_document_content", "content": f"Here is the page: {uri}"},
+        {"role": "tool", "tool_call_id": "call_123", "name": "writer_get_content", "content": f"Here is the page: {uri}"},
     ]
     normalize_multimodal_messages(messages, provider)
     if expected_in_place:

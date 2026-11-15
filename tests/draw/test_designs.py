@@ -1656,7 +1656,7 @@ def test_design_tools_hidden_on_drawing_document():
     registry = get_tools()
     draw_names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=draw_doc)}
     impress_names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=impress_doc)}
-    assert "list_designs" not in draw_names
-    assert "apply_design" not in draw_names
-    assert {"list_designs", "apply_design"} <= impress_names
+    assert "design_list" not in draw_names
+    assert "design_apply" not in draw_names
+    assert {"design_list", "design_apply"} <= impress_names
 

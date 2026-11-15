@@ -32,8 +32,8 @@ def test_charts_creation_and_listing(ctx, doc):
         "Apr", "250",
         "May", "300"
     ]
-    res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": "A1:B6", "values": data})
-    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+    res_write = _execute_calc_tool(doc, ctx, "calc_write_range", {"range": "A1:B6", "values": data})
+    assert res_write.get("status") == "ok", f"calc_write_range failed: {res_write}"
 
     # 2. Create chart
     res_create = _execute_calc_tool(doc, ctx, "chart_upsert", {"data_range": "A1:B6", "chart_type": "bar"})
@@ -224,8 +224,8 @@ def test_chart_from_named_data_range(ctx, doc):
         "Apr", "250",
         "May", "300",
     ]
-    res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": "A1:B6", "values": data})
-    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+    res_write = _execute_calc_tool(doc, ctx, "calc_write_range", {"range": "A1:B6", "values": data})
+    assert res_write.get("status") == "ok", f"calc_write_range failed: {res_write}"
 
     named_ranges = doc.NamedRanges
     if named_ranges.hasByName("ChartData"):

@@ -324,7 +324,7 @@ Search `writeragent_debug.log` for **WARNING** lines (release default `log_level
 
 `grep -E 'direct_copy_reason|element_skipped|HTML import failed|batch insert into control failed|_copy_formatted' writeragent_debug.log`
 
-If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document leak, the sidebar copy is unlikely to be the cause — check `enable_agent_log` for `apply_document_content` tool calls.
+If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document leak, the sidebar copy is unlikely to be the cause — check `enable_agent_log` for `writer_apply_content` tool calls.
 
 ---
 
@@ -376,7 +376,7 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 
 **What landed:**
 - Stick-to-bottom (exp 6-13): `peer.queryDispatch(".uno:SelectAll")` on the **rich control peer** after each chunk / HTML copy. That stuck the viewport but painted the whole transcript selected (exp 15-16).
-- Stick-to-bottom is SelectAll on the rich peer again. Exp 17 (1-char via XAccessibleText then collapse) failed live: `set_selection via=control` (stock no-op), viewport stuck on the greeting while web-research text_len passed 9000.
+- Stick-to-bottom is SelectAll on the rich peer again. Exp 17 (1-char via XAccessibleText then collapse) failed live: `writer_set_selection via=control` (stock no-op), viewport stuck on the greeting while web-research text_len passed 9000.
 - Do not `setFocus` / `reveal_rich_control_caret` / `focus_preserved` on stream append. Those steal the document caret.
 - Query after Send: `_do_send` already `query.setFocus()`. Restore Ask/instruct after scroll unless the user left.
 - Document during stream: query `focusGained` keeps restoring; Writer `controller.addMouseClickHandler` stops restoring. Toolkit `getFocusWindow` does not exist. Toolkit/window `addFocusListener` only sees top-level windows.

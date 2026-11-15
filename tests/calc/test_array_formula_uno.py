@@ -13,7 +13,7 @@ from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, 
 def test_sequence_writes_array_block(ctx, doc):
     sheet = doc.getCurrentController().getActiveSheet()
     res = _execute_calc_tool(
-        doc, ctx, "write_formula_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"}
+        doc, ctx, "calc_write_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"}
     )
     assert res.get("status") == "ok", f"SEQUENCE write failed: {res}"
     assert res.get("rows") == 3, f"expected 3 rows: {res}"
@@ -39,7 +39,7 @@ def test_occupied_neighbor_refuses_and_leaves_origin(ctx, doc):
     origin.setString("before")
 
     res = _execute_calc_tool(
-        doc, ctx, "write_formula_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"}
+        doc, ctx, "calc_write_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"}
     )
     assert res.get("status") == "error", f"occupied write should fail: {res}"
     msg = res.get("message") or res.get("error") or ""
@@ -62,7 +62,7 @@ def test_sum_of_filter_stays_scalar(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "calc_write_range",
         {"range": ["C1"], "values": "=SUM(FILTER(A1:A3;B1:B3>0))"},
     )
     assert res.get("status") == "ok", f"SUM(FILTER) write failed: {res}"
@@ -88,7 +88,7 @@ def test_array_true_forces_set_array_formula(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "write_formula_range",
+        "calc_write_range",
         {"range": ["A1"], "values": "=C1:C2", "array": True},
     )
     assert res.get("status") == "ok", f"forced array write failed: {res}"

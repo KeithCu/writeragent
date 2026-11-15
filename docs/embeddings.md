@@ -99,14 +99,14 @@ flowchart LR
   Index["Folder index\ncorpus.db"]
   Hits["Top-k: doc_url + snippet"]
   Inner["Inner sub-agent\none opened file"]
-  Read["search_in_document / range read"]
+  Read["writer_search / range read"]
   Main -->|"delegate"| Outer
   Outer -->|"search_nearby_files"| Index
   Index --> Hits
   Hits -->|"delegate_read_document"| Inner --> Read
 ```
 
-**Outer tier** discovers which sibling file(s) matter. **Inner tier** reads the opened file with precise tools (`search_in_document`, `get_document_content`, Calc ranges, etc.). The index is a **router**, not a document store.
+**Outer tier** discovers which sibling file(s) matter. **Inner tier** reads the opened file with precise tools (`writer_search`, `writer_get_content`, Calc ranges, etc.). The index is a **router**, not a document store.
 
 ### Tool matrix {#search-mode-flag}
 
@@ -123,7 +123,7 @@ Controlled by [`filter_document_research_discovery_tools`](../plugin/doc/documen
 Workflow hints ([`get_document_research_workflow_hint`](../plugin/framework/prompts.py)):
 
 - **Off:** `list_nearby_files` → `grep_nearby_files` → `delegate_read_document`
-- **Index on:** `list_nearby_files` → `search_nearby_files` → `delegate_read_document` → inner `search_in_document` on snippet or topic
+- **Index on:** `list_nearby_files` → `search_nearby_files` → `delegate_read_document` → inner `writer_search` on snippet or topic
 
 ### Search hit shape {#search-hit-shape}
 
@@ -139,7 +139,7 @@ When **`file_subset`** is set, retrieval passes **`doc_url_filter`** for a singl
 - **`para_index`** — weak hint (ODF extract ordinal). **Do not** treat as an exact LibreOffice jump target.
 - **`char_start` / `char_end`** — stored internally only; not returned in hits.
 
-After a hit, the inner agent should **`search_in_document`** for the snippet text or query topic — not blind offset reads.
+After a hit, the inner agent should **`writer_search`** for the snippet text or query topic — not blind offset reads.
 
 ---
 
@@ -173,7 +173,7 @@ Users do **not** choose grep vs vectors per query when hybrid is on — both leg
 | Not this | Why |
 |----------|-----|
 | Sidebar chat history | Separate SQLite (`writeragent_history.db`) |
-| In-document search replacement | `search_in_document`, outline, sheet nav stay primary inside one file |
+| In-document search replacement | `writer_search`, outline, sheet nav stay primary inside one file |
 | Global machine-wide index | One cache per document **directory** only |
 | Optional in-document RAG on send | Secondary future idea ([Within-document retrieval](#within-document-retrieval-secondary)) |
 
@@ -390,7 +390,7 @@ Lexical leg: BM25 + FTS5 **`NEAR`** on `passages` — same `corpus.db`, stdlib `
 | Extract | Paragraph / row / slide | Stable `para_index`, `content_hash` at passage level |
 | Index | Sentence (prose) or sub-passage char window (Calc/slides) | Bi-encoder + FTS recall |
 | Display | Parent paragraph merge | Full `snippet` without re-index |
-| Precision | `search_in_document` in opened file | Exact wording in live LO |
+| Precision | `writer_search` in opened file | Exact wording in live LO |
 
 **Embedding dilution** (multi-topic chunks): reduced for prose by sentence boundaries; hybrid FTS leg, wide retrieval pool, optional rerank, and parent-paragraph merge still apply. Locale-aware sentence breaking: [Multilingual sentence breaking](#multilingual-sentence-breaking).
 

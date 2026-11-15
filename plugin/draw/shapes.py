@@ -222,7 +222,7 @@ def _apply_enhanced_custom_shape_type(shape: Any, custom_shape_type: str) -> tup
 
 
 class GetDrawSummary(_AnyDocumentShapeTool):
-    name: str | None = "shape_summary"
+    name: str | None = "shape_get_summary"
     description: str = (
         "Returns a summary of shapes on the active or specified page. "
         'Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.'
@@ -536,7 +536,7 @@ def _outside_page(page: Any, shape: Any) -> bool:
 
 class UpsertShape(_AnyDocumentShapeTool):
     name: str | None = "shape_upsert"
-    description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from get_draw_tree — draw-page index shifts when other shapes sit between fields."
+    description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from draw_get_tree — draw-page index shifts when other shapes sit between fields."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -690,7 +690,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
     elif action == "edit":
         from plugin.draw.tree import find_shape_on_page
 
-        # Index is fragile for peer "fill field X"; Name from get_draw_tree stays stable
+        # Index is fragile for peer "fill field X"; Name from draw_get_tree stays stable
         # when non-fields sit between boxes. Index wins when both are passed.
         lookup_name = kwargs.get("name") if "index" not in kwargs else None
         shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs.get("index"), name=lookup_name)
@@ -974,7 +974,7 @@ class DistributeShapes(_AnyDocumentShapeTool):
 
 
 class CreateDiagram(_AnyDocumentShapeTool):
-    name: str | None = "shape_diagram"
+    name: str | None = "shape_create_diagram"
     description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
     parameters: dict[str, Any] | None = {
         "type": "object",

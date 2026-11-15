@@ -102,7 +102,7 @@ def _run_librarian_agent(
         priority_1 = f"""Priority 1. Confirm what to call the user and save it to memory (key "name") for later.
   {hint_block}
   Ask whether they would like to be called {suggested_user_name} (phrase naturally in the user's language).
-  Only call upsert_memory for "name" after they clearly confirm (yes, sure, that works).
+  Only call memory_upsert for "name" after they clearly confirm (yes, sure, that works).
   If they prefer a different name, save what they say. If they decline to share a name, do not pressure them and skip saving it.
   Also save everything else that could be useful later for future document work."""
     else:
@@ -178,7 +178,7 @@ TOOLS FOR COMPLETION:
     def tool_call_handler(step: Any) -> None:
         name = getattr(step, "name", "")
         arguments = getattr(step, "arguments", {})
-        if name == "upsert_memory" and callable(chat_append_callback):
+        if name == "memory_upsert" and callable(chat_append_callback):
             chat_append_callback(format_upsert_memory_chat_line(arguments))
         elif append_thinking_callback:
             append_thinking_callback(f"Running tool: {name} with {arguments}\n")

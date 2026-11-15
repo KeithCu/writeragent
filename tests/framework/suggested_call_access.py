@@ -21,7 +21,7 @@ def get_test_tool_registry() -> ToolRegistry:
     """Return a ToolRegistry populated with WriterAgent tools for test validation.
 
     Loads the writer tool package so schema verification tests can look up
-    tools such as apply_style without initializing a live LibreOffice instance.
+    tools such as writer_apply_style without initializing a live LibreOffice instance.
     """
     global _TEST_TOOL_REGISTRY
     if _TEST_TOOL_REGISTRY is None:

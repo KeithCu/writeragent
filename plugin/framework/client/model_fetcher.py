@@ -1223,7 +1223,7 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
         None: Capability is unknown.
 
     Callers attach image input only when the result ``is True`` and hide
-    ``get_image`` only when the result ``is False`` (never rely on truthiness,
+    ``image_get`` only when the result ``is False`` (never rely on truthiness,
     since None is falsy).
 
     Priority order:

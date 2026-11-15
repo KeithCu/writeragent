@@ -217,7 +217,7 @@ def test_attach_write_report_style_skip_builds_diagnostic_and_message() -> None:
 
     def fake_suggest(token: str, total_matches: int):
         cb_calls.append((token, total_matches))
-        return suggest_call("apply_style", style=token, all_matches=True)
+        return suggest_call("writer_apply_style", style=token, all_matches=True)
 
     report = html_import_styles.WriteReport(
         style_skips=["STYLE_IGNORED_PARTIAL_MATCH"],
@@ -237,7 +237,7 @@ def test_attach_write_report_style_skip_builds_diagnostic_and_message() -> None:
     assert diag["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
     assert diag["matches_skipped"] == 1
     assert diag["matches_total"] == 2
-    assert diag["suggested_call"] == suggest_call("apply_style", style="Heading2", all_matches=True)
+    assert diag["suggested_call"] == suggest_call("writer_apply_style", style="Heading2", all_matches=True)
     assert out["message"] == f"Replaced 2 occurrence(s). {diag['message']}"
 
 

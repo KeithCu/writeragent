@@ -10,7 +10,7 @@ This is a small read fix plus the same first-row bound on delete and HTML copy. 
 
 ## The failure
 
-A Writer table whose first row is one merged cell still has real cells in later rows. `search_in_document` reports `Taula136` / `D2`. `table_get_cells` used to report `rows: 5`, `cols: 1`, and a 5×1 `matrix`. `D2` was not in that result. `table_set_cell` could write `D2` anyway, because it checks `getCellNames()` before it writes. The read path never asked for those names.
+A Writer table whose first row is one merged cell still has real cells in later rows. `writer_search` reports `Taula136` / `D2`. `table_get_cells` used to report `rows: 5`, `cols: 1`, and a 5×1 `matrix`. `D2` was not in that result. `table_set_cell` could write `D2` anyway, because it checks `getCellNames()` before it writes. The read path never asked for those names.
 
 `table_get_cells` built `matrix` with `range(rows) × range(cols)` from `getRows()` / `getColumns()`. That was the bug.
 

@@ -117,7 +117,7 @@ def build_toc_fixture(doc: Any, execute_tool: Callable[[str, dict[str, Any]], An
         for s in range(1, 5):
             _add_heading(text, f"Section {ch}.{s} Topic", False, 2)
 
-    execute_tool("indexes_create", {"kind": "toc", "title": "Contents", "target": "beginning"})
+    execute_tool("index_create", {"kind": "toc", "title": "Contents", "target": "beginning"})
 
     indexes = doc.getDocumentIndexes()
     toc = indexes.getByIndex(0)

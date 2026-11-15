@@ -524,7 +524,7 @@ def test_eval_trace_is_path_evidence_without_debug_log() -> None:
     assert evidence_from_eval_trace(None).python_domain is False
     # A few-shot content blob is not a harness trace entry.
     assert evidence_from_eval_trace(
-        [{"name": "get_document_content", "arguments": _FEW_SHOT_ONLY}]
+        [{"name": "writer_get_content", "arguments": _FEW_SHOT_ONLY}]
     ).delegate_shapes is False
 
 

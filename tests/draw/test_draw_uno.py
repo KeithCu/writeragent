@@ -50,9 +50,9 @@ def _active_draw_page_index(doc):
 @native_test
 @with_native_doc("draw")
 def test_list_pages(ctx, doc):
-    result = _exec_tool(doc, ctx, "list_pages", {})
+    result = _exec_tool(doc, ctx, "slide_list", {})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"list_pages failed: {result}"
+    assert data.get("status") == "ok", f"slide_list failed: {result}"
     num_pages = data.get("count", len(data.get("pages", [])))
     assert num_pages > 0, "No pages found"
 
@@ -60,16 +60,16 @@ def test_list_pages(ctx, doc):
 @native_test
 @with_native_doc("draw")
 def test_upsert_and_verify_shape(ctx, doc):
-    # 0. Test add_slide
+    # 0. Test slide_add
     initial_page_count = doc.getDrawPages().getCount()
-    result = _exec_tool(doc, ctx, "add_slide", {})
+    result = _exec_tool(doc, ctx, "slide_add", {})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"add_slide failed: {result}"
+    assert data.get("status") == "ok", f"slide_add failed: {result}"
     new_page_count = doc.getDrawPages().getCount()
-    assert new_page_count == initial_page_count + 1, "Page count did not increase after add_slide"
+    assert new_page_count == initial_page_count + 1, "Page count did not increase after slide_add"
     inserted = doc.getDrawPages().getByIndex(new_page_count - 1)
     cur = doc.getCurrentController().getCurrentPage()
-    assert cur is not None and cur == inserted, "add_slide should activate the new slide for subsequent tools"
+    assert cur is not None and cur == inserted, "slide_add should activate the new slide for subsequent tools"
 
     # 1. Create shape
     active_page = doc.getCurrentController().getCurrentPage()
@@ -100,9 +100,9 @@ def test_upsert_and_verify_shape(ctx, doc):
     assert size.Height == 3000, f"Expected Height=3000, got {size.Height}"
 
     # 2. Get draw summary to find shape_id
-    result = _exec_tool(doc, ctx, "shape_summary", {"page": new_page_count - 1})
+    result = _exec_tool(doc, ctx, "shape_get_summary", {"page": new_page_count - 1})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"shape_summary failed: {result}"
+    assert data.get("status") == "ok", f"shape_get_summary failed: {result}"
     shapes = data.get("shapes", [])
 
     shape_id = None
@@ -190,7 +190,7 @@ def test_duplicate_slide_copies_shapes(ctx, doc):
     src_count = page0.getCount()
     assert src_count == before + 1
 
-    result = _exec_tool(doc, ctx, "duplicate_slide", {"page": 0, "activate": False})
+    result = _exec_tool(doc, ctx, "slide_duplicate", {"page": 0, "activate": False})
     data = json.loads(result)
     assert data.get("status") == "ok", result
     copy = doc.getDrawPages().getByIndex(1)
@@ -218,19 +218,19 @@ def test_duplicate_rename_move_slide(ctx, doc):
     })
     assert json.loads(created).get("status") == "ok", created
 
-    result = _exec_tool(doc, ctx, "duplicate_slide", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_duplicate", {"page": 0})
     data = json.loads(result)
     assert data.get("status") == "ok", result
     assert doc.getDrawPages().getCount() == initial + 1
 
-    result = _exec_tool(doc, ctx, "rename_slide", {"page": 1, "name": "Copy"})
+    result = _exec_tool(doc, ctx, "slide_rename", {"page": 1, "name": "Copy"})
     data = json.loads(result)
     assert data.get("status") == "ok", result
     page = doc.getDrawPages().getByIndex(1)
     if hasattr(page, "Name"):
         assert page.Name == "Copy"
 
-    result = _exec_tool(doc, ctx, "move_slide", {"from_page": 1, "to_page": 0})
+    result = _exec_tool(doc, ctx, "slide_move", {"from_page": 1, "to_page": 0})
     data = json.loads(result)
     assert data.get("status") == "ok", result
     moved = doc.getDrawPages().getByIndex(0)
@@ -288,13 +288,13 @@ def test_move_slide_keeps_group(ctx, doc):
         "text": "move-me",
     })
     assert json.loads(labeled).get("status") == "ok", labeled
-    renamed = _exec_tool(doc, ctx, "rename_slide", {"page": 0, "name": "Copy"})
+    renamed = _exec_tool(doc, ctx, "slide_rename", {"page": 0, "name": "Copy"})
     assert json.loads(renamed).get("status") == "ok", renamed
-    added = _exec_tool(doc, ctx, "add_slide", {})
+    added = _exec_tool(doc, ctx, "slide_add", {})
     assert json.loads(added).get("status") == "ok", added
     assert doc.getDrawPages().getCount() == 2
 
-    moved = _exec_tool(doc, ctx, "move_slide", {"from_page": 0, "to_page": 1})
+    moved = _exec_tool(doc, ctx, "slide_move", {"from_page": 0, "to_page": 1})
     assert json.loads(moved).get("status") == "ok", moved
     page = doc.getDrawPages().getByIndex(1)
     texts, groups = _page_shape_marks(page)
@@ -303,7 +303,7 @@ def test_move_slide_keeps_group(ctx, doc):
     if hasattr(page, "Name"):
         assert page.Name == "Copy"
 
-    back = _exec_tool(doc, ctx, "move_slide", {"from_page": 1, "to_page": 0})
+    back = _exec_tool(doc, ctx, "slide_move", {"from_page": 1, "to_page": 0})
     assert json.loads(back).get("status") == "ok", back
     page = doc.getDrawPages().getByIndex(0)
     texts, groups = _page_shape_marks(page)
@@ -350,9 +350,9 @@ def test_align_and_insert_table(ctx, doc):
 @with_native_doc("draw")
 def test_master_slides(ctx, doc):
     # 1. List master slides
-    result = _exec_tool(doc, ctx, "slide_master_list", {})
+    result = _exec_tool(doc, ctx, "slide_list_masters", {})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"slide_master_list failed: {result}"
+    assert data.get("status") == "ok", f"slide_list_masters failed: {result}"
     master_slides = data.get("master_slides", [])
     assert len(master_slides) > 0, "No master slides found"
 
@@ -360,19 +360,19 @@ def test_master_slides(ctx, doc):
     assert first_master_name is not None, "Master slide name is missing"
 
     # 2. Get slide master for page 0
-    result = _exec_tool(doc, ctx, "slide_master_get", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_get_master", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"slide_master_get failed: {result}"
+    assert data.get("status") == "ok", f"slide_get_master failed: {result}"
 
     # 3. Set slide master for page 0 to the first master we found
-    result = _exec_tool(doc, ctx, "slide_master_set", {"page": 0, "master": first_master_name})
+    result = _exec_tool(doc, ctx, "slide_set_master", {"page": 0, "master": first_master_name})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"slide_master_set failed: {result}"
+    assert data.get("status") == "ok", f"slide_set_master failed: {result}"
 
     # 4. Verify it was set
-    result = _exec_tool(doc, ctx, "slide_master_get", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_get_master", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"slide_master_get verify failed: {result}"
+    assert data.get("status") == "ok", f"slide_get_master verify failed: {result}"
     assert data.get("master") == first_master_name, f"Master name mismatch: {data.get('master')}"
 
 
@@ -383,7 +383,7 @@ def test_get_draw_tree(ctx, doc):
 
     # GHA 34606276107: this TEST end OK; the next insert_math_draw close
     # killed soffice. Name the tree call vs teardown.
-    _progress("get_draw_tree: body start")
+    _progress("draw_get_tree: body start")
     # Ensure there is at least one shape to build a tree with
     _exec_tool(doc, ctx, "shape_upsert", {
         "action": "create",
@@ -393,10 +393,10 @@ def test_get_draw_tree(ctx, doc):
         "fill_color": "#FF0000"
     })
 
-    result = _exec_tool(doc, ctx, "get_draw_tree", {"page": _active_draw_page_index(doc)})
+    result = _exec_tool(doc, ctx, "draw_get_tree", {"page": _active_draw_page_index(doc)})
     data = json.loads(result)
-    _progress("get_draw_tree: execute done status=%s" % data.get("status"))
-    assert data.get("status") == "ok", f"get_draw_tree failed: {result}"
+    _progress("draw_get_tree: execute done status=%s" % data.get("status"))
+    assert data.get("status") == "ok", f"draw_get_tree failed: {result}"
     tree = data.get("tree", [])
     assert len(tree) > 0, "Draw tree is empty"
 
@@ -407,7 +407,7 @@ def test_get_draw_tree(ctx, doc):
             found = True
             break
     assert found, "Created shape not found in draw tree"
-    _progress("get_draw_tree: body done")
+    _progress("draw_get_tree: body done")
 
 
 @native_test
@@ -431,9 +431,9 @@ def test_get_draw_tree_marks_blank_and_label_hint(ctx, doc):
         "page": page_idx,
     })
 
-    result = _exec_tool(doc, ctx, "get_draw_tree", {"page": page_idx})
+    result = _exec_tool(doc, ctx, "draw_get_tree", {"page": page_idx})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"get_draw_tree failed: {result}"
+    assert data.get("status") == "ok", f"draw_get_tree failed: {result}"
     blanks = [n for n in data.get("tree", []) if n.get("fillable")]
     assert blanks, f"expected a fillable blank in tree: {data.get('tree')}"
     named = [n for n in blanks if n.get("name") == "fld_product"]

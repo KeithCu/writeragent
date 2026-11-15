@@ -1,7 +1,7 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
 #
-# Regression tests: apply_document_content(target='search') failed to match document
+# Regression tests: writer_apply_content(target='search') failed to match document
 # text containing a non-breaking space (U+00A0) when old_content used a normal space.
 # The fix normalizes NBSP & relatives (U+00A0/202F/2007/2009) to a normal space on
 # both the search string and the document text (1:1, so cursor offsets stay aligned).
@@ -32,7 +32,7 @@ def test_apply_document_content_search_matches_nbsp_uno(ctx, doc):
         old_content="figures) by a judge",
         target="search",
     )
-    assert res.get("status") == "ok", f"apply_document_content did not match the NBSP: {res}"
+    assert res.get("status") == "ok", f"writer_apply_content did not match the NBSP: {res}"
     body = doc.getText().getString()
     assert "BY A JUDGE" in body, f"replacement did not happen; text={body!r}"
 

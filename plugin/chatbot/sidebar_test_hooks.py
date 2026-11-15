@@ -1341,7 +1341,7 @@ def handle_debug_sidebar_command(command: str) -> None:
     # on a fresh panel the poke is a no-op and the op sits queued. Packet P's
     # opening STOP_CLICKED then runs seconds later, when KICK_PEERS first
     # pokes that executor, and cancels Calc's peer turn mid-flight (P1 never
-    # sees write_formula_range).
+    # sees calc_write_range).
     _post_to_soffice_vcl(_apply, sl=sl)
 
 

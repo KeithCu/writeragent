@@ -67,7 +67,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `_office_model_from_desktop_element` | `document_research` | Frame-or-model → `guard_uno(model)` for desktop walks. |
 | `open_document_for_read` | `document_research` | Hidden+read-only `loadComponentFromURL`, or reuse an already-open component. A load that is not returned (unsupported type, or an exception after load) is closed. |
 | `close_document_research_document` | `document_research` | Close only if this call loaded a hidden sibling (not a user-visible doc). |
-| `list_open_documents` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
+| `document_list_open` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
 `DocumentService.resolve_document_by_url` / `get_active_document` are thin wrappers (see §1.4). MCP mutation-gate keys import `normalize_doc_url` + `get_runtime_uid` from `uno_context`.
 
@@ -86,7 +86,7 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
 | `get_selection_text` | Selected string for Writer / Calc / Draw; `None` if empty. |
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). Optional `chapter_number` from Chapter Numbering (`ListLabelString`, trailing `.` stripped). |
-| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `get_document_content` `document_length` and `scope='range'`. |
+| `get_document_length` | Visible Writer character length (tracked deletions hidden, paragraph breaks counted, includes table-cell text; returns 0 for non-Writer or on error) = the space of `writer_get_content` `document_length` and `scope='range'`. |
 | `get_text_cursor_at_range` | Cursor covering `[start, end)` (chunked `goRight`). |
 | `writer_char_count` / `read_writer_text_slice` | Body length in cursor steps (paragraph breaks and pending deleted text count, as in `goRight` / `get_selection_range`); slice reads for chat excerpts. Not `CharacterCount`: that statistic leaves both out and recomputes after an edit (slower than the walk). |
 
@@ -261,7 +261,7 @@ There is **no** single shared converter. Live implementations:
 | (inline) | `styles.py`, `get_image.py`, `duckdb_tools.py`, `calc/python/image_egress.py`, `librepy/sidebar_menus.py` | path → URL | Raw `uno.systemPathToFileUrl`. |
 | `normalize_file_url` | `url_utils` | URL repair | `file:/path` → `file:///path`. Shared by `get_document_path` and research. **Landed.** |
 | `get_document_path` | `text_helpers` | URL → path | Repair then `file://` prefix; `uno.fileUrlToSystemPath`. |
-| `system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
+| `system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `document_list_open`) is an absolute path, not a listing filter. |
 | `get_extension_path` | `uno_context` | URL → path | `file://` → `fileUrlToSystemPath`; else returns the URL string (`vnd.sun.star.extension://…`). |
 | `path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
 | `_system_dir_from_file_url` | `scripting/session_manager.py` | URL → parent dir | **stdlib, no UNO** (off-main `=PY()`); Windows drive letter. |
@@ -310,7 +310,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 | `DocumentService.doc_key` | Prefers `uid:<RuntimeUID>`; else `url:<normalized>`; else `"unknown"` (do not cache). Survives Save As. Modify + `OnUnload` emit `document:cache_invalidated`. |
 | `_is_same_document` | Compares RuntimeUID first (guard proxies break `==`). |
 
-`plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `list_open_documents`”.
+`plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `document_list_open`”.
 
 Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, formula locator cache, Calc workbook lifecycle (`WorkbookState.for_doc` and the `py:` key in `ensure_python_session_cleared_on_unload`), and the Calc workbook lifecycle (`WorkbookState.for_doc`) call `get_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone. Code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`.
 
@@ -428,7 +428,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 |---------|--------|
 | `DocumentService.get_active_document` / `resolve_document_by_url` / `is_*` | `uno_context` / `doc_type` |
 | `image_tools.get_type_doc` / `_has_uno_property` / `_safe_set_property` | `visual_helpers` |
-| `list_open_documents` tool | `get_open_documents` |
+| `document_list_open` tool | `get_open_documents` |
 
 ### 3.4 Overlapping but **not** identical (document before unifying)
 

@@ -550,12 +550,12 @@ def test_search_replace_attaches_style_note_warning():
     assert diag["matches_skipped"] == 1
     assert diag["matches_total"] == 1
     assert "in the host paragraph" in diag["message"]
-    assert "apply_style restyles the whole paragraph containing the match." in diag["message"]
-    assert "apply_style(target='search', old_content=...)" in diag["message"]
-    assert "apply_style(target='search', old_content=...)" in res["message"]
+    assert "writer_apply_style restyles the whole paragraph containing the match." in diag["message"]
+    assert "writer_apply_style(target='search', old_content=...)" in diag["message"]
+    assert "writer_apply_style(target='search', old_content=...)" in res["message"]
     assert "suggested_call" in diag
     assert diag["suggested_call"] == {
-        "tool": "apply_style",
+        "tool": "writer_apply_style",
         "arguments": {
             "target": "search",
             "old_content": "new",
@@ -621,12 +621,12 @@ def test_all_matches_reports_skip_count_in_warning():
     assert diag["matches_skipped"] == 1
     assert diag["matches_total"] == 2
     assert "in the host paragraph" in diag["message"]
-    assert "apply_style restyles the whole paragraph containing the match." in diag["message"]
+    assert "writer_apply_style restyles the whole paragraph containing the match." in diag["message"]
     assert "data-lo-style='Heading2' was not applied to 1 of 2 matches because they do not cover whole paragraphs" in diag["message"]
     assert "data-lo-style='Heading2' was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["message"]
     assert "suggested_call" in diag
     assert diag["suggested_call"] == {
-        "tool": "apply_style",
+        "tool": "writer_apply_style",
         "arguments": {
             "target": "search",
             "old_content": "new",
@@ -813,7 +813,7 @@ def test_partial_match_style_suggestion_happy_path_single():
         suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 1)
 
     assert suggestion == {
-        "tool": "apply_style",
+        "tool": "writer_apply_style",
         "arguments": {
             "target": "search",
             "old_content": "new",
@@ -835,7 +835,7 @@ def test_partial_match_style_suggestion_happy_path_all_matches():
         suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 2)
 
     assert suggestion == {
-        "tool": "apply_style",
+        "tool": "writer_apply_style",
         "arguments": {
             "target": "search",
             "old_content": "new",

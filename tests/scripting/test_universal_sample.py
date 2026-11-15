@@ -23,7 +23,7 @@ def test_get_active_document_type_writer(wa_module):
         }
         doc_type = wa_module.get_active_document_type()
         assert doc_type == "writer"
-        mock_rpc.assert_called_once_with("list_open_documents")
+        mock_rpc.assert_called_once_with("document_list_open")
 
 def test_get_active_document_type_calc(wa_module):
     with patch("writeragent.call_host_tool") as mock_rpc:

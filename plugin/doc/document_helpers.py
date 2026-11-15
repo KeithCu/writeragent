@@ -114,13 +114,13 @@ def _writer_has_math_ole(model: Any) -> bool:
 
 
 def _with_math_ole_chat_hint(model: Any, body: str) -> str:
-    """Plain-text excerpts skip Math OLE; point the model at get_document_content."""
+    """Plain-text excerpts skip Math OLE; point the model at writer_get_content."""
     if not _writer_has_math_ole(model):
         return body
     return (
         body
         + "\n\nMath formulas are LibreOffice Math objects (OLE), not characters in the "
-        "excerpt above, so Document length may omit them. Call get_document_content to "
+        "excerpt above, so Document length may omit them. Call writer_get_content to "
         "read them as TeX."
     )
 
@@ -187,7 +187,7 @@ def get_document_context_for_chat(
             return get_draw_context_for_chat(model, max_context, ctx)
 
         # Writer: plain-text start/end slices (hides tracked deletions). Math OLE is not
-        # in getString(); we only hint to call get_document_content.
+        # in getString(); we only hint to call writer_get_content.
         if doc_type == _doc_type.DocumentType.WRITER:
             try:
                 if model is None:
@@ -222,7 +222,7 @@ def get_document_context_for_chat(
                 excerpt_windows = [(0, take)]
 
             # The windows are in cursor steps (doc_len); the model is shown the visible length,
-            # the number get_document_content reports as document_length. Cursor steps also count
+            # the number writer_get_content reports as document_length. Cursor steps also count
             # pending deleted text, so the two disagreed in review mode (3405 vs 2439).
             shown_len = _text_helpers.get_document_length(model)
 

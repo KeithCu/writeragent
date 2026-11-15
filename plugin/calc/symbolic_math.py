@@ -36,7 +36,7 @@ _HELPER_PARAM_KEYS: dict[str, frozenset[str]] = {
 class SymbolicMathTool(ToolCalcPythonBase):
     """Run trusted SymPy symbolic helpers (solve, simplify, integrate, differentiate)."""
 
-    name: str | None = "symbolic_math"
+    name: str | None = "math_run_symbolic"
     specialized_cross_cutting: ClassVar[bool] = True
     description: str = f"Run a trusted SymPy symbolic math helper. Helpers: {_SYMBOLIC_HELPERS}. On Writer, the result inserts as a Math object when LaTeX conversion succeeds. On Calc, results write to the active sheet."
     parameters: dict[str, Any] | None = {

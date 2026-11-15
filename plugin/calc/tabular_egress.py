@@ -17,7 +17,7 @@ from plugin.framework.i18n import _
 
 
 def pad_grid(grid: list[list[Any]]) -> list[list[Any]]:
-    """Pad ragged rows with "" so write_formula_range gets a rectangular array."""
+    """Pad ragged rows with "" so calc_write_range gets a rectangular array."""
     width = max((len(row) for row in grid), default=0)
     return [list(row) + [""] * (width - len(row)) for row in grid]
 
@@ -82,7 +82,7 @@ def append_no_tabular_output(rows: list[list[Any]]) -> None:
 
 
 def format_tabular_helper_for_calc(result: dict[str, Any], *, domain_label: str, default_helper: str, failed_message: str, metadata_keys: tuple[str, ...] = ("n_rows", "n_cols", "numeric_cols")) -> list[list[Any]]:
-    """Turn a tabular helper result dict into a row-major grid for ``write_formula_range``."""
+    """Turn a tabular helper result dict into a row-major grid for ``calc_write_range``."""
     rows: list[list[Any]] = []
 
     if result.get("status") == "error":

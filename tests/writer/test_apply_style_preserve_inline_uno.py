@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Regression test: applying a paragraph style via apply_style must not wipe DIRECT
+# Regression test: applying a paragraph style via writer_apply_style must not wipe DIRECT
 # character emphasis (color/bold/highlight) already set on the target text. Default
 # clear_direct is style_props: house font/size win, bold/italic/colour stay. The
 # helper captures Char* that differ from the old style default and restores
@@ -50,15 +50,15 @@ def test_apply_paragraph_style_preserves_direct_char_format_uno(ctx, doc):
     res = ApplyStyle().execute(
         tool_ctx, style="Standard", family="ParagraphStyles", target="full_document"
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
 
     # 4) EXPECTED: the direct character formatting survives the paragraph style
     chk = text.createTextCursorByRange(text.getStart())
     chk.gotoEnd(True)
     assert int(chk.getPropertyValue("CharColor")) == 0xFF0000, \
-        "apply_style wiped the direct character COLOR"
+        "writer_apply_style wiped the direct character COLOR"
     assert chk.getPropertyValue("CharWeight") == 150.0, \
-        "apply_style wiped the direct character BOLD"
+        "writer_apply_style wiped the direct character BOLD"
 
 
 @native_test
@@ -86,7 +86,7 @@ def test_apply_paragraph_style_via_search_preserves_whole_paragraph_uno(ctx, doc
         tool_ctx, style="Quotations", family="ParagraphStyles",
         target="search", old_content="by a judge",
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
 
     # check a portion OUTSIDE the matched range ("Result", the first word): it must
     # keep red+bold. Before the fix, only "by a judge" was preserved.
@@ -115,12 +115,12 @@ def test_apply_paragraph_style_preserves_char_back_color_uno(ctx, doc):
     res = ApplyStyle().execute(
         tool_ctx, style="Quotations", family="ParagraphStyles", target="full_document"
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
 
     chk = text.createTextCursorByRange(text.getStart())
     chk.gotoEnd(True)
     assert int(chk.getPropertyValue("CharBackColor")) == 0xFFFF00, \
-        "apply_style wiped the direct highlight (CharBackColor)"
+        "writer_apply_style wiped the direct highlight (CharBackColor)"
 
 
 @native_test
@@ -140,12 +140,12 @@ def test_apply_paragraph_style_preserves_applied_character_style_uno(ctx, doc):
     res = ApplyStyle().execute(
         tool_ctx, style="Heading 2", family="ParagraphStyles", target="full_document"
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
 
     chk = text.createTextCursorByRange(text.getStart())
     chk.gotoEnd(True)
     assert chk.getPropertyValue("CharStyleName") == "Emphasis", \
-        "apply_style wiped the applied character style"
+        "writer_apply_style wiped the applied character style"
 
 
 @native_test
@@ -176,7 +176,7 @@ def test_apply_paragraph_style_multi_paragraph_selection_uno(ctx, doc):
     res = ApplyStyle().execute(
         tool_ctx, style="Text body", family="ParagraphStyles", target="full_document"
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
 
     p1 = text.createTextCursor()
     p1.gotoStart(False)
@@ -220,17 +220,17 @@ def test_apply_style_default_shows_house_font_keeps_bold_uno(ctx, doc):
         tool_ctx, style="Standard", family="ParagraphStyles",
         target="search", old_content="Lawyer clause in Times.",
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
     assert "hint" not in res
     assert res.get("removed_char_overrides", {}).get("CharFontName") == _DIRECT_FONT
 
     chk = text.createTextCursorByRange(text.getStart())
     chk.gotoEnd(True)
     assert chk.getPropertyValue("CharFontName") == _HOUSE_FONT, (
-        "default apply_style left the direct font standing (house font should win): %r"
+        "default writer_apply_style left the direct font standing (house font should win): %r"
         % chk.getPropertyValue("CharFontName"))
     assert chk.getPropertyValue("CharWeight") == 150.0, (
-        "default apply_style wiped bold; style_props must keep emphasis")
+        "default writer_apply_style wiped bold; style_props must keep emphasis")
 
 
 @native_test
@@ -259,7 +259,7 @@ def test_apply_style_explicit_none_keeps_direct_font_uno(ctx, doc):
         target="search", old_content="Keep Times on this clause.",
         clear_direct="none",
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
     assert "hint" not in res
     assert res.get("preserved_char_overrides", {}).get("CharFontName") == _DIRECT_FONT
 
@@ -273,7 +273,7 @@ def test_apply_style_explicit_none_keeps_direct_font_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_apply_style_returns_structured_fields_uno(ctx, doc):
-    """apply_style returns target/applied; matched=True only when target='search'."""
+    """writer_apply_style returns target/applied; matched=True only when target='search'."""
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()
@@ -296,7 +296,7 @@ def test_apply_style_returns_structured_fields_uno(ctx, doc):
 @with_native_doc("writer")
 def test_apply_style_search_miss_reports_not_matched_uno(ctx, doc):
     """A target='search' miss returns an error carrying matched=False / applied!=True
-    (no silent ok), consistent with apply_document_content's no-match."""
+    (no silent ok), consistent with writer_apply_content's no-match."""
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()
@@ -331,6 +331,6 @@ def test_apply_style_preserve_italic_char_posture_uno(ctx, doc):
         target="search", old_content="Italic contract clause.",
         clear_direct="none",
     )
-    assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("status") == "ok", f"writer_apply_style failed: {res}"
     assert res.get("preserved_char_overrides", {}).get("CharPosture") == 2
 

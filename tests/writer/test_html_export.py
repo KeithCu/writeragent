@@ -177,7 +177,7 @@ def _content_doc(text="Texto do documento"):
 
 
 def test_document_to_content_fails_loudly_when_both_exports_fail():
-    """#63: both exports failing returned "" and get_document_content said ok with empty content."""
+    """#63: both exports failing returned "" and writer_get_content said ok with empty content."""
     from unittest.mock import patch
 
     import pytest

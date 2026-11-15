@@ -115,7 +115,7 @@ def test_inner_delegate_omits_no_edit_note_after_mutating_tool(monkeypatch: Any)
                 "content": "Sorting now.",
                 "tool_calls": [
                     _tc(
-                        "range_sort",
+                        "calc_sort_range",
                         {"range": ["A1:B3"], "sort_column": 1, "ascending": False, "has_header": True},
                         tid="c1",
                     )
@@ -186,7 +186,7 @@ def test_transcript_includes_inner_assistant_messages(tmp_path: Path, monkeypatc
             "reasoning": "Inner reasoning step",
             "tool_calls": [
                 _tc(
-                    "range_sort",
+                    "calc_sort_range",
                     {"range": ["A1:B3"], "sort_column": 1, "ascending": False, "has_header": True},
                     tid="inner_1",
                 )
@@ -243,14 +243,14 @@ def test_eval_nudge_fires_once_on_edit_intent_zero_tools(monkeypatch) -> None:
             self.seen_messages.append([dict(m) for m in messages])
             return self._responses.pop(0)
 
-    apply_schema = [{"type": "function", "function": {"name": "apply_document_content"}}]
+    apply_schema = [{"type": "function", "function": {"name": "writer_apply_content"}}]
 
     # Case 1: zero-tool edit reply gets nudged once and then applies the edit.
     client1 = _SeqClient([
         {"content": "<p>Rewritten paragraph.</p>", "tool_calls": None, "usage": {}},
         {
             "content": "",
-            "tool_calls": [_tc("apply_document_content", {"target": "full_document", "content": ["<p>Rewritten paragraph.</p>"]})],
+            "tool_calls": [_tc("writer_apply_content", {"target": "full_document", "content": ["<p>Rewritten paragraph.</p>"]})],
             "usage": {},
         },
         {"content": "<p>Applied.</p>", "tool_calls": None, "usage": {}},
@@ -271,7 +271,7 @@ def test_eval_nudge_fires_once_on_edit_intent_zero_tools(monkeypatch) -> None:
     assert err is None
     assert len(client1.seen_messages) == 3
     assert client1.seen_messages[1][-1] == {"role": "user", "content": EDIT_NUDGE_MESSAGE}
-    assert any(t["name"] == "apply_document_content" for t in trace)
+    assert any(t["name"] == "writer_apply_content" for t in trace)
     assert "Rewritten paragraph." in final
 
     # Case 2: if the model still answers in chat after the nudge, it stops (no loop).
@@ -304,7 +304,7 @@ def test_eval_nudge_skipped_on_plain_question_and_after_mutation(monkeypatch) ->
             self.calls += 1
             return self._responses.pop(0)
 
-    apply_schema = [{"type": "function", "function": {"name": "apply_document_content"}}]
+    apply_schema = [{"type": "function", "function": {"name": "writer_apply_content"}}]
     monkeypatch.setattr(llm_chat_eval, "_build_api_config", lambda **kw: {"model": kw["model"]})
     monkeypatch.setattr(llm_chat_eval, "_eval_tools", lambda **kw: apply_schema)
 
@@ -327,7 +327,7 @@ def test_eval_nudge_skipped_on_plain_question_and_after_mutation(monkeypatch) ->
     m_client = _SeqClient([
         {
             "content": "",
-            "tool_calls": [_tc("apply_document_content", {"target": "full_document", "content": ["<p>Updated.</p>"]})],
+            "tool_calls": [_tc("writer_apply_content", {"target": "full_document", "content": ["<p>Updated.</p>"]})],
             "usage": {},
         },
         {"content": "<p>Done.</p>", "tool_calls": None, "usage": {}},

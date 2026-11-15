@@ -75,12 +75,12 @@ Example spec array:
 |------|------|
 | `brainstorm_research_web` | Public web research (plain text in; HTML summary out via `reply_to_user`) |
 | `list_nearby_files`, `grep_nearby_files`, `delegate_read_document` | Same-folder document research |
-| `get_document_content`, `get_document_tree`, `search_in_document` | Active Writer context |
+| `writer_get_content`, `writer_get_tree`, `writer_search` | Active Writer context |
 | `save_design_spec` | **Only** document write path |
 | `reply_to_user` | Continue conversation (smol final-answer tool) |
 | `reply_to_user` + `brainstorming_finished=true` | End session |
 
-Raw `apply_document_content` is **not** exposed to the brainstorming sub-agent.
+Raw `writer_apply_content` is **not** exposed to the brainstorming sub-agent.
 
 ---
 

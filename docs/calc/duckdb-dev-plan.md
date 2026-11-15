@@ -91,7 +91,7 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 
 **Why now:** Analysis helpers (`describe_data`, `run_regression`, …) cover curated single-table workflows. Users with **folders of CSV/XLSX exports** and **multi-range joins** need a horizontal layer. DuckDB is the standard embedded answer (“SQLite for analytics”), local-first, one `pip install`, strong LLM familiarity with SQL.
 
-**Explicit non-goals (MVP):** Replace `corpus.db` / embeddings SQLite; replace pandas for single-range `=PY()`; venv↔LO tool RPC; write-back via SQL `INSERT` (results egress through existing `write_formula_range` / tool paths only).
+**Explicit non-goals (MVP):** Replace `corpus.db` / embeddings SQLite; replace pandas for single-range `=PY()`; venv↔LO tool RPC; write-back via SQL `INSERT` (results egress through existing `calc_write_range` / tool paths only).
 
 ### Decision: sibling XLSX via LibreOffice import (not DuckDB `read_xlsx`)
 
@@ -216,11 +216,11 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Host egress (existing)                                          │
-│  • write_formula_range, charts, chat summary, =PY() cell        │
+│  • calc_write_range, charts, chat summary, =PY() cell        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-`query_folder_sql` is an async chat tool. Sheet, named-range, and hidden sibling reads stay on the UI thread (`main.run` when the caller is not already there). `run_folder_sql` — the venv IPC — stays on that worker. A disposed document during the grid read propagates so the tool boundary reports `DOCUMENT_DISPOSED`. A sheet name that contains an apostrophe is quoted by doubling it (`'O''Brien'.C5:D6`); [`split_sheet_prefix`](../../plugin/calc/address_utils.py) turns that back into `O'Brien`.
+`sql_query_folder` is an async chat tool. Sheet, named-range, and hidden sibling reads stay on the UI thread (`main.run` when the caller is not already there). `run_folder_sql` — the venv IPC — stays on that worker. A disposed document during the grid read propagates so the tool boundary reports `DOCUMENT_DISPOSED`. A sheet name that contains an apostrophe is quoted by doubling it (`'O''Brien'.C5:D6`); [`split_sheet_prefix`](../../plugin/calc/address_utils.py) turns that back into `O'Brien`.
 
 **Key insight from research:** The hard part is not DuckDB — it is **defining the table catalog** (which ranges, which files, column names, size limits). Calc ingress is already solved for analysis; DuckDB sits **after** `coerce_to_dataframe`.
 

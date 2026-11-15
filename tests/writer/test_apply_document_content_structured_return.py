@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Pure pytest (no LibreOffice): the structured-return logic of apply_document_content.
+# Pure pytest (no LibreOffice): the structured-return logic of writer_apply_content.
 # We mock the range finders + the replace helpers so only the replaced_count / status logic
 # is exercised: replaced_count == 0 -> status "error", N > 0 -> "ok".
 import types

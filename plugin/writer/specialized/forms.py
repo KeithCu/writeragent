@@ -19,7 +19,7 @@ Adapted from OnlyOfficeAI patterns. Original source: onlyofficeai/scripts/helper
 
 These tools address live LibreOffice ControlShapes (com.sun.star.form.component.*).
 They do not fill PDF/AcroForm widgets. Draw "paper forms" (empty TextShapes next
-to labels) use get_draw_tree + shape_fill_fields / shape_upsert instead.
+to labels) use draw_get_tree + shape_fill_fields / shape_upsert instead.
 """
 
 from datetime import datetime

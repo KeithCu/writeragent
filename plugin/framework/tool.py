@@ -275,7 +275,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     implement ``execute``.
 
     Attributes:
-        name:        Unique tool identifier (e.g. "get_document_tree").
+        name:        Unique tool identifier (e.g. "writer_get_tree").
         description: Human-readable description shown to LLMs.
         parameters:  JSON Schema dict (MCP ``inputSchema`` format).
         uno_services: List of UNO services the tool supports (e.g.,
@@ -302,10 +302,10 @@ class ToolBase(_ToolErrorMixin, ABC):
     is_final_answer_tool: bool = False
     doc_types: list[str] | None = None
     # When False, the MCP executor runs the tool even with no document open (e.g. the
-    # find_tools discovery meta-tool); the default requires an open document.
+    # tool_find discovery meta-tool); the default requires an open document.
     requires_document: bool = True
     # Extra tools this domain's sub-agent should see, by name. Core readers
-    # (get_document_content) or one specialized tool from another domain
+    # (writer_get_content) or one specialized tool from another domain
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
@@ -643,7 +643,7 @@ class ToolRegistry:
                 log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
             # Shared names replace the instance (Writer loads last). Union both
             # required_core_tools sets, plus any prior merge, or Calc
-            # shapes/charts never request get_sheet_summary / read_cell_range.
+            # shapes/charts never request calc_get_sheet_summary / calc_read_range.
             # get_tools still drops cores that fail tool_supports_document
             # for the active doc.
             prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
@@ -817,9 +817,9 @@ class ToolRegistry:
         if protocol == "openai":
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
-            # Unknown (None) keeps get_image. Only a known text-only chat model drops it.
+            # Unknown (None) keeps image_get. Only a known text-only chat model drops it.
             if has_native_vision(get_text_model(), get_current_endpoint()) is False:
-                tools = [t for t in tools if t.name != "get_image"]
+                tools = [t for t in tools if t.name != "image_get"]
             convert = to_openai_schema
         else:
             convert = to_mcp_schema

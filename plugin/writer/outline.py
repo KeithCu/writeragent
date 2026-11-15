@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer outline / heading navigation tools.
 
-For a simple document outline (headings hierarchy only), use get_document_tree
+For a simple document outline (headings hierarchy only), use writer_get_tree
 with strategy=\"heading_only\". heading:1.2 is the sibling-ordinal
 path (1st H1 → 2nd child), not Writer's chapter label. When Tools → Chapter
 Numbering is on, heading nodes include chapter_number and
@@ -39,7 +39,7 @@ from plugin.doc.text_helpers import get_string_without_tracked_deletions, iter_h
 class GetDocumentTree(ToolBase):
     """Document heading tree with bookmarks, optional content, and document statistics."""
 
-    name: str | None = "get_document_tree"
+    name: str | None = "writer_get_tree"
     tier: str = "core"
     description: str = (
         "Get the document heading tree with bookmarks and content previews, plus document statistics. "

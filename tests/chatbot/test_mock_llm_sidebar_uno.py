@@ -1080,7 +1080,7 @@ def test_b15_serial_hello_ramble_stop_empty_hello(ctx):
 
 @native_test
 def test_b16_stop_before_add_comment(ctx):
-    """Stop before add_comment runs; comment must not appear (unlike E13)."""
+    """Stop before comment_add runs; comment must not appear (unlike E13)."""
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
     before_n = _annotation_count(ctx)
@@ -1099,7 +1099,7 @@ def test_b16_stop_before_add_comment(ctx):
 
 @native_test
 def test_b19_stop_after_first_sequential_tool(ctx):
-    """Empty-doc insert-comment: apply_document_content then add_comment. Stop after first."""
+    """Empty-doc insert-comment: writer_apply_content then comment_add. Stop after first."""
     _reset_mock_runtime()
     _set_writer_body(ctx, "")
     before = _transcript()
@@ -1112,12 +1112,12 @@ def test_b19_stop_after_first_sequential_tool(ctx):
             if not _is_busy():
                 break
             time.sleep(0.1)
-        assert _writer_body(ctx).strip(), "B19 expected first tool (apply_document_content) to run"
+        assert _writer_body(ctx).strip(), "B19 expected first tool (writer_apply_content) to run"
         if _is_busy():
             _press_stop()
         _wait_idle_after_send(before, timeout=30.0)
         assert _annotation_count(ctx) == 0, (
-            "B19 second tool add_comment must not run, got %s comments" % _annotation_count(ctx)
+            "B19 second tool comment_add must not run, got %s comments" % _annotation_count(ctx)
         )
     finally:
         _reset_mock_runtime()
@@ -1364,7 +1364,7 @@ def test_e4_empty_doc_insert_comment(ctx):
     _set_writer_body(ctx, "")
     _send_and_wait("insert a comment", timeout=90.0)
     body = _writer_body(ctx)
-    assert body.strip(), "E4 expected nonempty doc after apply_document_content"
+    assert body.strip(), "E4 expected nonempty doc after writer_apply_content"
     assert _annotation_count(ctx) >= 1, "E4 expected a comment after insert"
     _set_writer_body(ctx, WELCOME_BODY)
     _hello_ok()
@@ -1397,7 +1397,7 @@ def test_e6_two_tools_parallel(ctx):
         decided.extend(row.get("decided_tools") or [])
         decided.extend(row.get("called_tools") or [])
     names = set(decided)
-    assert "search_in_document" in names and "get_document_tree" in names, (
+    assert "writer_search" in names and "writer_get_tree" in names, (
         "E6 expected both tools, got %r snaps=%r" % (names, snaps[-8:])
     )
     _hello_ok()
@@ -1638,11 +1638,11 @@ def test_e12_calc_list_sheets(ctx):
         for row in snaps:
             decided.extend(row.get("decided_tools") or [])
             advertised.extend(row.get("advertised_tools") or [])
-        assert "write_formula_range" in advertised or "get_sheet_summary" in advertised, (
+        assert "calc_write_range" in advertised or "calc_get_sheet_summary" in advertised, (
             "E12 expected Calc-deck tools, advertised=%r" % advertised
         )
-        # sheet_list is specialized-tier; main Calc chat uses get_sheet_summary.
-        assert "sheet_list" in decided or "get_sheet_summary" in decided, (
+        # sheet_list is specialized-tier; main Calc chat uses calc_get_sheet_summary.
+        assert "sheet_list" in decided or "calc_get_sheet_summary" in decided, (
             "E12 expected a Calc list tool, decided=%r snaps=%r" % (decided, snaps[-5:])
         )
         _hello_ok()
@@ -1712,7 +1712,7 @@ def test_e21_mixed_parallel_tools(ctx):
     for row in snaps:
         names.update(row.get("decided_tools") or [])
         names.update(row.get("called_tools") or [])
-    assert "apply_document_content" in names and "add_comment" in names, (
+    assert "writer_apply_content" in names and "comment_add" in names, (
         "E21 expected both tools, got %r snaps=%r" % (names, snaps[-8:])
     )
     _hello_ok()
@@ -3526,7 +3526,7 @@ def test_r6_undo_then_accept(ctx):
 
 @native_test
 def test_r7_style_parallel_looped(ctx):
-    """apply_style + get_document_tree in one turn, five times: styled, no thread-guard violations."""
+    """writer_apply_style + writer_get_tree in one turn, five times: styled, no thread-guard violations."""
     from plugin.chatbot.sidebar_test_hooks import current_component, get_thread_guard_violations
 
     _reset_mock_runtime()
@@ -3535,7 +3535,7 @@ def test_r7_style_parallel_looped(ctx):
         _set_writer_body(ctx, WELCOME_BODY)
         _send_and_wait("style tools", timeout=60.0)
         decided = [t for row in _captures() for t in (row.get("decided_tools") or [])]
-        assert "apply_style" in decided, f"R7 round {i}: apply_style never decided: {decided}"
+        assert "writer_apply_style" in decided, f"R7 round {i}: writer_apply_style never decided: {decided}"
         para = current_component(ctx).getText().createEnumeration().nextElement()
         assert para.getPropertyValue("ParaStyleName") in ("Heading 1", "Heading1"), (
             f"R7 round {i}: style not applied: {para.getPropertyValue('ParaStyleName')!r}"

@@ -326,7 +326,7 @@ def _run_specialized_inner(
         return json.dumps(
             {"status": "error", "message": "task is required for specialized delegation."}
         )
-    # Keep specialized schemas (range_sort, shapes, …). Density + MIPRO
+    # Keep specialized schemas (calc_sort_range, shapes, …). Density + MIPRO
     # patches still apply; the outer --tools allowlist does not.
     if tools_override is not None:
         tools = tools_override
@@ -802,7 +802,7 @@ def _run_llm_chat_eval_impl(
                     )
                     trace.append(_trace_entry(name, raw_args, result))
                 else:
-                    if name in ("apply_document_content", "apply_style"):
+                    if name in ("writer_apply_content", "writer_apply_style"):
                         has_mutated = True
                     result = _dispatch_world_tool(
                         state, name, raw_args, backend=backend, verbose=verbose
@@ -828,7 +828,7 @@ def _run_llm_chat_eval_impl(
         final = tl.get_eval_export(kind) or ""
     else:
         if isinstance(state, DrawWorld):
-            tree_res = state.get_draw_tree()
+            tree_res = state.draw_get_tree()
             final = json.dumps(tree_res, indent=2)
         elif isinstance(state, CalcWorld):
             final = json.dumps(state.snapshot(), indent=2)

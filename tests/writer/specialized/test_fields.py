@@ -258,13 +258,13 @@ def test_fields_skip_annotations_in_list_and_delete(mock_ctx):
     page_field = _mk_field(presentation=["Page 1", "1"])
     mock_enum = _attach_fields(mock_ctx.doc, ann_field, page_field)
 
-    # fields_list skips annotation; page_field gets ID 1
+    # field_list skips annotation; page_field gets ID 1
     res_list = FieldsList().execute(mock_ctx)
     assert res_list["status"] == "ok"
     assert res_list["field_count"] == 1
     assert res_list["fields"][0]["id"] == 1
 
-    # fields_delete skips annotation; ID 1 deletes page_field
+    # field_delete skips annotation; ID 1 deletes page_field
     mock_enum.hasMoreElements.side_effect = [True, True, False]
     mock_enum.nextElement.side_effect = [ann_field, page_field]
     res_del = FieldsDelete().execute(mock_ctx, ids=[1])
@@ -611,7 +611,7 @@ def test_document_properties_set_no_changes_and_conflicts():
     )
     assert conflict["code"] == "INVALID_PARAM"
 
-    bad_kw = prepare_tool_call(DocumentPropertiesSet(), ctx, "document_properties_set", {"keywords": "one,two"})
+    bad_kw = prepare_tool_call(DocumentPropertiesSet(), ctx, "document_set_properties", {"keywords": "one,two"})
     assert bad_kw.error is not None
     assert bad_kw.error["code"] == "VALIDATION_ERROR"
 

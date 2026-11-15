@@ -107,7 +107,7 @@ def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -
 class ListCalcFunctions(ToolBase):
     """Retrieve available spreadsheet functions inside LibreOffice Calc."""
 
-    name: str | None = "list_calc_functions"
+    name: str | None = "calc_list_functions"
     description: str = "Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"filter": {"type": "string", "description": "Optional substring to filter functions by (case-insensitive search anywhere in the name or description)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -147,7 +147,7 @@ class ListCalcFunctions(ToolBase):
 
 
 def formula_evaluation_error_message(error_code: int) -> str:
-    """Human-readable evaluate_formula message for a Calc error code."""
+    """Human-readable calc_evaluate_formula message for a Calc error code."""
     info = ERROR_TYPES.get(error_code)
     if info is None:
         return f"Formula evaluation error: code {error_code}"
@@ -160,7 +160,7 @@ def formula_evaluation_error_message(error_code: int) -> str:
 class EvaluateFormula(ToolCalcErrorBase):
     """Pre-evaluate a spreadsheet formula on a temporary worksheet copy without side effects."""
 
-    name: str | None = "evaluate_formula"
+    name: str | None = "calc_evaluate_formula"
     description: str = "Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -268,6 +268,6 @@ class EvaluateFormula(ToolCalcErrorBase):
             eval_result["requires_array"] = True
             eval_result["note"] = (
                 "Calc does not spill arrays: only the top-left value is reported. "
-                "Write it with write_formula_range to get the full result."
+                "Write it with calc_write_range to get the full result."
             )
         return eval_result

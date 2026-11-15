@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Short appearance tags for Impress ``.otp`` designs (no UNO, no vision).
 
-``list_designs`` includes appearance tags so models do not pick designs by name alone.
+``design_list`` includes appearance tags so models do not pick designs by name alone.
 This module reads the template ZIP at list time:
 
 1. Prefer ``Thumbnails/thumbnail.png`` (every shipped LO template has one).
@@ -126,7 +126,7 @@ def _picture_tag(names: Iterable[str]) -> str:
 def _xml_color_samples(zf: zipfile.ZipFile, names: list[str]) -> list[tuple[int, int, int]]:
     """Hex colors from ``styles.xml`` and at most ``_MAX_XML_SVG_MEMBERS`` SVGs.
 
-    ``list_designs`` / ``apply_design`` run this on the main thread, including
+    ``design_list`` / ``design_apply`` run this on the main thread, including
     user-writable template dirs. A per-member byte cap does not limit how many
     SVGs are opened; stop once ``_MAX_SAMPLED_PIXELS`` hits are kept.
     """
@@ -192,7 +192,7 @@ def _inflate_capped(data: bytes, limit: int) -> bytes | None:
 
     ``zlib.decompress`` would build the whole output first. A thumbnail
     whose declared size is small can still be a deflate bomb, and
-    ``list_designs`` / ``apply_design`` would allocate it on the main
+    ``design_list`` / ``design_apply`` would allocate it on the main
     thread. ``max_length`` stops at ``limit + 1`` bytes.
     """
     try:

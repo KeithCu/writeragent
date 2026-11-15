@@ -583,7 +583,7 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame
     import plugin.scripting.venv_worker as venv_worker_module
     mgr, proc = _mock_mgr()
     mgr._write_frame_with_timeout = MagicMock()
-    mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': frame_type, 'id': 't1', 'tool': 'apply_document_content', 'args': {}}, protocol=5))
+    mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': frame_type, 'id': 't1', 'tool': 'writer_apply_content', 'args': {}}, protocol=5))
     mgr._terminate_worker = MagicMock()
 
     def dispatch(*args, **kwargs):
@@ -1456,10 +1456,10 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
     monkeypatch.setattr(builtins, '__import__', fake_import)
     written: list[bytes] = []
     with patch('plugin.scripting.host_rpc.execute_tool', return_value={'ok': True}) as mock_tool:
-        handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'apply_document_content', 'args': {'content': ['x']}}, stdin_write=written.append)
+        handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'writer_apply_content', 'args': {'content': ['x']}}, stdin_write=written.append)
     assert handled is True
     mock_tool.assert_called_once()
-    assert mock_tool.call_args.args == ('apply_document_content', {'content': ['x']})
+    assert mock_tool.call_args.args == ('writer_apply_content', {'content': ['x']})
     assert mock_tool.call_args.kwargs['caller'] == 'script'
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
@@ -1473,7 +1473,7 @@ def test_maybe_dispatch_tool_call_forwards_cancel():
     scope = SendCancellation()
     written: list[bytes] = []
     with patch('plugin.scripting.venv_worker.handle_tool_call_frame', return_value=True) as mock_tool:
-        handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'apply_document_content', 'args': {'content': ['x']}}, stdin_write=written.append, cancel=scope)
+        handled = _maybe_dispatch_intermediate_response({'type': 'tool_call', 'id': 't1', 'tool': 'writer_apply_content', 'args': {'content': ['x']}}, stdin_write=written.append, cancel=scope)
     assert handled is True
     mock_tool.assert_called_once()
     assert mock_tool.call_args.kwargs["cancel"] is scope

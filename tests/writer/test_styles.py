@@ -880,7 +880,7 @@ def test_plain_properties_use_set_property_value():
     style.setPropertyValue.assert_called_once_with("CharWeight", 150)
 
 
-# ---- D2: apply_style all_matches / occurrence -------------------------------
+# ---- D2: writer_apply_style all_matches / occurrence -------------------------------
 
 def _style_ctx(send_cancellation=None):
     ctx = MagicMock()
@@ -1166,15 +1166,15 @@ def test_no_character_style_token_is_not_a_style_object():
 
     res_get = StyleGetInfo().execute(ctx, style="No Character Style", family="CharacterStyles")
     assert res_get["status"] == "error"
-    assert "No Character Style is the apply_style token" in res_get["message"]
+    assert "No Character Style is the writer_apply_style token" in res_get["message"]
 
     res_up = StyleUpdate().execute(ctx, style="No Character Style", family="CharacterStyles", property_updates={"CharWeight": 150})
     assert res_up["status"] == "error"
-    assert "No Character Style is the apply_style token" in res_up["message"]
+    assert "No Character Style is the writer_apply_style token" in res_up["message"]
 
     res_cl = StyleClone().execute(ctx, style="No Character Style", new_style="Clone", family="CharacterStyles")
     assert res_cl["status"] == "error"
-    assert "No Character Style is the apply_style token" in res_cl["message"]
+    assert "No Character Style is the writer_apply_style token" in res_cl["message"]
 
     char_fam.hasByName.assert_not_called()
 
@@ -1605,7 +1605,7 @@ def test_apply_style_suggests_call_when_single_close_match():
     assert res["status"] == "error"
     assert res["code"] == "STYLE_NOT_FOUND"
     assert res.get("suggested_call") == {
-        "tool": "apply_style",
+        "tool": "writer_apply_style",
         "arguments": {
             "style": "Heading 1",
             "target": "search",
@@ -1651,7 +1651,7 @@ def test_missing_style_error_attaches_replay_only_for_single_close_name():
     assert res["status"] == "error"
     assert res["code"] == "STYLE_NOT_FOUND"
     assert res.get("suggested_call") == {
-        "tool": "apply_style",
+        "tool": "writer_apply_style",
         "arguments": {"style": "Heading 1", "target": "search", "old_content": "x"},
     }
 

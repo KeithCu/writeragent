@@ -62,7 +62,7 @@ FACTORY_URLS = {
 
 # Eval-schema names → production ToolRegistry names.
 _TOOL_ALIASES = {
-    "write_cell_range": "write_formula_range",
+    "write_cell_range": "calc_write_range",
 }
 
 
@@ -562,7 +562,7 @@ def get_content_as_html() -> str:
 
             ctx = _tool_ctx(doc, "writer")
             res = get_tools().execute_unguarded(
-                "get_document_content",
+                "writer_get_content",
                 ctx,
                 scope="full",
             )
@@ -575,7 +575,7 @@ def get_content_as_html() -> str:
     return LOBackend.call(_do)
 
 
-def get_document_content(scope="full", max_chars=None, start=None, end=None, **kwargs) -> str:
+def writer_get_content(scope="full", max_chars=None, start=None, end=None, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
         from plugin.app import get_tools
@@ -592,13 +592,13 @@ def get_document_content(scope="full", max_chars=None, start=None, end=None, **k
                 params[k] = v
 
         ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute_unguarded("get_document_content", ctx, **params)
+        res = get_tools().execute_unguarded("writer_get_content", ctx, **params)
         return json.dumps(res, ensure_ascii=False)
 
     return LOBackend.call(_do)
 
 
-def apply_document_content(content: str, old_content: str = "", all_matches: bool = False, **kwargs) -> str:
+def writer_apply_content(content: str, old_content: str = "", all_matches: bool = False, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
         from plugin.app import get_tools
@@ -610,7 +610,7 @@ def apply_document_content(content: str, old_content: str = "", all_matches: boo
             if v is not None:
                 params[k] = v
         ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute_unguarded("apply_document_content", ctx, **params)
+        res = get_tools().execute_unguarded("writer_apply_content", ctx, **params)
         return json.dumps(res, ensure_ascii=False)
 
     return LOBackend.call(_do)
@@ -694,7 +694,7 @@ def normalize_lo_tool(
     if "page_index" in params and "page" not in params:
         params["page"] = params.pop("page_index")
 
-    if prod == "write_formula_range":
+    if prod == "calc_write_range":
         rng = params.get("range")
         if isinstance(rng, str):
             params["range"] = [rng]
@@ -704,7 +704,7 @@ def normalize_lo_tool(
         elif isinstance(values, (int, float)) and not isinstance(values, bool):
             params["values"] = str(values)
 
-    if prod == "range_sort":
+    if prod == "calc_sort_range":
         col = params.get("sort_column")
         if isinstance(col, str) and headers:
             try:
@@ -737,7 +737,7 @@ def _execute_lo_tool_impl(
     doc = LOBackend.acquire_document()
     headers = None
     used = None
-    if kind == "calc" and name in ("range_sort", "write_cell_range", "write_formula_range", "get_sheet_summary"):
+    if kind == "calc" and name in ("calc_sort_range", "write_cell_range", "calc_write_range", "calc_get_sheet_summary"):
         try:
             headers, used = _sheet_headers_and_used(doc)
         except Exception:
@@ -773,7 +773,7 @@ def get_draw_export() -> str:
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "draw")
-        res = get_tools().execute_unguarded("get_draw_tree", ctx)
+        res = get_tools().execute_unguarded("draw_get_tree", ctx)
         return json.dumps(res, ensure_ascii=False, indent=2)
 
     return LOBackend.call(_do)
@@ -787,7 +787,7 @@ def get_calc_export() -> str:
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "calc")
-        summary = get_tools().execute_unguarded("get_sheet_summary", ctx)
+        summary = get_tools().execute_unguarded("calc_get_sheet_summary", ctx)
         grid = _read_sheet_grid(doc)
         headers = grid[0] if grid else []
         payload = {
@@ -839,12 +839,12 @@ def get_eval_export(kind: str) -> str:
 
 def dspy_get_document_content(scope: str = "full", max_chars: int = None, start: int = None, end: int = None) -> str:
     """Read the LibreOffice document. Returns JSON with content."""
-    return get_document_content(scope, max_chars, start, end)
+    return writer_get_content(scope, max_chars, start, end)
 
 
 def dspy_apply_document_content(content: str, old_content: str = "", all_matches: bool = False) -> str:
     """Modify the LibreOffice document. Content can be plain text or HTML. Returns JSON status."""
-    return apply_document_content(content, old_content, all_matches)
+    return writer_apply_content(content, old_content, all_matches)
 
 
 def dspy_find_text(
@@ -876,10 +876,10 @@ def with_logging(func, name):
 
 def get_tools_subset(names: list[str] | None = None):
     mapping = {
-        "get_document_content": dspy_get_document_content,
-        "apply_document_content": dspy_apply_document_content,
+        "writer_get_content": dspy_get_document_content,
+        "writer_apply_content": dspy_apply_document_content,
         "find_text": dspy_find_text,
     }
     if names is None:
-        names = ["get_document_content", "apply_document_content", "find_text"]
+        names = ["writer_get_content", "writer_apply_content", "find_text"]
     return [with_logging(mapping[n], n) for n in names if n in mapping]

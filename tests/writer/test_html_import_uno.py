@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO tests for HTML import ruby write (apply_document_content)."""
+"""UNO tests for HTML import ruby write (writer_apply_content)."""
 
 import os
 import re
