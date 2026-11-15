@@ -1085,7 +1085,9 @@ def _vision_support_key(endpoint: Any, model_id: Any) -> str:
 def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, api_key_override: str | None) -> tuple[bool, bool | None]:
     """(memo is warm, answer) from the in-process provider memos. No I/O.
 
-    Providers without vision metadata are always warm with no answer.
+    Direct Anthropic is always warm with True because its chat models accept
+    image input. Other providers without vision metadata are always warm with
+    no answer.
     """
     if provider in ("openrouter", "together"):
         # Uses the normalized request triple and api_key_override matching catalog fetch.
@@ -1110,6 +1112,8 @@ def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, ap
             return False, None
         show_caps = cached_show.get("capabilities") or []
         return True, "vision" in show_caps if isinstance(show_caps, list) else False
+    if provider == "anthropic":
+        return True, True
     return True, None
 
 
@@ -1148,7 +1152,7 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
        including explicit False.
     3. Static default models list (``ModelCapability.VISION``).
     4. Warm in-process provider memo (OpenRouter/Together ``input_modalities``,
-       Ollama ``/api/show`` capabilities).
+       Ollama ``/api/show`` capabilities, or direct Anthropic ``True``).
     5. Cold memo (OpenRouter, Together, Ollama): on the UI thread
        (``main.is_current()``) never fetch; schedule one background lookup and
        fall through. Off the UI thread, fetch inline and re-read the memo.

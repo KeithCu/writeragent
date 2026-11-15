@@ -739,6 +739,19 @@ class TestHasNativeVision:
         clear_settings_catalog_cache(ollama_ep)
         assert model_fetcher._catalog_memo_key(ollama_ep) not in model_fetcher._catalog_memos
 
+    def test_anthropic_direct_endpoint_reports_native_vision_without_fetch(self, vision_config):
+        from plugin.framework.client.model_fetcher import has_native_vision
+        from plugin.framework.constants import ModelCapability
+        from plugin.framework.default_models import get_model_capability
+
+        for endpoint in ("https://api.anthropic.com", "https://api.anthropic.com/v1"):
+            assert get_model_capability("claude-opus-5-5", endpoint) == ModelCapability.NONE
+            with patch("plugin.framework.client.requests.sync_request") as mock_sync, \
+                 patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+                assert has_native_vision("claude-opus-5-5", endpoint) is True
+                mock_sync.assert_not_called()
+                mock_bg.assert_not_called()
+
 
 class TestParseOllamaRuntimeNumCtx:
     """Issue #570: live PARAMETER num_ctx wins over trained context_length."""
