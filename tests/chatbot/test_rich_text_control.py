@@ -122,7 +122,8 @@ class TestAppendTextChunk:
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
              patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
              patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret"), \
-             patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus):
+             patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus), \
+             patch("plugin.chatbot.rich_text_control._select_all_collapsed"):
             append_text_chunk(control, " tail", style_window=style_window)
 
         cursor.gotoEnd.assert_called_once()
@@ -257,9 +258,6 @@ class TestAppendTextChunk:
             parent.attach_mock(mock_uno, "uno")
             _scroll_rich_to_tail(control, restore_focus=restore)
         mock_uno.assert_called_once_with(control, ".uno:SelectAll")
-        from plugin.chatbot import rich_text_control as rtc
-
-        rtc._SELECT_ALL_ACTIVE.discard(id(control))
         # Restore focus before and after SelectAll so the selection flash stays hidden.
         assert [c[0] for c in parent.mock_calls] == ["restore", "uno", "restore"]
 
@@ -863,79 +861,122 @@ def test_debug_env_active_follows_is_dev_build_when_dev_guard_off(monkeypatch) -
     assert debug_env_active() is True
 
 
+class _PadModel:
+    """Rich model fake: records pad insert/remove around SelectAll."""
 
-class TestSelectAllCollapse:
-    """Leftover stick-to-bottom All() must not paint when the transcript gets focus."""
+    def __init__(self, log):
+        self.log = log
 
-    def _listener(self):
+    def createTextCursor(self):  # noqa: N802 -- UNO name
+        model = self
+
+        class _Cursor:
+            def __init__(self):
+                self.selected = 0
+
+            def gotoEnd(self, _expand):  # noqa: N802
+                pass
+
+            def goLeft(self, n, expand):  # noqa: N802
+                if expand:
+                    self.selected = n
+
+            def setString(self, text):  # noqa: N802
+                model.log.append(("remove_pad", self.selected, text))
+
+            def setPropertyValue(self, name, _value):  # noqa: N802
+                model.log.append(("pad_prop", name))
+
+        return _Cursor()
+
+    def insertControlCharacter(self, _cursor, _char, _absorb):  # noqa: N802
+        self.log.append(("add_pad",))
+
+
+class TestSelectAllCollapsedAndFocusSkip:
+    """Stick-to-bottom must not leave All() behind, and must not run while the user is in the transcript."""
+
+    def _control(self, log):
+        control = MagicMock()
+        control.getModel.return_value = _PadModel(log)
+        return control
+
+    def test_select_all_runs_between_pad_insert_and_remove(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        log = []
+        control = self._control(log)
+
+        def uno(_control, command):
+            log.append(("dispatch", command))
+            return True
+
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=uno):
+            rtc._scroll_rich_to_tail(control)
+        steps = [e[0] for e in log if e[0] != "pad_prop"]
+        # The end PaM of All() sits in the pad; deleting its node collapses the view selection.
+        assert steps == ["add_pad", "dispatch", "remove_pad"]
+        assert ("remove_pad", 1, "") in log
+        # Pad height is a paragraph property only: a char attribute would stick to the next chunk.
+        assert {e[1] for e in log if e[0] == "pad_prop"} <= {"ParaLineSpacing", "ParaTopMargin", "ParaBottomMargin"}
+
+    def test_pad_removed_even_if_dispatch_raises(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        log = []
+        control = self._control(log)
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=RuntimeError("boom")):
+            try:
+                rtc._select_all_collapsed(control)
+            except RuntimeError:
+                pass
+        assert [e[0] for e in log if e[0] != "pad_prop"] == ["add_pad", "remove_pad"]
+
+    def test_no_pad_without_text_model(self):
         from plugin.chatbot import rich_text_control as rtc
 
         control = MagicMock()
-        ctx = MagicMock()
-        callback = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
-        listener = rtc.SelectAllCollapseListener(control, ctx)
-        listener.callback = object()
-        rtc._COLLAPSE_LISTENERS[id(control)] = listener
-        return rtc, control, listener, callback
+        control.getModel.return_value = None
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True) as d:
+            rtc._scroll_rich_to_tail(control)
+        d.assert_called_once_with(control, ".uno:SelectAll")
 
-    def _cleanup(self, rtc, control):
-        rtc._COLLAPSE_LISTENERS.pop(id(control), None)
-        rtc._SELECT_ALL_ACTIVE.discard(id(control))
+    def test_focused_transcript_skips_select_all_and_restore(self):
+        # User is clicking/selecting in the transcript: keep their selection, do not pull focus to Ask.
+        from plugin.chatbot import rich_text_control as rtc
 
-    def test_focus_after_select_all_posts_collapse(self):
-        rtc, control, listener, callback = self._listener()
+        control = self._control([])
+        tracker = rtc.RichFocusTracker(control)
+        rtc._FOCUS_TRACKERS[id(control)] = tracker
+        restore = MagicMock()
         try:
-            with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True):
-                rtc._scroll_rich_to_tail(control)
-            assert id(control) in rtc._SELECT_ALL_ACTIVE
-            listener.focus_gained()
-            callback.addCallback.assert_called_once_with(listener.callback, None)
-            with patch("plugin.chatbot.rich_text_control.post_collapse_key", return_value=True) as post:
-                listener.notify()
-            post.assert_called_once_with(control, listener.ctx)
-            assert id(control) not in rtc._SELECT_ALL_ACTIVE
-        finally:
-            self._cleanup(rtc, control)
+            tracker.focus_gained()
+            with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as d:
+                rtc._scroll_rich_to_tail(control, restore_focus=restore)
+            d.assert_not_called()
+            restore.assert_not_called()
 
-    def test_click_keeps_its_caret(self):
-        rtc, control, listener, _callback = self._listener()
-        try:
-            rtc._SELECT_ALL_ACTIVE.add(id(control))
-            listener.focus_gained()
-            listener.mouse_pressed()
-            with patch("plugin.chatbot.rich_text_control.post_collapse_key") as post:
-                listener.notify()
-            post.assert_not_called()
+            tracker.focus_lost()
+            with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True) as d:
+                rtc._scroll_rich_to_tail(control, restore_focus=restore)
+            d.assert_called_once_with(control, ".uno:SelectAll")
         finally:
-            self._cleanup(rtc, control)
+            rtc._FOCUS_TRACKERS.pop(id(control), None)
 
-    def test_focus_lost_before_callback_does_not_post(self):
-        # The posted key goes to the focus window; never send it to the Ask field.
-        rtc, control, listener, _callback = self._listener()
-        try:
-            rtc._SELECT_ALL_ACTIVE.add(id(control))
-            listener.focus_gained()
-            listener.focus_lost()
-            with patch("plugin.chatbot.rich_text_control.post_collapse_key") as post:
-                listener.notify()
-            post.assert_not_called()
-        finally:
-            self._cleanup(rtc, control)
+    def test_press_calls_on_press_and_dispose_unregisters(self):
+        from plugin.chatbot import rich_text_control as rtc
 
-    def test_focus_without_select_all_keeps_user_selection(self):
-        rtc, control, listener, callback = self._listener()
+        control = MagicMock()
+        on_press = MagicMock()
+        tracker = rtc.attach_rich_focus_tracker(control, on_press)
         try:
-            listener.focus_gained()
-            callback.addCallback.assert_not_called()
+            assert tracker is not None
+            assert rtc.attach_rich_focus_tracker(control, on_press) is tracker
+            tracker.mouse_pressed()
+            on_press.assert_called_once_with()
+            tracker.focus_gained()
+            tracker.disposed()
+            assert not tracker.has_focus
+            assert id(control) not in rtc._FOCUS_TRACKERS
         finally:
-            self._cleanup(rtc, control)
-
-    def test_scroll_while_transcript_focused_collapses_now(self):
-        rtc, control, listener, callback = self._listener()
-        try:
-            listener.has_focus = True
-            with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True):
-                rtc._scroll_rich_to_tail(control)
-            callback.addCallback.assert_called_once_with(listener.callback, None)
-        finally:
-            self._cleanup(rtc, control)
+            rtc._FOCUS_TRACKERS.pop(id(control), None)

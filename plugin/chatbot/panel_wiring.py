@@ -140,17 +140,18 @@ def setup_rich_control_ready(
 
     _attach_calc_cell_link(rich_control)
 
-    def _attach_collapse(ctrl: Any) -> None:
-        from plugin.chatbot.rich_text_control import attach_select_all_collapse
+    def _attach_focus_tracker(ctrl: Any) -> None:
+        from plugin.chatbot.rich_text_control import attach_rich_focus_tracker
 
-        attach_select_all_collapse(ctrl, widget.ctx)
+        on_press = session.note_user_left_query if session is not None else None
+        attach_rich_focus_tracker(ctrl, on_press)
 
-    best_effort(lambda: _attach_collapse(rich_control), "rich select-all collapse listener")
+    best_effort(lambda: _attach_focus_tracker(rich_control), "rich focus tracker")
 
     def _on_control_replaced(new_ctrl: Any) -> None:
         widget.replace_control(new_ctrl)
         _attach_calc_cell_link(new_ctrl)
-        best_effort(lambda: _attach_collapse(new_ctrl), "rich select-all collapse listener")
+        best_effort(lambda: _attach_focus_tracker(new_ctrl), "rich focus tracker")
 
     if panel._rich_control_listener:
         panel._rich_control_listener.on_replaced = _on_control_replaced
