@@ -27,13 +27,11 @@ Formulas (leading `=` after strip) are exempt so `=PY` code with line breaks and
 In `plugin/calc/manipulator.py`, `_parse_json_array_string` walks the string with a character loop tracking double-quoted strings and backslash escapes.
 - **Behavior**: This only replaces semicolons that are **not** inside double quotes with commas. This preserves semicolons inside formula strings while fixing the JSON structure.
 
-## 4. Prompt Steering for Syntax
-**gotcha**: LibreOffice is very strict about formula syntax. Using a comma instead of a semicolon as an argument separator results in "Error 508".
+## 4. Formula dialect acceptance
+**Problem**: Calc's UNO API expects `GRAM_API` (`;` separators, `Sheet.A1` dot sheet refs, `{1;2|3;4}` inline arrays), while models frequently emit Excel syntax (`,`, `Sheet!A1`, `{1,2;3,4}`).
 
-### [Workaround] Explicit Prompt Rules
-In `plugin/framework/prompts.py`, the system prompt includes high-pressure instructions on formula syntax.
-- **Constraint**: "FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator. Wrong: =SUM(A1,A10) (no commas)."
-- **Duality**: `write_range` takes no CSV (§1), so the prompt has no CSV line; the semicolon rule applies to formula text only.
+### [Solution] `FormulaDialects.to_api`
+[`plugin/calc/formula_dialect.py`](../../plugin/calc/formula_dialect.py) translates incoming formula text via Calc's own `com.sun.star.sheet.FormulaParser` cascade (Calc API grammar as written first, then Excel English, then Calc punctuation with `Sheet!A1`) before writing, so both Excel and Calc syntax work without prompt steering.
 
 ## 5. Defensive Parameter Handling
 **Problem**: Models sometimes pass range names as lists or wrap them in extra quotes.

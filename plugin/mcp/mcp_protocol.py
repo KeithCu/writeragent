@@ -196,7 +196,11 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
     elif mode == "direct_discovery":
         mode_hint = " Call tool_find with no arguments for the full specialized domain catalog, then tool_find(domain=…) for tool schemas in that area; call tools by name. No WriterAgent LLM endpoint is required."
     else:
-        mode_hint = " For specialized capabilities, call *_delegate_specialized with domain and task (requires a WriterAgent chat endpoint for the inner agent)."
+        mode_hint = (
+            " For specialized capabilities, call delegate_to_subagent"
+            " with domain and a plain-language task; a sub-agent with that domain's tools does the work"
+            " and returns a summary (requires a WriterAgent chat endpoint for the sub-agent)."
+        )
     return format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
 
 

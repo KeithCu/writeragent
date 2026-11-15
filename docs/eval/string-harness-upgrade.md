@@ -73,7 +73,7 @@ tweaks. Those amplify a metric that is still too easy and too fake.
 
 ```
 LlmClient (core schemas)
-   │  delegate_to_specialized_* (domain=shapes|ranges)
+   │  delegate_to_subagent (domain=shapes|ranges)
    ▼
 inner LlmClient loop (domain schemas, same world)
    │  specialized_workflow_finished → parent
@@ -205,7 +205,7 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
 `get_schemas("openai", doc_type=kind)` — the same filter as sidebar
 (`tool_loop.py`). Specialized tools stay off the list; Draw
 `shape_upsert` / Calc `range_sort` are advertised only via
-`delegate_to_specialized_*`. There is no committed JSON snapshot.
+`delegate_to_subagent`. There is no committed JSON snapshot.
 
 Eval-only (not sidebar): `filter_eval_tool_schemas` / named presets
 (`full`, `calc_minimal`, `calc_core`, `writer_minimal`) and

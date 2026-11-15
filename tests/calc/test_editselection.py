@@ -663,3 +663,24 @@ def test_calc_slash_selection_outside_used_area_notifies_sidebar():
     assert len(sidebar_lines) == 1
     msgbox.assert_not_called()
     run.assert_not_called()
+
+
+def test_calc_extend_translates_formula_via_to_api():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("=SUM(A1", ""),))
+
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
+        apply_chunk_fn(",B1)", False)
+        on_done_fn()
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.to_api", return_value="=SUM(A1;B1)") as mock_to_api, \
+         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
+        do_calc_extend_edit(MagicMock(), model, is_edit=False)
+
+    mock_to_api.assert_called_once()
+    assert mock_to_api.call_args[0][0] is model
+    assert mock_to_api.call_args[0][1] == "=SUM(A1,B1)"
+    assert sheet.getCellByPosition(0, 0).getFormula() == "=SUM(A1;B1)"

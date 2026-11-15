@@ -78,7 +78,7 @@ inner loops are shipped. The optimizer was never rewired onto that loop.
 [`write_formula_range`](../../plugin/calc/cells.py) description is a long
 `=PY` sermon (dest, spill, `to_pandas()`, do not dump A1:H500).
 [`range_sort`](../../plugin/calc/cells.py) is one sentence and lives behind
-`delegate_to_specialized_calc_toolset(domain="ranges")`.
+`delegate_to_subagent(domain="ranges")`.
 
 [`CALC_CORE_DIRECTIVES`](../../plugin/framework/prompts.py) ends with
 “Python on sheet data: write_formula_range of =PY”. A 20B model that is
@@ -101,7 +101,7 @@ Keep diffs short.
 
 **Calc** (`CALC_CORE_DIRECTIVES` only for sort; slim `CALC_WORKFLOW`):
 
-- Do `delegate_to_specialized_calc_toolset(domain="ranges")` then
+- Do `delegate_to_subagent(domain="ranges")` then
   `range_sort` to reorder rows (multi-key = two stable one-column
   passes) because `write_formula_range` / `=PY` overwrite the range
   including headers.
@@ -112,7 +112,7 @@ Keep diffs short.
 
 **Draw** (`DRAW_CORE_DIRECTIVES`, shipped):
 
-- Do `delegate_to_specialized_draw_toolset(domain="shapes")` then
+- Do `delegate_to_subagent(domain="shapes")` then
   `shape_upsert` + `shape_connect` for flowcharts and process diagrams
   because an empty `get_draw_tree` means the task failed.
 

@@ -304,3 +304,33 @@ def test_embedded_insert_get_embedded_object_failure():
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "broken ole" in res["message"]
+
+
+def test_embedded_insert_translates_formula_via_to_api():
+    cursor = MagicMock()
+    cursor.getText.return_value = MagicMock()
+    emb = MagicMock()
+    inner = MagicMock()
+    inner.supportsService.return_value = True
+    sheet = MagicMock()
+    cell = MagicMock()
+    sheet.getCellByPosition.return_value = cell
+    inner.getSheets.return_value.getByIndex.return_value = sheet
+    emb.getEmbeddedObject.return_value = inner
+    ctx, unused_doc = _make_embed_ctx("abc-def", element_names=[(), ("SheetEmbed",)], emb=emb)
+
+    with (
+        patch("plugin.writer.target_resolver.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.target_resolver.commit_or_rollback_mutation", side_effect=_commit_mutate),
+        patch("plugin.writer.specialized.embedded.to_api", return_value="=SUM(A1;B1)") as mock_to_api,
+    ):
+        res = EmbeddedInsert().execute(
+            ctx,
+            object_type="spreadsheet",
+            target="end",
+            data=[["=SUM(A1,B1)"]],
+        )
+
+    assert res["status"] == "ok"
+    mock_to_api.assert_called_once_with(inner, "=SUM(A1,B1)", cell.getCellAddress.return_value)
+    cell.setFormula.assert_called_once_with("=SUM(A1;B1)")

@@ -162,7 +162,7 @@
       "shape_connect",
       "shape_upsert",
       "shape_upsert",
-      "delegate_to_specialized_draw_toolset",
+      "delegate_to_subagent",
       "get_draw_tree"
     ]
   },
@@ -181,7 +181,7 @@
       "read_cell_range",
       "range_sort",
       "specialized_workflow_finished",
-      "delegate_to_specialized_calc_toolset",
+      "delegate_to_subagent",
       "read_cell_range",
       "write_formula_range",
       "read_cell_range",

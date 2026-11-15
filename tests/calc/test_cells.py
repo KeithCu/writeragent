@@ -182,7 +182,7 @@ def test_read_cell_range_address_stays_value_error():
 def test_inspector_default_range_read_does_not_query_formats():
     from plugin.calc.inspector import CellInspector
 
-    addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0)
+    addr = SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=1, StartRow=0, EndRow=0)
     cell_range = MagicMock()
     cell_range.getRangeAddress.return_value = addr
     cell_range.getDataArray.return_value = ((1.0, 2.0),)
@@ -897,7 +897,7 @@ def test_write_formula_range_s30_format_pass_warning():
     """S30: format-pass failure keeps value-commit success and warns in the message."""
     from plugin.calc.manipulator import CellManipulator
 
-    addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+    addr = SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
     cell_range = MagicMock()
     cell_range.getRangeAddress.return_value = addr
     sheet = MagicMock()
@@ -942,7 +942,7 @@ def test_write_formula_range_s30_warning_counts_apply_only():
     """S30: warning counts M1 apply cells, not preserve-only temporals."""
     from plugin.calc.manipulator import CellManipulator
 
-    addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0)
+    addr = SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=1, StartRow=0, EndRow=0)
     cell_range = MagicMock()
     cell_range.getRangeAddress.return_value = addr
     sheet = MagicMock()
@@ -2254,7 +2254,7 @@ def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
         "warnings": [
             {
                 "code": "FORMULA_ERROR",
-                "message": "1 formula cell(s) show an error. Calc separates function arguments with ';', not ','.",
+                "message": "1 formula cell(s) show an error. Formulas use Calc syntax: ; between arguments, Sheet.A1 for other sheets, and {1;2|3;4} for inline arrays (e.g. =IF(A1>0; 1; 0), Orders.A1).",
             }
         ],
     }
@@ -2265,4 +2265,4 @@ def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
     assert res["status"] == "ok"
     assert len(res["error_cells"]) == 2
     assert len(res["warnings"]) == 2
-    assert "Calc separates function arguments with ';', not ','." in res["warnings"][1]["message"]
+    assert "Formulas use Calc syntax:" in res["warnings"][1]["message"]

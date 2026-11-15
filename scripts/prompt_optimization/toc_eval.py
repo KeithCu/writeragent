@@ -96,7 +96,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
         name = entry.get("name") or ""
         args = as_dict(entry.get("arguments"))
 
-        if name.endswith("_delegate_specialized"):
+        if name == "delegate_to_subagent":
             domain = str(args.get("domain") or "")
             if "indexes" in domain:
                 has_delegate = True
@@ -106,7 +106,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
                 include_links_requested = True
 
     if not has_delegate:
-        failures.append("No *_delegate_specialized call with domain 'indexes'")
+        failures.append("No delegate_to_subagent call with domain 'indexes'")
     if not has_list_tool:
         failures.append("No index_list_toc_entries call in trace")
 

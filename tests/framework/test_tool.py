@@ -1580,9 +1580,9 @@ def test_tool_supports_document_unrestricted_and_doc_types():
 
 def test_execute_async_delegate_skips_uno_doc_probe(monkeypatch):
     from plugin.framework.thread_guard import guard_uno
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
-    class _NoExecuteDelegate(DelegateToSpecializedWriter):
+    class _NoExecuteDelegate(DelegateToSubagent):
         def execute(self, ctx, **kwargs):
             return {"status": "ok", "message": "stub"}
 
@@ -1603,7 +1603,7 @@ def test_execute_async_delegate_skips_uno_doc_probe(monkeypatch):
 
     def bg():
         try:
-            reg.execute("writer_delegate_specialized", ctx, domain="document_research", task="find notes")
+            reg.execute("delegate_to_subagent", ctx, domain="document_research", task="find notes")
         except Exception as exc:
             errors.append(exc)
 

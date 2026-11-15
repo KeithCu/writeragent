@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Type
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.tool import ToolBase
@@ -28,17 +28,9 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
-from plugin.framework.prompts import (
-    DELEGATION_PUBLIC_WEB_HINT,
-    DELEGATION_USER_FILE_DATA_HINT,
-    delegation_math_to_python_hint,
-    python_orchestrator_routing_line,
-)
-from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_catalog import FINISH_TOOL_NAME
 from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
-
-_WRITER_DELEGATE_TOOL = "writer_delegate_specialized"
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 
@@ -86,27 +78,6 @@ class ToolWriterSpecialBase(ToolBase):
     specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_content", "get_tree"])
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
-
-
-class DelegateToSpecializedWriter(DelegateToSpecializedBase):
-    """Gateway tool to delegate tasks to specialized Writer toolsets.
-
-    This spins up a sub-agent with a limited set of tools (e.g., only Table tools)
-    to focus on the user's specific request, preventing context pollution.
-    """
-
-    name: str | None = _WRITER_DELEGATE_TOOL
-    description: str = (
-        "Delegates a specialized task with a focused toolset. "
-        "For document_research and web_research, describe what to research in task (topics, sections, depth). "
-        f"{delegation_math_to_python_hint(delegate_toolset=_WRITER_DELEGATE_TOOL)} "
-        f"{python_orchestrator_routing_line(delegate_toolset=_WRITER_DELEGATE_TOOL)}"
-    )
-
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
-    # Abstract: no execute(); stored for __subclasses__ discovery only.
-    _special_base_class: ClassVar[Type[ToolBase]] = ToolWriterSpecialBase  # type: ignore[type-abstract]
-    _agent_label: ClassVar[str] = "Writer"
 
 
 # --- Domain-Specific Base Classes ---
@@ -167,7 +138,7 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "OCR: extract text and structure (layout, tables) from the selected graphic and insert it into the document (task is ignored). Use this call for OCR."
+        "Runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, after it in the document. Use this call for OCR."
     )
 
 

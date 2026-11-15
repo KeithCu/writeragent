@@ -869,10 +869,11 @@ def test_write_report_error_cells_with_address_and_count() -> None:
     ("formula", "expect_hint"),
     [
         ("=SUM(1,2)", True),
+        ("=missing!A1", True),
         ("=SUMM(G1)", False),
     ],
 )
-def test_write_report_semicolon_hint_only_when_formula_has_comma(formula: str, expect_hint: bool) -> None:
+def test_write_report_dialect_hint_only_when_formula_has_comma_or_bang(formula: str, expect_hint: bool) -> None:
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
 
@@ -893,7 +894,7 @@ def test_write_report_semicolon_hint_only_when_formula_has_comma(formula: str, e
     metas = CellManipulator(MagicMock()).plan_writes([formula], None, 0)
     res = _write_report(sheet, (0, 0), (0, 0), [formula], metas, scan_text=True)
     msg = res["warnings"][0]["message"]
-    assert ("Calc separates function arguments with ';', not ','." in msg) is expect_hint
+    assert ("Formulas use Calc syntax:" in msg) is expect_hint
 
 
 def test_commit_write_forwards_write_report() -> None:
@@ -1139,47 +1140,47 @@ def test_delete_structure_confirm_without_undo_does_not_promise_ctrl_z():
     assert "Undo was unavailable" in msg
 
 
-def test_plan_write_rewrites_bang_refs_to_existing_sheets() -> None:
-    doc = MagicMock()
-    doc.getSheets.return_value.getElementNames.return_value = ("Sheet1", "Orders")
-    doc.NamedRanges.hasByName.return_value = False
+class _FakeDialects:
+    def __init__(self, mapping: dict[str, str]) -> None:
+        self._mapping = mapping
+        self.calls: list[str] = []
+
+    def to_api(self, text: str, _pos=None) -> str:
+        self.calls.append(text)
+        return self._mapping.get(text, text)
+
+
+def test_plan_write_hands_formulas_to_calc_grammar() -> None:
     sheet = MagicMock()
-    sheet.NamedRanges.hasByName.return_value = False
     cell_range = MagicMock()
     cell_range.getSpreadsheet.return_value = sheet
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+    cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
 
-    bridge = MagicMock(doc=doc)
+    bridge = MagicMock(doc=MagicMock())
     bridge.resolve_range_or_address.return_value = cell_range
-    manipulator = CellManipulator(bridge)
+    fake = _FakeDialects({"=Orders!A1*2": "=$Orders.A1*2", "=SUM(A1,B1)": "=SUM(A1;B1)"})
 
-    plan = manipulator.plan_write("A1", "=Orders!A1*2")
-    assert plan.values == ["=Orders.A1*2"]
-    assert plan.notes[0]["code"] == "SHEET_REF_REWRITTEN"
+    with patch("plugin.calc.manipulator.FormulaDialects", return_value=fake):
+        manipulator = CellManipulator(bridge)
+        plan = manipulator.plan_write("A1", "=Orders!A1*2")
+        assert plan.values == ["=$Orders.A1*2"]
+        assert plan.notes == ()
 
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=1)
-    list_plan = manipulator.plan_write("A1:A2", [["=Orders!A1"], ["=Missing!A1"]])
-    assert list_plan.values == ["=Orders.A1", "=Missing!A1"]
-    assert list_plan.notes[0]["code"] == "SHEET_REF_REWRITTEN"
+        cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=1, EndRow=1)
+        list_plan = manipulator.plan_write("A1:B2", [["=SUM(A1,B1)", "plain, text"], ["=Orders!A1*2", 42]])
+        assert list_plan.values == ["=SUM(A1;B1)", "plain, text", "=$Orders.A1*2", 42]
+        assert list_plan.notes == ()
 
-    doc.NamedRanges.hasByName.side_effect = lambda name: name == "Orders"
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
-    shadowed = manipulator.plan_write("A1", "=Orders!A1*2")
-    assert shadowed.values == ["=Orders!A1*2"]
-    assert shadowed.notes == ()
+        cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+        data_txt = manipulator.plan_write("A1", "=Orders!A1*2", data_text=True)
+        assert data_txt.values == ["=Orders!A1*2"]
+        assert data_txt.notes == ()
 
-    doc.NamedRanges.hasByName.side_effect = None
-    doc.NamedRanges.hasByName.return_value = False
-    sheet.NamedRanges.hasByName.side_effect = lambda name: name == "Orders"
-    sheet_shadowed = manipulator.plan_write("A1", "=Orders!A1*2")
-    assert sheet_shadowed.values == ["=Orders!A1*2"]
-    assert sheet_shadowed.notes == ()
+        lit_txt = manipulator.plan_write("A1", "=SUM(A1,B1)", literal_text=True)
+        assert lit_txt.values == ["=SUM(A1,B1)"]
+        assert lit_txt.notes == ()
 
-    sheet.NamedRanges.hasByName.side_effect = None
-    sheet.NamedRanges.hasByName.return_value = False
-    data_txt = manipulator.plan_write("A1", "=Orders!A1*2", data_text=True)
-    assert data_txt.values == ["=Orders!A1*2"]
-    assert data_txt.notes == ()
+    assert fake.calls == ["=Orders!A1*2", "=SUM(A1,B1)", "=Orders!A1*2"]
 
 
 def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
@@ -1187,7 +1188,7 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     sheet.getName.return_value = "Sheet1"
     cell_range = MagicMock()
     cell_range.getSpreadsheet.return_value = sheet
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=3)
+    cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=2, StartRow=1, EndColumn=2, EndRow=3)
 
     bridge = MagicMock(doc=MagicMock())
     bridge.resolve_range_or_address.return_value = cell_range
@@ -1208,7 +1209,7 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     assert pinned.values == ["=B1", "=B1", "=B1"]
     assert pinned.notes == ()
 
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=1)
+    cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=2, StartRow=1, EndColumn=2, EndRow=1)
     expanded = manipulator.plan_write("C2", [["=B2*2"]] * 3)
     assert expanded.range_str == "C2:C4"
     assert expanded.values == ["=B2*2", "=B2*2", "=B2*2"]
@@ -1219,40 +1220,9 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("formula", "expect_hint"),
-    [
-        ("=missing!A1", True),
-        ("=SUMM(G1)", False),
-    ],
-)
-def test_write_report_bang_hint_on_name_error(formula: str, expect_hint: bool) -> None:
-    sheet = MagicMock()
-    sheet.getName.return_value = "Sheet1"
-
-    err_cell = MagicMock()
-    err_cell.getError.return_value = 525
-    err_cell.getFormula.return_value = formula
-    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
-
-    enum = MagicMock()
-    enum.hasMoreElements.side_effect = [True, False]
-    enum.nextElement.return_value = err_cell
-
-    found = MagicMock()
-    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)]
-    found.getCells.return_value.createEnumeration.return_value = enum
-    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
-
-    metas = CellManipulator(MagicMock()).plan_writes([formula], None, 0)
-    res = _write_report(sheet, (0, 0), (0, 0), [formula], metas, scan_text=True)
-    msg = res["warnings"][0]["message"]
-    assert ("Sheet.A1" in msg) is expect_hint
-
-
 def test_commit_write_prepends_plan_notes() -> None:
     manipulator = CellManipulator(MagicMock())
-    note = {"code": "SHEET_REF_REWRITTEN", "message": "rewritten"}
+    note = {"code": "REPEATED_FORMULA", "message": "repeated"}
     with patch.object(manipulator, "_write_array_formula", return_value={"message": "m"}):
         res = manipulator.commit_write(WritePlan("array", "A1", notes=(note,)))
     assert res["warnings"] == [note]

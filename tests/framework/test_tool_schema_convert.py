@@ -258,9 +258,9 @@ def test_mcp_writer_optional_enums_no_null_in_enum():
 
 
 def test_to_mcp_schema_delegate_writer_flattens_domain_description():
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
-    tool = DelegateToSpecializedWriter()
+    tool = DelegateToSubagent()
     mcp_schema = to_mcp_schema(tool)
 
     assert "\n" not in mcp_schema["description"]
@@ -273,9 +273,9 @@ def test_to_mcp_schema_delegate_writer_flattens_domain_description():
 
 
 def test_to_mcp_schema_delegate_calc_domain_list_omits_analysis_and_python():
-    from plugin.calc.specialized import DelegateToSpecializedCalc
+    from plugin.doc.specialized_base import DelegateToSubagent
 
-    mcp_schema = to_mcp_schema(DelegateToSpecializedCalc())
+    mcp_schema = to_mcp_schema(DelegateToSubagent(), doc_type="calc")
     domain_enum = mcp_schema["inputSchema"]["properties"]["domain"]["enum"]
     assert "python" not in domain_enum
     assert "analysis" not in domain_enum
@@ -284,12 +284,12 @@ def test_to_mcp_schema_delegate_calc_domain_list_omits_analysis_and_python():
 
 def test_calc_gateway_description_lists_every_domain():
     import plugin.writer.specialized.forms  # noqa: F401 - registers forms (ToolWriterFormBase is also a ToolCalcSpecialBase)
-    from plugin.calc.specialized import DelegateToSpecializedCalc
+    from plugin.doc.specialized_base import DelegateToSubagent
 
-    tool = DelegateToSpecializedCalc()
-    params = tool.parameters or {}
+    tool = DelegateToSubagent()
+    params = tool.get_parameters("calc") or {}
     enum = params["properties"]["domain"]["enum"]
-    desc = tool.get_description()
+    desc = tool.get_description("calc")
     assert "forms" in enum
     for domain in enum:
         assert domain in desc

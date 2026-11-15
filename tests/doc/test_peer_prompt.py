@@ -14,10 +14,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.doc.peer_prompt import format_peer_outer_delegate_hint
-from plugin.draw.specialized import DelegateToSpecializedDraw
-from plugin.writer.specialized_base import DelegateToSpecializedWriter
+from plugin.doc.specialized_base import DelegateToSubagent
 
 
 def _model(service: str) -> MagicMock:
@@ -29,11 +27,11 @@ def _model(service: str) -> MagicMock:
 @pytest.mark.parametrize(
     ("model", "gateway"),
     [
-        (_model("com.sun.star.sheet.SpreadsheetDocument"), DelegateToSpecializedCalc),
-        (_model("com.sun.star.drawing.DrawingDocument"), DelegateToSpecializedDraw),
-        (_model("com.sun.star.presentation.PresentationDocument"), DelegateToSpecializedDraw),
-        (_model("com.sun.star.text.TextDocument"), DelegateToSpecializedWriter),
-        (None, DelegateToSpecializedWriter),
+        (_model("com.sun.star.sheet.SpreadsheetDocument"), DelegateToSubagent),
+        (_model("com.sun.star.drawing.DrawingDocument"), DelegateToSubagent),
+        (_model("com.sun.star.presentation.PresentationDocument"), DelegateToSubagent),
+        (_model("com.sun.star.text.TextDocument"), DelegateToSubagent),
+        (None, DelegateToSubagent),
     ],
 )
 def test_outer_delegate_hint_names_the_registered_gateway(model: Any, gateway: Any) -> None:

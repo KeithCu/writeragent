@@ -31,6 +31,8 @@ Other important prompts (not assembled here):
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -119,12 +121,12 @@ PARAGRAPH_INDEX_DIRECTIVE = (
 )
 
 
-def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
+def delegation_math_to_python_hint(*, delegate_tool: str = DELEGATE_SUBAGENT_TOOL) -> str:
     """Writer delegate description and Draw core directives: route computational math to the python sub-agent."""
-    return f'For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), do not answer from memory—use {delegate_toolset}(domain="python") for fast local numeric computation.'
+    return f'For computational or numeric math (exact values, primes, statistics, symbolic algebra, or non-trivial calculation), do not answer from memory—use {delegate_tool}(domain="python") for fast local numeric computation.'
 
 
-def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
+def python_orchestrator_routing_line(*, delegate_tool: str = DELEGATE_SUBAGENT_TOOL) -> str:
     """Draw main-chat line and Writer delegate description: python-as-orchestrator stays on domain=python.
 
     A plain shape request still goes to domain=shapes. Only bias when the user
@@ -132,9 +134,9 @@ def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
     compute-then-place). Calc does not use this: its delegate enum hides python.
     """
     return (
-        "When asked to make a script or run Python, or to use the python specialized agent "
+        "When asked to make a script or run Python, or to use the python sub-agent "
         "(via python / python agent) to compute and place shapes or other domain objects, "
-        f'use {delegate_toolset}(domain="python") rather than domain="shapes". '
+        f'use {delegate_tool}(domain="python") rather than domain="shapes". '
         'A plain shape request (for example draw a rectangle) still uses domain="shapes".'
     )
 
@@ -143,7 +145,7 @@ def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
 # Parent Nemotron Super rewrote "make it look like a wizard" into a generate-new
 # task; the specialist then omitted source_image. Schema + task rules must
 # keep the user's edit wording and name source_image='selection'.
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct the images sub-agent to call image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "Plain-language instructions for the sub-agent: what to do and where. For edit/change/restyle of an existing or selected image, instruct the images sub-agent to call image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
 
 # Later tool calls read the live document directly; echoing modified content
 # back into chat history wastes context and corrupts links on round-trip retypes.
@@ -157,13 +159,13 @@ DELEGATE_ANCHOR_RULE = (
 # Shared guidance for writing `task` strings when delegating to specialized sub-agents.
 # Must stay a single line (delegation templates are one line; tests assert no newlines).
 SPECIALIZED_TASK_RULES = (
-    "Pass a clear `task` describing what the specialized task should accomplish. "
+    "Write `task` in plain language as instructions for the sub-agent: what to do and where. "
     "When the user wants to edit, change, or restyle an existing or selected image, "
     "the task must instruct the images sub-agent to call image_generate(source_image='selection') and keep the "
     "user's wording (for example 'make it look like a wizard') so img2img replaces "
     "the graphic in place. "
     "For data already in the document, name where it is (heading, TOC entry text, "
-    "cell range, Draw page and shape name) in task and let the executor read and edit it there; "
+    "cell range, Draw page and shape name) in task and let the sub-agent read and edit it there; "
     "do not paste rows, values, or links read from the document into task. "
     "Pass user-given new text or targets into task verbatim."
 )
@@ -253,7 +255,7 @@ def build_specialized_sub_agent_instructions(
 
 
 def images_specialized_sub_agent_hint() -> str:
-    """Smol sub-agent instructions suffix for *_delegate_specialized (domain=\"images\").
+    """Smol sub-agent instructions suffix for delegate_to_subagent (domain=\"images\").
 
     Edit/change/restyle of an existing or selected image must go through
     ``image_generate(source_image='selection')``. That path reads the
@@ -273,7 +275,7 @@ def images_specialized_sub_agent_hint() -> str:
 
 
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
-    """Smol sub-agent instructions suffix for *_delegate_specialized (domain=\"python\").
+    """Smol sub-agent instructions suffix for delegate_to_subagent (domain=\"python\").
 
     The outer python agent does venv / symbolic work itself and has no specialized
     domain tools. Those go through ``python_delegate_domains`` (``domains`` + ``task``).
@@ -321,7 +323,7 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         " with a Python for-loop (import writeragent as wa; wa.shape.upsert),"
         " not one LLM tool call per shape."
         " The inner shapes agent reads the page canvas and places that layout; this loop does not receive page size."
-        ' Do not finish and expect the main chat agent to call *_delegate_specialized(domain="shapes") for you.'
+        ' Do not finish and expect the main chat agent to call delegate_to_subagent(domain="shapes") for you.'
         " Do not call those domain tools on this loop."
     )
     return f" PYTHON (venv): {policy}{data_hint}{plot_suffix} Prefer math_run_symbolic for solve/simplify/integrate/differentiate over raw sp/python_run_script. {units_hint}{domain_rule}"
@@ -386,7 +388,7 @@ Follow CHAT RESPONSE FORMAT for that short reply."""
 # the research `task` hint are in DelegateToSpecializedWriter.description.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
-- You MUST call writer_delegate_specialized(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required)."""
+- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required)."""
 
 
 TRANSLATION_RULES = """TRANSLATION: get_content(scope=full) -> translate -> apply_content(target='full_document', content=translated).
@@ -461,9 +463,10 @@ HTML_MATH_AND_LINK_EXAMPLES = """MORE EXAMPLES:
 
 # Single-line blocks: MCP tool descriptions and many clients do not render newlines inside JSON strings.
 WRITER_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "SPECIALIZED WRITER (nested tools): The default tool list hides deep Writer features. "
-    "When the user needs those, call writer_delegate_specialized with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the specialized task must do. The executor has the real tools for that domain. "
+    "WRITER SUB-AGENTS (nested tools): The default tool list hides deep Writer features. "
+    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}} "
+    "and a plain-language `task`. Most domains start a sub-agent that has that domain's tools; "
+    "it does the task in the document and returns a summary. "
     f"{SPECIALIZED_TASK_RULES}"
 )
 
@@ -492,7 +495,7 @@ WRITER_IMAGES_RULES = """IMAGES:
   For a bulk read with pictures embedded, pass include_images=true to get_content."""
 
 
-# Writer sidebar modes — not exposed on writer_delegate_specialized (user picks from dropdown).
+# Writer sidebar modes — not exposed on delegate_to_subagent (user picks from dropdown).
 WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan", "deep_research"})
 
 
@@ -537,11 +540,11 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 # The sort and has_header lines keep distinct shapes so small models do not merge them. Fill-down is taught on write_range's values parameter, not here.
 CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
-- You MUST call calc_delegate_specialized(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
-When the user wants {DELEGATION_PUBLIC_WEB_HINT}, calc_delegate_specialized(domain="web_research").
+- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
+When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").
 Python on sheet data: write_range of =PY (that tool's description).
 SORT:
-Do calc_delegate_specialized(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
+Do {DELEGATE_SUBAGENT_TOOL}(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
@@ -560,19 +563,22 @@ CALC_HIDDEN_SPECIALIZED_DOMAINS = frozenset({"analysis", "python", "python/sql"}
 
 
 CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "SPECIALIZED CALC (nested tools): The default tool list hides advanced Calc features. "
-    "When the user needs those, call calc_delegate_specialized with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
+    "CALC SUB-AGENTS (nested tools): The default tool list hides advanced Calc features. "
+    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}} "
+    "and a plain-language `task`. Most domains start a sub-agent that has that domain's tools; "
+    "it does the task in the spreadsheet and returns a summary. "
     f"{SPECIALIZED_TASK_RULES}"
 )
 
 
 CALC_FORMULA_SYNTAX_TEMPLATE = (
-    """FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
-Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
-- Correct: =SUM(A1:A10), =IF(A1>0;B1;C1), =PY("result = …"; Orders.A1:H500)
-- Wrong: =IF(A1>0,"Yes","No"), Orders!A1
-- =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
+    """FORMULAS: Write formulas in Calc syntax:
+- Arguments: use `;` between arguments, e.g. =IF(A1>0; "Y"; "N").
+- Ranges and absolute refs: use A1:B5 for ranges and $A$1 for absolute references.
+- Other sheets: use Sheet2.A1, or $'My Sheet'.A1:B5 when the sheet name has spaces.
+- Inline arrays: use `;` between columns and `|` between rows, e.g. {1;2|3;4}.
+- Examples: =SUM(Sheet2.A1:A5; $B$1) and =VLOOKUP(A2; $'My Sheet'.$A$2:$C$20; 3; 0).
+- Python in a cell: =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
 {venv_policy}
 """
     # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]): sum raises TypeError, min/max return a whole row.
@@ -608,12 +614,12 @@ set_style: fixed properties only — not mixed rich text in a cell; use insert_h
 # Route flowcharts/process diagrams through the shapes sub-agent and verify via its return payload.
 DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
-- You MUST call draw_delegate_specialized(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
-When the user wants {DELEGATION_PUBLIC_WEB_HINT}, draw_delegate_specialized(domain="web_research").
+- You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
+When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").
 
-{delegation_math_to_python_hint(delegate_toolset="draw_delegate_specialized")}
-{python_orchestrator_routing_line(delegate_toolset="draw_delegate_specialized")}
-For flowcharts and process diagrams, call draw_delegate_specialized(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
+{delegation_math_to_python_hint(delegate_tool=DELEGATE_SUBAGENT_TOOL)}
+{python_orchestrator_routing_line(delegate_tool=DELEGATE_SUBAGENT_TOOL)}
+For flowcharts and process diagrams, call {DELEGATE_SUBAGENT_TOOL}(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
 
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.
@@ -621,9 +627,10 @@ IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS = frozenset({"ppt-master"})
 
 
 DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
-    "SPECIALIZED DRAW (nested tools): The default tool list hides advanced Draw/Impress features. "
-    "When the user needs those, call draw_delegate_specialized with: domain one of: {domains} "
-    "and a `task` string that fully specifies what the specialized task must do. The task executor has full tool access for that domain. "
+    "DRAW SUB-AGENTS (nested tools): The default tool list hides advanced Draw/Impress features. "
+    f"When the user needs one, call {DELEGATE_SUBAGENT_TOOL} with domain one of: {{domains}} "
+    "and a plain-language `task`. Most domains start a sub-agent that has that domain's tools; "
+    "it does the task on the drawing or presentation and returns a summary. "
     f"{SPECIALIZED_TASK_RULES}"
 )
 
@@ -635,7 +642,7 @@ DRAW_GET_IMAGE_TOOL_LINE = "- image_get: page=N (0-based) renders that page as a
 IMPRESS_TEXT_FILLS_BLOCK = (
     "IMPRESS TEXT FILLS:\n"
     "1. Prefer placeholder_list(page=N) before placeholder_set_text.\n"
-    "2. If count=0 or placeholder_set_text returns available=[], draw_delegate_specialized(domain=\"slide_layouts\", task=\"set layout 'text' on page N\") then placeholder_list again.\n"
+    f"2. If count=0 or placeholder_set_text returns available=[], {DELEGATE_SUBAGENT_TOOL}(domain=\"slide_layouts\", task=\"set layout 'text' on page N\") then placeholder_list again.\n"
     "3. If roles are missing but indices exist, placeholder_set_text(index=i, text=…).\n"
     "4. page on these tools is 0-based.\n"
     "5. Users and the slide pane count from 1, so slide 3 is index 2.\n\n"
@@ -666,7 +673,7 @@ Act directly using tools (perform as many steps as needed in one turn). Keep cha
 WORKFLOW:
 1. Understand the user's request.
 2. If needed, use shape_get_tree first on Draw documents (or slide_list, slide_read_text, get_deck_info) to understand current pages/slides and layout.
-3. Use the specialized delegation tool for shape operations (create, edit, group, paper-form fill via the shapes sub-agent's shape_fill_fields tool) and the other domains listed under SPECIALIZED DRAW.
+3. Use delegate_to_subagent for shape operations (create, edit, group, paper-form fill via the shapes sub-agent's shape_fill_fields tool) and the other domains listed under DRAW SUB-AGENTS.
 4. Give a short confirmation; when you changed pages/shapes, mention them.
 
 {IMPRESS_TEXT_FILLS_BLOCK}TOOLS (grouped by use):

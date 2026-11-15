@@ -943,9 +943,9 @@ def test_tool_loop_lane_status_callback_queues_status() -> None:
     ("func_name", "func_args_str", "expect_refresh"),
     [
         ("web_research", '{"query": "x"}', False),
-        ("writer_delegate_specialized", '{"domain": "web_research", "task": "x"}', False),
-        ("writer_delegate_specialized", '{"domain": "document_research", "task": "x"}', False),
-        ("writer_delegate_specialized", '{"domain": "tables", "task": "x"}', True),
+        ("delegate_to_subagent", '{"domain": "web_research", "task": "x"}', False),
+        ("delegate_to_subagent", '{"domain": "document_research", "task": "x"}', False),
+        ("delegate_to_subagent", '{"domain": "tables", "task": "x"}', True),
         ("apply_content", '{"content": "hi", "target": "end"}', True),
     ],
 )
@@ -957,11 +957,11 @@ def test_tool_done_refreshes_document_context_only_for_mutating_calls(
     from plugin.chatbot.tool_loop_state import ToolLoopState, UpdateDocumentContextEffect, next_state
     from plugin.chatbot.web_research import WebResearchTool
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
     tools_map = {
         "web_research": WebResearchTool(),
-        "writer_delegate_specialized": DelegateToSpecializedWriter(),
+        "delegate_to_subagent": DelegateToSubagent(),
         "apply_content": ApplyDocumentContent(),
     }
     registry_stub = MagicMock()

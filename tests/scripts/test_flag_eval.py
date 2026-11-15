@@ -60,7 +60,7 @@ def _odt(path: Path, *, stars: int) -> Path:
 def _good_trace() -> list[dict[str, str]]:
     return [
         {
-            "name": "writer_delegate_specialized",
+            "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "python", "task": "American flag"}),
         },
         {
@@ -137,4 +137,4 @@ def test_shapes_hop_exposes_venv_and_hides_shape_upsert() -> None:
     assert "workflow_finished" in names
     assert "shape_upsert" not in names
     assert "python_delegate_domains" not in names
-    assert "writer_delegate_specialized" not in names
+    assert "delegate_to_subagent" not in names
