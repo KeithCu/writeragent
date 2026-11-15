@@ -53,7 +53,7 @@ def test_excel_inline_arrays_and_calc_only_functions_uno(ctx, doc):
 
     arr_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D1"], "values": "=TRANSPOSE({1,2;3,4})"})
     assert arr_res.get("status") == "ok", arr_res
-    assert arr_res.get("array_range") == "Sheet1.D1:E2", arr_res
+    assert arr_res.get("array_range") == "D1:E2", arr_res
     assert sheet.getCellRangeByPosition(3, 0, 4, 1).getDataArray() == ((1.0, 3.0), (2.0, 4.0))
 
     res = _execute_calc_tool(
@@ -170,7 +170,7 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
         {"range": ["F1"], "values": "={1;2|3;4}", "array": True},
     )
     assert calc_arr.get("status") == "ok", calc_arr
-    assert calc_arr.get("array_range") == "Sheet1.F1:G2", calc_arr
+    assert calc_arr.get("array_range") == "F1:G2", calc_arr
     assert active.getCellRangeByPosition(5, 0, 6, 1).getDataArray() == ((1.0, 2.0), (3.0, 4.0))
 
     # Structured reference (Calc-clean, raw) stays working.
@@ -215,7 +215,7 @@ def test_excel_fill_down_bulk_dynamic_array_and_roundtrip_uno(ctx, doc):
 
     dyn_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["F1"], "values": "=FILTER(A1:A5,A1:A5>2)"})
     assert dyn_res.get("status") == "ok", dyn_res
-    assert dyn_res.get("array_range") == "Sheet1.F1:F3", dyn_res
+    assert dyn_res.get("array_range") == "F1:F3", dyn_res
     assert sheet.getCellRangeByPosition(5, 0, 5, 2).getDataArray() == ((3.0,), (4.0,), (5.0,))
 
     xlook_res = _execute_calc_tool(
