@@ -432,3 +432,29 @@ def test_summarize_shape_calls_collects_singular_geometry_warning_and_caps_names
     assert summary["shapes_created"] == 51
     assert len(summary["created_names"]) == 40
     assert summary["warnings"] == ["Custom shape geometry failed: x"]
+
+
+def test_summarize_shape_calls_fill_failure_at_index_zero_and_unlabeled():
+    calls = [
+        InnerToolCall(
+            "shape_fill_fields",
+            {
+                "status": "partial",
+                "page": 0,
+                "ok_count": 0,
+                "fail_count": 2,
+                "results": [
+                    {"ok": False, "name": "", "index": 0},
+                    {"ok": False},
+                ],
+            },
+            True,
+        ),
+    ]
+
+    summary = summarize_shape_calls(calls)
+    assert len(summary["warnings"]) == 1
+    warning = summary["warnings"][0]
+    assert "?" not in warning
+    assert "0" in warning
+    assert "field 1" in warning

@@ -908,6 +908,21 @@ def test_delegate_requires_document_lock_read_only_domains():
     assert gw.requires_document_lock({}) is True
 
 
+def _fake_upsert_tool() -> Any:
+    from plugin.writer.specialized_base import ToolWriterShapeBase
+
+    class _FakeUpsert(ToolWriterShapeBase):
+        name = "shape_upsert"
+        description = "Fake upsert."
+        parameters = {"type": "object", "properties": {}}
+        is_mutation = True
+
+        def execute(self, ctx, **kw):
+            return {"status": "ok", "action": "create", "name": "Box", "page": 0, "index": 0}
+
+    return _FakeUpsert()
+
+
 def _run_shapes_delegation(
     writer_gateway: DelegateToSpecializedWriter,
     tools: list[Any],
@@ -940,24 +955,13 @@ def _run_shapes_delegation(
 def test_delegate_shapes_reports_created_counts(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:
-    from plugin.writer.specialized_base import ToolWriterShapeBase
-
-    class _FakeUpsert(ToolWriterShapeBase):
-        name = "shape_upsert"
-        description = "Fake upsert."
-        parameters = {"type": "object", "properties": {}}
-        is_mutation = True
-
-        def execute(self, ctx, **kw):
-            return {"status": "ok", "action": "create", "name": "Box", "page": 0, "index": 0}
-
     def _run_inner(_ctx, smol_tools, **_kw):
         by_name = {t.name: t for t in smol_tools}
         by_name["shape_upsert"].forward()
         by_name["specialized_workflow_finished"].forward(answer="Placed Box")
         return {"status": "ok", "finished": True, "answer": "Placed Box"}
 
-    result = _run_shapes_delegation(writer_gateway, [_FakeUpsert()], _run_inner)
+    result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool()], _run_inner)
     assert result["status"] == "ok"
     assert result["shapes_created"] == 1
     assert result["connectors_created"] == 0
@@ -970,23 +974,13 @@ def test_delegate_shapes_finish_only_reports_zero_counts(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:
     from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
-    from plugin.writer.specialized_base import ToolWriterShapeBase
-
-    class _FakeUpsert(ToolWriterShapeBase):
-        name = "shape_upsert"
-        description = "Fake upsert."
-        parameters = {"type": "object", "properties": {}}
-        is_mutation = True
-
-        def execute(self, ctx, **kw):
-            return {"status": "ok", "action": "create", "name": "Box", "page": 0, "index": 0}
 
     def _run_inner(_ctx, smol_tools, **_kw):
         by_name = {t.name: t for t in smol_tools}
         by_name["specialized_workflow_finished"].forward(answer="Done")
         return {"status": "ok", "finished": True, "answer": "Done"}
 
-    result = _run_shapes_delegation(writer_gateway, [_FakeUpsert()], _run_inner)
+    result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool()], _run_inner)
     assert result["status"] == "ok"
     assert result["shapes_created"] == 0
     assert result["connectors_created"] == 0
@@ -999,15 +993,6 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:
     from plugin.writer.specialized_base import ToolWriterShapeBase
-
-    class _FakeUpsert(ToolWriterShapeBase):
-        name = "shape_upsert"
-        description = "Fake upsert."
-        parameters = {"type": "object", "properties": {}}
-        is_mutation = True
-
-        def execute(self, ctx, **kw):
-            return {"status": "ok", "action": "create", "name": "Box", "page": 0, "index": 0}
 
     class _FakeConnect(ToolWriterShapeBase):
         name = "shape_connect"
@@ -1025,7 +1010,7 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
         by_name["specialized_workflow_finished"].forward(answer="Partially done")
         return {"status": "ok", "finished": True, "answer": "Partially done"}
 
-    result = _run_shapes_delegation(writer_gateway, [_FakeUpsert(), _FakeConnect()], _run_inner)
+    result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool(), _FakeConnect()], _run_inner)
     assert result["status"] == "error"
     assert result["code"] == "SPECIALIZED_TOOL_ERROR"
     assert result["shapes_created"] == 1

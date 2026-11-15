@@ -182,6 +182,18 @@ def _add_warning(warnings: list[Any], item: Any) -> None:
         warnings.append(item)
 
 
+def _failed_field_label(entry: dict[str, Any], pos: int) -> str:
+    for key in ("name", "label_hint"):
+        val = entry.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    for key in ("index", "path_index"):
+        val = entry.get(key)
+        if val is not None:
+            return str(val)
+    return f"field {pos}"
+
+
 def summarize_shape_calls(calls: Sequence[InnerToolCall]) -> dict[str, Any]:
     """What a shapes delegation placed or changed, read from its own inner tool results.
 
@@ -214,10 +226,8 @@ def summarize_shape_calls(calls: Sequence[InnerToolCall]) -> dict[str, Any]:
         if _is_int(page):
             pages_set.add(page)
 
-        res_warnings = res.get("warnings")
-        if isinstance(res_warnings, list):
-            for w in res_warnings:
-                _add_warning(warnings, w)
+        for w in res.get("warnings") or ():
+            _add_warning(warnings, w)
         _add_warning(warnings, res.get("warning"))
 
         name = call.name
@@ -227,39 +237,24 @@ def summarize_shape_calls(calls: Sequence[InnerToolCall]) -> dict[str, Any]:
         elif name == "shape_connect":
             connectors_created += 1
         elif name == "shape_diagram":
-            nodes = res.get("nodes")
-            connections = res.get("connections")
-            shapes_created += len(nodes) if isinstance(nodes, list) else 0
-            connectors_created += len(connections) if isinstance(connections, list) else 0
+            shapes_created += len(res.get("nodes", []))
+            connectors_created += len(res.get("connections", []))
         elif name == "shape_fill_fields":
-            ok_count = res.get("ok_count")
-            if _is_int(ok_count):
-                shapes_changed += ok_count
+            shapes_changed += int(res.get("ok_count", 0))
             failed_labels: list[str] = []
-            results = res.get("results")
-            if isinstance(results, list):
-                for entry in results:
-                    if not isinstance(entry, dict):
-                        continue
-                    if entry.get("ok"):
-                        _record_name(changed_names, entry.get("name"))
-                    else:
-                        label = (
-                            entry.get("name")
-                            or entry.get("label_hint")
-                            or entry.get("index")
-                            or entry.get("path_index")
-                        )
-                        failed_labels.append(str(label) if label is not None else "?")
-            fail_count = res.get("fail_count")
-            if _is_int(fail_count) and fail_count > 0:
+            for pos, entry in enumerate(res.get("results", ())):
+                if entry.get("ok"):
+                    _record_name(changed_names, entry.get("name"))
+                else:
+                    failed_labels.append(_failed_field_label(entry, pos))
+            fail_count = int(res.get("fail_count", 0))
+            if fail_count > 0:
                 suffix = f": {', '.join(failed_labels)}" if failed_labels else ""
                 _add_warning(warnings, f"shape_fill_fields left {fail_count} field(s) unfilled{suffix}")
         elif name == "shape_delete":
             shapes_deleted += 1
         else:
-            indices = res.get("indices")
-            shapes_changed += len(indices) if isinstance(indices, list) and indices else 1
+            shapes_changed += len(res.get("indices") or ()) or 1
             _record_name(changed_names, res.get("name"))
 
     out: dict[str, Any] = {

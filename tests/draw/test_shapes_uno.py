@@ -358,7 +358,7 @@ def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
         height=1200,
     )
     assert r2.get("status") == "ok", r2
-    r3 = ConnectShapes().execute(tctx, start=start_count, end="Start", page=0)
+    r3 = ConnectShapes().execute(tctx, start=start_count + 1, end="Start", page=0)
     assert r3.get("status") == "ok", r3
     r4 = CreateDiagram().execute(
         tctx,
@@ -369,11 +369,12 @@ def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
     )
     assert r4.get("status") == "ok", r4
 
+    assert UpsertShape.name and ConnectShapes.name and CreateDiagram.name
     summary = summarize_shape_calls([
-        InnerToolCall(upsert.name or "shape_upsert", r1, True),
-        InnerToolCall(upsert.name or "shape_upsert", r2, True),
-        InnerToolCall("shape_connect", r3, True),
-        InnerToolCall("shape_diagram", r4, True),
+        InnerToolCall(UpsertShape.name, r1, True),
+        InnerToolCall(UpsertShape.name, r2, True),
+        InnerToolCall(ConnectShapes.name, r3, True),
+        InnerToolCall(CreateDiagram.name, r4, True),
     ])
     assert summary["shapes_created"] == 4
     assert summary["connectors_created"] == 2
