@@ -1739,4 +1739,39 @@ def test_apply_document_content_selection_failure_not_silent():
     assert "selection" in result.get("message", "")
 
 
+def test_selection_snapped_insert_reports_snapped_to_paragraph():
+    from plugin.framework.config import save
+    save({"doc.agent_edit_review_mode": "none"})
+    from plugin.writer import html_import
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_import_styles import WriteReport
+
+    ctx = MagicMock()
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    ctx.services.get.return_value = MagicMock()
+    with (
+        patch("plugin.writer.apply_document_content.selection_anchor", return_value=None),
+        patch.object(
+            html_import,
+            "insert_content_at_position",
+            return_value=WriteReport(snapped_to_paragraph=True),
+        ),
+    ):
+        res_snapped = ApplyDocumentContent().execute(ctx, content="<p>A</p>", target="selection")
+    assert res_snapped["status"] == "ok"
+    assert res_snapped["snapped_to_paragraph"] is True
+
+    with (
+        patch("plugin.writer.apply_document_content.selection_anchor", return_value=None),
+        patch.object(
+            html_import,
+            "insert_content_at_position",
+            return_value=WriteReport(),
+        ),
+    ):
+        res_plain = ApplyDocumentContent().execute(ctx, content="x", target="selection")
+    assert res_plain["status"] == "ok"
+    assert "snapped_to_paragraph" not in res_plain
+
+
 
