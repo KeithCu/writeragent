@@ -185,7 +185,8 @@ class GetImage(ToolBase):
     tier: str = "core"
     description: str = (
         "Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name "
-        "from image_list / get_page_objects> for an embedded picture; selection=true for the image "
+        "from get_draw_tree on Draw/Impress, or get_document_content / get_sheet_summary / image_list "
+        "on Writer/Calc> for an embedded picture; selection=true for the image "
         "currently selected; or page=<n> (0-based) to render that whole PAGE as an image "
         "(Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= "
         "here when you need to see the rendered page. Returns the picture itself, not a description. "
@@ -195,7 +196,7 @@ class GetImage(ToolBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page."},
+            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from get_draw_tree on Draw/Impress, or document reads / image_list). Pass at most one of image, selection, or page."},
             "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page."},
             "page": {"type": "integer", "description": "0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page."},
             "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names)."},

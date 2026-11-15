@@ -237,7 +237,7 @@ def _tts_flags(*, short_answers: bool, tts_enabled: bool):
 
 
 def test_tts_short_answers_injected_when_option_and_tts_on():
-    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION
 
     with patch(
         "plugin.framework.config.get_config",
@@ -246,14 +246,13 @@ def test_tts_short_answers_injected_when_option_and_tts_on():
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
 
     assert TTS_SHORT_ANSWERS_INSTRUCTION in prompt
-    assert TTS_SHORT_ANSWERS_REMINDER in prompt
-    assert prompt.index("house style") < prompt.index(TTS_SHORT_ANSWERS_INSTRUCTION) < prompt.index(TTS_SHORT_ANSWERS_REMINDER)
-    assert prompt.rstrip().endswith(TTS_SHORT_ANSWERS_REMINDER)
+    assert prompt.index("house style") < prompt.index(TTS_SHORT_ANSWERS_INSTRUCTION)
+    assert prompt.rstrip().endswith(TTS_SHORT_ANSWERS_INSTRUCTION)
     assert prompt.count(TTS_SHORT_ANSWERS_INSTRUCTION) == 1
 
 
 def test_tts_short_answers_absent_when_tts_off():
-    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION
 
     with patch(
         "plugin.framework.config.get_config",
@@ -262,13 +261,12 @@ def test_tts_short_answers_absent_when_tts_off():
         prompt = get_chat_system_prompt_for_document(_writer_model(), "house style")
 
     assert TTS_SHORT_ANSWERS_INSTRUCTION not in prompt
-    assert TTS_SHORT_ANSWERS_REMINDER not in prompt
     assert "house style" in prompt
     assert "<<<profile>>>" in prompt
 
 
 def test_tts_short_answers_absent_when_checkbox_off():
-    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION, TTS_SHORT_ANSWERS_REMINDER
+    from plugin.framework.prompts import TTS_SHORT_ANSWERS_INSTRUCTION
 
     with patch(
         "plugin.framework.config.get_config",
@@ -277,7 +275,6 @@ def test_tts_short_answers_absent_when_checkbox_off():
         prompt = get_chat_system_prompt_for_document(_writer_model())
 
     assert TTS_SHORT_ANSWERS_INSTRUCTION not in prompt
-    assert TTS_SHORT_ANSWERS_REMINDER not in prompt
 
 
 def test_user_memory_long_blob_is_truncated_short_is_unchanged():
@@ -532,4 +529,7 @@ def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=True),
     ):
         assert "list_placeholders" in get_chat_system_prompt_for_kind("impress")
-        assert "list_placeholders" not in get_chat_system_prompt_for_kind("draw")
+        draw_prompt = get_chat_system_prompt_for_kind("draw")
+        assert "list_placeholders" not in draw_prompt
+        for tool_name in ("add_slide", "delete_slide", "duplicate_slide", "move_slide", "rename_slide", "set_active_page", "undo", "redo"):
+            assert f"- {tool_name}:" in draw_prompt

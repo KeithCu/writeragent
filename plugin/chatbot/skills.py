@@ -44,10 +44,10 @@ Key rules (prioritized for office/professional writing):
 - Eliminate formulaic structures: rule-of-three lists, "not only X but Y", excessive em-dashes, bolded inline headers, emojis in body text.
 - Drop chatbot artifacts: "Great question!", "I hope this helps", "Let me know if...", "In conclusion, the future looks bright".
 - Avoid hedging and weasel words when you have evidence. Say what you mean directly.
-- Add soul when appropriate: opinions, uncertainty ("I don't know how to feel about this"), first-person where it fits the voice, small tangents or personality.
+- For document prose (not chat replies), add soul when appropriate: opinions, uncertainty ("I don't know how to feel about this"), first-person where it fits the voice, small tangents or personality.
 - Preserve the user's intended meaning and any existing document style. Do not over-polish or change voice unless asked.
 
-When revising via apply_document_content, run the output through these rules (silently) so the inserted text feels written by a thoughtful human, not generated.
+When drafting or revising document text, run the output through these rules (silently) so the inserted text feels written by a thoughtful human, not generated.
 
 If the user provides a personal writing sample or style preference, match that rhythm and word choice instead of the generic "natural" voice.
 """
