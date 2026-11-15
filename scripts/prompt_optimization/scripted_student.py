@@ -736,7 +736,7 @@ SCRIPTS["formula_table"] = [
                             FORMULA_TABLE_ITEMS, start=2
                         )
                     ]
-                    + [["Total", "", "", "=SUM(D2:D9)"]]
+                    + [["Total", "", "", f"=SUM(D2:D{1 + len(FORMULA_TABLE_ITEMS)})"]]
                 ),
             },
             "formula_1",

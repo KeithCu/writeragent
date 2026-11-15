@@ -119,7 +119,7 @@ python run_optimize.py -m openai/gpt-oss-120b:nitro -k sk-...
 
 Optimization and multi-model eval use **result oracles** for structural tasks (`oracles.py` on the exported final document). **LLM-as-a-Judge** (default **`openai/gpt-oss-120b:nitro`**) is for quality after the hard gate.
 
-- **Dual-Mode Scoring**: Hard gate first (substring + result oracles + process oracles). A quality judge runs after that gate for resume, rewriting, summarization, and the two table tasks:
+- **Dual-Mode Scoring**: Hard gate first (substring + result oracles + process oracles). A quality judge runs after that gate for resume, rewriting, summarization, and the two Writer table tasks:
     - **Creative** (resume, rewriting, summarization): 50% accuracy, 20% formatting, 30% naturalness.
     - **Tables** (`table_from_mess`, `table_engineering`): 20% accuracy, 80% formatting.
     - Other structural tasks stay oracle-only (no judge).
@@ -131,7 +131,7 @@ Optimization and multi-model eval use **result oracles** for structural tasks (`
 
 `dataset.py` `ALL_EXAMPLES` is **24 tasks**: 15 Writer-kind (the original 8 plus `style_consistency`, `smart_summarization`, `section_refactor`, `comment_management`, the two `backend=lo` TOC rows `toc_list_entries` / `toc_renumber_insert`, and `python_shapes_flag` with `backend=lo`), 3 Draw (`flowchart_gen` / `org_chart_gen` / `solar_sld_gen`, where org chart and solar SLD are `backend=lo`), and 6 Calc (`data_sorting`, `tax_column`, `paste_table`, `formula_table`, plus the two Phase F `=PY` dest rows `py_refuse_overlap` and `py_no_bulk_read`). Each has fixed `document_content` and `user_question` so runs are comparable. Kind is keyed by `task_id` (`task_kind()`), not question keywords. Rows omit `backend` to stay on the string world. The flag cannot be faked there.
 
-Hard pass is the **exported final document** plus process oracles (`oracles.py` / `process_oracles.py`). `python_shapes_flag` is the exception: hard pass is the harness trace plus exported Writer geometry (`flag_eval.py`). Under-counted stars are soft and do not fail. A quality LLM judge runs **after** that gate for resume, rewriting, summarization, and the two table tasks. Eval does not set sampling temperature. `gold_standards.json` is hand-written from the rubrics (no live teacher API unless `--generate-golds`). Specialized Draw/Calc tools are reached through an inner `LlmClient` loop (`domain="shapes"` / `"ranges"`), not SmolAgents.
+Hard pass is the **exported final document** plus process oracles (`oracles.py` / `process_oracles.py`). `python_shapes_flag` is the exception: hard pass is the harness trace plus exported Writer geometry (`flag_eval.py`). Under-counted stars are soft and do not fail. A quality LLM judge runs **after** that gate for resume, rewriting, summarization, and the two Writer table tasks (`table_from_mess`, `table_engineering`); the two Calc table tasks (`paste_table`, `formula_table`) have no LLM judge. Eval does not set sampling temperature. `gold_standards.json` is hand-written from the rubrics (no live teacher API unless `--generate-golds`). Specialized Draw/Calc tools are reached through an inner `LlmClient` loop (`domain="shapes"` / `"ranges"`), not SmolAgents.
 
 ## Tool subset
 

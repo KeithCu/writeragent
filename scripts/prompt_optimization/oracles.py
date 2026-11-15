@@ -927,11 +927,13 @@ def oracle_tax_column(doc: str) -> list[str]:
 
 
 def _cell_number(value: Any) -> float | None:
-    """Parse a Calc cell value as a number using the production write rule.
+    """Parse a Calc cell value as a number for strict table grading.
 
-    Matches plugin/calc/manipulator.py (_classify_write_cell): plain numeric
-    strings become numbers, while formatted strings like '1,001' or '$4.50'
-    stay text and SUM skips them.
+    Unlike `_as_float`, this does not strip `,` or `$` so formatted strings
+    like `'1,001'` or `'$4.50'` (which `plugin/calc/manipulator.py`
+    `_classify_write_cell` stores as text, causing `SUM` to skip them) fail.
+    It also rejects `bool` even though production stores `True`/`False` as
+    1.0/0.0, because a literal JSON boolean is not a typed number.
     """
     if isinstance(value, bool):
         return None
@@ -964,7 +966,28 @@ def _grid_mismatch(grid: list[list[Any]], expected: list[list[Any]]) -> str | No
 
 
 def _is_row_product(text: str, left: str, right: str) -> bool:
+    """Accept `=left*right` or `=right*left` (allowing `$` and `;` via `_normalize_formula`); reject `=PRODUCT` under the same strict-shape policy as `tax_column`."""
     return _normalize_formula(text) in (f"={left}*{right}", f"={right}*{left}")
+
+
+def _formula_at(
+    grid: list[list[Any]],
+    formulas: dict[str, Any],
+    row_1based: int,
+    col_idx: int,
+) -> str:
+    """Return the formula text at (row_1based, col_idx).
+
+    The string world keeps formula text in the grid, while the headless-LO
+    export carries it in `formulas`; checking both handles either export shape.
+    """
+    from eval_worlds import col_row_to_a1
+
+    addr = col_row_to_a1(col_idx, row_1based - 1)
+    row_cells = grid[row_1based - 1] if row_1based - 1 < len(grid) else []
+    cell = row_cells[col_idx] if col_idx < len(row_cells) else ""
+    grid_formula = cell if isinstance(cell, str) and cell.lstrip().startswith("=") else ""
+    return str(formulas.get(addr) or grid_formula)
 
 
 def oracle_paste_table(doc: str) -> list[str]:
@@ -990,16 +1013,11 @@ def oracle_formula_table(doc: str) -> list[str]:
     if miss:
         return [miss]
 
-    # The string world keeps formula text in the grid, and the headless-LO export
-    # carries it in `formulas`; checking both handles either export shape.
     data = parse_json_export(doc) or {}
     formulas = data.get("formulas") if isinstance(data.get("formulas"), dict) else {}
     last_item_row = 1 + len(FORMULA_TABLE_ITEMS)
     for r in range(2, last_item_row + 1):
-        row_cells = grid[r - 1] if r - 1 < len(grid) else []
-        cell = row_cells[3] if len(row_cells) > 3 else ""
-        grid_formula = cell if isinstance(cell, str) and cell.lstrip().startswith("=") else ""
-        text = str(formulas.get(f"D{r}") or grid_formula)
+        text = _formula_at(grid, formulas, r, 3)
         if not _is_row_product(text, f"B{r}", f"C{r}"):
             return [f"D{r} is not a =B{r}*C{r} formula"]
 
@@ -1009,12 +1027,8 @@ def oracle_formula_table(doc: str) -> list[str]:
         for cell in total_row[:3]
     ):
         return ["no Total row under the items"]
-    d10_cell = total_row[3] if len(total_row) > 3 else ""
-    d10_grid = (
-        d10_cell if isinstance(d10_cell, str) and d10_cell.lstrip().startswith("=") else ""
-    )
-    d10_text = str(formulas.get(f"D{last_item_row + 1}") or d10_grid)
-    if _normalize_formula(d10_text) != f"=SUM(D2:D{last_item_row})":
+    total_text = _formula_at(grid, formulas, last_item_row + 1, 3)
+    if _normalize_formula(total_text) != f"=SUM(D2:D{last_item_row})":
         return [f"D{last_item_row + 1} is not =SUM(D2:D{last_item_row})"]
     return []
 

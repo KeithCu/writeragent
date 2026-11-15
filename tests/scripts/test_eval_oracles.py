@@ -131,17 +131,21 @@ _PASTE_GOOD_ROWS[1][0] = "1001"
 _PASTE_GOOD_ROWS[1][4] = "4.5"
 _PASTE_GOOD = _calc_doc(_PASTE_GOOD_ROWS)
 
+_FORMULA_LAST_ROW = 1 + len(FORMULA_TABLE_ITEMS)
+_FORMULA_TOTAL_ROW = _FORMULA_LAST_ROW + 1
+_FORMULA_SUM = f"=SUM(D2:D{_FORMULA_LAST_ROW})"
+
 _FORMULA_GOOD_ROWS: list[list[object]] = (
     [list(FORMULA_TABLE_HEADER)]
     + [
         [item, qty, price, f"=B{r}*C{r}"]
         for r, (item, qty, price) in enumerate(FORMULA_TABLE_ITEMS, start=2)
     ]
-    + [["Total", "", "", "=SUM(D2:D9)"]]
+    + [["Total", "", "", _FORMULA_SUM]]
 )
 _FORMULA_GOOD_MAP = {
-    **{f"D{r}": f"=B{r}*C{r}" for r in range(2, 2 + len(FORMULA_TABLE_ITEMS))},
-    "D10": "=SUM(D2:D9)",
+    **{f"D{r}": f"=B{r}*C{r}" for r in range(2, _FORMULA_TOTAL_ROW)},
+    f"D{_FORMULA_TOTAL_ROW}": _FORMULA_SUM,
 }
 _FORMULA_GOOD = _calc_doc(_FORMULA_GOOD_ROWS, _FORMULA_GOOD_MAP)
 
@@ -152,11 +156,11 @@ _PASTE_CURRENCY_ROWS = _paste_rows_copy()
 _PASTE_CURRENCY_ROWS[1][4] = "$4.50"
 
 _FORMULA_PINNED_ROWS = [list(row) for row in _FORMULA_GOOD_ROWS]
-for _r in range(2, 2 + len(FORMULA_TABLE_ITEMS)):
+for _r in range(2, _FORMULA_TOTAL_ROW):
     _FORMULA_PINNED_ROWS[_r - 1][3] = "=B2*C2"
 _FORMULA_PINNED_MAP = {
-    **{f"D{r}": "=B2*C2" for r in range(2, 2 + len(FORMULA_TABLE_ITEMS))},
-    "D10": "=SUM(D2:D9)",
+    **{f"D{r}": "=B2*C2" for r in range(2, _FORMULA_TOTAL_ROW)},
+    f"D{_FORMULA_TOTAL_ROW}": _FORMULA_SUM,
 }
 _FORMULA_NO_TOTAL_ROWS = _FORMULA_GOOD_ROWS[:-1]
 _FLOW_GOOD = json.dumps(
