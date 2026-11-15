@@ -54,6 +54,7 @@ _IN_SCROLL_TO_TAIL: set[int] = set()
 # Focus trackers by control id. Stick-to-bottom skips SelectAll while the
 # transcript has focus. See RichFocusTracker.
 _FOCUS_TRACKERS: dict[int, "RichFocusTracker"] = {}
+_ACC_ROLE_SCROLL_BAR = 50  # com.sun.star.accessibility.AccessibleRole.SCROLL_BAR
 RICH_CONTROL_NAME = "response_rich"
 # Dialog units (AppFont) — inset RichTextControl inside the response placeholder so glyphs are not clipped.
 RICH_CONTROL_EDGE_INSET = 8
@@ -1181,6 +1182,57 @@ def _remove_scroll_pad(model: Any) -> None:
         log.exception("_remove_scroll_pad failed")
 
 
+def _rich_vscroll_accessible(control: Any) -> Any | None:
+    """XAccessibleValue of the transcript's vertical scroll bar, or None."""
+
+    def _find(obj: Any, depth: int) -> Any | None:
+        ctx = obj.getAccessibleContext() if hasattr(obj, "getAccessibleContext") else None
+        if ctx is None:
+            return None
+        if ctx.getAccessibleRole() == _ACC_ROLE_SCROLL_BAR and hasattr(ctx, "setCurrentValue"):
+            return ctx
+        if depth >= 6:
+            return None
+        for i in range(ctx.getAccessibleChildCount()):
+            found = _find(ctx.getAccessibleChild(i), depth + 1)
+            if found is not None:
+                return found
+        return None
+
+    try:
+        return _find(control, 0)
+    except Exception as e:
+        log.debug("_rich_vscroll_accessible: %s", e)
+        return None
+
+
+def collapse_rich_selection_keep_view(control: Any) -> None:
+    """Collapse the transcript selection without moving the view.
+
+    Called when the transcript loses focus. HideInactiveSelection hides the
+    user's selection, but EditView keeps it, so the next press inside it is a
+    drag-and-drop start and the first click does not start a new selection.
+    ``_select_all_collapsed`` scrolls to the end (SelectAll ShowCursor), so put
+    the scroll bar back through its accessible value (VCLXScrollBar::setValue
+    scrolls the view). The PRIMARY selection keeps the old text.
+    """
+    if control is None:
+        return
+    ctrl_id = id(control)
+    if ctrl_id in _IN_SCROLL_TO_TAIL:
+        return
+    _IN_SCROLL_TO_TAIL.add(ctrl_id)
+    try:
+        bar = _rich_vscroll_accessible(control)
+        value = bar.getCurrentValue() if bar is not None else None
+        _select_all_collapsed(control)
+        if bar is not None and value is not None:
+            bar.setCurrentValue(value)
+        log_rich_scroll("collapse_stale_selection", restored=value)
+    finally:
+        _IN_SCROLL_TO_TAIL.discard(ctrl_id)
+
+
 @final
 class RichFocusTracker:
     """Track whether the transcript viewport has focus.
@@ -1200,7 +1252,9 @@ class RichFocusTracker:
         self.has_focus = True
 
     def focus_lost(self) -> None:
+        """Collapse the user's selection, now hidden, so the next press starts a new one."""
         self.has_focus = False
+        best_effort(lambda: collapse_rich_selection_keep_view(self.control), "rich collapse on focus lost")
 
     def mouse_pressed(self) -> None:
         if callable(self.on_press):

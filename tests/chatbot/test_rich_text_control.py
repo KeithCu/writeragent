@@ -956,7 +956,8 @@ class TestSelectAllCollapsedAndFocusSkip:
             d.assert_not_called()
             restore.assert_not_called()
 
-            tracker.focus_lost()
+            with patch("plugin.chatbot.rich_text_control.collapse_rich_selection_keep_view"):
+                tracker.focus_lost()
             with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", return_value=True) as d:
                 rtc._scroll_rich_to_tail(control, restore_focus=restore)
             d.assert_called_once_with(control, ".uno:SelectAll")
@@ -980,3 +981,91 @@ class TestSelectAllCollapsedAndFocusSkip:
             assert id(control) not in rtc._FOCUS_TRACKERS
         finally:
             rtc._FOCUS_TRACKERS.pop(id(control), None)
+
+
+class _Acc:
+    """Accessible node: a context with a role and children."""
+
+    def __init__(self, role, children=()):
+        self.role, self.children = role, list(children)
+
+    def getAccessibleContext(self):
+        return self
+
+    def getAccessibleRole(self):
+        return self.role
+
+    def getAccessibleChildCount(self):
+        return len(self.children)
+
+    def getAccessibleChild(self, i):
+        return self.children[i]
+
+
+class _AccBar(_Acc):
+    """Scroll bar node with an XAccessibleValue."""
+
+    def __init__(self, role, value, log):
+        super().__init__(role)
+        self.value, self.log = value, log
+
+    def getCurrentValue(self):
+        return self.value
+
+    def setCurrentValue(self, v):
+        self.log.append(("set_scroll", v))
+        self.value = v
+        return True
+
+
+class TestCollapseStaleSelection:
+    """Leaving the transcript collapses the hidden user selection without scrolling it."""
+
+    def test_finds_nested_scroll_bar(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        bar = _AccBar(rtc._ACC_ROLE_SCROLL_BAR, 7, [])
+        root = _Acc(0, [_Acc(1), _Acc(2, [_Acc(3), bar])])
+        assert rtc._rich_vscroll_accessible(root) is bar
+        assert rtc._rich_vscroll_accessible(_Acc(0, [_Acc(1)])) is None
+
+    def test_focus_lost_collapses_and_restores_scroll(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        log = []
+        bar = _AccBar(rtc._ACC_ROLE_SCROLL_BAR, 40, log)
+        control = MagicMock()
+        control.getAccessibleContext.return_value = _Acc(0, [bar])
+        tracker = rtc.RichFocusTracker(control)
+        tracker.focus_gained()
+
+        def collapse(_control):
+            log.append(("collapse",))
+            bar.value = 102  # SelectAll's ShowCursor scrolls to the end
+
+        with patch("plugin.chatbot.rich_text_control._select_all_collapsed", side_effect=collapse):
+            tracker.focus_lost()
+        assert not tracker.has_focus
+        assert log == [("collapse",), ("set_scroll", 40)]
+        assert bar.value == 40
+
+    def test_collapse_skipped_inside_scroll_to_tail(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        control = MagicMock()
+        rtc._IN_SCROLL_TO_TAIL.add(id(control))
+        try:
+            with patch("plugin.chatbot.rich_text_control._select_all_collapsed") as sel:
+                rtc.collapse_rich_selection_keep_view(control)
+            sel.assert_not_called()
+        finally:
+            rtc._IN_SCROLL_TO_TAIL.discard(id(control))
+
+    def test_collapse_without_scroll_bar_still_collapses(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        control = MagicMock()
+        with patch("plugin.chatbot.rich_text_control._rich_vscroll_accessible", return_value=None), patch("plugin.chatbot.rich_text_control._select_all_collapsed") as sel:
+            rtc.collapse_rich_selection_keep_view(control)
+        sel.assert_called_once_with(control)
+        assert id(control) not in rtc._IN_SCROLL_TO_TAIL
