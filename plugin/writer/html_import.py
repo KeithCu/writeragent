@@ -387,6 +387,8 @@ def insert_html_after_paragraph(
     text_obj: Any,
     cursor: Any,
     content: str,
+    *,
+    clean_around_table: bool = False,
 ) -> html_import_styles.WriteReport:
     """Import block *content* as new paragraphs immediately after *cursor*'s paragraph.
 
@@ -396,11 +398,18 @@ def insert_html_after_paragraph(
     the first block onto the text before *cursor*. Importing at the start of an empty
     paragraph avoids that merge, so this moves *cursor* to the end of its paragraph,
     inserts a paragraph break to open an empty paragraph, imports at its start, and
-    deletes the empty paragraph(s) left around the imported blocks.
+    deletes the empty paragraph(s) left behind.
+
+    When *clean_around_table* is True (collapsed caret inserting a table), also
+    removes the trailing break after *leftover* when ``goLeft`` enters the table,
+    and removes the empty paragraph StarWriter leaves before the table.
     """
-    para_start = text_obj.createTextCursorByRange(cursor.getStart())
-    para_start.gotoStartOfParagraph(False)
-    host_table = uno_read(lambda: para_start.getPropertyValue("TextTable"), None)
+    para_start: Any = None
+    host_table: Any = None
+    if clean_around_table:
+        para_start = text_obj.createTextCursorByRange(cursor.getStart())
+        para_start.gotoStartOfParagraph(False)
+        host_table = uno_read(lambda: para_start.getPropertyValue("TextTable"), None)
 
     cursor.gotoEndOfParagraph(False)
     text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
@@ -410,11 +419,10 @@ def insert_html_after_paragraph(
     leftover = text_obj.createTextCursorByRange(cursor.getStart())
     report = insert_html_at_cursor(model, ctx, cursor, content, apply_styles=False)
     leftover.gotoEndOfParagraph(True)
-    if leftover.getString() == "" and not _paragraph_has_non_text_portion(leftover):
+    if leftover.getString() == "":
         # Delete the last imported block's break; a tracked insertion swallows it.
-        # After a table, goLeft(1) enters the table rather than selecting "\n", so
-        # drop the break after the leftover paragraph instead.
-        if not _delete_preceding_break(leftover):
+        # Only drop a real break: after a table, goLeft(1) selects the table.
+        if not _delete_preceding_break(leftover) and clean_around_table:
             if leftover.goRight(1, True):
                 if leftover.getString() == "\n":
                     leftover.setString("")
@@ -423,15 +431,16 @@ def insert_html_after_paragraph(
 
     # When the imported content starts with a table, StarWriter cannot join the
     # opened empty paragraph into the table node and leaves it empty before the table.
-    after_para = text_obj.createTextCursorByRange(para_start.getStart())
-    after_para.gotoEndOfParagraph(False)
-    if after_para.goRight(1, False) and uno_read(lambda: after_para.getPropertyValue("TextTable"), None) == host_table:
-        after_para.gotoEndOfParagraph(True)
-        if after_para.getString() == "" and not _paragraph_has_non_text_portion(after_para):
-            after_para.collapseToStart()
-            probe = text_obj.createTextCursorByRange(after_para.getStart())
-            if probe.goRight(1, False) and uno_read(lambda: probe.getPropertyValue("TextTable"), None) != host_table:
-                _delete_preceding_break(after_para)
+    if clean_around_table and para_start is not None:
+        after_para = text_obj.createTextCursorByRange(para_start.getStart())
+        after_para.gotoEndOfParagraph(False)
+        if after_para.goRight(1, False) and uno_read(lambda: after_para.getPropertyValue("TextTable"), None) == host_table:
+            after_para.gotoEndOfParagraph(True)
+            if after_para.getString() == "":
+                after_para.collapseToStart()
+                probe = text_obj.createTextCursorByRange(after_para.getStart())
+                if probe.goRight(1, False) and uno_read(lambda: probe.getPropertyValue("TextTable"), None) != host_table:
+                    _delete_preceding_break(after_para)
 
     return report
 
@@ -638,7 +647,14 @@ def _insert_at_caret(
     if cursor.isStartOfParagraph():
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     snapped = not cursor.isEndOfParagraph()
-    report = insert_html_after_paragraph(model, ctx, cursor.getText(), cursor, content)
+    report = insert_html_after_paragraph(
+        model,
+        ctx,
+        cursor.getText(),
+        cursor,
+        content,
+        clean_around_table="<table" in content.lower(),
+    )
     report.snapped_to_paragraph = snapped
     return report
 

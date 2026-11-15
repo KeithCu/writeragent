@@ -2174,11 +2174,15 @@ def test_insert_html_after_paragraph_cleans_empty_paras_around_table():
     text_obj.createTextCursorByRange.side_effect = [para_start, leftover, after_para, probe]
     cursor = MagicMock()
 
-    with (
-        patch("plugin.writer.html_import.insert_html_at_cursor", return_value=WriteReport()),
-        patch("plugin.writer.html_import._paragraph_has_non_text_portion", return_value=False),
-    ):
-        insert_html_after_paragraph(MagicMock(), MagicMock(), text_obj, cursor, "<table><tr><td>A</td></tr></table>")
+    with patch("plugin.writer.html_import.insert_html_at_cursor", return_value=WriteReport()):
+        insert_html_after_paragraph(
+            MagicMock(),
+            MagicMock(),
+            text_obj,
+            cursor,
+            "<table><tr><td>A</td></tr></table>",
+            clean_around_table=True,
+        )
 
     leftover.setString.assert_called_once_with("")
     after_para.setString.assert_called_once_with("")
