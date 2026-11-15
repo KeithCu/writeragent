@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, cast, Type, ClassVar
 
-from plugin.framework.errors import is_disposal
+from plugin.framework.errors import append_warnings, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments
 from plugin.framework.prompts import (
     attach_sheets_create_completion_instruction,
@@ -58,7 +58,7 @@ from plugin.chatbot.web_research_chat import document_open_step_chat_text
 # peer_message in the same delegated call.
 from plugin.doc import document_research, peer_message
 from plugin.doc.live_panels import get_live_panel
-from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
+from plugin.doc.specialized_shapes_context import format_shapes_canvas_context, summarize_shape_calls
 from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_runtime_uid
 
@@ -460,13 +460,18 @@ class DelegateToSpecializedBase(ToolBase):
         domain: str,
         cap: _DelegationCapture,
     ) -> dict[str, Any]:
-        """Attach completion instructions and peer communication annotations to the payload.
+        """Attach shapes outcome counts, completion instructions, and peer annotations to the payload.
 
         The annotation helpers return early unless the payload status is ok. Running
-        them on the initial ok shell before apply_inner_outcome ensures their notes
-        and instructions are preserved even if the outcome subsequently marks the run
-        as incomplete or a tool error.
+        them on the initial ok shell before apply_inner_outcome ensures their notes,
+        counts, and instructions are preserved even if the outcome subsequently marks
+        the run as incomplete or a tool error.
         """
+        if domain == "shapes":
+            summary = summarize_shape_calls(cap.calls)
+            append_warnings(payload, summary.pop("warnings", []))
+            payload.update(summary)
+
         # Outer never sees sheet_create's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or cap.create_sheet_ran or cap.captured_tool_results:
