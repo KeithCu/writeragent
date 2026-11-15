@@ -30,6 +30,15 @@ def _write_repeat_files(
     details_path.write_text(json.dumps(details), encoding="utf-8")
 
 
+def test_parse_models_resolves_aliases_and_rejects_empty() -> None:
+    assert eval_ab.parse_models("inception/mercury-2.5, m1, m1") == [
+        "inception/mercury-2.5-preview",
+        "m1",
+    ]
+    with pytest.raises(ValueError, match="MODELS must not be empty"):
+        eval_ab.parse_models(" , ")
+
+
 def test_resolve_suite_tasks_groups_and_overrides() -> None:
     calc_tasks = eval_ab.resolve_suite_tasks("calc")
     assert set(calc_tasks) == {

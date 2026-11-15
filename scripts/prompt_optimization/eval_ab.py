@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,10 +21,12 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+for path in (REPO_ROOT, SCRIPT_DIR):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from dataset import ALL_EXAMPLES, task_kind  # noqa: E402
+from dataset import ALL_EXAMPLES, parse_task_id_filter, task_kind  # noqa: E402
+from run_eval_multi import details_path_for, parse_model_ids  # noqa: E402
 
 DEFAULT_MODELS = "openai/gpt-oss-20b:nitro,openai/gpt-oss-120b:nitro"
 DEFAULT_REPEATS = 3
@@ -35,22 +35,9 @@ DEFAULT_WORKTREE_DIR = Path(tempfile.gettempdir()) / "wa-eval-ab-master"
 SUITE_NAMES = ("all", "calc", "writer", "draw", "string", "lo")
 
 
-def _split_csv_or_ws(spec: str | None) -> list[str]:
-    """Split a comma- or whitespace-separated list, deduplicating in order."""
-    if not spec or not spec.strip():
-        return []
-    seen: set[str] = set()
-    out: list[str] = []
-    for item in re.split(r"[,\s]+", spec.strip()):
-        if item and item not in seen:
-            seen.add(item)
-            out.append(item)
-    return out
-
-
 def parse_models(spec: str) -> list[str]:
-    """Parse model IDs from a comma- or whitespace-separated string."""
-    models = _split_csv_or_ws(spec)
+    """Parse model IDs from a comma-separated string, resolving aliases."""
+    models = list(dict.fromkeys(parse_model_ids(spec))) if spec.strip() else []
     if not models:
         raise ValueError("MODELS must not be empty.")
     return models
@@ -58,13 +45,14 @@ def parse_models(spec: str) -> list[str]:
 
 def resolve_suite_tasks(suite: str, tasks_override: str | None = None) -> list[str]:
     """Return task_ids for ``suite``, or validate ``tasks_override`` if given."""
-    known_ids = {ex["task_id"] for ex in ALL_EXAMPLES}
-    override = _split_csv_or_ws(tasks_override)
+    override = parse_task_id_filter(tasks_override)
     if override:
-        unknown = [tid for tid in override if tid not in known_ids]
+        known_ids = {ex["task_id"] for ex in ALL_EXAMPLES}
+        deduped = list(dict.fromkeys(override))
+        unknown = [tid for tid in deduped if tid not in known_ids]
         if unknown:
             raise ValueError(f"Unknown task_id(s): {', '.join(unknown)}")
-        return override
+        return deduped
 
     key = suite.strip().lower()
     if key == "all":
@@ -85,8 +73,7 @@ def resolve_suite_tasks(suite: str, tasks_override: str | None = None) -> list[s
 def result_paths(suite_dir: Path, side: str, repeat_idx: int) -> tuple[Path, Path]:
     """Return ``(summary_json, details_json)`` paths for one side and repeat."""
     summary_path = suite_dir / f"{side}-r{repeat_idx}.json"
-    details_path = suite_dir / f"{side}-r{repeat_idx}_details.json"
-    return summary_path, details_path
+    return summary_path, details_path_for(summary_path)
 
 
 def is_repeat_done(suite_dir: Path, side: str, repeat_idx: int) -> bool:
@@ -131,26 +118,12 @@ def ensure_side_a_worktree(
     if repo_common is None:
         raise RuntimeError(f"Not a git repository: {repo_root}")
 
-    if worktree_dir.exists():
-        wt_common = _git_common_dir(worktree_dir)
-        if wt_common == repo_common:
-            subprocess.run(
-                ["git", "-C", str(worktree_dir), "checkout", "--detach", "--force", ref],
-                check=True,
-            )
-            return worktree_dir
+    if worktree_dir.exists() and _git_common_dir(worktree_dir) == repo_common:
         subprocess.run(
-            ["git", "-C", str(repo_root), "worktree", "remove", "--force", str(worktree_dir)],
-            capture_output=True,
-            check=False,
+            ["git", "-C", str(worktree_dir), "checkout", "--detach", "--force", ref],
+            check=True,
         )
-        if worktree_dir.exists():
-            shutil.rmtree(worktree_dir)
-        subprocess.run(
-            ["git", "-C", str(repo_root), "worktree", "prune"],
-            capture_output=True,
-            check=False,
-        )
+        return worktree_dir
 
     worktree_dir.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
@@ -230,6 +203,36 @@ def _summarize_rows(rows: list[dict[str, Any]]) -> tuple[int, int, float, float 
     return passes, total, passes / total, mean_q
 
 
+def _group_by_key(
+    details: list[dict[str, Any]],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in details:
+        key = (str(row.get("model_id") or ""), str(row.get("task_id") or ""))
+        grouped.setdefault(key, []).append(row)
+    return grouped
+
+
+def _side_fields(prefix: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    passes, total, rate, qual = _summarize_rows(rows)
+    return {
+        f"{prefix}_pass": passes,
+        f"{prefix}_total": total,
+        f"{prefix}_pass_rate": rate,
+        f"{prefix}_quality": qual,
+    }
+
+
+def _compare_metric(a_val: float | None, b_val: float | None, tol: float) -> str | None:
+    if a_val is None or b_val is None:
+        return None
+    if b_val - a_val > tol:
+        return "B better"
+    if a_val - b_val > tol:
+        return "B worse"
+    return None
+
+
 def tally_ab_results(
     a_details: list[dict[str, Any]],
     b_details: list[dict[str, Any]],
@@ -237,62 +240,33 @@ def tally_ab_results(
     tasks: list[str],
 ) -> dict[str, Any]:
     """Aggregate per-model, per-task, and overall A vs B metrics and verdict."""
-    a_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    b_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for row in a_details:
-        key = (str(row.get("model_id") or ""), str(row.get("task_id") or ""))
-        a_by_key.setdefault(key, []).append(row)
-    for row in b_details:
-        key = (str(row.get("model_id") or ""), str(row.get("task_id") or ""))
-        b_by_key.setdefault(key, []).append(row)
+    a_by_key = _group_by_key(a_details)
+    b_by_key = _group_by_key(b_details)
 
-    rows_out: list[dict[str, Any]] = []
-    for model_id in models:
-        for task_id in tasks:
-            a_pass, a_n, a_rate, a_q = _summarize_rows(a_by_key.get((model_id, task_id), []))
-            b_pass, b_n, b_rate, b_q = _summarize_rows(b_by_key.get((model_id, task_id), []))
-            rows_out.append({
-                "model_id": model_id,
-                "task_id": task_id,
-                "a_pass": a_pass,
-                "a_total": a_n,
-                "a_pass_rate": a_rate,
-                "a_quality": a_q,
-                "b_pass": b_pass,
-                "b_total": b_n,
-                "b_pass_rate": b_rate,
-                "b_quality": b_q,
-            })
+    rows_out = [
+        {
+            "model_id": model_id,
+            "task_id": task_id,
+            **_side_fields("a", a_by_key.get((model_id, task_id), [])),
+            **_side_fields("b", b_by_key.get((model_id, task_id), [])),
+        }
+        for model_id in models
+        for task_id in tasks
+    ]
 
-    a_all_pass, a_all_n, a_all_rate, a_all_q = _summarize_rows(a_details)
-    b_all_pass, b_all_n, b_all_rate, b_all_q = _summarize_rows(b_details)
-
-    if b_all_rate - a_all_rate > 1e-9:
-        verdict = "B better"
-    elif a_all_rate - b_all_rate > 1e-9:
-        verdict = "B worse"
-    elif a_all_q is not None and b_all_q is not None:
-        if b_all_q - a_all_q > 1e-4:
-            verdict = "B better"
-        elif a_all_q - b_all_q > 1e-4:
-            verdict = "B worse"
-        else:
-            verdict = "B same"
-    else:
-        verdict = "B same"
+    overall = {
+        **_side_fields("a", a_details),
+        **_side_fields("b", b_details),
+    }
+    verdict = (
+        _compare_metric(overall["a_pass_rate"], overall["b_pass_rate"], 1e-9)
+        or _compare_metric(overall["a_quality"], overall["b_quality"], 1e-4)
+        or "B same"
+    )
 
     return {
         "rows": rows_out,
-        "overall": {
-            "a_pass": a_all_pass,
-            "a_total": a_all_n,
-            "a_pass_rate": a_all_rate,
-            "a_quality": a_all_q,
-            "b_pass": b_all_pass,
-            "b_total": b_all_n,
-            "b_pass_rate": b_all_rate,
-            "b_quality": b_all_q,
-        },
+        "overall": overall,
         "verdict": verdict,
     }
 

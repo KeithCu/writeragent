@@ -950,10 +950,6 @@ crosshair-cover-all-deep:
 
 PO_EVAL_REQ := scripts/prompt_optimization/requirements.txt
 EVAL_ARGS ?=
-SUITE ?= all
-MODELS ?= openai/gpt-oss-20b:nitro,openai/gpt-oss-120b:nitro
-REPEATS ?= 3
-TASKS ?=
 
 eval-deps:
 	uv pip install -r $(PO_EVAL_REQ)
@@ -961,9 +957,9 @@ eval-deps:
 eval-ab:
 	"$(PYTHON)" scripts/generate_manifest.py
 	"$(PYTHON)" scripts/prompt_optimization/eval_ab.py \
-		--suite "$(SUITE)" \
-		--models "$(MODELS)" \
-		--repeats "$(REPEATS)" \
+		$(if $(strip $(SUITE)),--suite "$(SUITE)",) \
+		$(if $(strip $(MODELS)),--models "$(MODELS)",) \
+		$(if $(strip $(REPEATS)),--repeats "$(REPEATS)",) \
 		$(if $(strip $(TASKS)),--tasks "$(TASKS)",)
 
 run_eval:
