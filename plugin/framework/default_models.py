@@ -205,4 +205,14 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "GLM 5.2", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 200000, "ids": {"zai": "glm-5.2"}, "default_text": True},
     {"display_name": "GLM ASR 2512", "capability": ModelCapability.AUDIO, "ids": {"zai": "glm-asr-2512"}, "default_audio": True},
     {"display_name": "WriterAgent Mock", "capability": ModelCapability.CHAT | ModelCapability.AUDIO | ModelCapability.TOOLS, "context_length": 32768, "ids": {"mock": "writeragent-mock"}},
+    {"display_name": "Qwen 3.8 27B", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "ids": {"groq": "qwen/qwen3.8-27b"}},
+    {"display_name": "GLM 5.3 Flash", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "ids": {"zai": "glm-5.3-flash"}},
+    {"display_name": "GLM 5.3 FlashX", "capability": ModelCapability.CHAT | ModelCapability.VISION | ModelCapability.TOOLS, "ids": {"zai": "glm-5.3-flashx"}},
 ]
+
+
+# Providers where every chat model on the API takes image input (or none does):
+# - anthropic: Anthropic Models API `capabilities.image_input.supported` is true across current Claude models.
+# - google: Gemini models page / Gemma on Gemini API all accept image input.
+# has_native_vision consults this only after config, memo and catalog rows.
+PROVIDER_VISION: dict[str, bool] = {"anthropic": True, "google": True}
