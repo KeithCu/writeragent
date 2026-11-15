@@ -69,6 +69,7 @@ from plugin.chatbot.rich_text_control import (
 )
 from plugin.calc.navigation import (
     cell_link_registry,
+    mark_cell_link_range,
     normalize_cell_address,
 )
 from plugin.framework.errors import best_effort, uno_read
@@ -590,6 +591,14 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
             text_obj.setString(previous)
 
 
+def _tag_cell_link(model: Any, link_start: Any, dest_cursor: Any, addr: str) -> None:
+    """Tag the link text just inserted before *dest_cursor* for click navigation."""
+    sel = model.createTextCursor()
+    sel.gotoRange(link_start, False)
+    sel.gotoRange(dest_cursor.getStart(), True)
+    mark_cell_link_range(sel, addr)
+
+
 def paint_message_items(
     ctx: Any,
     control: Any,
@@ -802,9 +811,10 @@ def _copy_formatted_from_hidden_doc_to_control(
                         maybe_link = bool(href or is_pending or looks_like_cell_link)
                         before_len = control_len
                         txt_units = _utf16_units(txt)
+                        link_start = dest_cursor.getStart() if maybe_link else None
                         _put(txt, portion_color)
                         element_inserted = True
-                        if maybe_link and before_len is not None:
+                        if maybe_link:
                             addr = normalize_cell_address(href) if href else None
                             if is_pending:
                                 # Pop the matched queue head even when href supplied the address.
@@ -815,8 +825,12 @@ def _copy_formatted_from_hidden_doc_to_control(
                                     addr = pending_addr
                             elif not addr and looks_like_cell_link:
                                 addr = normalize_cell_address(txt.strip())
-                            if addr:
+                            if addr and before_len is not None:
                                 cell_link_registry.add(control, before_len, before_len + txt_units, addr)
+                            # Tag only text drawn as a link: the pending queue matches by
+                            # label, so a code sample with the same text can pop an entry.
+                            if addr and link_start is not None and (href or looks_like_cell_link):
+                                _tag_cell_link(model, link_start, dest_cursor, addr)
                         dest_cursor.gotoEnd(False)
                         inserted = True
                     if line_prefix and not prefix_inserted:

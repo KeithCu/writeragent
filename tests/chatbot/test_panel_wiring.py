@@ -274,3 +274,32 @@ def test_measure_aux_button_width_uses_translated_labels(monkeypatch):
     assert model.Label == "Stop"
     assert ctrl.pos_size_args is not None
     assert ctrl.pos_size_args[2] == len("ChangeXX")
+
+
+def test_rich_widget_gets_sheet_names_only_for_calc() -> None:
+    from unittest.mock import patch
+
+    from plugin.chatbot.panel_wiring import setup_rich_control_ready
+
+    calc_doc = MagicMock()
+    calc_doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"
+    calc_doc.getSheets.return_value.getElementNames.return_value = ("Sheet1", "My Sheet")
+
+    panel = MagicMock()
+    panel.send_listener._get_document_model.return_value = calc_doc
+
+    calc_model = MagicMock()
+    calc_model.supportsService.side_effect = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"
+
+    writer_model = MagicMock()
+    writer_model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+
+    with patch("plugin.chatbot.rich_text_control.RichTextChatWidget") as widget_cls:
+        setup_rich_control_ready(panel, MagicMock(), {}, "chat", calc_model, MagicMock())
+        calc_cb = widget_cls.call_args.kwargs["cell_link_sheet_names"]
+        assert callable(calc_cb)
+        assert calc_cb() == ("Sheet1", "My Sheet")
+
+        widget_cls.reset_mock()
+        setup_rich_control_ready(panel, MagicMock(), {}, "chat", writer_model, MagicMock())
+        assert widget_cls.call_args.kwargs["cell_link_sheet_names"] is None
