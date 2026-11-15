@@ -1,9 +1,10 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-ALL_EXAMPLES is 22 tasks: 14 Writer (including style_consistency, smart_summarization,
+ALL_EXAMPLES is 24 tasks: 14 Writer (including style_consistency, smart_summarization,
 section_refactor, comment_management, plus two TOC rows: toc_list_entries, toc_renumber_insert)
-+ flowchart_gen / org_chart_gen / solar_sld_gen (Draw) + data_sorting / tax_column (Calc)
++ flowchart_gen / org_chart_gen / solar_sld_gen (Draw)
++ data_sorting / tax_column / paste_table / formula_table (Calc)
 + two Phase F =PY dest rows (refuse overlap, no bulk read) + python_shapes_flag (Writer, backend=lo).
 Rows omit ``backend`` to stay on the string world. ``org_chart_gen``, ``solar_sld_gen``, the flag,
 and the two TOC rows declare ``backend=lo`` (native Draw / Writer); they cannot run on the string
@@ -434,6 +435,85 @@ TAX_COLUMN = {
     "rubric": "Writes correct tax values (Price*0.08, e.g. 0.8/0.4/0.64/1.0). Structural: 60% accuracy (precise calcs, verification step), 40% formatting (correct JSON snapshot with Tax column). Uses CalcStringState fully (no hallucinations on Total/?).",
 }
 
+# Commas inside customer names make a CSV-style answer split cells wrongly,
+# so only a 2-D array passes.
+PASTE_TABLE_ROWS: list[list[str | int | float]] = [
+    ["Order", "Customer", "City", "Units", "Unit Price"],
+    [1001, "Acme, Inc.", "Portland", 12, 4.5],
+    [1002, "Bolt, Nut & Co", "Austin", 3, 19.99],
+    [1003, "Cedar Farms", "Boise", 40, 0.75],
+    [1004, "Lee, Kim", "Denver", 7, 12.25],
+    [1005, "Delta Supply", "Tulsa", 15, 3.1],
+    [1006, "Evergreen LLC", "Salem", 2, 149],
+    [1007, "Fox & Hound", "Reno", 9, 6.8],
+    [1008, "Garcia, Maria", "El Paso", 1, 89.95],
+    [1009, "Harbor Tools", "Duluth", 25, 2.4],
+    [1010, "Iris Design", "Provo", 6, 33.5],
+    [1011, "Jones, Ltd.", "Omaha", 11, 7.75],
+    [1012, "Kestrel Air", "Fargo", 4, 58],
+]
+
+
+def _markdown_table(rows: list[list[str | int | float]]) -> str:
+    """Render rows as a Markdown pipe table."""
+    if not rows:
+        return ""
+    lines = ["| " + " | ".join(str(cell) for cell in rows[0]) + " |"]
+    lines.append("| " + " | ".join("---" for _col in rows[0]) + " |")
+    for row in rows[1:]:
+        lines.append("| " + " | ".join(str(cell) for cell in row) + " |")
+    return "\n".join(lines)
+
+
+PASTE_TABLE = {
+    "document_content": "",
+    "user_question": (
+        "Here is a table from our chat. Paste it into this empty sheet with the header row in A1, "
+        "one value per cell, and keep Order, Units and Unit Price as numbers:\n\n"
+        + _markdown_table(PASTE_TABLE_ROWS)
+    ),
+    "task_id": "paste_table",
+    "expected_contains": [],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": (
+        "Header in A1:E1, 12 rows in A2:E13 cell for cell; numbers stored as numbers; "
+        "names with commas stay in one cell."
+    ),
+}
+
+FORMULA_TABLE_HEADER: list[str] = ["Item", "Qty", "Unit Price", "Line Total"]
+FORMULA_TABLE_ITEMS: list[tuple[str, int, float]] = [
+    ("Pens", 12, 1.25),
+    ("Notebooks", 4, 3.5),
+    ("Stapler", 1, 8.99),
+    ("Paper ream", 5, 6.4),
+    ("Folders", 20, 0.35),
+    ("Markers", 6, 1.8),
+    ("Tape", 3, 2.15),
+    ("Binder clips", 10, 0.6),
+]
+
+FORMULA_TABLE = {
+    "document_content": "",
+    "user_question": (
+        "Build an order table on this empty sheet from the list below. Put the headers "
+        "Item, Qty, Unit Price, Line Total in A1:D1 and one item per row under them. "
+        "Line Total must be a formula on every row (Qty times Unit Price) so it updates when "
+        "Qty or price changes. Under the last item add a row with Total in column A and a SUM "
+        "formula of the Line Total column in column D.\n\n"
+        + "\n".join(f"- {item}: {qty} at {price}" for item, qty, price in FORMULA_TABLE_ITEMS)
+    ),
+    "task_id": "formula_table",
+    "expected_contains": [],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": (
+        "Headers in A1:D1, 8 item rows in A2:D9 with =B{r}*C{r} formulas in D2:D9, "
+        "and a Total row in row 10 with Total in column A and =SUM(D2:D9) in D10."
+    ),
+}
+
 # Phase F =PY dest (string-first). Fixture is small; the question keeps A1:H500 wording.
 _PY_SHEET = (
     "Name\tCity\tAmt\n"
@@ -619,6 +699,8 @@ ALL_EXAMPLES.append(ORG_CHART_GEN)
 ALL_EXAMPLES.append(SOLAR_SLD_GEN)
 ALL_EXAMPLES.append(DATA_SORTING)
 ALL_EXAMPLES.append(TAX_COLUMN)
+ALL_EXAMPLES.append(PASTE_TABLE)
+ALL_EXAMPLES.append(FORMULA_TABLE)
 ALL_EXAMPLES.append(PY_REFUSE_OVERLAP)
 ALL_EXAMPLES.append(PY_NO_BULK_READ)
 ALL_EXAMPLES.append(PYTHON_SHAPES_FLAG)
@@ -631,13 +713,16 @@ def task_kind(task_id: str) -> str:
     """Factory kind for an eval task_id (writer / draw / calc).
 
     Kind is keyed by task_id, not question keywords — flowchart_gen is Draw,
-    data_sorting and tax_column are Calc, everything else is Writer.
+    data_sorting, tax_column, paste_table, formula_table and the =PY rows are Calc,
+    everything else is Writer.
     """
     if task_id in ("flowchart_gen", "org_chart_gen", "solar_sld_gen"):
         return "draw"
     if task_id in (
         "data_sorting",
         "tax_column",
+        "paste_table",
+        "formula_table",
         "py_refuse_overlap",
         "py_no_bulk_read",
     ):

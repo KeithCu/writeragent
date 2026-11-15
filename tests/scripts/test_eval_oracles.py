@@ -16,6 +16,11 @@ _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
+from dataset import (  # noqa: E402
+    FORMULA_TABLE_HEADER,
+    FORMULA_TABLE_ITEMS,
+    PASTE_TABLE_ROWS,
+)
 from oracles import (  # noqa: E402
     _tax_formula_ok,
     check_oracle,
@@ -103,6 +108,57 @@ _TAX_BAD = json.dumps(
         ],
     }
 )
+
+
+def _calc_doc(grid: list[list[object]], formulas: dict[str, str] | None = None) -> str:
+    payload: dict[str, object] = {
+        "status": "ok",
+        "snapshot": True,
+        "headers": grid[0] if grid else [],
+        "grid": grid,
+    }
+    if formulas is not None:
+        payload["formulas"] = formulas
+    return json.dumps(payload)
+
+
+def _paste_rows_copy() -> list[list[object]]:
+    return [list(row) for row in PASTE_TABLE_ROWS]
+
+
+_PASTE_GOOD_ROWS = _paste_rows_copy()
+_PASTE_GOOD_ROWS[1][0] = "1001"
+_PASTE_GOOD_ROWS[1][4] = "4.5"
+_PASTE_GOOD = _calc_doc(_PASTE_GOOD_ROWS)
+
+_FORMULA_GOOD_ROWS: list[list[object]] = (
+    [list(FORMULA_TABLE_HEADER)]
+    + [
+        [item, qty, price, f"=B{r}*C{r}"]
+        for r, (item, qty, price) in enumerate(FORMULA_TABLE_ITEMS, start=2)
+    ]
+    + [["Total", "", "", "=SUM(D2:D9)"]]
+)
+_FORMULA_GOOD_MAP = {
+    **{f"D{r}": f"=B{r}*C{r}" for r in range(2, 2 + len(FORMULA_TABLE_ITEMS))},
+    "D10": "=SUM(D2:D9)",
+}
+_FORMULA_GOOD = _calc_doc(_FORMULA_GOOD_ROWS, _FORMULA_GOOD_MAP)
+
+_PASTE_CSV_SPLIT_ROWS = _paste_rows_copy()
+_PASTE_CSV_SPLIT_ROWS[1] = [1001, "Acme", " Inc.", "Portland", 12, 4.5]
+_PASTE_TITLE_ROW = [["Orders"]] + _paste_rows_copy()
+_PASTE_CURRENCY_ROWS = _paste_rows_copy()
+_PASTE_CURRENCY_ROWS[1][4] = "$4.50"
+
+_FORMULA_PINNED_ROWS = [list(row) for row in _FORMULA_GOOD_ROWS]
+for _r in range(2, 2 + len(FORMULA_TABLE_ITEMS)):
+    _FORMULA_PINNED_ROWS[_r - 1][3] = "=B2*C2"
+_FORMULA_PINNED_MAP = {
+    **{f"D{r}": "=B2*C2" for r in range(2, 2 + len(FORMULA_TABLE_ITEMS))},
+    "D10": "=SUM(D2:D9)",
+}
+_FORMULA_NO_TOTAL_ROWS = _FORMULA_GOOD_ROWS[:-1]
 _FLOW_GOOD = json.dumps(
     {
         "status": "ok",
@@ -440,6 +496,8 @@ _PY_BAD = json.dumps(
         ("smart_summarization", _SMART_SUMMARIZATION),
         ("data_sorting", _SORT_GOOD),
         ("tax_column", _TAX_GOOD),
+        ("paste_table", _PASTE_GOOD),
+        ("formula_table", _FORMULA_GOOD),
         ("flowchart_gen", _FLOW_GOOD),
         ("org_chart_gen", _ORG_GOOD),
         ("solar_sld_gen", _SOLAR_GOOD),
@@ -621,12 +679,28 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
             ),
             "not be taxed",
         ),
+        ("paste_table", _calc_doc(_PASTE_CSV_SPLIT_ROWS), "B2"),
+        ("paste_table", _calc_doc(_PASTE_TITLE_ROW), "A1"),
+        ("paste_table", _calc_doc(_PASTE_CURRENCY_ROWS), "E2"),
+        ("formula_table", _calc_doc(_FORMULA_PINNED_ROWS, _FORMULA_PINNED_MAP), "D3"),
+        ("formula_table", _calc_doc(_FORMULA_NO_TOTAL_ROWS, _FORMULA_GOOD_MAP), "Total"),
     ],
 )
 def test_mutated_fixtures_fail(task_id: str, doc: str, needle: str) -> None:
     fails = check_oracle(task_id, doc)
     assert fails, f"{task_id} should fail on mutated fixture"
     assert any(needle.lower() in f.lower() for f in fails), (needle, fails)
+
+
+def test_formula_table_reads_lo_export_formulas() -> None:
+    lo_grid: list[list[object]] = (
+        [list(FORMULA_TABLE_HEADER)]
+        + [[item, qty, price, float(qty * price)] for item, qty, price in FORMULA_TABLE_ITEMS]
+        + [["Total", "", "", float(sum(qty * price for _, qty, price in FORMULA_TABLE_ITEMS))]]
+    )
+    assert check_oracle("formula_table", _calc_doc(lo_grid, _FORMULA_GOOD_MAP)) == []
+    fails = check_oracle("formula_table", _calc_doc(lo_grid, {}))
+    assert fails and "D2" in fails[0]
 
 
 def test_unsorted_input_fails_data_sorting() -> None:

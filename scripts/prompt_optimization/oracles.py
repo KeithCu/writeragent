@@ -798,7 +798,7 @@ _TAX_NUM_RE = re.compile(r"^(?P<body>\d*[.,]?\d+)(?P<pct>%)?$")
 _TAX_FORMULA_RE = re.compile(r"=[^=]+")
 
 
-def _normalize_tax_formula(text: str) -> str:
+def _normalize_formula(text: str) -> str:
     """Strip $, spaces, and newlines; treat LO ';' as ',' (decimal/args)."""
     return (
         (text or "")
@@ -854,7 +854,7 @@ def _tax_formula_candidates(text: str) -> list[str]:
 
 def _tax_formula_one(text: str, row_1based: int) -> bool:
     """True when text is a simple product of this row's B cell and 0.08."""
-    compact = _normalize_tax_formula(text)
+    compact = _normalize_formula(text)
     if not compact.startswith("="):
         return False
     expr = compact[1:].strip(",")
@@ -923,6 +923,99 @@ def oracle_tax_column(doc: str) -> list[str]:
                 return [f"{name} row must not be taxed"]
             if str(formula).lstrip().startswith("="):
                 return [f"{name} row must not be taxed"]
+    return []
+
+
+def _cell_number(value: Any) -> float | None:
+    """Parse a Calc cell value as a number using the production write rule.
+
+    Matches plugin/calc/manipulator.py (_classify_write_cell): plain numeric
+    strings become numbers, while formatted strings like '1,001' or '$4.50'
+    stay text and SUM skips them.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _grid_mismatch(grid: list[list[Any]], expected: list[list[Any]]) -> str | None:
+    """Return the first A1 cell mismatch against expected, or None."""
+    from eval_worlds import col_row_to_a1
+
+    for r, exp_row in enumerate(expected):
+        act_row = grid[r] if r < len(grid) else []
+        for c, exp in enumerate(exp_row):
+            act = act_row[c] if c < len(act_row) else ""
+            if isinstance(exp, str):
+                ok = isinstance(act, str) and act.strip().casefold() == exp.casefold()
+            else:
+                num = _cell_number(act)
+                ok = num is not None and abs(num - float(exp)) < 1e-9
+            if not ok:
+                return f"{col_row_to_a1(c, r)} is {act!r}, expected {exp!r}"
+    return None
+
+
+def _is_row_product(text: str, left: str, right: str) -> bool:
+    return _normalize_formula(text) in (f"={left}*{right}", f"={right}*{left}")
+
+
+def oracle_paste_table(doc: str) -> list[str]:
+    from dataset import PASTE_TABLE_ROWS
+
+    grid = _calc_grid(doc)
+    if not grid:
+        return ["no Calc grid/snapshot"]
+    miss = _grid_mismatch(grid, PASTE_TABLE_ROWS)
+    return [miss] if miss else []
+
+
+def oracle_formula_table(doc: str) -> list[str]:
+    from dataset import FORMULA_TABLE_HEADER, FORMULA_TABLE_ITEMS
+
+    grid = _calc_grid(doc)
+    if not grid:
+        return ["no Calc grid/snapshot"]
+    expected: list[list[Any]] = [list(FORMULA_TABLE_HEADER)] + [
+        list(item) for item in FORMULA_TABLE_ITEMS
+    ]
+    miss = _grid_mismatch(grid, expected)
+    if miss:
+        return [miss]
+
+    # The string world keeps formula text in the grid, and the headless-LO export
+    # carries it in `formulas`; checking both handles either export shape.
+    data = parse_json_export(doc) or {}
+    formulas = data.get("formulas") if isinstance(data.get("formulas"), dict) else {}
+    last_item_row = 1 + len(FORMULA_TABLE_ITEMS)
+    for r in range(2, last_item_row + 1):
+        row_cells = grid[r - 1] if r - 1 < len(grid) else []
+        cell = row_cells[3] if len(row_cells) > 3 else ""
+        grid_formula = cell if isinstance(cell, str) and cell.lstrip().startswith("=") else ""
+        text = str(formulas.get(f"D{r}") or grid_formula)
+        if not _is_row_product(text, f"B{r}", f"C{r}"):
+            return [f"D{r} is not a =B{r}*C{r} formula"]
+
+    total_row = grid[last_item_row] if len(grid) > last_item_row else []
+    if not any(
+        isinstance(cell, str) and cell.strip().casefold() == "total"
+        for cell in total_row[:3]
+    ):
+        return ["no Total row under the items"]
+    d10_cell = total_row[3] if len(total_row) > 3 else ""
+    d10_grid = (
+        d10_cell if isinstance(d10_cell, str) and d10_cell.lstrip().startswith("=") else ""
+    )
+    d10_text = str(formulas.get(f"D{last_item_row + 1}") or d10_grid)
+    if _normalize_formula(d10_text) != f"=SUM(D2:D{last_item_row})":
+        return [f"D{last_item_row + 1} is not =SUM(D2:D{last_item_row})"]
     return []
 
 
@@ -1361,6 +1454,8 @@ ORACLES: dict[str, Callable[[str], list[str]]] = {
     "solar_sld_gen": oracle_solar_sld_gen,
     "data_sorting": oracle_data_sorting,
     "tax_column": oracle_tax_column,
+    "paste_table": oracle_paste_table,
+    "formula_table": oracle_formula_table,
     "py_refuse_overlap": oracle_py_dest,
     "py_no_bulk_read": oracle_py_dest,
     "reformat_resume": oracle_reformat_resume,
