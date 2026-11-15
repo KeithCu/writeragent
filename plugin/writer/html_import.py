@@ -48,6 +48,9 @@ from .table_nesting import raise_if_range_hosts_nested_table
 
 log = logging.getLogger("writeragent.writer")
 
+# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+_PARAGRAPH_BREAK = 0
+
 
 def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
     """Wrap an HTML fragment in a full document structure for LO's filter."""
@@ -360,10 +363,111 @@ def insert_html_at_cursor(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-) -> None:
+) -> html_import_styles.WriteReport:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
     with image_placeholders.keep_placeholder_images(model, unescaped_content) as content:
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+        return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+
+
+def _delete_preceding_break(cursor: Any) -> bool:
+    """Delete a ``\\n`` immediately before *cursor*; return True if one was deleted."""
+    cursor.collapseToStart()
+    if not cursor.goLeft(1, True):
+        return False
+    if cursor.getString() == "\n":
+        cursor.setString("")
+        return True
+    cursor.collapseToEnd()
+    return False
+
+
+def insert_html_after_paragraph(
+    model: Any,
+    ctx: Any,
+    text_obj: Any,
+    cursor: Any,
+    content: str,
+    *,
+    clean_around_table: bool = False,
+) -> html_import_styles.WriteReport:
+    """Import block *content* as new paragraphs immediately after *cursor*'s paragraph.
+
+    In LibreOffice ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``),
+    importing into an existing paragraph calls ``SplitNode`` twice at the insert point
+    and then ``pTextNode->JoinNext()`` on the first imported paragraph, which merges
+    the first block onto the text before *cursor*. Importing at the start of an empty
+    paragraph avoids that merge, so this moves *cursor* to the end of its paragraph,
+    inserts a paragraph break to open an empty paragraph, imports at its start, and
+    deletes the empty paragraph(s) left behind.
+
+    When *clean_around_table* is True (collapsed caret inserting a table), also
+    removes the trailing break after *leftover* when ``goLeft`` lands before the
+    table, and removes the empty paragraph StarWriter leaves before the table
+    (see ``_delete_empty_paragraph_before_table``).
+    """
+    para_start: Any = None
+    if clean_around_table:
+        para_start = text_obj.createTextCursorByRange(cursor.getStart())
+        para_start.gotoStartOfParagraph(False)
+
+    cursor.gotoEndOfParagraph(False)
+    text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    # The import puts every block (each with its own break) BEFORE that paragraph,
+    # which is then left over empty. This cursor stays at its start through the
+    # import (checked live, also with a table next and at the end of the text).
+    leftover = text_obj.createTextCursorByRange(cursor.getStart())
+    report = insert_html_at_cursor(model, ctx, cursor, content, apply_styles=False)
+    leftover.gotoEndOfParagraph(True)
+    if leftover.getString() == "":
+        # Delete the last imported block's break; a tracked insertion swallows it.
+        # Only drop a real break: right after a table, goLeft(1) lands before the
+        # table (SwUnoCursor::IsSelOvr keeps a UNO cursor out of table cells) and
+        # the selection then spans the whole table, so the leftover paragraph is
+        # merged forward into the paragraph after it instead.
+        if not _delete_preceding_break(leftover) and clean_around_table:
+            if leftover.goRight(1, True):
+                if leftover.getString() == "\n":
+                    leftover.setString("")
+                else:
+                    leftover.collapseToStart()
+
+    if clean_around_table and para_start is not None:
+        _delete_empty_paragraph_before_table(text_obj, para_start)
+
+    return report
+
+
+def _delete_empty_paragraph_before_table(text_obj: Any, host_para: Any) -> None:
+    """Delete the empty paragraph left between *host_para*'s paragraph and an imported table.
+
+    ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``) opens the
+    import with two ``SplitNode`` calls, and ``SwHTMLParser::Continue`` joins the
+    first opened node onto the imported content with ``JoinNext``, which cannot
+    join into a table node. So content that starts with a table leaves that node
+    as an empty paragraph right after the host paragraph, directly before the table.
+
+    A text cursor cannot look for the table: ``SwUnoCursor::IsSelOvr``
+    (``sw/source/core/unocore/unocrsr.cxx``, ``m_bRemainInSection``) keeps a UNO
+    cursor out of table cells, so ``goRight`` from the empty paragraph lands after
+    the whole table with no ``TextTable`` to see. The text enumeration lists the
+    table as its own element, so walk that: host paragraph, empty paragraph, table.
+    The deletion removes only the break at the end of the host paragraph; any
+    other paragraph (text, or an image-only one) is left alone.
+    """
+    found_host = False
+    empty_after: Any = None
+    for elem in iter_elements(text_obj.createEnumeration()):
+        is_para = _uno_service_true(elem, "com.sun.star.text.Paragraph")
+        if not found_host:
+            found_host = is_para and text_obj.compareRegionStarts(host_para, elem) == 0
+        elif empty_after is None:
+            if not is_para or elem.getString() != "" or _paragraph_has_non_text_portion(elem):
+                return
+            empty_after = elem
+        else:
+            if _uno_service_true(elem, "com.sun.star.text.TextTable"):
+                _delete_preceding_break(text_obj.createTextCursorByRange(empty_after.getStart()))
+            return
 
 
 
@@ -444,8 +548,9 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
       A trailing empty paragraph after import is the same StarWriter quirk as ``full_document``.
     - **Empty absorb paragraph** (blank doc / already-empty trailing): merge is harmless — no prep.
 
-    ``selection`` / ``search`` are not handled here: selection paragraphs are cleared by
-    setString before import, and search replaces handle their own boundaries.
+    ``selection`` / ``search`` are not handled here: non-collapsed selections are cleared by
+    setString before import, a collapsed caret goes through ``_insert_at_caret``, and
+    search replaces handle their own boundaries.
     """
     if position != "end":
         return cursor
@@ -535,6 +640,50 @@ def _lo_style_for_replaced_range(
     return True, None
 
 
+def _insert_at_caret(
+    model: Any,
+    ctx: Any,
+    cursor: Any,
+    content: str,
+    apply_styles: bool,
+) -> html_import_styles.WriteReport:
+    """Insert *content* at a collapsed *cursor* without splitting its paragraph.
+
+    - Empty paragraph: importing at the start of an empty paragraph neither merges nor
+      splits, and it is the only caret case where ``_lo_style_for_replaced_range``
+      allows ``data-lo-style``, so ``apply_styles`` matters only there.
+    - Mixed math: the math path inserts segment by segment and still splits
+      mid-paragraph, so it delegates to ``_insert_mixed_or_plain_html``.
+    - Inline content (no block markup and no real newline): insert inline via
+      ``insert_inline_at_cursor`` so the host paragraph is not split by ``<p>`` wrapping.
+    - Block content at paragraph start: ``_insert_mixed_or_plain_html`` already places new
+      blocks before the paragraph without merging.
+    - Block content mid-paragraph or at paragraph end: move to after the paragraph via
+      ``insert_html_after_paragraph``, marking ``snapped_to_paragraph`` when the caret
+      was mid-paragraph.
+    """
+    if (cursor.isStartOfParagraph() and cursor.isEndOfParagraph()) or html_fragment_contains_mixed_math(content):
+        return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+    if not content_is_block(content):
+        insert_inline_at_cursor(model, ctx, cursor, content)
+        return html_import_styles.WriteReport(
+            unapplied_para=html_import_styles.unapplied_para_names_for_content(content),
+        )
+    if cursor.isStartOfParagraph():
+        return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+    snapped = not cursor.isEndOfParagraph()
+    report = insert_html_after_paragraph(
+        model,
+        ctx,
+        cursor.getText(),
+        cursor,
+        content,
+        clean_around_table="<table" in content.lower(),
+    )
+    report.snapped_to_paragraph = snapped
+    return report
+
+
 def insert_content_at_position(
     model: Any,
     ctx: Any,
@@ -542,6 +691,12 @@ def insert_content_at_position(
     position: str,
 ) -> html_import_styles.WriteReport:
     """Insert formatted content at *position* (``'beginning'``, ``'end'``, or ``'selection'``).
+
+    When ``position == 'selection'`` and the insert point is a collapsed caret, inline
+    content is inserted at the caret without splitting its paragraph, and block content
+    is placed as new paragraphs after the caret's paragraph (or before it when at
+    paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
+    caret was mid-paragraph.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
@@ -554,6 +709,7 @@ def insert_content_at_position(
         cursor = text.createTextCursor()
         styled = position in ("beginning", "end")
         note = None
+        caret = False
 
         if position == "beginning":
             cursor.gotoStart(False)
@@ -591,6 +747,8 @@ def insert_content_at_position(
                     cursor = rng.getText().createTextCursorByRange(rng.getStart())
                     if not hasattr(cursor, "insertDocumentFromURL"):
                         raise AttributeError("insertDocumentFromURL")
+                    # A collapsed range is the user's caret.
+                    caret = rng.getText().compareRegionStarts(rng.getStart(), rng.getEnd()) == 0
                     # Clear only real text selections (never shapes).
                     if hasattr(rng, "setString"):
                         raise_if_range_hosts_nested_table(rng)
@@ -606,6 +764,7 @@ def insert_content_at_position(
                     )
                     styled = False
                     note = None
+                    caret = False
                     cursor = _doc_end_cursor()
         else:
             raise ToolExecutionError("Unknown position: %s" % position)
@@ -615,8 +774,10 @@ def insert_content_at_position(
         # the replaced paragraphs were already emptied by setString("").
         if position in ("beginning", "end"):
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        report = _insert_mixed_or_plain_html(
-            model, ctx, cursor, content, apply_styles=styled
+        report = (
+            _insert_at_caret(model, ctx, cursor, content, styled)
+            if caret
+            else _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
         )
         if note:
             report.style_skips.append(note)
@@ -956,6 +1117,19 @@ def content_has_block_markup(content: str | None) -> bool:
     if not content or not isinstance(content, str):
         return False
     return bool(html_import_styles.BLOCK_MARKUP_RE.search(content))
+
+
+def content_is_block(content: str | None) -> bool:
+    """Return ``True`` if *content* should be placed as separate paragraphs.
+
+    Content is block-level when it contains block HTML tags or a real newline
+    (plain ``"Novo A\\n\\nNovo B"`` on the inline path would become manual line breaks
+    glued onto the host paragraph). Only real newlines make plain content a block;
+    literal backslash-n in markup (which ``expand_escapes`` expands later) does not.
+    """
+    if not content or not isinstance(content, str):
+        return False
+    return content_has_block_markup(content) or "\n" in content
 
 
 

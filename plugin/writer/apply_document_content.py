@@ -76,8 +76,6 @@ from plugin.writer.hyperlink_fixup import (
 log = logging.getLogger("writeragent.writer")
 
 
-# com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-_PARAGRAPH_BREAK = 0
 _TABLE_INSERT_FAILED_MSG = "Table insert produced no table in document."
 _OVERRIDE_NEEDS_ONE_LINK = (
     "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline)."
@@ -1410,8 +1408,14 @@ class ApplyDocumentContent(ToolBase):
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
-        res = attach_edited_context(
-            {"status": "ok", "message": "Inserted content at selection."}, anchor)
+        res: dict[str, Any] = {"status": "ok", "message": "Inserted content at selection."}
+        if report.snapped_to_paragraph:
+            res["message"] = (
+                "Inserted content after the paragraph that holds the caret "
+                "(block content cannot go mid-paragraph without splitting it)."
+            )
+            res["snapped_to_paragraph"] = True
+        res = attach_edited_context(res, anchor)
         return html_import_styles.attach_write_report(
             res, report,
             suggest_style_fix=functools.partial(_partial_match_style_suggestion, ctx.doc, params))
@@ -1651,11 +1655,10 @@ class ApplyDocumentContent(ToolBase):
         # opened right after it. A line break is a paragraph too: plain
         # "Novo A\n\nNovo B" on the inline path goes in as manual line
         # breaks glued onto the matched paragraph.
-        # Invariant: only real newlines make plain content a block; literal backslash-n in markup does not.
         if use_preserve:
             is_block = "\n" in content
         else:
-            is_block = html_import.content_has_block_markup(str(content)) or "\n" in str(content)
+            is_block = html_import.content_is_block(str(content))
         text_obj = found.getText()
         if is_block:
             insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
@@ -1671,24 +1674,9 @@ class ApplyDocumentContent(ToolBase):
             elif position != "after":
                 html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
             else:
-                # Importing at a paragraph END merges the first block into that paragraph; at a
-                # paragraph START it does not. Open an empty paragraph and import at its start.
-                text_obj.insertControlCharacter(insert_cursor, _PARAGRAPH_BREAK, False)
-                # The import puts every block (each with its own break) BEFORE that paragraph,
-                # which is then left over empty. This cursor stays at its start through the
-                # import (checked live, also with a table next and at the end of the text).
-                leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
-                html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
-                leftover.gotoEndOfParagraph(True)
-                if leftover.getString() == "":
-                    # Delete the last imported block's break; a tracked insertion swallows it.
-                    # Only drop a real break: after a table, goLeft(1) selects the table.
-                    leftover.collapseToStart()
-                    if leftover.goLeft(1, True):
-                        if leftover.getString() == "\n":
-                            leftover.setString("")
-                        else:
-                            leftover.collapseToEnd()
+                # Importing at a paragraph end merges into it; insert_html_after_paragraph
+                # opens a fresh paragraph after it and cleans up the leftover break.
+                html_import.insert_html_after_paragraph(doc, ctx.ctx, text_obj, insert_cursor, content)
             if self._table_insert_error(doc, has_table, tables_before):
                 raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 

@@ -719,6 +719,12 @@ The mutating edit tools return **structured, machine-readable fields** alongside
 - If a replacement raises mid-`all_matches`, the existing abort behavior stands (no partial-replace handling — the call surfaces the error).
 - `dry_run=true` — does not edit; returns `replaceable` and `not_replaceable` lists (see §4).
 
+**`apply_content`** (selection path, at a collapsed caret)
+- Inline content (no block tags, no real newline) goes in at the caret without splitting the paragraph.
+- Block content (`<p>`, headings, lists, tables, or text with line breaks) goes in as new paragraphs after the caret's paragraph, or before it when the caret is at the paragraph start.
+- `snapped_to_paragraph: true` says the insert moved off the caret (only when the caret was mid-paragraph).
+- In an empty paragraph the content is imported in place (styles apply); content with math segments is imported at the caret and may split the paragraph.
+
 **`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).
 
 **`comment_add`** — `matched` (anchor found) and `comment_added`; an anchor miss returns `status:"error"`. `anchor_text` is echoed on success. Success also returns `name` (LibreOffice annotation Name) so a later call can reply. Optional `parent_name` (the `name` from `comment_list`) creates a threaded reply at that **immediate** parent — not coerced to the thread root — and skips `search` / `occurrence`. The parent stays unresolved; `comment_resolve` is the reply-and-resolve path. A reply success payload includes `parent_name`.
