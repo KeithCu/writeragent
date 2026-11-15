@@ -222,22 +222,24 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         if inline:
             resolved_style = _inline_style_name(bg, font, bold)
             if cell_styles.hasByName(resolved_style):
+                st = cell_styles.getByName(resolved_style)
                 created = False
             else:
                 st = ctx.doc.createInstance("com.sun.star.style.CellStyle")
                 cell_styles.insertByName(resolved_style, st)
-                if bg is not None:
-                    st.setPropertyValue("CellBackColor", bg)
-                if font is not None:
-                    st.setPropertyValue("CharColor", font)
-                if bold is not None:
-                    st.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
-                # Hidden keeps the Styles deck clean while Calc's Conditional Formatting dialog
-                # still lists the style (condformatdlgentry.cxx FillStyleListBox uses SfxStyleSearchBits::All,
-                # include/svl/style.hxx). Style insertion is not undoable (styleuno.cxx
-                # ScStyleFamilyObj::insertByName), so Ctrl+Z removes the rule and leaves the unused style.
-                st.setPropertyValue("Hidden", True)
                 created = True
+            # Re-apply properties even on reuse so user edits to the hidden style do not stick.
+            if bg is not None:
+                st.setPropertyValue("CellBackColor", bg)
+            if font is not None:
+                st.setPropertyValue("CharColor", font)
+            if bold is not None:
+                st.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
+            # Hidden keeps the Styles deck clean while Calc's Conditional Formatting dialog
+            # still lists the style (condformatdlgentry.cxx FillStyleListBox uses SfxStyleSearchBits::All,
+            # include/svl/style.hxx). Style insertion is not undoable (styleuno.cxx
+            # ScStyleFamilyObj::insertByName), so Ctrl+Z removes the rule and leaves the unused style.
+            st.setPropertyValue("Hidden", True)
         else:
             assert isinstance(style_name, str)
             resolved_style = style_name

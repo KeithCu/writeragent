@@ -345,3 +345,61 @@ def test_inline_style_name_is_stable():
     assert first == second
     assert first != different_bold
 
+
+def test_inline_style_reuse_reapplies_properties():
+    from plugin.calc.conditional import _inline_style_name
+
+    doc = MagicMock()
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    style_props = {
+        "CellBackColor": 0x00FF00,  # user edited from red to green
+        "CharColor": 0x000000,
+        "CharWeight": 100.0,
+        "Hidden": False,
+    }
+    existing_style = MagicMock()
+    existing_style.setPropertyValue.side_effect = style_props.__setitem__
+
+    style_name = _inline_style_name(0xFF0000, 0xFFFFFF, True)
+    cell_styles = MagicMock()
+    cell_styles.hasByName.side_effect = lambda name: name == style_name
+    cell_styles.getByName.return_value = existing_style
+    doc.getStyleFamilies.return_value.getByName.return_value = cell_styles
+
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=0, EndRow=9)
+    formats = MagicMock()
+    formats.getCount.return_value = 1
+    cell_range.getPropertyValue.return_value = formats
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    tool = _tool("conditional_formatting_add")
+    fake_fw = SimpleNamespace(BOLD=150.0, NORMAL=100.0)
+    with (
+        patch("plugin.calc.conditional.CalcBridge", return_value=bridge),
+        patch("plugin.calc.conditional.FontWeight", fake_fw),
+    ):
+        res = tool.execute_safe(
+            ctx,
+            range=["A1:A10"],
+            operator="GREATER",
+            formula1="10",
+            bg_color="#FF0000",
+            font_color="#FFFFFF",
+            bold=True,
+        )
+
+    assert res["status"] == "ok"
+    assert res["style"] == style_name
+    assert res["style_created"] is False
+    doc.createInstance.assert_not_called()
+    cell_styles.insertByName.assert_not_called()
+    assert style_props["CellBackColor"] == 0xFF0000
+    assert style_props["CharColor"] == 0xFFFFFF
+    assert style_props["CharWeight"] == fake_fw.BOLD
+    assert style_props["Hidden"] is True
+
+
