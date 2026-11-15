@@ -1040,3 +1040,33 @@ def test_number_format_key_general_preset_skips_conversion():
     assert key == 0
     formats.getStandardFormat.assert_called_once_with(16, locale)
     formats.addNewConverted.assert_not_called()
+
+
+def test_surviving_ref_cells_rows_and_columns():
+    from plugin.calc.manipulator import _surviving_ref_cells
+
+    cells = {
+        ("Sheet1", 0, 1),   # above deleted rows 3..4 (0-based 2..3)
+        ("Sheet1", 1, 2),   # inside deleted rows
+        ("Sheet1", 2, 3),   # inside deleted rows
+        ("Sheet1", 0, 5),   # below deleted rows -> row 3
+        ("Other", 1, 2),    # other sheet: untouched
+    }
+    assert _surviving_ref_cells(cells, "Sheet1", True, 2, 2) == {
+        ("Sheet1", 0, 1),
+        ("Sheet1", 0, 3),
+        ("Other", 1, 2),
+    }
+
+    col_cells = {
+        ("Sheet1", 0, 0),   # left of deleted cols B..C (0-based 1..2)
+        ("Sheet1", 1, 4),   # inside deleted cols
+        ("Sheet1", 2, 5),   # inside deleted cols
+        ("Sheet1", 4, 2),   # right of deleted cols -> col 2
+        ("Other", 1, 4),    # other sheet: untouched
+    }
+    assert _surviving_ref_cells(col_cells, "Sheet1", False, 1, 2) == {
+        ("Sheet1", 0, 0),
+        ("Sheet1", 2, 2),
+        ("Other", 1, 4),
+    }

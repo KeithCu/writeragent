@@ -193,3 +193,21 @@ def test_insert_result_into_calc_undo(ctx, doc):
     assert active_sheet.getCellByPosition(0, 0).getString() == "", "A1 title should revert after single undo"
     assert active_sheet.getCellByPosition(0, 2).getString() == "", "A3 position header should revert after single undo"
     assert active_sheet.getCellByPosition(1, 2).getString() == "", "B3 prime header should revert after single undo"
+
+
+@native_test
+@with_native_doc("calc")
+def test_insert_cell_html_reports_replaced_formula(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    a1 = sheet.getCellByPosition(0, 0)
+    a1.setFormula("=1+2")
+
+    res = _execute_calc_tool(doc, ctx, "insert_cell_html", {"cell": "A1", "html": "<b>x</b>"})
+    note_windows_html_paste_leftover()
+    assert res.get("status") == "ok", res
+    assert res["replaced_text"] == "=1+2"
+    assert "x" in a1.getString()
+
+    res_empty = _execute_calc_tool(doc, ctx, "insert_cell_html", {"cell": "B1", "html": "<b>y</b>"})
+    assert res_empty.get("status") == "ok", res_empty
+    assert "replaced_text" not in res_empty
