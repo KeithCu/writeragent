@@ -58,7 +58,7 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 | Approval / HITL tiers | **Partial** | [`dialogs.py`](../../plugin/chatbot/dialogs.py), [`send_handlers.py`](../../plugin/chatbot/send_handlers.py) | Inspect vs mutate tool tiers in `executeToolCall` |
 | Tool-round cap | **Implemented** | `chat_max_tool_rounds` in tool loop | Default 5 rounds in `AIChatSession.hpp` |
 | Tool progress UI | **Partial** | [`StreamQueueKind`](../../plugin/framework/async_stream.py) | `aichatprogress:` WebSocket frames |
-| `cell://` chat links | **Implemented** | [`plugin/calc/navigation.py`](../../plugin/calc/navigation.py), sidebar rich-text paste (HTML `<a href="cell://…">`) | `Control.AIChatSidebar.ts` markdown post-process |
+| `cell://` chat links | **Implemented** | [`plugin/calc/navigation.py`](../../plugin/calc/navigation.py), sidebar rich-text paste (HTML `<a href="cell://…">`; plain sheet-qualified / absolute / range refs auto-linked) | `Control.AIChatSidebar.ts` markdown post-process |
 
 ---
 

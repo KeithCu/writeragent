@@ -42,6 +42,7 @@ from plugin.calc.navigation import (
         ("XFD1048576", "XFD1048576", None),
         (" cell://Sheet1!b2 ", "Sheet1.B2", "Sheet1"),
         (f"{WRITERAGENT_CELL_URL_PREFIX}'O''Brien'.A1", "'O''Brien'.A1", "O'Brien"),
+        (f"{WRITERAGENT_CELL_URL_PREFIX}My%20Sheet.A1", "My Sheet.A1", "My Sheet"),
     ],
 )
 def test_normalize_cell_address_valid_and_round_trips(raw, expected, expected_sheet):

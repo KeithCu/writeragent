@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, cast, final
+from typing import TYPE_CHECKING, Any, cast, final
 
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseWindowListener
@@ -33,8 +33,12 @@ from plugin.chatbot.rich_text import (
     ChatTheme,
     apply_chat_char_props,
     apply_rich_control_para_margins,
+    link_plain_cell_refs,
 )
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection
 
 log = logging.getLogger(__name__)
 
@@ -94,8 +98,18 @@ class RichTextChatWidget:
     style_window: Any
     query: Any
     restore_focus: Any
+    cell_link_sheet_names: Callable[[], Collection[str]] | None
 
-    def __init__(self, ctx: Any, control: Any, style_window: Any = None, query: Any = None, restore_focus: Any = None) -> None:
+    def __init__(
+        self,
+        ctx: Any,
+        control: Any,
+        style_window: Any = None,
+        query: Any = None,
+        restore_focus: Any = None,
+        *,
+        cell_link_sheet_names: Callable[[], Collection[str]] | None = None,
+    ) -> None:
         self.ctx = ctx
         self.control = control
         self.style_window = style_window
@@ -103,6 +117,10 @@ class RichTextChatWidget:
         # Closes over this panel's frame session. Stream chunks must not
         # restore whichever Ask field was pinned for the process.
         self.restore_focus = restore_focus
+        # Set only for Calc panels; returns the workbook's sheet names so
+        # assistant rows get plain references linked at paint time. None
+        # (Writer, Draw) paints rows as they are.
+        self.cell_link_sheet_names = cell_link_sheet_names
         # Debug-only: test hooks read these through the SNAPSHOT
         # hook to prove streaming appends instead of repainting.
         self._debug_paint_session_count: int = 0
@@ -201,6 +219,15 @@ class RichTextChatWidget:
             return
         self._paint_items(session_history_items(session, self._greeting))
 
+    def _with_cell_links(self, rows: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Auto-link plain cell references in assistant rows for Calc panels."""
+        if self.cell_link_sheet_names is None:
+            return rows
+        names = self.cell_link_sheet_names()
+        # Only the painted copy changes; _shown and session history keep the
+        # model's text so stream diffs still compare against the list.
+        return [(role, link_plain_cell_refs(content, names) if role == "assistant" else content) for role, content in rows]
+
     def _paint_items(self, items: list[tuple[str, str]]) -> None:
         """Replace the control with a formatted paint of *items*."""
         from plugin.chatbot.rich_text_paste import paint_message_items
@@ -208,7 +235,7 @@ class RichTextChatWidget:
         paint_message_items(
             self.ctx,
             self.control,
-            items,
+            self._with_cell_links(items),
             style_window=self.style_window,
             restore=self.query,
             restore_focus=self.restore_focus,
@@ -397,7 +424,7 @@ class RichTextChatWidget:
         if tail:
             _ensure_message_separator(self.control)
             append_formatted_rows(
-                self.ctx, self.control, tail, style_window=self.style_window,
+                self.ctx, self.control, self._with_cell_links(tail), style_window=self.style_window,
                 restore=self.query, restore_focus=self.restore_focus,
             )
         # A long cut (two turns after a Stop: partial answer, banner, the next

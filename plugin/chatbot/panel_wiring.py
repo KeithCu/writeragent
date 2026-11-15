@@ -7,6 +7,7 @@ from typing import Any
 from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
 from plugin.framework.config import get_config
+from plugin.framework.doc_type import is_calc
 from plugin.framework.errors import best_effort, suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.event_bus import get_event_bus
@@ -99,6 +100,21 @@ def setup_rich_control_ready(
         log_rich_scroll,
     )
 
+    def _calc_doc_from_panel() -> Any | None:
+        sl = panel.send_listener
+        if sl is None:
+            return None
+        doc = sl._get_document_model()
+        if doc is not None and hasattr(doc, "getSheets"):
+            return doc
+        return None
+
+    def _calc_sheet_names() -> tuple[str, ...]:
+        doc = _calc_doc_from_panel()
+        if doc is None:
+            return ()
+        return best_effort(lambda: tuple(doc.getSheets().getElementNames()), "chat cell links: sheet names", ())
+
     session = panel.frame_session
     restore_focus = session.restore_focus if session is not None else None
     widget = RichTextChatWidget(
@@ -107,6 +123,7 @@ def setup_rich_control_ready(
         style_window=root_window,
         query=controls.get("query"),
         restore_focus=restore_focus,
+        cell_link_sheet_names=_calc_sheet_names if is_calc(model) else None,
     )
     panel.rich_text_widget = widget
     if session is not None:
@@ -120,15 +137,6 @@ def setup_rich_control_ready(
         rl.set_control("response_rich", rich_control)
     if panel.send_listener:
         panel.send_listener.set_rich_text_widget(widget)
-
-    def _calc_doc_from_panel() -> Any | None:
-        sl = panel.send_listener
-        if sl is None:
-            return None
-        doc = sl._get_document_model()
-        if doc is not None and hasattr(doc, "getSheets"):
-            return doc
-        return None
 
     def _attach_calc_cell_link(ctrl: Any) -> None:
         try:

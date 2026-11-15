@@ -73,6 +73,7 @@ Writer is still used **off-screen**: a **hidden** document imports HTML, then a 
 | LLM HTML format instructions gated on config | `get_chat_response_format_instructions` → `RICH_CHAT_SIDEBAR_INSTRUCTIONS` |
 | Web research / librarian share same format + finalize | `finalize_sidebar_assistant_response` in `tool_loop_actions.py` |
 | Legacy `AI:` label stripped on rich path | `strip_legacy_assistant_stream_chunk`, `strip_legacy_ai_label` |
+| Calc plain cell refs auto-linked | `link_plain_cell_refs` applied by `RichTextChatWidget._with_cell_links` (Calc panels only): links sheet-qualified refs when the sheet exists (case-insensitive), `$`-absolute refs, and `A1:B5` ranges (jumping to the first cell); leaves no-tag replies untouched; `normalize_cell_address` unquotes `%20` in HTML-imported targets |
 
 ---
 
@@ -193,6 +194,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 | `apply_chat_char_props` | Set Liberation Sans / weight / height on cursor, portion, or style |
 | `apply_rich_control_para_margins` | EditEngine horizontal inset for sidebar density |
 | `_append_rich_text_with_span` | HTML filter import + list tightening |
+| `link_plain_cell_refs` | Wrap plain Calc cell refs in `cell://` anchors (HTML replies only) |
 | `get_theme_colors` | Theme-aware role colors |
 
 ### Key APIs (`rich_text_control.py`)

@@ -649,6 +649,43 @@ class TestRichTextChatWidget:
         assert rich.call_args[0][2] == [("assistant", "<b>Hello</b>")]
         assert (widget._formatted_rows, widget._formatted_len) == (2, 25)
 
+    def test_calc_widget_links_assistant_rows_in_paint(self):
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock(), cell_link_sheet_names=lambda: ["Sheet1"])
+        raw = [("user", "<p>Sheet1.B2</p>"), ("assistant", "<p>Total in Sheet1.B2</p>")]
+        with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
+             patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=40):
+            widget._paint_items(raw)
+        painted = paint.call_args[0][2]
+        assert painted[0] == ("user", "<p>Sheet1.B2</p>")
+        assert 'href="cell://Sheet1.B2"' in painted[1][1]
+        assert widget._shown == raw
+
+    def test_widget_without_sheet_source_paints_rows_unchanged(self):
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock())
+        raw = [("user", "<p>Sheet1.B2</p>"), ("assistant", "<p>Total in Sheet1.B2</p>")]
+        with patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint, \
+             patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=40):
+            widget._paint_items(raw)
+        assert paint.call_args[0][2] == raw
+
+    def test_calc_widget_links_tail_rows_at_turn_end(self):
+        widget = self._streaming_widget([("user", "q"), ("assistant", "See")], 1, 10)
+        widget.cell_link_sheet_names = lambda: ["Sheet1"]
+        session = MagicMock()
+        session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": "<p>See Sheet1.B2</p>"}]
+        with patch("plugin.chatbot.rich_text_control.rollback_rich_insert"), \
+             patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
+             patch("plugin.chatbot.rich_text_paste.append_formatted_rows") as rich, \
+             patch("plugin.chatbot.rich_text_control.force_rich_full_reformat"), \
+             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
+             patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=25):
+            assert widget.rerender_last_assistant_if_html(session) is True
+        assert 'cell://Sheet1.B2' in rich.call_args[0][2][0][1]
+
     def test_rerender_skips_when_there_is_no_assistant_row(self):
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 

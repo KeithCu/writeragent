@@ -11,6 +11,7 @@ import re
 import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import unquote
 
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_address, parse_address, qualify_a1, split_sheet_prefix
 from plugin.calc.calc_utils import query_interface, resolve_sheet_and_cell
@@ -95,7 +96,11 @@ def normalize_cell_address(raw: str) -> str | None:
     text = (raw or "").strip()
     for prefix in ("cell://", WRITERAGENT_CELL_URL_PREFIX):
         if text.lower().startswith(prefix):
-            text = text[len(prefix) :].strip()
+            # Writer's HTML import percent-encodes link targets (SwHTMLParser::NewAnchor,
+            # sw/source/filter/html/htmlgrin.cxx, via URIHelper::SmartRel2Abs). A portion's
+            # URL for My Sheet.A1 reads My%20Sheet.A1, and without decoding the click looks
+            # for a sheet that does not exist.
+            text = unquote(text[len(prefix) :]).strip()
             break
     if not text:
         return None
