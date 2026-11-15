@@ -961,24 +961,14 @@ class ApplyDesign(ToolBase):
     """Restyle the open Impress deck from a listed ``.otp`` (clone_master)."""
 
     name: str | None = "apply_design"
+    # Cloning internals (bitmap fills, style families, the shared source pool, untitled-master ties)
+    # are documented in docs/draw/impress-specialized-toolsets.md; when relevant, results report them in clone_warnings.
     description: str = (
-        "Restyle the OPEN Impress deck from a listed .otp: Hidden-load the "
-        "template, clone its master shapes and reimported graphics into this "
-        "document, and assign that master to every slide. Does not use "
-        "the system clipboard and does not open a new presentation. "
-        "The master matching the deck's aspect ratio and design name is cloned "
-        "and assigned to every slide; other layout masters in the .otp are not imported. "
-        "Groups, custom-shape geometry, polygons, rotation, gradient and hatch structs, "
-        "solid master backgrounds, line and character properties, and pictures are cloned. "
-        "Bitmap fills and presentation style families are not (copying those families shares "
-        "the hidden source pool and aborts LibreOffice). "
-        "The result may include clone_warnings when a property is rejected, an aspect ratio "
-        "mismatch occurs, or a bitmap fill was not reproduced. "
-        "The result includes source_master and selection; a fallback warning names the master "
-        "when several untitled masters tie. "
-        "Existing placeholder text stays on its current styles. "
-        "Applying the same design again replaces the previously imported master of that name. "
-        "Call list_designs first."
+        "Restyle the open Impress deck in place with a design from list_designs: copies that "
+        "design's master (the one matching the deck's aspect ratio) into this document and "
+        "assigns it to every slide. Existing slide text keeps its current styles. Reapplying "
+        "the same design replaces the master it imported before. Fills or properties that could not be "
+        "copied are listed in clone_warnings. Impress only; does not open a new presentation."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
     uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
