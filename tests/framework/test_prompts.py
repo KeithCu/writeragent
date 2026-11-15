@@ -498,6 +498,7 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
 def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path: str, service: str) -> None:
     import importlib
     from plugin.app import get_tools
+    from plugin.doc.specialized_catalog import _get_specialized_domains_str, catalog_entries_from_base
 
     get_tools()
     mod_name, cls_name = gateway_cls_path.rsplit(".", 1)
@@ -510,13 +511,17 @@ def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path:
         prompt = get_chat_system_prompt_for_document(doc)
 
     domains = gw.domains_for_services(frozenset({service}))
-    for dom in domains:
-        # Domains with a description render as "dom: desc"; bare domains (e.g. math) render as "dom".
-        assert f"{dom}:" in prompt or f"; {dom};" in prompt or f"; {dom}\n" in prompt
+    rendered = _get_specialized_domains_str(agent_label=gw._agent_label, uno_services=frozenset({service}))
+    assert rendered in prompt
+    rendered_names = {
+        entry["domain"]
+        for entry in catalog_entries_from_base(agent_label=gw._agent_label, uno_services=frozenset({service}))
+    }
+    assert set(domains) == rendered_names
     if service == "com.sun.star.sheet.SpreadsheetDocument":
         # Calc documents must keep forms in both the prompt and the narrowed gateway enum.
         assert "forms" in domains
-        assert "forms:" in prompt
+        assert "forms:" in rendered
 
 
 def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:

@@ -39,6 +39,7 @@ from plugin.doc.peer_prompt import (
     looks_like_peer_work_envelope,
 )
 from plugin.doc.specialized_catalog import (
+    FINISH_TOOL_NAME,
     InnerToolCall,
     READ_ONLY_DOMAINS,
     apply_inner_outcome,
@@ -371,7 +372,7 @@ class DelegateToSpecializedBase(ToolBase):
             lambda: _gather_domain_tools(ctx, domain)
         )
 
-        if not any(t.name != "specialized_workflow_finished" for t in domain_tools):
+        if not any(t.name != FINISH_TOOL_NAME for t in domain_tools):
             # The registry has already filtered this domain's tools by the document's services,
             # so having no domain tool beyond specialized_workflow_finished for an enum domain
             # means it is bound to another document type (for example, Impress-only slide domains
@@ -427,7 +428,7 @@ class DelegateToSpecializedBase(ToolBase):
                 smol_tools,
                 instructions=instructions,
                 examples_key=examples_key,
-                final_answer_tool_name="specialized_workflow_finished",
+                final_answer_tool_name=FINISH_TOOL_NAME,
                 task=cast("str", task),
                 stop_message="Specialized task stopped by user.",
                 error_prefix="Specialized agent failed",
@@ -491,6 +492,9 @@ class DelegateToSpecializedBase(ToolBase):
 
 def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any], uno_services: frozenset[str] | None) -> list[dict[str, Any]]:
     """Drop gateway ``domain`` enum values that cannot run on the document's UNO services.
+
+    MCP: also rewrites the ``domain`` description so it lists only bound domains;
+    ``to_mcp_schema`` writes the unprobed list.
 
     *schemas* are ``tools`` converted 1:1 (OpenAI ``function.parameters`` or MCP ``inputSchema``).
     Unknown services (no document / MCP without probe) keep every domain.

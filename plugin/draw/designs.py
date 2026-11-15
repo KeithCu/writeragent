@@ -978,7 +978,7 @@ class ApplyDesign(ToolBase):
         "when several untitled masters tie. "
         "Existing placeholder text stays on its current styles. "
         "Applying the same design again replaces the previously imported master of that name. "
-        "Call list_designs first. Draw documents return a not-Impress error."
+        "Call list_designs first."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
     uno_services: list[str] | None = [IMPRESS_DOCUMENT_SERVICE]
