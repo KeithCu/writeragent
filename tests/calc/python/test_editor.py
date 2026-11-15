@@ -353,7 +353,7 @@ def test_follow_save_bad_xl_errors_and_writes_nothing():
     assert result["type"] == "error"
     assert code_cell.getString() == "result = 42"
     assert formula_cell.getFormula() == "=PY($A$1)"
-    assert doc._calculate_all_calls == 0
+    assert doc.calculate_all_count == 0
 
 
 def test_follow_save_flag_off_keeps_code_as_typed():
