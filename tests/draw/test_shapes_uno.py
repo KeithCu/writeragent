@@ -38,6 +38,7 @@ def _group_two_rectangles(ctx, doc, doc_type):
     grouped = page.getByIndex(start)
     shape_type = grouped.getShapeType()
     assert "Group" in shape_type, shape_type
+    assert result.get("name") == grouped.Name != ""
     return page, start, grouped
 
 
@@ -323,6 +324,47 @@ def test_calc_shape_diagram_one_node(ctx, doc):
 
 
 @native_test
+@with_native_doc("draw", reuse=False)
+def test_draw_shape_upsert_names_new_shapes(ctx, doc):
+    from plugin.draw.bridge import DrawBridge
+    from plugin.draw.shapes import UpsertShape
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    upsert = UpsertShape()
+    first = upsert.execute(tctx, action="create", shape_type="rectangle", page=0, x=1000, y=1000, width=2000, height=1500)
+    second = upsert.execute(tctx, action="create", shape_type="rectangle", page=0, x=4000, y=1000, width=2000, height=1500)
+    assert first.get("status") == "ok", first
+    assert second.get("status") == "ok", second
+
+    page = DrawBridge(doc).get_pages().getByIndex(0)
+    assert first["name"] and second["name"]
+    assert first["name"] != second["name"]
+    assert first["name"] == page.getByIndex(first["index"]).Name
+    assert second["name"] == page.getByIndex(second["index"]).Name
+
+    edited = upsert.execute(tctx, action="edit", page=0, name=first["name"], text="x")
+    assert edited.get("status") == "ok", edited
+    assert page.getByIndex(first["index"]).getString() == "x"
+
+    count_before = page.getCount()
+    dup = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=7000,
+        y=1000,
+        width=2000,
+        height=1500,
+        name=first["name"],
+    )
+    assert dup.get("status") == "error"
+    assert dup.get("code") == "INVALID_PARAM"
+    assert page.getCount() == count_before
+
+
+@native_test
 @with_native_doc("draw")
 def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
     from plugin.doc.specialized_catalog import InnerToolCall
@@ -379,9 +421,7 @@ def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
     assert summary["shapes_created"] == 4
     assert summary["connectors_created"] == 2
     assert summary["shapes_created"] + summary["connectors_created"] == page.getCount() - start_count
-    assert summary["created_names"] == ["Start"]
+    assert summary["created_names"] == ["Start", r2["name"]]
     assert summary["pages"] == [0]
-    # LibreOffice leaves API-created shapes unnamed unless name= is passed.
-    assert page.getByIndex(start_count + 1).Name == ""
-
+    assert page.getByIndex(start_count + 1).Name == r2["name"] != ""
 

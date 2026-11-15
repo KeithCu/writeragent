@@ -228,6 +228,8 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
 
 def field_from_tool_arguments(arguments: Any, field: str) -> Any:
     """Read *field* from tool arguments (dict or JSON string), or None."""
+    # CrossHair's regex engine crashes inside the json.loads repair path.
+    # crosshair: off
     if arguments is None:
         return None
     if isinstance(arguments, dict):
@@ -310,8 +312,13 @@ class ToolBase(_ToolErrorMixin, ABC):
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
 
-    def detects_mutation(self) -> bool:
-        """Return True if the tool mutates the document."""
+    def detects_mutation(self, arguments: Any = None) -> bool:
+        """Return True if the tool mutates the document.
+
+        *arguments* is the call's arguments (dict or JSON string, as from the
+        wire). Ignored by the default; delegate gateways use it to decide per
+        call.
+        """
         if self.is_mutation is not None:
             return self.is_mutation
         if self.name:
@@ -321,11 +328,11 @@ class ToolBase(_ToolErrorMixin, ABC):
     def requires_document_lock(self, arguments: Any = None) -> bool:
         """Whether a long-running or backpressure MCP run must hold the per-document gate.
 
-        Defaults to :meth:`detects_mutation`. Override when a tool is sometimes read-only
-        depending on ``arguments`` (e.g. delegate gateway domains). See
+        Defaults to :meth:`detects_mutation(arguments)`. Override only when
+        locking differs from mutation (e.g. ``EvaluateFormula``). See
         docs/framework/threading.md § MCP tool execution paths.
         """
-        return self.detects_mutation()
+        return self.detects_mutation(arguments)
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         """JSON Schema for this tool; override for document-type-specific parameters."""

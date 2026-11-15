@@ -60,7 +60,7 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import build_heading_tree, iter_heading_nodes
+from plugin.doc.text_helpers import KeepViewSelection, build_heading_tree, iter_heading_nodes
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import safe_json_loads
 from plugin.writer import html_import, html_import_styles, record_changes, search as search_mod
@@ -1368,7 +1368,9 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         target = params.target
         tables_before = _doc_table_count(ctx.doc) if has_table else None
-        with session:
+        # The insert can land at the end of a selection at the document edge; Writer
+        # stretches the view selection over text inserted at its end, so put it back.
+        with KeepViewSelection(uno_read(lambda: ctx.doc.getCurrentController(), None)), session:
             report = session.record_mutation(
                 lambda: html_import.insert_content_at_position(
                     ctx.doc, ctx.ctx, content, target
@@ -1691,7 +1693,9 @@ class ApplyDocumentContent(ToolBase):
                 raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
         anchor = collapsed_anchor(found)
-        with session:
+        # The insert lands at the end of a match the user often has selected; Writer
+        # stretches the view selection over text inserted at its end, so put it back.
+        with KeepViewSelection(uno_read(lambda: doc.getCurrentController(), None)), session:
             record_html_atomically(
                 session, doc, _insert_next_to_match,
                 proposed_preview=plain)

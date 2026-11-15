@@ -239,6 +239,8 @@ def _is_date_like_column_name(name: str) -> bool:
     A substring test would accept the last two; a word-boundary regex would
     miss the first two.
     """
+    # Regex sub on a symbolic string crashes CrossHair.
+    # crosshair: off
     spaced = _CAMEL_CASE_RE.sub(" ", str(name))
     tokens = _TOKEN_RE.findall(spaced.lower())
     return any(tok in _DATE_NAME_TOKENS for tok in tokens)
@@ -403,6 +405,8 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
     floats on purpose. The year window is separate because 1900-2200 would
     otherwise become 1905.
     """
+    # CrossHair cannot deep-copy pandas Series internals.
+    # crosshair: off
     import numpy as np
     import pandas as pd
 

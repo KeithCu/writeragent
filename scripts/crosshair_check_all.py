@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Discover ``@deal.`` modules under ``plugin/`` and run CrossHair check (budgeted).
+"""Discover modules under ``plugin/`` with a ``@deal.*`` decorator and run CrossHair check (budgeted).
 
 Runs **one FQN at a time** (same crash isolation as cover-all) and prints
 ``[CHECK START]`` *before* each spawn so a hang shows the current callable.
@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "targets",
         nargs="*",
-        help="Optional file paths (default: every plugin/**/*.py containing @deal.)",
+        help="Optional file paths (default: every plugin/**/*.py with a @deal.* decorator)",
     )
     parser.add_argument(
         "--plugin-root",

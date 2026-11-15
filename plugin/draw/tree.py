@@ -283,6 +283,7 @@ def find_shape_on_page(
     index: int page index, or dotted string "2.0.1" (also "2" for page level). No separate path_index parameter.
     address: int for a page-level shape, dotted str for a group child. Name lookup of a child returns that path, not None and not the group's page index.
     parent: the page or the GroupShape. None only on error.
+    Duplicate names return an error listing all matching addresses.
     """
     if index is not None:
         if isinstance(index, bool) or not isinstance(index, (int, str)):
@@ -338,7 +339,10 @@ def find_shape_on_page(
         return hits[0][0], hits[0][1], hits[0][2], None
     if not hits:
         return None, None, None, "No shape named %r on this page." % wanted
-    return None, None, None, "Several shapes named %r; pass index as well." % wanted
+    return None, None, None, "Several shapes named %r at %s; pass index instead." % (
+        wanted,
+        ", ".join(str(h[0]) for h in hits),
+    )
 
 
 def resolve_shape_ref(

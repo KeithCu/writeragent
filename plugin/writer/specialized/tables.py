@@ -11,7 +11,7 @@ shape.Name); Draw does not merge or split cells. Cell text is PLAIN (not tracked
 import logging
 from typing import Any
 
-from plugin.doc.text_helpers import FAILED, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import FAILED, KeepViewSelection, get_string_without_tracked_deletions
 from plugin.framework.doc_type import is_draw
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 from plugin.framework.uno_context import resolve_uno_context, uno_same
@@ -240,10 +240,10 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     if controller is None:
         raise RuntimeError("no document view to delete the table through")
     empty_cells = [n for n in table.getCellNames() if not table.getCellByName(n).getString()]
-    previous = uno_read(lambda: controller.getSelection(), None)
     before = doc.getRedlines().getCount()
-    controller.select(table)
-    try:
+    # Leave the user's cursor where it was around the table selection and dispatch.
+    with KeepViewSelection(controller):
+        controller.select(table)
         helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
         helper.executeDispatch(controller.getFrame(), ".uno:DeleteTable", "", 0, ())
         try:
@@ -258,14 +258,6 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
             if is_disposal(exc):
                 raise
             log.debug("table_delete: could not clear an empty-row anchor", exc_info=True)
-    finally:
-        if previous is not None:
-            try:
-                controller.select(previous)  # leave the user's cursor where it was
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                log.debug("table_delete: could not restore the previous selection", exc_info=True)
 
     if doc.getRedlines().getCount() > before:
         return

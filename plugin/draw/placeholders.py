@@ -88,6 +88,14 @@ def _find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) 
     return None, None
 
 
+def slide_title(page: Any) -> str:
+    """Return the title placeholder's text for *page*, or ``""`` when none exists."""
+    shape, _idx = _find_placeholder(page, "title")
+    if shape is None or not hasattr(shape, "getString"):
+        return ""
+    return str(uno_read(lambda: shape.getString(), "") or "")
+
+
 def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[dict[str, Any]]:
     """List all text-capable shapes on a page with role detection."""
     if scan is None:
