@@ -568,7 +568,8 @@ CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
 
 
 CALC_FORMULA_SYNTAX_TEMPLATE = (
-    """FORMULAS: =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
+    """FORMULAS: Formulas use Calc syntax: ; between arguments and Sheet.A1 for other sheets, e.g. =SUM(Sheet2.A1:A5; B1).
+=PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
 {venv_policy}
 """
     # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]): sum raises TypeError, min/max return a whole row.

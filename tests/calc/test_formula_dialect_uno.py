@@ -137,7 +137,7 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     assert bad_res["error_cells"][0]["error"] == "Err:508"
     assert active.getCellByPosition(3, 0).getFormula() == "=SUM(A1;B1,C1)"
     warns = [w for w in bad_res.get("warnings", []) if w.get("code") == "FORMULA_ERROR"]
-    assert warns and "Excel syntax" in warns[0]["message"], warns
+    assert warns and "Formulas use Calc syntax:" in warns[0]["message"], warns
 
     name_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D2"], "values": "=FOO(1,2)"})
     assert name_res.get("error_cells") and name_res["error_cells"][0]["error"] == "#NAME?", name_res

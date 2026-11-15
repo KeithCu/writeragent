@@ -2254,7 +2254,7 @@ def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
         "warnings": [
             {
                 "code": "FORMULA_ERROR",
-                "message": "1 formula cell(s) show an error. Write a formula in Excel syntax (=IF(A1>0,1,0), Orders!A1, {1,2;3,4}) or in Calc syntax (=IF(A1>0;1;0), Orders.A1, {1;2|3;4}), not a mix of both in one formula.",
+                "message": "1 formula cell(s) show an error. Formulas use Calc syntax: ; between arguments, Sheet.A1 for other sheets, and {1;2|3;4} for inline arrays (e.g. =IF(A1>0; 1; 0), Orders.A1).",
             }
         ],
     }
@@ -2265,4 +2265,4 @@ def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
     assert res["status"] == "ok"
     assert len(res["error_cells"]) == 2
     assert len(res["warnings"]) == 2
-    assert "Write a formula in Excel syntax" in res["warnings"][1]["message"]
+    assert "Formulas use Calc syntax:" in res["warnings"][1]["message"]

@@ -232,7 +232,7 @@ def test_bang_ref_formula_evaluates_uno(ctx, doc):
     )
     assert missing_res.get("error_cells"), missing_res
     formula_warns = [w for w in missing_res.get("warnings", []) if w.get("code") == "FORMULA_ERROR"]
-    assert formula_warns and "Excel syntax" in formula_warns[0]["message"], formula_warns
+    assert formula_warns and "Formulas use Calc syntax:" in formula_warns[0]["message"], formula_warns
 
 
 @native_test

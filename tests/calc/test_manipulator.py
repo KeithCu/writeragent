@@ -887,7 +887,7 @@ def test_write_report_dialect_hint_only_when_formula_has_comma_or_bang(formula: 
     metas = CellManipulator(MagicMock()).plan_writes([formula], None, 0)
     res = _write_report(sheet, (0, 0), (0, 0), [formula], metas, scan_text=True)
     msg = res["warnings"][0]["message"]
-    assert ("Write a formula in Excel syntax" in msg) is expect_hint
+    assert ("Formulas use Calc syntax:" in msg) is expect_hint
 
 
 def test_commit_write_forwards_write_report() -> None:

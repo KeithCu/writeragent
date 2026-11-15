@@ -410,8 +410,8 @@ def _write_report(
                 for e in errors
             ):
                 warn_msg += (
-                    " Write a formula in Excel syntax (=IF(A1>0,1,0), Orders!A1, {1,2;3,4})"
-                    " or in Calc syntax (=IF(A1>0;1;0), Orders.A1, {1;2|3;4}), not a mix of both in one formula."
+                    " Formulas use Calc syntax: ; between arguments, Sheet.A1 for other sheets,"
+                    " and {1;2|3;4} for inline arrays (e.g. =IF(A1>0; 1; 0), Orders.A1)."
                 )
             warnings.append({"code": "FORMULA_ERROR", "message": warn_msg})
 
