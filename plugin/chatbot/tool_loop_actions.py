@@ -1055,6 +1055,11 @@ class ToolLoopEffectInterpreter:
                 tool_calls=effect.tool_calls,
                 reasoning_replay=effect.reasoning_replay,
             )
+        elif effect.role == MessageRole.USER:
+            turn = current_turn(self.host)
+            if turn is not None and turn.can_write(self.host):
+                assert turn.session is not None
+                turn.session.add_user_message(content)
         elif effect.role == MessageRole.TOOL:
             turn = current_turn(self.host)
             if turn is not None and turn.can_write(self.host):

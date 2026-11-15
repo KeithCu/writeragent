@@ -16,6 +16,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
+from plugin.chatbot.tool_loop_state import (
+    EDIT_NUDGE_MESSAGE,
+    should_nudge_zero_tool_edit,
+    tools_have_apply_document_content,
+)
 from plugin.doc.specialized_catalog import InnerToolCall, normalize_inner_result
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
@@ -681,6 +686,9 @@ def _run_llm_chat_eval_impl(
 
     rounds = max(1, int(max_tool_rounds))
     last_had_tools = False
+    has_apply_tool = tools_have_apply_document_content(tools)
+    has_mutated = False
+    edit_nudge_sent = False
     try:
         for round_i in range(rounds):
             resp = client.request_with_tools(
@@ -714,6 +722,21 @@ def _run_llm_chat_eval_impl(
                 )
 
             if not tool_calls:
+                if (
+                    student != "scripted"
+                    and round_i + 1 < rounds
+                    and should_nudge_zero_tool_edit(
+                        query_text=user_question,
+                        assistant_content=content,
+                        doc_type=kind,
+                        has_apply_tool=has_apply_tool,
+                        has_mutated=has_mutated,
+                        already_nudged=edit_nudge_sent,
+                    )
+                ):
+                    edit_nudge_sent = True
+                    messages.append({"role": "user", "content": EDIT_NUDGE_MESSAGE})
+                    continue
                 last_had_tools = False
                 if round_i == 0 and not content.strip() and student != "scripted":
                     err = "empty model response"
@@ -728,6 +751,7 @@ def _run_llm_chat_eval_impl(
                     )
                     trace.append(_trace_entry(name, raw_args, result))
                 elif name == "delegate_tool_domains":
+                    has_mutated = True
                     result = _dispatch_delegate_tool_domains(
                         kind=kind,
                         raw_args=raw_args,
@@ -753,6 +777,9 @@ def _run_llm_chat_eval_impl(
                     args = safe_json_loads(raw_args)
                     if not isinstance(args, dict):
                         args = {}
+                    domain = str(args.get("domain") or "")
+                    if domain not in ("document_research", "web_research", "structural"):
+                        has_mutated = True
                     result = _run_specialized_inner(
                         kind=kind,
                         domain=str(args.get("domain") or ""),
@@ -775,6 +802,8 @@ def _run_llm_chat_eval_impl(
                     )
                     trace.append(_trace_entry(name, raw_args, result))
                 else:
+                    if name in ("apply_document_content", "apply_style"):
+                        has_mutated = True
                     result = _dispatch_world_tool(
                         state, name, raw_args, backend=backend, verbose=verbose
                     )

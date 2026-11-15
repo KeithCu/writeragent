@@ -1346,3 +1346,50 @@ def test_connection_lost_stripper_tail_history_row(test_instance):
         assistant_rows = [m for m in session.messages if m.get("role") == "assistant"]
         assert len(assistant_rows) == 1
         assert assistant_rows[0]["content"] == "Hello <b\n[API error: Connection lost]"
+
+
+def test_production_loop_nudges_once_on_zero_tool_edit_reply(test_instance):
+    from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter
+    from plugin.chatbot.tool_loop_state import EDIT_NUDGE_MESSAGE
+    from plugin.framework.async_stream import StreamQueueKind
+
+    session = ChatSession(system_prompt="Sys")
+    session.add_user_message("Rewrite this paragraph to be concise.")
+    test_instance.session = session
+    test_instance.cached_doc_type = "writer"
+    test_instance._tool_loop_interpreter = ToolLoopEffectInterpreter(test_instance)
+    begin_send_turn(test_instance)
+    _prime_active_tool_loop(test_instance)
+    turn = current_turn(test_instance)
+    turn.active_tools = [{"type": "function", "function": {"name": "apply_document_content"}}]
+    turn.active_query_text = "Rewrite this paragraph to be concise."
+    test_instance._sm_state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=8,
+        status="Thinking...",
+        doc_type="writer",
+        query_text="Rewrite this paragraph to be concise.",
+        has_apply_tool=True,
+    )
+    test_instance._tool_calling._spawn_llm_worker = MagicMock()
+    test_instance._tool_calling._refresh_active_tools_for_session = MagicMock()
+
+    exit_loop = test_instance._tool_calling._handle_stream_completion(
+        (StreamQueueKind.STREAM_DONE, {"content": "<p>Concise text.</p>", "tool_calls": None})
+    )
+
+    assert exit_loop is False
+    assert test_instance._sm_state.edit_nudge_sent is True
+    assert test_instance._sm_state.round_num == 1
+    test_instance._tool_calling._spawn_llm_worker.assert_called_once()
+    assert session.messages[-2]["role"] == "assistant"
+    assert session.messages[-1] == {"role": "user", "content": EDIT_NUDGE_MESSAGE}
+
+    # Second zero-tool reply does not nudge again and exits the loop.
+    test_instance._tool_calling._spawn_llm_worker.reset_mock()
+    exit_loop_2 = test_instance._tool_calling._handle_stream_completion(
+        (StreamQueueKind.STREAM_DONE, {"content": "<p>Still chat.</p>", "tool_calls": None})
+    )
+    assert exit_loop_2 is True
+    test_instance._tool_calling._spawn_llm_worker.assert_not_called()
