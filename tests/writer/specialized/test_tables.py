@@ -17,7 +17,9 @@ from plugin.writer.specialized.tables import (
     TableInsert,
     TableList,
     ManageTableStructure,
+    TableMergeCells,
     TableSetCell,
+    TableSplitCell,
     _hosted_in_band,
     _unknown_cell_message,
     _writer_named_cells,
@@ -1437,5 +1439,48 @@ def test_read_helpers_reraise_disposal():
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")
     with pytest.raises(DocumentDisposedError):
         cell_hosted_table_names(disposed_cell)
+
+
+@pytest.mark.parametrize("cell_range", ["A1", "A1:B2:C3", ":B2", "A1:A1"])
+def test_merge_cells_rejects_malformed_range(cell_range):
+    table = FakeTable(2, 2, name="T")
+    ctx = SimpleNamespace(doc=FakeWriterDoc({"T": table}))
+    res = TableMergeCells().execute(ctx, name="T", cell_range=cell_range)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert table.getRows().getCount() == 2
+
+
+def test_merge_cells_unknown_corner_lists_cells():
+    table = FakeTable(2, 2, name="T")
+    ctx = SimpleNamespace(doc=FakeWriterDoc({"T": table}))
+    res = TableMergeCells().execute(ctx, name="T", cell_range="A1:Z9")
+    assert res["status"] == "error"
+    assert "Its cells are" in res["message"]
+
+
+@pytest.mark.parametrize("parts", [1, 21])
+def test_split_cell_parts_out_of_range(parts):
+    table = FakeTable(2, 2, name="T")
+    ctx = SimpleNamespace(doc=FakeWriterDoc({"T": table}))
+    res = TableSplitCell().execute(ctx, name="T", cell="A1", direction="rows", parts=parts)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+
+
+def test_merge_cells_reports_lo_refusal():
+    class RefusingCursorTable(FakeTable):
+        def createCursorByCellName(self, unused_cell_name):
+            return SimpleNamespace(
+                gotoCellByName=lambda unused_last, unused_expand: True,
+                mergeRange=lambda: False,
+            )
+
+    table = RefusingCursorTable(2, 2, name="LegacyTbl")
+    ctx = SimpleNamespace(doc=FakeWriterDoc({"LegacyTbl": table}))
+    res = TableMergeCells().execute(ctx, name="LegacyTbl", cell_range="A1:B1")
+    assert res["status"] == "error"
+    assert "LegacyTbl" in res["message"]
+
 
 
