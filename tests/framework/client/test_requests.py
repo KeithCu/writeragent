@@ -5,16 +5,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.client.requests import sync_request
+from plugin.framework.client.requests import close_sync_transports, sync_request
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
 
 
 @pytest.fixture(autouse=True)
 def _reset_host_pacing():
+    close_sync_transports()
     reset_host_pacing_for_tests()
     reset_local_unverified_hosts_for_tests()
     yield
+    close_sync_transports()
     reset_host_pacing_for_tests()
     reset_local_unverified_hosts_for_tests()
 
@@ -315,3 +317,72 @@ def test_sync_request_connect_timeout_reaches_connection():
         sync_request("https://api.example/v1/models", timeout=1, connect_timeout=3)
 
     assert seen == [3.0]
+
+
+def test_close_sync_transports_closes_cached_connection():
+    import socket
+
+    conns = []
+
+    def _factory(*_args, **_kwargs):
+        conn = MagicMock()
+        conn.sock = None
+
+        def _connect():
+            conn.sock = MagicMock(spec=socket.socket)
+
+        conn.connect.side_effect = _connect
+        conn.getresponse.return_value = _response(200, b"{}", "OK")
+        conns.append(conn)
+        return conn
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        sync_request("https://api.example/v1/models", timeout=1)
+        assert len(conns) == 1
+        conns[0].close.assert_not_called()
+        close_sync_transports()
+        conns[0].close.assert_called_once()
+        sync_request("https://api.example/v1/models", timeout=1)
+        assert len(conns) == 2
+
+
+def test_sync_request_stop_aborts_waiting_for_shared_lock():
+    import threading
+    from plugin.framework.send_cancellation import SendCancellation
+
+    started = threading.Event()
+    release = threading.Event()
+    cancel = SendCancellation()
+
+    def _factory(*_args, **_kwargs):
+        conn = MagicMock()
+        conn.sock = None
+
+        def _getresponse():
+            started.set()
+            release.wait(timeout=2)
+            return _response(200, b"{}", "OK")
+
+        conn.getresponse.side_effect = _getresponse
+        return conn
+
+    errors: list[BaseException] = []
+
+    def _first():
+        try:
+            sync_request("https://api.example/v1/models", timeout=1)
+        except BaseException as exc:
+            errors.append(exc)
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        t = threading.Thread(target=_first)
+        t.start()
+        assert started.wait(timeout=2)
+        cancel.cancel()
+        with pytest.raises(NetworkError) as raised:
+            sync_request("https://api.example/v1/models", timeout=1, cancel=cancel)
+        release.set()
+        t.join(timeout=2)
+
+    assert raised.value.code == "STOPPED"
+    assert errors == []
