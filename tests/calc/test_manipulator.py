@@ -1143,8 +1143,9 @@ def test_plan_write_rewrites_bang_refs_to_existing_sheets() -> None:
     assert data_txt.notes == ()
 
 
-def test_plan_write_fills_repeated_row_formula_down() -> None:
+def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
     cell_range = MagicMock()
     cell_range.getSpreadsheet.return_value = sheet
     cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=3)
@@ -1153,9 +1154,16 @@ def test_plan_write_fills_repeated_row_formula_down() -> None:
     bridge.resolve_range_or_address.return_value = cell_range
     manipulator = CellManipulator(bridge)
 
-    plan = manipulator.plan_write("C2:C4", [["=B2*2"]] * 3)
-    assert plan.values == ["=B2*2", "=B3*2", "=B4*2"]
-    assert plan.notes[0]["code"] == "FILLED_DOWN"
+    plan = manipulator.plan_write("C2:C4", [["=B2*Rates.B2"]] * 3)
+    assert plan.values == ["=B2*Rates.B2", "=B2*Rates.B2", "=B2*Rates.B2"]
+    assert len(plan.notes) == 1
+    note = plan.notes[0]
+    assert note["code"] == "REPEATED_FORMULA"
+    assert "Column C" in note["message"]
+    assert note["suggested_call"] == {
+        "tool": "write_formula_range",
+        "arguments": {"range": ["Sheet1.C2:C4"], "values": "=B2*Rates.B2"},
+    }
 
     pinned = manipulator.plan_write("C2:C4", [["=B1"]] * 3)
     assert pinned.values == ["=B1", "=B1", "=B1"]
@@ -1164,8 +1172,12 @@ def test_plan_write_fills_repeated_row_formula_down() -> None:
     cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=1)
     expanded = manipulator.plan_write("C2", [["=B2*2"]] * 3)
     assert expanded.range_str == "C2:C4"
-    assert expanded.values == ["=B2*2", "=B3*2", "=B4*2"]
-    assert expanded.notes[0]["code"] == "FILLED_DOWN"
+    assert expanded.values == ["=B2*2", "=B2*2", "=B2*2"]
+    assert expanded.notes[0]["code"] == "REPEATED_FORMULA"
+    assert expanded.notes[0]["suggested_call"] == {
+        "tool": "write_formula_range",
+        "arguments": {"range": ["Sheet1.C2:C4"], "values": "=B2*2"},
+    }
 
 
 @pytest.mark.parametrize(

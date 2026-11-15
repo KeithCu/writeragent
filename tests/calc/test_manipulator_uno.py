@@ -238,7 +238,7 @@ def test_bang_ref_formula_evaluates_uno(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
-def test_repeated_row_formula_fills_down_uno(ctx, doc):
+def test_repeated_row_formula_warns_without_rewriting_uno(ctx, doc):
     sheet = doc.getCurrentController().getActiveSheet()
     for row_idx, val in enumerate((1, 2, 3), start=1):
         sheet.getCellByPosition(1, row_idx).setValue(val)
@@ -250,5 +250,6 @@ def test_repeated_row_formula_fills_down_uno(ctx, doc):
         {"range": ["C2:C4"], "values": [["=B2*2"], ["=B2*2"], ["=B2*2"]]},
     )
     assert res.get("status") == "ok", res
-    assert any(w.get("code") == "FILLED_DOWN" for w in res.get("warnings", [])), res
-    assert [sheet.getCellByPosition(2, r).getValue() for r in (1, 2, 3)] == [2.0, 4.0, 6.0]
+    warns = [w for w in res.get("warnings", []) if w.get("code") == "REPEATED_FORMULA"]
+    assert warns and warns[0].get("suggested_call", {}).get("arguments", {}).get("values") == "=B2*2", res
+    assert [sheet.getCellByPosition(2, r).getValue() for r in (1, 2, 3)] == [2.0, 2.0, 2.0]

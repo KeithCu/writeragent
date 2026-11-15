@@ -16,7 +16,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
-from plugin.calc.formula_fill import expand_single_formula, fill_repeated_formula_columns
+from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     _parse_formula_or_values_string,
@@ -1019,12 +1019,10 @@ class CalcWorld:
             return ([], (c0, r0, c1, r1))
 
         values: Any = raw_values
-        caller_list = isinstance(values, (list, tuple))
         if isinstance(values, str):
             parsed = _parse_formula_or_values_string(
                 values, single_cell_range=(c0 == c1 and r0 == r1)
             )
-            caller_list = parsed is not None
             values = parsed if parsed is not None else [values]
         elif isinstance(values, (list, tuple)):
             values = list(values)
@@ -1054,10 +1052,6 @@ class CalcWorld:
                     rng, len(values), total, num_rows, num_cols
                 )
             flat = values
-        if caller_list and len(flat) == (r1 - r0 + 1) * (c1 - c0 + 1):
-            flat = fill_repeated_formula_columns(
-                flat, r0, r1 - r0 + 1, c1 - c0 + 1
-            )[0]
         return (flat, (c0, r0, c1, r1))
 
     def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
@@ -1131,9 +1125,9 @@ class CalcWorld:
             self.sheets[self.active_sheet] = self._grid
             return 0
         # Production write_formula_range fill-down-adjusts relative A1 refs
-        # (plugin.calc.formula_fill) when one formula string hits a 1-D range,
-        # or when a list column repeats one row-aligned formula.
-        # Non-aligned JSON arrays (e.g. =B1 or =$B$2) stay exact.
+        # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
+        # JSON arrays / explicit lists stay exact (and warn if a column repeats
+        # one row-aligned formula).
         formula_src = raw_values if isinstance(raw_values, str) else ""
         single = values[0] if values else None
         is_formula = isinstance(single, str) and single.lstrip().startswith("=")

@@ -63,7 +63,7 @@ from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_arra
 from plugin.calc.bridge import is_agent_visible_sheet
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.error_detector import formula_error_cells
-from plugin.calc.formula_fill import dot_sheet_refs, expand_single_formula, fill_repeated_formula_columns
+from plugin.calc.formula_fill import dot_sheet_refs, expand_single_formula, repeated_formula_columns
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
 from plugin.calc.python.geometric_recalc_core import arg_covers_cell
@@ -1589,16 +1589,19 @@ class CellManipulator:
                     notes.append(note)
                 rows = end[1] - start[1] + 1
                 cols = end[0] - start[0] + 1
-                values, filled_cols = fill_repeated_formula_columns(values, start[1], rows, cols)
-                if filled_cols:
-                    letters = ", ".join(index_to_column(start[0] + c) for c in filled_cols)
+                sheet_name = sheet.getName()
+                for col_offset, head in repeated_formula_columns(values, start[1], rows, cols):
+                    col_idx = start[0] + col_offset
+                    col_letter = index_to_column(col_idx)
+                    col_range = format_range(col_idx, start[1], col_idx, end[1])
+                    target_range = qualify_a1(sheet_name, col_range) if isinstance(sheet_name, str) and sheet_name else col_range
                     notes.append({
-                        "code": "FILLED_DOWN",
+                        "code": "REPEATED_FORMULA",
                         "message": (
-                            f"Column(s) {letters} repeated one formula on every row, so it was filled down "
-                            "like a single formula string (each row now uses its own row). "
-                            "Write $ (B$2) to keep one row."
+                            f"Column {col_letter} repeated {head} on every row, so every row stayed pinned to {head}. "
+                            "If you meant fill-down, resend as a single formula string (or use $ to pin intentionally)."
                         ),
+                        "suggested_call": suggest_call("write_formula_range", range=[target_range], values=head),
                     })
 
             if formulas_on:
@@ -1743,7 +1746,8 @@ class CellManipulator:
                 is an error — pass an explicit array instead.
                 Excel-style ``Sheet!A1`` prefixes for existing unshadowed sheets
                 are rewritten to Calc's ``Sheet.A1`` dot form, and list columns
-                repeating one row-aligned formula are filled down automatically.
+                repeating one row-aligned formula stay as sent with a
+                ``REPEATED_FORMULA`` warning.
                 A top-level FILTER/SORT/UNIQUE (or ``array=True``) is
                 entered with ``setArrayFormula`` so the whole result shows.
             array: Optional override. ``True`` forces an array formula

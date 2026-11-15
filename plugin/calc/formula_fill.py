@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fill-down / fill-across, Excel sheet-ref dotting, and repeated-column fill-down.
+"""Fill-down / fill-across, Excel sheet-ref dotting, and repeated-formula detection.
 
 ``write_formula_range`` fills one formula across a range instead of repeating
 the same text in every cell. Ordinary formulas shift relative A1 refs per cell
@@ -12,8 +12,8 @@ axis are adjusted; other refs outside the quoted Python string stay
 verbatim so a block like ``A1:H1517`` is not walked down the column.
 
 ``dot_sheet_refs`` rewrites Excel-style ``Sheet!A1`` prefixes to Calc's
-``Sheet.A1`` dot form, and ``fill_repeated_formula_columns`` expands list-write
-columns that repeat a single row-aligned formula.
+``Sheet.A1`` dot form, and ``repeated_formula_columns`` detects list-write
+columns that repeat a single row-aligned formula so callers can warn.
 """
 
 from __future__ import annotations
@@ -208,21 +208,21 @@ def _relative_rows(formula: str) -> set[int]:
     return rows
 
 
-def fill_repeated_formula_columns(
+def repeated_formula_columns(
     values: Sequence[Any], first_row: int, num_rows: int, num_cols: int
-) -> tuple[list[Any], list[int]]:
-    """Convert columns repeating one row-aligned formula into fill-down formulas.
+) -> list[tuple[int, str]]:
+    """Find columns repeating one row-aligned formula across every row.
 
-    A model that pastes the same row-2 formula in every row means fill-down;
-    ``$`` still pins a ref. Returns ``(row-major values, 0-based filled column offsets)``.
+    A model that pastes the same row-2 formula in every row likely meant
+    fill-down, but rewriting silently can corrupt intentional pinning, so
+    callers warn instead. Returns ``[(0-based col offset, formula), ...]``.
     """
-    out = list(values)
-    if num_rows < 2 or num_cols < 1 or len(out) != num_rows * num_cols:
-        return out, []
-    filled_cols: list[int] = []
+    if num_rows < 2 or num_cols < 1 or len(values) != num_rows * num_cols:
+        return []
+    repeated: list[tuple[int, str]] = []
     target_rows = {first_row}
     for c in range(num_cols):
-        col = out[c::num_cols]
+        col = values[c::num_cols]
         head = col[0]
         if not isinstance(head, str) or not head.startswith("="):
             continue
@@ -230,11 +230,8 @@ def fill_repeated_formula_columns(
             continue
         if _relative_rows(head) != target_rows:
             continue
-        expanded = expand_single_formula(head, num_rows, 1)
-        for r, formula in enumerate(expanded):
-            out[r * num_cols + c] = formula
-        filled_cols.append(c)
-    return out, filled_cols
+        repeated.append((c, head))
+    return repeated
 
 
 def _is_letter(ch: str) -> bool:

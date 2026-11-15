@@ -12,7 +12,7 @@ from plugin.calc.formula_fill import (
     adjust_a1_formula,
     dot_sheet_refs,
     expand_single_formula,
-    fill_repeated_formula_columns,
+    repeated_formula_columns,
 )
 
 
@@ -170,6 +170,7 @@ def test_quoted_sheet_and_whole_column_expand(formula, rows, cols, expected):
         pytest.param('=PY("x"; Orders!A1:B5)', '=PY("x"; Orders.A1:B5)', id="py_data_range"),
         pytest.param('="Orders!A1"', '="Orders!A1"', id="string_literal_untouched"),
         pytest.param("=Missing!A1", "=Missing!A1", id="unknown_sheet_untouched"),
+        pytest.param("=A1:C3!B2:B4", "=A1:C3!B2:B4", id="intersection_untouched_without_sheet"),
         pytest.param("=Orders.A1", "=Orders.A1", id="already_dotted"),
     ],
 )
@@ -178,57 +179,64 @@ def test_dot_sheet_refs(formula: str, expected: str) -> None:
     assert dot_sheet_refs(formula, lambda name: sheets.get(name.casefold())) == expected
 
 
+def test_dot_sheet_refs_intersection_rewritten_only_when_sheet_exists() -> None:
+    assert dot_sheet_refs("=A1:C3!B2:B4", lambda name: None) == "=A1:C3!B2:B4"
+    assert dot_sheet_refs("=A1:C3!B2:B4", lambda name: "C3" if name.casefold() == "c3" else None) == "=A1:C3.B2:B4"
+
+
 def test_quoted_doubled_apostrophe_prefix_fill_down() -> None:
     assert adjust_a1_formula("='O''Brien'!A1", 0, 1) == "='O''Brien'!A2"
 
 
 @pytest.mark.parametrize(
-    "values, first_row, num_rows, num_cols, expected_values, expected_cols",
+    "values, first_row, num_rows, num_cols, expected",
     [
         pytest.param(
             ["=B2*2", "x", "=B2*2", "y"],
             1,
             2,
             2,
-            ["=B2*2", "x", "=B3*2", "y"],
-            [0],
-            id="row_aligned_col_fills_down",
+            [(0, "=B2*2")],
+            id="row_aligned_col_detected",
+        ),
+        pytest.param(
+            ["=B2*Rates.B2", "=B2*Rates.B2", "=B2*Rates.B2"],
+            1,
+            3,
+            1,
+            [(0, "=B2*Rates.B2")],
+            id="cross_sheet_row_aligned_detected",
         ),
         pytest.param(
             ["=SUM(B$2:B2)", "=SUM(B$2:B2)", "=SUM(B$2:B2)"],
             1,
             3,
             1,
-            ["=SUM(B$2:B2)", "=SUM(B$2:B3)", "=SUM(B$2:B4)"],
-            [0],
-            id="running_total_mixed_abs_fills_down",
+            [(0, "=SUM(B$2:B2)")],
+            id="running_total_mixed_abs_detected",
         ),
-        pytest.param(["=B1", "=B1", "=B1"], 1, 3, 1, ["=B1", "=B1", "=B1"], [], id="header_ref_stays_pinned"),
-        pytest.param(["=$B$2", "=$B$2", "=$B$2"], 1, 3, 1, ["=$B$2", "=$B$2", "=$B$2"], [], id="absolute_stays_pinned"),
+        pytest.param(["=B1", "=B1", "=B1"], 1, 3, 1, [], id="header_ref_ignored"),
+        pytest.param(["=$B$2", "=$B$2", "=$B$2"], 1, 3, 1, [], id="absolute_ignored"),
         pytest.param(
             ["=SUM(B2:B10)", "=SUM(B2:B10)", "=SUM(B2:B10)"],
             1,
             3,
             1,
-            ["=SUM(B2:B10)", "=SUM(B2:B10)", "=SUM(B2:B10)"],
             [],
-            id="multi_row_span_stays_pinned",
+            id="multi_row_span_ignored",
         ),
-        pytest.param(["=B2*2", "=B3*2"], 1, 2, 1, ["=B2*2", "=B3*2"], [], id="non_identical_untouched"),
-        pytest.param(["=B2*2"], 1, 1, 1, ["=B2*2"], [], id="single_row_untouched"),
+        pytest.param(["=B2*2", "=B3*2"], 1, 2, 1, [], id="non_identical_untouched"),
+        pytest.param(["=B2*2"], 1, 1, 1, [], id="single_row_untouched"),
         pytest.param(
             ['=PY("r"; A1:H500)', '=PY("r"; A1:H500)'],
             1,
             2,
             1,
-            ['=PY("r"; A1:H500)', '=PY("r"; A1:H500)'],
             [],
             id="py_block_untouched",
         ),
-        pytest.param(["plain", "plain", "plain"], 1, 3, 1, ["plain", "plain", "plain"], [], id="plain_text_untouched"),
+        pytest.param(["plain", "plain", "plain"], 1, 3, 1, [], id="plain_text_untouched"),
     ],
 )
-def test_fill_repeated_formula_columns(values, first_row, num_rows, num_cols, expected_values, expected_cols) -> None:
-    got_values, got_cols = fill_repeated_formula_columns(values, first_row, num_rows, num_cols)
-    assert got_values == expected_values
-    assert got_cols == expected_cols
+def test_repeated_formula_columns(values, first_row, num_rows, num_cols, expected) -> None:
+    assert repeated_formula_columns(values, first_row, num_rows, num_cols) == expected

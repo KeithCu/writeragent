@@ -130,18 +130,18 @@ def test_calc_single_formula_fill_down_adjusts_relative_refs() -> None:
     assert calc._grid[3][2] == "=B4*0.08"
 
 
-def test_calc_json_array_of_identical_formulas_fills_down() -> None:
-    """Repeating a row-aligned formula across a JSON array column fills down."""
+def test_calc_json_array_of_identical_formulas_stays_pinned() -> None:
+    """JSON array is exact per-cell; repeating =B2*0.08 still pins every row."""
     calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5")
-    repeated = '["=B2*0.08","=B2*0.08","=B2*0.08","=B2*0.08"]'
-    res = calc.write_formula_range(range=["C2:C5"], values=repeated)
+    pinned = '["=B2*0.08","=B2*0.08","=B2*0.08","=B2*0.08"]'
+    res = calc.write_formula_range(range=["C2:C5"], values=pinned)
     assert res["status"] == "ok"
     assert res["written"] == 4
     assert calc.formulas["C2"] == "=B2*0.08"
-    assert calc.formulas["C3"] == "=B3*0.08"
-    assert calc.formulas["C4"] == "=B4*0.08"
-    assert calc.formulas["C5"] == "=B5*0.08"
-    assert calc._grid[2][2] == "=B3*0.08"
+    assert calc.formulas["C3"] == "=B2*0.08"
+    assert calc.formulas["C4"] == "=B2*0.08"
+    assert calc.formulas["C5"] == "=B2*0.08"
+    assert calc._grid[2][2] == "=B2*0.08"
 
 
 def test_sheet_summary_includes_all_rows() -> None:
