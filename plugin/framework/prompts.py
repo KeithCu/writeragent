@@ -534,27 +534,22 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 
 # : str so checkers keep this as str (Writer/Draw already are, via a str-returning call).
 #
-# Keep distinct shapes and headers across sort, header, and fill-down directives.
+# The sort and has_header lines keep distinct shapes so small models do not merge them. Fill-down is taught on write_formula_range's values parameter, not here.
 CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
 - You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_calc_toolset(domain="web_research").
 Python on sheet data: write_formula_range of =PY (that tool's description).
-FORMULAS:
-Write one ordinary formula into a 1-column (or 1-row) destination — write_formula_range fill-down adjusts relative refs ($ stays absolute).
 SORT:
 Do delegate_to_specialized_calc_toolset(domain="ranges") then range_sort to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
+# Order and judgement only. Read-size caps live on read_cell_range (description and truncated hint), fill-down on write_formula_range's values parameter, =PY placement on write_formula_range's description, and populate-after-create on the sheets hop's instruction field.
 CALC_WORKFLOW = """WORKFLOW:
 1. get_sheet_summary for size/headers.
-   read_cell_range only for a small peek (headers or a few dozen cells); peeks return compact `rows` (use `format=cells` for per-cell objects).
-   A large range in chat overloads the model context — the truncated result is a peek only.
-   Row-wise ordinary Calc formulas: write_formula_range (fill-down adjusts relative refs).
-   Reductions that spill a small result: =PY into one empty cell outside the data.
 2. Do the work with tools. Use ranges, not one cell at a time.
-   Empty tabs via specialized sheets (delegate domain="sheets"); then write_formula_range with source (or values) onto the new tab — create is not populate.
+   Empty tabs via specialized sheets (delegate domain="sheets").
 3. Short confirmation; if you changed cells, name the range (e.g. "Wrote totals in B5:B8")."""
 
 
@@ -579,11 +574,9 @@ Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - Wrong: =IF(A1>0,"Yes","No"), Orders!A1
 - =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
 {venv_policy}
-- Example: =PY("result = np.sum(data)"; Orders.A1:H500).
-- For tables with headers, use data.to_pandas() so row 0 becomes the column names.
 """
-    # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
-    "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."
+    # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]): sum raises TypeError, min/max return a whole row.
+    "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows: sum raises TypeError, min/max return a whole row)."
 )
 
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
@@ -596,8 +589,6 @@ Do not explain, do the operation directly using tools. Perform as many steps as 
 {CALC_WORKFLOW}
 
 {{calc_formula_syntax}}
-
-CSV DATA: Use comma (,) for write_formula_range.
 
 CELL LINKS: Reference cells with HTML only, e.g. <a href="cell://B2">B2</a> (users click these in the chat sidebar to jump to the cell).
 Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Orders.A1</a>.
