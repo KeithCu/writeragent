@@ -15,7 +15,7 @@ from plugin.calc.spreadsheet_search import (
     iter_target_sheets,
     search_spreadsheet_cells,
 )
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, make_tool_ok
 from plugin.writer.search import (
     CASE_SENSITIVE_DESCRIPTION,
     invalid_regex_tool_message,
@@ -79,7 +79,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             cancel=scope,
         )
 
-        return {"status": "ok", "matches": matches, "count": len(matches), "matched_case_sensitive": case_sensitive}
+        return make_tool_ok(matches=matches, count=len(matches), matched_case_sensitive=case_sensitive)
 
 
 class ReplaceInSpreadsheet(ToolCalcSearchBase):
@@ -120,10 +120,9 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
             rd.ReplaceString = replace
             total += sheet.replaceAll(rd)
 
-        return {
-            "status": "ok",
-            "replacements": total,
-            "search": search,
-            "replace": replace,
-            "matched_case_sensitive": case_sensitive,
-        }
+        return make_tool_ok(
+            replacements=total,
+            search=search,
+            replace=replace,
+            matched_case_sensitive=case_sensitive,
+        )

@@ -54,6 +54,7 @@ from plugin.framework.errors import (
     Diagnostic,
     SuggestedCall,
     ToolExecutionError,
+    append_warnings,
     format_error_payload,
     reraise_if_disposed,
     suggest_call,
@@ -1054,7 +1055,7 @@ class ApplyDocumentContent(ToolBase):
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             session_box.append(session)
             result = self._dispatch_edit(ctx, session, parsed)
-            result = html_import_styles.append_warnings(result, diags)
+            result = append_warnings(result, diags)
             return result, session
 
         if get_agent_edit_review_mode() != "wait" or on_main:

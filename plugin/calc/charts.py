@@ -43,6 +43,7 @@ from plugin.framework.errors import (
     WriterAgentException,
     document_is_disposed,
     is_disposal,
+    make_tool_ok,
     name_miss_details,
     resolve_exception_message,
 )
@@ -762,15 +763,8 @@ def _raise_chart_op_error(exc: Exception, *, prefix: str, code: str = "TOOL_EXEC
     raise ToolExecutionError(f"{prefix}: {_format_chart_exception_msg(exc)}", code=code) from exc
 
 
-def _with_warnings(out: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
-    # Absent key when empty. Callers and MCP clients use .get("warnings", []).
-    if warnings:
-        out["warnings"] = warnings
-    return out
-
-
 def _list_result(charts: list[dict[str, Any]], errors: list[dict[str, Any]]) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "ok", "charts": charts, "count": len(charts)}
+    out = make_tool_ok(charts=charts, count=len(charts))
     if errors:
         out["errors"] = errors
     return out
@@ -1054,8 +1048,12 @@ class SheetCharts:
             # Insert already committed. Drop it so the error return is not an orphan chart.
             _drop_failed_chart_insert(lambda: charts.removeByName(name), name)
             raise
-        out = {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
-        return _with_warnings(out, warnings)
+        return make_tool_ok(
+            message=f"Chart '{name}' created on sheet '{sheet.getName()}'.",
+            name=name,
+            sheet=sheet.getName(),
+            warnings=warnings,
+        )
 
     def remove(self, ref: ChartRef, name: str) -> None:
         ref.parent.getCharts().removeByName(name)
@@ -1295,8 +1293,11 @@ class WriterEmbeds:
             log.debug("Failed direct chart_doc model update: %s", e)
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
-        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{actual_name}' inserted in Writer.", "name": actual_name}
-        return _with_warnings(out, warnings)
+        return make_tool_ok(
+            message=f"Chart '{actual_name}' inserted in Writer.",
+            name=actual_name,
+            warnings=warnings,
+        )
 
     def remove(self, ref: ChartRef, name: str) -> None:
         if ref.kind == "writer_embed":
@@ -1437,8 +1438,12 @@ class DrawPage:
             raise
 
         _process_events(ctx.ctx, deadline=time.monotonic() + _WRITER_CHART_MODEL_WAIT_SEC)
-        out: dict[str, Any] = {"status": "ok", "message": f"Chart '{name}' inserted on slide.", "name": name, "page": page_index}
-        return _with_warnings(out, warnings)
+        return make_tool_ok(
+            message=f"Chart '{name}' inserted on slide.",
+            name=name,
+            page=page_index,
+            warnings=warnings,
+        )
 
     def remove(self, ref: ChartRef, name: str) -> None:
         ref.parent.remove(ref.host)
@@ -1482,7 +1487,7 @@ def get_chart_info(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
     chart_obj = ref.host
 
-    info: dict[str, Any] = {"name": chart_name, "status": "ok"}
+    info = make_tool_ok(name=chart_name)
 
     # Data ranges (Calc only)
     if hasattr(chart_obj, "getRanges"):
@@ -1581,8 +1586,7 @@ def _edit_chart(
     except Exception as e:
         _raise_chart_op_error(e, prefix="Failed to edit chart", code="CHART_EDIT_ERROR")
 
-    out: dict[str, Any] = {"status": "ok", "name": chart_name, "message": "Chart updated."}
-    return _with_warnings(out, warnings)
+    return make_tool_ok(name=chart_name, message="Chart updated.", warnings=warnings)
 
 
 def _create_chart(
@@ -1650,8 +1654,8 @@ def delete_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         host.remove(ref, chart_name)
 
         if ref.kind == "calc_sheet":
-            return {"status": "ok", "deleted": chart_name, "sheet": ref.parent.getName()}
-        return {"status": "ok", "deleted": chart_name}
+            return make_tool_ok(deleted=chart_name, sheet=ref.parent.getName())
+        return make_tool_ok(deleted=chart_name)
     except Exception as exc:
         _raise_chart_op_error(exc, prefix="Failed to delete chart")
 

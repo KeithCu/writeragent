@@ -35,7 +35,7 @@ from plugin.calc.sheet_filter_criteria import (
     FILTER_OPERATOR2_LABELS,
     parse_sheet_filter_criterion,
 )
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, uno_read
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, make_tool_ok, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -188,7 +188,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
         range_name = _run_filter(ctx, kwargs, criteria=criteria)
         count = len(criteria)
         log.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), count)
-        return {"status": "ok", "range": range_name, "criteria_count": count}
+        return make_tool_ok(range=range_name, criteria_count=count)
 
 
 class ClearSheetFilter(ToolCalcSheetBase):
@@ -209,7 +209,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = _run_filter(ctx, kwargs, [])
         log.info("Sheet filter cleared on %s.", range_name.upper())
-        return {"status": "ok", "range": range_name, "cleared": True}
+        return make_tool_ok(range=range_name, cleared=True)
 
 
 class GetSheetFilter(ToolCalcSheetBase):
@@ -237,4 +237,4 @@ class GetSheetFilter(ToolCalcSheetBase):
         ps = query_interface(fd, "com.sun.star.beans.XPropertySet")
         ch = uno_read(lambda: bool(ps.getPropertyValue("ContainsHeader")), None) if ps is not None else None
 
-        return {"status": "ok", "range": range_name, "has_header": ch, "criteria": crit, "count": len(crit)}
+        return make_tool_ok(range=range_name, has_header=ch, criteria=crit, count=len(crit))

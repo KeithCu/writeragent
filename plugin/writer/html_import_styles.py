@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
-from plugin.framework.errors import Diagnostic, reraise_if_disposed, uno_read
+from plugin.framework.errors import Diagnostic, append_warnings, reraise_if_disposed, uno_read
 from plugin.framework.html_stripper import escape_prose_angle_brackets
 from plugin.framework.uno_context import enum_has_more
 
@@ -653,20 +653,6 @@ class WriteReport:
         self.style_skips.extend(other.style_skips)
         self.style_tokens = list(dict.fromkeys(self.style_tokens + other.style_tokens))
         self.math.extend(other.math)
-
-
-def append_warnings(
-    result: dict[str, Any], diags: list[Diagnostic]
-) -> dict[str, Any]:
-    """Append diagnostics to result["warnings"] on a successful result (creates the list)."""
-    if not diags or result.get("status") != "ok":
-        return result
-    existing = result.get("warnings")
-    if isinstance(existing, list):
-        existing.extend(diags)
-    else:
-        result["warnings"] = list(diags)
-    return result
 
 
 def attach_write_report(

@@ -1053,3 +1053,101 @@ def test_similar_names_caps_and_cutoff():
     assert len(close) <= 5
     assert "Zeta" not in similar_names("Alfa", ["Zeta"])
     assert similar_names("totally_unrelated_xyz", names) == []
+
+
+def test_make_tool_ok_minimal_has_no_empty_keys():
+    from plugin.framework.errors import make_tool_ok
+
+    assert make_tool_ok() == {"status": "ok"}
+    res = make_tool_ok(warnings=[], suggested_call=None)
+    assert res == {"status": "ok"}
+    assert "warnings" not in res
+    assert "suggested_call" not in res
+
+
+def test_make_tool_ok_keeps_field_order_and_attaches_extras():
+    from plugin.framework.errors import make_tool_ok, suggest_call
+
+    diag = {"code": "WARN", "message": "check"}
+    sc = suggest_call("x", a=1)
+    res = make_tool_ok(sheet="S", message="m", warnings=[diag], suggested_call=sc)
+    assert list(res.keys()) == ["status", "sheet", "message", "warnings", "suggested_call"]
+    assert res["warnings"] == [diag]
+    assert res["suggested_call"] == sc
+
+
+@pytest.mark.parametrize("key", ["status", "code", "details"])
+def test_make_tool_ok_rejects_reserved_keys(key):
+    from plugin.framework.errors import make_tool_ok
+
+    with pytest.raises(ValueError, match=key):
+        make_tool_ok(**{key: "bad"})
+
+
+def test_append_warnings():
+    from plugin.framework.errors import append_warnings
+
+    diags = [
+        {
+            "code": "LINK_TARGET_NOT_FOUND",
+            "link_target": "#nowhere",
+            "message": "error msg",
+        }
+    ]
+    err_res = {"status": "error", "message": "Failed"}
+    assert append_warnings(err_res, diags) == err_res
+    assert "warnings" not in err_res
+
+    ok_res = {"status": "ok", "message": "Done"}
+    updated = append_warnings(ok_res, diags)
+    assert updated.get("warnings") == diags
+
+    # Extends existing warnings list, including plain-string warnings
+    existing_res = {
+        "status": "ok",
+        "warnings": [{"code": "EXISTING", "message": "Prior warning"}],
+    }
+    updated_existing = append_warnings(existing_res, diags)
+    assert len(updated_existing["warnings"]) == 2
+    assert updated_existing["warnings"][0]["code"] == "EXISTING"
+    assert updated_existing["warnings"][1]["code"] == "LINK_TARGET_NOT_FOUND"
+
+    append_warnings(updated_existing, ["plain string note"])
+    assert len(updated_existing["warnings"]) == 3
+    assert updated_existing["warnings"][2] == "plain string note"
+
+
+def test_calc_tool_success_results_use_make_tool_ok():
+    import ast
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    calc_root = repo_root / "plugin" / "calc"
+    exempt_files = {
+        calc_root / "analysis.py",
+        calc_root / "python" / "function.py",
+    }
+    exempt_dirs = (
+        calc_root / "spreadsheet_import",
+        calc_root / "excel_py_convert",
+    )
+
+    offenders: list[str] = []
+    for py_file in sorted(calc_root.rglob("*.py")):
+        if py_file in exempt_files or any(py_file.is_relative_to(d) for d in exempt_dirs):
+            continue
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key_node, val_node in zip(node.keys, node.values):
+                if (
+                    isinstance(key_node, ast.Constant)
+                    and key_node.value == "status"
+                    and isinstance(val_node, ast.Constant)
+                    and val_node.value == "ok"
+                ):
+                    rel = py_file.relative_to(repo_root)
+                    offenders.append(f"{rel}:{node.lineno}")
+
+    assert offenders == [], f"Found raw status='ok' dicts in Calc modules: {offenders}"

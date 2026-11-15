@@ -39,7 +39,7 @@ from plugin.calc.array_formula import returns_array
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import cell_value_and_type
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.framework.errors import ToolExecutionError, is_disposal, reraise_if_disposed, uno_read
+from plugin.framework.errors import ToolExecutionError, is_disposal, make_tool_ok, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -142,7 +142,7 @@ class ListCalcFunctions(ToolBase):
 
             matched_functions.append({"name": name, "description": desc, "category_id": func_data.get("Category", 0), "arguments": arg_list})
         log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
-        return {"status": "ok", "functions": matched_functions}
+        return make_tool_ok(functions=matched_functions)
 
 
 def formula_evaluation_error_message(error_code: int) -> str:
@@ -261,7 +261,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             cell, formula_error_as_string=False, empty_as_none=False
         )
 
-        eval_result: dict[str, Any] = {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
+        eval_result = make_tool_ok(formula=formula_string, result=result, result_type=result_type_str)
         if returns_array(formula_string):
             eval_result["requires_array"] = True
             eval_result["note"] = (

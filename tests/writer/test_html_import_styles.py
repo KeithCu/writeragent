@@ -170,34 +170,6 @@ def test_resolve_heading_links_deduplicates_encoded_and_plain_fragment() -> None
     assert diags[0]["link_target"] == "#My Heading"
 
 
-def test_append_warnings() -> None:
-    """Diagnostics are attached to successful results and ignored on errors."""
-    diags = [
-        {
-            "code": html_import_styles.LINK_TARGET_NOT_FOUND,
-            "link_target": "#nowhere",
-            "message": "error msg",
-        }
-    ]
-    err_res = {"status": "error", "message": "Failed"}
-    assert html_import_styles.append_warnings(err_res, diags) == err_res
-    assert "warnings" not in err_res
-
-    ok_res = {"status": "ok", "message": "Done"}
-    updated = html_import_styles.append_warnings(ok_res, diags)
-    assert updated.get("warnings") == diags
-
-    # Extends existing warnings list
-    existing_res = {
-        "status": "ok",
-        "warnings": [{"code": "EXISTING", "message": "Prior warning"}],
-    }
-    updated_existing = html_import_styles.append_warnings(existing_res, diags)
-    assert len(updated_existing["warnings"]) == 2
-    assert updated_existing["warnings"][0]["code"] == "EXISTING"
-    assert updated_existing["warnings"][1]["code"] == html_import_styles.LINK_TARGET_NOT_FOUND
-
-
 def test_attach_math_objects_all_ok_attaches_list() -> None:
     ok_res = {"status": "ok", "message": "Done"}
     entries = [
