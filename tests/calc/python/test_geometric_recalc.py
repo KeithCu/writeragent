@@ -1850,3 +1850,15 @@ def test_geometric_unregistered_py_525_gate(monkeypatch, on_gha: bool) -> None:
             is True
         )
 
+
+def test_open_column_data_arg_prevents_cycle_attach():
+    """A predecessor whose whole-column data arg covers the successor yields no attach patch."""
+    patches, records = _repair(
+        [
+            _cell("A1", '=PY("first"; B:B)'),
+            _cell("B1", '=PY("second")'),
+        ],
+    )
+    assert patches == ()
+    assert records == {}
+

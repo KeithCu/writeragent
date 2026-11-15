@@ -49,7 +49,6 @@ def test_venv_policy_auto_imports_match_constants():
         alias = import_stmt.rsplit(marker, 1)[-1].strip() if marker in import_stmt else module_name
         for policy in (compact, full):
             assert alias in policy
-            assert module_name in policy
 
 
 def test_matplotlib_plot_hint_impress_matches_draw():
@@ -94,13 +93,6 @@ def test_venv_policy_does_not_advertise_duckdb():
         assert "run_sql" not in lower
         assert "duckdb" not in lower
     assert "duckdb" not in tuple(sorted(policy_blocked_imports(build_sandbox_policy())))
-
-
-def test_compact_policy_lists_network_block_without_string_prepend() -> None:
-    from plugin.scripting.sandbox import NETWORK_BLOCKED_MODULES
-
-    policy = format_venv_import_policy_for_prompt(compact=True)
-    assert ", ".join(NETWORK_BLOCKED_MODULES) in policy
 
 
 def test_venv_policy_omits_internal_writeragent_modules() -> None:

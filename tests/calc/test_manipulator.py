@@ -648,8 +648,14 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
         ("", "", "c"),
     )
 
-    with pytest.raises(CalcError, match=r"needs A1:C2, but 1 cell\(s\).*\(first: C2\)"):
+    with pytest.raises(CalcError, match=r"needs A1:C2, but 1 cell\(s\).*\(first: C2\)") as exc:
         refuse_occupied_cells(sheet, 0, 0, 2, 1, skip=[(0, 0, 1, 0)])
+    assert exc.value.code == "SPILL_BLOCKED"
+    assert exc.value.details == {
+        "needed_range": "A1:C2",
+        "blocking_cells": ["C2"],
+        "blocking_count": 1,
+    }
 
     sheet.getCellRangeByPosition.assert_called_once_with(0, 0, 2, 1)
     sheet.getCellByPosition.assert_not_called()
@@ -877,3 +883,134 @@ def test_commit_write_forwards_write_report() -> None:
     assert res["error_cells"] == fake_report["error_cells"]
     assert res["warnings"] == fake_report["warnings"]
     assert "formula gives" not in res["message"]
+
+
+def test_plan_write_refuses_py_inside_its_data_range():
+    bridge = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("",), ("",))
+
+    def _resolve(range_str: str):
+        cell_range = MagicMock()
+        cell_range.getSpreadsheet.return_value = sheet
+        if range_str == "A1:A2":
+            cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=1, Sheet=0)
+        else:
+            cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+        return cell_range
+
+    bridge.resolve_range_or_address.side_effect = _resolve
+    manipulator = CellManipulator(bridge)
+
+    formula = '=PY("result = np.sum(data)"; A1:A2)'
+    with pytest.raises(CalcError) as exc:
+        manipulator.plan_write("A1", formula)
+    assert exc.value.code == "PY_CIRCULAR"
+    assert exc.value.details == {
+        "data_range": "A1:A2",
+        "suggested_call": {
+            "tool": "write_formula_range",
+            "arguments": {"range": ["Sheet1.B1"], "values": formula},
+        },
+    }
+
+    # Different sheet data arg is not circular on Sheet1.
+    plan_other = manipulator.plan_write("A1", '=PY("result = np.sum(data)"; Orders.A1:A2)')
+    assert plan_other.kind == "cells"
+
+    # Multi-cell write omits suggested_call.
+    with pytest.raises(CalcError) as exc_multi:
+        manipulator.plan_write("A1:A2", [formula, "=1"])
+    assert exc_multi.value.code == "PY_CIRCULAR"
+    assert "suggested_call" not in (exc_multi.value.details or {})
+
+    # Whole-column and whole-row arguments also trigger PY_CIRCULAR.
+    for open_arg in ("A:A", "1:3"):
+        with pytest.raises(CalcError) as exc_open:
+            manipulator.plan_write("A1", f'=PY("result = np.sum(data)"; {open_arg})')
+        assert exc_open.value.code == "PY_CIRCULAR"
+        assert exc_open.value.details == {"data_range": open_arg}
+
+    # Long plain-text values containing "py" must not reach PyFormula.parse's 8192-char @deal contract.
+    long_text = "happy " * 1500
+    assert len(long_text) > 8192
+    assert manipulator.plan_write("A1", long_text).kind == "cells"
+
+
+def test_commit_quotes_the_py_run_error():
+    from plugin.calc.python.diagnostics import get_diagnostics_store
+
+    store = get_diagnostics_store()
+    code = "result = sum(data)"
+    formula = f'=PY("{code}"; A1:A2)'
+
+    bridge = MagicMock()
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    cell = MagicMock()
+    cell.Error = 519
+    cell.getString.return_value = ""
+
+    def _set_formula_err(_f):
+        store.record(workbook_key="wb", code=code, status="error", message="TypeError: unsupported operand type")
+
+    cell.setFormula.side_effect = _set_formula_err
+    sheet.getCellByPosition.return_value = cell
+
+    cell_range = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+
+    manipulator = CellManipulator(bridge)
+    plan = manipulator.plan_write("B1", formula)
+
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res = manipulator.commit_write(plan)
+    assert "Err:519" in res["message"]
+    assert "TypeError: unsupported operand type" in res["message"]
+
+    # An entry recorded before commit is not quoted (even for the same code),
+    # whereas a new entry recorded during setFormula is quoted.
+    stale_code = "result = 1 / 0"
+    stale_formula = f'=PY("{stale_code}"; A1:A2)'
+    store.record(workbook_key="wb", code=stale_code, status="error", message="ZeroDivisionError: old")
+    cell.setFormula.side_effect = None
+    plan_stale = manipulator.plan_write("B1", stale_formula)
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res_stale = manipulator.commit_write(plan_stale)
+    assert "ZeroDivisionError: old" not in res_stale["message"]
+
+    def _set_formula_new_for_same_code(_f):
+        store.record(workbook_key="wb", code=stale_code, status="error", message="ZeroDivisionError: fresh")
+
+    cell.setFormula.side_effect = _set_formula_new_for_same_code
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res_fresh = manipulator.commit_write(plan_stale)
+    assert "ZeroDivisionError: fresh" in res_fresh["message"]
+
+    # Error=0 with #SPILL! quotes the spill range from diagnostics.
+    spill_code = "result = [[1, 2]]"
+    spill_formula = f'=PY("{spill_code}"; A1:A2)'
+    cell.Error = 0
+    cell.getString.return_value = "#SPILL!"
+
+    def _set_formula_spill(_f):
+        store.record(
+            workbook_key="wb",
+            code=spill_code,
+            status="error",
+            message="#SPILL!: the 1 x 2 result needs Sheet1.B1:C1, but C1 is not empty.",
+        )
+
+    cell.setFormula.side_effect = _set_formula_spill
+    plan_spill = manipulator.plan_write("B1", spill_formula)
+    with patch("plugin.calc.python.diagnostics.existing_calc_session_id", return_value="wb"):
+        with patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()):
+            res_spill = manipulator.commit_write(plan_spill)
+    assert "B1 shows #SPILL!" in res_spill["message"]
+    assert "Sheet1.B1:C1" in res_spill["message"]

@@ -62,7 +62,7 @@ data.to_pandas(date_cols=True)                   # auto-detect and parse all dat
 ranges                                           # always list[CalcRange]; len 1 when one formula arg
 ```
 
-Returning a **pandas DataFrame** spills/writes with its **column header row** included. Returning a list/ndarray writes values only.
+Returning a **pandas DataFrame** spills/writes with its **column header row** included (a DataFrame with default `0..N` column labels spills without a header row). Returning a list/ndarray writes values only.
 
 **Vectorized lightweight helpers:** Trusted elementwise helpers (e.g. `convert_quantity`, `format_currency`, `format_percent`) accept `data` directly and preserve orientation ($N \times 1$ column in $\to$ $N \times 1$ list out; $1 \times N$ row in $\to$ $1 \times N$ list out; $1 \times 1$ single cell $\to$ scalar).
 
