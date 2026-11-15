@@ -369,6 +369,18 @@ def insert_html_at_cursor(
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
+def _delete_preceding_break(cursor: Any) -> bool:
+    """Delete a ``\\n`` immediately before *cursor*; return True if one was deleted."""
+    cursor.collapseToStart()
+    if not cursor.goLeft(1, True):
+        return False
+    if cursor.getString() == "\n":
+        cursor.setString("")
+        return True
+    cursor.collapseToEnd()
+    return False
+
+
 def insert_html_after_paragraph(
     model: Any,
     ctx: Any,
@@ -384,8 +396,12 @@ def insert_html_after_paragraph(
     the first block onto the text before *cursor*. Importing at the start of an empty
     paragraph avoids that merge, so this moves *cursor* to the end of its paragraph,
     inserts a paragraph break to open an empty paragraph, imports at its start, and
-    deletes the trailing empty break left behind.
+    deletes the empty paragraph(s) left around the imported blocks.
     """
+    para_start = text_obj.createTextCursorByRange(cursor.getStart())
+    para_start.gotoStartOfParagraph(False)
+    host_table = uno_read(lambda: para_start.getPropertyValue("TextTable"), None)
+
     cursor.gotoEndOfParagraph(False)
     text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
     # The import puts every block (each with its own break) BEFORE that paragraph,
@@ -394,15 +410,29 @@ def insert_html_after_paragraph(
     leftover = text_obj.createTextCursorByRange(cursor.getStart())
     report = insert_html_at_cursor(model, ctx, cursor, content, apply_styles=False)
     leftover.gotoEndOfParagraph(True)
-    if leftover.getString() == "":
+    if leftover.getString() == "" and not _paragraph_has_non_text_portion(leftover):
         # Delete the last imported block's break; a tracked insertion swallows it.
-        # Only drop a real break: after a table, goLeft(1) selects the table.
-        leftover.collapseToStart()
-        if leftover.goLeft(1, True):
-            if leftover.getString() == "\n":
-                leftover.setString("")
-            else:
-                leftover.collapseToEnd()
+        # After a table, goLeft(1) enters the table rather than selecting "\n", so
+        # drop the break after the leftover paragraph instead.
+        if not _delete_preceding_break(leftover):
+            if leftover.goRight(1, True):
+                if leftover.getString() == "\n":
+                    leftover.setString("")
+                else:
+                    leftover.collapseToStart()
+
+    # When the imported content starts with a table, StarWriter cannot join the
+    # opened empty paragraph into the table node and leaves it empty before the table.
+    after_para = text_obj.createTextCursorByRange(para_start.getStart())
+    after_para.gotoEndOfParagraph(False)
+    if after_para.goRight(1, False) and uno_read(lambda: after_para.getPropertyValue("TextTable"), None) == host_table:
+        after_para.gotoEndOfParagraph(True)
+        if after_para.getString() == "" and not _paragraph_has_non_text_portion(after_para):
+            after_para.collapseToStart()
+            probe = text_obj.createTextCursorByRange(after_para.getStart())
+            if probe.goRight(1, False) and uno_read(lambda: probe.getPropertyValue("TextTable"), None) != host_table:
+                _delete_preceding_break(after_para)
+
     return report
 
 

@@ -2144,3 +2144,41 @@ def test_insert_content_at_position_caret_routing(content, at_start, at_end, mat
         mock_import.assert_called_once()
         mock_inline.assert_not_called()
         mock_after.assert_not_called()
+
+
+def test_insert_html_after_paragraph_cleans_empty_paras_around_table():
+    from plugin.writer.html_import import insert_html_after_paragraph
+    from plugin.writer.html_import_styles import WriteReport
+
+    para_start = MagicMock()
+    para_start.getPropertyValue.return_value = None
+
+    leftover = MagicMock()
+    # Empty paragraph after table: goLeft enters table ("cell"), goRight selects "\n".
+    leftover.getString.side_effect = ["", "cell", "\n"]
+    leftover.goLeft.return_value = True
+    leftover.goRight.return_value = True
+
+    after_para = MagicMock()
+    after_para.getPropertyValue.return_value = None
+    after_para.goRight.return_value = True
+    # Empty paragraph before table: goLeft selects "\n".
+    after_para.getString.side_effect = ["", "\n"]
+    after_para.goLeft.return_value = True
+
+    probe = MagicMock()
+    probe.goRight.return_value = True
+    probe.getPropertyValue.return_value = MagicMock()  # TextTable != None
+
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.side_effect = [para_start, leftover, after_para, probe]
+    cursor = MagicMock()
+
+    with (
+        patch("plugin.writer.html_import.insert_html_at_cursor", return_value=WriteReport()),
+        patch("plugin.writer.html_import._paragraph_has_non_text_portion", return_value=False),
+    ):
+        insert_html_after_paragraph(MagicMock(), MagicMock(), text_obj, cursor, "<table><tr><td>A</td></tr></table>")
+
+    leftover.setString.assert_called_once_with("")
+    after_para.setString.assert_called_once_with("")

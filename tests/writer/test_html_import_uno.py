@@ -942,3 +942,54 @@ def test_selection_caret_block_tracked_changes_uno(ctx: Any, doc: Any) -> None:
     finally:
         doc.setPropertyValue("RecordChanges", False)
 
+
+def _body_structure_via_enum(text_obj: Any) -> list[str]:
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = text_obj.createEnumeration()
+    out: list[str] = []
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable"):
+            out.append("TextTable")
+        elif hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            out.append("Paragraph:" + (el.getString() or ""))
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_caret_table_leaves_no_empty_paragraphs_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    table_html = "<table><tr><td>A</td><td>B</td></tr></table>"
+    expected = ["Paragraph:Alpha beta gamma.", "TextTable", "Paragraph:Second para."]
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+
+    # Without Track Changes: mid-paragraph (6) and mid-word (3)
+    for offset in (6, 3):
+        _seed_two_paras_and_place_caret(doc, offset)
+        report = insert_content_at_position(doc, ctx, table_html, "selection")
+        assert report.snapped_to_paragraph is True
+        assert doc.getTextTables().getCount() == 1
+        assert _body_structure_via_enum(doc.getText()) == expected
+
+    # With Track Changes + accept-all: mid-paragraph (6) and mid-word (3)
+    for offset in (6, 3):
+        _seed_two_paras_and_place_caret(doc, offset)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            report = insert_content_at_position(doc, ctx, table_html, "selection")
+            assert report.snapped_to_paragraph is True
+            helper.executeDispatch(
+                doc.getCurrentController().getFrame(),
+                ".uno:AcceptAllTrackedChanges",
+                "",
+                0,
+                (),
+            )
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+        assert doc.getTextTables().getCount() == 1
+        assert _body_structure_via_enum(doc.getText()) == expected
+
