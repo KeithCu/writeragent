@@ -12,11 +12,15 @@ on:
           - 'both'
           - 'check-all'
           - 'cover-all'
-      deep:
-        description: 'Run in deep mode (200 iters, no per-condition wall)'
+      mode:
+        description: 'Sweep budget mode'
         required: true
-        default: true
-        type: boolean
+        default: 'regular'
+        type: choice
+        options:
+          - 'regular'
+          - 'medium'
+          - 'deep'
       runner_os:
         description: 'Runner Operating System'
         required: true
@@ -73,7 +77,12 @@ jobs:
         env:
           START_AT_INPUT: ${{ inputs.start_at }}
         run: |
-          DEEP_FLAG="${{ inputs.deep == true && '--deep' || '' }}"
+          MODE_FLAG=""
+          if [ "${{ inputs.mode }}" = "medium" ]; then
+            MODE_FLAG="--medium"
+          elif [ "${{ inputs.mode }}" = "deep" ]; then
+            MODE_FLAG="--deep"
+          fi
           START_AT="${START_AT_INPUT:-1}"
           case "$START_AT" in
             *[!0-9]*)
@@ -82,7 +91,7 @@ jobs:
               ;;
           esac
           START_AT_FLAG="--start-at ${START_AT}"
-          uv run python scripts/crosshair_check_all.py $DEEP_FLAG $START_AT_FLAG
+          uv run python scripts/crosshair_check_all.py $MODE_FLAG $START_AT_FLAG
 
       - name: Run CrossHair cover-all
         if: inputs.target == 'both' || inputs.target == 'cover-all'
@@ -90,7 +99,12 @@ jobs:
         env:
           START_AT_INPUT: ${{ inputs.start_at }}
         run: |
-          DEEP_FLAG="${{ inputs.deep == true && '--deep' || '' }}"
+          MODE_FLAG=""
+          if [ "${{ inputs.mode }}" = "medium" ]; then
+            MODE_FLAG="--medium"
+          elif [ "${{ inputs.mode }}" = "deep" ]; then
+            MODE_FLAG="--deep"
+          fi
           START_AT="${START_AT_INPUT:-1}"
           case "$START_AT" in
             *[!0-9]*)
@@ -103,7 +117,7 @@ jobs:
           if [ -n "${{ inputs.jobs }}" ]; then
             JOBS_FLAG="--jobs ${{ inputs.jobs }}"
           fi
-          uv run python scripts/crosshair_cover_all.py $DEEP_FLAG $JOBS_FLAG $START_AT_FLAG
+          uv run python scripts/crosshair_cover_all.py $MODE_FLAG $JOBS_FLAG $START_AT_FLAG
 
       - name: Generate summary report
         if: always()
