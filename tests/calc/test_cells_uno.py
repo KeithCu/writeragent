@@ -886,3 +886,41 @@ def test_write_comma_prose_into_two_single_cells(ctx, doc):
     assert sheet.getCellByPosition(5, 0).getString() == "Hello, world"
     assert sheet.getCellByPosition(7, 0).getString() == "Hello, world"
 
+
+@native_test
+@with_native_doc("calc")
+def test_write_reports_error_cells_numeric_text_and_apostrophe(ctx, doc):
+    from com.sun.star.table.CellContentType import TEXT
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_formula_range",
+        {"range": ["A1:F1"], "values": [["=PY header", "=1/C1", "=5", "1,5", "'tis", "'=PY hdr"]]},
+    )
+    assert res.get("status") == "ok", f"write_formula_range failed: {res}"
+    assert [e["address"] for e in res["error_cells"]] == ["Sheet1.A1"]
+    assert res["text_that_looks_numeric"] == [{"address": "Sheet1.D1", "value": "1,5"}]
+    assert res["apostrophe_removed"] == [{"address": "Sheet1.E1", "value": "tis"}]
+
+    sheet = doc.getSheets().getByIndex(0)
+    assert sheet.getCellByPosition(0, 0).getString() == "Err:509"
+    assert sheet.getCellByPosition(1, 0).getString() == "0.2"
+    d1 = sheet.getCellByPosition(3, 0)
+    assert d1.getString() == "1,5"
+    assert d1.getType() == TEXT
+    f1 = sheet.getCellByPosition(5, 0)
+    assert f1.getString() == "=PY hdr"
+    assert f1.getType() == TEXT
+
+
+@native_test
+@with_native_doc("calc")
+def test_multi_range_write_reports_error_cells(ctx, doc):
+    res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["H1", "I1"], "values": "=SUMM(1)"})
+    assert res.get("status") == "ok", f"write_formula_range failed: {res}"
+    assert [e["address"] for e in res["error_cells"]] == ["Sheet1.H1", "Sheet1.I1"]
+
+    sheet = doc.getSheets().getByIndex(0)
+    assert sheet.getCellByPosition(7, 0).getString() == "#NAME?"
+    assert sheet.getCellByPosition(8, 0).getString() == "#NAME?"

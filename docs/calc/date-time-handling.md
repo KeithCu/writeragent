@@ -778,7 +778,7 @@ Return what actually happened (S22), so the model can self-correct without a sec
 Range A1:A12 filled with 12 values (9 dates, 1 duration, 2 text).
 ```
 
-This is the only signal the model gets that `2026-08-08T08:00:00Z` silently became text.
+This is the only signal the model gets that `2026-08-08T08:00:00Z` silently became text. Locale-formatted numbers and dates stay text and are listed in `text_that_looks_numeric` (with a `TEXT_LOOKS_NUMERIC` warning), and a needless leading apostrophe is listed in `apostrophe_removed` (with an `APOSTROPHE_REMOVED` warning).
 
 #### Worked example
 

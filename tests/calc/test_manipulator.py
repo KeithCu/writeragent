@@ -10,7 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import CalcError, UnoObjectError
-from plugin.calc.manipulator import CellManipulator, WritePlan, _parse_formula_or_values_string
+from plugin.calc.manipulator import (
+    CellManipulator,
+    WritePlan,
+    _parse_formula_or_values_string,
+    _write_report,
+    looks_numeric_text,
+)
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -740,6 +746,143 @@ class TestFormulaParsingLogic:
         s = "Left; right"
         assert _parse_formula_or_values_string(s, single_cell_range=True) is None
         assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Left", "right"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("1,5", True),
+        ("1.234,56", True),
+        ("$1,200", True),
+        ("12%", True),
+        ("08/05/2026", True),
+        ("5.8.2026", True),
+        ("2026/08/05", True),
+        ("2026-02-30", True),
+        ("2026-08-08T10:00Z", True),
+        ("8:30 PM", True),
+        ("1.2.3", False),
+        ("10.0.0.1", False),
+        ("1,2,3", False),
+        ("Q1", False),
+        ("90s", False),
+        ("TRUE", False),
+        ("555-1234", False),
+        ("v1.2", False),
+        ("8/5", False),
+    ],
+)
+def test_looks_numeric_text(text: str, expected: bool) -> None:
+    assert looks_numeric_text(text) is expected
+
+
+def test_write_report_flags_numeric_text_and_needless_apostrophe() -> None:
+    vals = ["1,5", "'tis", "'2026-08-08", "''x", "08/05/2026", "hello", "=A1", "'"]
+    metas = CellManipulator(MagicMock()).plan_writes(vals, None, 0)
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    found = MagicMock()
+    found.getRangeAddresses.return_value = []
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    report = _write_report(sheet, (0, 0), (7, 0), vals, metas, scan_text=True)
+    assert report["text_that_looks_numeric"] == [
+        {"address": "Sheet1.A1", "value": "1,5"},
+        {"address": "Sheet1.E1", "value": "08/05/2026"},
+    ]
+    assert report["apostrophe_removed"] == [
+        {"address": "Sheet1.B1", "value": "tis"},
+        {"address": "Sheet1.H1", "value": ""},
+    ]
+    assert {w["code"] for w in report["warnings"]} == {"TEXT_LOOKS_NUMERIC", "APOSTROPHE_REMOVED"}
+
+    egress_report = _write_report(sheet, (0, 0), (7, 0), vals, metas, scan_text=False)
+    assert "text_that_looks_numeric" not in egress_report
+    assert "apostrophe_removed" not in egress_report
+
+
+def test_write_report_error_cells_with_address_and_count() -> None:
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    err_cell = MagicMock()
+    err_cell.getError.return_value = 509
+    err_cell.getFormula.return_value = "=py header"
+    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = err_cell
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=11)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    metas = CellManipulator(MagicMock()).plan_writes(["=PY header"] * 12, None, 0)
+    res = _write_report(sheet, (0, 0), (0, 11), ["=PY header"] * 12, metas, scan_text=True)
+    assert res["error_cells"] == [{"address": "Sheet1.A1", "error": "Err:509", "formula": "=py header"}]
+    assert res["warnings"][0]["code"] == "FORMULA_ERROR"
+    assert "12 formula cell(s)" in res["warnings"][0]["message"]
+
+
+@pytest.mark.parametrize(
+    ("formula", "expect_hint"),
+    [
+        ("=SUM(1,2)", True),
+        ("=SUMM(G1)", False),
+    ],
+)
+def test_write_report_semicolon_hint_only_when_formula_has_comma(formula: str, expect_hint: bool) -> None:
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    err_cell = MagicMock()
+    err_cell.getError.return_value = 525
+    err_cell.getFormula.return_value = formula
+    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = err_cell
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+    sheet.getCellRangeByPosition.return_value.queryFormulaCells.return_value = found
+
+    metas = CellManipulator(MagicMock()).plan_writes([formula], None, 0)
+    res = _write_report(sheet, (0, 0), (0, 0), [formula], metas, scan_text=True)
+    msg = res["warnings"][0]["message"]
+    assert ("Calc separates function arguments with ';', not ','." in msg) is expect_hint
+
+
+def test_commit_write_forwards_write_report() -> None:
+    small_addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    mock_range = MagicMock()
+    mock_sheet = MagicMock()
+    mock_range.getSpreadsheet.return_value = mock_sheet
+    mock_range.getDataArray.return_value = ()
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = mock_range
+    bridge.doc.getNumberFormats.return_value = MagicMock()
+    bridge.doc.getSheets.return_value.getByIndex.return_value = mock_sheet
+
+    fake_report = {
+        "error_cells": [{"address": "Sheet1.A1", "error": "Err:509", "formula": "=py"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    with (
+        patch("plugin.calc.manipulator._uno_range_address", return_value=small_addr),
+        patch("plugin.calc.manipulator.resolve_document_locale", return_value=MagicMock()),
+        patch("plugin.calc.manipulator._write_report", return_value=fake_report) as mock_report,
+    ):
+        res = CellManipulator(bridge).write_formula_range("A1", "=py")
+
+    mock_report.assert_called_once()
+    assert res["error_cells"] == fake_report["error_cells"]
+    assert res["warnings"] == fake_report["warnings"]
+    assert "formula gives" not in res["message"]
 
 
 def test_plan_write_refuses_py_inside_its_data_range():
