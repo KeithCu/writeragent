@@ -44,6 +44,8 @@ def test_resolve_suite_tasks_groups_and_overrides() -> None:
     assert set(calc_tasks) == {
         "data_sorting",
         "tax_column",
+        "paste_table",
+        "formula_table",
         "py_refuse_overlap",
         "py_no_bulk_read",
     }
