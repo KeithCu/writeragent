@@ -38,23 +38,23 @@ def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
     # The proxy is present: an unknown name is still a real allowlist.
     unknown = resolve_allowed_tools("not-a-domain")
     assert unknown is not None
-    assert "list_open_documents" in unknown
+    assert "document_list_open" in unknown
 
 
 def test_resolve_allowed_tools_writer_domain_includes_apply():
     allowed = resolve_allowed_tools("writer")
     assert allowed is not None
-    assert "apply_document_content" in allowed
-    assert "list_open_documents" in allowed
-    assert "write_formula_range" not in allowed
+    assert "apply_content" in allowed
+    assert "document_list_open" in allowed
+    assert "write_range" not in allowed
 
 
 def test_resolve_allowed_tools_plural_domain_name():
-    # Chat specialized_domain is "footnotes"; generated DOMAIN_TOOLS key is "footnote".
+    # Chat specialized_domain is "footnotes"; generated DOMAIN_TOOLS key is "footnotes".
     allowed = resolve_allowed_tools("footnotes")
     assert allowed is not None
-    assert "footnotes_insert" in allowed
-    assert "list_open_documents" in allowed
+    assert "footnote_insert" in allowed
+    assert "document_list_open" in allowed
 
 
 def test_format_script_api_catalog_embeds_full_proxy_docstrings():
@@ -71,7 +71,7 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     from plugin.scripting.writeragent_api import DOMAIN_TOOLS
 
     catalog = format_script_api_catalog(["shapes"])
-    assert "wa.core.list_open_documents()" in catalog
+    assert "wa.document.list_open()" in catalog
     assert "wa.shape.upsert(" in catalog
     assert "wa.footnote." not in catalog
 
@@ -79,16 +79,16 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
     assert tools is not None
     methods = _proxy_methods_by_tool()
     assert methods is not None
-    for tool_name in (*DOMAIN_TOOLS["core"], *DOMAIN_TOOLS["shape"]):
-        method = methods[tool_name]
+    for tool_name in (*DOMAIN_TOOLS["core"], *DOMAIN_TOOLS["shapes"]):
+        _ns, method = methods[tool_name]
         doc = inspect.cleandoc(method.__doc__ or "")
         assert doc
         assert doc in catalog
 
     both = format_script_api_catalog(["footnotes", "shapes"])
     assert both.count("core:\n") == 1
-    assert both.count("shape:\n") == 1
-    assert both.count("footnote:\n") == 1
+    assert both.count("shapes:\n") == 1
+    assert both.count("footnotes:\n") == 1
     assert inspect.cleandoc(api.footnote.insert.__doc__ or "") in both
     assert inspect.cleandoc(api.shape.upsert.__doc__ or "") in both
     assert inner_script_tool_domain(["shapes", "footnotes"]) == "shapes,footnotes,core"
@@ -117,21 +117,21 @@ def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
     assert allowed is not None
     assert set(DOMAIN_TOOLS["core"]) <= allowed
     assert "shape_upsert" in allowed
-    assert "footnotes_insert" not in allowed
+    assert "footnote_insert" not in allowed
     assert "run_venv_python_script" not in allowed
 
     # A domain string that is not the inner path does not pick up core.
     writer = resolve_allowed_tools("writer")
     assert writer is not None
-    assert "apply_document_content" in writer
-    assert "undo" not in writer
+    assert "apply_content" in writer
+    assert "document_undo" not in writer
     assert "web_research" not in writer
-    assert "list_open_documents" in writer
+    assert "document_list_open" in writer
 
     assert resolve_allowed_tools(None) is None
     assert resolve_allowed_tools("") == frozenset()
     assert resolve_allowed_tools("python") is not None
-    assert "symbolic_math" in resolve_allowed_tools("python")
+    assert "math_run_symbolic" in resolve_allowed_tools("python")
     assert "run_venv_python_script" not in resolve_allowed_tools("python")
 
 
@@ -140,16 +140,16 @@ def test_resolve_allowed_tools_shapes_and_multi_domain_union():
     shapes = resolve_allowed_tools("shapes")
     assert shapes is not None
     assert "shape_upsert" in shapes
-    assert "shape_summary" in shapes
-    assert "footnotes_insert" not in shapes
-    assert "list_open_documents" in shapes
+    assert "shape_get_summary" in shapes
+    assert "footnote_insert" not in shapes
+    assert "document_list_open" in shapes
 
     union = resolve_allowed_tools("shapes, footnotes")
     assert union is not None
     assert "shape_upsert" in union
-    assert "footnotes_insert" in union
-    assert "range_sort" not in union
-    assert "list_open_documents" in union
+    assert "footnote_insert" in union
+    assert "sort_range" not in union
+    assert "document_list_open" in union
     assert union == shapes | resolve_allowed_tools("footnotes")
 
 
@@ -160,7 +160,7 @@ def test_execute_tool_blocks_recursive_venv_script():
 
 def test_execute_tool_disabled_during_py_recalc():
     with pytest.raises(RuntimeError, match=r"=PY\(\)"):
-        execute_tool("apply_document_content", {"content": ["x"]}, allowed_tools=frozenset())
+        execute_tool("apply_content", {"content": ["x"]}, allowed_tools=frozenset())
 
 
 def test_execute_tool_named_scripts_blocked_during_py_recalc():
@@ -172,19 +172,19 @@ def test_execute_tool_named_scripts_blocked_during_py_recalc():
 
 def test_execute_tool_rejects_out_of_domain():
     with pytest.raises(RuntimeError, match="not available"):
-        execute_tool("write_formula_range", {}, allowed_tools=frozenset({"apply_document_content"}))
+        execute_tool("write_range", {}, allowed_tools=frozenset({"apply_content"}))
 
 
 def test_handle_tool_call_frame_writes_ok_response():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "abc", "tool": "apply_document_content", "args": {"content": ["<p>Hi</p>"], "target": "end"}},
+            {"type": "tool_call", "id": "abc", "tool": "apply_content", "args": {"content": ["<p>Hi</p>"], "target": "end"}},
             stdin_write=written.append,
         )
     assert handled is True
     mock_tool.assert_called_once()
-    assert mock_tool.call_args[0][0] == "apply_document_content"
+    assert mock_tool.call_args[0][0] == "apply_content"
     assert mock_tool.call_args[0][1]["target"] == "end"
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
@@ -294,13 +294,13 @@ def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
 
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
         ok = handle_tool_call_frame(
-            {"type": "tool_call", "id": "ok1", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "ok1", "tool": "apply_content", "args": {}},
             stdin_write=_oserror,
         )
     assert ok is True
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("boom")):
         failed = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e1", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "e1", "tool": "apply_content", "args": {}},
             stdin_write=_oserror,
         )
     assert failed is True
@@ -310,7 +310,7 @@ def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
 
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
         ve_ok = handle_tool_call_frame(
-            {"type": "tool_call", "id": "ok2", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "ok2", "tool": "apply_content", "args": {}},
             stdin_write=_valueerror,
         )
     assert ve_ok is True
@@ -320,7 +320,7 @@ def test_handle_tool_call_frame_writes_error_response():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("boom")):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e1", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "e1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -352,7 +352,7 @@ def test_handle_tool_call_frame_uno_message_skips_str():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=HostileUno()):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e_uno", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "e_uno", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -379,7 +379,7 @@ def test_handle_tool_call_frame_uno_message_skips_str():
     written_empty: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=HostileUnoEmptyMessage()):
         handled_empty = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e_uno_empty", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "e_uno_empty", "tool": "apply_content", "args": {}},
             stdin_write=written_empty.append,
         )
     assert handled_empty is True
@@ -396,7 +396,7 @@ def test_handle_tool_call_frame_blank_message_uses_type_name():
     written_blank: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("")):
         handled_blank = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e_blank", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "e_blank", "tool": "apply_content", "args": {}},
             stdin_write=written_blank.append,
         )
     assert handled_blank is True
@@ -417,7 +417,7 @@ def test_handle_tool_call_frame_includes_error_code():
         side_effect=ToolExecutionError("cancelled by user", code="USER_STOPPED"),
     ):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e2", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "e2", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -439,7 +439,7 @@ def test_handle_tool_call_frame_rejects_non_dict_args():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e1", "tool": "apply_document_content", "args": ["not", "a", "dict"]},
+            {"type": "tool_call", "id": "e1", "tool": "apply_content", "args": ["not", "a", "dict"]},
             stdin_write=written.append,
         )
     assert handled is True
@@ -462,7 +462,7 @@ def test_handle_tool_call_frame_unpicklable_result():
 
     with patch("plugin.scripting.host_rpc.execute_tool", return_value=unpicklable()):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "u1", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "u1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -482,9 +482,9 @@ def test_rpc_call_drops_none_kwargs():
     with patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}), patch(
         "plugin.framework.ipc.exchange_tool_call", return_value={}
     ) as mock_exchange:
-        api.call_host_tool("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
+        api.call_host_tool("apply_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
     mock_exchange.assert_called_once_with(
-        "apply_document_content",
+        "apply_content",
         {"content": ["<p>Hi</p>"], "target": "end"},
     )
 
@@ -506,8 +506,8 @@ def test_run_code_in_user_venv_forwards_python_tool_domain():
 def test_resolve_allowed_tools_indexes_and_exempt_domains():
     allowed_indexes = resolve_allowed_tools("indexes")
     assert allowed_indexes is not None
-    assert "indexes_create" in allowed_indexes
-    assert "list_open_documents" in allowed_indexes
+    assert "index_create" in allowed_indexes
+    assert "document_list_open" in allowed_indexes
 
     allowed_images = resolve_allowed_tools("images")
     assert allowed_images is not None
@@ -529,47 +529,6 @@ def test_handle_tool_call_frame_invalid_tool_name_type():
     assert resp["status"] == "error"
     assert "Invalid tool_call: None" in resp["message"]
 
-def test_singularize_domain_leaves_non_map_names_unchanged():
-    from plugin.scripting.host_rpc import singularize_domain
-
-    for name in ("images", "styles", "forms", "core", "analysis", "status", "shape", "style"):
-        assert singularize_domain(name) == name
-
-
-@pytest.mark.parametrize(
-    "plural,key",
-    [
-        ("bookmarks", "bookmark"),
-        ("charts", "chart"),
-        ("cell_comments", "cell_comment"),
-        ("comments", "comment"),
-        ("errors", "error"),
-        ("fields", "field"),
-        ("footnotes", "footnote"),
-        ("headers_footers", "headers_footer"),
-        ("indexes", "index"),
-        ("pivot_tables", "pivot_table"),
-        ("ranges", "range"),
-        ("sections", "section"),
-        ("shapes", "shape"),
-        ("sheets", "sheet"),
-        ("slide_layouts", "slide_layout"),
-        ("slide_masters", "slide_master"),
-        ("slide_transitions", "slide_transition"),
-        ("speaker_notes", "speaker_note"),
-        ("page_comments", "page_comment"),
-        ("tables", "table"),
-        ("textframes", "textframe"),
-    ],
-)
-def test_singularize_domain_map_pairs_in_domain_tools(plural, key):
-    from plugin.scripting.host_rpc import singularize_domain
-    from plugin.scripting.writeragent_api import DOMAIN_TOOLS
-
-    assert singularize_domain(plural) == key
-    assert key in DOMAIN_TOOLS
-
-
 def test_proxy_methods_by_tool_uses_tool_methods():
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
     import plugin.scripting.writeragent_api as api
@@ -577,9 +536,9 @@ def test_proxy_methods_by_tool_uses_tool_methods():
     methods = _proxy_methods_by_tool()
     assert methods is not None
     assert "shape_upsert" in methods
-    assert methods["shape_upsert"] == api.shape.upsert
-    assert "list_open_documents" in methods
-    assert methods["list_open_documents"] == api.core.list_open_documents
+    assert methods["shape_upsert"] == ("shape", api.shape.upsert)
+    assert "document_list_open" in methods
+    assert methods["document_list_open"] == ("document", api.document.list_open)
 
 
 def test_proxy_methods_by_tool_missing_tool_methods_skips_bytecode(monkeypatch):
@@ -658,7 +617,7 @@ def test_handle_tool_call_frame_forwards_cancel_to_execute_tool():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "fwd1", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "fwd1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
             cancel=scope,
         )
@@ -683,7 +642,7 @@ def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"blob": "x"}):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "over1", "tool": "apply_document_content", "args": {}},
+            {"type": "tool_call", "id": "over1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -707,7 +666,7 @@ def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"blob": "x"}):
         with pytest.raises(IpcPayloadSizeError):
             handle_tool_call_frame(
-                {"type": "tool_call", "id": "over2", "tool": "apply_document_content", "args": {}},
+                {"type": "tool_call", "id": "over2", "tool": "apply_content", "args": {}},
                 stdin_write=written.append,
             )
 
@@ -721,7 +680,7 @@ def test_handle_tool_call_frame_write_timeout_propagates():
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
         with pytest.raises(RuntimeError, match="timed out"):
             handle_tool_call_frame(
-                {"type": "tool_call", "id": "to1", "tool": "apply_document_content", "args": {}},
+                {"type": "tool_call", "id": "to1", "tool": "apply_content", "args": {}},
                 stdin_write=_timeout_write,
             )
 
@@ -732,17 +691,17 @@ def test_every_domain_tool_resolves_to_a_proxy_method():
 
     methods = _proxy_methods_by_tool()
     assert methods is not None
-    assert methods["style_import"] == api.styles.import_
-    assert methods["query_folder_sql"] == api.python_sql.query_folder_sql
+    assert methods["style_import"] == ("style", api.style.import_)
+    assert methods["sql_query_folder"] == ("sql", api.sql.query_folder)
     missing_or_not_callable = [
         tool_name
         for tool_names in api.DOMAIN_TOOLS.values()
         for tool_name in tool_names
-        if tool_name not in methods or not callable(methods[tool_name])
+        if tool_name not in methods or not callable(methods[tool_name][1])
     ]
     assert missing_or_not_callable == []
-    assert api.TOOL_METHODS["style_import"] == ("styles", "import_")
-    assert api.TOOL_METHODS["query_folder_sql"] == ("python_sql", "query_folder_sql")
+    assert api.TOOL_METHODS["style_import"] == ("style", "import_")
+    assert api.TOOL_METHODS["sql_query_folder"] == ("sql", "query_folder")
 
 
 def test_format_script_api_catalog_prints_identifier_safe_calls():
@@ -757,10 +716,10 @@ def test_format_script_api_catalog_prints_identifier_safe_calls():
     catalog = format_script_api_catalog(["styles", "python/sql"])
     assert "python/sql:\n" in catalog
     assert "styles:\n" in catalog
-    assert "wa.styles.import_(" in catalog
-    assert "wa.python_sql.query_folder_sql(" in catalog
-    assert inspect.cleandoc(api.styles.import_.__doc__ or "") in catalog
-    assert inspect.cleandoc(api.python_sql.query_folder_sql.__doc__ or "") in catalog
+    assert "wa.style.import_(" in catalog
+    assert "wa.sql.query_folder(" in catalog
+    assert inspect.cleandoc(api.style.import_.__doc__ or "") in catalog
+    assert inspect.cleandoc(api.sql.query_folder.__doc__ or "") in catalog
     assert "wa.python/sql." not in catalog
 
 
@@ -790,8 +749,8 @@ def test_wa_help_no_arg_lists_namespaces_and_methods():
     assert listing == format_script_api_help()
     assert "shape:" in listing
     assert "upsert" in listing
-    assert "core:" in listing
-    assert "list_open_documents" in listing
+    assert "document:" in listing
+    assert "list_open" in listing
     assert "run_venv_python_script" not in listing
 
 
@@ -831,8 +790,8 @@ def test_wa_help_refused_during_py_recalc():
 def test_section_and_structural_proxies_and_allowlists(monkeypatch):
     import plugin.scripting.writeragent_api as api
 
-    assert "section_list" in api.DOMAIN_TOOLS["section"]
-    assert "section_read" in api.DOMAIN_TOOLS["section"]
+    assert "section_list" in api.DOMAIN_TOOLS["sections"]
+    assert "section_read" in api.DOMAIN_TOOLS["sections"]
     assert api.TOOL_METHODS["section_list"] == ("section", "list")
     assert api.TOOL_METHODS["section_read"] == ("section", "read")
 
@@ -849,16 +808,41 @@ def test_section_and_structural_proxies_and_allowlists(monkeypatch):
 
     api.section.list()
     api.section.read("Intro")
-    api.structural.section_list()
-    api.structural.section_read("Intro")
-    api.structural.section_read(section="Outro")
 
     assert calls == [
         ("section_list", {}),
         ("section_read", {"name": "Intro"}),
-        ("section_list", {}),
-        ("section_read", {"name": "Intro"}),
-        ("section_read", {"name": "Outro"}),
     ]
+
+
+def test_ranges_allowlist_spans_two_namespaces():
+    from plugin.scripting.host_rpc import _format_script_api_catalog_cached, format_script_api_catalog
+
+    allowed = resolve_allowed_tools("ranges")
+    assert allowed is not None
+    assert {"sort_range", "named_range_add"} <= allowed
+
+    _format_script_api_catalog_cached.cache_clear()
+    catalog = format_script_api_catalog(["ranges"])
+    assert "wa.calc.sort_range(" in catalog
+    assert "wa.named_range.add(" in catalog
+
+
+def test_wa_help_accepts_tool_name():
+    import plugin.scripting.writeragent_api as api
+
+    by_tool = api.help("read_range")
+    by_ns = api.help("calc.read_range")
+    assert by_tool.startswith("wa.calc.read_range(")
+    assert by_tool == by_ns
+
+
+def test_no_namespace_shadows_alias_import():
+    import plugin.scripting.writeragent_api as api
+    from scripts.generate_tool_proxies import alias_import_names
+
+    assert "vision" not in api.__all__
+    namespaces = {ns for ns, _method in api.TOOL_METHODS.values()}
+    assert not (namespaces & alias_import_names())
 
 

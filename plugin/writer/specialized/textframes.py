@@ -172,7 +172,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
                 {
                     "hint": (
                         "content is the first 4000 of %d characters. This tool has no offset. "
-                        "Read the body with get_document_content scope='range'."
+                        "Read the body with get_content scope='range'."
                         % content_length
                     )
                 }

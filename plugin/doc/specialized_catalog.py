@@ -15,12 +15,12 @@ from plugin.framework.prompts import (
 from plugin.framework.tool import ToolBase, tool_supports_document
 
 _FOOTNOTES_DIRECT_HINT = (
-    "For footnotes_insert: if the task quotes or names the document anchor "
+    "For footnote_insert: if the task quotes or names the document anchor "
     "(e.g. a sentence), pass that exact string as insert_after so the "
     "note is placed after that text."
 )
 _FOOTNOTES_LOOP_HINT = (
-    "For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), "
+    "For footnote_insert: if the task quotes or names the document anchor (e.g. a sentence), "
     "pass that exact string as insert_after so the note is placed after that text; "
     "the task executor cannot move the view cursor."
 )
@@ -56,7 +56,7 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     """Prompt sentence a specialized loop adds for *domain*, or "" when there is none.
 
     agent_label is "Writer" / "Calc" / "Draw" for a running sub-agent loop, or None for
-    MCP find_tools direct guidance with no app known (the host model runs the tools
+    MCP tool_find direct guidance with no app known (the host model runs the tools
     itself, so footnotes has no "task executor" clause and charts names both apps).
     Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
     Footnotes is one sentence for every app. Unknown domain or label -> "".
@@ -79,7 +79,7 @@ def catalog_entries_from_base(
 
     ``for_discovery`` skips the exclusions that only shape a chat prompt. CALC_HIDDEN_SPECIALIZED_
     DOMAINS keeps Python delegation out of the Calc sidebar's suggestions, but the MCP tool list
-    exposes those tools regardless — so applying it to find_tools made them callable and
+    exposes those tools regardless — so applying it to tool_find made them callable and
     undiscoverable at once. The sidebar-only domains stay excluded either way: the flat tool list
     drops them too, so both modes agree without help.
     """
@@ -125,9 +125,9 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     """Full specialized domain catalog — same entries as sidebar/delegate domain hints.
 
     ``agent_label`` is ``Writer`` / ``Calc`` / ``Draw`` for one app, or ``None`` to merge
-    all three (e.g. MCP ``find_tools`` with no document open).
+    all three (e.g. MCP ``tool_find`` with no document open).
 
-    ``for_discovery`` is set by MCP ``find_tools``: it keeps the domains whose exclusion only
+    ``for_discovery`` is set by MCP ``tool_find``: it keeps the domains whose exclusion only
     shapes a chat prompt, so discovery covers everything the flat tool list exposes. The
     no-document merge uses the same flag as the per-app branches.
     """

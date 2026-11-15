@@ -88,6 +88,14 @@ def _find_placeholder(page: Any, role: str, scan: list[_ScanRow] | None = None) 
     return None, None
 
 
+def slide_title(page: Any) -> str:
+    """Return the title placeholder's text for *page*, or ``""`` when none exists."""
+    shape, _idx = _find_placeholder(page, "title")
+    if shape is None or not hasattr(shape, "getString"):
+        return ""
+    return str(uno_read(lambda: shape.getString(), "") or "")
+
+
 def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[dict[str, Any]]:
     """List all text-capable shapes on a page with role detection."""
     if scan is None:
@@ -113,12 +121,12 @@ def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[di
 
 # C1: available=[] is truthful (no presentation placeholders yet) but mercury
 # retried the same role call. Hint + suggest_layout points at delegate
-# slide_layouts — slide_layout_set is specialized and not on the main tool list.
-_EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then list_placeholders."
+# slide_layouts — slide_set_layout is specialized and not on the main tool list.
+_EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then placeholder_list."
 
 
 def _role_miss_error_kwargs(page: Any, scan: list[_ScanRow] | None = None) -> dict[str, Any]:
-    """Details for set_placeholder_text when role lookup fails."""
+    """Details for placeholder_set_text when role lookup fails."""
     if scan is None:
         scan = _scan_shapes(page)
     available = _list_placeholders(page, scan)
@@ -158,8 +166,8 @@ def _locate(page: Any, role: str | None, index: int | None, scan: list[_ScanRow]
 class ListPlaceholders(ToolBase):
     """List all text placeholders on a slide."""
 
-    name: str | None = "list_placeholders"
-    description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before set_placeholder_text. If count=0, delegate domain=slide_layouts with layout='text', then retry."
+    name: str | None = "placeholder_list"
+    description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before placeholder_set_text. If count=0, delegate domain=slide_layouts with layout='text', then retry."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
@@ -173,11 +181,11 @@ class ListPlaceholders(ToolBase):
 class GetPlaceholderText(ToolBase):
     """Get text from a slide placeholder by role or shape index."""
 
-    name: str | None = "get_placeholder_text"
-    description: str = "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer list_placeholders first; use index when roles are missing."
+    name: str | None = "placeholder_get_text"
+    description: str = "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer placeholder_list first; use index when roles are missing."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."}, "index": {"type": "integer", "description": "Shape index (from list_placeholders)."}, "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}},
+        "properties": {"role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."}, "index": {"type": "integer", "description": "Shape index (from placeholder_list)."}, "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
@@ -205,14 +213,14 @@ class GetPlaceholderText(ToolBase):
 class SetPlaceholderText(ToolBase):
     """Set text on a slide placeholder by role or shape index."""
 
-    name: str | None = "set_placeholder_text"
-    description: str = "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer list_placeholders first; prefer index when role lookup fails. Empty available means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
+    name: str | None = "placeholder_set_text"
+    description: str = "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer placeholder_list first; prefer index when role lookup fails. Empty available means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Text to set on the placeholder."},
             "role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."},
-            "index": {"type": "integer", "description": "Shape index (from list_placeholders)."},
+            "index": {"type": "integer", "description": "Shape index (from placeholder_list)."},
             "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
         },
         "required": ["text"],

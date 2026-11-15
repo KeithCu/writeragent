@@ -22,7 +22,7 @@ def _execute(doc, ctx, name, args, domain="calc"):
 @with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_enhanced_chart(ctx, doc):
     # 1. Setup data
-    _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
+    _execute(doc, ctx, "write_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
     
     # 2. Create 3D Stacked Chart
     res = _execute(doc, ctx, "chart_upsert", {
@@ -65,7 +65,7 @@ def test_calc_enhanced_chart(ctx, doc):
 @with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_chart_colors(ctx, doc):
     # 1. Setup data
-    _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
+    _execute(doc, ctx, "write_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
 
     # 2. Create Chart with custom/arbitrary colors (RGB and hex)
     res = _execute(doc, ctx, "chart_upsert", {
@@ -134,7 +134,7 @@ def test_draw_chart_polymorphic(ctx, doc):
 @with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_multisheet_charts(ctx, doc):
     # 1. Setup data on active sheet (Sheet1)
-    _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 10], ["B", 20], ["C", 30]]})
+    _execute(doc, ctx, "write_range", {"range": "A1:B3", "values": [["A", 10], ["B", 20], ["C", 30]]})
 
     # 2. Insert a second sheet "Dashboard"
     if not doc.getSheets().hasByName("Dashboard"):

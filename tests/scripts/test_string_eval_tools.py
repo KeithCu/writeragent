@@ -23,10 +23,10 @@ from eval_worlds import WriterWorld
 
 def test_get_full_and_range():
     s = StringDocState("<p>Hello</p>")
-    r = s.get_document_content(scope="full")
+    r = s.get_content(scope="full")
     assert r["status"] == "ok"
     assert "Hello" in r["content"]
-    r2 = s.get_document_content(scope="range", start=0, end=4)
+    r2 = s.get_content(scope="range", start=0, end=4)
     assert r2["content"] == "<p>H"
 
 
@@ -35,27 +35,27 @@ def test_get_document_content_returns_resume_fixture() -> None:
 
     raw = REFORMAT_RESUME["document_content"]
     s = WriterWorld(raw)
-    r = s.get_document_content(scope="full")
+    r = s.get_content(scope="full")
     assert r["status"] == "ok"
     assert r["content"] == raw
     assert "john doe" in r["content"]
     assert "100K users" in r["content"]
     via_dispatch = json.loads(
-        dispatch_string_tool(s, "get_document_content", json.dumps({"scope": "full"}))
+        dispatch_string_tool(s, "get_content", json.dumps({"scope": "full"}))
     )
     assert via_dispatch["content"] == raw
 
 
 def test_apply_search_replace():
     s = StringDocState("foo bar foo")
-    r = s.apply_document_content(
+    r = s.apply_content(
         target="search",
         old_content="foo",
         content="baz",
     )
     assert r["status"] == "ok"
     assert s.get_html() == "baz bar foo"
-    r2 = s.apply_document_content(
+    r2 = s.apply_content(
         target="search",
         old_content="foo",
         content="x",
@@ -67,7 +67,7 @@ def test_apply_search_replace():
 
 def test_apply_search_all_matches_no_match_errors():
     s = StringDocState("nothing relevant")
-    r = s.apply_document_content(
+    r = s.apply_content(
         target="search",
         old_content="zzz",
         content="BAR",
@@ -80,11 +80,11 @@ def test_apply_search_all_matches_no_match_errors():
 
 def test_apply_full_and_end():
     s = StringDocState("a")
-    r = s.apply_document_content(target="full_document", content="<h1>x</h1>")
+    r = s.apply_content(target="full_document", content="<h1>x</h1>")
     assert r["paragraph_count"] == 1
     assert r["headings"] == [{"level": 1, "text": "x"}]
     assert s.get_html() == "<h1>x</h1>"
-    s.apply_document_content(target="end", content="y")
+    s.apply_content(target="end", content="y")
     assert s.get_html().endswith("y")
 
 
@@ -106,7 +106,7 @@ def test_dispatch_tools_json():
 def test_calc_write_formula_range_and_snapshot():
     state = CalcStringState("Item\tPrice\nApple\t10\nBanana\t5")
     out = dispatch_string_tool(
-        state, "write_formula_range", json.dumps({"range": ["C1"], "values": "Tax"})
+        state, "write_range", json.dumps({"range": ["C1"], "values": "Tax"})
     )
     assert json.loads(out)["status"] == "ok"
     dispatch_string_tool(
@@ -125,7 +125,7 @@ def test_calc_write_formula_range_and_snapshot():
 
 def test_dispatch_search_in_document_alias():
     s = WriterWorld("hello there")
-    out = dispatch_string_tool(s, "search_in_document", json.dumps({"pattern": "there"}))
+    out = dispatch_string_tool(s, "search", json.dumps({"pattern": "there"}))
     data = json.loads(out)
     assert data["status"] == "ok"
     assert data["ranges"]
@@ -147,14 +147,14 @@ def test_dispatch_apply_style_heading() -> None:
 
 def test_dispatch_unsupported_writer_tool():
     s = StringDocState("hello")
-    out = dispatch_string_tool(s, "get_guidance", "{}")
+    out = dispatch_string_tool(s, "manual_read", "{}")
     data = json.loads(out)
     assert data["code"] == "unsupported_in_eval"
 
 
 def test_calc_sort_range_integer_column():
     state = CalcStringState("Product\tRevenue\nWidget\t1200\nTool\t2100")
-    res = state.range_sort(sort_column=1, ascending=False)
+    res = state.sort_range(sort_column=1, ascending=False)
     assert res["status"] == "ok"
     assert state._grid[1][0] == "Tool"
 
@@ -162,7 +162,7 @@ def test_calc_sort_range_integer_column():
 def test_calc_sort_mixed_types_descending_text_first() -> None:
     # LibreOffice ScTable::CompareCell: text sorts after numbers, so descending puts it first.
     state = CalcStringState("Product\tRevenue\nWidget\t1200\nAardvark\tn/a\nTool\t2100")
-    res = state.range_sort(sort_column=1, ascending=False)
+    res = state.sort_range(sort_column=1, ascending=False)
     assert res["status"] == "ok"
     names = [row[0] for row in state._grid[1:]]
     assert names == ["Aardvark", "Tool", "Widget"]

@@ -1,7 +1,7 @@
 # Structured Edit Diagnostics: `code` + `suggested_call` on Errors and Warnings (Plan)
 
 **Status:** Plan, incorporating the 2026-11-09 Opus review. Tracks row 22 (standardized `code` on errors and warnings) of the editing-API status report (`docs/chat/opuswriteragentprompt.md`, "Seven principles" 1 and 2). Note: "error_code" in row 22 refers to the existing `code` key; no new key is added.
-**Scope:** Writer editing tools first (`apply_document_content`, `apply_style`, `search_in_document`, `set_selection`). The mechanism is shared and generic, so Calc and Draw can adopt it later.
+**Scope:** Writer editing tools first (`apply_content`, `apply_style`, `search`, `set_selection`). The mechanism is shared and generic, so Calc and Draw can adopt it later.
 
 ## 1. Goal
 
@@ -125,7 +125,7 @@ Code constants remain string literals across call sites, consistent with the cod
 | `TABLE_BLOCK_IN_CELL` | error | Block HTML inserted in table cell (`html_import.py:739`) | None |
 | `UNDO_UNAVAILABLE` | error | `apply_document_content.py:644, 722, 1468`, `styles.py:1403` | None |
 | `ROLLBACK_FAILED` | error | `apply_document_content.py:1481, 1499`, `styles.py:1423` | None |
-| `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py:1401, 1526`); invalid style/clear_direct (`styles.py:1312, 1338-1347`); selection parameter conflicts/empty values (`selection.py:75-106`); `apply_document_content` parameter conflicts/empty strings (`892, 903, 1186, 1188, 1192, 1207, 1211, 1214, 1631, 1639`) | None |
+| `INVALID_PARAM` | error | Parameter validation failures: missing query/pattern (`search.py:1401, 1526`); invalid style/clear_direct (`styles.py:1312, 1338-1347`); selection parameter conflicts/empty values (`selection.py:75-106`); `apply_content` parameter conflicts/empty strings (`892, 903, 1186, 1188, 1192, 1207, 1211, 1214, 1631, 1639`) | None |
 | `INVALID_REGEX` | error | `validate_icu_regex` / `invalid_regex_tool_message` (`search.py`) | None (item 21 shipped; validated via ICU engine; `details.engine` dropped). |
 | `STYLE_IGNORED_PARTIAL_MATCH` | warning | Partial match style skip (`_LO_STYLE_PARTIAL_MATCH_NOTE`, `html_import.py:507`) | `apply_style(target="search", old_content=<params.plain>, style=<style>, case_sensitive=True)` if conditions in §3.5 hold. |
 | `STYLE_IGNORED_RECORDING` | warning | Tracked changes recording skip (`_LO_STYLE_RECORDING_NOTE`, `html_import.py:511`) | None (`apply_style` is not tracked). |
@@ -135,7 +135,7 @@ Code constants remain string literals across call sites, consistent with the cod
 *Heading link resolution:* `resolve_heading_links` rewrites bare `href="#Heading"` fragments to `href="#Heading|outline"` when the fragment matches an outline heading text (derived from headings written in the HTML plus existing body headings; skipped for `full_document`). Targets matching an element `id` or `name` in the written HTML, or an existing bookmark in the document, are exempted from rewrite and warning. Unmatched bare fragments emit a `LINK_TARGET_NOT_FOUND` diagnostic warning once per distinct fragment.
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
-*Note on dropped items:* `TABLE_DELETED` is not emitted as a warning or undo suggestion; table deletion is already exposed via structured fields `table_deleted: true` and `pending_review` (`apply_document_content.py:147-165`), and invoking `undo` during change recording is unsafe.
+*Note on dropped items:* `TABLE_DELETED` is not emitted as a warning or undo suggestion; table deletion is already exposed via structured fields `table_deleted: true` and `pending_review` (`apply_document_content.py:147-165`), and invoking `document_undo` during change recording is unsafe.
 
 ### 3.4 Building `suggested_call` safely
 

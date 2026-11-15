@@ -675,7 +675,7 @@ class BookmarkResolve(ToolWriterBookmarkBase):
             names = [str(n) for n in bookmarks.getElementNames()]
             miss = name_miss_details(bookmark_name, names, "bookmark_list")
             if bookmark_name.startswith("_mcp_"):
-                hint += " It may have been deleted or the document changed. Use heading_text:<text> locator for resilient heading addressing, or call get_document_tree to refresh bookmarks."
+                hint += " It may have been deleted or the document changed. Use heading_text:<text> locator for resilient heading addressing, or call get_tree to refresh bookmarks."
                 existing = [n for n in bookmarks.getElementNames() if n.startswith("_mcp_")]
                 if existing:
                     hint += " Existing bookmarks: %s" % ", ".join(existing[:10])

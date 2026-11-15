@@ -364,3 +364,17 @@ def test_extra_key_fallback_when_missing_from_extra_config() -> None:
     data = {"endpoint": "http://x", "orphan.key": "keep-me"}
     out = validate(data)
     assert out.get("orphan.key") == "keep-me"
+
+
+def test_validate_replaces_universal_sample_with_old_proxy_calls() -> None:
+    from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS
+
+    old_sample = (
+        "import writeragent as wa\n"
+        "if doc_type == 'writer':\n"
+        "    wa.writer.apply_document_content(content=['<p>hi</p>'], target='end')\n"
+        "elif doc_type == 'calc':\n"
+        "    wa.calc.insert_cell_html(cell='A1', html='<p>hi</p>')\n"
+    )
+    out = validate({"saved_python_scripts": {"Universal Sample": old_sample}})
+    assert out["saved_python_scripts"]["Universal Sample"] == _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]

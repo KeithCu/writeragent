@@ -11,7 +11,7 @@ the area gotchas.
 - Smol / librarian ReAct (separate runtime; shares `LlmClient`): `smol_agent.py`
 - Dialogs / settings: `dialogs.py`, `dialog_views.py`, `settings_dialog.py`
 - Product UI owned here (not framework): `eval_dashboard_ui.py`, `bug_report.py`, `agent_manual.py`
-- Memory (shipped): `memory.py` (`upsert_memory`, tier core, `USER.md`) — `MEMORY_GUIDANCE` is in `plugin/framework/prompts.py`
+- Memory (shipped): `memory.py` (`memory_upsert`, tier core, `USER.md`) — `MEMORY_GUIDANCE` is in `plugin/framework/prompts.py`
 - Librarian is a **sidebar mode** (last in the dropdown). Do **not** gate `_do_send` on missing `USER.md`. Default selection uses `chatbot.librarian_invoked` (first open only), not `USER.md`. History is a global `ChatSession` (`LIBRARIAN_HISTORY_SESSION_ID`), not per document.
 
 ## File ownership (existing modules; no new panel/dialog/session files)
@@ -27,7 +27,7 @@ the area gotchas.
 - `dialog_views.py` — WriterAgent Settings pages, provider buttons, venv probe UI. `input_box` (Edit/Extend selection) stays here; it is not a generic XDL helper.
 - `eval_dashboard_ui.py` — prompt-optimization eval dashboard XDL (`show_eval_dashboard`).
 - `bug_report.py` — GitHub issue URL builder / browser launcher (`msgbox_with_report`, Report bug menu). LibrePy bundles this.
-- `agent_manual.py` — `get_guidance` topic map + `full_manual` (agent-backend prompt and MCP).
+- `agent_manual.py` — `manual_read` topic map + `full_manual` (agent-backend prompt and MCP).
 - `selection.py` — Extend/Edit selection actions, input prompt, and streaming completion runners.
 
 ## Legal imports

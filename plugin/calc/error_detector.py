@@ -105,7 +105,7 @@ _ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in (
 
 
 def truncation_hint(shown: int, total: int) -> str:
-    """Hint text when ``error_detect`` caps explained errors."""
+    """Hint text when ``detect_errors`` caps explained errors."""
     return "First %d of %d. Pass a range that starts after the last address in errors." % (shown, total)
 
 

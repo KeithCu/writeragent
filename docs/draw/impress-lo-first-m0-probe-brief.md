@@ -16,7 +16,7 @@ Two parallel deliverables, same LO-first question:
 1. **M0′ headed 3-arm probe** — can `inception/mercury-2.5` get **non-generic polish** using stock LibreOffice slide designs + master / layout / placeholder / headers-footers (no WriterAgent design engine)?
 2. **Parallel UNO probe** — how to **enumerate and apply** shipped `.otp` slide designs, how to set **page/master background**, and whether any **ODF Theme API** exists on this LO. Written result, not guessed wrappers.
 
-If arms B/C pass the criteria below, next work is **M1′** (expose list/apply design). Product later shipped current-doc `apply_design` only — no core `set_presentation_design` / `new_document`. If they fail, the write-up of *which* LO feature failed **is** the LO wall for **M3′** — do not invent `deck.py` / `DeckTheme` in this brief’s scope.
+If arms B/C pass the criteria below, next work is **M1′** (expose list/apply design). Product later shipped current-doc `design_apply` only — no core `set_presentation_design` / `new_document`. If they fail, the write-up of *which* LO feature failed **is** the LO wall for **M3′** — do not invent `deck.py` / `DeckTheme` in this brief’s scope.
 
 ---
 
@@ -42,16 +42,16 @@ and add one visual shape.
 |-----|------------|--------------------------|
 | **A** | Baseline **title + bullets** (current main-chat behavior). | Chat tools only. |
 | **B** | Same prompt **+** real **master** + **layout** + **placeholders** + **headers/footers / slide numbers**. | Use existing tools if they fire; **manual or scripted LO steps are OK**. |
-| **C** | Same prompt **+** an **applied shipped slide design** + **master/page background**. | **Manual or scripted apply is OK** — M1′ `list_designs` / `apply_design` may not exist yet. |
+| **C** | Same prompt **+** an **applied shipped slide design** + **master/page background**. | **Manual or scripted apply is OK** — M1′ `design_list` / `design_apply` may not exist yet. |
 
 Existing tools to prefer (do not replace them):
 
 | Need | Tools | Where |
 |------|-------|--------|
-| Masters | `slide_master_list`, `slide_master_get`, `slide_master_set` | specialized `slide_masters` — `plugin/draw/masters.py` |
-| Layouts | `add_slide` (core, default `text`); `slide_layout_get` / `slide_layout_set` | `plugin/draw/pages.py`, specialized `slide_layouts` — `plugin/draw/transitions.py` |
-| Placeholders | `list_placeholders`, `get_placeholder_text`, `set_placeholder_text` | **core** — `plugin/draw/placeholders.py` (fill **after** layout; headed `available: []` was fill-before-layout) |
-| HF / slide numbers | `headers_footers_get`, `headers_footers_set` | specialized `headers_footers` — `plugin/draw/headers_footers.py` |
+| Masters | `slide_list_masters`, `slide_get_master`, `slide_set_master` | specialized `slide_masters` — `plugin/draw/masters.py` |
+| Layouts | `slide_add` (core, default `text`); `slide_get_layout` / `slide_set_layout` | `plugin/draw/pages.py`, specialized `slide_layouts` — `plugin/draw/transitions.py` |
+| Placeholders | `placeholder_list`, `placeholder_get_text`, `placeholder_set_text` | **core** — `plugin/draw/placeholders.py` (fill **after** layout; headed `available: []` was fill-before-layout) |
+| HF / slide numbers | `slide_get_header_footer`, `slide_set_header_footer` | specialized `headers_footers` — `plugin/draw/headers_footers.py` |
 
 A fresh doc’s only master is often `Default`. Arm B can assign a master **if one exists**; arm C is the arm that **brings in** a shipped design so a non-blank master exists.
 

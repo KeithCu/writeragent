@@ -1036,7 +1036,7 @@ def test_resolve_exception_is_not_document_not_found():
     services.document.resolve_document_by_url.side_effect = DocumentDisposedError("closed", object_type="Document")
     handler = MCPProtocolHandler(services)
     with pytest.raises(DocumentDisposedError):
-        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt", cancel=SendCancellation())
+        handler._prepare_mcp_execution("apply_content", {}, document_url="file:///gone.odt", cancel=SendCancellation())
 
 
 def test_unresolved_document_url_is_still_document_not_found():
@@ -1049,7 +1049,7 @@ def test_unresolved_document_url_is_still_document_not_found():
     services.tools.get.return_value = tool
     services.document.resolve_document_by_url.return_value = (None, None)
     handler = MCPProtocolHandler(services)
-    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt", cancel=SendCancellation())
+    result = handler._prepare_mcp_execution("apply_content", {}, document_url="file:///missing.odt", cancel=SendCancellation())
     assert result["code"] == "DOCUMENT_NOT_FOUND"
     assert "missing.odt" in result["message"]
 

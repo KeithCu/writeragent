@@ -99,7 +99,7 @@ def test_comment_resolve_reply_appears_with_name_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_add_comment_search_hits_nbsp_uno(ctx, doc):
-    """add_comment search with normal space matches document text with NBSP."""
+    """comment_add search with normal space matches document text with NBSP."""
     _set_body(doc, "Prefix text\u00a0with\u00a0nbsp and suffix.")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 

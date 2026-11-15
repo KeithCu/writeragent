@@ -153,11 +153,11 @@ class CommentList(ToolWriterCommentBase):
 class AddComment(ToolBase):
     """Add a comment anchored to a search string, or reply via parent_name."""
 
-    name: str | None = "add_comment"
+    name: str | None = "comment_add"
     description: str = (
         "Add a comment/annotation. For a new root comment, pass search (and optional occurrence) "
         "so the comment SPANS the matched passage. To reply without resolving, pass parent_name "
-        "(the 'name' from a prior add_comment success, or from comment_list); search is not required. Replies nest under that immediate "
+        "(the 'name' from a prior comment_add success, or from comment_list); search is not required. Replies nest under that immediate "
         "parent (including other replies) and do not mark it resolved — use comment_resolve for "
         "reply-and-resolve. Use author to sign the comment."
     )
@@ -167,7 +167,7 @@ class AddComment(ToolBase):
         "case_sensitive": {"type": "boolean", "description": f"For search: {CASE_SENSITIVE_DESCRIPTION}"},
         "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
         "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
-        "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior add_comment success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
+        "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
     }, "required": ["content"]}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
@@ -519,7 +519,7 @@ def _workflow_field(doc: Any) -> Any | None:
 
 
 class CommentWorkflowGet(ToolWriterCommentBase):
-    name: str | None = "comment_workflow_get"
+    name: str | None = "comment_get_workflow"
     description: str = "Read the MCP-WORKFLOW dashboard comment (key: value lines)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
@@ -533,7 +533,7 @@ class CommentWorkflowGet(ToolWriterCommentBase):
 
 
 class CommentWorkflowSet(ToolWriterCommentBase):
-    name: str | None = "comment_workflow_set"
+    name: str | None = "comment_set_workflow"
     description: str = "Write the MCP-WORKFLOW dashboard comment (key: value lines)."
     parameters: dict[str, Any] | None = {
         "type": "object",

@@ -1,8 +1,8 @@
-# get_page_objects: leave nested XText, then lock
+# page_get_objects: leave nested XText, then lock
 
 Physical page of a range is view-cursor `getPage()` only — no UNO page-of-range API (probed).
 
-The sequence is encapsulated in `with_view_cursor_left_body_locked` (`plugin/doc/text_helpers.py`), shared by `get_page_objects` scans, paragraph page resolution (`get_page_for_paragraph`), and document page counting (`get_page_count`):
+The sequence is encapsulated in `with_view_cursor_left_body_locked` (`plugin/doc/text_helpers.py`), shared by `page_get_objects` scans, paragraph page resolution (`get_page_for_paragraph`), and document page counting (`get_page_count`):
 
 **Leave body first.** `lockControllers` while the view cursor sits in a table cell makes `gotoRange`/`getPage` fail silently (Cneg: `tables=[]`). Hop unlocked to `doc.getText().getStart()`, then lock. `jumpToPage` is a no-op on the same page (the cell).
 

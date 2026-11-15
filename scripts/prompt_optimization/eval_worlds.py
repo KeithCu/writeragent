@@ -336,7 +336,7 @@ class WriterWorld:
         """Hook for a later multi-turn refresh. Same as get_html today."""
         return self._html
 
-    def get_document_content(self, **kwargs: Any) -> dict[str, Any]:
+    def get_content(self, **kwargs: Any) -> dict[str, Any]:
         scope = kwargs.get("scope", "full")
         max_chars = kwargs.get("max_chars")
         text = self._html
@@ -357,7 +357,7 @@ class WriterWorld:
             "document_length": len(self._html),
         }
 
-    def apply_document_content(self, **kwargs: Any) -> dict[str, Any]:
+    def apply_content(self, **kwargs: Any) -> dict[str, Any]:
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         target = kwargs.get("target")
@@ -467,7 +467,7 @@ class WriterWorld:
                 break
         return {"status": "ok", "ranges": ranges}
 
-    def search_in_document(self, **kwargs: Any) -> dict[str, Any]:
+    def search(self, **kwargs: Any) -> dict[str, Any]:
         """Production name. Offsets are into exported HTML (same as find_text)."""
         pattern = str(kwargs.get("pattern") or kwargs.get("search") or "")
         if not pattern:
@@ -497,7 +497,7 @@ class WriterWorld:
         found["matches"] = matches
         return found
 
-    def add_comment(self, **kwargs: Any) -> dict[str, Any]:
+    def comment_add(self, **kwargs: Any) -> dict[str, Any]:
         """Anchor a visible ``[comment]`` after the search hit (no UNO annotation)."""
         content = str(kwargs.get("content") or "")
         search = str(kwargs.get("search") or "")
@@ -607,7 +607,7 @@ class DrawWorld:
     def export_for_prompt(self) -> str:
         import json
 
-        return json.dumps(self.get_draw_tree(), ensure_ascii=False)
+        return json.dumps(self.get_tree(), ensure_ascii=False)
 
     def shape_upsert(
         self,
@@ -700,7 +700,7 @@ class DrawWorld:
     def _shape_by_index(self, idx: int) -> dict[str, Any] | None:
         return next((s for s in self.shapes if s["index"] == idx), None)
 
-    def get_draw_tree(self, **kwargs: Any) -> dict[str, Any]:
+    def get_tree(self, **kwargs: Any) -> dict[str, Any]:
         unused = kwargs
         del unused
         by_idx = {s["index"]: s for s in self.shapes}
@@ -864,7 +864,7 @@ class CalcWorld:
             out.append(row_data)
         return out
 
-    def read_cell_range(self, **kwargs: Any) -> dict[str, Any]:
+    def read_range(self, **kwargs: Any) -> dict[str, Any]:
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
             ranges = [ranges]
@@ -884,7 +884,7 @@ class CalcWorld:
             ],
         }
 
-    def range_sort(self, **kwargs: Any) -> dict[str, Any]:
+    def sort_range(self, **kwargs: Any) -> dict[str, Any]:
         """One-column stable sort over the given range(s) (sort_column is 0-based within range)."""
         col = kwargs.get("sort_column", 0)
         ascending = kwargs.get("ascending", True)
@@ -1005,7 +1005,7 @@ class CalcWorld:
         }
 
     def write_cell_range(self, **kwargs: Any) -> dict[str, Any]:
-        return self.write_formula_range(**kwargs)
+        return self.write_range(**kwargs)
 
     @staticmethod
     def _plan_eval_write(
@@ -1054,7 +1054,7 @@ class CalcWorld:
             flat = values
         return (flat, (c0, r0, c1, r1))
 
-    def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
+    def write_range(self, **kwargs: Any) -> dict[str, Any]:
         raw_values = kwargs.get("values", [])
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
@@ -1124,7 +1124,7 @@ class CalcWorld:
                 self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
             self.sheets[self.active_sheet] = self._grid
             return 0
-        # Production write_formula_range fill-down-adjusts relative A1 refs
+        # Production write_range fill-down-adjusts relative A1 refs
         # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
         # JSON arrays / explicit lists stay exact (and warn if a column repeats
         # one row-aligned formula).

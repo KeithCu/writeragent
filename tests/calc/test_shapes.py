@@ -66,4 +66,4 @@ def test_calc_shapes_domain_tools():
     assert "shape_delete" in names
     assert "shape_connect" in names
     assert "shape_group" in names
-    assert "shape_summary" in names
+    assert "shape_get_summary" in names

@@ -497,7 +497,7 @@ def resolve_path_or_name(
         return None, "path_or_name is required"
 
     # The tool schema accepts a file URL, and list_nearby_files /
-    # list_open_documents return ``file:///…`` urls.
+    # document_list_open return ``file:///…`` urls.
     # ``os.path.isabs("file:///…")`` is false, so the URL used as a
     # listing filter matches nothing. ``open_document_for_read``
     # already accepts ``file:`` URLs. Convert with the same helper

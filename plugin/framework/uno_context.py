@@ -627,7 +627,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
     """Resolve an open document by URL or RuntimeUID. Must be called on the UNO main thread.
 
     ``url`` may be a document URL or a ``RuntimeUID`` (as returned by
-    ``list_open_documents``); the RuntimeUID also matches unsaved/untitled
+    ``document_list_open``); the RuntimeUID also matches unsaved/untitled
     documents that have no URL yet.
     Returns (doc, doc_type) or (None, None) if not found.
     doc_type is one of 'writer', 'calc', 'draw'.

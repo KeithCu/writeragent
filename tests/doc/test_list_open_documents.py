@@ -124,7 +124,7 @@ def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
 
 def test_get_open_documents_skips_non_office_document_components():
     """The Start Center (and similar) are live components but not OfficeDocuments — same filter as
-    MCP's _real_active_document so list_open_documents never advertises untargetable entries."""
+    MCP's _real_active_document so document_list_open never advertises untargetable entries."""
     real_doc = MagicMock()
     real_doc.getURL.return_value = "file:///home/user/doc.odt"
     real_doc.getController.return_value = None

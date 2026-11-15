@@ -26,7 +26,7 @@ def _rename(page, name):
 @native_test
 @with_native_doc("impress")
 def test_add_slide_page_zero_shifts_existing_and_reports_zero(ctx, doc):
-    """add_slide(page=0) must occupy index 0 and point follow-up tools there."""
+    """slide_add(page=0) must occupy index 0 and point follow-up tools there."""
     from com.sun.star.awt import Point, Size
 
     pages = doc.getDrawPages()
@@ -39,7 +39,7 @@ def test_add_slide_page_zero_shifts_existing_and_reports_zero(ctx, doc):
     marker.Name = "MARKER"
     kept_shapes = first.getCount()
 
-    added = _exec(doc, ctx, "add_slide", {"page": 0, "layout": "blank"})
+    added = _exec(doc, ctx, "slide_add", {"page": 0, "layout": "blank"})
     assert added.get("status") == "ok", added
     assert added.get("active_page_index") == 0, added
     assert pages.getCount() == 2
@@ -82,12 +82,12 @@ def test_add_slide_page_zero_shifts_existing_and_reports_zero(ctx, doc):
 def test_add_slide_middle_index_matches_reported_active_page(ctx, doc):
     pages = doc.getDrawPages()
     _rename(pages.getByIndex(0), "A")
-    _exec(doc, ctx, "add_slide", {"layout": "blank"})
+    _exec(doc, ctx, "slide_add", {"layout": "blank"})
     _rename(pages.getByIndex(1), "B")
-    _exec(doc, ctx, "add_slide", {"layout": "blank"})
+    _exec(doc, ctx, "slide_add", {"layout": "blank"})
     _rename(pages.getByIndex(2), "C")
 
-    added = _exec(doc, ctx, "add_slide", {"page": 1, "layout": "blank"})
+    added = _exec(doc, ctx, "slide_add", {"page": 1, "layout": "blank"})
     assert added.get("status") == "ok", added
     assert added.get("active_page_index") == 1, added
     assert _names(pages)[0] == "A"

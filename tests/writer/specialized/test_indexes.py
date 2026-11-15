@@ -675,7 +675,7 @@ def _attach_index_rows(ctx, idx, rows):
 def test_list_toc_entries_reads_rows_not_the_full_export():
     """A long linked TOC is listed from index paragraphs, not the XHTML export.
 
-    Row inspection must not call get_document_content (XHTML Writer filter export);
+    Row inspection must not call get_content (XHTML Writer filter export);
     a linked TOC is a bad input for that filter. This listing must not export or
     call update().
     """
@@ -705,7 +705,7 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
 
     with patch("plugin.writer.html_export._export_xhtml", side_effect=AssertionError("xhtml export")) as export_xhtml, \
          patch("plugin.writer.html_export.document_to_content", side_effect=AssertionError("full export")) as export_doc, \
-         patch("plugin.writer.get_document_content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
+         patch("plugin.writer.get_document_content.GetDocumentContent.execute", side_effect=AssertionError("get_content")) as export_tool:
         listed = tool.execute(ctx, include_links=True)
 
     assert listed["status"] == "ok", listed
@@ -1043,7 +1043,7 @@ def test_toc_entry_tools_reject_non_integer_occurrence_index_and_level():
 
     ins_tool = IndexesInsertTocEntry()
     for level in ("1", True):
-        prep = prepare_tool_call(ins_tool, ctx, "indexes_insert_toc_entry", {"content": "Beta", "level": level})
+        prep = prepare_tool_call(ins_tool, ctx, "index_insert_toc_entry", {"content": "Beta", "level": level})
         assert prep.error is not None
         assert prep.error["code"] == "VALIDATION_ERROR"
 

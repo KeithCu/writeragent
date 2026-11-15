@@ -40,7 +40,7 @@ class DeleteShape(DrawDeleteShape, ToolWriterShapeBase):
 
 
 class GetDrawSummary(DrawGetDrawSummary, ToolWriterShapeBase):
-    name: str | None = "shape_summary"
+    name: str | None = "shape_get_summary"
 
 
 class ConnectShapes(DrawConnectShapes, ToolWriterShapeBase):
@@ -60,6 +60,6 @@ class DistributeShapes(DrawDistributeShapes, ToolWriterShapeBase):
 
 
 class CreateDiagram(DrawCreateDiagram, ToolWriterShapeBase):
-    name: str | None = "shape_diagram"
+    name: str | None = "shape_create_diagram"
 
 

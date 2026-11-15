@@ -382,7 +382,7 @@ def test_search_sees_ruby_base_not_reading_uno(ctx: Any, doc: Any) -> None:
     """Paragraph getString() / LO find are base-only; reading is not searchable text.
 
     Unchanged in Phase 1: ruby is a portion mark, not a TextField, so
-    search_in_document still matches 漢字 and not かんじ.
+    search still matches 漢字 and not かんじ.
     """
     _seed_ruby_paragraph(doc)
     text = doc.getText()
