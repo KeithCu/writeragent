@@ -63,7 +63,7 @@ from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_arra
 from plugin.calc.bridge import is_agent_visible_sheet
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.error_detector import formula_error_cells
-from plugin.calc.formula_dialect import FormulaDialects
+from plugin.calc.formula_dialect import FormulaDialects, make_cell_address
 from plugin.calc.formula_fill import expand_single_formula, repeated_formula_columns
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
@@ -1485,17 +1485,12 @@ class CellManipulator:
                 self.bridge.resolve_range_or_address(range_str)
                 return WritePlan("clear", range_str)
 
-            from com.sun.star.table import CellAddress
-
             cell_range = self.bridge.resolve_range_or_address(range_str)
             addr = _uno_range_address(cell_range)
             sheet = cell_range.getSpreadsheet()
             start = (addr.StartColumn, addr.StartRow)
             end = (addr.EndColumn, addr.EndRow)
-            ref_pos = CellAddress()
-            ref_pos.Sheet = addr.Sheet
-            ref_pos.Column = addr.StartColumn
-            ref_pos.Row = addr.StartRow
+            ref_pos = make_cell_address(addr.Sheet, addr.StartColumn, addr.StartRow)
             notes: list[Diagnostic] = []
             formulas_on = not literal_text and not data_text
 
@@ -1901,8 +1896,6 @@ class CellManipulator:
         Dest is the top-left (or a range whose start is used); size is the
         source extent.
         """
-        from com.sun.star.table import CellAddress
-
         try:
             source_obj = self.bridge.resolve_range_or_address(source_str)
             source_ra = _uno_range_address(source_obj)
@@ -1910,10 +1903,7 @@ class CellManipulator:
             rows = int(source_ra.EndRow) - int(source_ra.StartRow) + 1
             cols = int(source_ra.EndColumn) - int(source_ra.StartColumn) + 1
 
-            dest_cell = CellAddress()
-            dest_cell.Sheet = dest_ra.Sheet
-            dest_cell.Column = dest_ra.StartColumn
-            dest_cell.Row = dest_ra.StartRow
+            dest_cell = make_cell_address(dest_ra.Sheet, dest_ra.StartColumn, dest_ra.StartRow)
 
             dest_sheet.copyRange(dest_cell, source_ra)
 

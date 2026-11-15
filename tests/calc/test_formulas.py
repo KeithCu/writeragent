@@ -14,14 +14,7 @@ from plugin.framework.tool import ToolContext
 
 @pytest.fixture(autouse=True)
 def _identity_formula_dialects(monkeypatch):
-    class _IdentityDialects:
-        def __init__(self, _doc):
-            pass
-
-        def to_api(self, text: str, _pos=None) -> str:
-            return text
-
-    monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _IdentityDialects)
+    monkeypatch.setattr("plugin.calc.formulas.to_api", lambda _doc, text, _pos=None: text)
 
 
 def test_error_503_is_num_not_div_zero():
@@ -451,14 +444,10 @@ def test_evaluate_formula_repairs_py_literal_newlines():
 
 
 def test_evaluate_formula_writes_calc_grammar(monkeypatch):
-    class _MappedDialects:
-        def __init__(self, _doc):
-            pass
-
-        def to_api(self, text: str, _pos=None) -> str:
-            return "=SUM(A1;B1)" if text == "=SUM(A1,B1)" else text
-
-    monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _MappedDialects)
+    monkeypatch.setattr(
+        "plugin.calc.formulas.to_api",
+        lambda _doc, text, _pos=None: "=SUM(A1;B1)" if text == "=SUM(A1,B1)" else text,
+    )
     doc = _EvalDoc()
     res = EvaluateFormula().execute(_eval_ctx(doc), formula="=SUM(A1,B1)")
     assert res["status"] == "ok"

@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from plugin.calc.calc_utils import FORMULA, TEXT
+from plugin.calc.formula_dialect import to_api
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
 from plugin.chatbot.dialogs import msgbox
 from plugin.chatbot.selection import (
@@ -183,6 +184,8 @@ def do_calc_extend_edit(
             if cell_kind == TEXT:
                 cell.setString(text)
             else:
+                if text.startswith("="):
+                    text = to_api(model, text, cell.getCellAddress())
                 cell.setFormula(text)
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:

@@ -123,7 +123,7 @@ def insert_slash_formula_on_main(
     target_addr: str,
     chunks: list[str],
 ) -> None:
-    from plugin.calc.formula_dialect import FormulaDialects
+    from plugin.calc.formula_dialect import to_api
     from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
     from plugin.doc.compound_undo import commit_or_rollback
 
@@ -132,7 +132,7 @@ def insert_slash_formula_on_main(
         host.append_output("\n" + formula + "\n")
         return
 
-    formula = FormulaDialects(model).to_api(formula, cell.getCellAddress())
+    formula = to_api(model, formula, cell.getCellAddress())
     record_agent_turn_before(model)
 
     def mutate() -> None:

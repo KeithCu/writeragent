@@ -22,8 +22,10 @@ from plugin.calc.formula_dialect import (
     SPECIAL_BAD,
     XL_ENGLISH,
     accepted,
+    make_cell_address,
     needs_dialect_check,
     strip_xlfn,
+    to_api,
 )
 
 _BAD_OP = 14
@@ -135,13 +137,16 @@ def test_to_api_clean_returns_input_without_printing() -> None:
     api = _ScriptedParser(lambda _t: [_GOOD_OP])
     xl = _ScriptedParser(lambda _t: [_BAD_OP])
     xl_refs = _ScriptedParser(lambda _t: [_BAD_OP])
-    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs]))
+    xl_ooo = _ScriptedParser(lambda _t: [_BAD_OP])
+    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs, xl_ooo]))
 
     assert dialects.to_api('="a,b"') == '="a,b"'
     assert api.FormulaConvention == CONV_OOO
     assert xl.FormulaConvention == CONV_XL_A1
     assert xl_refs.FormulaConvention == CONV_XL_A1
     assert xl_refs.OpCodeMap is None
+    assert xl_ooo.FormulaConvention == CONV_OOO
+    assert xl_ooo.OpCodeMap is not None
     assert api.print_calls == []
     assert xl.parse_calls == []
 
@@ -150,7 +155,8 @@ def test_to_api_skips_parsers_for_plain_and_empty() -> None:
     api = _ScriptedParser(lambda _t: [_GOOD_OP])
     xl = _ScriptedParser(lambda _t: [_GOOD_OP])
     xl_refs = _ScriptedParser(lambda _t: [_GOOD_OP])
-    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs]))
+    xl_ooo = _ScriptedParser(lambda _t: [_GOOD_OP])
+    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs, xl_ooo]))
 
     assert dialects.to_api("") == ""
     assert dialects.to_api("0.0825") == "0.0825"
@@ -164,7 +170,8 @@ def test_to_api_readds_leading_equals_only_when_input_had_one() -> None:
     )
     xl = _ScriptedParser(lambda t: [_GOOD_OP, _GOOD_OP] if "," in t else [_GOOD_OP])
     xl_refs = _ScriptedParser(lambda _t: [_BAD_OP])
-    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs]))
+    xl_ooo = _ScriptedParser(lambda _t: [_BAD_OP])
+    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs, xl_ooo]))
 
     assert dialects.to_api("=SUM(A1,B1)") == "=SUM(A1;B1)"
     assert dialects.to_api("Orders!$A$1:$A$5") == "$Orders.$A$1:$A$5"
@@ -178,20 +185,41 @@ def test_to_api_fallthrough_and_xlfn_only_on_excel_attempt() -> None:
     )
     xl = _ScriptedParser(lambda _t: [101])
     xl_refs = _ScriptedParser(lambda _t: [102])
-    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs]))
+    xl_ooo = _ScriptedParser(lambda _t: [_BAD_OP])
+    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs, xl_ooo]))
 
     assert dialects.to_api("=_xlfn.FILTER(Orders!A1:A5;B1)") == "=SUM($Orders.A1:A5;B1)"
     assert xl.parse_calls == ["=FILTER(Orders!A1:A5;B1)"]
     assert xl_refs.parse_calls == ["=_xlfn.FILTER(Orders!A1:A5;B1)"]
 
 
+def test_to_api_fourth_parser_xl_ooo_dot_refs_with_commas() -> None:
+    api = _ScriptedParser(
+        lambda t: [_GOOD_OP] if ";" in t else [_BAD_OP],
+        print_fn=lambda tokens: "SUM($Orders.A1:A2;B1)" if tokens[0].OpCode == 103 else "IF($Orders.A1>0;1;0)",
+    )
+    xl = _ScriptedParser(lambda _t: [_BAD_OP])
+    xl_refs = _ScriptedParser(lambda _t: [_BAD_OP])
+    xl_ooo = _ScriptedParser(lambda t: [103] if "SUM" in t else [104])
+    doc = _FakeDoc([api, xl, xl_refs, xl_ooo])
+
+    assert to_api(doc, "=SUM(Orders.A1:A2,B1)") == "=SUM($Orders.A1:A2;B1)"
+    assert to_api(_FakeDoc([
+        _ScriptedParser(lambda t: [_GOOD_OP] if ";" in t else [_BAD_OP], print_fn=lambda _t: "IF($Orders.A1>0;1;0)"),
+        _ScriptedParser(lambda _t: [_BAD_OP]),
+        _ScriptedParser(lambda _t: [_BAD_OP]),
+        _ScriptedParser(lambda _t: [104]),
+    ]), "=IF($Orders.A1>0,1,0)") == "=IF($Orders.A1>0;1;0)"
+
+
 def test_to_api_returns_input_when_all_grammars_fail() -> None:
     api = _ScriptedParser(lambda _t: [_BAD_OP], print_fn=lambda _tokens: "BAD")
     xl = _ScriptedParser(lambda _t: [_BAD_OP])
     xl_refs = _ScriptedParser(lambda _t: [_BAD_OP])
-    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs]))
+    xl_ooo = _ScriptedParser(lambda _t: [_BAD_OP])
+    dialects = FormulaDialects(_FakeDoc([api, xl, xl_refs, xl_ooo]))
 
-    assert dialects.to_api("=SUM(Orders.A1,B1)") == "=SUM(Orders.A1,B1)"
+    assert dialects.to_api("=SUM((A1,B1)") == "=SUM((A1,B1)"
 
 
 def test_to_api_skips_create_instance_for_plain_formula() -> None:
@@ -199,4 +227,10 @@ def test_to_api_skips_create_instance_for_plain_formula() -> None:
     dialects = FormulaDialects(fake_doc)
 
     assert dialects.to_api("=A1*2") == "=A1*2"
+    assert to_api(fake_doc, "=A1*2") == "=A1*2"
     assert fake_doc.create_calls == []
+
+
+def test_make_cell_address_sets_fields() -> None:
+    addr = make_cell_address(2, 3, 4)
+    assert (addr.Sheet, addr.Column, addr.Row) == (2, 3, 4)

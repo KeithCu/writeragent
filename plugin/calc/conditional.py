@@ -29,10 +29,9 @@ from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.cells import opt_color
-from plugin.calc.formula_dialect import FormulaDialects
+from plugin.calc.formula_dialect import make_cell_address, to_api
 
 from com.sun.star.awt import FontWeight
-from com.sun.star.table import CellAddress
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -214,10 +213,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         # Resolve the target range before creating an inline style so an invalid range leaves no orphan style.
         cell_range = bridge.resolve_range_or_address(range_str)
         ra = cell_range.getRangeAddress()
-        addr = CellAddress()
-        addr.Sheet = ra.Sheet
-        addr.Column = ra.StartColumn
-        addr.Row = ra.StartRow
+        addr = make_cell_address(ra.Sheet, ra.StartColumn, ra.StartRow)
 
         created: bool | None = None
         if inline:
@@ -245,9 +241,8 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             assert isinstance(style_name, str)
             resolved_style = style_name
 
-        dialects = FormulaDialects(ctx.doc)
-        formula1 = dialects.to_api(formula1, addr)
-        formula2 = dialects.to_api(formula2, addr)
+        formula1 = to_api(ctx.doc, formula1, addr)
+        formula2 = to_api(ctx.doc, formula2, addr)
 
         props = [
             create_property_value("Operator", idx),

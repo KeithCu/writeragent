@@ -10,9 +10,9 @@ content in ``nameuno.cxx``, and conditional-format entries in ``fmtuno.cxx``)
 all compile with ``GRAM_API`` (English function names, ``;`` argument
 separator, ``Sheet.A1`` dot sheet references, ``{1;2|3;4}`` inline arrays).
 
-``FormulaDialects.to_api`` parses incoming formula text with Calc's own
-``com.sun.star.sheet.FormulaParser`` across three grammars in order and keeps
-the first that parses cleanly:
+``FormulaDialects.to_api`` (and the module-level ``to_api`` helper) parses incoming
+formula text with Calc's own ``com.sun.star.sheet.FormulaParser`` across four
+grammars in order and keeps the first that parses cleanly:
 
 1. Calc API grammar (``FormulaLanguage.API``, ``CONV_OOO``) as written —
    returned verbatim so anything already valid in Calc is untouched.
@@ -22,6 +22,9 @@ the first that parses cleanly:
 3. English names with ``CONV_XL_A1`` and no custom ``OpCodeMap`` — handles
    mixed Calc punctuation with Excel sheet references such as
    ``=SUM(Orders!A1:A5;B1)``.
+4. Excel English (``FormulaLanguage.XL_ENGLISH``, ``CONV_OOO``) after
+   stripping ``_xlfn.`` / ``_xlws.`` prefixes — handles comma separators with
+   Calc dot sheet references such as ``=SUM(Orders.A1:A2,B1)``.
 
 Note on Calc's ``FormulaParser`` quirks (see ``sc/source/ui/unoobj/tokenuno.cxx``
 ``ScFormulaParserObj::SetCompilerFlags`` and ``sc/source/core/tool/compiler.cxx``
@@ -91,6 +94,15 @@ def accepted(
     return True
 
 
+def make_cell_address(sheet: int = 0, column: int = 0, row: int = 0) -> Any:
+    """Create a ``com.sun.star.table.CellAddress`` UNO struct."""
+    addr: Any = uno.createUnoStruct("com.sun.star.table.CellAddress")
+    setattr(addr, "Sheet", sheet)
+    setattr(addr, "Column", column)
+    setattr(addr, "Row", row)
+    return addr
+
+
 class FormulaDialects:
     """Per-document ``FormulaParser`` cascade for accepting Excel-dialect formulas."""
 
@@ -103,6 +115,7 @@ class FormulaDialects:
         self._api: Any = None
         self._excel: Any = None
         self._excel_refs: Any = None
+        self._excel_ooo: Any = None
         self._default_pos: Any = None
 
     def _ensure_parsers(self) -> None:
@@ -122,7 +135,7 @@ class FormulaDialects:
         self._api = self._make_parser(self._doc, CONV_OOO, api_map)
         self._excel = self._make_parser(self._doc, CONV_XL_A1, xl_map)
         self._excel_refs = self._make_parser(self._doc, CONV_XL_A1, None)
-        self._default_pos = uno.createUnoStruct("com.sun.star.table.CellAddress")
+        self._excel_ooo = self._make_parser(self._doc, CONV_OOO, xl_map)
         self._initialized = True
 
     @staticmethod
@@ -151,10 +164,19 @@ class FormulaDialects:
         if not needs_dialect_check(text):
             return text
         self._ensure_parsers()
-        ref_pos = pos if pos is not None else self._default_pos
+        if pos is not None:
+            ref_pos = pos
+        else:
+            if self._default_pos is None:
+                self._default_pos = make_cell_address()
+            ref_pos = self._default_pos
         if self._clean(self._api, text, ref_pos):
             return text
-        for parser, candidate in ((self._excel, strip_xlfn(text)), (self._excel_refs, text)):
+        for parser, candidate in (
+            (self._excel, strip_xlfn(text)),
+            (self._excel_refs, text),
+            (self._excel_ooo, strip_xlfn(text)),
+        ):
             tokens = parser.parseFormula(candidate, ref_pos)
             if not accepted([int(t.OpCode) for t in tokens], self._bad, self._array_open, self._array_seps):
                 continue
@@ -163,3 +185,8 @@ class FormulaDialects:
                 log.debug("Translated formula dialect: %r -> %r", text, out)
                 return out
         return text
+
+
+def to_api(doc: Any, text: str, pos: Any = None) -> str:
+    """Translate *text* to Calc's API grammar when an Excel dialect parses cleanly."""
+    return FormulaDialects(doc).to_api(text, pos)
