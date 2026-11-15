@@ -928,6 +928,19 @@ def test_delegate_requires_document_lock_read_only_domains():
     assert gw.requires_document_lock({}) is True
 
 
+def test_delegate_detects_mutation_read_only_domains(writer_gateway: DelegateToSpecializedWriter) -> None:
+    assert writer_gateway.detects_mutation({"domain": "web_research"}) is False
+    assert writer_gateway.detects_mutation({"domain": "document_research"}) is False
+    assert writer_gateway.detects_mutation('{"domain": "web_research"}') is False
+    assert writer_gateway.detects_mutation('{"domain": "document_research"}') is False
+    assert writer_gateway.detects_mutation({"domain": "tables"}) is True
+    assert writer_gateway.detects_mutation({"domain": "vision"}) is True
+    assert writer_gateway.detects_mutation(None) is True
+    assert writer_gateway.detects_mutation({}) is True
+    assert writer_gateway.detects_mutation({"domain": 42}) is True
+    assert writer_gateway.detects_mutation({"domain": ["a"]}) is True
+
+
 def _fake_upsert_tool() -> Any:
     from plugin.writer.specialized_base import ToolWriterShapeBase
 

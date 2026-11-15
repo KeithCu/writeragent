@@ -116,6 +116,7 @@ def _make_detects_mutation_cases() -> list[Any]:
     from plugin.calc.search import ReplaceInSpreadsheet
     from plugin.calc.errors import DetectErrors
     from plugin.calc.sheet_filter import GetSheetFilter
+    from plugin.chatbot.web_research import WebResearchTool
 
     return [
         pytest.param(ValidTool, True, id="non_get_prefix"),
@@ -129,6 +130,8 @@ def _make_detects_mutation_cases() -> list[Any]:
         pytest.param(ReplaceInSpreadsheet, True, id="replace_in_spreadsheet"),
         pytest.param(DetectErrors, False, id="detect_errors"),
         pytest.param(GetSheetFilter, False, id="get_sheet_filter"),
+        # WEB-RESEARCH-CARET: name lacks a read verb, so is_mutation=False is required.
+        pytest.param(WebResearchTool, False, id="web_research"),
     ]
 
 
@@ -145,6 +148,21 @@ def test_requires_document_lock_default_matches_detects_mutation():
 
     tool3 = ExplictMutateTool()
     assert tool3.requires_document_lock({"any": "args"}) is tool3.detects_mutation()
+
+
+def test_requires_document_lock_default_forwards_arguments() -> None:
+    class ArgAwareTool(ToolBase):
+        name = "arg_aware"
+
+        def detects_mutation(self, arguments: Any = None) -> bool:
+            return arguments == {"w": 1}
+
+        def execute(self, ctx, **kwargs):
+            pass
+
+    tool = ArgAwareTool()
+    assert tool.requires_document_lock({"w": 1}) is True
+    assert tool.requires_document_lock({}) is False
 
 def test_validate():
     tool = ValidTool()

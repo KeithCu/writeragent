@@ -1,5 +1,7 @@
 from unittest.mock import Mock, MagicMock, patch
 
+import pytest
+
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.send_state import SendButtonState, SendMode
@@ -935,3 +937,44 @@ def test_tool_loop_lane_status_callback_queues_status() -> None:
     assert_lane_callback_safe(captured["status_callback"], "lane-probe")
     queued_items = list(turn.queue.queue)
     assert (StreamQueueKind.STATUS, "lane-probe") in queued_items
+
+
+@pytest.mark.parametrize(
+    ("func_name", "func_args_str", "expect_refresh"),
+    [
+        ("web_research", '{"query": "x"}', False),
+        ("delegate_to_specialized_writer_toolset", '{"domain": "web_research", "task": "x"}', False),
+        ("delegate_to_specialized_writer_toolset", '{"domain": "document_research", "task": "x"}', False),
+        ("delegate_to_specialized_writer_toolset", '{"domain": "tables", "task": "x"}', True),
+        ("apply_document_content", '{"content": "hi", "target": "end"}', True),
+    ],
+)
+def test_tool_done_refreshes_document_context_only_for_mutating_calls(
+    func_name: str,
+    func_args_str: str,
+    expect_refresh: bool,
+) -> None:
+    from plugin.chatbot.tool_loop_state import ToolLoopState, UpdateDocumentContextEffect, next_state
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+
+    tools_map = {
+        "web_research": WebResearchTool(),
+        "delegate_to_specialized_writer_toolset": DelegateToSpecializedWriter(),
+        "apply_document_content": ApplyDocumentContent(),
+    }
+    registry_stub = MagicMock()
+    registry_stub.get.side_effect = tools_map.get
+
+    panel, _session = setup_mock_panel()
+    item = (StreamQueueKind.TOOL_DONE, "c1", func_name, func_args_str, '{"status": "ok"}')
+    with patch("plugin.app.get_tools", return_value=registry_stub):
+        event = ToolCallingMixin._create_event_from_stream_item(panel, item)
+
+    assert event is not None
+    state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=5, status="Ready")
+    tr = next_state(state, event)
+
+    assert any(isinstance(e, UpdateDocumentContextEffect) for e in tr.effects) is expect_refresh
+    assert tr.state.has_mutated is expect_refresh
