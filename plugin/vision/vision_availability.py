@@ -104,5 +104,5 @@ def get_vision_core_directive(model: Any, ctx: Any) -> str:
     return (
         'When the user wants OCR or content from an embedded image, delegate_to_specialized_calc_toolset(domain="vision", task=""). '
         "That extracts text and structure from the selected graphic and inserts a high-quality representation "
-        "into the document (no sub-agent; task is ignored). You must use this call to perform OCR."
+        "into the document. You must use this call to perform OCR."
     )

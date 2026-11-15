@@ -166,7 +166,7 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "OCR: extract text and structure (layout, tables) from the selected graphic and insert it into the document (task is ignored). Use this call for OCR."
+        'OCR: extract text and structure (layout, tables) from the selected graphic and insert it into the document; pass task="". Use this call for OCR.'
     )
 
 
