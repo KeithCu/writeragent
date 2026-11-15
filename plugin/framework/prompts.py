@@ -580,7 +580,7 @@ Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
 {venv_policy}
 - Example: =PY("result = np.sum(data)"; Orders.A1:H500).
-- For tables with headers, use data.to_pandas() instead of pd.DataFrame(data) so row 0 becomes column headers rather than synthetic numeric columns (0..N).
+- For tables with headers, use data.to_pandas() so row 0 becomes the column names.
 """
     # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
     "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."

@@ -273,7 +273,7 @@ Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scr
 
 | Category                                              | Modules                                                                                                                                                                                                                                                                   |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Pre-imported** (do not `import` in script)          | `np`, `pd`, `sp`, `st` (`scipy.stats`), `plt` (`matplotlib.pyplot`), `math`, `dt` (`datetime`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, `csv`, `xl`                                                                                             |
+| **Pre-imported** (no import needed; importing again is harmless) | `np`, `pd`, `sp`, `st` (`scipy.stats`), `plt` (`matplotlib.pyplot`), `math`, `dt` (`datetime`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, `csv`, `xl` |
 | **Blocked host escape** (unless Allow OS access for process/os) | `subprocess`, `_posixsubprocess`, `ctypes`, `_ctypes`, `cffi`, `pty`, `multiprocessing`, `_multiprocessing`, `builtins`, `importlib`, `_frozen_importlib`, `_frozen_importlib_external`, `zipimport`, `runpy`, `pickle`, `marshal`, `shelve`, `dill`, `cloudpickle`, `posix`, `nt`, plugin internals (`plugin`, `writeragent.framework`) |
 | **Blocked networking** (unless Allow network access)  | `socket`, `requests`, `urllib`, `urllib3`, `http`, `httpx`, `ssl`, `_socket`, `_ssl`, `httpcore`, `h11`, `h2`, `aiohttp`, `websockets`, `websocket`, `paramiko`, `ftplib`, `smtplib`, `poplib`, `imaplib`, `nntplib`, `telnetlib`, `xmlrpc`, `socketserver`, `dns` |
 | **Blocked file read/write access** (unless Allow file access) | `shutil`, `tempfile`, `sqlite3`, `open` (all modes, including builtin, `io`, `codecs`, `_pyio`), `pathlib` reads and mutations, `glob` / `fileinput` / `linecache`, path opens in `gzip` / `bz2` / `lzma` / `zipfile` / `tarfile`, `logging` file handlers, and `os` `listdir` / `scandir` / `stat` / `walk` |
@@ -281,7 +281,7 @@ Prompt text is generated from `[plugin/scripting/import_policy.py](../plugin/scr
 
 ##### Sandbox settings & permissions {#sandbox-settings-permissions}
 
-By default, every flag is off. Users can selectively enable capabilities under **Settings → Python**:
+By default, every flag is off. Users can selectively enable capabilities under **Settings → Python** (blocked-import errors name the matching setting):
 
 - **Allow network access (`scripting.python_allow_network`)**: Blocks network imports (`socket`, `requests`, `http`, `urllib`, `ssl`, …) unless checked.
 - **Allow file access (`scripting.python_allow_files`)**: Blocks file read/write access (`open`, `io`, `pathlib`, `shutil`, `tempfile`, `sqlite3`, `glob`, and `os` file calls such as `listdir` and `stat`) unless checked. In-memory buffers (`io.BytesIO`, `io.StringIO`) stay available.

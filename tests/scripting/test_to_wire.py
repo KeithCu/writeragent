@@ -261,3 +261,21 @@ def test_frame_and_series_fallback_grids():
     s_unnamed = pd.Series([1.5, 2.5])
     wire_unnamed = to_wire(s_unnamed, target="pickle")
     assert wire_unnamed == [1.5, 2.5]
+
+
+def test_default_range_index_frame_has_no_header():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.payload_codec import is_dataframe_payload
+    from plugin.scripting.venv.to_wire import to_wire
+
+    df_default = pd.DataFrame([["h1", "h2"], [1, 2]])
+    wire_default = to_wire(df_default, target="pickle")
+    assert not is_dataframe_payload(wire_default)
+    assert wire_default == [["h1", "h2"], [1, 2]]
+
+    df_explicit_int = pd.DataFrame({0: [1], 1: [2]})
+    wire_explicit = to_wire(df_explicit_int, target="pickle")
+    assert is_dataframe_payload(wire_explicit)
+
+    df_empty = pd.DataFrame(columns=pd.RangeIndex(0, 2))
+    assert to_wire(df_empty, target="pickle") == []

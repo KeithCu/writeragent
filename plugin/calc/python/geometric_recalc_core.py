@@ -77,7 +77,7 @@ def same_cell_ref(left: str, right: str) -> bool:
     return bool(left) and bool(right) and local_a1(left) == local_a1(right)
 
 
-def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
+def arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None) -> bool:
     """True when a data-arg token (cell or range) includes *target_a1*."""
     sheet, _rest = split_sheet_prefix(arg or "")
     if sheet and (sheet_name is None or sheet.casefold() != sheet_name.casefold()):
@@ -158,7 +158,7 @@ def _adj_for(
         tokens.append(parts.code)
     return {
         live for live in live_keys
-        if any(_arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
+        if any(arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
     }
 
 

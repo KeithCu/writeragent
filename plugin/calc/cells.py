@@ -441,12 +441,10 @@ class WriteCellRange(ToolBase):
         'Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell '
         "outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result "
         "(values are in the neighbors). A small peek of the origin or headers is enough — do not "
-        "dump the input or full spill into chat; do not write =PY onto DataRange (circular). If "
+        "dump the input or full spill into chat. If "
         "they asked for in-place unique rows, still land beside/new sheet and say where. "
         'Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). '
-        "Always use data.to_pandas() rather than pd.DataFrame(data) because to_pandas() uses row 0 as column headers; "
-        "pd.DataFrame(data) treats headers as data and generates synthetic numeric columns (0..N) that spill as a junk top row. "
-        "np.unique on mixed rows fails — NumPy object arrays cannot compare/hash mixed cell types. "
+        "Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. "
         "DO: to copy a block onto another sheet or place, pass source and dest range; do not pass "
         "values. Dest is the top-left (or a matching range whose start is used); the copied size is "
         "the source extent. Relative formula refs adjust for the dest offset; $ stay."
