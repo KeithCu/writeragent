@@ -664,7 +664,16 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
 
         log.debug("shape_upsert (create): page=%s shape=%s shape_type=%s is_custom=%s geometry_applied=%s", page_index, shape_index, shape_type_raw, is_custom_shape, geometry_applied)
 
-        result: dict[str, Any] = {"status": "ok", "message": f"Created {shape_type_raw}", "index": shape_index, "page": page_index, "shape_count_after": shape_count_after}
+        # Delegation summary reads action and name from the result (API shapes default to unnamed).
+        result: dict[str, Any] = {
+            "status": "ok",
+            "action": "create",
+            "message": f"Created {shape_type_raw}",
+            "index": shape_index,
+            "page": page_index,
+            "name": getattr(shape, "Name", "") or "",
+            "shape_count_after": shape_count_after,
+        }
         if is_custom_shape:
             result["custom_shape_engine"] = _ENHANCED_CUSTOM_SHAPE_ENGINE
             result["geometry_applied"] = bool(geometry_applied)
@@ -700,7 +709,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
             size = shape.getSize()
             shape.setSize(Size(kwargs.get("width", size.Width), kwargs.get("height", size.Height)))
 
-        result = {"status": "ok", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
+        result = {"status": "ok", "action": "edit", "message": "Shape updated", "page": actual_idx, "index": shape_idx, "name": getattr(shape, "Name", "") or ""}
         if failed_props:
             result["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
         if _outside_page(page, shape):
@@ -742,7 +751,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
     from com.sun.star.awt import Point, Size
     from plugin.draw.bridge import DrawBridge
 
-    page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+    page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
     start_addr, start_shape, _sp, start_err = _lookup_ref(tool, page, kwargs["start"])
     if start_err is not None:
@@ -785,6 +794,7 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
         "status": "ok",
         "message": f"Connected shape {start_addr} to {end_addr}",
         "index": page.getCount() - 1,
+        "page": actual_idx,
     }
     if failed_props:
         res["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
@@ -837,7 +847,7 @@ class GroupShapes(_AnyDocumentShapeTool):
         from plugin.draw.bridge import DrawBridge
         from plugin.framework.uno_context import uno_same
 
-        page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         indices = kwargs["indices"]
         assert isinstance(indices, list)
@@ -868,6 +878,7 @@ class GroupShapes(_AnyDocumentShapeTool):
             "status": "ok",
             "message": f"Grouped {len(indices)} shapes.",
             "index": page.getCount() - 1,  # Grouping replaces the individuals with this group shape
+            "page": actual_idx,
         }
 
 
@@ -1117,7 +1128,7 @@ class DeleteShape(_AnyDocumentShapeTool):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
-        page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         if "index" in kwargs:
             _addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["index"])
         else:
@@ -1132,4 +1143,4 @@ class DeleteShape(_AnyDocumentShapeTool):
                 raise
             label = kwargs.get("index", kwargs.get("name"))
             return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
-        return {"status": "ok", "message": "Shape deleted"}
+        return {"status": "ok", "message": "Shape deleted", "page": actual_idx}

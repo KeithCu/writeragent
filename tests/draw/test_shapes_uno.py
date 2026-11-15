@@ -321,3 +321,66 @@ def test_calc_shape_diagram_one_node(ctx, doc):
     )
     assert out.get("status") == "ok", out
 
+
+@native_test
+@with_native_doc("draw")
+def test_shape_results_summarize_to_page_counts_uno(ctx, doc):
+    from plugin.doc.specialized_catalog import InnerToolCall
+    from plugin.doc.specialized_shapes_context import summarize_shape_calls
+    from plugin.draw.shapes import ConnectShapes, CreateDiagram, UpsertShape
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="draw", services=None, caller="test")
+    page = doc.getDrawPages().getByIndex(0)
+    start_count = page.getCount()
+
+    upsert = UpsertShape()
+    r1 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=1000,
+        y=1000,
+        width=2000,
+        height=1200,
+        name="Start",
+    )
+    assert r1.get("status") == "ok", r1
+    r2 = upsert.execute(
+        tctx,
+        action="create",
+        shape_type="rectangle",
+        page=0,
+        x=5000,
+        y=1000,
+        width=2000,
+        height=1200,
+    )
+    assert r2.get("status") == "ok", r2
+    r3 = ConnectShapes().execute(tctx, start=start_count, end="Start", page=0)
+    assert r3.get("status") == "ok", r3
+    r4 = CreateDiagram().execute(
+        tctx,
+        page=0,
+        layout="horizontal_flow",
+        nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+        connections=[{"from": "a", "to": "b"}],
+    )
+    assert r4.get("status") == "ok", r4
+
+    summary = summarize_shape_calls([
+        InnerToolCall(upsert.name or "shape_upsert", r1, True),
+        InnerToolCall(upsert.name or "shape_upsert", r2, True),
+        InnerToolCall("shape_connect", r3, True),
+        InnerToolCall("shape_diagram", r4, True),
+    ])
+    assert summary["shapes_created"] == 4
+    assert summary["connectors_created"] == 2
+    assert summary["shapes_created"] + summary["connectors_created"] == page.getCount() - start_count
+    assert summary["created_names"] == ["Start"]
+    assert summary["pages"] == [0]
+    # LibreOffice leaves API-created shapes unnamed unless name= is passed.
+    assert page.getByIndex(start_count + 1).Name == ""
+
+
