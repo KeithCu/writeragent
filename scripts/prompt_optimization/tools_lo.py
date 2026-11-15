@@ -660,12 +660,22 @@ def _sheet_headers_and_used(doc) -> tuple[list[str], str]:
     return headers, used
 
 
-def _read_sheet_grid(doc) -> list[list[Any]]:
+def _read_sheet_cells(doc) -> tuple[list[list[Any]], dict[str, str]]:
+    """Read grid values and formulas anchored at A1.
+
+    Uses gotoEndOfUsedArea rather than gotoStartOfUsedArea (cursuno.cxx
+    ScCellCursorObj::gotoStartOfUsedArea / GetDataStart) because the data-start
+    corner drops leading empty rows and columns, breaking A1 indexing.
+    The returned ``formulas`` dict matches CalcWorld.snapshot().
+    """
+    from plugin.calc.address_utils import index_to_column
+
     sheet = doc.getSheets().getByIndex(0)
     cursor = sheet.createCursor()
-    cursor.gotoStartOfUsedArea(False)
-    cursor.gotoEndOfUsedArea(True)
-    raw = cursor.getDataArray()
+    cursor.gotoEndOfUsedArea(False)
+    end = cursor.getRangeAddress()
+    rng = sheet.getCellRangeByPosition(0, 0, end.EndColumn, end.EndRow)
+    raw = rng.getDataArray()
     grid: list[list[Any]] = []
     for row in raw or ():
         out_row = []
@@ -675,7 +685,12 @@ def _read_sheet_grid(doc) -> list[list[Any]]:
             else:
                 out_row.append(cell)
         grid.append(out_row)
-    return grid
+    formulas: dict[str, str] = {}
+    for r, row in enumerate(rng.getFormulaArray() or ()):
+        for c, text in enumerate(row):
+            if isinstance(text, str) and text.startswith("="):
+                formulas[f"{index_to_column(c)}{r + 1}"] = text
+    return grid, formulas
 
 
 def normalize_lo_tool(
@@ -788,7 +803,7 @@ def get_calc_export() -> str:
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "calc")
         summary = get_tools().execute_unguarded("get_sheet_summary", ctx)
-        grid = _read_sheet_grid(doc)
+        grid, formulas = _read_sheet_cells(doc)
         headers = grid[0] if grid else []
         payload = {
             "status": "ok",
@@ -798,6 +813,7 @@ def get_calc_export() -> str:
             "headers": headers,
             "grid": grid,
             "rows": grid,
+            "formulas": formulas,
             "row_count": len(grid),
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
