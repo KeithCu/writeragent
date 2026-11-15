@@ -220,3 +220,27 @@ def test_call_retains_log_file_on_crash(tmp_path: Path, monkeypatch: pytest.Monk
         monkeypatch.setattr(tl, "_lo_proc", None)
     tl.LOBackend.stop()
     assert log_file.exists()
+
+
+def test_read_sheet_cells_anchors_at_a1_and_reads_formulas() -> None:
+    end_addr = MagicMock(EndColumn=2, EndRow=2)
+    cursor = MagicMock()
+    cursor.getRangeAddress.return_value = end_addr
+
+    rng = MagicMock()
+    rng.getDataArray.return_value = (("", "", ""), ("", 2.0, ""), ("", "", 6.0))
+    rng.getFormulaArray.return_value = (("", "", ""), ("", "2", ""), ("", "", "=B2*3"))
+
+    sheet = MagicMock()
+    sheet.createCursor.return_value = cursor
+    sheet.getCellRangeByPosition.side_effect = (
+        lambda c1, r1, c2, r2: rng if (c1, r1, c2, r2) == (0, 0, 2, 2) else None
+    )
+
+    doc = MagicMock()
+    doc.getSheets.return_value.getByIndex.return_value = sheet
+
+    grid, formulas = tl._read_sheet_cells(doc)
+    cursor.gotoEndOfUsedArea.assert_called_once_with(False)
+    assert grid == [["", "", ""], ["", 2.0, ""], ["", "", 6.0]]
+    assert formulas == {"C3": "=B2*3"}
