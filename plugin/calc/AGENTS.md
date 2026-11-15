@@ -41,3 +41,4 @@ Topic docs: [docs/calc/prompt-function.md](../../docs/calc/prompt-function.md),
 - Calc tool success results come from `make_tool_ok` (`plugin/framework/errors.py`), not `{"status": "ok"}` dict literals. Exempt paths: the parked `analysis.py`, `python/function.py`'s worker cache, the import dialog's `spreadsheet_import/`, and `excel_py_convert/`.
 - Range borders go through `TableBorder2` in `manipulator._apply_borders`; per-side `TopBorder2` on a range boxes every cell.
 - `set_style` number-format codes are en-US converted with `addNewConverted`; never `queryKey` an English code in the document locale.
+- Model formula text reaches `setFormula`/`setArrayFormula`/`Formula1`/named-range content only through `FormulaDialects.to_api`; never add text-level `,`→`;` or `!`→`.` rewrites; a formula that parses as Calc grammar is written unchanged.

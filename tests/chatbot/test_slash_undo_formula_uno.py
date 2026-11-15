@@ -16,18 +16,29 @@ from plugin.tests.testing_utils import TestingFactory
 
 
 @native_test
-def test_slash_formula_setformula_semicolon_on_calc(ctx):
+def test_slash_formula_accepts_excel_commas_on_calc(ctx):
+    host = SimpleNamespace(append_output=lambda _line: None)
+
     with TestingFactory.native_doc(ctx, "calc") as doc:
         sheet = doc.getSheets().getByIndex(0)
         sheet.getCellByPosition(0, 0).setString("A")
         sheet.getCellByPosition(0, 1).setValue(1.0)
         sheet.getCellByPosition(0, 2).setValue(2.0)
         cc = doc.getCurrentController()
-        cc.select(sheet.getCellByPosition(1, 1))
-        _prompt, target, cell = build_slash_formula_prompt(doc, "sum column A")
+        cell = sheet.getCellByPosition(1, 1)
+        cc.select(cell)
+        _prompt, target, _cell = build_slash_formula_prompt(doc, "sum column A")
         assert target == "B2"
-        cell.setFormula("=SUM(A2;A3)")
+        insert_slash_formula_on_main(
+            host,
+            model=doc,
+            cell=cell,
+            target_addr="B2",
+            chunks=["=SUM(A2,A3)"],
+        )
         assert int(cell.getError()) == 0
+        assert cell.getValue() == 3.0
+        assert cell.getFormula() == "=SUM(A2;A3)"
 
 
 @native_test

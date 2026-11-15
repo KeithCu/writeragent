@@ -568,11 +568,7 @@ CALC_SPECIALIZED_DELEGATION_TEMPLATE = (
 
 
 CALC_FORMULA_SYNTAX_TEMPLATE = (
-    """FORMULA SYNTAX: LibreOffice formulas use semicolon (;) between arguments, not comma.
-Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
-- Correct: =SUM(A1:A10), =IF(A1>0;B1;C1), =PY("result = …"; Orders.A1:H500)
-- Wrong: =IF(A1>0,"Yes","No"), Orders!A1
-- =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
+    """FORMULAS: =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
 {venv_policy}
 """
     # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]): sum raises TypeError, min/max return a whole row.

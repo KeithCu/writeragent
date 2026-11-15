@@ -29,6 +29,7 @@ from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.cells import opt_color
+from plugin.calc.formula_dialect import FormulaDialects, needs_dialect_check
 
 from com.sun.star.awt import FontWeight
 from com.sun.star.table import CellAddress
@@ -156,7 +157,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range to apply the rule to (e.g. ["A1:D10"]).'},
             "operator": {"type": "string", "enum": _OPS[1:], "description": "Condition operator."},
-            "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
+            "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
             "style": {"type": "string", "description": ("Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.")},
             "bg_color": {"type": "string", "description": "Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting."},
@@ -197,6 +198,11 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             return self._tool_error("formula2 is required for BETWEEN and NOT_BETWEEN.", code="MISSING_FORMULA")
         if operator not in ("DUPLICATE", "NOT_DUPLICATE") and not formula1.strip():
             return self._tool_error("formula1 is required for this operator.", code="MISSING_FORMULA")
+
+        if needs_dialect_check(formula1) or needs_dialect_check(formula2):
+            dialects = FormulaDialects(ctx.doc)
+            formula1 = dialects.to_api(formula1)
+            formula2 = dialects.to_api(formula2)
 
         cell_styles = ctx.doc.getStyleFamilies().getByName("CellStyles")
         if style_name and not cell_styles.hasByName(style_name):

@@ -4,10 +4,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for Calc formula evaluation messages (no soffice)."""
 
+import pytest
+
 from plugin.calc.calc_utils import FORMULA, VALUE
 from plugin.calc.error_detector import ERROR_TYPES
 from plugin.calc.formulas import EvaluateFormula, formula_evaluation_error_message
 from plugin.framework.tool import ToolContext
+
+
+@pytest.fixture(autouse=True)
+def _identity_formula_dialects(monkeypatch):
+    class _IdentityDialects:
+        def __init__(self, _doc):
+            pass
+
+        def to_api(self, text: str) -> str:
+            return text
+
+    monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _IdentityDialects)
 
 
 def test_error_503_is_num_not_div_zero():
@@ -429,3 +443,19 @@ def test_evaluate_formula_repairs_py_literal_newlines():
     res = EvaluateFormula().execute(_eval_ctx(doc), formula='=PY("x = 2\\nresult = x")')
     assert res["status"] == "ok"
     assert doc.temp_cell.formulas == ['=PY("x = 2\nresult = x")']
+
+
+def test_evaluate_formula_writes_calc_grammar(monkeypatch):
+    class _MappedDialects:
+        def __init__(self, _doc):
+            pass
+
+        def to_api(self, text: str) -> str:
+            return "=SUM(A1;B1)" if text == "=SUM(A1,B1)" else text
+
+    monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _MappedDialects)
+    doc = _EvalDoc()
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula="=SUM(A1,B1)")
+    assert res["status"] == "ok"
+    assert doc.temp_cell.formulas == ["=SUM(A1;B1)"]
+    assert res["formula"] == "=SUM(A1;B1)"

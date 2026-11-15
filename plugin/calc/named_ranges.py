@@ -31,6 +31,7 @@ from plugin.calc.address_utils import (
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
 from plugin.calc.calc_utils import range_args
+from plugin.calc.formula_dialect import FormulaDialects, needs_dialect_check
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import ToolExecutionError, make_tool_ok, name_miss_details, uno_read
 from plugin.framework.i18n import _
@@ -307,7 +308,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Name of the range (e.g. 'TaxRate', 'Q1Sales'). Must start with a letter/underscore with no spaces."},
-            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)')."},
+            "content": {"type": "string", "description": "The formula or cell range address it points to (e.g. '$Sheet1.$A$1:$B$5', '0.0825', 'SUM(A1:A10)'). (Sheet1!A1:B5 is accepted too)."},
             "scope": {"type": "string", "description": "Scope of the name: 'global' (default) or a specific sheet name (e.g. 'Sheet1')."},
             "base_cell": {"type": "string", "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0. An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
@@ -332,6 +333,8 @@ class NamedRangeAdd(ToolCalcRangeBase):
             return self._tool_error(str(e), code="INVALID_FLAGS")
 
         doc = ctx.doc
+        if needs_dialect_check(content):
+            content = FormulaDialects(doc).to_api(content)
         container, effective_scope, sheet_obj = _resolve_container(doc, scope)
         if container.hasByName(name):
             return self._tool_error(f"A named range with the name '{name}' already exists in scope '{effective_scope}'.", code="NAMED_RANGE_EXISTS")
@@ -356,7 +359,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
         "properties": {
             "name": {"type": "string", "description": "Current name of the range to edit."},
             "new_name": {"type": "string", "description": "New name if renaming. Must start with a letter or underscore; only letters, digits, and underscore; not a cell address (A1, R1C1) and not a name containing '.' or spaces."},
-            "content": {"type": "string", "description": "New formula or range address content."},
+            "content": {"type": "string", "description": "New formula or range address content (Sheet1!A1:B5 is accepted too)."},
             "scope": {"type": "string", "description": "Omit to resolve like named_range_get_info (active sheet shadows a same-spelled global name). 'global' or a sheet name forces that container."},
             "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates (e.g. 'A1' or 'Sheet1.A1'). An unknown sheet name is an error."},
             "flags": _FLAGS_SCHEMA,
@@ -407,7 +410,10 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
         pending: list[tuple[Callable[[Any], Any], Any]] = []
         if content is not None:
-            pending.append((nr.setContent, content.strip()))
+            new_content = content.strip()
+            if needs_dialect_check(new_content):
+                new_content = FormulaDialects(doc).to_api(new_content)
+            pending.append((nr.setContent, new_content))
         if type_mask is not None:
             pending.append((nr.setType, type_mask))
         if pos is not None:

@@ -34,6 +34,8 @@ from plugin.framework.constants import now_aware
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.calc.formula_dialect import FormulaDialects, needs_dialect_check
+
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
 from plugin.calc.bridge import CalcBridge
@@ -194,6 +196,9 @@ class EvaluateFormula(ToolCalcErrorBase):
         doc = ctx.doc
         if not doc:
             raise ToolExecutionError("Document model not available.")
+
+        if needs_dialect_check(formula_string):
+            formula_string = FormulaDialects(doc).to_api(formula_string)
 
         sheets = doc.getSheets()
 

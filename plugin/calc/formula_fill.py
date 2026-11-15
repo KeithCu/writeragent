@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fill-down / fill-across, Excel sheet-ref dotting, and repeated-formula detection.
+"""Fill-down / fill-across and repeated-formula detection.
 
 ``write_formula_range`` fills one formula across a range instead of repeating
 the same text in every cell. Ordinary formulas shift relative A1 refs per cell
@@ -11,14 +11,13 @@ direction-aware span policy: only refs whose span does not cross the fill
 axis are adjusted; other refs outside the quoted Python string stay
 verbatim so a block like ``A1:H1517`` is not walked down the column.
 
-``dot_sheet_refs`` rewrites Excel-style ``Sheet!A1`` prefixes to Calc's
-``Sheet.A1`` dot form, and ``repeated_formula_columns`` detects list-write
-columns that repeat a single row-aligned formula so callers can warn.
+``repeated_formula_columns`` detects list-write columns that repeat a single
+row-aligned formula so callers can warn.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -29,7 +28,6 @@ from plugin.calc.address_utils import (
     MAX_ROW,
     column_to_index,
     index_to_column,
-    quote_sheet_name,
 )
 from plugin.calc.array_formula import skip_quoted
 from plugin.calc.python.formula_edit import PyFormula
@@ -151,46 +149,6 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
         return _format_shifted_ref(ref, dcol, drow)
 
     return _map_refs(formula, _shift)
-
-
-def _dot_prefix(prefix: str, sheet_for: Callable[[str], str | None]) -> str:
-    stripped = prefix.strip()
-    if not stripped.endswith("!"):
-        return prefix
-    body = stripped[:-1].strip()
-    absolute = body.startswith("$")
-    if absolute:
-        body = body[1:].strip()
-    if len(body) >= 2 and body.startswith("'") and body.endswith("'"):
-        name = body[1:-1].replace("''", "'")
-    else:
-        name = body
-    real = sheet_for(name)
-    if real is None:
-        return prefix
-    return ("$" if absolute else "") + quote_sheet_name(real) + "."
-
-
-def dot_sheet_refs(formula: str, sheet_for: Callable[[str], str | None]) -> str:
-    """Rewrite Excel ``Sheet!A1`` prefixes to Calc's ``Sheet.A1`` dot form.
-
-    In Calc's API grammar (``formula/inc/core_resource.hrc``,
-    ``RID_STRLIST_FUNCTION_NAMES_ENGLISH_API``), ``!`` is ``SC_OPCODE_INTERSECT``,
-    so an unrewritten ``Orders!A1`` fails with ``#NAME?`` unless ``Orders`` is a
-    named range. Only prefixes where ``sheet_for(name)`` returns a sheet name
-    are rewritten.
-    """
-    if "!" not in formula:
-        return formula
-
-    def _replace(text: str, ref: _Ref) -> str:
-        s1 = _dot_prefix(ref.sheet1, sheet_for) if ref.sheet1 else ""
-        s2 = _dot_prefix(ref.sheet2, sheet_for) if ref.sheet2 else ""
-        if s1 == ref.sheet1 and s2 == ref.sheet2:
-            return text
-        return _format_shifted_ref(replace(ref, sheet1=s1, sheet2=s2), 0, 0)
-
-    return _map_refs(formula, _replace)
 
 
 def _relative_rows(formula: str) -> set[int]:

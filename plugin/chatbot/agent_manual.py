@@ -140,7 +140,7 @@ _CALC_TOPICS: tuple[_Topic, ...] = (
     _Topic(
         "formula-syntax",
         _CALC_FORMULA_SYNTAX_MANUAL,
-        "Calc formula syntax for =PY() and sheet references",
+        "=PY() in Calc formulas",
     ),
     _Topic("directives", CALC_CORE_DIRECTIVES, "Calc delegation and file/sheet data rules"),
     _CONCURRENCY_TOPIC,
