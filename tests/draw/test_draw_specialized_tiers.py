@@ -119,3 +119,12 @@ def test_drawing_tool_descriptions_name_no_impress_only_tool() -> None:
         desc = schema["description"]
         for name in impress_only:
             assert name not in desc, f"{schema['name']} MCP description names {name}"
+
+
+def test_impress_tables_domain_omits_writer_only_merge_split() -> None:
+    from plugin.app import get_tools
+
+    registry = get_tools()
+    names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc(), active_domain="tables")}
+    assert "table_merge_cells" not in names
+    assert "table_split_cell" not in names

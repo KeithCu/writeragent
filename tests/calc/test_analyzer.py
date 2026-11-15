@@ -467,3 +467,31 @@ def test_get_sheet_summary_include_extras_false_skips_optional_metrics():
     assert "has_merges" not in summary
     assert "shape_count" not in summary
 
+
+def test_get_sheet_summary_first_empty_cells():
+    bridge = MagicMock()
+    sheet = bridge.sheet_or_active.return_value
+    sheet.getName.return_value = "Sheet1"
+    addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=1, EndRow=2)
+    sheet.createCursor.return_value.getRangeAddress.return_value = addr
+    sheet.getCellRangeByPosition.return_value.getDataArray.return_value = (("Name", "Amt"),)
+
+    summary = SheetAnalyzer(bridge).get_sheet_summary(include_extras=False)
+    assert summary["first_empty_col"] == "C"
+    assert summary["first_empty_row"] == 4
+
+    empty_addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+    sheet.createCursor.return_value.getRangeAddress.return_value = empty_addr
+    sheet.getCellRangeByPosition.return_value.getDataArray.return_value = (("",),)
+    sheet.getCellRangeByPosition.return_value.getCellByPosition.return_value.getFormula.return_value = ""
+    empty_summary = SheetAnalyzer(bridge).get_sheet_summary(include_extras=False)
+    assert empty_summary["first_empty_col"] == "A"
+    assert empty_summary["first_empty_row"] == 1
+
+    max_col_addr = MagicMock(StartColumn=0, StartRow=0, EndColumn=16383, EndRow=2)
+    sheet.createCursor.return_value.getRangeAddress.return_value = max_col_addr
+    sheet.getCellRangeByPosition.return_value.getDataArray.return_value = (("Name",),)
+    max_summary = SheetAnalyzer(bridge).get_sheet_summary(include_extras=False)
+    assert max_summary["first_empty_col"] is None
+    assert max_summary["first_empty_row"] == 4
+

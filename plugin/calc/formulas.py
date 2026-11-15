@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
 from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.manipulator import quiet_probe_cleanup
+from plugin.calc.python.formula_edit import repair_py_code_newlines
 
 log = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ class EvaluateFormula(ToolCalcErrorBase):
             return self._tool_error("formula is required", code="INVALID_PARAM")
         if not formula_string.startswith("="):
             formula_string = "=" + formula_string
+        formula_string = repair_py_code_newlines(formula_string)
 
         # Reject a defined name before copying a sheet. A sheet prefix is
         # dropped here; only the bare coordinate is used below.

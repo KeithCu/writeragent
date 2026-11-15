@@ -276,3 +276,48 @@ def test_follow_python_alias_and_relative_a1(ctx, doc):
     assert "E1" in after_mixed
     assert after_mixed.count(")") == 1
 
+
+@native_test
+@with_native_doc("calc")
+def test_follow_ref_save_lifts_xl_and_cell_evaluates(ctx, doc):
+    """Follow-ref save with xl_static_rewrite lifts xl("C1") onto =PY($A$1; C1) and evaluates."""
+    from unittest.mock import patch
+
+    from plugin.calc.python.editor import apply_cell_save
+    from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
+
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    formula_cell = sheet.getCellByPosition(1, 0)
+    data_cell = sheet.getCellByPosition(2, 0)
+    data_cell.setValue(7)
+    code_cell.setString("result = 42")
+    formula_cell.setFormula("=PY($A$1)")
+    doc.calculateAll()
+    before_val = formula_cell.getValue()
+    parts = PyFormula.parse(str(formula_cell.getFormula() or ""))
+    assert parts is not None
+    assert py_code_arg_is_cell_ref(parts.code), parts.code
+
+    with patch("plugin.calc.python.editor.get_config", return_value=True):
+        result = apply_cell_save(
+            doc,
+            formula_cell,
+            parsed_parts=parts,
+            new_code='result = float(xl("C1"))',
+            save_as_plain=True,
+            data_binding_text="",
+            code_cell=code_cell,
+            code_ref=parts.code,
+        )
+    assert result.get("ok") is True, result
+    assert code_cell.getString() == "result = float(data)"
+    reparsed = PyFormula.parse(str(formula_cell.getFormula() or ""))
+    assert reparsed is not None
+    assert reparsed.data_args() == ["C1"]
+    doc.calculateAll()
+    if float(before_val) != 42.0:
+        raise unittest.SkipTest("=PY() worker did not evaluate in headless profile (before_val != 42.0)")
+    assert _py_cell_error_code(formula_cell) == 0
+    assert float(formula_cell.getValue()) == 7.0
+

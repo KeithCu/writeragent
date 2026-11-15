@@ -241,7 +241,7 @@ class ToolWriterStructuralBase(ToolWriterSpecialBase):
 
 class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
     specialized_domain: ClassVar[str | None] = "tables"
-    specialized_domain_description: ClassVar[str | None] = "Read and edit table structure and cell contents (rows, columns, cells)."
+    specialized_domain_description: ClassVar[str | None] = "Read and edit table structure and cell contents (rows, columns, cells; merge and split cells)."
     # Writer + Draw/Impress table hosts; ignore keeps the union assignable across mixins.
     uno_services: list[str] | None = [  # type: ignore[assignment]
         "com.sun.star.text.TextDocument",

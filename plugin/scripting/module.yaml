@@ -96,8 +96,8 @@ config:
     inline: true
     width: 200
 
-  # Experimental: Monaco cell-save lifts xl("A1:…") onto =PY data args and
-  # rewrites call sites to data / data[i] / .to_pandas(). Default off.
+  # Experimental: Edit Python in Cell save (any editor, including =PY($A$1) code-cell saves)
+  # lifts xl("A1:…") onto =PY data args and rewrites call sites to data / data[i] / .to_pandas(). Default off.
   xl_static_rewrite:
     type: bool
     default: false

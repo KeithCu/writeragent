@@ -318,7 +318,9 @@ _.TableDelete  # class: plugin/writer/specialized/tables.py:912
 _.TableGetCells  # class: plugin/writer/specialized/tables.py:511
 _.TableInsert  # class: plugin/writer/specialized/tables.py:773
 _.TableList  # class: plugin/writer/specialized/tables.py:461
+_.TableMergeCells  # class: plugin/writer/specialized/tables.py:646
 _.TableSetCell  # class: plugin/writer/specialized/tables.py:620
+_.TableSplitCell  # class: plugin/writer/specialized/tables.py:698
 _.ToolCalcDocumentResearchBase  # class: plugin/calc/base.py:61
 _.ToolCalcImageBase  # class: plugin/calc/base.py:45
 _.ToolCalcWebResearchBase  # class: plugin/calc/base.py:56

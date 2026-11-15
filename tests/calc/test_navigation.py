@@ -74,24 +74,45 @@ def test_cell_link_registry_lookup():
     control = MagicMock()
     control.getText.return_value = ""
     cell_link_registry.clear(control)
-    cell_link_registry.add(control, 10, 12, "B2")
-    assert lookup_cell_ref_at_index(control, 10) == "B2"
-    assert lookup_cell_ref_at_index(control, 11) == "B2"
-    assert lookup_cell_ref_at_index(control, 12) is None
+    try:
+        cell_link_registry.add(control, 10, 12, "B2")
+        assert lookup_cell_ref_at_index(control, 10) == "B2"
+        assert lookup_cell_ref_at_index(control, 11) == "B2"
+        assert lookup_cell_ref_at_index(control, 12) is None
+    finally:
+        cell_link_registry.clear(control)
 
 
 def test_cell_link_registry_drop_from_keeps_spans_ending_at_cut():
     control = MagicMock()
     control.getText.return_value = ""
     cell_link_registry.clear(control)
-    cell_link_registry.add(control, 0, 5, "A1")
-    cell_link_registry.add(control, 3, 8, "B2")
-    cell_link_registry.add(control, 8, 10, "C3")
-    cell_link_registry.drop_from(control, 5)
-    assert lookup_cell_ref_at_index(control, 0) == "A1"
-    assert lookup_cell_ref_at_index(control, 4) == "A1"
-    assert lookup_cell_ref_at_index(control, 6) is None
-    assert lookup_cell_ref_at_index(control, 8) is None
+    try:
+        cell_link_registry.add(control, 0, 5, "A1")
+        cell_link_registry.add(control, 3, 8, "B2")
+        cell_link_registry.add(control, 8, 10, "C3")
+        cell_link_registry.drop_from(control, 5)
+        assert lookup_cell_ref_at_index(control, 0) == "A1"
+        assert lookup_cell_ref_at_index(control, 4) == "A1"
+        assert lookup_cell_ref_at_index(control, 6) is None
+        assert lookup_cell_ref_at_index(control, 8) is None
+    finally:
+        cell_link_registry.clear(control)
+
+
+def test_cell_link_registry_evicts_spans_on_control_gc():
+    import gc
+    from plugin.calc.navigation import CellLinkSpanRegistry
+
+    registry = CellLinkSpanRegistry()
+    control = MagicMock()
+    ctrl_id = id(control)
+    registry.add(control, 0, 4, "B2")
+    assert ctrl_id in registry._spans
+
+    del control
+    gc.collect()
+    assert ctrl_id not in registry._spans
 
 
 def test_cell_ref_at_index_html():

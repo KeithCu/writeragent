@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -35,14 +36,33 @@ class CellLinkSpanRegistry:
     """
 
     _spans: dict[int, list[tuple[int, int, str]]] = field(default_factory=dict)
+    _refs: dict[int, weakref.ref[Any]] = field(default_factory=dict, repr=False)
+
+    def _evict(self, key: int, ref: weakref.ref[Any]) -> None:
+        # Only evict if this weakref is still the active entry for key, so a
+        # stale callback cannot drop spans registered for a new object at the same id.
+        if self._refs.get(key) is ref:
+            self._refs.pop(key, None)
+            self._spans.pop(key, None)
 
     def clear(self, control: Any) -> None:
-        self._spans.pop(id(control), None)
+        key = id(control)
+        self._spans.pop(key, None)
+        self._refs.pop(key, None)
 
     def add(self, control: Any, start: int, end: int, address: str) -> None:
         if control is None or start >= end or not address:
             return
-        self._spans.setdefault(id(control), []).append((start, end, address))
+        key = id(control)
+        if key not in self._refs:
+            def _on_gc(ref: weakref.ref[Any], k: int = key) -> None:
+                self._evict(k, ref)
+
+            try:
+                self._refs[key] = weakref.ref(control, _on_gc)
+            except TypeError:
+                pass
+        self._spans.setdefault(key, []).append((start, end, address))
 
     def lookup(self, control: Any, index: int) -> str | None:
         if control is None or index < 0:
