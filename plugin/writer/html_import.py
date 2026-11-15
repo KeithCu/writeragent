@@ -387,8 +387,6 @@ def insert_html_after_paragraph(
     deletes the trailing empty break left behind.
     """
     cursor.gotoEndOfParagraph(False)
-    # Importing at a paragraph END merges the first block into that paragraph; at a
-    # paragraph START it does not. Open an empty paragraph and import at its start.
     text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
     # The import puts every block (each with its own break) BEFORE that paragraph,
     # which is then left over empty. This cursor stays at its start through the
@@ -587,7 +585,11 @@ def _insert_at_caret(
 ) -> html_import_styles.WriteReport:
     """Insert *content* at a collapsed *cursor* without splitting its paragraph.
 
-    - Empty paragraph or mixed math: delegate to ``_insert_mixed_or_plain_html`` as before.
+    - Empty paragraph: importing at the start of an empty paragraph neither merges nor
+      splits, and it is the only caret case where ``_lo_style_for_replaced_range``
+      allows ``data-lo-style``, so ``apply_styles`` matters only there.
+    - Mixed math: the math path inserts segment by segment and still splits
+      mid-paragraph, so it delegates to ``_insert_mixed_or_plain_html``.
     - Inline content (no block markup and no real newline): insert inline via
       ``insert_inline_at_cursor`` so the host paragraph is not split by ``<p>`` wrapping.
     - Block content at paragraph start: ``_insert_mixed_or_plain_html`` already places new
@@ -598,7 +600,7 @@ def _insert_at_caret(
     """
     if (cursor.isStartOfParagraph() and cursor.isEndOfParagraph()) or html_fragment_contains_mixed_math(content):
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
-    if not (content_has_block_markup(content) or "\n" in content):
+    if not content_is_block(content):
         insert_inline_at_cursor(model, ctx, cursor, content)
         return html_import_styles.WriteReport(
             unapplied_para=html_import_styles.unapplied_para_names_for_content(content),
@@ -1044,6 +1046,19 @@ def content_has_block_markup(content: str | None) -> bool:
     if not content or not isinstance(content, str):
         return False
     return bool(html_import_styles.BLOCK_MARKUP_RE.search(content))
+
+
+def content_is_block(content: str | None) -> bool:
+    """Return ``True`` if *content* should be placed as separate paragraphs.
+
+    Content is block-level when it contains block HTML tags or a real newline
+    (plain ``"Novo A\\n\\nNovo B"`` on the inline path would become manual line breaks
+    glued onto the host paragraph). Only real newlines make plain content a block;
+    literal backslash-n in markup (which ``expand_escapes`` expands later) does not.
+    """
+    if not content or not isinstance(content, str):
+        return False
+    return content_has_block_markup(content) or "\n" in content
 
 
 

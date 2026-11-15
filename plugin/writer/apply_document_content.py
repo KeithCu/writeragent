@@ -1653,11 +1653,10 @@ class ApplyDocumentContent(ToolBase):
         # opened right after it. A line break is a paragraph too: plain
         # "Novo A\n\nNovo B" on the inline path goes in as manual line
         # breaks glued onto the matched paragraph.
-        # Invariant: only real newlines make plain content a block; literal backslash-n in markup does not.
         if use_preserve:
             is_block = "\n" in content
         else:
-            is_block = html_import.content_has_block_markup(str(content)) or "\n" in str(content)
+            is_block = html_import.content_is_block(str(content))
         text_obj = found.getText()
         if is_block:
             insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)

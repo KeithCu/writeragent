@@ -723,7 +723,7 @@ The mutating edit tools return **structured, machine-readable fields** alongside
 - Inline content (no block tags, no real newline) goes in at the caret without splitting the paragraph.
 - Block content (`<p>`, headings, lists, tables, or text with line breaks) goes in as new paragraphs after the caret's paragraph, or before it when the caret is at the paragraph start.
 - `snapped_to_paragraph: true` says the insert moved off the caret (only when the caret was mid-paragraph).
-- An empty paragraph and content with math segments behave as before.
+- In an empty paragraph the content is imported in place (styles apply); content with math segments is imported at the caret and may split the paragraph.
 
 **`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).
 
