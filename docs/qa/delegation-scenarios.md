@@ -29,7 +29,7 @@ Recreate these the same way for a re-run. They are not checked in.
 
 ## Expected domains
 
-Writer: `delegate_to_writer_subagent`. Calc: `delegate_to_calc_subagent`.
+Writer: `delegate_to_subagent`. Calc: `delegate_to_subagent`.
 
 | Area | Expected domain | Notes |
 |------|-----------------|-------|
@@ -90,7 +90,7 @@ What this PR adds, briefly: `DELEGATE_ANCHOR_RULE` in every specialized sub-agen
 | id | Delegated? | Domain | finished | Verdict | Notes |
 |----|------------|--------|----------|---------|-------|
 | W1 | no | — | n/a | **FAIL** | Main agent called `apply_content` with `<p><span title="toc"/></p>` at the beginning. Reply: a placeholder was added; "You can now update it (Insert → Table of Contents)". No real TOC. 2 rounds. **Regression vs master** — see below. Hypothesis, not a proven root cause: the new indexes domain description says "Apply TOC edits yourself…". |
-| W2 | yes, twice | `structural` (expected `indexes`) | true, but no edits | **FAIL** | Main agent overwrote the existing TOC with hand-typed plain-text rows and renamed only "3. Introduction" → "1. Introduction". Both sub-agents only called `get_tree` and `specialized_workflow_finished`, then claimed the work was done. Final reply falsely said all headings were renumbered and the TOC regenerated. Task strings did not paste TOC rows or links (`SPECIALIZED_TASK_RULES` check passed). 6 rounds, borderline loop. Not re-run on master. |
+| W2 | yes, twice | `structural` (expected `indexes`) | true, but no edits | **FAIL** | Main agent overwrote the existing TOC with hand-typed plain-text rows and renamed only "3. Introduction" → "1. Introduction". Both sub-agents only called `get_tree` and `workflow_finished`, then claimed the work was done. Final reply falsely said all headings were renumbered and the TOC regenerated. Task strings did not paste TOC rows or links (`SPECIALIZED_TASK_RULES` check passed). 6 rounds, borderline loop. Not re-run on master. |
 | W3 | no | — | n/a | **FAIL** (delegation); answer content OK | 1 round, no tools. Listed all 10 entries with page numbers, no levels, no `hyperlink_url`. Same behavior on master — not a PR regression. |
 | W4 | no | — | n/a | **FAIL** | 1 round, no tools. The `include_links` path never ran. Answer listed 10 entries with rendered heading-text links; no `#…\|outline` targets in the log. |
 | W5 | no | (expected: none or `tables`) | n/a | **PASS** | `apply_content` HTML table. Table1 is 4×3 (header + three data rows). 2 rounds. |
@@ -107,10 +107,10 @@ What this PR adds, briefly: `DELEGATE_ANCHOR_RULE` in every specialized sub-agen
 |----|------------|--------|----------|---------|-------|
 | C1 | yes, twice | `charts` | 1st error + finished with a success answer; 2nd ok | **FAIL** | First `chart_upsert` used a non-contiguous `A2:A25,D1:D25` → `ValueError: Invalid end cell address`, but still left Chart_0 on the sheet; the error result carried a success answer. Second used A1:D25, so Units is a series alongside Revenue. Two charts remain (Chart_0 and Revenue_by_Region), both on A1:D25. Report wrongly says only columns A and D are used. 3 rounds. Not re-run on master. |
 | C2 | yes | `charts` | true | **PASS** | One `chart_upsert`. Chart on B1:C25 (Month / Units). 2 rounds. Plots all 24 rows (months repeat); acceptable for this smoke test. |
-| C3 | partial | `set_style` core (good), then `ranges` for currency (none expected) | true, no real work | **FAIL** | `set_style` A1:D1 bold, background `#ADD8E6` — that part worked (CharWeight 150, CellBackColor 11393254). Currency was delegated to `ranges`; the sub-agent only called `specialized_workflow_finished` and claimed "Currency format applied". D2:D25 still NumberFormat 0 (General). 3 rounds. |
+| C3 | partial | `set_style` core (good), then `ranges` for currency (none expected) | true, no real work | **FAIL** | `set_style` A1:D1 bold, background `#ADD8E6` — that part worked (CharWeight 150, CellBackColor 11393254). Currency was delegated to `ranges`; the sub-agent only called `workflow_finished` and claimed "Currency format applied". D2:D25 still NumberFormat 0 (General). 3 rounds. |
 | C4 | yes | `conditional_formatting` | true | **PASS** | `style_list` ×2, `conditional_formatting_add`, finished. Rule on C2:C25, greater than 300, style "Good". The four cells over 300 showed green. 2 rounds. |
 | C5 | yes | `ranges` | true | **FAIL** | `sort_range` A1:D25, `sort_column` 3, descending, `has_header` true, returned ok and "sorted". After save, rows were unchanged (still North / January first; East March 9281.25 would be first if sorted). 2 rounds. |
-| C6 | yes | `ranges` (expected `sheets`) | true, no tools | **FAIL** | Sub-agent only called `specialized_workflow_finished` and claimed AutoFilter was applied. 24 rows still visible, 0 hidden. The main agent picked a domain that has no filter tool. 2 rounds. |
+| C6 | yes | `ranges` (expected `sheets`) | true, no tools | **FAIL** | Sub-agent only called `workflow_finished` and claimed AutoFilter was applied. 24 rows still visible, 0 hidden. The main agent picked a domain that has no filter tool. 2 rounds. |
 | C7 | no (correct) | — | n/a | **PASS** | E1 "Price per Unit", E2:E25 `=D2/C2` filled down. 5 rounds (unnecessary `insert_structure`, two `write_range`). |
 | C8 | yes | `pivot_tables`, then `sheets`, then `pivot_tables` | 1st error (honest); then ok | **PASS** | First `pivot_tables` delegate correctly reported that the target sheet did not exist. Main agent delegated to `sheets` (`sheet_create` RevenueByRegion) then `pivot_tables` again. Pivot has four regions (East 30285.03, North 18932.69, South 26383.84, West 27496.28) and Total 103097.84. 4 rounds. |
 
@@ -128,7 +128,7 @@ W2 and C1 were not re-run on master.
 ### Bugs seen in this run
 
 1. **PR regression: TOC insert no longer delegates (W1).** Master delegates to `indexes` and creates a real TOC. On `st-toc-anchors` the main agent inserts a `<span title="toc"/>` placeholder via `apply_content`. Hypothesis, not proven: the new indexes domain description, visible to the main agent, says "Apply TOC edits yourself with these tools…". A possible direction is to reword so "yourself" cannot be read as the main chat, or to keep that sentence out of the main-agent domain list.
-2. **Sub-agents call `specialized_workflow_finished` with a success answer and no (or insufficient) edit tools**, and the main agent then tells the user the work is done. Seen in W2 (`structural`, no edits), W8 (`images` claimed a new heading it cannot create), C3 (`ranges` claimed currency format), and C6 (`ranges` claimed AutoFilter; that domain has no filter tool).
+2. **Sub-agents call `workflow_finished` with a success answer and no (or insufficient) edit tools**, and the main agent then tells the user the work is done. Seen in W2 (`structural`, no edits), W8 (`images` claimed a new heading it cannot create), C3 (`ranges` claimed currency format), and C6 (`ranges` claimed AutoFilter; that domain has no filter tool).
 3. **`SPECIALIZED_TOOL_ERROR` sticks after a successful retry (W10).** First Python script failed, second returned 24133, but the delegate result was still `status` error with the first error message. The same pattern appeared on C1's first `charts` delegate (error + `finished` true + a success answer). C8's first pivot error was honest.
 4. **LaTeX → Math object import is broken and reported as success (W9).** `UnknownPropertyException` on "Formula", then a traceback UNO conversion error. The document gets `[Math import failed] …`; the tool status is ok. Unknown whether this is new in the PR.
 5. **`sort_range` reports success and does not sort (C5).** (fixed: `sort_range` passes a typed `[]TableSortField`; see `CellManipulator.range_sort`)

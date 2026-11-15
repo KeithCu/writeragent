@@ -26,7 +26,7 @@ Topic docs: [docs/calc/prompt-function.md](../../docs/calc/prompt-function.md),
 - Spill and listeners use `WorkbookState.key` (RuntimeUID, else the one remembered lifecycle id). The file URL is not a key. `calc:unsaved:{uuid}` is still only the worker session id. Spill orphan cleanup saves `WriterAgentSpillRegistry` on the sheet's owner, not the focused window.
 - LibrePy uses `addin_librepy.py` instead of `addin.py`.
 - Collabora Online `=PY()` files store `…PYTHONCOMPUTEFUNCTIONS.GETPY`; on open LibrePy rewrites that prefix ([`python/collabora_formula.py`](python/collabora_formula.py)). Do not register Collabora’s UNO service from the OXT.
-- Nested specialized sets use `specialized` / `specialized_control` and are omitted from default main-chat lists. Callers use `delegate_to_calc_subagent`.
+- Nested specialized sets use `specialized` / `specialized_control` and are omitted from default main-chat lists. Callers use `delegate_to_subagent`.
 - `float(...)` inside `=PYTHON("...")` formula strings → Calc lexer `#NAME?`. Use code-in-cell or bare `np.sum` (see enabling-numpy doc).
 - Calc string literals have no backslash escapes. `write_range` and `evaluate_formula` pass `=PY` text through `formula_edit.repair_py_code_newlines`, which turns a literal backslash-n outside Python strings into a line break only when the result parses. Monaco and user-typed cells are not rewritten.
 - In tests, resolve tools with `plugin.app.get_tools().get("tool_name")`.

@@ -267,7 +267,7 @@ def shape_only_search_response(subject: str, shape_name: str, *, review: bool = 
     verb = "edit" if review else "Edit"
     message = (
         f"{subject} is only inside a drawing shape / floating text box ('{shape_name}'). "
-        f"{note}{verb} it via the shapes toolset (delegate_to_writer_subagent domain='shapes')."
+        f"{note}{verb} it via the shapes toolset (delegate_to_subagent domain='shapes')."
     )
     return {
         "status": "error",

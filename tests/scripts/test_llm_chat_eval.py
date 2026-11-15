@@ -44,7 +44,7 @@ def _tc(name: str, args: dict[str, Any], tid: str = "call_1") -> dict[str, Any]:
 
 
 def test_inner_delegate_preserves_finish_answer_and_no_edit_note(monkeypatch: Any) -> None:
-    """H3: specialized_workflow_finished.answer and NO_EDIT_TOOL_NOTE reach the outer agent."""
+    """H3: workflow_finished.answer and NO_EDIT_TOOL_NOTE reach the outer agent."""
     from eval_worlds import CalcWorld
 
     fake_inner = _FakeInnerClient(
@@ -54,7 +54,7 @@ def test_inner_delegate_preserves_finish_answer_and_no_edit_note(monkeypatch: An
                 "reasoning": "Single-column tool cannot do two keys at once.",
                 "tool_calls": [
                     _tc(
-                        "specialized_workflow_finished",
+                        "workflow_finished",
                         {"answer": "Cannot perform a two-key sort in one call."},
                     )
                 ],
@@ -125,7 +125,7 @@ def test_inner_delegate_omits_no_edit_note_after_mutating_tool(monkeypatch: Any)
             {
                 "content": "",
                 "tool_calls": [
-                    _tc("specialized_workflow_finished", {"answer": "Sorted A1:B3."}, tid="c2")
+                    _tc("workflow_finished", {"answer": "Sorted A1:B3."}, tid="c2")
                 ],
                 "usage": {},
             },
@@ -167,7 +167,7 @@ def test_transcript_includes_inner_assistant_messages(tmp_path: Path, monkeypatc
             "reasoning": "Outer reasoning",
             "tool_calls": [
                 _tc(
-                    "delegate_to_calc_subagent",
+                    "delegate_to_subagent",
                     {"domain": "ranges", "task": "Sort A1:B3"},
                     tid="outer_1",
                 )
@@ -196,7 +196,7 @@ def test_transcript_includes_inner_assistant_messages(tmp_path: Path, monkeypatc
         {
             "content": "",
             "tool_calls": [
-                _tc("specialized_workflow_finished", {"answer": "Sorted."}, tid="inner_2")
+                _tc("workflow_finished", {"answer": "Sorted."}, tid="inner_2")
             ],
             "usage": {},
         },

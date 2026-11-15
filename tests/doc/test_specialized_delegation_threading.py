@@ -14,7 +14,7 @@ import pytest
 
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.calc.sheets import ListSheets
-from plugin.calc.specialized import DelegateToSpecializedCalc
+from plugin.doc.specialized_base import DelegateToSubagent
 from plugin.chatbot.smol_agent import SmolToolAdapter
 from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.peer_message import SendPeerResult, SendPeerWork
@@ -26,7 +26,7 @@ from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer.specialized.footnotes import FootnotesList
-from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWriterShapeBase
+from plugin.writer.specialized_base import ToolWriterShapeBase
 from tests.framework.thread_safety import start_uno_thread_safety_session
 
 
@@ -77,7 +77,7 @@ class _DummyShapeToolRegistered(_DummyShapeTool, ToolWriterShapeBase):
 
 
 class _DummyDocResearchTool(ToolBase):
-    name = "grep_nearby_files"
+    name = "research_grep_nearby_files"
     description = "test"
     parameters = {"type": "object", "properties": {}, "required": []}
     tier = "specialized"
@@ -133,9 +133,9 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc")
+    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSubagent(), doc_type="calc")
 
-    gateway = registry.get("delegate_to_calc_subagent")
+    gateway = registry.get("delegate_to_subagent")
     result = gateway.execute_safe(ctx, domain="analysis", task="Describe sales data")
 
     assert result["status"] == "incomplete"
@@ -157,9 +157,9 @@ def test_calc_delegate_disposed_context_reports_document_disposed(
     mock_get_calc_context.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc")
+    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSubagent(), doc_type="calc")
 
-    gateway = registry.get("delegate_to_calc_subagent")
+    gateway = registry.get("delegate_to_subagent")
     assert gateway is not None
     result = gateway.execute_safe(ctx, domain="analysis", task="Describe sales data")
 
@@ -180,9 +180,9 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
     # MagicMock bypasses guard_uno(); wrap explicitly so __bool__ asserts main thread.
     proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
 
-    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc", doc=proxied_doc)
+    registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSubagent(), doc_type="calc", doc=proxied_doc)
 
-    gateway = registry.get("delegate_to_calc_subagent")
+    gateway = registry.get("delegate_to_subagent")
     session = start_uno_thread_safety_session()
     was_guard = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -222,9 +222,9 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     mock_format_canvas.return_value = " Document canvas (Writer): page style 'Standard'; paper 210.0 x 297.0 mm"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    registry, ctx = _mk_ctx(_DummyShapeToolRegistered(), DelegateToSpecializedWriter())
+    registry, ctx = _mk_ctx(_DummyShapeToolRegistered(), DelegateToSubagent())
 
-    gateway = registry.get("delegate_to_writer_subagent")
+    gateway = registry.get("delegate_to_subagent")
     result = gateway.execute_safe(ctx, domain="shapes", task="Add a rectangle")
 
     assert result["status"] == "incomplete"
@@ -245,10 +245,10 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(smol_agent_mocks):
         # MagicMock bypasses guard_uno(); wrap explicitly.
         proxied_doc = tg._UnoThreadGuardProxy(raw_doc)
 
-        registry, ctx = _mk_ctx(_DummyFootnotesList(), DelegateToSpecializedWriter(), doc=proxied_doc)
+        registry, ctx = _mk_ctx(_DummyFootnotesList(), DelegateToSubagent(), doc=proxied_doc)
         ctx.active_domain = None
 
-        gateway = registry.get("delegate_to_writer_subagent")
+        gateway = registry.get("delegate_to_subagent")
 
         def worker():
             nonlocal err, result
@@ -280,9 +280,9 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     mock_get_open_docs.return_value = [{"path": "/tmp/a.odt", "url": "file:///tmp/a.odt", "doc_type": "writer", "is_active": True}]
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSpecializedWriter())
+    registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSubagent())
 
-    gateway = registry.get("delegate_to_writer_subagent")
+    gateway = registry.get("delegate_to_subagent")
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
     assert result["status"] == "incomplete"
@@ -308,9 +308,9 @@ def test_writer_delegate_disposed_open_documents_reports_document_disposed(
     mock_get_open_docs.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSpecializedWriter())
+    registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSubagent())
 
-    gateway = registry.get("delegate_to_writer_subagent")
+    gateway = registry.get("delegate_to_subagent")
     assert gateway is not None
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
@@ -354,7 +354,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
                 err = e
 
         t = run_in_background(
-            worker, name="tool-async-delegate_to_writer_subagent", daemon=False
+            worker, name="tool-async-delegate_to_subagent", daemon=False
         )
         t.join(timeout=5.0)
     finally:
@@ -393,12 +393,12 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
             _DummyDocResearchTool(),
             SendPeerWork(),
             SendPeerResult(),
-            DelegateToSpecializedWriter(),
+            DelegateToSubagent(),
             doc=proxied_doc,
         )
         ctx.active_domain = None
 
-        gateway = registry.get("delegate_to_writer_subagent")
+        gateway = registry.get("delegate_to_subagent")
         with patch.object(tg, "_notify_thread_violation"):
             with patch(
                 "plugin.doc.peer_message.list_v1_peers",
@@ -416,7 +416,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
 
                 t = run_in_background(
                     worker,
-                    name="tool-async-delegate_to_writer_subagent",
+                    name="tool-async-delegate_to_subagent",
                     daemon=False,
                 )
                 t.join(timeout=5.0)
@@ -428,8 +428,8 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     assert result is not None and result.get("status") == "incomplete"
     smol_tools = smol_agent_mocks.agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
-    assert "send_peer_work" in names
-    assert "send_peer_result" in names
+    assert "peer_send_work" in names
+    assert "peer_send_result" in names
     mock_enqueue_index.assert_called_once()
 
 
@@ -521,7 +521,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    registry, ctx = _mk_ctx(CreateSheet(), DelegateToSpecializedCalc(), doc_type="calc")
+    registry, ctx = _mk_ctx(CreateSheet(), DelegateToSubagent(), doc_type="calc")
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         if tool_call_handler:
@@ -533,7 +533,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
             "message": "Specialized task complete.",
         }
 
-    gateway = registry.get("delegate_to_calc_subagent")
+    gateway = registry.get("delegate_to_subagent")
     with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_executor_cls:
         mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
         result = gateway.execute_safe(ctx, domain="sheets", task="Create a sheet named Q1 Actuals")

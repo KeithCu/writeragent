@@ -193,7 +193,7 @@ office alive). The next test hung 30s in
 `create_native_doc(private:factory/scalc)` inside
 `_create_nearby_test_env`. `#720` only prepared *Writer* factory loads.
 Leftover paste Writers as desktop current also wedge a later **Calc**
-factory, and `list_nearby_files` walked those leftovers without a
+factory, and `research_list_nearby_files` walked those leftovers without a
 per-component try/except. Product: skip a broken desktop component in
 `_office_model_from_desktop_element` / `_collect_open_file_urls` (do
 not `log.exception` that walk — formatting a UNO exception can raise
@@ -205,7 +205,7 @@ GHA 34595675515 (`#722` first tip): breadcrumbs named the fail
 *after* `create budget calc start` + `leftovers open=3
 uids=['27','26','1'] keeper=-` and *before* `create budget calc done`.
 The traceback exception is `loadComponentFromURL(scalc)`, not
-`list_nearby_files`. `#720` stored the keeper on `tests.testing_utils`;
+`research_list_nearby_files`. `#720` stored the keeper on `tests.testing_utils`;
 suites import `plugin.tests.testing_utils` (same file, second object)
 so every prepare printed `keeper=-` and never `setActiveFrame`. Same
 dual-module family as #719 recycle. First load now registers both
@@ -217,7 +217,7 @@ flags live on `_HarnessState` (`_STATE`).
 GHA 34597506651 (`054a03e0`, second #722 tip): keeper sync worked.
 `document_research_uno` all three tests passed (`leftovers open=2
 uids=['27','26'] frames=['-','-'] keeper=1`, `keeper reactivated`,
-Calc factory loads finished, `list_nearby_files done status=ok`).
+Calc factory loads finished, `research_list_nearby_files done status=ok`).
 Linux PR CI 34597434533 was green. Hang moved to
 `doc.test_text_helpers_uno`: first swriter (`…_paragraph_bold_run_no_newline`)
 printed leftovers + keeper reactivate, created uid=34, `close_doc` OK.

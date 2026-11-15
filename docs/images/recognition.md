@@ -168,7 +168,7 @@ Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); r
 
 Only after Vision Helpers work end-to-end:
 
-- **LLM OCR (partial — shipped):** `delegate_to_*_subagent(domain="vision")` + [`image_extract_structure`](../../plugin/vision/vision_tools.py) when venv stack is ready ([§18](#18-llm-access))
+- **LLM OCR (partial — shipped):** `delegate_to_subagent(domain="vision")` + [`image_extract_structure`](../../plugin/vision/vision_tools.py) when venv stack is ready ([§18](#18-llm-access))
 - **`analyze_image` multi-helper tool** (remaining Phase 6)
 - Chat sidebar sending crops to multimodal models
 
@@ -804,7 +804,7 @@ Optional per-folder cache beside embeddings ([`../embeddings.md`](../embeddings.
 | Code path | Sandbox |
 |-----------|---------|
 | **Vision Helpers fast path** | Trusted `vision.py` only — same as analysis helpers |
-| LLM `run_venv_python_script` | AST blocklist/extras — optional later |
+| LLM `python_run_script` | AST blocklist/extras — optional later |
 | Subprocess | Always the real isolation boundary |
 
 Add `plugin.vision.venv.vision`, `plugin.vision.venv.vision_docling`, and `plugin.vision.venv.vision_paddle` to public alias list for stub import; **do not** add `docling` or `paddleocr` to LLM sandbox extras — they stay inside trusted modules only.
@@ -893,7 +893,7 @@ Checklist for implementers / QA:
 | Piece | Location |
 |-------|----------|
 | Tool | [`ExtractStructureFromImage`](../../plugin/vision/vision_tools.py) — `image_extract_structure` |
-| Domain | `delegate_to_writer_subagent` / `delegate_to_calc_subagent` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
+| Domain | `delegate_to_subagent` / `delegate_to_subagent` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
 | Backend | [`run_trusted_vision`](../../plugin/vision/vision_runner.py) → [`run_vision`](../../plugin/scripting/client.py) |
 | Insert | [`insert_vision_result`](../../plugin/vision/vision_egress.py) when `insert_into_document=true` (default) |
 | Gating | [`vision_venv_configured`](../../plugin/vision/vision_availability.py) — schema/prompt gate: Settings venv path + resolvable `python` only (no import probe on Send). Package presence is validated at OCR runtime and in Settings → Python → Test (which runs [`probe_vision_packages`](../../plugin/scripting/venv_diagnostics.py)); domain/tool hidden when venv is not configured |
@@ -904,7 +904,7 @@ Checklist for implementers / QA:
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
-**Prompt rule:** You must use `domain=vision` (`delegate_to_<app>_subagent(domain="vision")`) to perform OCR when the venv stack is available — runs OCR on the currently selected image and inserts the recognized text in Writer/Calc or returns it in Draw/Impress. Writer: `vision` catalog line in the specialized domain list (only when vision is available); Calc/Draw: `get_vision_core_directive`.
+**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent). Writer: `vision` catalog line in the specialized domain list (only when vision is available); Calc/Draw: `get_vision_core_directive`.
 
 **Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
 

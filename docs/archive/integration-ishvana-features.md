@@ -325,7 +325,7 @@ Keep complexity low by mirroring embeddings storage layout:
 # Pseudocode — orchestrator tool, not parallel HTTP in one agent
 reports = []
 for role in ("world", "character", "prose"):
-    reports.append(delegate_to_writer_subagent(domain=role, task=brief))
+    reports.append(delegate_to_subagent(domain=role, task=brief))
 return synthesize_council_report(reports)
 ```
 

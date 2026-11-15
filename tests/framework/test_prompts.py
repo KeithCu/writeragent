@@ -167,17 +167,18 @@ def test_get_core_directives_for_type_is_string_only():
 
 def test_draw_core_directives_flowchart_routes_to_shapes():
     """flowchart_gen left an empty tree when shapes stayed off the core list."""
-    assert 'delegate_to_draw_subagent(domain="shapes")' in DRAW_CORE_DIRECTIVES
+    assert 'delegate_to_subagent(domain="shapes")' in DRAW_CORE_DIRECTIVES
 
 
 def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     """Python-as-orchestrator routing line lives once in the Writer gateway and in DRAW_CORE_DIRECTIVES."""
+    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.prompts import python_orchestrator_routing_line
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
-    assert python_orchestrator_routing_line(delegate_tool="delegate_to_writer_subagent") in DelegateToSpecializedWriter.description
-    assert python_orchestrator_routing_line(delegate_tool="delegate_to_draw_subagent") in DRAW_CORE_DIRECTIVES
-    assert python_orchestrator_routing_line(delegate_tool="delegate_to_writer_subagent") not in WRITER_CORE_DIRECTIVES
+    writer_desc = DelegateToSubagent().get_description("writer")
+    assert python_orchestrator_routing_line(delegate_tool="delegate_to_subagent") in writer_desc
+    assert python_orchestrator_routing_line(delegate_tool="delegate_to_subagent") in DRAW_CORE_DIRECTIVES
+    assert python_orchestrator_routing_line(delegate_tool="delegate_to_subagent") not in WRITER_CORE_DIRECTIVES
 
 
 def test_sheets_create_completion_instruction_is_create_not_populate():
@@ -451,7 +452,7 @@ def _doc_stub_for_services(*services: str) -> MagicMock:
 @pytest.mark.parametrize("is_impress", [False, True], ids=["draw", "impress"])
 def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> None:
     from plugin.app import get_tools
-    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
 
     draw_doc = _doc_stub_for_services(DRAW_DOCUMENT_SERVICE)
@@ -463,7 +464,7 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
     impress_only_tools = impress_tools - draw_tools
     assert "placeholder_list" in impress_only_tools
 
-    gw = DelegateToSpecializedDraw()
+    gw = DelegateToSubagent()
     impress_only_domains = set(gw.domains_for_services(frozenset({IMPRESS_DOCUMENT_SERVICE}))) - set(
         gw.domains_for_services(frozenset({DRAW_DOCUMENT_SERVICE}))
     )
@@ -484,22 +485,21 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
 
 
 @pytest.mark.parametrize(
-    ("gateway_cls_path", "service"),
+    "service",
     [
-        ("plugin.writer.specialized_base.DelegateToSpecializedWriter", "com.sun.star.text.TextDocument"),
-        ("plugin.calc.specialized.DelegateToSpecializedCalc", "com.sun.star.sheet.SpreadsheetDocument"),
-        ("plugin.draw.specialized.DelegateToSpecializedDraw", "com.sun.star.drawing.DrawingDocument"),
-        ("plugin.draw.specialized.DelegateToSpecializedDraw", "com.sun.star.presentation.PresentationDocument"),
+        "com.sun.star.text.TextDocument",
+        "com.sun.star.sheet.SpreadsheetDocument",
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
     ],
 )
-def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path: str, service: str) -> None:
-    import importlib
+def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(service: str) -> None:
     from plugin.app import get_tools
+    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.doc.specialized_catalog import catalog_entries_from_base, get_specialized_delegation_tool_hint
 
     get_tools()
-    mod_name, cls_name = gateway_cls_path.rsplit(".", 1)
-    gw = getattr(importlib.import_module(mod_name), cls_name)()
+    gw = DelegateToSubagent()
     doc = _doc_stub_for_services(service)
     with (
         patch("plugin.framework.config.get_config", return_value=False),
@@ -507,12 +507,13 @@ def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path:
     ):
         prompt = get_chat_system_prompt_for_document(doc)
 
+    agent_label = gw.agent_label_for(uno_services=frozenset({service}))
     domains = gw.domains_for_services(frozenset({service}))
-    rendered = get_specialized_delegation_tool_hint(gw._agent_label, uno_services=frozenset({service}))
+    rendered = get_specialized_delegation_tool_hint(agent_label, uno_services=frozenset({service}))
     assert rendered in prompt
     rendered_names = {
         entry["domain"]
-        for entry in catalog_entries_from_base(agent_label=gw._agent_label, uno_services=frozenset({service}))
+        for entry in catalog_entries_from_base(agent_label=agent_label, uno_services=frozenset({service}))
     }
     assert set(domains) == rendered_names
     if service == "com.sun.star.sheet.SpreadsheetDocument":

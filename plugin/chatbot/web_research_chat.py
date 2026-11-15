@@ -135,10 +135,10 @@ def display_name_for_path_or_name(path_or_name: str) -> str:
 
 
 def document_open_step_chat_text(path_or_name: str) -> str:
-    """Chat text for each delegate_read_document step (tool name + open preview only)."""
+    """Chat text for each research_delegate_read step (tool name + open preview only)."""
     from plugin.framework.i18n import _
 
     label = display_name_for_path_or_name(path_or_name)
-    block = "\n" + _("Tool: %s") % "delegate_read_document" + "\n"
+    block = "\n" + _("Tool: %s") % "research_delegate_read" + "\n"
     block += _("Opening '%s' for read-only access.") % (label,) + "\n\n"
     return block

@@ -55,7 +55,7 @@ oracle converts cm / mm / in / pt to HMM (1/100 mm).
 
 | # | Check | Fail closed |
 |---|--------|-------------|
-| 1 | Python specialized path | No executed `delegate_to_*_subagent` with `domain=python` |
+| 1 | Python specialized path | No executed `delegate_to_subagent` with `domain=python` |
 | 2 | `delegate_tool_domains` includes `shapes` | Tool ran without `shapes` in `domains`, or never ran |
 | 3 | `run_venv_python_script` executed | No venv script call (outer `Tool call:` or inner `SmolToolAdapter`) |
 | 4 | Not LLM-only `shape_upsert` | `shape_upsert` tool call and no `run_venv_python_script` |

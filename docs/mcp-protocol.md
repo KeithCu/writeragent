@@ -261,7 +261,7 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 
 - Document I/O: `get_content`, `apply_content`, `search`, `get_tree`, …
 - Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
-- A single gateway: **`delegate_to_writer_subagent`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
+- A single gateway: **`delegate_to_subagent`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
 - MCP helpers: `document_list_open` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
 
 It does **not** receive dozens of low-level UNO tools (`style_list`, page margin APIs, chart editors, etc.) as separate MCP tools.
@@ -287,7 +287,7 @@ Registry totals at a typical build: **225** registered tools (core 42, specializ
 | Draw | 25 | 24 | 83 (82) |
 | Impress | 25 | 24 | 83 (82) |
 
-**Notes:** Delegate ≈ sidebar minus chat-tier peer tools, plus `document_list_open`. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorm_research_web`, `deep_research_web`, `save_design_spec`, `write_document_section`, `writing_research_web`. Calc: `deep_research_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_web`, `export_presentation_project`, `validate_ppt_master_project`.
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools, plus `document_list_open`. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
 
 The Writer-only row below is illustrative; use the table above for integration planning.
 
@@ -306,7 +306,7 @@ MCP hosts do **not** get that system prompt by default. Instead, **`tools/list`*
 
 | Field | What the host sees |
 |--------|-------------------|
-| **`delegate_to_*_subagent` → `description`** | Short tool summary + full delegation template (semicolon-separated domains, `task` rules for Writer, **same single-line text as chat**) |
+| **`delegate_to_subagent` → `description`** | Short tool summary + full delegation template (semicolon-separated domains, `task` rules for Writer, **same single-line text as chat**) |
 | **`inputSchema.properties.domain.description`** | `domain one of:` plus the same semicolon-separated domain list (enum values stay in `enum`) |
 | **`inputSchema.properties.task.description`** | [`DELEGATE_SPECIALIZED_TASK_PARAM_HINT`](../plugin/framework/prompts.py) (Writer’s detailed `task` rules are in the tool `description`) |
 
@@ -317,7 +317,7 @@ Other MCP surfaces (for integrators):
 | Surface | Status | Delegation / routing hints |
 |---------|--------|----------------------------|
 | **`tools/list`** | Implemented | **Primary** — use the delegate gateway tool metadata above |
-| **`initialize` → `instructions`** | Connection-time local date/time + tool-choice guidance (multi-doc targeting via `document_list_open` / `document_url`, `tools/list` type filter) + mode hint (in `delegate` mode, names `delegate_to_writer_subagent`, `delegate_to_calc_subagent`, or `delegate_to_draw_subagent` with `domain` and a plain-language `task` for a sub-agent) + pointer to the on-demand manual (`manual_read` topics, per document type) | Does not include the full chat prompt or UNO/threading internals; the behavioral manual is pulled per topic via `manual_read`. Clock is fixed until the client reconnects; hosts **may** ignore `instructions` (verify Page Assist / Claude Desktop) |
+| **`initialize` → `instructions`** | Connection-time local date/time + tool-choice guidance (multi-doc targeting via `document_list_open` / `document_url`, `tools/list` type filter) + mode hint + pointer to the on-demand manual (`manual_read` topics, per document type) | Does not include the full chat prompt or UNO/threading internals; the behavioral manual is pulled per topic via `manual_read`. Clock is fixed until the client reconnects; hosts **may** ignore `instructions` (verify Page Assist / Claude Desktop) |
 | **`prompts/list` / `prompts/get`** | Implemented | Serve `manual_read` topics for the document resolved like `tools/list` (`X-Document-URL` or active document) |
 | **`resources/list` / `resources/read`** | Empty list / not implemented | Not used for guidance |
 | **`GET /`** | Server name, version, routes | Does **not** return agent instructions (older docs were wrong) |
@@ -326,7 +326,7 @@ If a client ignores `initialize.instructions` and only binds tools from `tools/l
 
 ### What happens when the host calls `delegate`
 
-With `delegate_to_writer_subagent`, WriterAgent does **not** “switch tools” on the MCP host. Instead WriterAgent:
+With `delegate_to_subagent`, WriterAgent does **not** “switch tools” on the MCP host. Instead WriterAgent:
 
 1. Resolves the `domain` enum (`styles`, `page`, `charts`, `shapes`, `web_research`, …).
 2. Collects all tools registered for that domain.
@@ -352,7 +352,7 @@ Implications for integrators:
 1. **Document-centric (default):** Host uses MCP for read/write/search on the open LO document; uses `delegate` when a task needs specialized UNO APIs (styles, pages, charts, …). Write a **detailed `task` string**—the inner agent does not see the host’s full conversation unless you paste context into `task` or related tool args.
 
 2. **Web research:** Either:
-   - `tools/call` → `delegate_to_writer_subagent` with `domain: "web_research"` and a clear research `task`, then `apply_content` with the returned text; or
+   - `tools/call` → `delegate_to_subagent` with `domain: "web_research"` and a clear research `task`, then `apply_content` with the returned text; or
    - Perform web search on the **host** (Cursor web, etc.) and use WriterAgent MCP only for document updates.
 
    Expect **long-running** delegate calls (tens of seconds to minutes) and **large** tool results for research compared to most other domains.
@@ -368,7 +368,7 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 | **Global semaphore** | Backpressure tools (`is_async()` is not exactly `True`) | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
 | **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same resolved document key (`document_url` / RuntimeUID) → mutating runs serialize; different docs and read-only runs stay concurrent |
 
-Tools whose `is_async()` is exactly `True` (e.g. `delegate_to_*_subagent`, `image_generate`, `web_research`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. The `long_running` attribute does not select this path. A positive `timeout` is checked later in `_prepare_mcp_execution`; it does not choose the path. They still take the per-document gate when they mutate. Direct `web_research` and read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.detects_mutation()`](../plugin/framework/tool.py) / [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
+Tools whose `is_async()` is exactly `True` (e.g. `delegate_to_subagent`, `image_generate`, `web_research`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. The `long_running` attribute does not select this path. A positive `timeout` is checked later in `_prepare_mcp_execution`; it does not choose the path. They still take the per-document gate when they mutate. Direct `web_research` and read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.detects_mutation()`](../plugin/framework/tool.py) / [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
 **UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Both paths wait for that gate on the HTTP worker. A backpressure tool then runs its body on the main thread, so a long-running mutator cannot freeze the LibreOffice UI for the gate timeout. A `tools/call` argument cannot disable the thread guard. A fast mutating call releases the global semaphore before that gate wait and takes it again only to run the tool body, so one document's slow edit does not turn other documents' fast calls into HTTP 429. A per-document gate timeout returns `SERVER_BUSY` (HTTP 429) with a generic client message; the document key appears only in the local log.
 
@@ -412,7 +412,7 @@ None of these are required for a working integration; they are release-level pro
 
 ### Why not expose specialized tools on MCP (yet)?
 
-WriterAgent’s primary integration path—sidebar chat and MCP via `delegate_to_writer_subagent`—uses an **internal sub-agent** with a **domain-scoped** tool list and a single natural-language `task`. That isolated context improves success on hard UNO work (styles, pages, charts, etc.) compared with dumping the entire specialized registry onto the outer host.
+WriterAgent’s primary integration path—sidebar chat and MCP via `delegate_to_subagent`—uses an **internal sub-agent** with a **domain-scoped** tool list and a single natural-language `task`. That isolated context improves success on hard UNO work (styles, pages, charts, etc.) compared with dumping the entire specialized registry onto the outer host.
 
 An outer MCP model that **alternates** between unrelated tool groups in one long thread (document edits, then styles, then charts, then research) carries stale assumptions, bloated schemas, and cross-domain mistakes. We intentionally keep **`tools/list` small** and push complexity behind `delegate`.
 
@@ -434,7 +434,7 @@ An experimental config, `mcp.tool_exposure_mode` (default `delegate`), controls 
 
 In both direct modes the specialized tools are invoked **by name** — which already works, since `tools/call` routes through the registry, not the advertised list.
 
-The direct modes **add** direct access; they don't remove delegation. The `delegate_to_*_subagent` gateway stays listed in every mode (it is core-tier), so a client can still delegate if it prefers — this is intentional, the direct modes are additive.
+The direct modes **add** direct access; they don't remove delegation. The `delegate_to_subagent` gateway stays listed in every mode (it is core-tier), so a client can still delegate if it prefers — this is intentional, the direct modes are additive.
 
 `tool_find(domain?)` (advertised only in `direct_discovery`) returns the same specialized domain catalog as the delegate gateway, then lists every tool schema in a chosen domain. Workflow: `tool_find()` → pick a domain → `tool_find(domain=…)` → `tools/call` by name. It is document-optional (with no document the catalog merges all apps) and is rejected by name in the other modes. The no-document merge forwards `for_discovery` the same way the Writer, Calc, and Draw branches do, so a domain hidden only from the Calc chat prompt is still listed when `tool_find` asks for discovery. Sidebar-only domains stay out of those results: Writer brainstorming / writing plan / deep research and Draw/Impress `ppt-master` return an empty tool list with a `note` (`direct_flat` removes those tools from its own list).
 
@@ -531,7 +531,7 @@ is straightforward.
 Use **`POST /mcp`** with JSON-RPC 2.0:
 
 - **`initialize`** — protocol handshake; `result.instructions` starts with the host machine's local date/time (zero tool calls), then lean tool-choice guidance (multi-doc targeting, document-type filter on `tools/list`), a mode hint, and a pointer to `manual_read(topic)`, the on-demand behavioral manual (not the full sidebar system prompt). Sidebar chat date injection is unchanged and separate.
-- **`tools/list`** — core-tier tools for the target document (`X-Document-URL` header or active document). Each tool has `name`, `description`, and `inputSchema`. Specialized domains are documented on **`delegate_to_{writer|calc|draw}_subagent`** (see [Where delegation guidance lives](#where-delegation-guidance-lives-mcp-vs-sidebar-chat)).
+- **`tools/list`** — core-tier tools for the target document (`X-Document-URL` header or active document). Each tool has `name`, `description`, and `inputSchema`. Specialized domains are documented on **`delegate_to_subagent`** (see [Where delegation guidance lives](#where-delegation-guidance-lives-mcp-vs-sidebar-chat)).
 - **`tools/call`** — request → execute → JSON-RPC result. Document targeting (`document_url` / active doc) happens inside the executor on the LibreOffice main thread; long-running tool bodies then run on the HTTP worker. A failed tool is an MCP **tool result** (`isError`, `TOOL_EXECUTION_ERROR` or the tool's own code), HTTP 200 — not JSON-RPC `INTERNAL_ERROR` / HTTP 500. Clients treat HTTP 500 as transient and retry (Hermes retried `apply_style` ~150× in 0.5s). `BusyError` stays HTTP 429; timeouts stay 504.
 
 Supporting HTTP routes: **`GET /health`**, **`GET /`** (server info and `mcp_endpoint` when enabled—not agent instructions).
@@ -687,7 +687,7 @@ Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpe
 
 When the MCP server is enabled, external clients see the same **core-tier** tools WriterAgent exposes to sidebar chat for the resolved document type (counts in [Tool counts by surface](#tool-counts-by-surface)), not the full specialized registry unless `mcp.tool_exposure_mode` is `direct_flat` or `direct_discovery`.
 
-**Writer (core examples):** `get_content`, `apply_content`, `search`, `apply_style`, `get_tree`, `style_list`, `style_get_info`, `comment_list`, `comment_add`, `comment_delete`, **`comment_edit`**, `tracking_start` / `stop` / `list` / `show`, `tracking_manage`, `table_*`, `image_generate` (…). Specialized UNO tools (`style_list` as domain tool, pages, charts, …) are reached via **`delegate_to_writer_subagent`** unless direct exposure mode is enabled — see the count table instead of duplicating every specialized name here.
+**Writer (core examples):** `get_content`, `apply_content`, `search`, `apply_style`, `get_tree`, `style_list`, `style_get_info`, `comment_list`, `comment_add`, `comment_delete`, **`comment_edit`**, `tracking_start` / `stop` / `list` / `show`, `tracking_manage`, `table_*`, `image_generate` (…). Specialized UNO tools (`style_list` as domain tool, pages, charts, …) are reached via **`delegate_to_subagent`** unless direct exposure mode is enabled — see the count table instead of duplicating every specialized name here.
 
 **Calc / Draw**: Core-tier tools registered from `plugin/calc/` and `plugin/draw/` (same registry MCP `tools/list` uses).
 

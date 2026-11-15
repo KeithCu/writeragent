@@ -58,7 +58,7 @@ def test_unknown_task_raises() -> None:
 def test_tax_and_sort_use_production_names() -> None:
     sort_round = SCRIPTS["data_sorting"][0]
     assert sort_round["tool_calls"][0]["function"]["name"] == (
-        "delegate_to_calc_subagent"
+        "delegate_to_subagent"
     )
     tax_names = [
         tc["function"]["name"]
@@ -95,7 +95,7 @@ def test_scripted_specialized_names_match_schema_stages() -> None:
     core_calc = schema_names("calc")
     ranges = schema_names("calc", "ranges")
     flow = _script_tool_names("flowchart_gen")
-    assert flow[0] == "delegate_to_draw_subagent"
+    assert flow[0] == "delegate_to_subagent"
     assert flow[0] in core_draw
     for name in flow[1:]:
         if name == "shape_get_tree":
@@ -103,9 +103,9 @@ def test_scripted_specialized_names_match_schema_stages() -> None:
         else:
             assert name in shapes, name
     sort_names = _script_tool_names("data_sorting")
-    assert sort_names[0] == "delegate_to_calc_subagent"
+    assert sort_names[0] == "delegate_to_subagent"
     assert sort_names[0] in core_calc
-    finish = sort_names.index("specialized_workflow_finished")
+    finish = sort_names.index("workflow_finished")
     for name in sort_names[1 : finish + 1]:
         assert name in ranges, name
     for name in sort_names[finish + 1 :]:
@@ -131,11 +131,11 @@ def test_scripted_flowchart_inner_loop_nests_shapes() -> None:
     )
     assert err is None
     names = [item["name"] for item in trace]
-    assert "delegate_to_draw_subagent" in names
+    assert "delegate_to_subagent" in names
     nested = [item for item in trace if item.get("nested")]
     assert any(item["name"] == "shape_upsert" for item in nested)
     assert any(item["name"] == "shape_connect" for item in nested)
-    assert any(item["name"] == "specialized_workflow_finished" for item in nested)
+    assert any(item["name"] == "workflow_finished" for item in nested)
     assert all(item.get("domain") == "shapes" for item in nested)
 
 
@@ -161,10 +161,10 @@ def test_calc_minimal_preset_still_runs_specialized_sort() -> None:
     )
     assert err is None
     names = [item["name"] for item in trace]
-    assert "delegate_to_calc_subagent" in names
+    assert "delegate_to_subagent" in names
     nested = [item for item in trace if item.get("nested")]
     assert any(item["name"] == "sort_range" for item in nested)
-    assert any(item["name"] == "specialized_workflow_finished" for item in nested)
+    assert any(item["name"] == "workflow_finished" for item in nested)
 
 
 def test_writer_minimal_scripted_apply_task() -> None:

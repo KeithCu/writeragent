@@ -148,7 +148,7 @@ class TestSubagentCollector:
 
     def test_discovery_tools_once(self):
         class _DiscTool(ToolBase):
-            name = "list_nearby_files"
+            name = "research_list_nearby_files"
 
             def execute(self, ctx, **kwargs):
                 return {}
@@ -165,17 +165,17 @@ class TestSubagentCollector:
         ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services={"tools": registry})
 
         tools = collect_sub_agent_tools(ctx, "writing_plan")
-        assert len([t for t in tools if t.name == "list_nearby_files"]) == 1
+        assert len([t for t in tools if t.name == "research_list_nearby_files"]) == 1
 
     def test_search_nearby_files_follows_folder_search_enabled(self):
         class _SearchTool(ToolBase):
-            name = "search_nearby_files"
+            name = "research_search_nearby_files"
 
             def execute(self, ctx, **kwargs):
                 return {}
 
         class _GrepTool(ToolBase):
-            name = "grep_nearby_files"
+            name = "research_grep_nearby_files"
 
             def execute(self, ctx, **kwargs):
                 return {}
@@ -194,24 +194,24 @@ class TestSubagentCollector:
         with patch("plugin.doc.document_research.folder_search_enabled", return_value=False):
             tools_disabled = collect_sub_agent_tools(ctx, "writing_plan")
             names_disabled = {t.name for t in tools_disabled}
-            assert "grep_nearby_files" in names_disabled
-            assert "search_nearby_files" not in names_disabled
+            assert "research_grep_nearby_files" in names_disabled
+            assert "research_search_nearby_files" not in names_disabled
 
         with patch("plugin.doc.document_research.folder_search_enabled", return_value=True):
             tools_enabled = collect_sub_agent_tools(ctx, "writing_plan")
             names_enabled = {t.name for t in tools_enabled}
-            assert "search_nearby_files" in names_enabled
-            assert "grep_nearby_files" not in names_enabled
+            assert "research_search_nearby_files" in names_enabled
+            assert "research_grep_nearby_files" not in names_enabled
 
     def test_deep_collector_is_shared_collector_with_discovery_off(self):
         class _DeepTool(ToolBase):
-            name = "deep_research_web"
+            name = "deep_research_search_web"
 
             def execute(self, ctx, **kwargs):
                 return {}
 
         class _DiscTool(ToolBase):
-            name = "list_nearby_files"
+            name = "research_list_nearby_files"
 
             def execute(self, ctx, **kwargs):
                 return {}
@@ -229,8 +229,8 @@ class TestSubagentCollector:
 
         tools = collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)
         names = {t.name for t in tools}
-        assert "deep_research_web" in names
-        assert "list_nearby_files" not in names
+        assert "deep_research_search_web" in names
+        assert "research_list_nearby_files" not in names
 
 
 class TestPromptToolMatching:
@@ -244,11 +244,11 @@ class TestPromptToolMatching:
         target_rules = APPLY_DOCUMENT_TARGET_RULES.strip()
 
         # Brainstorming / writing_plan: content rules present, target='search' rules absent
-        b_instr = get_sub_agent_instructions("BASE", tool_names=["save_design_spec"])
+        b_instr = get_sub_agent_instructions("BASE", tool_names=["brainstorming_save_design_spec"])
         assert html_rules in b_instr
         assert target_rules not in b_instr
 
-        w_instr = get_sub_agent_instructions("BASE", tool_names=["write_document_section"])
+        w_instr = get_sub_agent_instructions("BASE", tool_names=["writing_plan_write_section"])
         assert html_rules in w_instr
         assert target_rules not in w_instr
 
@@ -280,9 +280,9 @@ def test_collect_writing_tools_merges_doc_research_reads():
         services={"tools": registry},
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
-    assert "writing_research_web" in names
-    assert "write_document_section" in names
-    assert "list_nearby_files" in names
+    assert "writing_plan_search_web" in names
+    assert "writing_plan_write_section" in names
+    assert "research_list_nearby_files" in names
 
 
 def test_collect_writing_tools_excludes_specialized_workflow_finished():
@@ -302,6 +302,6 @@ def test_collect_writing_tools_excludes_specialized_workflow_finished():
         services={"tools": registry},
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "writing_plan")}
-    assert "writing_research_web" in names
-    assert "write_document_section" in names
-    assert "specialized_workflow_finished" not in names
+    assert "writing_plan_search_web" in names
+    assert "writing_plan_write_section" in names
+    assert "workflow_finished" not in names

@@ -29,25 +29,25 @@ WRITING_SUB_AGENT_INSTRUCTIONS = """WRITING PLAN MODE:
 You help write documents collaboratively using a structured, plan-driven approach.
 
 WORKFLOW (in order):
-1. Explore context: read the active document (get_content / get_tree) or design spec to understand the user's goal, and search the public web using `writing_research_web` if needed to collect details.
+1. Explore context: read the active document (get_content / get_tree) or design spec to understand the user's goal, and search the public web using `writing_plan_search_web` if needed to collect details.
 2. Propose a structured Writing Plan/Outline - ONE outline of sections/headings as HTML. Ask the user if they want to modify the outline.
 3. Keep the outline in the conversation history as a roadmap. Do NOT write the full outline/headings list to the document at the start (as headings will be written with section content and would appear twice).
 4. Implement sections one-by-one:
    - Generate high-quality content for a single section as HTML (including its heading).
-   - Insert it into the document using `write_document_section`.
+   - Insert it into the document using `writing_plan_write_section`.
    - Ask the user for approval or feedback on the written section before moving to the next section.
 5. Once all sections are written, call reply_to_user with a handoff answer and writing_plan_finished=true.
 
 HTML RULES (CRITICAL):
 - All reply_to_user answer text must be HTML.
-- write_document_section content must be a JSON array of HTML strings — no Markdown (#, **, ```).
+- writing_plan_write_section content must be a JSON array of HTML strings — no Markdown (#, **, ```).
 - Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
 
 COMPLETION TOOLS:
 - reply_to_user: continue the writing plan conversation (questions, section drafts, summaries).
 - reply_to_user with writing_plan_finished=true: END the session after all sections are completed and reviewed.
-- write_document_section: write content for a section to the document.
-- writing_research_web: search the public web for context or information."""
+- writing_plan_write_section: write content for a section to the document.
+- writing_plan_search_web: search the public web for context or information."""
 
 
 class WritingResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
@@ -55,7 +55,7 @@ class WritingResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
     required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
-    name: str | None = "writing_research_web"
+    name: str | None = "writing_plan_search_web"
     description: str = "Search the public web for context during document writing. Reformats findings as HTML in reply_to_user."
 
 
@@ -64,7 +64,7 @@ class WriteDocumentSection(HtmlContentToolBase):
 
     specialized_domain: ClassVar[str | None] = "writing_plan"
     required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
-    name: str | None = "write_document_section"
+    name: str | None = "writing_plan_write_section"
     description: str = "Insert or replace a section of document content with formatted HTML."
 
 

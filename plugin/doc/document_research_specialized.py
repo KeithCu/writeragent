@@ -14,7 +14,7 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
-from plugin.doc.specialized_catalog import normalize_inner_result
+from plugin.doc.specialized_catalog import FINISH_TOOL_NAME, normalize_inner_result
 from plugin.framework.errors import make_tool_error, user_stopped_payload
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancelled, is_cancelled
@@ -58,7 +58,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         return registry.get_tools(
             doc=opened_model,
             doc_type=doc_type,
-            names=frozenset((*allowlist, "specialized_workflow_finished")),
+            names=frozenset((*allowlist, FINISH_TOOL_NAME)),
             exclude_tiers=(),
         )
 
@@ -70,7 +70,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     by_name = {t.name: t for t in tools}
     ordered = [
         by_name[name]
-        for name in (*allowlist, "specialized_workflow_finished")
+        for name in (*allowlist, FINISH_TOOL_NAME)
         if name in by_name
     ]
     missing = [name for name in allowlist if name not in by_name]
@@ -85,7 +85,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     instructions = (
         f"You are a read-only assistant for one {doc_type} file. "
         "Extract only the information needed for the task. Do not modify the document. "
-        "Call specialized_workflow_finished with a compact summary when done."
+        f"Call {FINISH_TOOL_NAME} with a compact summary when done."
     )
 
     def tool_call_handler(step: Any) -> None:
@@ -101,7 +101,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         smol_tools,
         instructions=instructions,
         examples_key=f"document_research:{doc_type}",
-        final_answer_tool_name="specialized_workflow_finished",
+        final_answer_tool_name=FINISH_TOOL_NAME,
         task=task,
         stop_message="Document read stopped by user.",
         error_prefix="Document research read agent failed",
@@ -112,7 +112,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
 class DelegateReadDocument(ToolBase):
     """Outer document_research tool: open a sibling file and run the inner read-only sub-agent."""
 
-    name: str | None = "delegate_read_document"
+    name: str | None = "research_delegate_read"
     description: str = (
         "Open a nearby file by path or basename (read-only, hidden) and run a read-only sub-agent "
         "with production read tools for that file type. Returns extracted data to the document_research orchestrator."

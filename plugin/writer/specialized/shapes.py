@@ -29,7 +29,7 @@ from plugin.draw.shapes import CreateDiagram as DrawCreateDiagram
 
 class UpsertShape(DrawUpsertShape, ToolWriterShapeBase):
     name: str | None = "shape_upsert"
-    # Specialized for all document types (use delegate_to_*_subagent(domain=shapes)).
+    # Specialized for all document types (use delegate_to_subagent(domain=shapes)).
     # Inherits the union uno_services from the Draw base class; shared tool names require
     # the Writer class to accept every service that shares those names.
     tier: str = "specialized"

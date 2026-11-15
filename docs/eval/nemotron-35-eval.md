@@ -121,7 +121,7 @@ Wording in `CALC_CORE_DIRECTIVES` / `CALC_WORKFLOW` and
 ([`plugin/framework/prompts.py`](../../plugin/framework/prompts.py),
 [`plugin/calc/cells.py`](../../plugin/calc/cells.py)):
 
-- Sort / reorder → `delegate_to_calc_subagent(domain="ranges")` then
+- Sort / reorder → `delegate_to_subagent(domain="ranges")` then
   `range_sort`. Do **not** use `=PY` to sort in place.
 - `=PY` dest is an empty cell **outside** DataRange (J1 / first empty column),
   even if the user asked for H1.

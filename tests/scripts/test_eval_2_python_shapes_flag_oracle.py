@@ -37,21 +37,21 @@ from eval_2_python_shapes_flag_oracle import (  # noqa: E402
 _PASS_LOG = "\n".join((
     "=== Tool-calling loop START (max 50 rounds) ===",
     "Tool loop round 0: sending 2 messages to API...",
-    "Tool call: delegate_to_writer_subagent("
+    "Tool call: delegate_to_subagent("
     '{"domain": "python", "task": "American flag with shapes"})',
     "Tool loop round 1: sending 4 messages to API...",
     "streaming_loop: accumulated tool_calls tool_calls=["
     '{"index": 0, "type": "function", "function": '
-    '{"name": "delegate_tool_domains", "arguments": '
+    '{"name": "python_delegate_domains", "arguments": '
     '"{\\"domains\\": [\\"shapes\\"], \\"task\\": \\"flag\\"}"}}]',
-    "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
+    "SmolToolAdapter executing async tool 'python_run_script' on worker",
     "create_shape snapshot [after_page_add]: size=(19001x1200)",
     "Tool loop round 2: sending 6 messages to API...",
 ))
 _FEW_SHOT_ONLY = (
-    '"content": "example Action {\\"name\\": \\"delegate_tool_domains\\", '
+    '"content": "example Action {\\"name\\": \\"python_delegate_domains\\", '
     '\\"arguments\\": {\\"domains\\": [\\"shapes\\"]}} '
-    'run_venv_python_script wa.shape.upsert"'
+    'python_run_script wa.shape.upsert"'
 )
 # Stand-in for LibreOffice's Thumbnails/thumbnail.png (1x1 PNG).
 _TINY_PNG = bytes.fromhex(
@@ -144,18 +144,18 @@ def test_few_shot_text_is_not_execution() -> None:
 _NESTED_EMPTY_DTD_LOG = "\n".join((
     "=== Tool-calling loop START (max 50 rounds) ===",
     "Tool loop round 0: sending 2 messages to API...",
-    'Tool call: delegate_to_writer_subagent('
+    'Tool call: delegate_to_subagent('
     '{"domain": "python", "task": "American flag with shapes"})',
     _FEW_SHOT_ONLY,
-    "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
-    "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
+    "SmolToolAdapter executing async tool 'python_delegate_domains' on worker",
+    "SmolToolAdapter executing async tool 'python_run_script' on worker",
     "run_venv script: import writeragent as wa",
     "wa.shape.upsert('create', shape_type='rectangle', width=19001, height=1000)",
     "create_shape snapshot [after_page_add]: size=(19001x1200)",
     "Tool loop round 1: sending 4 messages to API...",
 ))
 _SYNC_SHAPES_DTD_LOG = "\n".join((
-    'Tool call: delegate_to_writer_subagent('
+    'Tool call: delegate_to_subagent('
     '{"domain": "python", "task": "American flag with shapes"})',
     "=== Sync response: {",
     '  "choices": [',
@@ -166,7 +166,7 @@ _SYNC_SHAPES_DTD_LOG = "\n".join((
     '        "tool_calls": [',
     "          {",
     '            "function": {',
-    '              "name": "delegate_tool_domains",',
+    '              "name": "python_delegate_domains",',
     '              "arguments": "{\\"domains\\": [\\"shapes\\"], \\"task\\": \\"flag\\"}"',
     "            }",
     "          }",
@@ -175,11 +175,11 @@ _SYNC_SHAPES_DTD_LOG = "\n".join((
     "    }",
     "  ]",
     "}",
-    "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
+    "SmolToolAdapter executing async tool 'python_delegate_domains' on worker",
     _FEW_SHOT_ONLY,
 ))
 _FOOTNOTES_ONLY_DTD_LOG = "\n".join((
-    'Tool call: delegate_to_writer_subagent('
+    'Tool call: delegate_to_subagent('
     '{"domain": "python", "task": "add a footnote"})',
     "=== Sync response: {",
     '  "choices": [',
@@ -190,7 +190,7 @@ _FOOTNOTES_ONLY_DTD_LOG = "\n".join((
     '        "tool_calls": [',
     "          {",
     '            "function": {',
-    '              "name": "delegate_tool_domains",',
+    '              "name": "python_delegate_domains",',
     '              "arguments": "{\\"domains\\": [\\"footnotes\\"], \\"task\\": \\"cite the source\\"}"',
     "            }",
     "          }",
@@ -199,8 +199,8 @@ _FOOTNOTES_ONLY_DTD_LOG = "\n".join((
     "    }",
     "  ]",
     "}",
-    "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
-    "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
+    "SmolToolAdapter executing async tool 'python_delegate_domains' on worker",
+    "SmolToolAdapter executing async tool 'python_run_script' on worker",
     "wa.shape.upsert('create', shape_type='rectangle', width=19001, height=1000)",
     _FEW_SHOT_ONLY,
 ))
@@ -226,7 +226,7 @@ def test_nested_smol_dtd_empty_args_counts_when_script_places_shapes() -> None:
         evidence,
     )
     assert result.passed, result.failures
-    assert not any("delegate_tool_domains" in item for item in result.failures)
+    assert not any("python_delegate_domains" in item for item in result.failures)
 
 
 def test_sync_response_tool_call_args_count_for_nested_dtd() -> None:
@@ -241,10 +241,10 @@ def test_sync_response_tool_call_args_count_for_nested_dtd() -> None:
 
 def test_tool_async_empty_dtd_counts_when_later_venv_upserts() -> None:
     log = "\n".join((
-        'Tool call: delegate_to_writer_subagent({"domain": "python", "task": "flag"})',
-        "thread='tool-async-delegate_tool_domains'",
-        "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
-        'Tool call: run_venv_python_script("import writeragent as wa\\nwa.shape.upsert(\'create\')")',
+        'Tool call: delegate_to_subagent({"domain": "python", "task": "flag"})',
+        "thread='tool-async-python_delegate_domains'",
+        "SmolToolAdapter executing async tool 'python_run_script' on worker",
+        'Tool call: python_run_script("import writeragent as wa\\nwa.shape.upsert(\'create\')")',
     ))
     evidence = parse_path_evidence(log)
     assert evidence.delegate_shapes is True
@@ -256,9 +256,9 @@ def test_empty_dtd_and_content_few_shot_do_not_count_as_shapes() -> None:
     # Executed DTD with no domains payload, and wa.shape.upsert only inside
     # request content. A math script is not a shapes delegation.
     log = "\n".join((
-        "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
-        "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
-        'Tool call: run_venv_python_script("print(1)")',
+        "SmolToolAdapter executing async tool 'python_delegate_domains' on worker",
+        "SmolToolAdapter executing async tool 'python_run_script' on worker",
+        'Tool call: python_run_script("print(1)")',
         _FEW_SHOT_ONLY,
     ))
     evidence = parse_path_evidence(log)
@@ -280,7 +280,7 @@ def test_footnotes_only_dtd_does_not_count_as_shapes() -> None:
         evidence,
     )
     assert not result.passed
-    assert any("delegate_tool_domains" in item for item in result.failures)
+    assert any("python_delegate_domains" in item for item in result.failures)
 
 
 def test_passing_flag(tmp_path: Path) -> None:
@@ -395,7 +395,7 @@ def test_blank_page_fails() -> None:
 
 def test_llm_shape_upsert_without_venv_fails() -> None:
     log = "\n".join((
-        'Tool call: delegate_to_draw_subagent({"domain": "shapes", "task": "flag"})',
+        'Tool call: delegate_to_subagent({"domain": "shapes", "task": "flag"})',
         'Tool call: shape_upsert({"action": "create", "shape_type": "rectangle", "width": 19001})',
     ))
     evidence = parse_path_evidence(log)
@@ -409,13 +409,13 @@ def test_llm_shape_upsert_without_venv_fails() -> None:
     assert not result.passed
     assert any("LLM shape_upsert" in item for item in result.failures)
     assert any("python specialized" in item for item in result.failures)
-    assert any("run_venv" in item for item in result.failures)
+    assert any("python_run_script" in item for item in result.failures)
 
 
 def test_images_png_path_fails_even_with_venv() -> None:
     log = "\n".join((
         _PASS_LOG,
-        'Tool call: delegate_to_writer_subagent({"domain": "images", "task": "png flag"})',
+        'Tool call: delegate_to_subagent({"domain": "images", "task": "png flag"})',
         'Tool call: image_generate({"prompt": "american flag"})',
     ))
     evidence = parse_path_evidence(log)
@@ -486,7 +486,7 @@ def test_venv_args_wa_shape_upsert_is_bonus() -> None:
     log = (
         "streaming_loop: accumulated tool_calls tool_calls=["
         '{"index": 0, "type": "function", "function": '
-        '{"name": "run_venv_python_script", "arguments": '
+        '{"name": "python_run_script", "arguments": '
         '"import writeragent as wa\\nwa.shape.upsert(\'create\')"}}]'
     )
     evidence = parse_path_evidence(log)
@@ -498,15 +498,15 @@ def test_venv_args_wa_shape_upsert_is_bonus() -> None:
 def test_eval_trace_is_path_evidence_without_debug_log() -> None:
     trace = [
         {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "arguments": '{"domain": "python", "task": "American flag"}',
         },
         {
-            "name": "delegate_tool_domains",
+            "name": "python_delegate_domains",
             "arguments": '{"domains": ["shapes"], "task": "flag"}',
         },
         {
-            "name": "run_venv_python_script",
+            "name": "python_run_script",
             "arguments": "import writeragent as wa\nwa.shape.upsert('create')",
         },
     ]
@@ -518,7 +518,7 @@ def test_eval_trace_is_path_evidence_without_debug_log() -> None:
     assert evidence.images_path is False
     assert evidence.llm_shape_upsert is False
     images = evidence_from_eval_trace(
-        [{"name": "delegate_tool_domains", "arguments": '{"domains": ["images"]}'}]
+        [{"name": "python_delegate_domains", "arguments": '{"domains": ["images"]}'}]
     )
     assert images.images_path is True
     assert evidence_from_eval_trace(None).python_domain is False

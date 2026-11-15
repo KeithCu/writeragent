@@ -175,7 +175,7 @@ def insert_plots_and_report(ctx: ToolContext, images: list[dict[str, Any]], res:
 class RunVenvPythonScript(ToolCalcPythonBase):
     """Registered once; visible in Writer/Calc/Draw specialized ``domain=python`` via ``specialized_cross_cutting``."""
 
-    name: str | None = "run_venv_python_script"
+    name: str | None = "python_run_script"
     specialized_cross_cutting: ClassVar[bool] = True
     description: str = f"Run Python code in the configured venv. {_RESULT_NOTE}"
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)

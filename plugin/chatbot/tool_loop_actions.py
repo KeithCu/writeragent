@@ -42,7 +42,7 @@ from plugin.framework.client.model_fetcher import has_native_vision, set_native_
 from plugin.framework.html_stripper import StreamingHTMLStripper
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import get_config
-from plugin.framework.constants import SUBAGENT_TOOL_NAMES
+from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
 from plugin.framework.errors import (
     DocumentDisposedError,
     ToolExecutionError,
@@ -167,7 +167,7 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
 def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
     """Status bar text and chat run-line when a tool starts executing."""
     # crosshair: off
-    if func_name in SUBAGENT_TOOL_NAMES:
+    if func_name == DELEGATE_SUBAGENT_TOOL:
         return f"Running: delegate ({domain_from_delegate_args(func_args)})", format_delegate_running_chat_line(func_args)
     if func_name == "memory_upsert":
         return f"Running: {func_name}", format_upsert_memory_chat_line(func_args)
@@ -178,7 +178,7 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
     """Chat append body for a tool result (error or success); does not mutate *result_data*."""
     # crosshair: off
     status = result_data.get("status")
-    if func_name in SUBAGENT_TOOL_NAMES:
+    if func_name == DELEGATE_SUBAGENT_TOOL:
         detailed_text = format_delegate_result_chat_line(func_args, result_data)
     else:
         note = _result_note(result_data)
@@ -821,7 +821,7 @@ def build_tool_execute_fn(
             return json.dumps(format_error_payload(err), default=str)
         safe_args = args if isinstance(args, dict) else {}
 
-        delegate_domain = str(safe_args.get("domain") or "") if name in SUBAGENT_TOOL_NAMES else ""
+        delegate_domain = str(safe_args.get("domain") or "") if name == DELEGATE_SUBAGENT_TOOL else ""
         # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
         # they must receive the same HITL wiring as the outer web_research tool.
         needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
@@ -866,7 +866,7 @@ def build_tool_execute_fn(
         if doc_type_str in ("draw", "impress"):
             from plugin.draw.bridge import DrawBridge
 
-            # Async gateways (delegate_to_draw_subagent) run
+            # Async gateways (delegate_to_subagent) run
             # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
             active_page_idx = best_effort(
                 lambda: main.call(lambda: DrawBridge(doc).get_active_page_index()),

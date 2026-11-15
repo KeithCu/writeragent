@@ -113,7 +113,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, t
             sidebar_rows = sidebar.get_schemas("openai", **kwargs)
             eval_rows = eval_reg.get_schemas("openai", **kwargs)
             assert sidebar_rows == eval_rows
-            delegate_name = f"delegate_to_{kind}_subagent"
+            delegate_name = "delegate_to_subagent"
             assert _delegate_domain_enum(sidebar_rows, delegate_name) == _delegate_domain_enum(
                 eval_rows, delegate_name
             )
@@ -124,14 +124,14 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, t
 
 def test_draw_shapes_domain_advertises_upsert() -> None:
     names = {_schema_name(s) for s in build_eval_tool_schemas(kind="draw", active_domain="shapes")}
-    assert {"shape_upsert", "shape_connect", "shape_fill_fields", "specialized_workflow_finished"} <= names
+    assert {"shape_upsert", "shape_connect", "shape_fill_fields", "workflow_finished"} <= names
     assert "shape_upsert" not in _names("draw")
     assert "shape_fill_fields" not in _names("draw")
 
 
 def test_calc_ranges_domain_advertises_sort() -> None:
     names = {_schema_name(s) for s in build_eval_tool_schemas(kind="calc", active_domain="ranges")}
-    assert {"sort_range", "specialized_workflow_finished"} <= names
+    assert {"sort_range", "workflow_finished"} <= names
     assert "sort_range" not in _names("calc")
 
 
@@ -271,7 +271,7 @@ def test_prepare_keeps_specialized_inner_schemas() -> None:
         schema_density="skinny",
     )
     names = {schema_tool_name(s) for s in inner}
-    assert {"sort_range", "specialized_workflow_finished"} <= names
+    assert {"sort_range", "workflow_finished"} <= names
     sort_fn = next(
         (row.get("function") or row)
         for row in inner

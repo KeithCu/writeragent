@@ -145,7 +145,7 @@ class ToolDrawVisionBase(ToolDrawSpecialBase):
 
 
 class ToolDrawPptMasterBase(ToolDrawSpecialBase):
-    """PPT-Master sidebar mode — not exposed via delegate_to_draw_subagent."""
+    """PPT-Master sidebar mode — not exposed via delegate_to_subagent."""
 
     specialized_domain: ClassVar[str | None] = "ppt-master"
     specialized_domain_description: ClassVar[str | None] = "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."

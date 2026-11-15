@@ -762,8 +762,8 @@ def test_web_research_tool():
                 mock_get_resp.text = "<html><body><h1>Python 3.12.3 is available!</h1></body></html>"
                 mock_get.return_value = mock_get_resp
 
-                from plugin.writer.specialized_base import DelegateToSpecializedWriter
-                tool = DelegateToSpecializedWriter()
+                from plugin.doc.specialized_base import DelegateToSubagent
+                tool = DelegateToSubagent()
 
                 with patch("plugin.framework.config.get_config", side_effect=_web_research_cfg_get()):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
@@ -788,8 +788,8 @@ def test_web_research_tool_stop():
     with patch("plugin.chatbot.smol_agent.WriterAgentSmolModel.generate", return_value=ChatMessage(role=MessageRole.ASSISTANT, content="")):
         with patch("urllib.request.urlopen"):
             with patch("requests.get"):
-                from plugin.writer.specialized_base import DelegateToSpecializedWriter
-                tool = DelegateToSpecializedWriter()
+                from plugin.doc.specialized_base import DelegateToSubagent
+                tool = DelegateToSubagent()
 
                 with patch("plugin.framework.config.get_config", side_effect=_web_research_cfg_get()):
                         with patch("plugin.framework.config.get_api_config", return_value={}):
@@ -838,8 +838,8 @@ def test_web_research_tool_approval():
             mock_resp.read.return_value = b"<html><body>Search Results</body></html>"
             mock_url.return_value.__enter__.return_value = mock_resp
             with patch("requests.get"):
-                from plugin.writer.specialized_base import DelegateToSpecializedWriter
-                tool = DelegateToSpecializedWriter()
+                from plugin.doc.specialized_base import DelegateToSubagent
+                tool = DelegateToSubagent()
                 with patch(
                     "plugin.framework.config.get_config",
                     side_effect=_web_research_cfg_get(

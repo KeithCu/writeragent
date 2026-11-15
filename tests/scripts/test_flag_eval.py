@@ -60,15 +60,15 @@ def _odt(path: Path, *, stars: int) -> Path:
 def _good_trace() -> list[dict[str, str]]:
     return [
         {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "python", "task": "American flag"}),
         },
         {
-            "name": "delegate_tool_domains",
+            "name": "python_delegate_domains",
             "arguments": json.dumps({"domains": ["shapes"], "task": "flag"}),
         },
         {
-            "name": "run_venv_python_script",
+            "name": "python_run_script",
             "arguments": "import writeragent as wa\nwa.shape.upsert('create', width=19001)",
         },
     ]
@@ -98,12 +98,12 @@ def test_lo_trace_missing_venv_fails(tmp_path: Path) -> None:
     trace = _good_trace()[:2]
     scored = score_flag_example(trace, backend="lo", odt_path=str(odt))
     assert scored.passed is False
-    assert any("run_venv" in item for item in scored.failures)
+    assert any("python_run_script" in item for item in scored.failures)
 
 
 def test_string_world_refuses_venv_and_domain_delegate() -> None:
     world = WriterWorld("")
-    venv = dispatch_string_tool(world, "run_venv_python_script", "{}")
+    venv = dispatch_string_tool(world, "python_run_script", "{}")
     assert "unsupported_in_eval" in venv
     refused = _dispatch_delegate_tool_domains(
         kind="writer",
@@ -132,9 +132,9 @@ def test_shapes_hop_exposes_venv_and_hides_shape_upsert() -> None:
 
     rows = delegated_domain_schemas("writer", ["shapes"])
     names = {schema_tool_name(row) for row in rows}
-    assert "run_venv_python_script" in names
+    assert "python_run_script" in names
     assert "shape_get_summary" in names
-    assert "specialized_workflow_finished" in names
+    assert "workflow_finished" in names
     assert "shape_upsert" not in names
-    assert "delegate_tool_domains" not in names
-    assert "delegate_to_writer_subagent" not in names
+    assert "python_delegate_domains" not in names
+    assert "delegate_to_subagent" not in names

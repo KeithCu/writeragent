@@ -28,11 +28,6 @@ TOC_LIST_TASK_ID = "toc_list_entries"
 TOC_EDIT_TASK_ID = "toc_renumber_insert"
 TOC_TASK_IDS = frozenset({TOC_LIST_TASK_ID, TOC_EDIT_TASK_ID})
 
-# This oracle does not import plugin, so it mirrors plugin/framework/constants.SUBAGENT_TOOL_NAMES.
-_SUBAGENT_TOOLS = frozenset(
-    {"delegate_to_writer_subagent", "delegate_to_calc_subagent", "delegate_to_draw_subagent"}
-)
-
 _STRING_FAILURE = (
     "TOC benchmark tasks require the headless LO backend; "
     "the string simulator cannot run these tasks"
@@ -56,11 +51,11 @@ def links_in_answer(text: str) -> list[str]:
 
 
 def finish_answer_from_trace(trace: list[dict[str, Any]] | None) -> str:
-    """Extract answer from the last specialized_workflow_finished call in trace."""
+    """Extract answer from the last workflow_finished call in trace."""
     if not trace:
         return ""
     for entry in reversed(trace):
-        if entry.get("name") == "specialized_workflow_finished":
+        if entry.get("name") == "workflow_finished":
             args = as_dict(entry.get("arguments"))
             return str(args.get("answer") or "")
     return ""
@@ -101,7 +96,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
         name = entry.get("name") or ""
         args = as_dict(entry.get("arguments"))
 
-        if name in _SUBAGENT_TOOLS:
+        if name == "delegate_to_subagent":
             domain = str(args.get("domain") or "")
             if "indexes" in domain:
                 has_delegate = True
@@ -111,7 +106,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
                 include_links_requested = True
 
     if not has_delegate:
-        failures.append("No delegate_to_*_subagent call with domain 'indexes'")
+        failures.append("No delegate_to_subagent call with domain 'indexes'")
     if not has_list_tool:
         failures.append("No index_list_toc_entries call in trace")
 

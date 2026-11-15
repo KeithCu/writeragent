@@ -14,51 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Gateway tool to delegate tasks to specialized Draw toolsets."""
+"""Draw specialized toolset metadata (gateway lives in ``plugin.doc.specialized_base.DelegateToSubagent``)."""
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING, ClassVar, Type
-
-from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
-from plugin.framework.constants import DRAW_SUBAGENT_TOOL
-from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
-
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolBase
-
-_DRAW_DELEGATE_LEAD = (
-    "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
-    "on this drawing or presentation and returns a summary. "
-    f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
-)
-
-
-def _format_draw_delegate_description(domains: list[str]) -> str:
-    """Build the Draw/Impress delegate tool description listing the exact bound domains."""
-    domain_list = ", ".join(domains)
-    return f"{_DRAW_DELEGATE_LEAD}Available domains: {domain_list}."
-
-
-class DelegateToSpecializedDraw(DelegateToSpecializedBase):
-    """Gateway tool to delegate tasks to specialized Draw toolsets.
-
-    This spins up a sub-agent with a limited set of tools to focus on the
-    user's specific request, preventing context pollution.
-    """
-
-    name: str | None = DRAW_SUBAGENT_TOOL
-    description: str = (
-        f"{_DRAW_DELEGATE_LEAD}"
-        "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
-        "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
-    )
-
-    uno_services: list[str] | None = DRAW_AND_IMPRESS
-    _special_base_class: ClassVar[Type[ToolBase]] = ToolDrawSpecialBase  # type: ignore[type-abstract]
-    _agent_label: ClassVar[str] = "Draw"
-
-    def description_for_services(self, uno_services: frozenset[str]) -> str:
-        """Return the delegate description listing only the domains bound for *uno_services*."""
-        return _format_draw_delegate_description(self.domains_for_services(uno_services))

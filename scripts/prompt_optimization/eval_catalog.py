@@ -38,7 +38,7 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
         (
             "write_range",
             "get_sheet_summary",
-            "delegate_to_calc_subagent",
+            "delegate_to_subagent",
         ),
     ),
     # Calc-specific outer tools only (drops shared chatbot extras:
@@ -54,7 +54,7 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
             "write_range",
             "list_functions",
             "get_sheet_summary",
-            "delegate_to_calc_subagent",
+            "delegate_to_subagent",
         ),
     ),
     # Smallest outer set for Writer apply-HTML tasks (table_from_mess, …).
@@ -218,7 +218,7 @@ def resolve_tool_allowlist(
     """Allowlist for this catalog, or ``None`` to keep every advertised tool.
 
     Specialized inner catalogs (``active_domain`` set) are never filtered so
-    ``delegate_to_*_subagent`` still sees ``sort_range`` / shapes / etc.
+    ``delegate_to_subagent`` still sees ``sort_range`` / shapes / etc.
     Kind-specific presets no-op on other document kinds.
     """
     if active_domain:

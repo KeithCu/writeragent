@@ -293,12 +293,12 @@ def finish_immediately_after_peer_sends(captures: list[dict[str, Any]]) -> bool:
     finished_after = 0
     sends = 0
     for tools in decided_rows:
-        if "send_peer_work" in tools or "send_peer_result" in tools:
+        if "peer_send_work" in tools or "peer_send_result" in tools:
             saw_send = True
             sends += 1
             continue
         if saw_send and (
-            "specialized_workflow_finished" in tools or "final_answer" in tools
+            "workflow_finished" in tools or "final_answer" in tools
         ):
             finished_after += 1
             saw_send = False

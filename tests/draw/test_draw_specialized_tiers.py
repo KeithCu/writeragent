@@ -93,7 +93,7 @@ def test_impress_active_domain_includes_slide_specialized_tools(domain: str, exp
 
     registry = get_tools()
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc(), active_domain=domain)}
-    assert "specialized_workflow_finished" in names
+    assert "workflow_finished" in names
     assert expected_subset <= names
 
 

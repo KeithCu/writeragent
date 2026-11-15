@@ -126,9 +126,9 @@ The shared ReAct **system template** lives in [`toolcalling_agent_prompts.py`](.
 | `librarian` | `LIBRARIAN_EXAMPLES` in `smol_examples.py` | `reply_to_user` |
 | `web_research` | `WEB_RESEARCH_EXAMPLES_BLOCK` | `final_answer` |
 | `ppt-master` | `PPT_MASTER_EXAMPLES` in `smol_examples.py` | `ppt_master_finished` |
-| `writer:python`, `calc:python`, `draw:python`, … | `PYTHON_SPECIALIZED_EXAMPLES` | **`specialized_workflow_finished`** (after `run_venv_python_script`) |
-| `writer:images`, `calc:images`, `draw:images`, … | `IMAGES_SPECIALIZED_EXAMPLES` | **`specialized_workflow_finished`** (after `image_generate` with `source_image='selection'` for edits) |
-| Any other (`writer:shapes`, `document_research:calc`, …) | `DELEGATE_GENERIC_EXAMPLES_BLOCK` | **`specialized_workflow_finished`** |
+| `writer:python`, `calc:python`, `draw:python`, … | `PYTHON_SPECIALIZED_EXAMPLES` | **`workflow_finished`** (after `python_run_script`) |
+| `writer:images`, `calc:images`, `draw:images`, … | `IMAGES_SPECIALIZED_EXAMPLES` | **`workflow_finished`** (after `image_generate` with `source_image='selection'` for edits) |
+| Any other (`writer:shapes`, `document_research:calc`, …) | `DELEGATE_GENERIC_EXAMPLES_BLOCK` | **`workflow_finished`** |
 
 The delegate block reuses the web-research *shape* (two `web_search` steps) only to teach the ReAct JSON format; those tool names are not on the specialized tool list. Both blocks pass `{"query": "..."}`, matching `DuckDuckGoSearchTool.inputs`. The real task is the manager’s user message; domain behavior is in `instructions=` and `__TOOLS_LIST__`. The venv PPT-Master agent passes `get_examples_block("ppt-master")` as `system_prompt_examples` so it does not fall through to the web-research demo.
 
@@ -152,7 +152,7 @@ Do **not** merge **`tool_loop`** with **`ToolCallingAgent`** without a product d
 |----------|---------|
 | Transcript shape | OpenAI multi-turn vs ReAct steps |
 | Streaming / FSM | Chat drain + sidebar state vs sub-agent `run()` |
-| Final-answer tools | `reply_to_user` (sticky modes: leave via flags `switch_to_document_mode` / `brainstorming_finished` / `writing_plan_finished`), `specialized_workflow_finished` |
+| Final-answer tools | `reply_to_user` (sticky modes: leave via flags `switch_to_document_mode` / `brainstorming_finished` / `writing_plan_finished`), `workflow_finished` |
 | Threading | `SmolToolAdapter` marshals all synchronous tools (`execute` / `execute_safe`) to the main thread by default |
 
 ---
@@ -177,6 +177,21 @@ Shipped behavior: **`WriterAgentSmolModel`** passes **`completion_kwargs.get("to
 - **Small:** **`WriterAgentSmolModel`** owns one smol HTTP policy; one **`LlmClient`**, shared adapters/factory, no parallel HTTP implementations.
 - **Robust:** preserves the known-good LocalAI request shape while keeping smol's ReAct parser.
 - **Reuse:** maximal **below** the wire policy.
+
+---
+
+## 13. Chat and orchestration tool names
+
+Chat-mode and orchestration tools use the `<domain>_<verb>[_<object>]` naming convention:
+
+- **Specialized gateways:** `delegate_to_subagent`, `delegate_to_subagent`, `delegate_to_subagent`
+- **Python / domain delegation:** `python_run_script`, `python_delegate_domains`
+- **Finish:** `workflow_finished`, `ppt_master_finished`
+- **Peer orchestration:** `peer_send_work`, `peer_send_result`
+- **Document research:** `research_list_nearby_files`, `research_grep_nearby_files`, `research_search_nearby_files`, `research_delegate_read`
+- **Sidebar modes:** `brainstorming_search_web`, `brainstorming_save_design_spec`, `writing_plan_search_web`, `writing_plan_write_section`, `deep_research_search_web`
+
+The `specialized_control` session entry tools (`brainstorming_session`, `deep_research_session`, `writing_plan_session`, `ppt_master_session`, `librarian_onboarding`) keep their names because they are invoked by the host and never exposed to an LLM. `reply_to_user` keeps its name for now, and the ppt-master tools keep theirs because the vendored `plugin/contrib/ppt_master/skill/SKILL.md` names them.
 
 ---
 

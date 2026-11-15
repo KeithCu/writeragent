@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from plugin.framework.config import get_config
-from plugin.framework.constants import SUBAGENT_TOOL_NAMES
+from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
 from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
     out: list[dict[str, Any]] = []
     for schema in schemas:
         fn = schema.get("function") if isinstance(schema, dict) else None
-        if not isinstance(fn, dict) or fn.get("name") not in SUBAGENT_TOOL_NAMES:
+        if not isinstance(fn, dict) or fn.get("name") != DELEGATE_SUBAGENT_TOOL:
             out.append(schema)
             continue
         params = fn.get("parameters")
@@ -95,14 +95,14 @@ def get_vision_core_directive(model: Any, ctx: Any) -> str:
     if _doc_type.is_draw(model):
         return (
             'When the user wants OCR or content from an embedded image, '
-            'call delegate_to_draw_subagent(domain="vision"). '
+            f'call {DELEGATE_SUBAGENT_TOOL}(domain="vision"). '
             "That runs OCR on the currently selected image and returns the recognized text "
             "(the slide stays unchanged). You must use this call to perform OCR."
         )
     if not _doc_type.is_calc(model):
         return ""
     return (
-        'When the user wants OCR or content from an embedded image, call delegate_to_calc_subagent(domain="vision"). '
+        f'When the user wants OCR or content from an embedded image, call {DELEGATE_SUBAGENT_TOOL}(domain="vision"). '
         "That runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, "
         "below the image. You must use this call to perform OCR."
     )

@@ -494,7 +494,7 @@ PYTHON_SHAPES_FLAG = {
     "backend": "lo",
     "rubric": (
         "Headless Writer. Trace must show delegate domain=python, "
-        "delegate_tool_domains including shapes, and run_venv_python_script "
+        "python_delegate_domains including shapes, and python_run_script "
         "(not images, not LLM-only shape_upsert). Exported .odt must be a "
         "page-scale striped field. Under-counted stars are soft. "
         "No writeragent_debug.log."

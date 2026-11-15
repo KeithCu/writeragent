@@ -107,7 +107,7 @@ def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
 
 # Chat keeps specialized + mcp off the default list (_DEFAULT_EXCLUDE_TIERS in tool.py).
 # MCP advertise policy is forked: keep mcp-tier tools; hide specialized except in direct_flat.
-# tier="chat" (send_peer_work / send_peer_result) stays off both MCP lists.
+# tier="chat" (peer_send_work / peer_send_result) stays off both MCP lists.
 MCP_DELEGATE_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "chat"})
 MCP_DIRECT_FLAT_EXCLUDE_TIERS = frozenset({"specialized_control", "chat"})
 
@@ -197,10 +197,9 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
         mode_hint = " Call tool_find with no arguments for the full specialized domain catalog, then tool_find(domain=…) for tool schemas in that area; call tools by name. No WriterAgent LLM endpoint is required."
     else:
         mode_hint = (
-            " For specialized capabilities, call the target document's sub-agent tool "
-            "(delegate_to_writer_subagent, delegate_to_calc_subagent or delegate_to_draw_subagent) "
-            "with domain and a plain-language task; a sub-agent with that domain's tools does the work "
-            "and returns a summary (requires a WriterAgent chat endpoint for the sub-agent)."
+            " For specialized capabilities, call delegate_to_subagent"
+            " with domain and a plain-language task; a sub-agent with that domain's tools does the work"
+            " and returns a summary (requires a WriterAgent chat endpoint for the sub-agent)."
         )
     return format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
 

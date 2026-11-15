@@ -18,9 +18,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Type
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES, WRITER_SUBAGENT_TOOL
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -28,13 +28,8 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
-from plugin.framework.prompts import (
-    DELEGATION_PUBLIC_WEB_HINT,
-    DELEGATION_USER_FILE_DATA_HINT,
-    delegation_math_to_python_hint,
-    python_orchestrator_routing_line,
-)
-from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+from plugin.doc.specialized_catalog import FINISH_TOOL_NAME
 from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
@@ -83,27 +78,6 @@ class ToolWriterSpecialBase(ToolBase):
     specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_content", "get_tree"])
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
-
-
-class DelegateToSpecializedWriter(DelegateToSpecializedBase):
-    """Gateway tool to delegate tasks to specialized Writer toolsets.
-
-    This spins up a sub-agent with a limited set of tools (e.g., only Table tools)
-    to focus on the user's specific request, preventing context pollution.
-    """
-
-    name: str | None = WRITER_SUBAGENT_TOOL
-    description: str = (
-        "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
-        "For document_research and web_research, describe what to research in task (topics, sections, depth). "
-        f"{delegation_math_to_python_hint(delegate_tool=WRITER_SUBAGENT_TOOL)} "
-        f"{python_orchestrator_routing_line(delegate_tool=WRITER_SUBAGENT_TOOL)}"
-    )
-
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
-    # Abstract: no execute(); stored for __subclasses__ discovery only.
-    _special_base_class: ClassVar[Type[ToolBase]] = ToolWriterSpecialBase  # type: ignore[type-abstract]
-    _agent_label: ClassVar[str] = "Writer"
 
 
 # --- Domain-Specific Base Classes ---
@@ -286,7 +260,7 @@ class SpecializedWorkflowFinished(ToolBase):
     Mimics the built-in 'final_answer' tool of smolagents for specialized sub-agents.
     """
 
-    name: str | None = "specialized_workflow_finished"
+    name: str | None = FINISH_TOOL_NAME
     description: str = "Provides a final answer to the given task and exits the specialized toolset mode."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"answer": {"type": "string", "description": "The final answer to the task. Use only standard Python types (numbers, strings, lists), no Numpy types."}}, "required": ["answer"]}
     tier: str = "specialized_control"

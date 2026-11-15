@@ -87,9 +87,9 @@ def test_extract_structure_hidden_when_vision_unavailable(_mock_avail, writer_do
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_delegate_writer_gateway_includes_vision(_mock_avail):
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
-    gateway = DelegateToSpecializedWriter()
+    gateway = DelegateToSubagent()
     domains = gateway.parameters["properties"]["domain"]["enum"]
     assert "vision" in domains
 
@@ -99,7 +99,7 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
     schema = {
         "type": "function",
         "function": {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -128,7 +128,7 @@ def test_vision_venv_configured_false_without_venv_path(_cfg):
 def test_filter_vision_specialized_tools_removes_tool():
     tool = ExtractStructureFromImage()
     other = MagicMock()
-    other.name = "specialized_workflow_finished"
+    other.name = "workflow_finished"
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
         filtered = filter_vision_specialized_tools([tool, other], MagicMock())
     assert tool not in filtered
@@ -226,12 +226,12 @@ def test_extract_structure_draw_true_is_vision_error(mock_run, tool_ctx):
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 @patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok"})
 def test_delegate_draw_vision_passes_insert_false(mock_execute, _avail):
-    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.doc.specialized_base import DelegateToSubagent
 
     ctx = MagicMock()
     ctx.ctx = MagicMock()
     ctx.doc_type = "draw"
-    out = DelegateToSpecializedDraw().execute(ctx, domain="vision", task="")
+    out = DelegateToSubagent().execute(ctx, domain="vision", task="")
     assert out["status"] == "ok"
     mock_execute.assert_called_once()
     assert mock_execute.call_args.kwargs["insert_into_document"] is False
@@ -245,7 +245,7 @@ def test_vision_directive_draw_names_draw_gateway(_mock_avail):
     doc = MagicMock()
     doc.supportsService.side_effect = lambda svc: svc in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
     text = get_vision_core_directive(doc, MagicMock())
-    assert 'delegate_to_draw_subagent(domain="vision"' in text
+    assert 'delegate_to_subagent(domain="vision"' in text
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
@@ -259,12 +259,12 @@ def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 @patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok", "full_text": "hi"})
 def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_run_agent):
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
     ctx = MagicMock()
     ctx.ctx = MagicMock()
     ctx.doc_type = "writer"
-    gateway = DelegateToSpecializedWriter()
+    gateway = DelegateToSubagent()
     result = gateway.execute(
         ctx,
         domain="vision",
@@ -280,11 +280,11 @@ def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_run_agent)
 @patch("plugin.chatbot.smol_agent.run_inner_tool_agent")
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_run_agent):
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
     ctx = MagicMock()
     ctx.ctx = MagicMock()
-    gateway = DelegateToSpecializedWriter()
+    gateway = DelegateToSubagent()
     result = gateway.execute(ctx, domain="vision", task="OCR image")
 
     assert result["status"] == "error"
@@ -293,9 +293,9 @@ def test_delegate_vision_unavailable_skips_sub_agent(_avail, mock_run_agent):
 
 
 def test_delegate_vision_requires_document_lock_when_sub_agent():
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
-    gateway = DelegateToSpecializedWriter()
+    gateway = DelegateToSubagent()
     assert gateway.requires_document_lock({"domain": "vision"}) is True
 
 
@@ -304,7 +304,7 @@ def test_get_vision_core_directive_calc_when_available(_mock_avail, calc_doc):
     from plugin.vision.vision_availability import get_vision_core_directive
 
     text = get_vision_core_directive(calc_doc, MagicMock())
-    assert 'delegate_to_calc_subagent(domain="vision"' in text
+    assert 'delegate_to_subagent(domain="vision"' in text
 
 
 @patch("plugin.framework.queue_executor.main.call")

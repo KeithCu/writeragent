@@ -84,7 +84,7 @@ def _odt(path: Path, *, rows: list[tuple[str, str]] | None = None, bookmark_coun
 def _good_edit_trace() -> list[dict[str, str]]:
     return [
         {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "indexes", "task": "renumber"}),
         },
         {
@@ -100,7 +100,7 @@ def _good_edit_trace() -> list[dict[str, str]]:
             }),
         },
         {
-            "name": "specialized_workflow_finished",
+            "name": "workflow_finished",
             "arguments": json.dumps({"answer": "renumbered and inserted"}),
         },
     ]
@@ -159,7 +159,7 @@ def test_read_task_all_titles_passes() -> None:
     answer = "\n".join(f"{r.title} (level {r.level})" for r in FIXTURE_ROWS)
     trace = [
         {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
         {
@@ -167,7 +167,7 @@ def test_read_task_all_titles_passes() -> None:
             "arguments": "{}",
         },
         {
-            "name": "specialized_workflow_finished",
+            "name": "workflow_finished",
             "arguments": json.dumps({"answer": answer}),
         },
     ]
@@ -183,7 +183,7 @@ def test_read_task_corrupted_link_fails() -> None:
     corrupted = f'{answer}\nLink: #4.Chapter "4" Title|outline'
     trace = [
         {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
         {
@@ -191,7 +191,7 @@ def test_read_task_corrupted_link_fails() -> None:
             "arguments": "{}",
         },
         {
-            "name": "specialized_workflow_finished",
+            "name": "workflow_finished",
             "arguments": json.dumps({"answer": corrupted}),
         },
     ]
@@ -205,7 +205,7 @@ def test_read_task_exact_fixture_link_soft_note() -> None:
     linked = f"{answer}\nLink: #1.Chapter 1 Title|outline"
     trace = [
         {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
         {
@@ -213,7 +213,7 @@ def test_read_task_exact_fixture_link_soft_note() -> None:
             "arguments": "{}",
         },
         {
-            "name": "specialized_workflow_finished",
+            "name": "workflow_finished",
             "arguments": json.dumps({"answer": linked}),
         },
     ]
@@ -227,11 +227,11 @@ def test_read_task_missing_list_tool_fails() -> None:
     answer = "\n".join(f"{r.title} (level {r.level})" for r in FIXTURE_ROWS)
     trace = [
         {
-            "name": "delegate_to_writer_subagent",
+            "name": "delegate_to_subagent",
             "arguments": json.dumps({"domain": "indexes", "task": "list"}),
         },
         {
-            "name": "specialized_workflow_finished",
+            "name": "workflow_finished",
             "arguments": json.dumps({"answer": answer}),
         },
     ]

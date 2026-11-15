@@ -361,9 +361,9 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
     })
     desc = tool.get_description(doc_type)
 
-    agent_label = getattr(tool, "_agent_label", None)
-    special_base = getattr(tool, "_special_base_class", None)
-    if agent_label and special_base is not None:
+    agent_label_for = getattr(tool, "agent_label_for", None)
+    agent_label = agent_label_for(doc_type=doc_type) if callable(agent_label_for) else getattr(tool, "_agent_label", None)
+    if agent_label and (callable(agent_label_for) or getattr(tool, "_special_base_class", None) is not None):
         from plugin.framework.prompts import format_specialized_domains_description
 
         # For MCP schemas, use a compact description to avoid duplicating the long domain list

@@ -65,9 +65,9 @@ def _prompt_for_kind(kind: str, note: str | None = None) -> str:
 # one task that must take that path, on headless LO.
 FLAG_HARNESS_NOTE = (
     "[Eval harness] This row is headless LibreOffice, not the string simulator. "
-    'Call delegate_to_writer_subagent with domain="python". '
-    "That agent must call delegate_tool_domains with domains including shapes, "
-    "then one run_venv_python_script that places shapes with wa.shape.upsert "
+    'Call delegate_to_subagent with domain="python". '
+    "That agent must call python_delegate_domains with domains including shapes, "
+    "then one python_run_script that places shapes with wa.shape.upsert "
     "at page scale (about 10000–20000 HMM wide). "
     "Do not use domain=images or LLM-only shape_upsert."
 )

@@ -455,8 +455,8 @@ def test_images_domain_includes_list_nearby_image_files_not_document_research_li
     names = {t.name for t in tools}
 
     assert "image_list_nearby_files" in names
-    assert "list_nearby_files" not in names
-    assert "specialized_workflow_finished" in names
+    assert "research_list_nearby_files" not in names
+    assert "workflow_finished" in names
 
 
 def test_image_download_prepare_tool_call_drops_verify_ssl_for_every_caller():

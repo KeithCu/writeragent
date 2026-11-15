@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""document_research grep_nearby_files tool."""
+"""document_research research_grep_nearby_files tool."""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION, resolve_case_sensit
 
 
 class GrepNearbyFiles(ToolBase):
-    """Search text across nearby LibreOffice files without opening each via delegate_read_document."""
+    """Search text across nearby LibreOffice files without opening each via research_delegate_read."""
 
-    name: str | None = "grep_nearby_files"
+    name: str | None = "research_grep_nearby_files"
     description: str = (
         "Search nearby LibreOffice files for text and return snippet previews per matching file. "
         "Use file_subset='budget' to scan only files whose basenames contain 'budget' "
-        "(e.g. Budget_2026.ods, my-budget.odt). Prefer this before delegate_read_document when "
+        "(e.g. Budget_2026.ods, my-budget.odt). Prefer this before research_delegate_read when "
         "locating which file contains a keyword."
     )
     tier: str = "specialized"

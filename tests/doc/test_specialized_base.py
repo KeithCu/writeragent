@@ -11,13 +11,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.doc.specialized_base import DelegateToSubagent
 from plugin.framework.tool import ToolContext
-from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
 
 @pytest.fixture
-def writer_gateway() -> DelegateToSpecializedWriter:
-    return DelegateToSpecializedWriter()
+def writer_gateway() -> DelegateToSubagent:
+    return DelegateToSubagent()
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def mock_ctx() -> ToolContext:
     return ctx
 
 
-def test_requires_document_lock_non_str_domain(writer_gateway: DelegateToSpecializedWriter) -> None:
+def test_requires_document_lock_non_str_domain(writer_gateway: DelegateToSubagent) -> None:
     """Non-string domain values must safely default to requiring document lock without TypeError."""
     # Dict domain (unhashable)
     assert writer_gateway.requires_document_lock({"domain": {"nested": "value"}}) is True
@@ -51,7 +51,7 @@ def test_requires_document_lock_non_str_domain(writer_gateway: DelegateToSpecial
     assert writer_gateway.requires_document_lock({}) is True
 
 
-def test_requires_document_lock_string_domains(writer_gateway: DelegateToSpecializedWriter) -> None:
+def test_requires_document_lock_string_domains(writer_gateway: DelegateToSubagent) -> None:
     """Read-only string domains skip lock; mutating string domains and vision require lock."""
     # Read-only domains do not require document lock
     assert writer_gateway.requires_document_lock({"domain": "document_research"}) is False
@@ -66,7 +66,7 @@ def test_requires_document_lock_string_domains(writer_gateway: DelegateToSpecial
 
 
 def test_execute_non_str_domain_returns_error(
-    writer_gateway: DelegateToSpecializedWriter, mock_ctx: ToolContext
+    writer_gateway: DelegateToSubagent, mock_ctx: ToolContext
 ) -> None:
     """Executing with a non-string domain must return the invalid-domain error instead of raising TypeError."""
     result = writer_gateway.execute(mock_ctx, domain={"foo": "bar"}, task="analyze")
@@ -80,7 +80,7 @@ def test_execute_non_str_domain_returns_error(
 
 
 def test_delegate_status_workflow_finished_ok(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2029: Finish dict with no inner errors stays status: 'ok'."""
     from unittest.mock import patch
@@ -104,7 +104,7 @@ def test_delegate_status_workflow_finished_ok(
 
 
 def test_delegate_status_inner_tool_error(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2029: Inner tool error becomes status: 'error', code SPECIALIZED_TOOL_ERROR."""
     from unittest.mock import patch
@@ -123,7 +123,7 @@ def test_delegate_status_inner_tool_error(
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
         tool_map["failing_structural_tool"]()
-        return tool_map["specialized_workflow_finished"](answer="Final attempted answer")
+        return tool_map["workflow_finished"](answer="Final attempted answer")
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
@@ -138,7 +138,7 @@ def test_delegate_status_inner_tool_error(
 
 
 def test_delegate_status_incomplete_no_finish_no_tool_error(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2029: No finish tool call and no tool error becomes status: 'incomplete'."""
     from unittest.mock import patch
@@ -153,7 +153,7 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
     assert result["message"] == "I searched but could not find the heading."
 
 
-def _structural_registry(writer_gateway: DelegateToSpecializedWriter, tool: Any = None) -> MagicMock:
+def _structural_registry(writer_gateway: DelegateToSubagent, tool: Any = None) -> MagicMock:
     from plugin.framework.tool import ToolRegistry
     from plugin.writer.specialized_base import SpecializedWorkflowFinished, ToolWriterStructuralBase
 
@@ -180,10 +180,10 @@ def _structural_registry(writer_gateway: DelegateToSpecializedWriter, tool: Any 
 
 
 def test_delegate_length_truncated_reply_is_incomplete_not_finished(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2262: a plain-text reply cut off by finish_reason=length must not become a
-    synthetic specialized_workflow_finished call; the delegate reports incomplete with the partial text."""
+    synthetic workflow_finished call; the delegate reports incomplete with the partial text."""
     from unittest.mock import patch
 
     from plugin.chatbot.smol_agent import WriterAgentSmolModel
@@ -214,7 +214,7 @@ def test_delegate_length_truncated_reply_is_incomplete_not_finished(
 
 
 def test_delegate_plain_text_answer_appears_once(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2262: a plain-text return (no finish call) is carried once, on message."""
     from unittest.mock import patch
@@ -233,7 +233,7 @@ def test_delegate_plain_text_answer_appears_once(
 
 
 def test_delegate_finished_payload_does_not_duplicate_answer(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2262: the finish answer is sent once, not copied again into ``result``."""
     import json
@@ -245,7 +245,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
         tool_map["dummy_structural_tool"]()
-        return tool_map["specialized_workflow_finished"](answer=answer)
+        return tool_map["workflow_finished"](answer=answer)
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
@@ -260,7 +260,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
 
 
 def test_delegate_status_user_stopped_left_unchanged(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     """Discussion #2029: User-stopped or crash dict already status: 'error' is left unchanged."""
     from unittest.mock import patch
@@ -275,7 +275,7 @@ def test_delegate_status_user_stopped_left_unchanged(
     assert result["code"] == "USER_STOPPED"
 
 
-def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSpecializedWriter) -> None:
+def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSubagent) -> None:
     assert writer_gateway.parameters is not None
     enum = writer_gateway.parameters["properties"]["domain"]["enum"]
     assert enum == sorted(enum)
@@ -283,7 +283,7 @@ def test_gateway_enum_is_sorted_and_unique(writer_gateway: DelegateToSpecialized
 
 
 def test_delegate_completed_message_uses_static_msgid(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     from unittest.mock import patch
 
@@ -292,7 +292,7 @@ def test_delegate_completed_message_uses_static_msgid(
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
         tool_map["dummy_structural_tool"]()
-        tool_map["specialized_workflow_finished"](answer="Done")
+        tool_map["workflow_finished"](answer="Done")
         return "All done."
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
@@ -304,7 +304,7 @@ def test_delegate_completed_message_uses_static_msgid(
 
 
 def test_delegate_finish_only_stays_ok(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     from unittest.mock import patch
     from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
@@ -315,7 +315,7 @@ def test_delegate_finish_only_stays_ok(
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
-        return tool_map["specialized_workflow_finished"](answer=answer)
+        return tool_map["workflow_finished"](answer=answer)
 
     # finish-only on an editing domain -> status "ok", finished true, answer kept, note == NO_EDIT_TOOL_NOTE
     ctx_edit = _structural_registry(writer_gateway)
@@ -355,7 +355,7 @@ def test_delegate_finish_only_stays_ok(
 
 
 def test_delegate_retried_tool_error_is_recovered(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     from unittest.mock import patch
     from plugin.writer.specialized_base import ToolWriterStructuralBase
@@ -381,7 +381,7 @@ def test_delegate_retried_tool_error_is_recovered(
         tool_map = {t.name: t for t in tools}
         tool_map["retrying_structural_tool"]()
         tool_map["retrying_structural_tool"]()
-        return tool_map["specialized_workflow_finished"](answer="Succeeded after retry")
+        return tool_map["workflow_finished"](answer="Succeeded after retry")
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
@@ -400,10 +400,10 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     import plugin.draw.transitions  # noqa: F401
     from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
     from plugin.doc.specialized_base import narrow_delegate_domain_enums
-    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.tool_schema import to_mcp_schema, to_openai_schema
 
-    gateway = DelegateToSpecializedDraw()
+    gateway = DelegateToSubagent()
     impress_only = {"headers_footers", "speaker_notes", "slide_transitions", "slide_layouts"}
     assert gateway.parameters is not None
     assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])
@@ -450,7 +450,7 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
 
 
 def test_delegate_footnotes_hint_reaches_inner_instructions(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     from unittest.mock import patch
     from plugin.framework.tool import ToolRegistry
@@ -486,10 +486,8 @@ def test_delegate_footnotes_hint_reaches_inner_instructions(
 
 # Dummy specialized tools and fixtures, imported by test_document_research_specialized / test_python_domain_specialized / test_images.
 from plugin.calc.base import ToolCalcSpecialBase
-from plugin.calc.specialized import DelegateToSpecializedCalc
 from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.draw.base import ToolDrawSpecialBase
-from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.config import get_config as _real_get_config
 from plugin.framework.tool import ToolBase, ToolRegistry, _is_specialized_domain_tool
 from plugin.writer.specialized_base import (
@@ -569,7 +567,7 @@ def registry():
     r.register(DummyTableTool())
     r.register(DummyShapeTool())
     r.register(SpecializedWorkflowFinished())
-    r.register(DelegateToSpecializedWriter())
+    r.register(DelegateToSubagent())
     return r
 
 
@@ -623,7 +621,7 @@ def test_specialized_delegation_sub_agent_mode(
 
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_writer_subagent")
+    gateway_tool = registry.get("delegate_to_subagent")
 
     registry_ctx.stop_checker = lambda: False
 
@@ -645,10 +643,10 @@ def test_specialized_delegation_sub_agent_mode(
     assert call_args is not None
     smol_tools = call_args.kwargs.get("tools", [])
 
-    # Sub-agent gets domain tools plus specialized_workflow_finished (active_domain registry rules).
+    # Sub-agent gets domain tools plus workflow_finished (active_domain registry rules).
     smol_tool_names = [t.name for t in smol_tools]
     assert "dummy_table_tool" in smol_tool_names
-    assert "specialized_workflow_finished" in smol_tool_names
+    assert "workflow_finished" in smol_tool_names
 
 
 @patch(
@@ -703,7 +701,7 @@ def test_shapes_delegation_includes_canvas_in_instructions(
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Shapes done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_writer_subagent")
+    gateway_tool = registry.get("delegate_to_subagent")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(
@@ -750,9 +748,9 @@ def test_run_venv_python_script_in_schemas_for_writer_when_domain_python(registr
     mock_writer.supportsService = supports
     schemas = registry.get_schemas("openai", doc=mock_writer, active_domain="python")
     names = [s["function"]["name"] for s in schemas]
-    assert "run_venv_python_script" in names
-    assert "specialized_workflow_finished" in names
-    py_schema = next(s for s in schemas if s["function"]["name"] == "run_venv_python_script")
+    assert "python_run_script" in names
+    assert "workflow_finished" in names
+    py_schema = next(s for s in schemas if s["function"]["name"] == "python_run_script")
     props = py_schema["function"]["parameters"].get("properties", {})
     assert "code" in props
     assert "data" not in props
@@ -775,7 +773,7 @@ def test_active_domain_schemas_include_calc_and_draw(registry, dummy_draw_tool):
     schemas = registry.get_schemas("openai", doc=mock_sheet, active_domain="images")
     names = [s["function"]["name"] for s in schemas]
     assert "dummy_calc_images_tool" in names
-    assert "specialized_workflow_finished" in names
+    assert "workflow_finished" in names
 
     mock_draw = MagicMock()
 
@@ -787,7 +785,7 @@ def test_active_domain_schemas_include_calc_and_draw(registry, dummy_draw_tool):
     schemas_d = registry.get_schemas("openai", doc=mock_draw, active_domain="draw_test_domain")
     names_d = [s["function"]["name"] for s in schemas_d]
     assert "dummy_draw_special_tool" in names_d
-    assert "specialized_workflow_finished" in names_d
+    assert "workflow_finished" in names_d
 
 
 @patch(
@@ -808,13 +806,13 @@ def test_calc_specialized_delegation_sub_agent(
     registry_ctx,
 ):
     registry.register(DummyCalcSpecialTool())
-    registry.register(DelegateToSpecializedCalc())
+    registry.register(DelegateToSubagent())
 
     mock_agent_instance = MagicMock()
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Calc done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_calc_subagent")
+    gateway_tool = registry.get("delegate_to_subagent")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(registry_ctx, domain="images", task="Insert image")
@@ -849,13 +847,13 @@ def test_draw_specialized_delegation_sub_agent(
     dummy_draw_tool,
 ):
     registry.register(dummy_draw_tool())
-    registry.register(DelegateToSpecializedDraw())
+    registry.register(DelegateToSubagent())
 
     mock_agent_instance = MagicMock()
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Draw done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_draw_subagent")
+    gateway_tool = registry.get("delegate_to_subagent")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(registry_ctx, domain="draw_test_domain", task="Create shape")
@@ -874,9 +872,9 @@ def test_draw_specialized_delegation_sub_agent(
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_cls, mock_build, registry):
-    """Writer delegate must pick up Calc-registered ``run_venv_python_script`` (specialized_cross_cutting)."""
+    """Writer delegate must pick up Calc-registered ``python_run_script`` (specialized_cross_cutting)."""
     from plugin.calc.python.venv import RunVenvPythonScript
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
     registry.register(RunVenvPythonScript())
 
@@ -900,7 +898,7 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     mock_exec.execute_safe.return_value = "done"
     mock_executor_cls.return_value = mock_exec
 
-    gw = DelegateToSpecializedWriter()
+    gw = DelegateToSubagent()
     result = gw.execute(ctx, domain="python", task="compute primes")
 
     assert result["status"] == "incomplete"
@@ -913,14 +911,14 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     assert python_specialized_sub_agent_hint("Writer") in instructions
     tools_passed = mock_build.call_args[0][1]
     names = [t.name for t in tools_passed]
-    assert "run_venv_python_script" in names
-    assert "specialized_workflow_finished" in names
+    assert "python_run_script" in names
+    assert "workflow_finished" in names
 
 
 def test_delegate_requires_document_lock_read_only_domains():
-    from plugin.writer.specialized_base import DelegateToSpecializedWriter
+    from plugin.doc.specialized_base import DelegateToSubagent
 
-    gw = DelegateToSpecializedWriter()
+    gw = DelegateToSubagent()
     assert gw.requires_document_lock({"domain": "document_research"}) is False
     assert gw.requires_document_lock({"domain": "web_research"}) is False
     assert gw.requires_document_lock('{"domain": "web_research"}') is False
@@ -928,7 +926,7 @@ def test_delegate_requires_document_lock_read_only_domains():
     assert gw.requires_document_lock({}) is True
 
 
-def test_delegate_detects_mutation_read_only_domains(writer_gateway: DelegateToSpecializedWriter) -> None:
+def test_delegate_detects_mutation_read_only_domains(writer_gateway: DelegateToSubagent) -> None:
     assert writer_gateway.detects_mutation({"domain": "web_research"}) is False
     assert writer_gateway.detects_mutation({"domain": "document_research"}) is False
     assert writer_gateway.detects_mutation('{"domain": "web_research"}') is False
@@ -957,7 +955,7 @@ def _fake_upsert_tool() -> Any:
 
 
 def _run_shapes_delegation(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
     tools: list[Any],
     run_inner_side_effect: Any,
 ) -> dict[str, Any]:
@@ -986,12 +984,12 @@ def _run_shapes_delegation(
 
 
 def test_delegate_shapes_reports_created_counts(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     def _run_inner(_ctx, smol_tools, **_kw):
         by_name = {t.name: t for t in smol_tools}
         by_name["shape_upsert"].forward()
-        by_name["specialized_workflow_finished"].forward(answer="Placed Box")
+        by_name["workflow_finished"].forward(answer="Placed Box")
         return {"status": "ok", "finished": True, "answer": "Placed Box"}
 
     result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool()], _run_inner)
@@ -1004,13 +1002,13 @@ def test_delegate_shapes_reports_created_counts(
 
 
 def test_delegate_shapes_finish_only_reports_zero_counts(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     from plugin.doc.specialized_catalog import NO_EDIT_TOOL_NOTE
 
     def _run_inner(_ctx, smol_tools, **_kw):
         by_name = {t.name: t for t in smol_tools}
-        by_name["specialized_workflow_finished"].forward(answer="Done")
+        by_name["workflow_finished"].forward(answer="Done")
         return {"status": "ok", "finished": True, "answer": "Done"}
 
     result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool()], _run_inner)
@@ -1023,7 +1021,7 @@ def test_delegate_shapes_finish_only_reports_zero_counts(
 
 
 def test_delegate_shapes_unrecovered_error_keeps_counts(
-    writer_gateway: DelegateToSpecializedWriter,
+    writer_gateway: DelegateToSubagent,
 ) -> None:
     from plugin.writer.specialized_base import ToolWriterShapeBase
 
@@ -1040,7 +1038,7 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
         by_name = {t.name: t for t in smol_tools}
         by_name["shape_upsert"].forward()
         by_name["shape_connect"].forward()
-        by_name["specialized_workflow_finished"].forward(answer="Partially done")
+        by_name["workflow_finished"].forward(answer="Partially done")
         return {"status": "ok", "finished": True, "answer": "Partially done"}
 
     result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool(), _FakeConnect()], _run_inner)
@@ -1052,21 +1050,21 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
 def test_calc_gateway_enum_keeps_forms_on_spreadsheet() -> None:
     # Before this fix the base declared TextDocument only, so Calc documents lost forms.
     import plugin.writer.specialized.forms  # noqa: F401
-    from plugin.calc.specialized import DelegateToSpecializedCalc
+    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
 
-    assert "forms" in DelegateToSpecializedCalc().domains_for_services(frozenset({CALC_DOCUMENT_SERVICE}))
+    assert "forms" in DelegateToSubagent().domains_for_services(frozenset({CALC_DOCUMENT_SERVICE}))
 
 
 def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_document() -> None:
     from unittest.mock import patch
-    from plugin.draw.specialized import DelegateToSpecializedDraw
+    from plugin.doc.specialized_base import DelegateToSubagent
     from plugin.draw.transitions import GetSlideLayout, SetSlideLayout
     from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE
     from plugin.framework.tool import ToolContext, ToolRegistry
     from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
-    gw = DelegateToSpecializedDraw()
+    gw = DelegateToSubagent()
     reg = ToolRegistry(services={})
     reg.register(gw)
     reg.register(SetSlideLayout())
@@ -1094,17 +1092,3 @@ def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_documen
         out_unknown = gw.execute(ctx, domain="slide_layouts", task="Set layout")
         assert out_unknown["status"] == "error"
         assert "No specialized tools found" in out_unknown["message"]
-
-
-def test_subagent_tool_names_match_registered_gateways() -> None:
-    """Every registered sub-agent gateway name must be in SUBAGENT_TOOL_NAMES (and vice versa)."""
-    from plugin.app import get_tools
-    from plugin.doc.specialized_base import DelegateToSpecializedBase
-    from plugin.framework.constants import SUBAGENT_TOOL_NAMES
-
-    registered = {
-        t.name
-        for t in get_tools().get_tools(filter_doc_type=False, exclude_tiers=frozenset())
-        if isinstance(t, DelegateToSpecializedBase)
-    }
-    assert registered == SUBAGENT_TOOL_NAMES
