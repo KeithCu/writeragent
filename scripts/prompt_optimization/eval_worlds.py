@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
+from plugin.calc.formula_fill import fill_repeated_formula_columns
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     _parse_formula_or_values_string,
@@ -1054,12 +1055,9 @@ class CalcWorld:
                 )
             flat = values
         if caller_list and len(flat) == (r1 - r0 + 1) * (c1 - c0 + 1):
-            from plugin.calc.formula_fill import fill_repeated_formula_columns
-
-            flat, filled_cols = fill_repeated_formula_columns(
+            flat = fill_repeated_formula_columns(
                 flat, r0, r1 - r0 + 1, c1 - c0 + 1
-            )
-            del filled_cols
+            )[0]
         return (flat, (c0, r0, c1, r1))
 
     def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
@@ -1135,7 +1133,9 @@ class CalcWorld:
         # Production write_formula_range fill-down-adjusts relative A1 refs
         # (plugin.calc.formula_fill) when one formula string hits a 1-D range,
         # or when a list column repeats one row-aligned formula.
-        # Non-aligned JSON arrays (e.g. =B1 or =$B$2) stay exact.
+        # Non-aligned JSON arrays (e.g. =B1 or =$B$2) stay exact; if
+        # formula_fill cannot be imported, the harness pins the text on every
+        # cell (the honest fallback).
         formula_src = raw_values if isinstance(raw_values, str) else ""
         single = values[0] if values else None
         is_formula = isinstance(single, str) and single.lstrip().startswith("=")

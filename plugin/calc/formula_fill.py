@@ -294,7 +294,7 @@ def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
         return None
     if s[i] == "'":
         j = skip_quoted(s, i)
-        if j <= i + 1 or j > n or s[j - 1] != "'":
+        if s[j - 1] != "'":
             return None
     else:
         j = i

@@ -1131,6 +1131,13 @@ def test_plan_write_rewrites_bang_refs_to_existing_sheets() -> None:
 
     doc.NamedRanges.hasByName.side_effect = None
     doc.NamedRanges.hasByName.return_value = False
+    sheet.NamedRanges.hasByName.side_effect = lambda name: name == "Orders"
+    sheet_shadowed = manipulator.plan_write("A1", "=Orders!A1*2")
+    assert sheet_shadowed.values == ["=Orders!A1*2"]
+    assert sheet_shadowed.notes == ()
+
+    sheet.NamedRanges.hasByName.side_effect = None
+    sheet.NamedRanges.hasByName.return_value = False
     data_txt = manipulator.plan_write("A1", "=Orders!A1*2", data_text=True)
     assert data_txt.values == ["=Orders!A1*2"]
     assert data_txt.notes == ()
@@ -1153,6 +1160,12 @@ def test_plan_write_fills_repeated_row_formula_down() -> None:
     pinned = manipulator.plan_write("C2:C4", [["=B1"]] * 3)
     assert pinned.values == ["=B1", "=B1", "=B1"]
     assert pinned.notes == ()
+
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=1)
+    expanded = manipulator.plan_write("C2", [["=B2*2"]] * 3)
+    assert expanded.range_str == "C2:C4"
+    assert expanded.values == ["=B2*2", "=B3*2", "=B4*2"]
+    assert expanded.notes[0]["code"] == "FILLED_DOWN"
 
 
 @pytest.mark.parametrize(
