@@ -6,11 +6,17 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-import pytest
-
 import plugin.scripting.writeragent_api as api
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
+
+
+def _assert_raises(exc_type, fn):
+    try:
+        fn()
+    except exc_type as exc:
+        return exc
+    raise AssertionError(f"Expected {exc_type.__name__} to be raised")
 
 
 @native_test
@@ -32,8 +38,7 @@ def test_writer_collections_uno(ctx, doc):
         assert api.bookmark["Mark"].text == "Body"
         del api.bookmark["Mark"]
         assert "Mark" not in api.bookmark
-        with pytest.raises(KeyError):
-            _ = api.bookmark["Mark"]
+        _assert_raises(KeyError, lambda: api.bookmark["Mark"])
 
         api.frame.insert(target="beginning", name="F1", text="Inside")
         assert api.frame["F1"].content == "Inside"
@@ -44,8 +49,7 @@ def test_writer_collections_uno(ctx, doc):
         api.section.create("S1", "paragraph:0")
         assert api.section["S1"].column_count == 1
         del api.section["S1"]
-        with pytest.raises(KeyError):
-            del api.section["S1"]
+        _assert_raises(KeyError, lambda: api.section.__delitem__("S1"))
     finally:
         api.call_host_tool = orig
 
@@ -61,12 +65,10 @@ def test_calc_collections_uno(ctx, doc):
         api.sheet.create("Extra")
         assert api.sheet["Extra"].visible is True
         del api.sheet["Extra"]
-        with pytest.raises(KeyError):
-            _ = api.sheet["Extra"]
+        _assert_raises(KeyError, lambda: api.sheet["Extra"])
 
-        with pytest.raises(RuntimeError) as exc_info:
-            del api.sheet[sn]
-        assert getattr(exc_info.value, "code", None) == "INVALID_PARAM"
+        exc = _assert_raises(RuntimeError, lambda: api.sheet.__delitem__(sn))
+        assert getattr(exc, "code", None) == "INVALID_PARAM"
 
         api.calc.write_range(
             ["A1:B6"],
