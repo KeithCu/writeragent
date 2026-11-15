@@ -105,8 +105,11 @@ def test_scripted_specialized_names_match_schema_stages() -> None:
     sort_names = _script_tool_names("data_sorting")
     assert sort_names[0] == "delegate_to_specialized_calc_toolset"
     assert sort_names[0] in core_calc
-    for name in sort_names[1:]:
+    finish = sort_names.index("specialized_workflow_finished")
+    for name in sort_names[1 : finish + 1]:
         assert name in ranges, name
+    for name in sort_names[finish + 1 :]:
+        assert name in core_calc, name
 
 
 def test_scripted_flowchart_inner_loop_nests_shapes() -> None:

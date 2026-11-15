@@ -662,7 +662,14 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "write_cell_range",
+                "specialized_workflow_finished",
+                {"answer": "sorted"},
+                "fin_calc_1",
+            )
+        ),
+        _tools(
+            _tc(
+                "write_formula_range",
                 {
                     "range": ["A2:B6"],
                     "values": [
@@ -674,13 +681,6 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     ],
                 },
                 "move_text_last",
-            )
-        ),
-        _tools(
-            _tc(
-                "specialized_workflow_finished",
-                {"answer": "sorted"},
-                "fin_calc_1",
             )
         ),
         _stop(),
