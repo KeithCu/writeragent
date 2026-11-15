@@ -125,7 +125,7 @@ def test_mcp_calc_tools_list_direct_flat(calc_mcp_setup):
     assert "write_formula_range" in tool_names
     assert "sheet_create" in tool_names
     assert "named_range_add" in tool_names
-    assert "run_venv_python_script" in tool_names
+    assert "python_run_script" in tool_names
     assert "analyze_data" not in tool_names
 
 

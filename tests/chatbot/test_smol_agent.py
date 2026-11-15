@@ -47,15 +47,16 @@ class TestToolcallingPromptExamples:
         from plugin.chatbot.smol_examples import get_examples_block
 
         block = get_examples_block("writer:shapes")
-        assert ("specialized_workflow_finished") in (block)
-        assert ('"name": "final_answer"') not in (block)
+        assert '"name": "workflow_finished"' in block
+        assert "specialized_workflow_finished" not in block
+        assert '"name": "final_answer"' not in block
 
     def test_get_examples_block_web_research_uses_final_answer(self):
         from plugin.chatbot.smol_examples import get_examples_block
 
         block = get_examples_block("web_research")
         assert ('"name": "final_answer"') in (block)
-        assert ("specialized_workflow_finished") not in (block)
+        assert ("workflow_finished") not in (block)
 
     def test_get_examples_block_ppt_master_finishes_the_deck(self):
         from plugin.chatbot.smol_examples import get_examples_block
@@ -69,7 +70,7 @@ class TestToolcallingPromptExamples:
 
         block = get_examples_block("librarian")
         assert ("reply_to_user") in (block)
-        assert ("specialized_workflow_finished") not in (block)
+        assert ("workflow_finished") not in (block)
 
     @pytest.mark.parametrize(
         ("key", "expected_key"),
@@ -87,19 +88,18 @@ class TestToolcallingPromptExamples:
 
     def test_specialized_agent_prompt_examples_use_finish_tool_name(self):
         from plugin.contrib.smolagents.agents import ToolCallingAgent
-        from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK
-        from plugin.chatbot.smol_examples import get_examples_block
+        from plugin.chatbot.smol_examples import DELEGATE_GENERIC_EXAMPLES_BLOCK, get_examples_block
 
         model = MagicMock()
         agent = ToolCallingAgent(
             tools=[],
             model=model,
             system_prompt_examples=get_examples_block("calc:charts"),
-            final_answer_tool_name="specialized_workflow_finished",
+            final_answer_tool_name="workflow_finished",
         )
         prompt = agent.initialize_system_prompt()
-        assert ("specialized_workflow_finished") in (prompt)
-        assert (get_examples_block("calc:charts")) == (DELEGATE_GENERIC_EXAMPLES_BLOCK)
+        assert '"name": "workflow_finished"' in prompt
+        assert get_examples_block("calc:charts") == DELEGATE_GENERIC_EXAMPLES_BLOCK
 
     def test_examples_action_bodies_parse_and_use_allowed_tools(self):
         import json
@@ -114,15 +114,15 @@ class TestToolcallingPromptExamples:
                 "finish": "reply_to_user",
             },
             "brainstorming": {
-                "allowed": {"get_document_tree", "save_design_spec", "reply_to_user"},
+                "allowed": {"get_document_tree", "brainstorming_save_design_spec", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "writing_plan": {
-                "allowed": {"write_document_section", "reply_to_user"},
+                "allowed": {"writing_plan_write_section", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "deep_research": {
-                "allowed": {"deep_research_web", "apply_document_content", "reply_to_user"},
+                "allowed": {"deep_research_search_web", "apply_document_content", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "web_research": {
@@ -134,16 +134,16 @@ class TestToolcallingPromptExamples:
                 "finish": "ppt_master_finished",
             },
             "writer:python": {
-                "allowed": {"run_venv_python_script", "delegate_tool_domains", "specialized_workflow_finished"},
-                "finish": "specialized_workflow_finished",
+                "allowed": {"python_run_script", "python_delegate_domains", "workflow_finished"},
+                "finish": "workflow_finished",
             },
             "writer:images": {
-                "allowed": {"image_generate", "specialized_workflow_finished"},
-                "finish": "specialized_workflow_finished",
+                "allowed": {"image_generate", "workflow_finished"},
+                "finish": "workflow_finished",
             },
             "domain_tools:shapes": {
-                "allowed": {"run_venv_python_script", "specialized_workflow_finished"},
-                "finish": "specialized_workflow_finished",
+                "allowed": {"python_run_script", "workflow_finished"},
+                "finish": "workflow_finished",
             },
         }
 
@@ -175,21 +175,21 @@ class TestToolcallingPromptExamples:
                     assert isinstance(action["arguments"], (dict, str))
             assert actions[-1]["name"] == spec["finish"], f"Last action in {key} must be {spec['finish']}"
 
-        # domain_tools:shapes must not contain delegate_tool_domains
+        # domain_tools:shapes must not contain python_delegate_domains
         shapes_block = get_examples_block("domain_tools:shapes")
-        assert "delegate_tool_domains" not in shapes_block
+        assert "python_delegate_domains" not in shapes_block
 
         # Generic / non-shapes domain_tools:*
         for generic_key in ("domain_tools:calc", "writer:shapes", "unknown_custom_domain:foo"):
             block = get_examples_block(generic_key)
             actions = parse_actions(block)
             assert len(actions) > 0
-            assert actions[-1]["name"] == "specialized_workflow_finished"
+            assert actions[-1]["name"] == "workflow_finished"
 
         # Unknown key falls back to generic examples
         unknown_block = get_examples_block("completely_unknown_key")
         unknown_actions = parse_actions(unknown_block)
-        assert unknown_actions[-1]["name"] == "specialized_workflow_finished"
+        assert unknown_actions[-1]["name"] == "workflow_finished"
 
 
 # =============================================================================
@@ -589,11 +589,11 @@ def test_run_smol_side_turn_trims_history_and_reports_document_opens():
     assert task.startswith("### CONVERSATION HISTORY:\n...")
     assert "h" * 4001 not in task
     handler = executor.execute_safe.call_args.kwargs["tool_call_handler"]
-    handler(ToolCall(name="delegate_read_document", arguments={"path_or_name": "notes.odt"}, id="1"))
+    handler(ToolCall(name="research_delegate_read", arguments={"path_or_name": "notes.odt"}, id="1"))
     opened = ctx.chat_append_callback.call_args[0][0]
-    assert "delegate_read_document" in opened
+    assert "research_delegate_read" in opened
     assert "notes.odt" in opened
-    ctx.status_callback.assert_any_call("delegate_read_document...")
+    ctx.status_callback.assert_any_call("research_delegate_read...")
 
 
 def test_run_smol_side_turn_without_document_opens_keeps_the_default_handler():
@@ -643,7 +643,7 @@ def test_run_inner_tool_agent():
             tools,
             instructions="test instructions",
             examples_key="brainstorming",
-            final_answer_tool_name="specialized_workflow_finished",
+            final_answer_tool_name="workflow_finished",
             task="do the task",
             stop_message="Stopped by user.",
             error_prefix="Agent failed",
@@ -658,7 +658,7 @@ def test_run_inner_tool_agent():
             tools,
             instructions="test instructions",
             examples_key="brainstorming",
-            final_answer_tool_name="specialized_workflow_finished",
+            final_answer_tool_name="workflow_finished",
             task="do the task",
             stop_message="Stopped by user.",
             error_prefix="Agent failed",

@@ -147,7 +147,7 @@ The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-rese
 
 `VisitWebpageTool` does not cache fetch-error strings (a transient 403/timeout must not replay for `web_cache_validity_days`).
 
-Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web_research_deep.py) (adaptive orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `apply_document_content`); shallow agent helper [`_run_web_agent`](../../plugin/chatbot/web_research.py).
+Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web_research_deep.py) (adaptive orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../../plugin/chatbot/deep_research_session.py) (`deep_research_search_web` → `apply_document_content`); shallow agent helper [`_run_web_agent`](../../plugin/chatbot/web_research.py).
 
 **Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_max_rounds`, `chatbot.deep_research_concurrency`, `chatbot.deep_research_max_sub_queries`, `chatbot.deep_research_quality_threshold`, `chatbot.deep_research_sub_agent_steps`.
 

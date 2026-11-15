@@ -69,7 +69,7 @@ def _outer_turn_is_peer_work(ctx: ToolContext) -> bool:
     """True when this sidebar's current outer turn is a [Peer work from:…] envelope.
 
     Nested specializes (ranges/sheets/…) otherwise look "done" to the outer and it
-    Ready-s without ``document_research`` → ``send_peer_result``. Probe the live
+    Ready-s without ``document_research`` → ``peer_send_result``. Probe the live
     panel listener's active turn ``active_query_text`` and last user ``session.messages``
     entry; RuntimeUID lookup is UNO so marshal to the main thread.
     """
@@ -289,7 +289,7 @@ class DelegateToSpecializedBase(ToolBase):
             "type": "object",
             "properties": {
                 "domain": {"type": "string", "enum": self._domains, "description": "The specialized domain to activate."},
-                # python_tool_domain stays off this schema on purpose. delegate_tool_domains
+                # python_tool_domain stays off this schema on purpose. python_delegate_domains
                 # (plugin/doc/python_domain_specialized.py) sets ToolContext.python_tool_domain
                 # (delegated domains plus core, including "" during =PY()). A property here would be a second API.
                 "task": {"type": "string", "description": DELEGATE_SPECIALIZED_TASK_PARAM_HINT},
@@ -378,7 +378,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         if not any(t.name != FINISH_TOOL_NAME for t in domain_tools):
             # The registry has already filtered this domain's tools by the document's services,
-            # so having no domain tool beyond specialized_workflow_finished for an enum domain
+            # so having no domain tool beyond workflow_finished for an enum domain
             # means it is bound to another document type (for example, Impress-only slide domains
             # in a Draw document).
             services = ctx.uno_services_supported
@@ -418,7 +418,7 @@ class DelegateToSpecializedBase(ToolBase):
                     cap.create_sheet_ran = True
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
                 # the tool return, not from this pre-execution call.
-                if domain == "document_research" and step.name == "delegate_read_document" and ctx.chat_append_callback:
+                if domain == "document_research" and step.name == "research_delegate_read" and ctx.chat_append_callback:
                     val = field_from_tool_arguments(step.arguments, "path_or_name")
                     path_or_name = str(val) if val is not None else ""
                     ctx.chat_append_callback(document_open_step_chat_text(path_or_name))
@@ -486,9 +486,9 @@ class DelegateToSpecializedBase(ToolBase):
             )
 
         # Peer-work receiving turn: nested specialize (or research without an
-        # accepted send_peer_result) is not delivery — stamp still-required
-        # before Ready. A failed send_peer_result leaves this flag false so
-        # the inner agent can retry. send_peer_work alone is not delivery.
+        # accepted peer_send_result) is not delivery — stamp still-required
+        # before Ready. A failed peer_send_result leaves this flag false so
+        # the inner agent can retry. peer_send_work alone is not delivery.
         if not cap.peer_result_send_invoked and _outer_turn_is_peer_work(ctx):
             payload = annotate_outer_peer_delivery_pending(payload)
 

@@ -408,7 +408,7 @@ flowchart TB
 | `write_formula_range` | Apply converted grid | Semicolon formulas; `=` prefix → formula |
 | `PyFormula.parse` / `PyFormula.compose` | Round-trip existing PY | String-level only |
 | `python_editor` / Monaco | Edit generated code | Manual fix for TODO cells |
-| `run_venv_python_script` | Chat dry-run | Does not write sheet alone |
+| `python_run_script` | Chat dry-run | Does not write sheet alone |
 | `WorkerResultSession` | Matrix spill cache | Manual range today |
 
 ### Table C — WriterAgent tools (orchestration)
@@ -420,7 +420,7 @@ flowchart TB
 | `convert_spreadsheet_to_python` | Menu action (Calc → Convert Sheet to Python…), not an agent tool |
 | `list_calc_functions` | Agent lookup unsupported function |
 | `error_detect` | Pre/post validation |
-| `delegate_to_specialized_calc_toolset` | N/A for v1 |
+| `calc_delegate_specialized` | N/A for v1 |
 
 ### Table D — External libraries (research; not shipped)
 

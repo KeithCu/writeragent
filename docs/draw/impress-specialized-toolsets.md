@@ -17,12 +17,12 @@ Draw/Impress tools follow the same **nested delegation** pattern as Writer:
 | `ToolDrawSpecialBase` | Base class for specialized Draw tools | `plugin/draw/base.py` |
 | `specialized_domain` | Domain identifier (e.g., `"charts"`, `"web_research"`, `"forms"`) | Class attribute |
 | `tier = "specialized"` | Marks tool for domain-specific sub-agent | Class attribute |
-| `delegate_to_specialized_draw_toolset` | Gateway tool for delegation | `plugin/draw/specialized.py` |
+| `draw_delegate_specialized` | Gateway tool for delegation | `plugin/draw/specialized.py` |
 | `uno_services` | Document type filtering | Class attribute |
 
 **Delegation flow:**
 ```
-Main chat → delegate_to_specialized_draw_toolset → Sub-agent (filtered tools) → final_answer
+Main chat → draw_delegate_specialized → Sub-agent (filtered tools) → final_answer
 ```
 
 ----
@@ -52,11 +52,11 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `list_placeholders` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
 | `get_placeholder_text` | `placeholders.py` | Presentation | Get text from a placeholder |
 | `set_placeholder_text` | `placeholders.py` | Presentation | Set text in a placeholder |
-| `delegate_to_specialized_draw_toolset` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
+| `draw_delegate_specialized` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
 
 ### 2.2 Specialized Tools (tier = "specialized")
 
-These are available only via `delegate_to_specialized_draw_toolset`:
+These are available only via `draw_delegate_specialized`:
 
 Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps (see [Writer specialized toolsets](../writer/specialized-toolsets.md)).
 
@@ -99,7 +99,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 > `transform_schema.py`. Do not extend the DSL; deleting or finishing it is a
 > separate change.
 
-**Python domain (two-level).** `delegate_to_specialized_draw_toolset(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `delegate_tool_domains` with `domains` (for example `shapes`, `tables`, `images`) and `task` when those domain tools are required. The inner agent gets `run_venv_python_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
+**Python domain (two-level).** `draw_delegate_specialized(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `python_delegate_domains` with `domains` (for example `shapes`, `tables`, `images`) and `task` when those domain tools are required. The inner agent gets `python_run_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
 
 ### 2.3 Unit & Coordinate System
 
@@ -236,7 +236,7 @@ Legacy class names in this section (`CreateShape`, `EditShape`, …) map to regi
 
 ### 4.2 Impress-Only vs Delegated APIs
 
-The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`delegate_to_specialized_draw_toolset`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
+The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`draw_delegate_specialized`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
 
 **Slide master** tools (`slide_master_list`, `slide_master_get`, `slide_master_set`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_presentation_info` summarizes.
 
@@ -547,5 +547,5 @@ This pattern could be extended to other domains.
 - [LibreOffice API Reference — Presentation](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1star_1_1presentation_1_1XPresentation.html)
 - [LibreOffice Draw/Impress UNO Examples](https://wiki.documentfoundation.org/Documentation/DevGuide/Drawings/Tutorial)
 - [Writer specialized toolsets](../writer/specialized-toolsets.md) — Architecture reference
-- [Peer messaging](../chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw async `send_peer_work / send_peer_result`; Draw is a v1 peer, not a mega-agent tool list
+- [Peer messaging](../chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw async `peer_send_work / peer_send_result`; Draw is a v1 peer, not a mega-agent tool list
 - [AGENTS.md](../../AGENTS.md) — Project overview

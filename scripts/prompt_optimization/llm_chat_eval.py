@@ -47,12 +47,12 @@ from string_eval_tools import dispatch_string_tool
 
 DELEGATE_TOOL_NAMES = frozenset(
     {
-        "delegate_to_specialized_writer_toolset",
-        "delegate_to_specialized_calc_toolset",
-        "delegate_to_specialized_draw_toolset",
+        "writer_delegate_specialized",
+        "calc_delegate_specialized",
+        "draw_delegate_specialized",
     }
 )
-SPECIALIZED_FINISH = "specialized_workflow_finished"
+SPECIALIZED_FINISH = "workflow_finished"
 INNER_MAX_ROUNDS = 12
 
 
@@ -201,7 +201,7 @@ def _eval_tools(
 
     ``tools_spec`` filters the *outer* catalog only. Specialized inner loops
     pass ``active_domain`` and still get the full domain schemas (plus
-    density + patches) so ``delegate_to_specialized_*`` keeps working.
+    density + patches) so ``*_delegate_specialized`` keeps working.
     """
     return prepare_eval_tool_schemas(
         kind=kind,
@@ -220,11 +220,11 @@ def delegated_domain_schemas(
     tools_spec: str | None = None,
     schema_density: str = "full",
 ) -> list[dict[str, Any]]:
-    """Schemas for the inner hop after ``delegate_tool_domains``.
+    """Schemas for the inner hop after ``python_delegate_domains``.
 
     Mirrors ``gather_domain_tools``: shape mutators stay off the LLM list
-    (the script calls them), ``run_venv_python_script`` is added because a
-    shapes lookup does not return it, and ``delegate_tool_domains`` is
+    (the script calls them), ``python_run_script`` is added because a
+    shapes lookup does not return it, and ``python_delegate_domains`` is
     omitted so this hop cannot start another one.
     """
     from plugin.doc.python_domain_specialized import script_only_llm_tool_names
@@ -232,7 +232,7 @@ def delegated_domain_schemas(
     from eval_catalog import schema_tool_name
 
     hidden: set[str] = set(DELEGATE_TOOL_NAMES)
-    hidden.add("delegate_tool_domains")
+    hidden.add("python_delegate_domains")
     for domain in domains:
         hidden |= set(script_only_llm_tool_names(domain))
 
@@ -254,10 +254,10 @@ def delegated_domain_schemas(
     for domain in domains:
         for row in _eval_tools(kind=kind, active_domain=domain, **schema_kw):
             _add(row)
-    if "run_venv_python_script" not in seen or SPECIALIZED_FINISH not in seen:
+    if "python_run_script" not in seen or SPECIALIZED_FINISH not in seen:
         for row in _eval_tools(kind=kind, active_domain="python", **schema_kw):
             name = schema_tool_name(row)
-            if name in ("run_venv_python_script", SPECIALIZED_FINISH):
+            if name in ("python_run_script", SPECIALIZED_FINISH):
                 _add(row)
     return rows
 
@@ -311,9 +311,9 @@ def _run_specialized_inner(
 ) -> str:
     """Bounded inner LlmClient loop (not SmolAgents) on the same world.
 
-    ``tools_override`` is the post-``delegate_tool_domains`` catalog (venv
+    ``tools_override`` is the post-``python_delegate_domains`` catalog (venv
     script, shape mutators hidden). ``python_tool_domain`` is forwarded into
-    production ``run_venv_python_script`` so the script allowlist matches
+    production ``python_run_script`` so the script allowlist matches
     the inner agent (``shapes,core``).
     """
     domain = str(domain or "").strip()
@@ -359,7 +359,7 @@ def _run_specialized_inner(
                     domain,
                     extra=(
                         (
-                            " Place shapes with one run_venv_python_script "
+                            " Place shapes with one python_run_script "
                             "(import writeragent as wa; wa.shape.upsert) at page scale. "
                             "shape_upsert is not in this tool list."
                             if python_tool_domain
@@ -408,7 +408,7 @@ def _run_specialized_inner(
         stop_inner = False
         for tc in tool_calls:
             name, raw_args, tid = _parse_tool_call(tc)
-            if name == "delegate_tool_domains":
+            if name == "python_delegate_domains":
                 result = _dispatch_delegate_tool_domains(
                     kind=kind,
                     raw_args=raw_args,
@@ -501,21 +501,21 @@ def _dispatch_delegate_tool_domains(
     allow: bool,
     _capture: dict[str, Any] | None = None,
 ) -> str:
-    """Harness hop for ``delegate_tool_domains``.
+    """Harness hop for ``python_delegate_domains``.
 
     Production ``DelegateToolDomains.execute`` starts SmolAgents. That inner
-    ``run_venv_python_script`` would only show up in ``writeragent_debug.log``.
+    ``python_run_script`` would only show up in ``writeragent_debug.log``.
     Eval-1 scores the harness trace, so this loop records the venv call and
     still executes it through ``tools_lo`` / ``get_tools().execute``.
     The string world has no honest venv or shapes — refuse instead of faking.
     """
     if backend != "lo":
         return _unsupported_delegate(
-            "delegate_tool_domains requires the headless LO backend "
+            "python_delegate_domains requires the headless LO backend "
             "(no string-world venv or shapes)."
         )
     if not allow:
-        return _unsupported_delegate("Nested delegate_tool_domains is not allowed.")
+        return _unsupported_delegate("Nested python_delegate_domains is not allowed.")
     args = safe_json_loads(raw_args)
     if not isinstance(args, dict):
         args = {}
@@ -750,7 +750,7 @@ def _run_llm_chat_eval_impl(
                         {"status": "error", "message": "Missing tool name"}
                     )
                     trace.append(_trace_entry(name, raw_args, result))
-                elif name == "delegate_tool_domains":
+                elif name == "python_delegate_domains":
                     has_mutated = True
                     result = _dispatch_delegate_tool_domains(
                         kind=kind,

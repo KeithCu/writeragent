@@ -52,7 +52,7 @@ class PlotDataTool(ToolBaseDummy):
         if not images:
             return self._tool_error(_("Viz helper returned no image payload."), code="VIZ_ERROR")
 
-        # Same result as run_venv_python_script: the viz result (image bytes stripped)
+        # Same result as python_run_script: the viz result (image bytes stripped)
         # under "result", plus image_inserted / plot_error / message on Calc and
         # image_path(s) elsewhere.
         return insert_plots_and_report(ctx, images, {"result": result})

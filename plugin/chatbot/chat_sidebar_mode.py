@@ -151,7 +151,7 @@ _MODES: tuple[SidebarMode, ...] = (
         reply_description=(
             "Reply to the user in the sidebar (HTML). Set brainstorming_finished true "
             "to end brainstorming after the spec is saved and reviewed. spec_saved is "
-            "recorded from a successful save_design_spec this turn."
+            "recorded from a successful brainstorming_save_design_spec this turn."
         ),
         handoff_topic_prefix="Implement the saved spec: ",
         next_mode_if_spec_saved=CHAT_MODE_WRITING_PLAN,

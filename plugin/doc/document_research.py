@@ -42,10 +42,10 @@ log = logging.getLogger(__name__)
 
 DOC_RESEARCH_DISCOVERY_TOOL_NAMES = frozenset(
     {
-        "list_nearby_files",
-        "grep_nearby_files",
-        "delegate_read_document",
-        "search_nearby_files",
+        "research_list_nearby_files",
+        "research_grep_nearby_files",
+        "research_delegate_read",
+        "research_search_nearby_files",
     }
 )
 
@@ -110,7 +110,7 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
 
 def filter_document_research_discovery_tools(tools: list[ToolBase]) -> list[ToolBase]:
     """Hide cross-file search tools that do not apply to the current folder_search_mode; list/delegate always kept."""
-    hidden = "grep_nearby_files" if folder_search_enabled() else "search_nearby_files"
+    hidden = "research_grep_nearby_files" if folder_search_enabled() else "research_search_nearby_files"
     return [t for t in tools if t.name != hidden]
 
 
@@ -444,7 +444,7 @@ def scan_nearby_files(
 
     Tool entry points call ``list_nearby_files``; helpers that already handle Stop call this.
     *file_kind* ``documents`` (default): LibreOffice office formats only.
-    *file_kind* ``images``: image files only (listable; not readable via delegate_read_document).
+    *file_kind* ``images``: image files only (listable; not readable via research_delegate_read).
     *state* skips the main-thread read when the caller already has it
     (resolve_listing_state with the same extensions).
 
@@ -496,7 +496,7 @@ def resolve_path_or_name(
     if not raw:
         return None, "path_or_name is required"
 
-    # The tool schema accepts a file URL, and list_nearby_files /
+    # The tool schema accepts a file URL, and research_list_nearby_files /
     # list_open_documents return ``file:///…`` urls.
     # ``os.path.isabs("file:///…")`` is false, so the URL used as a
     # listing filter matches nothing. ``open_document_for_read``
@@ -622,7 +622,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
 def close_document_research_document(model: Any, *, opened_for_document_research: bool) -> None:
     """Close a sibling document opened by :func:`open_document_for_read` for document_research read.
 
-    Repeated delegate_read_document calls leave hidden LO components
+    Repeated research_delegate_read calls leave hidden LO components
     open unless this closes them. Only closes when
     *opened_for_document_research* is True (not when reusing a
     user-visible open doc).

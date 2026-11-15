@@ -31,11 +31,11 @@ from plugin.framework.tool import ToolBase, ToolContext
 class ListNearbyFiles(ToolBase):
     """List office files in the active document's directory (or LO Work folder if untitled)."""
 
-    name: str | None = "list_nearby_files"
+    name: str | None = "research_list_nearby_files"
     description: str = (
         "List files in the same folder as the active document (newest first). "
         "Default file_kind documents: LibreOffice formats (.odt, .ods, .odp, .odg, flat XML, templates). "
-        "file_kind images: .png, .jpg, .jpeg, .gif, .webp, .bmp, .svg only (discovery; not readable via delegate_read_document). "
+        "file_kind images: .png, .jpg, .jpeg, .gif, .webp, .bmp, .svg only (discovery; not readable via research_delegate_read). "
         "Excludes the active file. Optional filter is a case-insensitive substring on the basename."
     )
     tier: str = "specialized"

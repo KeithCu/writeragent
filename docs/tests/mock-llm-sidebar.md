@@ -74,7 +74,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `flood history` / `pad the context` | Packet K: large ASCII pad (hand-test / mock unit). Live Packet K grows `ChatSession` via debug `INFLATE_HISTORY` so the 24k HTML stream does not have to land on `session.messages`. |
 | `overflow once` / `prompt too large once` | Packet K: first **stream** POST returns HTTP 400 `prompt is too long`, then OK. Non-stream summarizer is never this fault. |
 | `llama process died` | Packet K: HTTP 400 `llama-server process has terminated` (process death, not overflow retry). |
-| `outline this` / `use the writer toolset` | Calls `delegate_to_specialized_writer_toolset` (`document_research`). |
+| `outline this` / `use the writer toolset` | Calls `writer_delegate_specialized` (`document_research`). |
 | `empty nested answer` | Specialized delegate emits inner `final_answer` with an empty `answer`. |
 | `endless nested outline` | Specialized delegate loops without finishing until `max_tool_rounds`. |
 | `mixed tools` / `one tool fails` | Calls `add_comment` (empty search → error) + `apply_document_content` filler. |
@@ -88,7 +88,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `three agent edits` | Calls `apply_document_content` three times for three separate paragraph edits. |
 | `style tools` | Calls `apply_style` followed by `get_document_tree` in parallel. |
 | `list sheets` / `list pages` | Calls Calc/Draw list tools (`sheet_list` / `list_pages`) when advertised. |
-| `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately. Calc envelope → `write_formula_range` then reply via specialized. |
+| `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `peer_send_work / peer_send_result` then `workflow_finished` immediately. Calc envelope → `write_formula_range` then reply via specialized. |
 | `wait after accepted` / `do not finish peer` | Packet P hang lock: inner sends then never finishes (peer does not start). |
 | `crash the stream` / `error 500` | Returns HTTP 500 JSON error payload. |
 | `rate limit` / `error 429` | Returns HTTP 429 Rate Limit error. |
@@ -102,7 +102,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `two dones` | Emits a normal stream followed by two `data: [DONE]` lines. |
 | `empty body` | Returns HTTP 200 with `Content-Length: 0`. |
 | `connection reset` | Closes socket before sending HTTP status line. |
-| `run slow python` | E24: delegates to the `python` domain; the inner turn calls `run_venv_python_script` with a 20 s sleep, then finishes echoing the tool result. |
+| `run slow python` | E24: delegates to the `python` domain; the inner turn calls `python_run_script` with a 20 s sleep, then finishes echoing the tool result. |
 
 ### 2.3. Automated Test Execution (`make test-mock-sidebar`)
 
@@ -299,7 +299,7 @@ Every test must satisfy:
 | **E4** | CI | **Empty** doc, `insert a comment` | Send query | Two-round loop: `apply_document_content` then `add_comment`; doc nonempty; `next_hello_ok()` | **OK / Landed** |
 | **E5** | CI | `insert filler` | Send query | Paragraph appended; next turn's system prompt includes updated length (`refresh_document_context`); `next_hello_ok()` | **OK / Landed** |
 | **E6** | CI | `two tools` / `in parallel` | Send query | Both `search_in_document` and `get_document_tree` execute in one turn; single HTML summary; `next_hello_ok()` | **OK / Landed** |
-| **E7** | CI | `outline this` | Send query | Calls `delegate_to_specialized_writer_toolset`; inner discovery executes; returns canned outline; `next_hello_ok()` | **OK / Landed** |
+| **E7** | CI | `outline this` | Send query | Calls `writer_delegate_specialized`; inner discovery executes; returns canned outline; `next_hello_ok()` | **OK / Landed** |
 | **E8a** | CI | `outline this`, `delay_ms=80`, `sync_delay_ms=8000` | Call `press_stop()` during nested POST | Nested agent stops; `is_busy` becomes False; log shows `SendCancellation` / `USER_STOPPED`; `next_hello_ok()` | **OK / Landed** |
 | **E8b** | CI | Same as E8a | Cancel with `press_stop_mouse()` | Same cancellation behavior via mouse listener | **Dropped** (mouse; E8a covers Stop) |
 | **E9** | CI | Prompt for web research on | Send query triggering HITL approval | Send button label becomes `Accept`; Stop label becomes `Change` / `Reject`; `is_busy` remains True | **OK / Landed** |
@@ -318,7 +318,7 @@ Every test must satisfy:
 | **E21** | CI | `mixed tools` / `one tool fails` | Send query | `apply_document_content` succeeds while `add_comment` fails; mutation kept, error surfaced; `next_hello_ok()` | **OK / Landed** |
 | **E23** | mock-sidebar | Scripted rule `prompt cell ping`, then `error 401` | Open Calc; `setFormula('=PROMPT(...)')` on A1 and A2 | A1 shows the exact mock reply via one `stream=False` POST; A2 shows error text (401); `next_hello_ok()` | **Landed** |
 | **E24** | mock-sidebar | `run slow python` | Kill the venv worker (`KILL_VENV_WORKER`, repeated until the tool round returns) | Tool round returns an error (no `slept`); turn goes idle; `next_hello_ok()` | **Landed** |
-| **E22** | CI | `endless nested outline` | Specialized delegate never finishes | Triggers max tool budget error; main UI returns to idle; inner `decided_tools` must not include `final_answer` / `specialized_workflow_finished`; `next_hello_ok()` | **OK / Landed** (leftover Calc after E12/P advertises `send_peer_work / send_peer_result`; mock must not take the Packet P finish-immediately path — never-finish / phrase wins so smol hits `chatbot.max_tool_rounds`) |
+| **E22** | CI | `endless nested outline` | Specialized delegate never finishes | Triggers max tool budget error; main UI returns to idle; inner `decided_tools` must not include `final_answer` / `workflow_finished`; `next_hello_ok()` | **OK / Landed** (leftover Calc after E12/P advertises `peer_send_work / peer_send_result`; mock must not take the Packet P finish-immediately path — never-finish / phrase wins so smol hits `chatbot.max_tool_rounds`) |
 
 #### Dropped Cases (Packet E)
 - **E2 (Live DuckDuckGo):** CI must stay offline; E1 covers the research loop.
@@ -436,14 +436,14 @@ Every test must satisfy:
 
 - **Focus:** Writer + Calc sidebars sharing one process-global mock OpenAI server. Scripts branch on advertised tools, `[Peer from:]` envelopes, and the specialized-inner wire.
 - **Mode:** Automated (`make test-mock-sidebar FILTER=P`). Unit scripts always run in `make pytest` (`tests/scripts/test_mock_llm_server.py`).
-- **Protocol locked:** outer main delegates `document_research` (never advertises `send_peer_work / send_peer_result`); inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately; Calc does `write_formula_range` then delegates to reply with `envelope kind (work/result)`.
+- **Protocol locked:** outer main delegates `document_research` (never advertises `peer_send_work / peer_send_result`); inner `peer_send_work / peer_send_result` then `workflow_finished` immediately; Calc does `write_formula_range` then delegates to reply with `envelope kind (work/result)`.
 - **Calc open:** same `open_calc_document` / `adopt_chat_sidebar` helper as E12/G17 (VCL-posted `factory/scalc` + `_blank`; keep Writer open). Never `loadComponentFromURL("private:factory/scalc")` from the URP client after a Writer deck. After Writer Ready, P1 dispatches `KICK_PEERS` so soffice starts the queued extracted send. If dual decks cannot be wired, P1–P3 SkipTest — unit scripts still lock finish-after-accepted, reply-via-specialized, and busy-then-queue.
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
-| **P1** | mock-sidebar | `Ask the budget workbook to add a Total row` | Dual decks; Writer send | Both Ready; Calc wrote Total; Writer saw reply; finish immediately after accepted; no outer `send_peer_work / send_peer_result` | **Landed** (SkipTest if Calc deck cannot open) |
+| **P1** | mock-sidebar | `Ask the budget workbook to add a Total row` | Dual decks; Writer send | Both Ready; Calc wrote Total; Writer saw reply; finish immediately after accepted; no outer `peer_send_work / peer_send_result` | **Landed** (SkipTest if Calc deck cannot open) |
 | **P2** | mock-sidebar | `wait after accepted then hang` | Writer send; assert before max_steps | Specialized stays in discovery after accepted; Calc does not `write_formula_range` (inject-now envelope is OK) | **Landed** (same skip) |
-| **P3** | mock-sidebar + unit | Writer Ready, then `keep talking` (slow SSE); `KICK_PEERS` after Stop enabled | Writer busy when Calc `send_peer_work / send_peer_result`s | Reply queues (no inject); after Stop/Ready + kick, extracted send starts | **Landed** (live may SkipTest if dual-deck Send misses ramble; units `test_p3_*` always lock; E12 follow-up if Calc deck missing). Calc reply specialized task is the scripted `Reply to the peer envelope … envelope kind (work/result)=` string — mock peer-inner must match that, not only inbound "add a total row", or leftover-Calc discovery (`list_nearby_files`) finishes without a reply. |
+| **P3** | mock-sidebar + unit | Writer Ready, then `keep talking` (slow SSE); `KICK_PEERS` after Stop enabled | Writer busy when Calc `peer_send_work / peer_send_result`s | Reply queues (no inject); after Stop/Ready + kick, extracted send starts | **Landed** (live may SkipTest if dual-deck Send misses ramble; units `test_p3_*` always lock; E12 follow-up if Calc deck missing). Calc reply specialized task is the scripted `Reply to the peer envelope … envelope kind (work/result)=` string — mock peer-inner must match that, not only inbound "add a total row", or leftover-Calc discovery (`research_list_nearby_files`) finishes without a reply. |
 
 See [peer-messaging.md](../chat/peer-messaging.md#dual-mock-peer-tests).
 

@@ -8,25 +8,53 @@
 """Smolagents few-shot example blocks (Action/Observation) used at runtime.
 
 - **librarian** — onboarding (`reply_to_user`; leave with ``switch_to_document_mode=true``).
-- **brainstorming** — design exploration (`reply_to_user`, `save_design_spec`; leave with ``brainstorming_finished=true``).
-- **writing_plan** — document section drafting (`reply_to_user`, `write_document_section`).
-- **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
+- **brainstorming** — design exploration (`reply_to_user`, `brainstorming_save_design_spec`; leave with ``brainstorming_finished=true``).
+- **writing_plan** — document section drafting (`reply_to_user`, `writing_plan_write_section`).
+- **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_search_web`).
 - **web_research** — web sub-agent (`final_answer`; ``web_search`` arguments are ``{"query": "..."}``).
 - **ppt-master** — venv PPT-Master agent (`ppt_master_finished`).
-- **``*:python``** — outer python agent: venv demo (`run_venv_python_script` + ``sp.prime``), footnotes via ``delegate_tool_domains``, and a ring of shapes (``delegate_tool_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
-- **``domain_tools:shapes``** — inner agent after that hop: one ``run_venv_python_script`` with the for-loop, then ``specialized_workflow_finished``. Not the outer ``*:python`` block (that block calls ``delegate_tool_domains``, which the inner list does not include).
+- **``*:python``** — outer python agent: venv demo (`python_run_script` + ``sp.prime``), footnotes via ``python_delegate_domains``, and a ring of shapes (``python_delegate_domains`` whose task tells the inner agent to place circles with one script for-loop over ``wa.shape.upsert``, then finish).
+- **``domain_tools:shapes``** — inner agent after that hop: one ``python_run_script`` with the for-loop, then ``workflow_finished``. Not the outer ``*:python`` block (that block calls ``python_delegate_domains``, which the inner list does not include).
 - **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
-- **``document_research:*``** — document exploration and search (`specialized_workflow_finished`).
-- **All other keys** — shared delegate demo (`specialized_workflow_finished`).
+- **``document_research:*``** — document exploration and search (`workflow_finished`).
+- **All other keys** — shared delegate demo (`workflow_finished`).
 """
 
 from __future__ import annotations
 
 import logging
 
-from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK, WEB_RESEARCH_EXAMPLES_BLOCK
+from plugin.contrib.smolagents.toolcalling_agent_prompts import WEB_RESEARCH_EXAMPLES_BLOCK
 
 log = logging.getLogger(__name__)
+
+# WriterAgent owns this block because the finish tool name (workflow_finished) is ours.
+# The vendored copy in plugin/contrib/smolagents/toolcalling_agent_prompts.py is no longer used.
+DELEGATE_GENERIC_EXAMPLES_BLOCK = """Task: "Which city has the highest population, Guangzhou or Shanghai?"
+
+The manager's real task is in the user message below; this example only shows the Action/Observation call format.
+
+Action:
+{
+    "name": "web_search",
+    "arguments": {"query": "Population Guangzhou"}
+}
+Observation: ['Guangzhou has a population of 15 million inhabitants as of 2021.']
+
+
+Action:
+{
+    "name": "web_search",
+    "arguments": {"query": "Population Shanghai"}
+}
+Observation: '26 million (2019)'
+
+Action:
+{
+  "name": "workflow_finished",
+  "arguments": {"answer": "Shanghai has the larger population."}
+}
+"""
 
 LIBRARIAN_EXAMPLES = """Task: User confirmed they want to be called Joe after the librarian asked "Would you like me to call you Joe?"
 
@@ -96,7 +124,7 @@ Observation: {"status": "ok"}
 
 Action:
 {
-  "name": "save_design_spec",
+  "name": "brainstorming_save_design_spec",
   "arguments": {
     "content": ["<h1>Design: Sidebar Export</h1>", "<h2>Goals</h2>", "<ul><li>One-click export from chat sidebar</li></ul>", "<h2>Architecture</h2>", "<p>Main-thread UNO export from the active Writer document.</p>", "<h2>Testing</h2>", "<ul><li>Unit test export tool with mocked document</li><li>UNO smoke test on sample .odt</li></ul>"],
     "target": "end"
@@ -134,7 +162,7 @@ Task: "Yes, start writing."
 
 Action:
 {
-  "name": "write_document_section",
+  "name": "writing_plan_write_section",
   "arguments": {
     "content": ["<h2>Section 1: Origin and Fork</h2>", "<p>LibreOffice was forked from OpenOffice.org in 2010 due to concerns over Oracle's acquisition of Sun Microsystems.</p>"],
     "target": "end"
@@ -153,7 +181,7 @@ Task: "Go ahead"
 
 Action:
 {
-  "name": "write_document_section",
+  "name": "writing_plan_write_section",
   "arguments": {
     "content": ["<h2>Section 2: TDF Era</h2>", "<p>The Document Foundation was created to host and guide the development of LibreOffice in a community-driven manner.</p>"],
     "target": "end"
@@ -175,14 +203,14 @@ PYTHON_SPECIALIZED_EXAMPLES = """Task: "Calculate prime numbers from the 1010th 
 
 Action:
 {
-  "name": "run_venv_python_script",
+  "name": "python_run_script",
   "arguments": {"code": "low, high = sp.prime(1010), sp.prime(1020)\\nresult = np.array(sp.primerange(low, high + 1))\\n"}
 }
 Observation: {"status": "ok", "result": [8017, 8039, 8053, 8059, 8069, 8081, 8087, 8089, 8093, 8101, 8111], "stdout": "", "stderr": ""}
 
 Action:
 {
-  "name": "specialized_workflow_finished",
+  "name": "workflow_finished",
   "arguments": {"answer": "I have successfully calculated the prime numbers and stored them in the `result` variable as a NumPy array. The values are: [8017, 8039, 8053, 8059, 8069, 8081, 8087, 8089, 8093, 8101, 8111]."}
 }
 
@@ -190,14 +218,14 @@ Task: "Add a footnote after the sentence about revenue."
 
 Action:
 {
-  "name": "delegate_tool_domains",
+  "name": "python_delegate_domains",
   "arguments": {"domains": ["footnotes"], "task": "Insert a footnote after the sentence about revenue with the source citation."}
 }
 Observation: {"status": "ok", "domains": ["footnotes"], "result": "Inserted the footnote."}
 
 Action:
 {
-  "name": "specialized_workflow_finished",
+  "name": "workflow_finished",
   "arguments": {"answer": "Added the footnote via the footnotes domain."}
 }
 
@@ -205,32 +233,32 @@ Task: "Use python to place a ring of 8 blue circles."
 
 Action:
 {
-  "name": "delegate_tool_domains",
-  "arguments": {"domains": ["shapes"], "task": "Place a ring of 8 blue circles with one run_venv_python_script. import writeragent as wa and use a Python for-loop that calls wa.shape.upsert for each circle. Page-scale absolute positions in HMM (1/100 mm). Origin is the top-left of the page, not (0,0) as a center. Page center about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Do not call a per-shape LLM tool."}
+  "name": "python_delegate_domains",
+  "arguments": {"domains": ["shapes"], "task": "Place a ring of 8 blue circles with one python_run_script. import writeragent as wa and use a Python for-loop that calls wa.shape.upsert for each circle. Page-scale absolute positions in HMM (1/100 mm). Origin is the top-left of the page, not (0,0) as a center. Page center about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Do not call a per-shape LLM tool."}
 }
 Observation: {"status": "ok", "domains": ["shapes"], "result": "Placed 8 blue circles in a ring."}
 
 Action:
 {
-  "name": "specialized_workflow_finished",
+  "name": "workflow_finished",
   "arguments": {"answer": "Placed a ring of 8 blue circles via the shapes domain."}
 }
 """
 
-# Inner agent after delegate_tool_domains(domains=["shapes"]).
+# Inner agent after python_delegate_domains(domains=["shapes"]).
 # One script loops the allowlisted shape API; per-shape LLM tools are not on this list.
 INNER_SHAPES_SCRIPT_EXAMPLES = """Task: "Place a ring of 8 blue circles. Page-scale absolute positions in HMM (1/100 mm). Origin is the top-left of the page, not (0,0). Center about (10500, 14000), radius 7000 HMM, each circle 1600 HMM across, fill blue. Use one script for-loop."
 
 Action:
 {
-  "name": "run_venv_python_script",
+  "name": "python_run_script",
   "arguments": {"code": "import writeragent as wa\\ncx, cy, r, d = 10500, 14000, 7000, 1600\\nangles = np.linspace(0, 2 * np.pi, 8, endpoint=False)\\nfor a in angles:\\n    wa.shape.upsert('create', shape_type='ellipse', x=int(cx + np.cos(a) * r - d / 2), y=int(cy + np.sin(a) * r - d / 2), width=d, height=d, fill_color='blue')\\nresult = 'placed 8'\\n"}
 }
 Observation: {"status": "ok", "result": "placed 8", "stdout": "", "stderr": ""}
 
 Action:
 {
-  "name": "specialized_workflow_finished",
+  "name": "workflow_finished",
   "arguments": {"answer": "Placed a ring of 8 blue circles with one script looping wa.shape.upsert."}
 }
 """
@@ -250,7 +278,7 @@ Observation: {"status": "ok", "message": "Image edited in place."}
 
 Action:
 {
-  "name": "specialized_workflow_finished",
+  "name": "workflow_finished",
   "arguments": {"answer": "Updated the selected image in place so it looks like a wizard."}
 }
 
@@ -265,7 +293,7 @@ Observation: {"status": "ok", "message": "Image generated successfully."}
 
 Action:
 {
-  "name": "specialized_workflow_finished",
+  "name": "workflow_finished",
   "arguments": {"answer": "Inserted a new tabby cat image."}
 }
 """
@@ -301,7 +329,7 @@ DEEP_RESEARCH_EXAMPLES = """Task: "Research recent advances in solid-state batte
 
 Action:
 {
-  "name": "deep_research_web",
+  "name": "deep_research_search_web",
   "arguments": {"query": "solid-state battery commercialization advances 2024 2025"}
 }
 Observation: {"status": "ok", "result": "Plain text report with findings..."}
@@ -342,9 +370,9 @@ def get_examples_block(key: str) -> str:
 
     Specialized keys (``writer:shapes``, ``document_research:calc``, …) share
     ``DELEGATE_GENERIC_EXAMPLES_BLOCK`` so the DONE tool is always
-    ``specialized_workflow_finished``. Keys ending in ``:python`` use
+    ``workflow_finished``. Keys ending in ``:python`` use
     ``PYTHON_SPECIALIZED_EXAMPLES`` (outer agent). ``domain_tools:shapes`` uses
-    ``INNER_SHAPES_SCRIPT_EXAMPLES`` (inner agent after ``delegate_tool_domains``).
+    ``INNER_SHAPES_SCRIPT_EXAMPLES`` (inner agent after ``python_delegate_domains``).
     Keys ending in ``:images`` use ``IMAGES_SPECIALIZED_EXAMPLES``.
     """
     if key in _EXACT_EXAMPLES:

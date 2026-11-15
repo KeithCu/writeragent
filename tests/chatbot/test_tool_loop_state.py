@@ -426,7 +426,7 @@ def test_next_tool_delegate_keeps_full_task_on_spawn():
         {
             "id": "call_delegate",
             "function": {
-                "name": "delegate_to_specialized_writer_toolset",
+                "name": "writer_delegate_specialized",
                 "arguments": json.dumps({"domain": "styles", "task": task}, ensure_ascii=False),
             },
             "parsed_args": {"domain": "styles", "task": task},
@@ -462,7 +462,7 @@ def test_next_tool_delegate_gateway_shows_domain_and_task():
         {
             "id": "call_delegate",
             "function": {
-                "name": "delegate_to_specialized_writer_toolset",
+                "name": "writer_delegate_specialized",
                 "arguments": '{"domain": "styles", "task": "' + long_task.replace('"', '\\"') + '"}',
             },
             "parsed_args": {"domain": "styles", "task": long_task},
@@ -476,7 +476,7 @@ def test_next_tool_delegate_gateway_shows_domain_and_task():
     assert "delegate (styles)" in run_line
     assert "Fix the chart legend" in run_line
     assert "..." in run_line
-    assert "delegate_to_specialized_writer_toolset" not in run_line
+    assert "writer_delegate_specialized" not in run_line
     assert status_text == "Running: delegate (styles)"
 
 
@@ -515,7 +515,7 @@ def test_tool_result_delegate_gateway_shows_done():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="call_delegate",
-        func_name="delegate_to_specialized_writer_toolset",
+        func_name="writer_delegate_specialized",
         func_args_str='{"domain": "styles", "task": "Update heading styles"}',
         result='{"status": "ok", "message": "Specialized task complete. Normal toolset restored."}',
         mutates_document=False,
@@ -532,7 +532,7 @@ def test_tool_result_delegate_gateway_error():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="call_delegate",
-        func_name="delegate_to_specialized_calc_toolset",
+        func_name="calc_delegate_specialized",
         func_args_str='{"domain": "charts", "task": "Add a chart"}',
         result='{"status": "error", "message": "No specialized tools found for domain \'charts\'."}',
         mutates_document=False,
@@ -551,7 +551,7 @@ def test_tool_result_delegate_gateway_incomplete():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="call_delegate",
-        func_name="delegate_to_specialized_writer_toolset",
+        func_name="writer_delegate_specialized",
         func_args_str='{"domain": "structural", "task": "Find page count"}',
         result='{"status": "incomplete", "code": "SPECIALIZED_WORKFLOW_INCOMPLETE", "message": "Could not determine page."}',
         mutates_document=True,
@@ -793,7 +793,7 @@ def test_format_tool_running_ui():
     assert status == "Running: read_cell_range"
     assert line == "[Running tool: read_cell_range...]\n"
 
-    status, line = format_tool_running_ui("delegate_to_specialized_calc_toolset", {"domain": "charts", "task": "plot"})
+    status, line = format_tool_running_ui("calc_delegate_specialized", {"domain": "charts", "task": "plot"})
     assert "delegate (charts)" in status
     assert line.startswith("[Running delegate (charts):")
     assert line.endswith("\n")
@@ -818,7 +818,7 @@ def test_format_tool_result_chat_text_error_does_not_mutate_details():
 def test_format_tool_result_chat_text_success_and_delegate():
     assert format_tool_result_chat_text("my_tool", {}, {"status": "ok", "message": "done"}) == "[my_tool: done]\n"
     text = format_tool_result_chat_text(
-        "delegate_to_specialized_writer_toolset",
+        "writer_delegate_specialized",
         {"domain": "styles"},
         {"status": "ok"},
     )
@@ -863,7 +863,7 @@ def test_format_tool_result_chat_text_null_message_uses_fallback():
     assert format_tool_result_chat_text("my_tool", {}, {"status": "error", "message": None}) == "[my_tool failed: Unknown error]\n"
     assert format_tool_result_chat_text("my_tool", {}, {"message": None}) == "[my_tool: done]\n"
     delegate = format_tool_result_chat_text(
-        "delegate_to_specialized_writer_toolset",
+        "writer_delegate_specialized",
         {"domain": "styles"},
         {"status": "error", "message": None},
     )

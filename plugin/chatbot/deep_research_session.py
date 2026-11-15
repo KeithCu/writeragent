@@ -27,11 +27,11 @@ You perform multi-step public web research and write formatted results into the 
 
 WORKFLOW:
 1. Read document context when helpful (get_document_content / get_document_tree / search_in_document).
-2. Run deep_research_web for the user's research query. This may take several minutes (parallel searches, adaptive rounds).
+2. Run deep_research_search_web for the user's research query. This may take several minutes (parallel searches, adaptive rounds).
 3. reply_to_user with a brief HTML summary of what you researched. Do NOT paste the full report into reply_to_user; highlight key findings only.
 
 TOOLS:
-- deep_research_web: multi-step adaptive web research only (not the shallow web_research tool).
+- deep_research_search_web: multi-step adaptive web research only (not the shallow web_research tool).
 - reply_to_user: short HTML confirmation when the turn is complete."""
 
 DEEP_RESEARCH_WRITER_INSERT_INSTRUCTIONS = """WRITER DOCUMENT INSERT (apply_document_content is in your tool list):
@@ -42,7 +42,7 @@ HTML RULES (CRITICAL):
 - apply_document_content content must be a JSON array of HTML strings — no Markdown (#, **, ```).
 - reply_to_user must be HTML and brief (status/summary only).
 - Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
-- Rewrite plain-text deep_research_web results as structured HTML (headings, paragraphs, lists) before apply_document_content.
+- Rewrite plain-text deep_research_search_web results as structured HTML (headings, paragraphs, lists) before apply_document_content.
 
 - apply_document_content: the ONLY way to write research into the document."""
 
@@ -71,7 +71,7 @@ class DeepResearchWebTool(SubAgentResearchWebBase):
         "apply_document_content",
     ])
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
-    name: str | None = "deep_research_web"
+    name: str | None = "deep_research_search_web"
     description: str = (
         "Run breadth/depth public web research on a topic. Returns plain text. "
         "Summarize findings in reply_to_user; insert formatted HTML with apply_document_content "

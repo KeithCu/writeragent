@@ -59,12 +59,12 @@ from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
 
-# Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
+# Short sidebar chat labels for *_delegate_specialized gateway tools.
 DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
     {
-        "delegate_to_specialized_writer_toolset",
-        "delegate_to_specialized_calc_toolset",
-        "delegate_to_specialized_draw_toolset",
+        "writer_delegate_specialized",
+        "calc_delegate_specialized",
+        "draw_delegate_specialized",
     }
 )
 DELEGATE_TASK_CHAT_MAX = 120
@@ -873,7 +873,7 @@ def build_tool_execute_fn(
         if doc_type_str in ("draw", "impress"):
             from plugin.draw.bridge import DrawBridge
 
-            # Async gateways (delegate_to_specialized_draw_toolset) run
+            # Async gateways (draw_delegate_specialized) run
             # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
             active_page_idx = best_effort(
                 lambda: main.call(lambda: DrawBridge(doc).get_active_page_index()),

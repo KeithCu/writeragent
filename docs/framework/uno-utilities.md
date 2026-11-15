@@ -261,7 +261,7 @@ There is **no** single shared converter. Live implementations:
 | (inline) | `styles.py`, `get_image.py`, `duckdb_tools.py`, `calc/python/image_egress.py`, `librepy/sidebar_menus.py` | path → URL | Raw `uno.systemPathToFileUrl`. |
 | `normalize_file_url` | `url_utils` | URL repair | `file:/path` → `file:///path`. Shared by `get_document_path` and research. **Landed.** |
 | `get_document_path` | `text_helpers` | URL → path | Repair then `file://` prefix; `uno.fileUrlToSystemPath`. |
-| `system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
+| `system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. `resolve_path_or_name` uses this so a `file:` URL (including ones from `research_list_nearby_files` / `list_open_documents`) is an absolute path, not a listing filter. |
 | `get_extension_path` | `uno_context` | URL → path | `file://` → `fileUrlToSystemPath`; else returns the URL string (`vnd.sun.star.extension://…`). |
 | `path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
 | `_system_dir_from_file_url` | `scripting/session_manager.py` | URL → parent dir | **stdlib, no UNO** (off-main `=PY()`); Windows drive letter. |

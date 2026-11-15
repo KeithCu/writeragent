@@ -17,15 +17,15 @@ from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 
 
 def test_deep_research_instructions_include_apply_document_content_when_writer_tools():
-    tool_names = ["deep_research_web", "apply_document_content", "reply_to_user"]
+    tool_names = ["deep_research_search_web", "apply_document_content", "reply_to_user"]
     mode = compose_deep_research_mode_instructions(tool_names)
     text = get_sub_agent_instructions(mode, tool_names=tool_names)
     assert "apply_document_content" in text
-    assert "deep_research_web" in text
+    assert "deep_research_search_web" in text
 
 
 def test_deep_research_calc_instructions_omit_apply_document_content():
-    tool_names = ["deep_research_web", "reply_to_user", "get_document_content"]
+    tool_names = ["deep_research_search_web", "reply_to_user", "get_document_content"]
     mode = compose_deep_research_mode_instructions(tool_names)
     text = get_sub_agent_instructions(mode, tool_names=tool_names)
     assert "apply_document_content" not in text
@@ -63,7 +63,7 @@ def test_collect_deep_research_tools_calc_omits_apply_document_content():
         services={"tools": registry},
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)}
-    assert "deep_research_web" in names
+    assert "deep_research_search_web" in names
     assert "apply_document_content" not in names
 
 
@@ -80,7 +80,7 @@ def test_collect_deep_research_tools_includes_apply_on_writer(apply_document_con
         services={"tools": registry},
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)}
-    assert "deep_research_web" in names
+    assert "deep_research_search_web" in names
     assert "apply_document_content" in names
     assert "get_document_content" in names
 

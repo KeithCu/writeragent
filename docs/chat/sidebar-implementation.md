@@ -102,7 +102,7 @@ Do not copy `WRITER_APPLY_DOCUMENT_HTML_RULES` EXAMPLES into sidebar examples; a
 Brainstorming and writing-plan sub-agents (`get_sub_agent_instructions(BRAINSTORMING_SUB_AGENT_INSTRUCTIONS)` in [`brainstorming.py`](../../plugin/chatbot/brainstorming.py), `get_sub_agent_instructions(WRITING_SUB_AGENT_INSTRUCTIONS)` in [`writing.py`](../../plugin/chatbot/writing.py)):
 
 1. Mode-specific instructions (`BRAINSTORMING_SUB_AGENT_INSTRUCTIONS` / `WRITING_SUB_AGENT_INSTRUCTIONS`)
-2. `WRITER_APPLY_DOCUMENT_HTML_RULES` (for `save_design_spec` / `write_document_section` array content)
+2. `WRITER_APPLY_DOCUMENT_HTML_RULES` (for `brainstorming_save_design_spec` / `writing_plan_write_section` array content)
 3. `get_chat_response_format_instructions` (sidebar HTML or plain text)
 
 See also [../writer/math-tex.md](../writer/math-tex.md) (TeX/MathML import) and [brainstorming-mode.md](brainstorming-mode.md) (sub-agent HTML surfaces).

@@ -196,7 +196,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "flowchart_gen": [
         _tools(
             _tc(
-                "delegate_to_specialized_draw_toolset",
+                "draw_delegate_specialized",
                 {
                     "domain": "shapes",
                     "task": (
@@ -269,7 +269,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "specialized_workflow_finished",
+                "workflow_finished",
                 {"answer": "flowchart created"},
                 "fin_draw_1",
             )
@@ -280,7 +280,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "org_chart_gen": [
         _tools(
             _tc(
-                "delegate_to_specialized_draw_toolset",
+                "draw_delegate_specialized",
                 {
                     "domain": "shapes",
                     "task": (
@@ -441,7 +441,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "specialized_workflow_finished",
+                "workflow_finished",
                 {"answer": "org chart created"},
                 "fin_org_1",
             )
@@ -452,7 +452,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "solar_sld_gen": [
         _tools(
             _tc(
-                "delegate_to_specialized_draw_toolset",
+                "draw_delegate_specialized",
                 {
                     "domain": "shapes",
                     "task": (
@@ -614,7 +614,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "specialized_workflow_finished",
+                "workflow_finished",
                 {"answer": "solar SLD created"},
                 "fin_sld_1",
             )
@@ -625,7 +625,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "data_sorting": [
         _tools(
             _tc(
-                "delegate_to_specialized_calc_toolset",
+                "calc_delegate_specialized",
                 {
                     "domain": "ranges",
                     "task": (
@@ -662,7 +662,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "specialized_workflow_finished",
+                "workflow_finished",
                 {"answer": "sorted"},
                 "fin_calc_1",
             )
@@ -734,7 +734,7 @@ _TOC_LIST_ANSWER = "\n".join(
 SCRIPTS["toc_list_entries"] = [
     _tools(
         _tc(
-            "delegate_to_specialized_writer_toolset",
+            "writer_delegate_specialized",
             {
                 "domain": "indexes",
                 "task": "List table of contents entries without hyperlinks.",
@@ -745,7 +745,7 @@ SCRIPTS["toc_list_entries"] = [
     _tools(_tc("indexes_list_toc_entries", {}, "list_toc_1")),
     _tools(
         _tc(
-            "specialized_workflow_finished",
+            "workflow_finished",
             {"answer": _TOC_LIST_ANSWER},
             "fin_idx_list",
         )
@@ -764,7 +764,7 @@ _TOC_REFRESH_CALLS = [
 SCRIPTS["toc_renumber_insert"] = [
     _tools(
         _tc(
-            "delegate_to_specialized_writer_toolset",
+            "writer_delegate_specialized",
             {
                 "domain": "indexes",
                 "task": (
@@ -790,7 +790,7 @@ SCRIPTS["toc_renumber_insert"] = [
     ),
     _tools(
         _tc(
-            "specialized_workflow_finished",
+            "workflow_finished",
             {"answer": "TOC renumbered and review chapter inserted."},
             "fin_idx_edit",
         )

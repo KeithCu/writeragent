@@ -73,7 +73,7 @@ Start here by task.
 | Threading architecture (pool, marshal, MCP) | [framework/threading.md](framework/threading.md) |
 | UNO thread-safety enforcement | [framework/uno-thread-safety.md](framework/uno-thread-safety.md) |
 | Smol vs main chat HTTP | [chat/smol-tool-architecture.md](chat/smol-tool-architecture.md) |
-| Writer ↔ Calc ↔ Draw ↔ Impress `send_peer_work / send_peer_result` | [chat/peer-messaging.md](chat/peer-messaging.md) |
+| Writer ↔ Calc ↔ Draw ↔ Impress `peer_send_work / peer_send_result` | [chat/peer-messaging.md](chat/peer-messaging.md) |
 | Writer specialized tool tiers | [writer/specialized-toolsets.md](writer/specialized-toolsets.md) |
 | Styles / LLM styling | [writer/llm-styles.md](writer/llm-styles.md) |
 | Writer list numbering (list-only) | [writer/list-numbering.md](writer/list-numbering.md) |

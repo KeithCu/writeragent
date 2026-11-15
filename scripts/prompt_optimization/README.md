@@ -152,7 +152,7 @@ From t=0 the scheduler does **not** finish the string pack and then start LibreO
 
 `run_eval_multi.py -j N` is still **models** (default 20). Inside one model, string tasks stay serial. Models share **one** LO pool (`--lo-workers`), so flag rows from several models occupy those agent threads while those models' string tasks overlap. Do **not** `ProcessPoolExecutor` against one soffice, and do not start a second soffice. Flag-path `get_ctx()` / Desktop current component / the warm-child pipe lock are still a separate pin. Per-task banners include `model=`; an LO row also prints `backend=lo`.
 
-`delegate_tool_domains` on the string world returns `unsupported_in_eval`. There is no fake `run_venv_python_script`. On LO, the harness runs that hop as an inner `LlmClient` loop (not SmolAgents) so `run_venv_python_script` is on the **harness trace**, then executes it through production tools with `python_tool_domain=shapes,core`. Shape mutators stay off the inner LLM list. Headed eval-2 still scores `writeragent_debug.log`; this row does not.
+`python_delegate_domains` on the string world returns `unsupported_in_eval`. There is no fake `python_run_script`. On LO, the harness runs that hop as an inner `LlmClient` loop (not SmolAgents) so `python_run_script` is on the **harness trace**, then executes it through production tools with `python_tool_domain=shapes,core`. Shape mutators stay off the inner LLM list. Headed eval-2 still scores `writeragent_debug.log`; this row does not.
 
 ```bash
 # Original 17, no soffice. Comparable with the 2026-09-11 boards.
@@ -182,12 +182,12 @@ DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to r
 
 Production sidebar registration is unchanged. These flags only reshape the **advertised** eval catalog.
 
-**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `range_sort` / ranges-domain schemas.
+**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `calc_delegate_specialized` still sees `range_sort` / ranges-domain schemas.
 
 | Preset | Kind | Outer tools (production names) |
 |--------|------|--------------------------------|
 | `full` | any | Today's unfiltered `get_schemas` catalog (Writer 14 / Calc 14 / Draw 19). |
-| `calc_minimal` | calc | `write_formula_range`, `get_sheet_summary`, `delegate_to_specialized_calc_toolset` — smallest set that can still pass `data_sorting` + `tax_column`. |
+| `calc_minimal` | calc | `write_formula_range`, `get_sheet_summary`, `calc_delegate_specialized` — smallest set that can still pass `data_sorting` + `tax_column`. |
 | `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `web_research`, `upsert_memory`, `get_guidance`, `redo`, `undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
 | `writer_minimal` | writer | `apply_document_content`, `get_document_content` — smallest set for apply-HTML Writer tasks (`table_from_mess`, `bulk_cleanup`, …). |
 

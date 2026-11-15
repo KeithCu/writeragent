@@ -624,7 +624,7 @@ class ToolCallingMixin:
         """Recompute OpenAI tool schemas from ``session.active_specialized_domain``.
 
         In-place specialized delegation updates the session after ``delegate`` or
-        ``specialized_workflow_finished``; each LLM round must see the matching list.
+        ``workflow_finished``; each LLM round must see the matching list.
         """
         turn = current_turn(self._panel)
         if turn is None:

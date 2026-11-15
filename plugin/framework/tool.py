@@ -507,7 +507,7 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
     return bool(getattr(t, "is_app_specialized_tool", False))
 
 
-# Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
+# Hidden from default chat/MCP tool lists; exposed via writer_delegate_specialized.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:
@@ -716,7 +716,7 @@ class ToolRegistry:
                 Writer tools and MCP-only helpers stay off the main tool list.
                 Pass ``()`` or ``frozenset()`` to include all tiers.
             active_domain: If provided, dynamically includes specialized tools for this domain,
-                the specialized_workflow_finished tool, and names listed in
+                the workflow_finished tool, and names listed in
                 ``required_core_tools`` whose tier is ``core`` or ``specialized``.
             ctx: Optional ToolContext or context for filtering vision specialized tools.
         """
@@ -768,7 +768,7 @@ class ToolRegistry:
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
                     filtered_tools.append(t)
-                elif t.name == "specialized_workflow_finished" and active_domain not in WRITER_SIDEBAR_ONLY_DOMAINS:
+                elif t.name == "workflow_finished" and active_domain not in WRITER_SIDEBAR_ONLY_DOMAINS:
                     # Sidebar-only domains (brainstorming, writing_plan) use bespoke finish tools.
                     filtered_tools.append(t)
                 elif getattr(t, "tier", None) in ("core", "specialized") and t.name in required_core:

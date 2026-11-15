@@ -123,7 +123,7 @@ def test_delegate_status_inner_tool_error(
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
         tool_map["failing_structural_tool"]()
-        return tool_map["specialized_workflow_finished"](answer="Final attempted answer")
+        return tool_map["workflow_finished"](answer="Final attempted answer")
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
@@ -183,7 +183,7 @@ def test_delegate_length_truncated_reply_is_incomplete_not_finished(
     writer_gateway: DelegateToSpecializedWriter,
 ) -> None:
     """Discussion #2262: a plain-text reply cut off by finish_reason=length must not become a
-    synthetic specialized_workflow_finished call; the delegate reports incomplete with the partial text."""
+    synthetic workflow_finished call; the delegate reports incomplete with the partial text."""
     from unittest.mock import patch
 
     from plugin.chatbot.smol_agent import WriterAgentSmolModel
@@ -245,7 +245,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
         tool_map["dummy_structural_tool"]()
-        return tool_map["specialized_workflow_finished"](answer=answer)
+        return tool_map["workflow_finished"](answer=answer)
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
@@ -292,7 +292,7 @@ def test_delegate_completed_message_uses_static_msgid(
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
         tool_map["dummy_structural_tool"]()
-        tool_map["specialized_workflow_finished"](answer="Done")
+        tool_map["workflow_finished"](answer="Done")
         return "All done."
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
@@ -315,7 +315,7 @@ def test_delegate_finish_only_stays_ok(
 
     def fake_run_inner(ctx, tools, **kwargs):
         tool_map = {t.name: t for t in tools}
-        return tool_map["specialized_workflow_finished"](answer=answer)
+        return tool_map["workflow_finished"](answer=answer)
 
     # finish-only on an editing domain -> status "ok", finished true, answer kept, note == NO_EDIT_TOOL_NOTE
     ctx_edit = _structural_registry(writer_gateway)
@@ -381,7 +381,7 @@ def test_delegate_retried_tool_error_is_recovered(
         tool_map = {t.name: t for t in tools}
         tool_map["retrying_structural_tool"]()
         tool_map["retrying_structural_tool"]()
-        return tool_map["specialized_workflow_finished"](answer="Succeeded after retry")
+        return tool_map["workflow_finished"](answer="Succeeded after retry")
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
@@ -623,7 +623,7 @@ def test_specialized_delegation_sub_agent_mode(
 
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_writer_toolset")
+    gateway_tool = registry.get("writer_delegate_specialized")
 
     registry_ctx.stop_checker = lambda: False
 
@@ -645,10 +645,10 @@ def test_specialized_delegation_sub_agent_mode(
     assert call_args is not None
     smol_tools = call_args.kwargs.get("tools", [])
 
-    # Sub-agent gets domain tools plus specialized_workflow_finished (active_domain registry rules).
+    # Sub-agent gets domain tools plus workflow_finished (active_domain registry rules).
     smol_tool_names = [t.name for t in smol_tools]
     assert "dummy_table_tool" in smol_tool_names
-    assert "specialized_workflow_finished" in smol_tool_names
+    assert "workflow_finished" in smol_tool_names
 
 
 @patch(
@@ -703,7 +703,7 @@ def test_shapes_delegation_includes_canvas_in_instructions(
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Shapes done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_writer_toolset")
+    gateway_tool = registry.get("writer_delegate_specialized")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(
@@ -750,9 +750,9 @@ def test_run_venv_python_script_in_schemas_for_writer_when_domain_python(registr
     mock_writer.supportsService = supports
     schemas = registry.get_schemas("openai", doc=mock_writer, active_domain="python")
     names = [s["function"]["name"] for s in schemas]
-    assert "run_venv_python_script" in names
-    assert "specialized_workflow_finished" in names
-    py_schema = next(s for s in schemas if s["function"]["name"] == "run_venv_python_script")
+    assert "python_run_script" in names
+    assert "workflow_finished" in names
+    py_schema = next(s for s in schemas if s["function"]["name"] == "python_run_script")
     props = py_schema["function"]["parameters"].get("properties", {})
     assert "code" in props
     assert "data" not in props
@@ -775,7 +775,7 @@ def test_active_domain_schemas_include_calc_and_draw(registry, dummy_draw_tool):
     schemas = registry.get_schemas("openai", doc=mock_sheet, active_domain="images")
     names = [s["function"]["name"] for s in schemas]
     assert "dummy_calc_images_tool" in names
-    assert "specialized_workflow_finished" in names
+    assert "workflow_finished" in names
 
     mock_draw = MagicMock()
 
@@ -787,7 +787,7 @@ def test_active_domain_schemas_include_calc_and_draw(registry, dummy_draw_tool):
     schemas_d = registry.get_schemas("openai", doc=mock_draw, active_domain="draw_test_domain")
     names_d = [s["function"]["name"] for s in schemas_d]
     assert "dummy_draw_special_tool" in names_d
-    assert "specialized_workflow_finished" in names_d
+    assert "workflow_finished" in names_d
 
 
 @patch(
@@ -814,7 +814,7 @@ def test_calc_specialized_delegation_sub_agent(
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Calc done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_calc_toolset")
+    gateway_tool = registry.get("calc_delegate_specialized")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(registry_ctx, domain="images", task="Insert image")
@@ -855,7 +855,7 @@ def test_draw_specialized_delegation_sub_agent(
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Draw done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_draw_toolset")
+    gateway_tool = registry.get("draw_delegate_specialized")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(registry_ctx, domain="draw_test_domain", task="Create shape")
@@ -874,7 +874,7 @@ def test_draw_specialized_delegation_sub_agent(
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_agent.SmolAgentExecutor")
 def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_cls, mock_build, registry):
-    """Writer delegate must pick up Calc-registered ``run_venv_python_script`` (specialized_cross_cutting)."""
+    """Writer delegate must pick up Calc-registered ``python_run_script`` (specialized_cross_cutting)."""
     from plugin.calc.python.venv import RunVenvPythonScript
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -913,8 +913,8 @@ def test_writer_delegate_python_includes_cross_cutting_venv_tool(mock_executor_c
     assert python_specialized_sub_agent_hint("Writer") in instructions
     tools_passed = mock_build.call_args[0][1]
     names = [t.name for t in tools_passed]
-    assert "run_venv_python_script" in names
-    assert "specialized_workflow_finished" in names
+    assert "python_run_script" in names
+    assert "workflow_finished" in names
 
 
 def test_delegate_requires_document_lock_read_only_domains():
@@ -978,7 +978,7 @@ def test_delegate_shapes_reports_created_counts(
     def _run_inner(_ctx, smol_tools, **_kw):
         by_name = {t.name: t for t in smol_tools}
         by_name["shape_upsert"].forward()
-        by_name["specialized_workflow_finished"].forward(answer="Placed Box")
+        by_name["workflow_finished"].forward(answer="Placed Box")
         return {"status": "ok", "finished": True, "answer": "Placed Box"}
 
     result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool()], _run_inner)
@@ -997,7 +997,7 @@ def test_delegate_shapes_finish_only_reports_zero_counts(
 
     def _run_inner(_ctx, smol_tools, **_kw):
         by_name = {t.name: t for t in smol_tools}
-        by_name["specialized_workflow_finished"].forward(answer="Done")
+        by_name["workflow_finished"].forward(answer="Done")
         return {"status": "ok", "finished": True, "answer": "Done"}
 
     result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool()], _run_inner)
@@ -1027,7 +1027,7 @@ def test_delegate_shapes_unrecovered_error_keeps_counts(
         by_name = {t.name: t for t in smol_tools}
         by_name["shape_upsert"].forward()
         by_name["shape_connect"].forward()
-        by_name["specialized_workflow_finished"].forward(answer="Partially done")
+        by_name["workflow_finished"].forward(answer="Partially done")
         return {"status": "ok", "finished": True, "answer": "Partially done"}
 
     result = _run_shapes_delegation(writer_gateway, [_fake_upsert_tool(), _FakeConnect()], _run_inner)

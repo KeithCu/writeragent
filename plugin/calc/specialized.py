@@ -35,7 +35,7 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
     to focus on the user's specific request, preventing context pollution.
     """
 
-    name: str | None = "delegate_to_specialized_calc_toolset"
+    name: str | None = "calc_delegate_specialized"
     description: str = f"Delegates a specialized Calc task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: images, vision (extract text and structure from images when configured), sheets, ranges, search, charts, shapes, pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
 
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]

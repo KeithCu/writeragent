@@ -44,7 +44,7 @@ def _resolve_rerank_model(rerank_model: str | None) -> str:
 
 
 def _nodes_to_tool_hits(nodes: list[Any]) -> list[dict[str, Any]]:
-    """Convert LlamaIndex nodes to search_nearby_files-compatible hit dicts."""
+    """Convert LlamaIndex nodes to research_search_nearby_files-compatible hit dicts."""
     from plugin.embeddings.venv.embeddings_search_graph import _public_hit_from_candidate
 
     hits: list[dict[str, Any]] = []

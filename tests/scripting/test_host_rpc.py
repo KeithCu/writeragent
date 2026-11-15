@@ -118,7 +118,7 @@ def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
     assert set(DOMAIN_TOOLS["core"]) <= allowed
     assert "shape_upsert" in allowed
     assert "footnotes_insert" not in allowed
-    assert "run_venv_python_script" not in allowed
+    assert "python_run_script" not in allowed
 
     # A domain string that is not the inner path does not pick up core.
     writer = resolve_allowed_tools("writer")
@@ -132,11 +132,11 @@ def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
     assert resolve_allowed_tools("") == frozenset()
     assert resolve_allowed_tools("python") is not None
     assert "symbolic_math" in resolve_allowed_tools("python")
-    assert "run_venv_python_script" not in resolve_allowed_tools("python")
+    assert "python_run_script" not in resolve_allowed_tools("python")
 
 
 def test_resolve_allowed_tools_shapes_and_multi_domain_union():
-    """Inner delegate_tool_domains passes specialized names, including a comma-separated union."""
+    """Inner python_delegate_domains passes specialized names, including a comma-separated union."""
     shapes = resolve_allowed_tools("shapes")
     assert shapes is not None
     assert "shape_upsert" in shapes
@@ -155,7 +155,7 @@ def test_resolve_allowed_tools_shapes_and_multi_domain_union():
 
 def test_execute_tool_blocks_recursive_venv_script():
     with pytest.raises(RuntimeError, match="re-enter"):
-        execute_tool("run_venv_python_script", {"code": "result = 1"})
+        execute_tool("python_run_script", {"code": "result = 1"})
 
 
 def test_execute_tool_disabled_during_py_recalc():
@@ -792,7 +792,7 @@ def test_wa_help_no_arg_lists_namespaces_and_methods():
     assert "upsert" in listing
     assert "core:" in listing
     assert "list_open_documents" in listing
-    assert "run_venv_python_script" not in listing
+    assert "python_run_script" not in listing
 
 
 def test_wa_help_unknown_name_lists_close_matches():

@@ -2157,7 +2157,7 @@ class _SheetProxy:
         return call_host_tool("sheet_delete", sheet=sheet)
 
     def filter_apply(self, range_name: builtins.list[str], criteria: builtins.list[Any], *, has_header: bool | None = None) -> dict[str, Any]:
-        """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
+        """Hide rows that do not match a standard Calc filter (not conditional formatting). calc_delegate_specialized(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).
@@ -2167,7 +2167,7 @@ class _SheetProxy:
         return call_host_tool("sheet_filter_apply", range=range_name, has_header=has_header, criteria=criteria)
 
     def filter_clear(self, range_name: builtins.list[str], *, has_header: bool | None = None) -> dict[str, Any]:
-        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_filter_apply. delegate_to_specialized_calc_toolset(domain='sheets').
+        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_filter_apply. calc_delegate_specialized(domain='sheets').
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).
@@ -2176,7 +2176,7 @@ class _SheetProxy:
         return call_host_tool("sheet_filter_clear", range=range_name, has_header=has_header)
 
     def filter_get(self, range_name: builtins.list[str]) -> dict[str, Any]:
-        """Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets').
+        """Return active filter criteria and has_header for a range, or empty if none. calc_delegate_specialized(domain='sheets').
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).

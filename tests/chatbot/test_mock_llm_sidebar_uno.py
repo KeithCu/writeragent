@@ -1414,13 +1414,13 @@ def test_e7_outline_delegate(ctx):
     for row in snaps:
         decided.extend(row.get("decided_tools") or [])
         called.extend(row.get("called_tools") or [])
-    assert "delegate_to_specialized_writer_toolset" in set(decided + called), (
+    assert "writer_delegate_specialized" in set(decided + called), (
         "E7 expected delegate, snaps=%r" % snaps[-8:]
     )
     for row in snaps:
         for name in row.get("decided_tools") or []:
-            if name == "delegate_read_document":
-                raise AssertionError("E7 inner must not call empty-path delegate_read_document: %r" % row)
+            if name == "research_delegate_read":
+                raise AssertionError("E7 inner must not call empty-path research_delegate_read: %r" % row)
     body = _transcript().lower()
     assert "outline" in body or "assistant:" in body, "E7 expected outline wrap-up, got %r" % _transcript()[-400:]
     _hello_ok()
@@ -1660,7 +1660,7 @@ def test_e14_outline_twice(ctx):
     n_delegate = sum(
         1
         for row in snaps
-        if "delegate_to_specialized_writer_toolset" in (row.get("decided_tools") or [])
+        if "writer_delegate_specialized" in (row.get("decided_tools") or [])
     )
     assert n_delegate >= 2, "E14 expected two delegate sends, got %s snaps=%r" % (n_delegate, snaps[-10:])
     _hello_ok()
@@ -1683,7 +1683,7 @@ def test_e17_empty_nested_final_answer(ctx):
         decided = []
         for row in snaps:
             decided.extend(row.get("decided_tools") or [])
-        assert "delegate_to_specialized_writer_toolset" in set(decided), (
+        assert "writer_delegate_specialized" in set(decided), (
             "E17 expected delegate, snaps=%r" % snaps[-8:]
         )
         body = _transcript().lower()
@@ -1740,10 +1740,10 @@ def test_e22_nested_max_steps(ctx):
         decided = []
         for row in snaps:
             decided.extend(row.get("decided_tools") or [])
-        assert "delegate_to_specialized_writer_toolset" in set(decided), (
+        assert "writer_delegate_specialized" in set(decided), (
             "E22 expected delegate, snaps=%r" % snaps[-8:]
         )
-        finish_names = {"final_answer", "specialized_workflow_finished"}
+        finish_names = {"final_answer", "workflow_finished"}
         assert not (set(decided) & finish_names), "E22 inner must not finish: %r" % decided
     finally:
         _session.config.nested_never_finish = False
@@ -1803,7 +1803,7 @@ def test_e23_calc_prompt_formula(ctx):
 
 
 def _e24_python_round_done() -> bool:
-    """True once the inner agent posts again after calling run_venv_python_script.
+    """True once the inner agent posts again after calling python_run_script.
 
     The smol inner agent returns the tool result as a user "Observation:" message, so
     look for the tool in called_tools rather than a role=tool message.
@@ -1815,7 +1815,7 @@ def _e24_python_round_done() -> bool:
 
 @native_test
 def test_e24_kill_venv_worker_mid_tool(ctx):
-    """Killing the venv worker mid run_venv_python_script ends the turn with an error, not a hang."""
+    """Killing the venv worker mid python_run_script ends the turn with an error, not a hang."""
     from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op
     from scripts.mock_llm_server import PYTHON_TOOL
 

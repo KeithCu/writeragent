@@ -706,11 +706,11 @@ def test_delegate_when_advertised_else_html():
     hit = decide_completion(
         {
             "messages": [{"role": "user", "content": "outline this document"}],
-            "tools": _tools("delegate_to_specialized_writer_toolset", "web_research"),
+            "tools": _tools("writer_delegate_specialized", "web_research"),
         },
         cfg,
     )
-    assert hit.tool_name == "delegate_to_specialized_writer_toolset"
+    assert hit.tool_name == "writer_delegate_specialized"
     assert hit.tool_args is not None
     assert hit.tool_args["domain"] == "document_research"
     miss = decide_completion(
@@ -743,20 +743,20 @@ def test_delegate_when_advertised_else_html():
             "final_answer",
             id="tree_then_final_answer",
         ),
-        # Packet E7: live document_research inner HTTP has specialized_workflow_finished, often no tree tool.
+        # Packet E7: live document_research inner HTTP has workflow_finished, often no tree tool.
         pytest.param(
-            ("search_nearby_files", "specialized_workflow_finished"),
-            "search_nearby_files",
-            [{"role": "user", "content": 'Action:\n{"name": "search_nearby_files", "arguments": {"query": "outline"}}\nObservation:\n[]'}],
-            "specialized_workflow_finished",
+            ("research_search_nearby_files", "workflow_finished"),
+            "research_search_nearby_files",
+            [{"role": "user", "content": 'Action:\n{"name": "research_search_nearby_files", "arguments": {"query": "outline"}}\nObservation:\n[]'}],
+            "workflow_finished",
             id="search_nearby_then_finish",
         ),
-        # Packet E7 soak: empty-path delegate_read_document loops the inner agent.
+        # Packet E7 soak: empty-path research_delegate_read loops the inner agent.
         pytest.param(
-            ("list_nearby_files", "delegate_read_document", "specialized_workflow_finished"),
-            "list_nearby_files",
-            [{"role": "user", "content": 'Action:\n{"name": "list_nearby_files", "arguments": {}}\nObservation:\n[]'}],
-            "specialized_workflow_finished",
+            ("research_list_nearby_files", "research_delegate_read", "workflow_finished"),
+            "research_list_nearby_files",
+            [{"role": "user", "content": 'Action:\n{"name": "research_list_nearby_files", "arguments": {}}\nObservation:\n[]'}],
+            "workflow_finished",
             id="list_nearby_skips_delegate_read_document",
         ),
     ],
@@ -784,27 +784,27 @@ def test_specialized_inner_finish_only_when_no_discovery_tools():
     out = decide_completion(
         {
             "messages": [{"role": "user", "content": "outline this"}],
-            "tools": _tools("specialized_workflow_finished"),
+            "tools": _tools("workflow_finished"),
         },
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "specialized_workflow_finished"
+    assert out.tool_name == "workflow_finished"
     assert bool((out.tool_args or {}).get("answer"))
 
 
 def test_empty_nested_answer_delegates_then_empty_finish():
-    main = _tools("delegate_to_specialized_writer_toolset", "web_research", "apply_document_content")
+    main = _tools("writer_delegate_specialized", "web_research", "apply_document_content")
     out = decide_completion(
         {"messages": [{"role": "user", "content": "empty nested answer"}], "tools": main},
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "delegate_to_specialized_writer_toolset"
-    inner = _tools("list_nearby_files", "specialized_workflow_finished")
+    assert out.tool_name == "writer_delegate_specialized"
+    inner = _tools("research_list_nearby_files", "workflow_finished")
     finish = decide_completion(
         {"messages": [{"role": "user", "content": "empty nested answer"}], "tools": inner},
         MockLLMConfig(delay_ms=0),
     )
-    assert finish.tool_name == "specialized_workflow_finished"
+    assert finish.tool_name == "workflow_finished"
     assert (finish.tool_args or {}).get("answer") == ""
 
 
@@ -822,10 +822,10 @@ def test_mixed_tools_apply_and_failing_comment():
 @pytest.mark.parametrize(
     "tool_names",
     [
-        pytest.param(("list_nearby_files", "specialized_workflow_finished"), id="discovery_only"),
+        pytest.param(("research_list_nearby_files", "workflow_finished"), id="discovery_only"),
         # E22 after E12/P: leftover Calc advertises peer tools; old gate finished instead of looping.
         pytest.param(
-            ("send_peer_work", "send_peer_result", "list_nearby_files", "specialized_workflow_finished"),
+            ("peer_send_work", "peer_send_result", "research_list_nearby_files", "workflow_finished"),
             id="with_advertised_peer_tools",
         ),
     ],
@@ -834,26 +834,26 @@ def test_nested_never_finish_keeps_discovery(tool_names: tuple[str, ...]):
     tools = _tools(*tool_names)
     cfg = MockLLMConfig(delay_ms=0, nested_never_finish=True)
     first = decide_completion({"messages": [{"role": "user", "content": "endless nested outline"}], "tools": tools}, cfg)
-    assert first.tool_name == "list_nearby_files"
+    assert first.tool_name == "research_list_nearby_files"
     second = decide_completion(
         {
             "messages": [
                 {"role": "user", "content": "endless nested outline"},
                 {
                     "role": "user",
-                    "content": 'Action:\n{"name": "list_nearby_files", "arguments": {}}\nObservation:\n[]',
+                    "content": 'Action:\n{"name": "research_list_nearby_files", "arguments": {}}\nObservation:\n[]',
                 },
             ],
             "tools": tools,
         },
         cfg,
     )
-    assert second.tool_name == "list_nearby_files"
+    assert second.tool_name == "research_list_nearby_files"
     phrase_only = decide_completion(
         {"messages": [{"role": "user", "content": "endless nested outline"}], "tools": tools},
         MockLLMConfig(delay_ms=0),
     )
-    assert phrase_only.tool_name == "list_nearby_files"
+    assert phrase_only.tool_name == "research_list_nearby_files"
 
 
 def test_none_transcript_uses_default():
@@ -957,16 +957,16 @@ def test_fail_native_audio_400_then_stt_ok():
         ),
         pytest.param(
             "outline this",
-            "delegate_to_specialized_writer_toolset",
+            "writer_delegate_specialized",
             "Mock outline complete.",
-            ("delegate_to_specialized_writer_toolset", "get_document_tree", "web_research"),
-            id="delegate_to_specialized_writer_toolset",
+            ("writer_delegate_specialized", "get_document_tree", "web_research"),
+            id="writer_delegate_specialized",
         ),
         pytest.param(
             "two tools",
             "get_document_tree",
             '{"headings": []}',
-            ("delegate_to_specialized_writer_toolset", "get_document_tree", "web_research"),
+            ("writer_delegate_specialized", "get_document_tree", "web_research"),
             id="get_document_tree",
         ),
     ],
@@ -1604,20 +1604,20 @@ def test_http_models_lists_stt_id(mock_http):
 _WRITER_OUTER = (
     "web_research",
     "apply_document_content",
-    "delegate_to_specialized_writer_toolset",
+    "writer_delegate_specialized",
     "get_document_tree",
 )
 _CALC_OUTER = (
     "sheet_list",
     "write_formula_range",
-    "delegate_to_specialized_calc_toolset",
+    "calc_delegate_specialized",
 )
 _INNER_PEER = (
-    "send_peer_work",
-    "send_peer_result",
-    "specialized_workflow_finished",
-    "list_nearby_files",
-    "delegate_read_document",
+    "peer_send_work",
+    "peer_send_result",
+    "workflow_finished",
+    "research_list_nearby_files",
+    "research_delegate_read",
 )
 _PEER_SYS = "Open peers: BudgetPeer.ods (uid=calc-uid, url=file:///tmp/BudgetPeer.ods, type=calc)."
 _WRITER_SYS = "Open peers: Memo.odt (uid=writer-uid, url=file:///tmp/Memo.odt, type=writer)."
@@ -1667,11 +1667,11 @@ def test_peer_total_writer_outer_delegates_not_send_peer():
         _payload("Ask the budget workbook to add a Total row", _WRITER_OUTER, system=_PEER_SYS),
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "delegate_to_specialized_writer_toolset"
+    assert out.tool_name == "writer_delegate_specialized"
     assert (out.tool_args or {}).get("domain") == "document_research"
     names = [n for n, _a in completion_tool_calls(out)]
-    assert "send_peer_work" not in names
-    assert "send_peer_result" not in names
+    assert "peer_send_work" not in names
+    assert "peer_send_result" not in names
 
 
 def test_peer_total_writer_inner_sends_then_finishes_immediately():
@@ -1680,7 +1680,7 @@ def test_peer_total_writer_inner_sends_then_finishes_immediately():
         _payload("Ask the budget workbook to add a Total row", _INNER_PEER, system=_PEER_SYS),
         cfg,
     )
-    assert first.tool_name == "send_peer_work"
+    assert first.tool_name == "peer_send_work"
     args = first.tool_args or {}
     assert args.get("document_url") == "calc-uid"
     assert "Total" in (args.get("message") or "")
@@ -1690,14 +1690,14 @@ def test_peer_total_writer_inner_sends_then_finishes_immediately():
             _INNER_PEER,
             system=_PEER_SYS,
             prior=_tool_follow(
-                "send_peer_work",
+                "peer_send_work",
                 '{"status":"ok","accepted":true,"envelope_kind":"work",'
-                '"message":"Queued. You MUST call specialized_workflow_finished immediately."}',
+                '"message":"Queued. You MUST call workflow_finished immediately."}',
             ),
         ),
         cfg,
     )
-    assert second.tool_name == "specialized_workflow_finished"
+    assert second.tool_name == "workflow_finished"
 
 
 @pytest.mark.parametrize(
@@ -1710,12 +1710,12 @@ def test_peer_total_writer_inner_sends_then_finishes_immediately():
 def test_peer_wait_after_accepted_never_finishes(user_text: str, cfg: MockLLMConfig):
     """Locks the Scrolly hang: specialized stays in the loop after accepted."""
     first = decide_completion(_payload(user_text, _INNER_PEER, system=_PEER_SYS), cfg)
-    assert first.tool_name == "send_peer_work"
+    assert first.tool_name == "peer_send_work"
     stuck = decide_completion(
-        _payload(user_text, _INNER_PEER, system=_PEER_SYS, prior=_tool_follow("send_peer_work")),
+        _payload(user_text, _INNER_PEER, system=_PEER_SYS, prior=_tool_follow("peer_send_work")),
         cfg,
     )
-    assert stuck.tool_name not in {"specialized_workflow_finished", "final_answer"}
+    assert stuck.tool_name not in {"workflow_finished", "final_answer"}
 
 
 def test_calc_envelope_writes_formula_then_delegates_reply():
@@ -1730,10 +1730,10 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
         _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("write_formula_range", '{"status":"ok"}')),
         MockLLMConfig(delay_ms=0),
     )
-    assert delegate.tool_name == "delegate_to_specialized_calc_toolset"
+    assert delegate.tool_name == "calc_delegate_specialized"
     assert (delegate.tool_args or {}).get("domain") == "document_research"
-    assert "send_peer_result" in ((delegate.tool_args or {}).get("task") or "")
-    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(delegate)]
+    assert "peer_send_result" in ((delegate.tool_args or {}).get("task") or "")
+    assert "peer_send_work" not in [n for n, _a in completion_tool_calls(delegate)]
 
 
 @pytest.mark.parametrize(
@@ -1745,7 +1745,7 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
         ),
         # Live P3: specialized receives the delegated Reply task rather than the raw peer envelope.
         pytest.param(
-            "Reply to the peer envelope with send_peer_result: document_url=writer-uid "
+            "Reply to the peer envelope with peer_send_result: document_url=writer-uid "
             "message=<one HTML/result string> then finish immediately.",
             id="reply_task_without_envelope",
         ),
@@ -1753,7 +1753,7 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
 )
 def test_calc_inner_reply_sends_peer_result_then_finishes(user_text: str):
     send = decide_completion(_payload(user_text, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
-    assert send.tool_name == "send_peer_result"
+    assert send.tool_name == "peer_send_result"
     assert "peer_ask_id" not in (send.tool_args or {})
     assert (send.tool_args or {}).get("document_url") == "writer-uid"
     finish = decide_completion(
@@ -1761,11 +1761,11 @@ def test_calc_inner_reply_sends_peer_result_then_finishes(user_text: str):
             user_text,
             _INNER_PEER,
             system=_WRITER_SYS,
-            prior=_tool_follow("send_peer_result", '{"status":"ok","accepted":true,"envelope_kind":"result"}'),
+            prior=_tool_follow("peer_send_result", '{"status":"ok","accepted":true,"envelope_kind":"result"}'),
         ),
         MockLLMConfig(delay_ms=0),
     )
-    assert finish.tool_name == "specialized_workflow_finished"
+    assert finish.tool_name == "workflow_finished"
 
 
 def test_writer_followup_applies_peer_reply():
@@ -1775,7 +1775,7 @@ def test_writer_followup_applies_peer_reply():
     )
     out = decide_completion(_payload(envelope, _WRITER_OUTER), MockLLMConfig(delay_ms=0))
     assert out.tool_name == "apply_document_content"
-    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(out)]
+    assert "peer_send_work" not in [n for n, _a in completion_tool_calls(out)]
 
 
 def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
@@ -1783,7 +1783,7 @@ def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
     cfg = MockLLMConfig(delay_ms=0)
     ramble = decide_completion(_payload("keep talking", _WRITER_OUTER), cfg)
     assert ramble.ramble_parts or (ramble.content and ramble.tool_name is None)
-    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(ramble)]
+    assert "peer_send_work" not in [n for n, _a in completion_tool_calls(ramble)]
     envelope = (
         "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\n"
         "Add a Total row under the numbers."
@@ -1794,8 +1794,8 @@ def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
         _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("write_formula_range", '{"status":"ok"}')),
         cfg,
     )
-    assert reply.tool_name == "delegate_to_specialized_calc_toolset"
-    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(reply)]
+    assert reply.tool_name == "calc_delegate_specialized"
+    assert "peer_send_work" not in [n for n, _a in completion_tool_calls(reply)]
 
 
 def test_scripted_rules_branch_writer_vs_calc():
@@ -1831,10 +1831,10 @@ def test_match_completion_rule_envelope_and_specialized():
         _INNER_PEER,
     )
     rule = CompletionRule(
-        envelope=True, specialized=True, tool_name="send_peer_result", tool_args={"document_url": "u"}
+        envelope=True, specialized=True, tool_name="peer_send_result", tool_args={"document_url": "u"}
     )
     hit = match_completion_rule(rule, env_payload)
-    assert hit is not None and hit.tool_name == "send_peer_result"
+    assert hit is not None and hit.tool_name == "peer_send_result"
     miss = match_completion_rule(CompletionRule(envelope=False, content="x"), env_payload)
     assert miss is None
     assert apply_scripted_rules(env_payload, MockLLMConfig(rules=[rule])) is not None

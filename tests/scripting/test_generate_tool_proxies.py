@@ -309,7 +309,7 @@ def test_group_tools_drops_llm_orchestration_tools():
         _as_tool(
             MockTool(
                 "sheet_filter_apply",
-                "Hide rows. delegate_to_specialized_calc_toolset(domain='sheets').",
+                "Hide rows. calc_delegate_specialized(domain='sheets').",
                 {
                     "type": "object",
                     "properties": {"range": {"type": "array", "items": {"type": "string"}}},
@@ -331,7 +331,7 @@ def test_group_tools_drops_llm_orchestration_tools():
         assert f"def {name}(" not in code
         assert f"'{name}'" not in code
         assert f'call_host_tool("{name}"' not in code
-    assert "delegate_to_specialized_calc_toolset(domain='sheets')" in code
+    assert "calc_delegate_specialized(domain='sheets')" in code
     assert "def filter_apply(" in code
 
 

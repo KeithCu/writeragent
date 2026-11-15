@@ -18,9 +18,9 @@ protocol is added here.
   If ``writeragent_api`` is absent (LibrePy), that string stays unrestricted
   (``None``). An empty allowlist would disable every tool RPC.
 - several names separated by commas — union of those domains. The inner agent
-  from ``delegate_tool_domains`` passes the delegated list plus ``core``
+  from ``python_delegate_domains`` passes the delegated list plus ``core``
   (``inner_script_tool_domain``) so one script can call those domains and
-  ``DOMAIN_TOOLS['core']``. ``run_venv_python_script`` is removed from every
+  ``DOMAIN_TOOLS['core']``. ``python_run_script`` is removed from every
   allowlist so a script cannot re-enter the worker.
 """
 
@@ -42,9 +42,9 @@ from plugin.framework.uno_context import get_active_document, get_ctx
 
 log = logging.getLogger(__name__)
 
-# ``run_venv_python_script`` would re-enter the same warm worker while the
+# ``python_run_script`` would re-enter the same warm worker while the
 # warm-child pipe lock is held and deadlock the pipe.
-_BLOCKED_FROM_VENV = frozenset({"run_venv_python_script"})
+_BLOCKED_FROM_VENV = frozenset({"python_run_script"})
 
 # Host sentinel: disable venv → LO tool RPC (Calc ``=PY()`` recalc).
 TOOL_RPC_DISABLED = ""
@@ -140,12 +140,12 @@ def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
 
 
 def inner_script_tool_domain(domains: list[str]) -> str:
-    """Allowlist key for the inner ``delegate_tool_domains`` script.
+    """Allowlist key for the inner ``python_delegate_domains`` script.
 
     Delegated specialized names, then ``core``. ``core`` is not a specialized
     domain the outer agent passes; the script may still call
     ``DOMAIN_TOOLS['core']`` (``list_open_documents``, ``undo``, and the rest).
-    ``run_venv_python_script`` is not in ``core``. A bare domain string
+    ``python_run_script`` is not in ``core``. A bare domain string
     (``"writer"``, ``"shapes"``) does not gain ``core`` — only this inner path
     appends it — and ``None`` / ``""`` are unchanged.
     """
@@ -158,8 +158,8 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     """Return an allowlist, ``None`` (unrestricted minus blocked), or empty (disabled).
 
     A comma-separated list is the union of each domain (inner
-    ``delegate_tool_domains`` passes delegated names plus ``core``).
-    Whitespace around commas is ignored. ``run_venv_python_script`` is always
+    ``python_delegate_domains`` passes delegated names plus ``core``).
+    Whitespace around commas is ignored. ``python_run_script`` is always
     removed: allowing it would re-enter the warm worker.
 
     ``None`` from ``domain_proxy_tool_names`` means this build has no
@@ -252,12 +252,12 @@ def _catalog_lead(namespaces: list[str]) -> str:
     if examples:
         example = " For example " + " and ".join(examples) + "."
     return (
-        "run_venv_python_script has access to the following APIs you can call from within it. "
+        "python_run_script has access to the following APIs you can call from within it. "
         "Only the Python script may call these wa.* functions; they are not additional LLM tool names. "
         "Inside the script, import writeragent as wa and call the listed APIs."
         f"{example} "
         "Call wa.help() to list namespaces or wa.help('namespace.method') for signatures and arguments. "
-        "When the work is bulk or scripted, do that domain work in one run_venv_python_script."
+        "When the work is bulk or scripted, do that domain work in one python_run_script."
     )
 
 
@@ -377,7 +377,7 @@ def format_script_api_catalog(domains: list[str]) -> str:
 def _script_target_doc(uno_ctx: Any, script_session_id: str | None) -> Any:
     # A venv tool targets the document of its worker turn, not the focused
     # window. The request carries ppt_master:{url} (PPT-Master) or a host-only
-    # doc: pin of ctx.doc (chat run_venv_python_script), and
+    # doc: pin of ctx.doc (chat python_run_script), and
     # document_for_script_session matches it to the open component, so a turn
     # started on deck A still exports into A after the user switches windows.
     # The id comes from the turn, not from a process-global that another pool

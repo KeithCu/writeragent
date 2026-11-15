@@ -77,7 +77,7 @@ class _DummyShapeToolRegistered(_DummyShapeTool, ToolWriterShapeBase):
 
 
 class _DummyDocResearchTool(ToolBase):
-    name = "grep_nearby_files"
+    name = "research_grep_nearby_files"
     description = "test"
     parameters = {"type": "object", "properties": {}, "required": []}
     tier = "specialized"
@@ -135,7 +135,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
 
     registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc")
 
-    gateway = registry.get("delegate_to_specialized_calc_toolset")
+    gateway = registry.get("calc_delegate_specialized")
     result = gateway.execute_safe(ctx, domain="analysis", task="Describe sales data")
 
     assert result["status"] == "incomplete"
@@ -159,7 +159,7 @@ def test_calc_delegate_disposed_context_reports_document_disposed(
 
     registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc")
 
-    gateway = registry.get("delegate_to_specialized_calc_toolset")
+    gateway = registry.get("calc_delegate_specialized")
     assert gateway is not None
     result = gateway.execute_safe(ctx, domain="analysis", task="Describe sales data")
 
@@ -182,7 +182,7 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
 
     registry, ctx = _mk_ctx(_DummyAnalysisTool(), DelegateToSpecializedCalc(), doc_type="calc", doc=proxied_doc)
 
-    gateway = registry.get("delegate_to_specialized_calc_toolset")
+    gateway = registry.get("calc_delegate_specialized")
     session = start_uno_thread_safety_session()
     was_guard = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -224,7 +224,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
 
     registry, ctx = _mk_ctx(_DummyShapeToolRegistered(), DelegateToSpecializedWriter())
 
-    gateway = registry.get("delegate_to_specialized_writer_toolset")
+    gateway = registry.get("writer_delegate_specialized")
     result = gateway.execute_safe(ctx, domain="shapes", task="Add a rectangle")
 
     assert result["status"] == "incomplete"
@@ -248,7 +248,7 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(smol_agent_mocks):
         registry, ctx = _mk_ctx(_DummyFootnotesList(), DelegateToSpecializedWriter(), doc=proxied_doc)
         ctx.active_domain = None
 
-        gateway = registry.get("delegate_to_specialized_writer_toolset")
+        gateway = registry.get("writer_delegate_specialized")
 
         def worker():
             nonlocal err, result
@@ -282,7 +282,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
 
     registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSpecializedWriter())
 
-    gateway = registry.get("delegate_to_specialized_writer_toolset")
+    gateway = registry.get("writer_delegate_specialized")
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
     assert result["status"] == "incomplete"
@@ -310,7 +310,7 @@ def test_writer_delegate_disposed_open_documents_reports_document_disposed(
 
     registry, ctx = _mk_ctx(_DummyDocResearchTool(), DelegateToSpecializedWriter())
 
-    gateway = registry.get("delegate_to_specialized_writer_toolset")
+    gateway = registry.get("writer_delegate_specialized")
     assert gateway is not None
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
@@ -354,7 +354,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
                 err = e
 
         t = run_in_background(
-            worker, name="tool-async-delegate_to_specialized_writer_toolset", daemon=False
+            worker, name="tool-async-writer_delegate_specialized", daemon=False
         )
         t.join(timeout=5.0)
     finally:
@@ -398,7 +398,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
         )
         ctx.active_domain = None
 
-        gateway = registry.get("delegate_to_specialized_writer_toolset")
+        gateway = registry.get("writer_delegate_specialized")
         with patch.object(tg, "_notify_thread_violation"):
             with patch(
                 "plugin.doc.peer_message.list_v1_peers",
@@ -416,7 +416,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
 
                 t = run_in_background(
                     worker,
-                    name="tool-async-delegate_to_specialized_writer_toolset",
+                    name="tool-async-writer_delegate_specialized",
                     daemon=False,
                 )
                 t.join(timeout=5.0)
@@ -428,8 +428,8 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     assert result is not None and result.get("status") == "incomplete"
     smol_tools = smol_agent_mocks.agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
-    assert "send_peer_work" in names
-    assert "send_peer_result" in names
+    assert "peer_send_work" in names
+    assert "peer_send_result" in names
     mock_enqueue_index.assert_called_once()
 
 
@@ -533,7 +533,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
             "message": "Specialized task complete.",
         }
 
-    gateway = registry.get("delegate_to_specialized_calc_toolset")
+    gateway = registry.get("calc_delegate_specialized")
     with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_executor_cls:
         mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
         result = gateway.execute_safe(ctx, domain="sheets", task="Create a sheet named Q1 Actuals")

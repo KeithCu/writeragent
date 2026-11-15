@@ -379,7 +379,7 @@ def test_close_document_research_document_closes_temporary_open():
 
 
 def test_resolve_path_or_name_accepts_file_url_without_listing_filter():
-    """file:/// URLs from list_nearby_files / list_open_documents are absolute targets."""
+    """file:/// URLs from research_list_nearby_files / list_open_documents are absolute targets."""
     with tempfile.TemporaryDirectory() as tmp:
         budget = os.path.join(tmp, "Budget.ods")
         with open(budget, "wb"):

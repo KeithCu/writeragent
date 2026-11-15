@@ -7,19 +7,19 @@
 # (at your option) any later version.
 """Two-level python specialized agent: outer venv loop, inner domain-tool agent.
 
-Mirrors document research (``delegate_read_document`` → ``run_inner_read_agent``).
+Mirrors document research (``research_delegate_read`` → ``run_inner_read_agent``).
 The outer python agent (``domain="python"``) does venv / symbolic work itself and
 does not receive specialized domain tools. When it needs them it calls
-``delegate_tool_domains`` with ``domains`` + ``task``.
+``python_delegate_domains`` with ``domains`` + ``task``.
 
-The inner agent gets ``run_venv_python_script`` with ``python_tool_domain`` set
+The inner agent gets ``python_run_script`` with ``python_tool_domain`` set
 to those domains plus ``core``, so one script can loop ``writeragent_api``
 (``wa.shape.upsert``, ``wa.core.list_open_documents``, and the rest of the
 catalog). The inner instructions include that catalog (full proxy docstrings
 and Args). The venv sandbox blocks ``inspect`` / ``dir`` / ``__doc__``, so the
 model cannot read the signatures itself. Shapes mutators stay off the inner
 LLM list (``shape_summary`` remains for a check). Other domains still pass
-their ``ToolBase`` tools. ``specialized_workflow_finished`` is always included.
+their ``ToolBase`` tools. ``workflow_finished`` is always included.
 
 The gateway parameter ``python_tool_domain`` stays commented out. This module
 sets the host-only allowlist on the inner ``ToolContext``, not on the outer
@@ -36,6 +36,7 @@ from plugin.chatbot.smol_agent import InnerCallRecorder, run_inner_tool_agent
 from plugin.doc.document_research import filter_document_research_discovery_tools
 from plugin.doc.peer_message import filter_peer_tools_for_specialized
 from plugin.doc.specialized_catalog import (
+    FINISH_TOOL_NAME,
     InnerToolCall,
     get_specialized_domain_catalog,
     loop_hint,
@@ -56,10 +57,9 @@ from plugin.scripting.host_rpc import (
 
 log = logging.getLogger(__name__)
 
-DELEGATE_TOOL_DOMAINS = "delegate_tool_domains"
+DELEGATE_TOOL_DOMAINS = "python_delegate_domains"
 _PYTHON_DOMAIN = "python"
-_FINISH_TOOL = "specialized_workflow_finished"
-_VENV_SCRIPT_TOOL = "run_venv_python_script"
+_VENV_SCRIPT_TOOL = "python_run_script"
 _DOMAINS_ERROR = "domains must be a non-empty list of specialized domain names."
 # Shapes-first: bulk geometry is a script loop, not N LLM mutator calls.
 # Other domains (footnotes, sheets, …) keep their ToolBase tools.
@@ -71,7 +71,7 @@ def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozen
     """Specialized domains this app's python agent may hand to an inner agent.
 
     ``python`` is omitted: the outer agent already has that toolset, and nesting
-    it would expose ``delegate_tool_domains`` again.
+    it would expose ``python_delegate_domains`` again.
     """
     catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=uno_ctx)
     return frozenset(entry["domain"] for entry in catalog if entry["domain"] != _PYTHON_DOMAIN)
@@ -152,8 +152,8 @@ def script_only_llm_tool_names(domain: str) -> frozenset[str]:
 def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[ToolBase]:
     """Union of registered tools for *domains*, plus venv script and finish.
 
-    Fetched on the main thread. ``delegate_tool_domains`` is dropped so the inner
-    agent cannot start another outer→inner hop. ``run_venv_python_script`` is
+    Fetched on the main thread. ``python_delegate_domains`` is dropped so the inner
+    agent cannot start another outer→inner hop. ``python_run_script`` is
     ``specialized_cross_cutting`` on the python domain, so a shapes/footnotes
     lookup does not return it; it is fetched by name. Shapes mutators are
     omitted (see ``script_only_llm_tool_names``).
@@ -194,7 +194,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                     hid_script_tools = True
                     continue
                 seen.add(name)
-                if name == _FINISH_TOOL:
+                if name == FINISH_TOOL_NAME:
                     finish.append(tool)
                 else:
                     body.append(tool)
@@ -203,12 +203,12 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                 log.warning("Domain tool agent: no tools for domain %s", domain)
         # Not returned by a non-python domain lookup. The inner script is how
         # bulk shape placement reaches writeragent_api.
-        missing = [name for name in (_VENV_SCRIPT_TOOL, _FINISH_TOOL) if name not in seen]
+        missing = [name for name in (_VENV_SCRIPT_TOOL, FINISH_TOOL_NAME) if name not in seen]
         if missing:
             for tool in registry.get_tools(names=frozenset(missing), exclude_tiers=(), filter_doc_type=False):
                 if tool.name == _VENV_SCRIPT_TOOL:
                     venv.append(tool)
-                elif tool.name == _FINISH_TOOL:
+                elif tool.name == FINISH_TOOL_NAME:
                     finish.append(tool)
         return body + venv + finish
 
@@ -225,7 +225,7 @@ def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
     ``python_tool_domain`` is the delegated names plus ``core`` (comma-separated).
     ``RunVenvPythonScript`` forwards it to the worker so script RPC is allowlisted
     to those ``writeragent_api`` domains (``shapes`` → ``shape``) and
-    ``DOMAIN_TOOLS['core']``. ``run_venv_python_script`` stays off that set.
+    ``DOMAIN_TOOLS['core']``. ``python_run_script`` stays off that set.
 
     ``active_domain`` stays ``None`` and ``read_only_target`` stays ``False`` so
     the inner loop does not inherit the outer python domain or a read-only parent.
@@ -263,7 +263,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
     """Run a focused smol agent with the union of *domains*' production tools."""
     label = agent_label_for_context(parent_ctx)
     ordered = gather_domain_tools(parent_ctx, domains)
-    domain_tools = [tool for tool in ordered if tool.name != _FINISH_TOOL]
+    domain_tools = [tool for tool in ordered if tool.name != FINISH_TOOL_NAME]
     if not domain_tools:
         return make_tool_error(
             f"No specialized tools found for domains: {', '.join(domains)}.",
@@ -283,7 +283,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
     if "shapes" in domains:
         script_hint = (
             " For create/draw/diagram/composite tasks (including when the task says to write a"
-            " script that uses shapes) you MUST write one run_venv_python_script with a Python"
+            " script that uses shapes) you MUST write one python_run_script with a Python"
             " for-loop that calls wa.shape.upsert(...) before finishing — actually place shapes"
             " on the page. Those shape mutators are not LLM tools. Do not invent JSON geometry,"
             " return a pasteable script/macro listing, or finish with prose alone. Use page-scale"
@@ -295,14 +295,14 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         "Use those tools to accomplish the task. Do not invent tools outside this list."
         f"{script_hint}"
         f" {DELEGATE_ANCHOR_RULE}"
-        " Call specialized_workflow_finished with a compact summary when done."
+        " Call workflow_finished with a compact summary when done."
         f"{hints}"
     )
     # Full Args from writeragent_api, not a summary. Sandbox blocks reflection.
     catalog = format_script_api_catalog(domains)
     if catalog:
         instructions = f"{instructions}\n\n{catalog}"
-    # Not the outer ``*:python`` block: that few-shot calls delegate_tool_domains,
+    # Not the outer ``*:python`` block: that few-shot calls python_delegate_domains,
     # which this inner list does not include. Shapes uses the venv for-loop block.
     if "shapes" in domains:
         examples_key = "domain_tools:shapes"
@@ -322,7 +322,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         smol_tools,
         instructions=instructions,
         examples_key=examples_key,
-        final_answer_tool_name=_FINISH_TOOL,
+        final_answer_tool_name=FINISH_TOOL_NAME,
         task=task,
         stop_message="Domain tool agent stopped by user.",
         error_prefix="Domain tool agent failed",
@@ -342,7 +342,7 @@ class DelegateToolDomains(ToolBase):
         "(or other listed domains), including when the task says 'write a script' or "
         "'using the shapes domain tools' — never invent JSON geometry, coordinate lists, "
         "ASCII art, or a pasteable Python/macro listing as a substitute for drawing on the page. "
-        "For draw tasks the inner agent MUST use one run_venv_python_script with a Python "
+        "For draw tasks the inner agent MUST use one python_run_script with a Python "
         "for-loop over the allowed domain APIs (import writeragent as wa, for example "
         "wa.shape.upsert); finishing without that script is wrong when the user asked to "
         "create or draw. Do venv scripts, symbolic math, and python helpers yourself when "

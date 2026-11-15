@@ -201,7 +201,7 @@ def summarize_shape_calls(calls: Sequence[InnerToolCall]) -> dict[str, Any]:
     ``name=`` is passed (``svx/source/unodraw/unoshape.cxx:SvxShape::getName``).
     Indices are omitted because a later ``shape_group`` or ``shape_delete`` in
     the same run shifts page indices. Only gateway ``shapes`` delegations use
-    this helper; the Python ``delegate_tool_domains`` path creates shapes inside
+    this helper; the Python ``python_delegate_domains`` path creates shapes inside
     scripts that never enter ``InnerToolCall`` logs.
     """
     shapes_created = 0

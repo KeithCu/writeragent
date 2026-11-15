@@ -202,7 +202,7 @@ class InnerToolCall(NamedTuple):
     mutating: bool
 
 
-FINISH_TOOL_NAME = "specialized_workflow_finished"
+FINISH_TOOL_NAME = "workflow_finished"
 NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the document is unchanged by it."
 READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "web_research"})
 

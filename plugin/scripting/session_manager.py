@@ -131,7 +131,7 @@ def focused_calc_document(ctx: Any) -> Any | None:
     return None
 
 
-# Chat run_venv_python_script pins ctx.doc for one execute. PyUNO models
+# Chat python_run_script pins ctx.doc for one execute. PyUNO models
 # often reject weakref, so this is a strong reference and must be released
 # when the call returns. The token is not a worker namespace id.
 _SCRIPT_DOC_PINS: dict[str, Any] = {}
@@ -264,7 +264,7 @@ def rps_session_id(doc: Any | None) -> str | None:
 def pin_script_document(doc: Any) -> str | None:
     """Return a host-only id that :func:`document_for_script_session` resolves to *doc*.
 
-    Chat ``run_venv_python_script`` forwards this so ``wa.draw`` / ``wa.shape``
+    Chat ``python_run_script`` forwards this so ``wa.draw`` / ``wa.shape``
     bind to ``ctx.doc`` instead of the focused window. The id is not the
     worker namespace (Isolated mode still starts a fresh kernel). Call
     :func:`release_script_document` when the execute returns.
@@ -298,7 +298,7 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     does not match and the caller falls back to the focused document.
 
     ``doc:{uuid}`` is a host pin from :func:`pin_script_document` (chat
-    ``run_venv_python_script``). It returns that object and does not walk
+    ``python_run_script``). It returns that object and does not walk
     the desktop. A pin that was already released does not match.
     """
     if not isinstance(session_id, str):

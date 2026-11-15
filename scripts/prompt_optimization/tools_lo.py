@@ -115,7 +115,7 @@ def _pin_caller_current_component() -> None:
     That is the desktop's current component. The last
     ``loadComponentFromURL`` becomes current, including another agent's
     hidden factory doc, so a direct shape RPC is written into the wrong
-    document. Chat ``run_venv_python_script`` pins ``ctx.doc`` for the
+    document. Chat ``python_run_script`` pins ``ctx.doc`` for the
     script. This desktop pin still covers direct ``execute_tool`` and any
     RPC that has no session id.
 
@@ -727,8 +727,8 @@ def _execute_lo_tool_impl(
 ) -> str:
     """Run one production tool on the LO thread. Used by unit tests with mocks.
 
-    ``python_tool_domain`` is the inner ``delegate_tool_domains`` allowlist
-    (``shapes,core``). ``run_venv_python_script`` forwards it so ``wa.shape``
+    ``python_tool_domain`` is the inner ``python_delegate_domains`` allowlist
+    (``shapes,core``). ``python_run_script`` forwards it so ``wa.shape``
     is permitted. Leave it unset for ordinary tool calls.
     """
     from plugin.app import get_tools

@@ -79,7 +79,7 @@ def test_execute_domain_returns_domain_schemas_without_finish_tool():
     registry = MagicMock()
     registry.get_schemas.return_value = [
         _schema("footnotes_insert"), _schema("footnotes_list"),
-        _schema("specialized_workflow_finished", "finish"),
+        _schema("workflow_finished", "finish"),
     ]
     registry.get_tools.return_value = [
         MagicMock(specialized_domain="footnotes"), MagicMock(specialized_domain=None),
@@ -90,7 +90,7 @@ def test_execute_domain_returns_domain_schemas_without_finish_tool():
 
     names = {t["name"] for t in result["tools"]}
     assert {"footnotes_insert", "footnotes_list"} <= names
-    assert "specialized_workflow_finished" not in names
+    assert "workflow_finished" not in names
     for t in result["tools"]:
         assert "inputSchema" in t
     registry.get_schemas.assert_called_once_with("mcp", doc=ctx.doc, active_domain="footnotes")
@@ -253,7 +253,7 @@ class _FtList(_FtBase):
 
 
 class _FinishTool(ToolBase):
-    name = "specialized_workflow_finished"
+    name = "workflow_finished"
     description = "finish the specialized workflow"
     tier = "specialized_control"
     is_mutation = False
@@ -264,7 +264,7 @@ class _FinishTool(ToolBase):
 
 
 class _GatewayTool(ToolBase):
-    name = "delegate_to_specialized_writer_toolset"
+    name = "writer_delegate_specialized"
     description = "delegate to a specialized writer toolset"
     tier = "core"
     is_mutation = False
@@ -286,7 +286,7 @@ class _CoreTool(ToolBase):
 
 
 class _BrainstormTool(_FtBase):
-    name = "brainstorm_research_web"
+    name = "brainstorming_search_web"
     specialized_domain = "brainstorming"
     description = "brainstorm research on the web"
 
@@ -351,8 +351,8 @@ def test_execute_domain_real_registry():
     result = FindTools().execute(_ctx_real(_real_registry()), domain="footnotes")
     names = {t["name"] for t in result["tools"]}
     assert {"footnotes_insert", "footnotes_list"} <= names
-    assert "specialized_workflow_finished" not in names
-    assert "delegate_to_specialized_writer_toolset" not in names
+    assert "workflow_finished" not in names
+    assert "writer_delegate_specialized" not in names
     assert "find_tools" not in names
 
 
@@ -473,7 +473,7 @@ def test_find_tools_excludes_sidebar_only_domains_from_catalog():
 def test_direct_flat_excludes_sidebar_only_domains():
     names = {t["name"] for t in _handler_real("direct_flat", _real_registry())._mcp_tools_list({})["tools"]}
     assert "footnotes_insert" in names
-    assert "brainstorm_research_web" not in names
+    assert "brainstorming_search_web" not in names
 
 
 def test_no_document_domain_listing_uses_broad_catalog():
@@ -731,7 +731,7 @@ def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
     handler.services.document.open_documents_by_type.return_value = {"writer": writer_doc}
 
     names = {t["name"] for t in handler._mcp_tools_list({})["tools"]}
-    assert "brainstorm_research_web" not in names
+    assert "brainstorming_search_web" not in names
 
 def test_tools_list_does_not_swallow_get_ctx(monkeypatch):
     handler = _handler_real("delegate", _real_registry())

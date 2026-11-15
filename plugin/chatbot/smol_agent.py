@@ -459,7 +459,7 @@ def run_inner_tool_agent(
 
 
 def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:  # pyright: ignore[reportUnusedFunction]
-    """Brainstorming and writing report each delegate_read_document in the chat.
+    """Brainstorming and writing report each research_delegate_read in the chat.
 
     The status line is the tool name alone. Deep research does not use this
     handler, so its steps keep the executor default (``Tool: name...``).
@@ -469,7 +469,7 @@ def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:
     chat_append_callback = ctx.chat_append_callback
 
     def tool_call_handler(step: ToolCall) -> None:
-        if step.name == "delegate_read_document" and chat_append_callback:
+        if step.name == "research_delegate_read" and chat_append_callback:
             from plugin.chatbot.web_research_chat import document_open_step_chat_text
 
             path_or_name = field_from_tool_arguments(step.arguments, "path_or_name")

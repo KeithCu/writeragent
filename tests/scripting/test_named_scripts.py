@@ -187,7 +187,7 @@ def test_run_venv_python_script_still_blocked():
     from plugin.scripting.host_rpc import execute_tool
 
     try:
-        execute_tool("run_venv_python_script", {"code": "1"})
+        execute_tool("python_run_script", {"code": "1"})
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
         assert "re-enter" in str(exc)

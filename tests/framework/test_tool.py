@@ -1584,7 +1584,7 @@ def test_execute_async_delegate_skips_uno_doc_probe(monkeypatch):
 
     def bg():
         try:
-            reg.execute("delegate_to_specialized_writer_toolset", ctx, domain="document_research", task="find notes")
+            reg.execute("writer_delegate_specialized", ctx, domain="document_research", task="find notes")
         except Exception as exc:
             errors.append(exc)
 

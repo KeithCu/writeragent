@@ -51,8 +51,8 @@ def test_partition_tool_errors_changed_arguments_is_recovered() -> None:
     ok = {"status": "ok", "result": "24133"}
     # A retry of the same tool with corrected arguments recovers the error.
     calls = [
-        InnerToolCall("run_venv_python_script", err, mutating=True),
-        InnerToolCall("run_venv_python_script", ok, mutating=True),
+        InnerToolCall("python_run_script", err, mutating=True),
+        InnerToolCall("python_run_script", ok, mutating=True),
     ]
     unrecovered, recovered = partition_tool_errors(calls)
     assert unrecovered == []
@@ -102,8 +102,8 @@ def test_apply_inner_outcome_recovered_error_stays_ok() -> None:
     finish = {"status": "ok", "finished": True, "answer": "The sum is 24133"}
     payload = dict(finish)
     calls = [
-        InnerToolCall("run_venv_python_script", err, mutating=True),
-        InnerToolCall("run_venv_python_script", ok, mutating=True),
+        InnerToolCall("python_run_script", err, mutating=True),
+        InnerToolCall("python_run_script", ok, mutating=True),
         InnerToolCall(FINISH_TOOL_NAME, finish, mutating=False),
     ]
 
