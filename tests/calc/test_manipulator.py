@@ -304,6 +304,21 @@ def test_classify_write_cell_data_text_keeps_formula_and_apostrophe_text():
     assert w_default.kind == "formula" and w_default.formula == "=A1+1"
 
 
+def test_classify_write_cell_repairs_py_literal_newlines():
+    manipulator = CellManipulator(MagicMock())
+    repaired = manipulator._classify_write_cell('=PY("x = 2\\nresult = x")', None, None)
+    assert repaired.kind == "formula"
+    assert repaired.formula == '=PY("x = 2\nresult = x")'
+
+    as_data = manipulator._classify_write_cell('=PY("x = 2\\nresult = x")', None, None, data_text=True)
+    assert as_data.kind == "forced_text"
+    assert as_data.data == '=PY("x = 2\\nresult = x")'
+
+    as_literal = manipulator._classify_write_cell('=PY("x = 2\\nresult = x")', None, None, literal_text=True)
+    assert as_literal.kind == "forced_text"
+    assert as_literal.data == '=PY("x = 2\\nresult = x")'
+
+
 def test_literal_text_write_uses_setstring():
     addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
     cell_range = MagicMock()
@@ -524,6 +539,23 @@ def test_plan_write_array_false_does_not_force_array():
     plan_sort = manipulator.plan_write("A1:A5", "=SORT(B1:B5)", array=False)
     assert plan_sort.kind == "cells"
     assert plan_sort.array_size is None
+
+
+def test_plan_write_array_py_repairs_literal_newlines():
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0, Sheet=0)
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
+
+    plan = manipulator.plan_write(
+        "A1",
+        '=PY("x = 2\\nresult = x")',
+        array=True,
+        premeasured_array_size=(1, 1),
+    )
+    assert plan.kind == "array"
+    assert plan.values == '=PY("x = 2\nresult = x")'
 
 
 def test_commit_write_always_returns_a_message_record():
