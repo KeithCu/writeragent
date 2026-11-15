@@ -310,3 +310,38 @@ def test_conditional_sub_agent_includes_style_list_not_style_create():
     assert "style_list" in names
     assert "style_create" not in names
 
+
+def test_conditional_formatting_add_style_or_inline():
+    doc = MagicMock()
+    ctx = MagicMock()
+    ctx.doc = doc
+    cell_styles = MagicMock()
+    cell_styles.hasByName.return_value = True
+    doc.getStyleFamilies.return_value.getByName.return_value = cell_styles
+    tool = _tool("conditional_formatting_add")
+
+    res_both = tool.execute_safe(ctx, range=["A1:A10"], operator="GREATER", formula1="10", style="Result", bg_color="red")
+    assert res_both["status"] == "error"
+    assert res_both["code"] == "INVALID_PARAM"
+    doc.createInstance.assert_not_called()
+
+    res_neither = tool.execute_safe(ctx, range=["A1:A10"], operator="GREATER", formula1="10")
+    assert res_neither["status"] == "error"
+    assert res_neither["code"] == "INVALID_PARAM"
+    doc.createInstance.assert_not_called()
+
+    res_bad_color = tool.execute_safe(ctx, range=["A1:A10"], operator="GREATER", formula1="10", bg_color="notacolor")
+    assert res_bad_color["status"] == "error"
+    assert res_bad_color["code"] == "INVALID_PARAM"
+    doc.createInstance.assert_not_called()
+
+
+def test_inline_style_name_is_stable():
+    from plugin.calc.conditional import _inline_style_name
+
+    first = _inline_style_name(0xFF0000, 0xFFFFFF, True)
+    second = _inline_style_name(0xFF0000, 0xFFFFFF, True)
+    different_bold = _inline_style_name(0xFF0000, 0xFFFFFF, False)
+    assert first == second
+    assert first != different_bold
+

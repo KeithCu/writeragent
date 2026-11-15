@@ -209,12 +209,10 @@ def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
     tool_name = getattr(tool, "name", "") or ""
 
     records: list[ParamRecord] = []
-    seen_keys: set[str] = set()
 
     for key, schema in props.items():
         if not key.isidentifier() or key == "self":
             raise ValueError(f"Invalid parameter name {key!r} in tool {tool_name!r}")
-        seen_keys.add(key)
         py_name = _python_param_name(key)
         is_kw = keyword.iskeyword(key)
         py_type = _python_type(schema)
@@ -248,28 +246,6 @@ def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
                 is_keyword=is_kw,
             )
         )
-
-    # Scripting-only kwargs (e.g. set_style number_format) stay on the Python proxy
-    # even though they are omitted from the LLM/MCP schema (#374 P3).
-    # Tip: scripting-only kwargs (e.g. set_style number_format) stay on the Python proxy even though
-    # they are omitted from the LLM/MCP schema (#374 P3).
-    for extra in sorted(getattr(tool, "scripting_only_parameters", None) or ()):
-        if extra not in seen_keys:
-            if not extra.isidentifier() or extra == "self":
-                raise ValueError(f"Invalid scripting-only parameter name {extra!r} in tool {tool_name!r}")
-            py_name = _python_param_name(extra)
-            is_kw = keyword.iskeyword(extra)
-            records.append(
-                ParamRecord(
-                    py_name=py_name,
-                    schema_key=extra,
-                    annotation="str | None",
-                    required=False,
-                    default="None",
-                    doc_line=f"    {extra} (optional): Scripting-only parameter.",
-                    is_keyword=is_kw,
-                )
-            )
 
     return records
 
