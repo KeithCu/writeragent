@@ -386,8 +386,52 @@ def _append_docstring(lines: list[str], doc_lines: list[str]) -> None:
     lines.append('        """')
 
 
+# Namespaces whose tools all share an extra sub-prefix that repeats the namespace.
+_FAMILY_PREFIXES: dict[str, str] = {
+    "range": "named_range_",
+    "structural": "nav_",
+    "textframe": "frame_",
+}
+
+# Trailing verbs rotated to the front so Pythonic calls read verb_noun (e.g. settings_get -> get_settings).
+_TRAILING_VERBS: frozenset[str] = frozenset({"apply", "clear", "get", "set", "update"})
+
+# Calc, writer, draw and core tools have no namespace prefix to strip, so the words that repeat
+# the namespace are removed by hand. Keys are tool names; values are final method names.
+METHOD_NAME_OVERRIDES: dict[str, str] = {
+    "read_cell_range": "read_range",
+    "write_formula_range": "write_range",
+    "get_sheet_summary": "summary",
+    "list_calc_functions": "list_functions",
+    "insert_cell_html": "insert_html",
+    "get_document_content": "get_content",
+    "apply_document_content": "apply_content",
+    "get_document_tree": "get_tree",
+    "search_in_document": "search",
+    "get_draw_tree": "get_tree",
+    "get_presentation_info": "info",
+    "query_folder_sql": "query_folder",
+    "extract_structure_from_image": "extract_structure",
+}
+
+
+def _short_method_name(namespace: str, rest: str, tool_name: str) -> str:
+    """Shorten a proxy method name after namespace-prefix stripping."""
+    if tool_name in METHOD_NAME_OVERRIDES:
+        return METHOD_NAME_OVERRIDES[tool_name]
+    family_prefix = _FAMILY_PREFIXES.get(namespace)
+    if family_prefix and rest.startswith(family_prefix):
+        rest = rest[len(family_prefix) :]
+    parts = rest.split("_")
+    if len(parts) > 1 and parts[-1] in _TRAILING_VERBS:
+        rest = f"{parts[-1]}_{'_'.join(parts[:-1])}"
+    if rest == "get_info":
+        rest = "info"
+    return rest
+
+
 def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"]]]:
-    """Group tools by namespace prefix, stripping the prefix from method names."""
+    """Group tools by namespace and give each a short Python method name (see `_short_method_name`)."""
     from plugin.scripting.host_rpc import singularize_domain
 
     groups: dict[str, list[tuple[str, "ToolBase"]]] = defaultdict(list)
@@ -453,6 +497,7 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
         if _domain_excluded(namespace):
             continue
 
+        rest = _short_method_name(namespace, rest, name)
         groups[namespace].append((rest, tool))
     return dict(groups)
 
@@ -624,17 +669,6 @@ def generate_module(tools: list["ToolBase"]) -> str:
             lines.append(f"    def {short_name}({all_params}) -> dict[str, Any]:")
             _append_docstring(lines, _method_doc_lines(tool, params=params))
             lines.append(f'        return call_host_tool("{tool.name}"{kwargs_body})')
-            lines.append("")
-
-        if namespace == "structural":
-            # Thin aliases kept so existing scripts calling wa.structural.section_list/read keep working.
-            lines.append("    def section_list(self) -> dict[str, Any]:")
-            lines.append('        """Alias for wa.section.list()."""')
-            lines.append('        return call_host_tool("section_list")')
-            lines.append("")
-            lines.append("    def section_read(self, section: str) -> dict[str, Any]:")
-            lines.append('        """Alias for wa.section.read(name)."""')
-            lines.append('        return call_host_tool("section_read", name=section)')
             lines.append("")
 
         # Singleton instance (keep DOMAIN_TOOLS key as registered domain string)

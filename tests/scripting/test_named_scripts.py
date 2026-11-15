@@ -49,11 +49,11 @@ def test_extract_library_source_drops_toplevel_calls():
         "    return a + b\n"
         "K = 3\n"
         "print('nope')\n"
-        "wa.writer.apply_document_content(content=['x'], target='end')\n"
+        "wa.writer.apply_content(content=['x'], target='end')\n"
     )
     assert "def add" in src
     assert "K = 3" in src
-    assert "apply_document_content" not in src
+    assert "apply_content" not in src
     assert "print" not in src
 
 
@@ -806,7 +806,7 @@ def test_extract_library_source_empty_expression_library_is_an_error():
     with pytest.raises(ValueError, match=r"lines 1"):
         extract_library_source("print('x')\n")
     with pytest.raises(ValueError, match=r"lines 1"):
-        extract_library_source("wa.writer.apply_document_content(content=['x'], target='end')\n")
+        extract_library_source("wa.writer.apply_content(content=['x'], target='end')\n")
     assert extract_library_source("pass\n") == ""
     assert extract_library_source("") == ""
     assert extract_library_source("# c\n") == ""

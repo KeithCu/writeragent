@@ -58,8 +58,8 @@ def test_get_active_document_type_propagates_rpc_error(wa_module):
 def test_universal_sample_dispatches_by_doc_type(wa_module, doc_type):
     with (
         patch("writeragent.get_active_document_type", return_value=doc_type),
-        patch.object(wa_module.writer, "apply_document_content", return_value={}) as mock_apply,
-        patch.object(wa_module.calc, "insert_cell_html", return_value={}) as mock_insert,
+        patch.object(wa_module.writer, "apply_content", return_value={}) as mock_apply,
+        patch.object(wa_module.calc, "insert_html", return_value={}) as mock_insert,
         patch.object(wa_module.shape, "upsert", return_value={}) as mock_upsert,
     ):
         from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS

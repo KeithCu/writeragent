@@ -213,7 +213,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
 TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'add_slide': ('draw', 'add_slide'),
     'apply_design': ('draw', 'apply_design'),
-    'apply_document_content': ('writer', 'apply_document_content'),
+    'apply_document_content': ('writer', 'apply_content'),
     'apply_style': ('writer', 'apply_style'),
     'bookmark_cleanup': ('bookmark', 'cleanup'),
     'bookmark_create': ('bookmark', 'create'),
@@ -226,7 +226,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'cell_comment_delete': ('cell_comment', 'delete'),
     'cell_comment_list': ('cell_comment', 'list'),
     'chart_delete': ('chart', 'delete'),
-    'chart_get_info': ('chart', 'get_info'),
+    'chart_get_info': ('chart', 'info'),
     'chart_list': ('chart', 'list'),
     'chart_upsert': ('chart', 'upsert'),
     'comment_check_stop': ('comment', 'check_stop'),
@@ -235,20 +235,20 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'comment_list': ('comment', 'list'),
     'comment_resolve': ('comment', 'resolve'),
     'comment_scan_tasks': ('comment', 'scan_tasks'),
-    'comment_workflow_get': ('comment', 'workflow_get'),
-    'comment_workflow_set': ('comment', 'workflow_set'),
+    'comment_workflow_get': ('comment', 'get_workflow'),
+    'comment_workflow_set': ('comment', 'set_workflow'),
     'conditional_formatting_add': ('conditional_formatting', 'add'),
     'conditional_formatting_list': ('conditional_formatting', 'list'),
     'conditional_formatting_remove': ('conditional_formatting', 'remove'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
-    'document_properties_get': ('field', 'document_properties_get'),
-    'document_properties_set': ('field', 'document_properties_set'),
+    'document_properties_get': ('field', 'get_document_properties'),
+    'document_properties_set': ('field', 'set_document_properties'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
     'embedded_insert': ('embedded', 'insert'),
     'error_detect': ('error', 'detect'),
     'evaluate_formula': ('error', 'evaluate_formula'),
-    'extract_structure_from_image': ('vision', 'extract_structure_from_image'),
+    'extract_structure_from_image': ('vision', 'extract_structure'),
     'fields_delete': ('field', 'delete'),
     'fields_insert': ('field', 'insert'),
     'fields_list': ('field', 'list'),
@@ -258,35 +258,35 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'footnotes_edit': ('footnote', 'edit'),
     'footnotes_insert': ('footnote', 'insert'),
     'footnotes_list': ('footnote', 'list'),
-    'footnotes_settings_get': ('footnote', 'settings_get'),
-    'footnotes_settings_update': ('footnote', 'settings_update'),
+    'footnotes_settings_get': ('footnote', 'get_settings'),
+    'footnotes_settings_update': ('footnote', 'update_settings'),
     'form_create': ('forms', 'create'),
     'form_create_control': ('forms', 'create_control'),
     'form_delete_control': ('forms', 'delete_control'),
     'form_edit_control': ('forms', 'edit_control'),
     'form_generate': ('forms', 'generate'),
     'form_list_controls': ('forms', 'list_controls'),
-    'frame_delete': ('textframe', 'frame_delete'),
-    'frame_get_info': ('textframe', 'frame_get_info'),
-    'frame_insert': ('textframe', 'frame_insert'),
-    'frame_list': ('textframe', 'frame_list'),
-    'frame_set_properties': ('textframe', 'frame_set_properties'),
-    'get_document_content': ('writer', 'get_document_content'),
-    'get_document_tree': ('writer', 'get_document_tree'),
-    'get_draw_tree': ('draw', 'get_draw_tree'),
+    'frame_delete': ('textframe', 'delete'),
+    'frame_get_info': ('textframe', 'info'),
+    'frame_insert': ('textframe', 'insert'),
+    'frame_list': ('textframe', 'list'),
+    'frame_set_properties': ('textframe', 'set_properties'),
+    'get_document_content': ('writer', 'get_content'),
+    'get_document_tree': ('writer', 'get_tree'),
+    'get_draw_tree': ('draw', 'get_tree'),
     'get_guidance': ('core', 'get_guidance'),
     'get_image': ('core', 'get_image'),
     'get_page_objects': ('writer', 'get_page_objects'),
     'get_placeholder_text': ('draw', 'get_placeholder_text'),
-    'get_presentation_info': ('draw', 'get_presentation_info'),
-    'get_sheet_summary': ('calc', 'get_sheet_summary'),
+    'get_presentation_info': ('draw', 'info'),
+    'get_sheet_summary': ('calc', 'summary'),
     'headers_footers_get': ('headers_footer', 'get'),
     'headers_footers_set': ('headers_footer', 'set'),
     'image_crop_and_highlight': ('images', 'crop_and_highlight'),
     'image_delete': ('images', 'delete'),
     'image_download': ('images', 'download'),
     'image_generate': ('images', 'generate'),
-    'image_get_info': ('images', 'get_info'),
+    'image_get_info': ('images', 'info'),
     'image_insert': ('images', 'insert'),
     'image_list': ('images', 'list'),
     'image_list_nearby_files': ('images', 'list_nearby_files'),
@@ -301,9 +301,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'indexes_list_toc_entries': ('index', 'list_toc_entries'),
     'indexes_refresh_toc_entry': ('index', 'refresh_toc_entry'),
     'indexes_update_all': ('index', 'update_all'),
-    'insert_cell_html': ('calc', 'insert_cell_html'),
+    'insert_cell_html': ('calc', 'insert_html'),
     'insert_structure': ('calc', 'insert_structure'),
-    'list_calc_functions': ('calc', 'list_calc_functions'),
+    'list_calc_functions': ('calc', 'list_functions'),
     'list_designs': ('draw', 'list_designs'),
     'list_open_documents': ('core', 'list_open_documents'),
     'list_pages': ('draw', 'list_pages'),
@@ -316,16 +316,16 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'math_insert': ('math', 'insert'),
     'merge_cells': ('calc', 'merge_cells'),
     'move_slide': ('draw', 'move_slide'),
-    'named_range_add': ('range', 'named_range_add'),
-    'named_range_create_from_titles': ('range', 'named_range_create_from_titles'),
-    'named_range_delete': ('range', 'named_range_delete'),
-    'named_range_edit': ('range', 'named_range_edit'),
-    'named_range_get_info': ('range', 'named_range_get_info'),
-    'named_range_list': ('range', 'named_range_list'),
-    'nav_goto_page': ('structural', 'nav_goto_page'),
-    'nav_heading': ('structural', 'nav_heading'),
-    'nav_heading_children': ('structural', 'nav_heading_children'),
-    'nav_surroundings': ('structural', 'nav_surroundings'),
+    'named_range_add': ('range', 'add'),
+    'named_range_create_from_titles': ('range', 'create_from_titles'),
+    'named_range_delete': ('range', 'delete'),
+    'named_range_edit': ('range', 'edit'),
+    'named_range_get_info': ('range', 'info'),
+    'named_range_list': ('range', 'list'),
+    'nav_goto_page': ('structural', 'goto_page'),
+    'nav_heading': ('structural', 'heading'),
+    'nav_heading_children': ('structural', 'heading_children'),
+    'nav_surroundings': ('structural', 'surroundings'),
     'page_comment_add': ('page_comment', 'add'),
     'page_comment_delete': ('page_comment', 'delete'),
     'page_comment_list': ('page_comment', 'list'),
@@ -343,14 +343,14 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'pivot_table_delete': ('pivot_table', 'delete'),
     'pivot_table_list': ('pivot_table', 'list'),
     'pivot_table_refresh': ('pivot_table', 'refresh'),
-    'query_folder_sql': ('python_sql', 'query_folder_sql'),
+    'query_folder_sql': ('python_sql', 'query_folder'),
     'range_sort': ('range', 'sort'),
-    'read_cell_range': ('calc', 'read_cell_range'),
+    'read_cell_range': ('calc', 'read_range'),
     'read_slide_text': ('draw', 'read_slide_text'),
     'redo': ('core', 'redo'),
     'rename_slide': ('draw', 'rename_slide'),
     'search_cells': ('search', 'cells'),
-    'search_in_document': ('writer', 'search_in_document'),
+    'search_in_document': ('writer', 'search'),
     'search_replace': ('search', 'replace'),
     'search_slides': ('draw', 'search_slides'),
     'section_create': ('section', 'create'),
@@ -375,9 +375,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'sheet_copy': ('sheet', 'copy'),
     'sheet_create': ('sheet', 'create'),
     'sheet_delete': ('sheet', 'delete'),
-    'sheet_filter_apply': ('sheet', 'filter_apply'),
-    'sheet_filter_clear': ('sheet', 'filter_clear'),
-    'sheet_filter_get': ('sheet', 'filter_get'),
+    'sheet_filter_apply': ('sheet', 'apply_filter'),
+    'sheet_filter_clear': ('sheet', 'clear_filter'),
+    'sheet_filter_get': ('sheet', 'get_filter'),
     'sheet_hide': ('sheet', 'hide'),
     'sheet_list': ('sheet', 'list'),
     'sheet_move': ('sheet', 'move'),
@@ -395,7 +395,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'speaker_notes_set': ('speaker_note', 'set'),
     'style_clone': ('styles', 'clone'),
     'style_create': ('styles', 'create'),
-    'style_get_info': ('styles', 'get_info'),
+    'style_get_info': ('styles', 'info'),
     'style_import': ('styles', 'import_'),
     'style_list': ('styles', 'list'),
     'style_update': ('styles', 'update'),
@@ -416,7 +416,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'undo': ('core', 'undo'),
     'upsert_memory': ('core', 'upsert_memory'),
     'web_research': ('core', 'web_research'),
-    'write_formula_range': ('calc', 'write_formula_range')}
+    'write_formula_range': ('calc', 'write_range')}
 
 __all__ = [   'DOMAIN_TOOLS',
     'TOOL_METHODS',
@@ -531,15 +531,7 @@ class _CalcProxy:
         """
         return call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm)
 
-    def get_sheet_summary(self, *, sheet: str | None = None) -> dict[str, Any]:
-        """Returns a comprehensive summary of the active or specified sheet: used area, first_empty_col / first_empty_row (first column right of / row below the used area — a safe output spot), column headers, charts, merged cells, annotations, and shapes.
-
-        Args:
-            sheet (optional): Sheet name (active sheet if empty).
-        """
-        return call_host_tool("get_sheet_summary", sheet=sheet)
-
-    def insert_cell_html(self, cell: str, html: str) -> dict[str, Any]:
+    def insert_html(self, cell: str, html: str) -> dict[str, Any]:
         """Parses HTML with the same filter as Writer and pastes rich text into one cell (e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) selects that sheet; otherwise the active sheet. Does not support images or embedded objects. Replaces the cell's existing content (text, number or formula); replaced_text in the result shows what was there. Use set_style (border_color, border_mode) for borders.
 
         Args:
@@ -558,7 +550,7 @@ class _CalcProxy:
         """
         return call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count)
 
-    def list_calc_functions(self, *, filter: str | None = None) -> dict[str, Any]:
+    def list_functions(self, *, filter: str | None = None) -> dict[str, Any]:
         """Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat.
 
         Args:
@@ -576,7 +568,7 @@ class _CalcProxy:
         """
         return call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge)
 
-    def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:
+    def read_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:
         """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). Supports lists for non-contiguous areas. `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`.
 
         Args:
@@ -607,7 +599,15 @@ class _CalcProxy:
         """
         return call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, border_mode=border_mode, number_format=number_format, column_width_mm=column_width_mm, row_height_mm=row_height_mm, autofit=autofit)
 
-    def write_formula_range(self, range_name: list[str], *, values: str | list[Any] | None = None, array: bool | None = None, source: str | None = None) -> dict[str, Any]:
+    def summary(self, *, sheet: str | None = None) -> dict[str, Any]:
+        """Returns a comprehensive summary of the active or specified sheet: used area, first_empty_col / first_empty_row (first column right of / row below the used area — a safe output spot), column headers, charts, merged cells, annotations, and shapes.
+
+        Args:
+            sheet (optional): Sheet name (active sheet if empty).
+        """
+        return call_host_tool("get_sheet_summary", sheet=sheet)
+
+    def write_range(self, range_name: list[str], *, values: str | list[Any] | None = None, array: bool | None = None, source: str | None = None) -> dict[str, Any]:
         """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; a 2-D array (one inner array per row) must match the range; or multiline CSV from a start cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
 
         Args:
@@ -667,7 +667,7 @@ class _ChartProxy:
         """
         return call_host_tool("chart_delete", name=name, sheet=sheet, page=page)
 
-    def get_info(self, name: str, *, sheet: str | None = None, page: int | None = None) -> dict[str, Any]:
+    def info(self, name: str, *, sheet: str | None = None, page: int | None = None) -> dict[str, Any]:
         """Get detailed metadata for a chart by name.
 
         Args:
@@ -741,6 +741,10 @@ class _CommentProxy:
         """
         return call_host_tool("comment_edit", name=name, content=content)
 
+    def get_workflow(self) -> dict[str, Any]:
+        """Read the MCP-WORKFLOW dashboard comment (key: value lines)."""
+        return call_host_tool("comment_workflow_get")
+
     def list(self, *, author_filter: str | None = None, start_index: int | None = None, max_comments: int | None = None) -> dict[str, Any]:
         """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments. Returns at most max_comments rows (default 100); page through the rest with start_index when has_more is true.
 
@@ -770,11 +774,7 @@ class _CommentProxy:
         """
         return call_host_tool("comment_scan_tasks", unresolved_only=unresolved_only, prefix_filter=prefix_filter)
 
-    def workflow_get(self) -> dict[str, Any]:
-        """Read the MCP-WORKFLOW dashboard comment (key: value lines)."""
-        return call_host_tool("comment_workflow_get")
-
-    def workflow_set(self, content: str) -> dict[str, Any]:
+    def set_workflow(self, content: str) -> dict[str, Any]:
         """Write the MCP-WORKFLOW dashboard comment (key: value lines).
 
         Args:
@@ -932,14 +932,6 @@ class _DrawProxy:
         """
         return call_host_tool("duplicate_slide", page=page, activate=activate)
 
-    def get_draw_tree(self, *, page: int | None = None) -> dict[str, Any]:
-        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
-
-        Args:
-            page (optional): 0-based page index (active page if omitted).
-        """
-        return call_host_tool("get_draw_tree", page=page)
-
     def get_placeholder_text(self, *, role: str | None = None, index: int | None = None, page: int | None = None) -> dict[str, Any]:
         """Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer list_placeholders first; use index when roles are missing.
 
@@ -950,7 +942,15 @@ class _DrawProxy:
         """
         return call_host_tool("get_placeholder_text", role=role, index=index, page=page)
 
-    def get_presentation_info(self) -> dict[str, Any]:
+    def get_tree(self, *, page: int | None = None) -> dict[str, Any]:
+        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
+
+        Args:
+            page (optional): 0-based page index (active page if omitted).
+        """
+        return call_host_tool("get_draw_tree", page=page)
+
+    def info(self) -> dict[str, Any]:
         """Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."""
         return call_host_tool("get_presentation_info")
 
@@ -1085,23 +1085,9 @@ class _FieldProxy:
         """
         return call_host_tool("fields_delete", ids=ids, snapshot=snapshot)
 
-    def document_properties_get(self) -> dict[str, Any]:
+    def get_document_properties(self) -> dict[str, Any]:
         """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
         return call_host_tool("document_properties_get")
-
-    def document_properties_set(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: builtins.list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: builtins.list[str] | None = None) -> dict[str, Any]:
-        """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.
-
-        Args:
-            title (optional): Document title (empty clears).
-            subject (optional): Subject (empty clears).
-            author (optional): Author (empty clears).
-            description (optional): Description (empty clears).
-            keywords (optional): Keyword list (empty array clears).
-            user_defined (optional): Custom property names and string values to set.
-            remove_user_defined (optional): Custom property names to remove.
-        """
-        return call_host_tool("document_properties_set", title=title, subject=subject, author=author, description=description, keywords=keywords, user_defined=user_defined, remove_user_defined=remove_user_defined)
 
     def insert(self, field: str, *, properties: dict[str, Any] = {}, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Insert a text field at the specified target position. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Supports various field types natively provided by LibreOffice. Common field types include: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount', 'CharacterCount', 'ParagraphCount', 'TableCount', 'GraphicObjectCount', 'EmbeddedObjectCount', and 'Annotation'. Specify optional properties to configure the field.
@@ -1118,6 +1104,20 @@ class _FieldProxy:
     def list(self) -> dict[str, Any]:
         """List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."""
         return call_host_tool("fields_list")
+
+    def set_document_properties(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: builtins.list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: builtins.list[str] | None = None) -> dict[str, Any]:
+        """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.
+
+        Args:
+            title (optional): Document title (empty clears).
+            subject (optional): Subject (empty clears).
+            author (optional): Author (empty clears).
+            description (optional): Description (empty clears).
+            keywords (optional): Keyword list (empty array clears).
+            user_defined (optional): Custom property names and string values to set.
+            remove_user_defined (optional): Custom property names to remove.
+        """
+        return call_host_tool("document_properties_set", title=title, subject=subject, author=author, description=description, keywords=keywords, user_defined=user_defined, remove_user_defined=remove_user_defined)
 
     def update_all(self) -> dict[str, Any]:
         """Refresh all text fields (dates, page numbers, cross-references). Call after changes that affect computed fields."""
@@ -1149,6 +1149,14 @@ class _FootnoteProxy:
         """
         return call_host_tool("footnotes_edit", note=note, index=index, text=text, label=label)
 
+    def get_settings(self, note: str) -> dict[str, Any]:
+        """Gets the current formatting and numbering settings for footnotes or endnotes. These include prefix, suffix, starting number, and styles.
+
+        Args:
+            note (required): Whether to get settings for footnotes or endnotes. One of: footnote, endnote.
+        """
+        return call_host_tool("footnotes_settings_get", note=note)
+
     def insert(self, note: str, text: str, *, label: str | None = None, insert_after: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
         """Inserts a new footnote or endnote. Without insert_after, uses the current view cursor. When the insert position must be specific (e.g. delegated sub-agent work), pass insert_after: document text to find; the footnote anchor is inserted immediately after the first occurrence (or after the occurrence-th match when occurrence is set). Match the document verbatim. Note text appears at the foot of the page (footnote) or end of document (endnote). Optional custom label/mark; otherwise auto-numbered.
 
@@ -1170,15 +1178,7 @@ class _FootnoteProxy:
         """
         return call_host_tool("footnotes_list", note=note)
 
-    def settings_get(self, note: str) -> dict[str, Any]:
-        """Gets the current formatting and numbering settings for footnotes or endnotes. These include prefix, suffix, starting number, and styles.
-
-        Args:
-            note (required): Whether to get settings for footnotes or endnotes. One of: footnote, endnote.
-        """
-        return call_host_tool("footnotes_settings_get", note=note)
-
-    def settings_update(self, note: str, properties: dict[str, Any]) -> dict[str, Any]:
+    def update_settings(self, note: str, properties: dict[str, Any]) -> dict[str, Any]:
         """Updates the formatting and numbering settings for footnotes or endnotes. You can specify which properties to change (e.g., Prefix, Suffix, StartAt, NumberingType).
 
         Args:
@@ -1347,7 +1347,7 @@ class _ImagesProxy:
         """
         return call_host_tool("image_generate", prompt=prompt, source_image=source_image, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, image_model=image_model)
 
-    def get_info(self, name: str, *, sheet_index: int | None = None) -> dict[str, Any]:
+    def info(self, name: str, *, sheet_index: int | None = None) -> dict[str, Any]:
         """Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), hyperlink_url (the image link, including an internal target), and paragraph index.
 
         Args:
@@ -1835,7 +1835,7 @@ python = _PythonProxy()
 class _PythonSqlProxy:
     """Proxy for python/sql tools."""
 
-    def query_folder_sql(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool | None = None, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> dict[str, Any]:
+    def query_folder(self, sql: str, *, files: dict[str, Any] | None = None, data_range: str | None = None, headers: bool | None = None, tables: dict[str, Any] | None = None, task_hint: str | None = None) -> dict[str, Any]:
         """Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). Prefer stable table identity: tables={name: {sheet: "Sales_Analytics"}} (sheet used range) or {named_range: "SalesData"} (Calc named/database range). Absolute range: {range: "Sales.A1:F500"} stays frozen A1. Sibling sheet used-range: files={name: "budget.xlsx#Sales"} (dict key is the SQL table). Flat files: CSV/TSV, Parquet, JSON/JSONL/NDJSON (DuckDB read_*). Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. Optional tables file="budget.xlsx" reads that sibling instead of the active doc. Host prepares all UNO data + validates. Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION.
 
         Args:
@@ -1854,7 +1854,7 @@ python_sql = _PythonSqlProxy()
 class _RangeProxy:
     """Proxy for range tools."""
 
-    def named_range_add(self, name: str, content: str, *, scope: str | None = None, base_cell: str | None = None, flags: list[str] | None = None) -> dict[str, Any]:
+    def add(self, name: str, content: str, *, scope: str | None = None, base_cell: str | None = None, flags: builtins.list[str] | None = None) -> dict[str, Any]:
         """Defines a new named range or formula expression in the workbook (global) or specific sheet. Can specify base reference cell and type flags (e.g. 'print_area', 'filter_criteria').
 
         Args:
@@ -1866,7 +1866,7 @@ class _RangeProxy:
         """
         return call_host_tool("named_range_add", name=name, content=content, scope=scope, base_cell=base_cell, flags=flags)
 
-    def named_range_create_from_titles(self, range_name: list[str], *, border: str | None = None, scope: str | None = None) -> dict[str, Any]:
+    def create_from_titles(self, range_name: builtins.list[str], *, border: str | None = None, scope: str | None = None) -> dict[str, Any]:
         """Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right').
 
         Args:
@@ -1876,7 +1876,7 @@ class _RangeProxy:
         """
         return call_host_tool("named_range_create_from_titles", range=range_name, border=border, scope=scope)
 
-    def named_range_delete(self, name: str, *, scope: str | None = None) -> dict[str, Any]:
+    def delete(self, name: str, *, scope: str | None = None) -> dict[str, Any]:
         """Deletes an existing named range from global or sheet-specific scope.
 
         Args:
@@ -1885,7 +1885,7 @@ class _RangeProxy:
         """
         return call_host_tool("named_range_delete", name=name, scope=scope)
 
-    def named_range_edit(self, name: str, *, new_name: str | None = None, content: str | None = None, scope: str | None = None, base_cell: str | None = None, flags: list[str] | None = None) -> dict[str, Any]:
+    def edit(self, name: str, *, new_name: str | None = None, content: str | None = None, scope: str | None = None, base_cell: str | None = None, flags: builtins.list[str] | None = None) -> dict[str, Any]:
         """Modifies an existing named range: rename, update formula/range content, change base reference position, or update flags.
 
         Args:
@@ -1898,7 +1898,7 @@ class _RangeProxy:
         """
         return call_host_tool("named_range_edit", name=name, new_name=new_name, content=content, scope=scope, base_cell=base_cell, flags=flags)
 
-    def named_range_get_info(self, name: str, *, scope: str | None = None) -> dict[str, Any]:
+    def info(self, name: str, *, scope: str | None = None) -> dict[str, Any]:
         """Retrieves detailed metadata, reference coordinates, flags, and base address for a specific named range.
 
         Args:
@@ -1907,7 +1907,7 @@ class _RangeProxy:
         """
         return call_host_tool("named_range_get_info", name=name, scope=scope)
 
-    def named_range_list(self, *, scope: str | None = None) -> dict[str, Any]:
+    def list(self, *, scope: str | None = None) -> dict[str, Any]:
         """Lists named ranges and their formulas/reference targets. Supports filtering by scope ('global', 'all', or a specific sheet name).
 
         Args:
@@ -1915,7 +1915,7 @@ class _RangeProxy:
         """
         return call_host_tool("named_range_list", scope=scope)
 
-    def sort(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None) -> dict[str, Any]:
+    def sort(self, range_name: builtins.list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None) -> dict[str, Any]:
         """Stable one-column sort of the specified range(s) by values in one column. Multi-key sorts are multiple calls (two stable one-column passes). Do call range_sort to reorder rows (not rewrite the block with write_formula_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas. The result says 'no rows moved' when the key column was already in that order.
 
         Args:
@@ -2129,6 +2129,25 @@ shape = _ShapeProxy()
 class _SheetProxy:
     """Proxy for sheet tools."""
 
+    def apply_filter(self, range_name: builtins.list[str], criteria: builtins.list[Any], *, has_header: bool | None = None) -> dict[str, Any]:
+        """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
+
+        Args:
+            range_name (required): Range to filter (e.g. ["A1:D20"]).
+            criteria (required): Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit or AND (default) vs previous, or OR. Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; [{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].
+            has_header (optional): First row is headers only (default true).
+        """
+        return call_host_tool("sheet_filter_apply", range=range_name, has_header=has_header, criteria=criteria)
+
+    def clear_filter(self, range_name: builtins.list[str], *, has_header: bool | None = None) -> dict[str, Any]:
+        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_filter_apply. delegate_to_specialized_calc_toolset(domain='sheets').
+
+        Args:
+            range_name (required): Range to filter (e.g. ["A1:D20"]).
+            has_header (optional): First row is headers only (default true).
+        """
+        return call_host_tool("sheet_filter_clear", range=range_name, has_header=has_header)
+
     def copy(self, source: str, new_name: str, *, position: int | None = None) -> dict[str, Any]:
         """Copies an existing sheet to a new tab (cells included; does not activate the copy).
 
@@ -2156,26 +2175,7 @@ class _SheetProxy:
         """
         return call_host_tool("sheet_delete", sheet=sheet)
 
-    def filter_apply(self, range_name: builtins.list[str], criteria: builtins.list[Any], *, has_header: bool | None = None) -> dict[str, Any]:
-        """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
-
-        Args:
-            range_name (required): Range to filter (e.g. ["A1:D20"]).
-            criteria (required): Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit or AND (default) vs previous, or OR. Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; [{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].
-            has_header (optional): First row is headers only (default true).
-        """
-        return call_host_tool("sheet_filter_apply", range=range_name, has_header=has_header, criteria=criteria)
-
-    def filter_clear(self, range_name: builtins.list[str], *, has_header: bool | None = None) -> dict[str, Any]:
-        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_filter_apply. delegate_to_specialized_calc_toolset(domain='sheets').
-
-        Args:
-            range_name (required): Range to filter (e.g. ["A1:D20"]).
-            has_header (optional): First row is headers only (default true).
-        """
-        return call_host_tool("sheet_filter_clear", range=range_name, has_header=has_header)
-
-    def filter_get(self, range_name: builtins.list[str]) -> dict[str, Any]:
+    def get_filter(self, range_name: builtins.list[str]) -> dict[str, Any]:
         """Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets').
 
         Args:
@@ -2338,7 +2338,7 @@ speaker_note = _SpeakerNoteProxy()
 class _StructuralProxy:
     """Proxy for structural tools."""
 
-    def nav_goto_page(self, page: int) -> dict[str, Any]:
+    def goto_page(self, page: int) -> dict[str, Any]:
         """Navigate the view cursor to a specific page.
 
         Args:
@@ -2346,7 +2346,7 @@ class _StructuralProxy:
         """
         return call_host_tool("nav_goto_page", page=page)
 
-    def nav_heading(self, locator: str, direction: str) -> dict[str, Any]:
+    def heading(self, locator: str, direction: str) -> dict[str, Any]:
         """Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
@@ -2355,7 +2355,7 @@ class _StructuralProxy:
         """
         return call_host_tool("nav_heading", locator=locator, direction=direction)
 
-    def nav_heading_children(self, *, locator: str | None = None, para_index: int | None = None, bookmark: str | None = None, strategy: str | None = None, depth: int | None = None) -> dict[str, Any]:
+    def heading_children(self, *, locator: str | None = None, para_index: int | None = None, bookmark: str | None = None, strategy: str | None = None, depth: int | None = None) -> dict[str, Any]:
         """Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', sibling-ordinal 'heading:1.2', or chapter-label 'chapter_number:3.1' when present), para_index, or bookmark (exactly one). heading: is ordinal path among siblings, not Writer's chapter number. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
@@ -2367,7 +2367,7 @@ class _StructuralProxy:
         """
         return call_host_tool("nav_heading_children", locator=locator, para_index=para_index, bookmark=bookmark, strategy=strategy, depth=depth)
 
-    def nav_surroundings(self, locator: str, *, radius: int | None = None, include: list[str] | None = None) -> dict[str, Any]:
+    def surroundings(self, locator: str, *, radius: int | None = None, include: list[str] | None = None) -> dict[str, Any]:
         """Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments. para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
         Args:
@@ -2376,14 +2376,6 @@ class _StructuralProxy:
             include (optional): Object types to include: paragraphs, images, tables, frames, comments, headings (default: all).
         """
         return call_host_tool("nav_surroundings", locator=locator, radius=radius, include=include)
-
-    def section_list(self) -> dict[str, Any]:
-        """Alias for wa.section.list()."""
-        return call_host_tool("section_list")
-
-    def section_read(self, section: str) -> dict[str, Any]:
-        """Alias for wa.section.read(name)."""
-        return call_host_tool("section_read", name=section)
 
 structural = _StructuralProxy()
 
@@ -2413,15 +2405,6 @@ class _StylesProxy:
         """
         return call_host_tool("style_create", style=style, family=family, parent_style=parent_style, property_updates=property_updates, conditional_rules=conditional_rules)
 
-    def get_info(self, style: str, *, family: str | None = None) -> dict[str, Any]:
-        """Get detailed properties of a named style (font, size, paragraph margins). For family=PageStyles, return the same page-style margins/header/footer payload as page_get_style_properties so the caller does not need a second tool hop.
-
-        Args:
-            style (required): Name of the style to inspect.
-            family (optional): Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties.
-        """
-        return call_host_tool("style_get_info", style=style, family=family)
-
     def import_(self, path: str, *, overwrite: bool = True, load_paragraph_styles: bool = True, load_page_styles: bool = False, load_frame_styles: bool = False, load_numbering_styles: bool = False) -> dict[str, Any]:
         """Import styles from an external document or template (.odt, .ott). Specify which style types to load (paragraph, page, etc.) and whether to overwrite existing styles with the same name.
 
@@ -2434,6 +2417,15 @@ class _StylesProxy:
             load_numbering_styles (optional): Import numbering/list styles.
         """
         return call_host_tool("style_import", path=path, overwrite=overwrite, load_paragraph_styles=load_paragraph_styles, load_page_styles=load_page_styles, load_frame_styles=load_frame_styles, load_numbering_styles=load_numbering_styles)
+
+    def info(self, style: str, *, family: str | None = None) -> dict[str, Any]:
+        """Get detailed properties of a named style (font, size, paragraph margins). For family=PageStyles, return the same page-style margins/header/footer payload as page_get_style_properties so the caller does not need a second tool hop.
+
+        Args:
+            style (required): Name of the style to inspect.
+            family (optional): Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties.
+        """
+        return call_host_tool("style_get_info", style=style, family=family)
 
     def list(self, *, family: str | None = None) -> dict[str, Any]:
         """List available styles in the document. Omit family to list style family names; set family to list styles in that family (Writer: paragraph, character, and page styles; Calc: cell styles only).
@@ -2553,7 +2545,7 @@ table = _TableProxy()
 class _TextframeProxy:
     """Proxy for textframe tools."""
 
-    def frame_delete(self, name: str) -> dict[str, Any]:
+    def delete(self, name: str) -> dict[str, Any]:
         """Delete a text frame by name (see frame_list).
 
         Args:
@@ -2561,7 +2553,7 @@ class _TextframeProxy:
         """
         return call_host_tool("frame_delete", name=name)
 
-    def frame_get_info(self, name: str) -> dict[str, Any]:
+    def info(self, name: str) -> dict[str, Any]:
         """Get detailed info about a text frame. content is capped at 4000 chars; content_length is the full visible length.
 
         Args:
@@ -2569,7 +2561,7 @@ class _TextframeProxy:
         """
         return call_host_tool("frame_get_info", name=name)
 
-    def frame_insert(self, *, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, name: str | None = None, text: str | None = None, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None) -> dict[str, Any]:
+    def insert(self, *, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None, name: str | None = None, text: str | None = None, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None) -> dict[str, Any]:
         """Insert a new text frame with optional initial text and size (millimetres).
 
         Args:
@@ -2584,11 +2576,11 @@ class _TextframeProxy:
         """
         return call_host_tool("frame_insert", target=target, old_content=old_content, case_sensitive=case_sensitive, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type)
 
-    def frame_list(self) -> dict[str, Any]:
+    def list(self) -> dict[str, Any]:
         """List all text frames in the document."""
         return call_host_tool("frame_list")
 
-    def frame_set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None, hori_orient: int | None = None, vert_orient: int | None = None) -> dict[str, Any]:
+    def set_properties(self, name: str, *, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None, hori_orient: int | None = None, vert_orient: int | None = None) -> dict[str, Any]:
         """Resize, re-anchor, or set the orientation of a text frame.
 
         Args:
@@ -2647,7 +2639,7 @@ tracking = _TrackingProxy()
 class _VisionProxy:
     """Proxy for vision tools."""
 
-    def extract_structure_from_image(self, *, image_name: str | None = None, insert_into_document: bool | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def extract_structure(self, *, image_name: str | None = None, insert_into_document: bool | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Extract text and structure (layout, tables, etc.) from embedded document image(s). Leave image_name empty to use the currently selected graphic, or a Writer selection that contains multiple images (intervening text is ignored). By default inserts a high-quality representation after each graphic (Writer) or below the Calc anchor.
 
         Args:
@@ -2676,7 +2668,7 @@ class _WriterProxy:
         """
         return call_host_tool("add_comment", content=content, search=search, case_sensitive=case_sensitive, occurrence=occurrence, author=author, parent_name=parent_name)
 
-    def apply_document_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, start_anchor: str | None = None, end_anchor: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> dict[str, Any]:
+    def apply_content(self, content: list[str] | str, *, target: str | None = None, old_content: str | None = None, start_anchor: str | None = None, end_anchor: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> dict[str, Any]:
         """Insert or replace content. IMPORTANT: Required after web_research or document_research delegates return. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content or both start_anchor and end_anchor for find-and-replace of a specific substring or range. An empty replacement that removes the last text in a table deletes that table. Clearing one cell while another cell still has text leaves the table in place.
 
         Args:
@@ -2710,7 +2702,7 @@ class _WriterProxy:
         """
         return call_host_tool("apply_style", style=style, family=family, target=target, old_content=old_content, case_sensitive=case_sensitive, all_matches=all_matches, occurrence=occurrence, clear_direct=clear_direct)
 
-    def get_document_content(self, *, scope: str | None = None, max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool | None = None) -> dict[str, Any]:
+    def get_content(self, *, scope: str | None = None, max_chars: int | None = None, start: int | None = None, end: int | None = None, include_images: bool | None = None) -> dict[str, Any]:
         """Get document (or selection/range) content. Result includes document_length (plain-text characters) and length (HTML characters). scope: full, selection, or range (requires start, end as plain-text offsets in the document_length space). max_chars counts returned HTML and is approximate. The result may carry warning, truncated, hint, tracked_changes, tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected returns empty content plus a warning. CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> and apply_document_content of that markup recreates live Ruby portions.
 
         Args:
@@ -2722,15 +2714,6 @@ class _WriterProxy:
         """
         return call_host_tool("get_document_content", scope=scope, max_chars=max_chars, start=start, end=end, include_images=include_images)
 
-    def get_document_tree(self, *, strategy: str | None = None, depth: int | None = None) -> dict[str, Any]:
-        """Get the document heading tree with bookmarks and content previews, plus document statistics. The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. Use strategy="heading_only" for a simple outline (headings hierarchy). Creates session-only _mcp_ bookmarks on headings for stable addressing (omitted from saved files). When Tools → Chapter Numbering is on, each heading includes chapter_number (the paint label, e.g. '3.1'); the key is omitted when numbering is off. Use that field — never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, not the chapter label; use chapter_number:3.1 when the field is present. Strategies: heading_only, first_lines (default), full. depth=0 for unlimited, depth=1 (default) for top-level only. IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes). When pointing the user to a location or an edit, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
-
-        Args:
-            strategy (optional): Content to include with headings (default: first_lines). One of: heading_only, first_lines, full.
-            depth (optional): Max tree depth (0=unlimited, default: 1).
-        """
-        return call_host_tool("get_document_tree", strategy=strategy, depth=depth)
-
     def get_page_objects(self, *, page: int | None = None, locator: str | None = None, paragraph: int | None = None) -> dict[str, Any]:
         """Get images, tables, frames, and Draw shapes visible on a specific physical page. Provide page number, locator, or paragraph. Shape geometry is in 1/100 mm; x/y are relative to the anchor (position_relative_to='anchor'); for anchor_type AS_CHARACTER, x is always 0 and y is the object top's offset from the text baseline (negative = above). para_index / paragraph_index values are INTERNAL addressing only — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes); to point the user at a place, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
 
@@ -2741,7 +2724,16 @@ class _WriterProxy:
         """
         return call_host_tool("get_page_objects", page=page, locator=locator, paragraph=paragraph)
 
-    def search_in_document(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, return_offsets: bool | None = None) -> dict[str, Any]:
+    def get_tree(self, *, strategy: str | None = None, depth: int | None = None) -> dict[str, Any]:
+        """Get the document heading tree with bookmarks and content previews, plus document statistics. The stats object includes character_count, word_count, paragraph_count, page_count, and heading_count. Use strategy="heading_only" for a simple outline (headings hierarchy). Creates session-only _mcp_ bookmarks on headings for stable addressing (omitted from saved files). When Tools → Chapter Numbering is on, each heading includes chapter_number (the paint label, e.g. '3.1'); the key is omitted when numbering is off. Use that field — never invent numbers from outline depth, sibling order, or literal titles like 'DOCUMENT 7'. heading:1.2 is sibling-ordinal path, not the chapter label; use chapter_number:3.1 when the field is present. Strategies: heading_only, first_lines (default), full. depth=0 for unlimited, depth=1 (default) for top-level only. IMPORTANT: para_index is an INTERNAL addressing index — NEVER cite paragraph numbers to the user (they don't see them and they shift as the document changes). When pointing the user to a location or an edit, quote the first few words of its text instead (e.g. "the sentence starting 'The Amazon…'").
+
+        Args:
+            strategy (optional): Content to include with headings (default: first_lines). One of: heading_only, first_lines, full.
+            depth (optional): Max tree depth (0=unlimited, default: 1).
+        """
+        return call_host_tool("get_document_tree", strategy=strategy, depth=depth)
+
+    def search(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, return_offsets: bool | None = None) -> dict[str, Any]:
         """Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, AND comments (annotations) are all covered. Each match reports WHERE it was found (location, e.g. "body", "table 'Table1' cell B2", "text box 'Frame1'", "shape 'Shape 1'", "header (page style 'Standard')", "comment by 'Ana'") plus the surrounding paragraph (or shape/comment text) for context. When pointing the user to a match, quote the first few words of its text and its location rather than any internal index. With regex=true, body/table/frame hits use LibreOffice/ICU regex; patterns use ICU syntax (validated by LibreOffice before searching; e.g. (?<name>...) not (?P<name>...)); shape and comment sweeps use Python re, so ICU-only syntax such as \\p{Lu} finds nothing there. return_offsets is body-only literal search. A zero-width match stops the text-model walk, sets truncated, and does not count the empty hit.
 
         Args:

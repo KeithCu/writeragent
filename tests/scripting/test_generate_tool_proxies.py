@@ -117,7 +117,7 @@ def test_generate_module_domain_with_slash_is_a_valid_identifier():
     assert "'python/sql': ['query_folder_sql']" in code  # the registry key itself is unchanged
     ns: dict[str, Any] = {}
     exec(code, ns)
-    assert ns["TOOL_METHODS"]["query_folder_sql"] == ("python_sql", "query_folder_sql")
+    assert ns["TOOL_METHODS"]["query_folder_sql"] == ("python_sql", "query_folder")
 
 
 def test_generator_script_runs_without_libreoffice(tmp_path):
@@ -332,7 +332,7 @@ def test_group_tools_drops_llm_orchestration_tools():
         assert f"'{name}'" not in code
         assert f'call_host_tool("{name}"' not in code
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in code
-    assert "def filter_apply(" in code
+    assert "def apply_filter(" in code
 
 
 @pytest.mark.parametrize(
@@ -341,6 +341,12 @@ def test_group_tools_drops_llm_orchestration_tools():
         ("sheet_list", "sheets", "sheet", "list"),
         ("pivot_table_create", "pivot_tables", "pivot_table", "create"),
         ("shape_align", "shapes", "shape", "align"),
+        ("named_range_get_info", "ranges", "range", "info"),
+        ("frame_list", "textframes", "textframe", "list"),
+        ("nav_heading_children", "structural", "structural", "heading_children"),
+        ("footnotes_settings_update", "footnotes", "footnote", "update_settings"),
+        ("sheet_filter_apply", "sheets", "sheet", "apply_filter"),
+        ("headers_footers_get", "headers_footers", "headers_footer", "get"),
     ],
 )
 def test_specialized_tools_strip_prefix_to_proxy_methods(tool_name, domain, proxy_ns, method):
@@ -363,6 +369,18 @@ def test_specialized_tools_strip_prefix_to_proxy_methods(tool_name, domain, prox
     assert ns_exec["TOOL_METHODS"][tool_name] == (proxy_ns, method)
 
 
+def test_rule_collision_raises():
+    tools = [
+        _as_tool(MockTool("named_range_list", "desc", {}, specialized_domain="ranges")),
+        _as_tool(MockTool("range_list", "desc", {}, specialized_domain="ranges")),
+    ]
+    with pytest.raises(
+        ValueError,
+        match=r"proxy method range\.list is produced by both",
+    ):
+        generate_module(tools)
+
+
 def test_range_schema_becomes_range_name_python_param():
     tool = MockTool(
         "read_cell_range",
@@ -381,7 +399,7 @@ def test_range_schema_becomes_range_name_python_param():
     assert kw == ["format: str = 'rows'"]
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:" in code
+    assert "def read_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:" in code
     assert 'return call_host_tool("read_cell_range", range=range_name, format=format)' in code
 
 
@@ -590,7 +608,7 @@ def test_union_array_string_type_emits_union_annotation():
     assert pos == ["content: list[str] | str"]
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def apply_document_content(self, content: list[str] | str) -> dict[str, Any]:" in code
+    assert "def apply_content(self, content: list[str] | str) -> dict[str, Any]:" in code
 
 
 def test_proxy_qualifies_list_annotation_when_list_method_present():

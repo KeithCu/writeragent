@@ -733,7 +733,7 @@ def test_every_domain_tool_resolves_to_a_proxy_method():
     methods = _proxy_methods_by_tool()
     assert methods is not None
     assert methods["style_import"] == api.styles.import_
-    assert methods["query_folder_sql"] == api.python_sql.query_folder_sql
+    assert methods["query_folder_sql"] == api.python_sql.query_folder
     missing_or_not_callable = [
         tool_name
         for tool_names in api.DOMAIN_TOOLS.values()
@@ -742,7 +742,7 @@ def test_every_domain_tool_resolves_to_a_proxy_method():
     ]
     assert missing_or_not_callable == []
     assert api.TOOL_METHODS["style_import"] == ("styles", "import_")
-    assert api.TOOL_METHODS["query_folder_sql"] == ("python_sql", "query_folder_sql")
+    assert api.TOOL_METHODS["query_folder_sql"] == ("python_sql", "query_folder")
 
 
 def test_format_script_api_catalog_prints_identifier_safe_calls():
@@ -758,9 +758,9 @@ def test_format_script_api_catalog_prints_identifier_safe_calls():
     assert "python/sql:\n" in catalog
     assert "styles:\n" in catalog
     assert "wa.styles.import_(" in catalog
-    assert "wa.python_sql.query_folder_sql(" in catalog
+    assert "wa.python_sql.query_folder(" in catalog
     assert inspect.cleandoc(api.styles.import_.__doc__ or "") in catalog
-    assert inspect.cleandoc(api.python_sql.query_folder_sql.__doc__ or "") in catalog
+    assert inspect.cleandoc(api.python_sql.query_folder.__doc__ or "") in catalog
     assert "wa.python/sql." not in catalog
 
 
@@ -849,16 +849,10 @@ def test_section_and_structural_proxies_and_allowlists(monkeypatch):
 
     api.section.list()
     api.section.read("Intro")
-    api.structural.section_list()
-    api.structural.section_read("Intro")
-    api.structural.section_read(section="Outro")
 
     assert calls == [
         ("section_list", {}),
         ("section_read", {"name": "Intro"}),
-        ("section_list", {}),
-        ("section_read", {"name": "Intro"}),
-        ("section_read", {"name": "Outro"}),
     ]
 
 
