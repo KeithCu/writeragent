@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.framework.doc_type import agent_label_for_doc_type
-from plugin.doc.specialized_catalog import get_specialized_domain_catalog, loop_hint
+from plugin.doc.specialized_catalog import FINISH_TOOL_NAME, get_specialized_domain_catalog, loop_hint
 from plugin.framework.prompts import (
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
@@ -37,7 +37,6 @@ from plugin.framework.prompts import (
 )
 from plugin.framework.tool import ToolBase, ToolContext
 
-_FINISH_TOOL = "specialized_workflow_finished"
 _SIDEBAR_ONLY_DOMAINS = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
 
 
@@ -65,7 +64,7 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
         return images_specialized_sub_agent_hint().strip()
     if domain == "python":
         if agent_label is None:
-            return ("run_venv_python_script: in Calc, pass `data_range` (an A1 address) to inject "
+            return ("python_run_script: in Calc, pass `data_range` (an A1 address) to inject "
                     "cell values as `data`; in Writer or Draw/Impress it does not inject "
                     "spreadsheet data -- use document tools for content.")
         return (python_specialized_sub_agent_hint(agent_label) or "").strip()
@@ -189,7 +188,7 @@ class FindTools(ToolBase):
             name = s.get("name")
             if not isinstance(name, str) or not name:
                 continue
-            if name == _FINISH_TOOL:
+            if name == FINISH_TOOL_NAME:
                 continue
             tools.append(s)
         tools.sort(key=lambda s: str(s.get("name") or ""))

@@ -11,12 +11,12 @@ shapes. Pass/fail is the saved Writer document plus the run-stamp
 Process evidence is taken from executed tool calls (``Tool call:``,
 ``streaming_loop: accumulated tool_calls``, ``SmolToolAdapter executing``,
 ``tool-async-``, and ``=== Sync response:`` ``tool_calls``). Few-shot
-text that merely mentions ``delegate_tool_domains`` or ``wa.shape.upsert``
+text that merely mentions ``python_delegate_domains`` or ``wa.shape.upsert``
 does not count — those strings are in the python shapes prompt and show
-up in logged request ``"content"`` bodies. A nested ``delegate_tool_domains``
+up in logged request ``"content"`` bodies. A nested ``python_delegate_domains``
 often has empty args on the Smol / tool-async line; that still counts as
 shapes when an executed payload shows ``domains`` including shapes, or
-when no executed payload names another domain and a ``run_venv_python_script``
+when no executed payload names another domain and a ``python_run_script``
 after that call places shapes (``wa.shape.upsert``). A footnotes-only
 delegation does not.
 
@@ -27,7 +27,7 @@ shape width in HMM (1/100 mm). A full-page flag is about 10000–20000 HMM
 wide. Width near 1900 HMM is a ~19 mm speck.
 
 Hard pass is the matrix floor, not a perfect canton: python specialized
-path, ``delegate_tool_domains`` (shapes), ``run_venv_python_script``, and
+path, ``python_delegate_domains`` (shapes), ``python_run_script``, and
 a page-scale composite of stripe-like rects. gpt-oss-20b already gets
 that far on this Ask — the flag is recognizable and the stars are
 imperfect. That almost-flag is a good outcome. Star count and placement
@@ -492,14 +492,14 @@ def _calls_from_log(log_text: str) -> list[_LoggedCall]:
 
 
 def _dtd_exec_pos(log_text: str) -> int | None:
-    """First Smol / tool-async execution of ``delegate_tool_domains``."""
+    """First Smol / tool-async execution of ``python_delegate_domains``."""
     pos: int | None = None
     for match in _SMOL_EXEC_RE.finditer(log_text):
-        if match.group(1) == "delegate_tool_domains":
+        if match.group(1) == "python_delegate_domains":
             pos = match.start()
             break
     for match in _TOOL_ASYNC_RE.finditer(log_text):
-        if match.group(1) != "delegate_tool_domains":
+        if match.group(1) != "python_delegate_domains":
             continue
         if pos is None or match.start() < pos:
             pos = match.start()
@@ -508,14 +508,14 @@ def _dtd_exec_pos(log_text: str) -> int | None:
 
 def _is_run_venv_exec_line(line: str) -> bool:
     smol_match = _SMOL_EXEC_RE.search(line)
-    if smol_match is not None and smol_match.group(1) == "run_venv_python_script":
+    if smol_match is not None and smol_match.group(1) == "python_run_script":
         return True
-    if "tool-async-run_venv_python_script" in line:
+    if "tool-async-python_run_script" in line:
         return True
     tool_match = _TOOL_CALL_RE.search(line)
-    if tool_match is not None and tool_match.group(1) == "run_venv_python_script":
+    if tool_match is not None and tool_match.group(1) == "python_run_script":
         return True
-    return "accumulated tool_calls" in line and "run_venv_python_script" in line
+    return "accumulated tool_calls" in line and "python_run_script" in line
 
 
 def _line_carries_call_payload(line: str) -> bool:
@@ -576,11 +576,11 @@ def _upsert_after_dtd(log_text: str, dtd_pos: int) -> bool:
 def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool:
     """Name-only nested DTD counts as shapes only with executed shapes evidence.
 
-    What was wrong: ``SmolToolAdapter executing … 'delegate_tool_domains'``
-    and ``tool-async-delegate_tool_domains`` were stored as ``(name, "")``.
+    What was wrong: ``SmolToolAdapter executing … 'python_delegate_domains'``
+    and ``tool-async-python_delegate_domains`` were stored as ``(name, "")``.
     The shapes check searched those empty args, so a host that really ran
     the nested delegation (Gemini 3.5 Flash Lite stamp 20260927-0019) failed
-    with only "missing delegate_tool_domains with domains including shapes"
+    with only "missing python_delegate_domains with domains including shapes"
     while python, ``run_venv``, and a 13-stripe page were already yes.
 
     How: the nested agent is sync. The worker logs arguments on
@@ -591,13 +591,13 @@ def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool
     adapter line is all we have, shapes counts if a non-content executed
     payload shows ``domains`` including shapes. If no executed payload
     names a domain list, shapes also counts when an executed
-    ``run_venv_python_script`` after that DTD places shapes
+    ``python_run_script`` after that DTD places shapes
     (``wa.shape.upsert``). An explicit domains list without shapes
     (footnotes-only) does not, even if the prompt few-shot mentions both.
     """
     dtd_pos = _dtd_exec_pos(log_text)
     has_empty = dtd_pos is not None or any(
-        call.name == "delegate_tool_domains" and not call.args.strip() for call in calls
+        call.name == "python_delegate_domains" and not call.args.strip() for call in calls
     )
     if not has_empty:
         return False
@@ -607,7 +607,7 @@ def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool
     saw_shapes_args = False
     saw_other_args = False
     for call in calls:
-        if call.name != "delegate_tool_domains" or not call.args.strip():
+        if call.name != "python_delegate_domains" or not call.args.strip():
             continue
         if _SHAPES_DOMAIN_RE.search(_unescape_args(call.args)):
             saw_shapes_args = True
@@ -623,7 +623,7 @@ def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool
     if other_line:
         return False
     for call in calls:
-        if call.name != "run_venv_python_script" or "wa.shape.upsert" not in _unescape_args(call.args):
+        if call.name != "python_run_script" or "wa.shape.upsert" not in _unescape_args(call.args):
             continue
         # Sync-response args are the script that ran; the Smol line can flush later.
         if call.from_sync or (dtd_pos is not None and call.pos > dtd_pos):
@@ -634,7 +634,7 @@ def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool
 
 
 def _is_python_delegate(name: str, args: str) -> bool:
-    if not (name.startswith("delegate_to_specialized_") and name.endswith("_toolset")):
+    if not name.endswith("_delegate_specialized"):
         return False
     return _PYTHON_DOMAIN_RE.search(_unescape_args(args)) is not None
 
@@ -649,10 +649,10 @@ def _is_images_path(name: str, args: str) -> bool:
     decoded = _unescape_args(args)
     if name in _IMAGE_TOOL_NAMES:
         return True
-    if name.startswith("delegate_to_specialized_") and name.endswith("_toolset"):
+    if name.endswith("_delegate_specialized"):
         return _IMAGES_DOMAIN_RE.search(decoded) is not None
-    # delegate_tool_domains(domains=["images"]) is the same wrong route.
-    if name == "delegate_tool_domains" and _IMAGES_DOMAINS_RE.search(decoded):
+    # python_delegate_domains(domains=["images"]) is the same wrong route.
+    if name == "python_delegate_domains" and _IMAGES_DOMAINS_RE.search(decoded):
         return True
     return False
 
@@ -674,9 +674,9 @@ def parse_path_evidence(log_text: str) -> PathEvidence:
         decoded = _unescape_args(args)
         if _is_python_delegate(name, args):
             python_domain = True
-        if name == "delegate_tool_domains" and _SHAPES_DOMAIN_RE.search(decoded):
+        if name == "python_delegate_domains" and _SHAPES_DOMAIN_RE.search(decoded):
             delegate_shapes = True
-        if name == "run_venv_python_script":
+        if name == "python_run_script":
             run_venv = True
             if "wa.shape.upsert" in decoded:
                 script_placement = True
@@ -725,9 +725,9 @@ def evidence_from_eval_trace(trace: list[dict[str, object]] | None) -> PathEvide
         decoded = _unescape_args(blob)
         if _is_python_delegate(name, blob):
             python_domain = True
-        if name == "delegate_tool_domains" and _SHAPES_DOMAIN_RE.search(decoded):
+        if name == "python_delegate_domains" and _SHAPES_DOMAIN_RE.search(decoded):
             delegate_shapes = True
-        if name == "run_venv_python_script":
+        if name == "python_run_script":
             run_venv = True
             if "wa.shape.upsert" in decoded:
                 script_placement = True
@@ -817,20 +817,20 @@ def score_flag(
     geom = geometry or FlagGeometry(0, 0, 0, 0, False)
     if log_missing:
         failures.append("writeragent_debug.log missing; no python specialized path")
-        failures.append("writeragent_debug.log missing; no delegate_tool_domains(shapes)")
-        failures.append("writeragent_debug.log missing; no run_venv_python_script")
+        failures.append("writeragent_debug.log missing; no python_delegate_domains(shapes)")
+        failures.append("writeragent_debug.log missing; no python_run_script")
     else:
         if not evidence.python_domain:
             failures.append("missing python specialized path (delegate domain=python)")
         if not evidence.delegate_shapes:
-            failures.append("missing delegate_tool_domains with domains including shapes")
+            failures.append("missing python_delegate_domains with domains including shapes")
         if not evidence.run_venv:
-            failures.append("missing run_venv_python_script execution")
+            failures.append("missing python_run_script execution")
     # Bad substitutes fail even when the log is missing only if we saw them.
     # A missing log has no such evidence, so these two stay quiet (the three
     # path checks above already fail closed).
     if evidence.llm_shape_upsert and not evidence.run_venv:
-        failures.append("LLM shape_upsert without run_venv_python_script")
+        failures.append("LLM shape_upsert without python_run_script")
     if evidence.images_path:
         failures.append("domain=images / image_generate PNG path (shapes script required)")
     if geometry_error:

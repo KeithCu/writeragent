@@ -35,9 +35,10 @@ from plugin.framework.prompts import (
     python_orchestrator_routing_line,
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.doc.specialized_catalog import FINISH_TOOL_NAME
 from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
 
-_WRITER_DELEGATE_TOOL = "delegate_to_specialized_writer_toolset"
+_WRITER_DELEGATE_TOOL = "writer_delegate_specialized"
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 
@@ -288,7 +289,7 @@ class SpecializedWorkflowFinished(ToolBase):
     Mimics the built-in 'final_answer' tool of smolagents for specialized sub-agents.
     """
 
-    name: str | None = "specialized_workflow_finished"
+    name: str | None = FINISH_TOOL_NAME
     description: str = "Provides a final answer to the given task and exits the specialized toolset mode."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"answer": {"type": "string", "description": "The final answer to the task. Use only standard Python types (numbers, strings, lists), no Numpy types."}}, "required": ["answer"]}
     tier: str = "specialized_control"

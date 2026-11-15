@@ -63,9 +63,9 @@ def test_collect_brainstorming_tools_merges_doc_research_reads():
         services={"tools": registry},
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "brainstorming")}
-    assert "brainstorm_research_web" in names
-    assert "save_design_spec" in names
-    assert "list_nearby_files" in names
+    assert "brainstorming_search_web" in names
+    assert "brainstorming_save_design_spec" in names
+    assert "research_list_nearby_files" in names
 
 
 def test_collect_brainstorming_tools_excludes_specialized_workflow_finished():
@@ -83,9 +83,9 @@ def test_collect_brainstorming_tools_excludes_specialized_workflow_finished():
         services={"tools": registry},
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "brainstorming")}
-    assert "brainstorm_research_web" in names
-    assert "save_design_spec" in names
-    assert "specialized_workflow_finished" not in names
+    assert "brainstorming_search_web" in names
+    assert "brainstorming_save_design_spec" in names
+    assert "workflow_finished" not in names
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")

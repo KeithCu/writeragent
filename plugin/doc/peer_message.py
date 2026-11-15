@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A1 peer send: ``send_peer_work`` / ``send_peer_result``.
+"""A1 peer send: ``peer_send_work`` / ``peer_send_result``.
 
 Queues a user-equivalent turn on another already-open Writer/Calc/Draw/Impress
 sidebar and returns immediately. Experiment: advertised on the
@@ -50,8 +50,8 @@ from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_ur
 
 log = logging.getLogger("writeragent.doc.peer_message")
 
-PEER_WORK_TOOL_NAME = "send_peer_work"
-PEER_RESULT_TOOL_NAME = "send_peer_result"
+PEER_WORK_TOOL_NAME = "peer_send_work"
+PEER_RESULT_TOOL_NAME = "peer_send_result"
 PEER_TOOL_NAMES = frozenset({PEER_WORK_TOOL_NAME, PEER_RESULT_TOOL_NAME})
 PEER_QUEUE_CAP = 8
 # Only the title is capped: uid/url are addresses the model sends back.
@@ -65,9 +65,9 @@ _PEER_SEND_BLOCKED_CALLERS = frozenset({"mcp", "script", "ppt_master_venv"})
 _WORK_DESCRIPTION = (
     "ASK PATH only: send a new work request to another already-open Writer, Calc, Draw, "
     "or Impress sidebar. Use when the task is about an Open peer and has no "
-    "[Peer work from: …] envelope. Do not call send_peer_result on this path — the peer "
+    "[Peer work from: …] envelope. Do not call peer_send_result on this path — the peer "
     "replies later. Returns immediately {status: ok, accepted: true}. "
-    "After ok/accepted you MUST call specialized_workflow_finished "
+    "After ok/accepted you MUST call workflow_finished "
     "immediately — the peer runs after this loop exits; waiting deadlocks the reply. "
     "document_url is the one target argument: a file URL, RuntimeUID, or a "
     "display name that matches exactly one open peer. Required on every call. "
@@ -78,9 +78,9 @@ _WORK_DESCRIPTION = (
 _RESULT_DESCRIPTION = (
     "REPLY PATH only: deliver a result/reply when the task contains a "
     "[Peer work from: …] envelope. Do not use this tool on an ask task that merely "
-    "mentions send_peer_result or reply back — only that envelope selects this path. "
+    "mentions peer_send_result or reply back — only that envelope selects this path. "
     "Returns immediately {status: ok, accepted: true}. "
-    "After ok/accepted you MUST call specialized_workflow_finished "
+    "After ok/accepted you MUST call workflow_finished "
     "immediately — the peer runs after this loop exits; waiting deadlocks the reply. "
     "document_url is the one target argument: a file URL, RuntimeUID, or a "
     "display name that matches exactly one open peer (copy uid/url from the inbound "
@@ -91,7 +91,7 @@ _RESULT_DESCRIPTION = (
 
 # Reinforces the prompt: specialized agents must exit after accepted.
 PEER_ACCEPTED_FINISH_HINT = (
-    "Queued. You MUST call specialized_workflow_finished immediately. "
+    "Queued. You MUST call workflow_finished immediately. "
     "Why: the reply arrives later as a follow-up user turn on the caller sidebar; "
     "waiting in this loop blocks the peer."
 )
@@ -197,12 +197,12 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
 
 
 # Fixed footer on work envelopes only. Outer PEER_OUTER_DELEGATE_HINT already
-# says to re-delegate for send_peer_result, but models ignore it when the body
+# says to re-delegate for peer_send_result, but models ignore it when the body
 # is a short list/read ask and Ready with a chat-only answer — the asker never
 # gets a peer result. Result envelopes must stay body-only (no delivery footer).
 PEER_WORK_DELIVERY_FOOTER = (
     "When the local work is done, you MUST Do domain=\"document_research\" to deliver "
-    "via send_peer_result(document_url=<uid or url from this envelope header>, "
+    "via peer_send_result(document_url=<uid or url from this envelope header>, "
     "message=<one HTML/result string>). "
     "Why: finishing a nested task is not peer delivery; a chat-only answer in this "
     "sidebar never reaches the asking peer."
@@ -227,8 +227,8 @@ def format_peer_envelope(
 ) -> str:
     """Code-inserted wrapper. ``message`` is the body only.
 
-    ``kind`` is which tool was called: ``"work"`` for ``send_peer_work``,
-    ``"result"`` for ``send_peer_result``. Models must not invent the header.
+    ``kind`` is which tool was called: ``"work"`` for ``peer_send_work``,
+    ``"result"`` for ``peer_send_result``. Models must not invent the header.
     Work envelopes append ``PEER_WORK_DELIVERY_FOOTER``; result envelopes do not.
     """
     label = "Peer result from" if kind == "result" else "Peer work from"

@@ -30,7 +30,7 @@ FLAG_TASK_ID = "python_shapes_flag"
 FLAG_MAX_TOOL_ROUNDS = 50
 _STRING_FAILURE = (
     "python_shapes_flag requires the headless LO backend; "
-    "the string simulator has no run_venv_python_script"
+    "the string simulator has no python_run_script"
 )
 
 

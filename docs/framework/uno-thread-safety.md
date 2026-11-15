@@ -248,7 +248,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Hidden Document Loader | `plugin/doc/document_research.py` | `open_document_for_read()` guards hidden component model. |
 | Desktop Enumeration | `plugin/doc/document_research.py` | `_office_model_from_desktop_element()` guards enumerated desktop models. |
 | Scripting Calc Resolver | `plugin/scripting/document_scripts.py` | `get_calc_document_from_ctx()` (UI commands only, never `=PY()`) wraps the active Calc model. A focused Writer, Draw, or Impress document returns `None` without enumerating (`is_draw` is Draw or Impress). Base, Math, and no current component still enumerate. The fallback returns the only open Calc model, or `None` when zero or several are open. |
-| Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. A `doc:` pin from chat `run_venv_python_script` returns `guard_uno` of that object and does not enumerate the desktop. |
+| Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. A `doc:` pin from chat `python_run_script` returns `guard_uno` of that object and does not enumerate the desktop. |
 | Calc Cell Editor Selection | `plugin/calc/python/editor.py` | `_get_active_calc_cell()` guards active cell interface. |
 | Graphic Export Bridge | `plugin/writer/images/image_tools.py` | `export_graphic_object_to_bytes()` resolves via `get_ctx()`. |
 | Locale Resolution | `plugin/framework/i18n.py` | `get_lo_locale()` uses `get_ctx()` on-main, falls back to `en_US` off-main. |
@@ -312,7 +312,7 @@ When a remote client (such as `make test-uno` or the eval harness connecting ove
 Specialized sub-agents (`plugin/doc/specialized_base.py`) run `DelegateToSpecializedBase.execute` on background worker threads when `is_async()` is True.
 - **Scaffolding**: `get_tools(doc=...)`, shapes canvas, open-documents enumeration, the document_research workflow hint (peer catalog via `list_v1_peers` / `getRuntimeUID`), and `ToolContext.active_page_index` via `DrawBridge` in `build_tool_execute_fn` must marshal through `main.call()` or `main.run()`.
 - **Sync Domain Tools**: Run via `SmolToolAdapter` which marshals tool execution to the main thread by default.
-- **Async Domain Tools** (`image_generate`, `delegate_read_document`): Run on caller worker threads and must marshal PyUNO access internally inside their own `execute_safe()` methods. Verified in [`tests/doc/test_specialized_delegation_threading.py`](../../tests/doc/test_specialized_delegation_threading.py).
+- **Async Domain Tools** (`image_generate`, `research_delegate_read`): Run on caller worker threads and must marshal PyUNO access internally inside their own `execute_safe()` methods. Verified in [`tests/doc/test_specialized_delegation_threading.py`](../../tests/doc/test_specialized_delegation_threading.py).
 
 ---
 

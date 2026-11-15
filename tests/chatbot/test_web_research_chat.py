@@ -77,7 +77,7 @@ def test_display_name_uses_basename_for_absolute_path(value, expected):
 def test_step_zero_tool_and_preview_only():
     q = "/tmp/Budget_2026.ods"
     text = document_open_step_chat_text(q)
-    assert "Tool: delegate_read_document" in text
+    assert "Tool: research_delegate_read" in text
     assert "Budget_2026.ods" in text
     assert "read-only" in text.lower()
     assert "[Document research]" not in text

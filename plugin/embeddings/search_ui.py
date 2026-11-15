@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Modeless dialog to run hybrid search_nearby_files queries directly."""
+"""Modeless dialog to run hybrid research_search_nearby_files queries directly."""
 
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def format_cache_age(age_secs: float) -> str:
 
 
 class SearchDialog:
-    """Modeless dialog to let users run search_nearby_files queries directly."""
+    """Modeless dialog to let users run research_search_nearby_files queries directly."""
 
     _ctx: Any
     _closed: bool

@@ -96,9 +96,9 @@ def _cleanup_nearby_test_env(temp_dir):
 def test_list_nearby_excludes_active(ctx, doc):
     temp_dir, _unused_budget, _unused_open = _create_nearby_test_env(ctx, doc)
     try:
-        _nearby_progress("list_nearby_files start")
+        _nearby_progress("research_list_nearby_files start")
         result = list_nearby_files(ctx, doc)
-        _nearby_progress("list_nearby_files done status=%s" % result.get("status"))
+        _nearby_progress("research_list_nearby_files done status=%s" % result.get("status"))
         assert result["status"] == "ok"
         names = {f["name"] for f in result["files"]}
         assert "Budget_2026.ods" in names

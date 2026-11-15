@@ -23,7 +23,7 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 **Phase 0** provides same-directory discovery and cross-file **read** via **two-tier delegation**. Main adds only `document_research` to the existing delegate enum — no new core tools on main.
 
-**User flow:** one `delegate_to_specialized_*_toolset(domain="document_research", task="…")` call → **outer** sub-agent lists/opens → **inner** sub-agent(s) read with production read tools → compact result to main → main writes **active** doc only.
+**User flow:** one `*_delegate_specialized(domain="document_research", task="…")` call → **outer** sub-agent lists/opens → **inner** sub-agent(s) read with production read tools → compact result to main → main writes **active** doc only.
 
 - Same folder as the active saved document’s **parent directory** (no config dirs, no recursion).
 - **Untitled** active doc: list from LibreOffice profile **Work** folder ([`get_work_directory`](../../plugin/doc/document_research.py) via `com.sun.star.util.thePathSettings`); if that path is missing, fall back to other **open** LO file URLs only (see [Edge cases](#edge-cases-and-failure-modes)).
@@ -35,7 +35,7 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 | Principle | Detail |
 | --------- | ------ |
-| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_content`, `get_tree`, `search`, `get_sheet_summary`, `read_range`, Draw read tools, …) via `SmolToolAdapter` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
+| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_content`, `get_tree`, `search`, `get_sheet_summary`, `read_range`, Draw read tools, …) via `SmolToolAdapter` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `*_delegate_specialized`. **Discovery** (`research_list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
 | **Read-only on other files** | Mutation tools apply to the **active** document only. Sibling files are opened **read-only**; write APIs are **not** exposed on those models in Phase 0 (see [Read-only enforcement](#read-only-enforcement) and [Open questions](#open-questions) #4). |
 | **Writer + Calc + Draw** | Calc is first-class (budget → table). Draw/Impress: `slide_list` + shape/text tools where applicable. |
 | **Active doc unchanged** | Cross-doc reads must not steal focus or mutate the user’s window; hidden open in the **same** LO process for Phase 0. |
@@ -61,15 +61,15 @@ Listing tools return a consistent shape (TypedDict or dataclass in `plugin/doc/d
 | `doc_type_guess` | `"writer"` \| `"calc"` \| `"draw"` \| `"image"` \| `"unknown"` | From extension |
 | `is_open` | `bool` | Desktop already has this URL |
 
-**Exclude** the active document’s path from `list_nearby_files` results (do not offer “read self as sibling”).
+**Exclude** the active document’s path from `research_list_nearby_files` results (do not offer “read self as sibling”).
 
 ### Extension allowlist
 
-Constants in [`plugin/doc/document_research.py`](../../plugin/doc/document_research.py), referenced by tests. `list_nearby_files` takes optional **`file_kind`**: `"documents"` (default) or `"images"` (mutually exclusive listing modes).
+Constants in [`plugin/doc/document_research.py`](../../plugin/doc/document_research.py), referenced by tests. `research_list_nearby_files` takes optional **`file_kind`**: `"documents"` (default) or `"images"` (mutually exclusive listing modes).
 
 **`file_kind=documents`** — `ALL_INDEXABLE_EXTENSIONS`: `.odt`, `.ott`, `.ods`, `.ots`, `.odp`, `.otp`, `.odg`, `.fodt`, `.fods`, `.fodp`
 
-**`file_kind=images`** — `NEARBY_IMAGE_EXTENSIONS`: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.svg` (discovery only; not readable via `delegate_read_document`)
+**`file_kind=images`** — `NEARBY_IMAGE_EXTENSIONS`: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.svg` (discovery only; not readable via `research_delegate_read`)
 
 **Exclude by convention:** LibreOffice lock/temp files (`~$*`), `*.tmp`, `*.bak`, and extensions outside the selected allowlist.
 
@@ -90,7 +90,7 @@ flowchart LR
 
 ### Fuzzy name matching (Phase 0)
 
-MVP: basename **substring** filter on `list_nearby_files(filter=…)` plus **newest-first** bias when multiple matches (e.g. `Budget_2026.ods` vs `Budget_2025.ods`). No Levenshtein required for Phase 0.
+MVP: basename **substring** filter on `research_list_nearby_files(filter=…)` plus **newest-first** bias when multiple matches (e.g. `Budget_2026.ods` vs `Budget_2025.ods`). No Levenshtein required for Phase 0.
 
 ---
 
@@ -102,9 +102,9 @@ MVP: basename **substring** filter on `list_nearby_files(filter=…)` plus **new
 flowchart TD
     UserMsg["User: grab Q4 from budget"]
     MainAgent["Main agent — active doc only"]
-    Delegate["delegate_to_specialized_*_toolset domain=document_research"]
+    Delegate["*_delegate_specialized domain=document_research"]
     Outer["Outer sub-agent — orchestration"]
-    ListOpen["list_nearby_files, open hidden ReadOnly"]
+    ListOpen["research_list_nearby_files, open hidden ReadOnly"]
     Inner["Inner sub-agent — one opened file"]
     ReadTools["Existing read tools: get_tree, read_range, get_content, ..."]
     MoreFiles{"More files needed?"}
@@ -129,20 +129,20 @@ See [Threading / nested delegation](#threading--nested-delegation) for UNO threa
 
 ## Tool API contract (in-process parity, read-only elsewhere)
 
-**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_specialized_{writer|calc|draw}_toolset`** gateway per app. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent ([`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py)).
+**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`{writer|calc|draw}_delegate_specialized`** gateway per app. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent ([`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py)).
 
 **Multi-document extension:**
 
 | Scope | APIs |
 | ----- | ---- |
 | **Active document** | Unchanged for **main** — same **core** read/write tools on `ToolContext.doc`, plus delegate gateway with **`document_research`** in the domain enum. |
-| **Other files (document_research)** | **Same read tools** as in-process chat, invoked on a temporarily opened model (`Hidden` + `ReadOnly`). **Outer** exposes `list_nearby_files` and `delegate_read_document`. **No write tools** on sibling models unless we add a deliberate later feature. |
+| **Other files (document_research)** | **Same read tools** as in-process chat, invoked on a temporarily opened model (`Hidden` + `ReadOnly`). **Outer** exposes `research_list_nearby_files` and `research_delegate_read`. **No write tools** on sibling models unless we add a deliberate later feature. |
 
 Implementation uses two nested smol runs (outer, then inner per file). Both call `ToolRegistry.execute` — no duplicate tool bodies.
 
 Headless / out-of-process readers (Phase 4), when added, expose the **same logical read API** to the **inner** sub-agent; only the transport to LO changes.
 
-**Phase 0 prompt:** `document_research` to research (my / our) personal documents; `web_research` to research public topics. `embedded` is active-doc OLE only. Main chat: one delegation with described **file(s)** and task (vague labels OK); outer agent matches via `list_nearby_files`.
+**Phase 0 prompt:** `document_research` to research (my / our) personal documents; `web_research` to research public topics. `embedded` is active-doc OLE only. Main chat: one delegation with described **file(s)** and task (vague labels OK); outer agent matches via `research_list_nearby_files`.
 
 ---
 
@@ -154,8 +154,8 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 | Layer | Responsibility | Tool surface |
 | ----- | -------------- | ------------ |
-| **Main agent** | User intent; edits **active** doc only. | **Core** tools on active `ToolContext.doc` + `delegate_to_specialized_{writer\|calc\|draw}_toolset` (domain enum includes **`document_research`**). No specialized-tier tools on main’s wire schema. |
-| **Outer sub-agent** | Natural-language **task** from main. Lists nearby files, resolves names, calls **inner** per file, aggregates. | `list_nearby_files`, `delegate_read_document(path, task)`, `specialized_workflow_finished` / final answer. **No** `apply_*` / `write_*`. |
+| **Main agent** | User intent; edits **active** doc only. | **Core** tools on active `ToolContext.doc` + `{writer\|calc\|draw}_delegate_specialized` (domain enum includes **`document_research`**). No specialized-tier tools on main’s wire schema. |
+| **Outer sub-agent** | Natural-language **task** from main. Lists nearby files, resolves names, calls **inner** per file, aggregates. | `research_list_nearby_files`, `research_delegate_read(path, task)`, `workflow_finished` / final answer. **No** `apply_*` / `write_*`. |
 | **Inner sub-agent** | One run per opened file; `doc_type` known. | **Read tools for that type only** — Writer inner never sees `read_range`; Calc inner never sees `get_tree`. Same production schemas; **no writes.** |
 
 ### Reference scenario
@@ -166,8 +166,8 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 | ---- | --- | ------------ |
 | 1 | **Main** | Parses intent: read Q4 from a budget file; write table on **active** doc. Does **not** open siblings. |
 | 2 | **Main** | `delegate_*(domain="document_research", task="Find Q4 numbers in the budget spreadsheet and return structured data")`. |
-| 3 | **Outer** | `list_nearby_files(filter="budget")` → match candidates; newest-first bias. |
-| 4 | **Outer** | `delegate_read_document(path, task)` — hidden read-only open → **inner** (e.g. “extract Q4 revenue”). |
+| 3 | **Outer** | `research_list_nearby_files(filter="budget")` → match candidates; newest-first bias. |
+| 4 | **Outer** | `research_delegate_read(path, task)` — hidden read-only open → **inner** (e.g. “extract Q4 revenue”). |
 | 5 | **Inner** | On Calc model: `get_sheet_summary` → `read_range`. On Writer budget: `search` / `get_content`. Returns to **outer**; inner discarded. |
 | 6 | **Outer** | Repeat step 4 if needed; aggregate; **final_answer** to main. |
 | 7 | **Main** | `write_range`, `apply_content`, etc. on **active** doc only. |
@@ -178,7 +178,7 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 1. User: “Get Q4 numbers and put in a table.”
 2. **Main** → delegate document_research with read task.
-3. **Outer** → list → `delegate_read_document` → **inner** per file → aggregate → return to main.
+3. **Outer** → list → `research_delegate_read` → **inner** per file → aggregate → return to main.
 4. **Main** → `write_*` / `apply_*` on **active** doc only.
 
 ### Why two tiers
@@ -189,21 +189,21 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 **3. Outer vs inner split** — Outer: discovery, open, multi-file loop, aggregate. Inner: one file, one modality.
 
-**4. Multi-file orchestration** — Outer calls `delegate_read_document` separately per file before one return to main.
+**4. Multi-file orchestration** — Outer calls `research_delegate_read` separately per file before one return to main.
 
 **5. Main stays lean** — Users who never use workspace pay **zero** extra tool-schema cost on main.
 
 **6. Anti-pattern: read tools on main** — Pollutes the schema for everyone.
 
-**Implementation note:** Same **gateway** pattern as `delegate_*(domain="shapes")`, but document_research adds a **nested** inner smol run via `delegate_read_document` (not a single-level domain like `python`’s tools). Infrastructure: [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py), [`build_toolcalling_agent`](../../plugin/chatbot/smol_agent.py) — see [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) and [smol-tool-architecture.md](smol-tool-architecture.md).
+**Implementation note:** Same **gateway** pattern as `delegate_*(domain="shapes")`, but document_research adds a **nested** inner smol run via `research_delegate_read` (not a single-level domain like `python`’s tools). Infrastructure: [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py), [`build_toolcalling_agent`](../../plugin/chatbot/smol_agent.py) — see [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) and [smol-tool-architecture.md](smol-tool-architecture.md).
 
 ### Handoff mechanism (implemented)
 
 - [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name off the main thread via [`resolve_path_or_name`](../../plugin/doc/document_research.py), opens via [`open_document_for_read`](../../plugin/doc/document_research.py) on the main thread (`main.run`).
-- [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `specialized_workflow_finished`.
+- [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `workflow_finished`.
 - The tool returns `{status: "ok", path, doc_type, result}`; result is the finish tool's answer string. A plain-string final answer (no finish call: output-limit truncation or max steps) returns `status: "incomplete"`, code `SPECIALIZED_WORKFLOW_INCOMPLETE`, with the text on `message`. Inner error payloads pass through unchanged; a run with no answer returns the coded error `READ_EMPTY_RESULT`.
 - Outer document_research sub-agent is still launched by [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py) with `active_domain="document_research"` (tools from [`document_research_tools.py`](../../plugin/doc/document_research_tools.py) + `DelegateReadDocument`).
-- Inner ends with `specialized_workflow_finished` / `final_answer`; outer accumulates and returns one payload to main.
+- Inner ends with `workflow_finished` / `final_answer`; outer accumulates and returns one payload to main.
 
 ---
 
@@ -213,9 +213,9 @@ Document research is **cross-app**: active Writer may read a Calc `.ods` budget.
 
 | Component | `tier` | `specialized_domain` | Notes |
 | --------- | ------ | -------------------- | ----- |
-| `list_nearby_files` | `specialized` | `document_research` | Outer agent only |
-| `delegate_read_document` | `specialized` | `document_research` | Spawns inner smol; outer only |
-| Inner read tools | — | — | **Not** a separate domain on main registry; allowlist inside `delegate_read_document` |
+| `research_list_nearby_files` | `specialized` | `document_research` | Outer agent only |
+| `research_delegate_read` | `specialized` | `document_research` | Spawns inner smol; outer only |
+| Inner read tools | — | — | **Not** a separate domain on main registry; allowlist inside `research_delegate_read` |
 
 Gateway enum discovery: marker subclasses with `specialized_domain = "document_research"` on each app base — `ToolWriterDocumentResearchBase`, `ToolCalcDocumentResearchBase`, `ToolDrawDocumentResearchBase` in [`writer/specialized_base.py`](../../plugin/writer/specialized_base.py), [`calc/base.py`](../../plugin/calc/base.py), [`draw/base.py`](../../plugin/draw/base.py). Tools register once in [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) via `auto_discover(document_research_tools, document_research_specialized)`.
 
@@ -241,7 +241,7 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 
 **Phase 0 tests (implemented):**
 
-- [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py): mock inner agent (no live LLM); `document_research` on all three delegates; `READ_ONLY_TARGET` guard; outer document_research tool surface; `delegate_read_document` is not a delegate gateway recurse.
+- [`test_document_research_specialized.py`](../../tests/doc/test_document_research_specialized.py): mock inner agent (no live LLM); `document_research` on all three delegates; `READ_ONLY_TARGET` guard; outer document_research tool surface; `research_delegate_read` is not a delegate gateway recurse.
 - [`test_document_research_uno.py`](../../tests/doc/test_document_research_uno.py): hidden+read-only open; list excludes active file; inner path reads sibling via `read_range` on opened model.
 - `stop_checker` is copied from parent to inner `ToolContext` in `run_inner_read_agent`.
 
@@ -275,7 +275,7 @@ The **inner** sub-agent calls production read tools via `ToolRegistry.execute`:
 | Case | Behavior |
 | ---- | -------- |
 | **Untitled / unsaved active doc** | **Implemented:** [`resolve_listing_directory`](../../plugin/doc/document_research.py) uses LO profile **Work** path (`thePathSettings` → `Work`); if no directory, list other **open** LO documents only; if none, tool error with a clear message. |
-| **Active file in directory listing** | Exclude self from `list_nearby_files`. |
+| **Active file in directory listing** | Exclude self from `research_list_nearby_files`. |
 | **Permission denied / I/O error** | Tool error with `details.path`. |
 | **File modified on disk after open** | Phase 0: no cache; re-open on next delegate if needed. Phase 6 may add mtime-keyed metadata. |
 | **Same path already open** | Reuse via `resolve_document_by_url`. |
@@ -304,12 +304,12 @@ Record decisions here as we learn.
 | # | Question | Notes |
 | - | -------- | ----- |
 | 1 | **Catalog in main system prompt?** | Option A: inject `[NEARBY FILES]` every turn. Option B: outer calls `list_*` when needed (**default for Phase 0**). Option C: hybrid when ≤N files or user mentions another doc. Revisit in Phase 2. |
-| 2 | **Main vs sub-agent for multi-file tasks** | **Decision: two-tier delegation in Phase 0** — main only `delegate_*(domain="document_research", …)`; outer orchestrates; inner reads per file. Same **gateway** as `domain="shapes"`; unique **nested** inner smol via `delegate_read_document`. |
+| 2 | **Main vs sub-agent for multi-file tasks** | **Decision: two-tier delegation in Phase 0** — main only `delegate_*(domain="document_research", …)`; outer orchestrates; inner reads per file. Same **gateway** as `domain="shapes"`; unique **nested** inner smol via `research_delegate_read`. |
 | 3 | **Untitled / unsaved active doc** | **Decision (Phase 0):** saved parent dir → else **Work** path → else open-docs-only list. Unit-tested (`test_get_work_directory`, `test_resolve_listing_directory_work_fallback`). |
 | 4 | **Write-back to nearby files** | **Out of scope:** siblings read-only; writes on active doc only. |
 | 5 | **Final naming** | **Decision:** named `document_research` to best describe document-centric cross-file reading. |
 | 6 | **Inner allowlist** | **Decision (Phase 0):** static `READ_TOOLS_BY_DOC_TYPE` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py). |
-| 7 | **Max files per list** | Cap (e.g. 100) — document in `list_nearby_files` result. |
+| 7 | **Max files per list** | Cap (e.g. 100) — document in `research_list_nearby_files` result. |
 
 ---
 
@@ -338,25 +338,25 @@ flowchart LR
 
 **Main (unchanged wire shape):**
 
-- `delegate_to_specialized_{writer|calc|draw}_toolset(domain="document_research", task="…")` only.
-- No `list_nearby_files`, no read tools, no new core tools on main.
+- `{writer|calc|draw}_delegate_specialized(domain="document_research", task="…")` only.
+- No `research_list_nearby_files`, no read tools, no new core tools on main.
 - Delegate gateway descriptions mention `domain=document_research` (Writer/Calc/Draw).
 
 **Outer sub-agent (`specialized_domain="document_research"`):**
 
-- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `ALL_INDEXABLE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100). When a cap fires, the tool result also carries a one-sentence top-level `hint` (next call or argument). When a named object is missing, errors carry `details.similar` (up to five close names) and `details.hint` (which list tool to call).
+- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`research_list_nearby_files`](../../plugin/doc/document_research.py): `ALL_INDEXABLE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100). When a cap fires, the tool result also carries a one-sentence top-level `hint` (next call or argument). When a named object is missing, errors carry `details.similar` (up to five close names) and `details.hint` (which list tool to call).
 - [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): `path_or_name` + `task`; hidden+read-only open (or reuse open); spawns inner; returns `{ path, doc_type, result }`.
-- `specialized_workflow_finished` / final answer to main (same as other specialized domains).
+- `workflow_finished` / final answer to main (same as other specialized domains).
 
 **Inner sub-agent (per opened file):**
 
 - `READ_TOOLS_BY_DOC_TYPE` allowlist; [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py).
 - `ToolContext.doc` = opened model; `read_only_target=True` — see [read-only enforcement](#read-only-enforcement).
-- One inner run per `delegate_read_document` call; discarded after return.
+- One inner run per `research_delegate_read` call; discarded after return.
 
 **Library ([`plugin/doc/document_research.py`](../../plugin/doc/document_research.py)):**
 
-- `FileEntry`, `ALL_INDEXABLE_EXTENSIONS`, `get_document_directory`, `get_work_directory`, `resolve_listing_directory`, `list_nearby_files`, `resolve_path_or_name`, `open_document_for_read`, `guess_doc_type_from_path`.
+- `FileEntry`, `ALL_INDEXABLE_EXTENSIONS`, `get_document_directory`, `get_work_directory`, `resolve_listing_directory`, `research_list_nearby_files`, `resolve_path_or_name`, `open_document_for_read`, `guess_doc_type_from_path`.
 
 **Module wiring:** [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) `auto_discover` for `document_research_tools` and `document_research_specialized`. No new keys in [`module.yaml`](../../plugin/doc/module.yaml).
 
@@ -378,7 +378,7 @@ flowchart LR
 **Goal:** User-configured extra roots beyond same-folder listing.
 
 - Config key: `workspace_extra_directories` (JSON array of absolute paths) — name TBD per open question #5.
-- `list_nearby_files` merges: active doc’s parent dir + configured dirs, deduped, newest-first.
+- `research_list_nearby_files` merges: active doc’s parent dir + configured dirs, deduped, newest-first.
 - Settings UI: text field in [`dialog_views.py`](../../plugin/chatbot/dialog_views.py) / manifest registry (see [`config.py`](../../plugin/framework/config.py)).
 - **Tests:** merge, dedupe, invalid path handling.
 
@@ -447,11 +447,11 @@ flowchart LR
 
 #### Status surfacing in chat
 
-**Shipped (open-only):** When the outer `document_research` sub-agent calls `delegate_read_document`, the sidebar chat shows a short status block (`Tool: delegate_read_document` + open preview line — same shape as web research’s `Tool: web_search` + query preview). Formatting lives in [`web_research_chat.py`](../../plugin/chatbot/web_research_chat.py); the outer delegate’s `tool_call_handler` in [`specialized_base.py`](../../plugin/doc/specialized_base.py) appends via `chat_append_callback` (wired from [`tool_loop.py`](../../plugin/chatbot/tool_loop.py) for `domain=document_research`). Status only — no HITL approval.
+**Shipped (open-only):** When the outer `document_research` sub-agent calls `research_delegate_read`, the sidebar chat shows a short status block (`Tool: research_delegate_read` + open preview line — same shape as web research’s `Tool: web_search` + query preview). Formatting lives in [`web_research_chat.py`](../../plugin/chatbot/web_research_chat.py); the outer delegate’s `tool_call_handler` in [`specialized_base.py`](../../plugin/doc/specialized_base.py) appends via `chat_append_callback` (wired from [`tool_loop.py`](../../plugin/chatbot/tool_loop.py) for `domain=document_research`). Status only — no HITL approval.
 
 **Deferred (not implemented):**
 
-- `list_nearby_files` preview blocks when the outer agent lists siblings.
+- `research_list_nearby_files` preview blocks when the outer agent lists siblings.
 - Inner read-tool steps (`read_range`, `get_content`, …) via `chat_append_callback` on the inner `ToolContext` in [`document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) — useful when step-by-step cross-doc read visibility is desired (similar to “Show search thinking” for web research).
 - Optional config gate (e.g. `chatbot.show_document_research_steps` or tie to an existing thinking toggle) if chat noise becomes an issue.
 - MCP parity: [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) `ToolContext` has no chat sink today; hosts would need a stream hook if they want the same status lines.
@@ -475,7 +475,7 @@ flowchart LR
 
 - **Active document:** unchanged — `X-Document-URL` on [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py).
 - **Nearby reads:** path or `url` in tool args / delegate task; **do not** retarget `X-Document-URL` to sibling files.
-- **Tool surface:** same as sidebar — document_research via `delegate_to_specialized_*_toolset(domain="document_research", …)`, not dozens of new MCP tool names ([../mcp-protocol.md](../mcp-protocol.md) specialized-tier policy).
+- **Tool surface:** same as sidebar — document_research via `*_delegate_specialized(domain="document_research", …)`, not dozens of new MCP tool names ([../mcp-protocol.md](../mcp-protocol.md) specialized-tier policy).
 - **Test:** [`test_mcp_server.py`](../../plugin/tests/mcp/test_mcp_server.py) — document_research delegate with header pointing at active Writer doc.
 
 ---
@@ -487,12 +487,12 @@ flowchart LR
 #### 7.1 Cross-Document Search ("Office Grep") — **shipped**
 
 *   **Concept:** A dedicated tool for the outer `document_research` sub-agent to find keywords across multiple files without manually delegating to each one sequentially.
-*   **Implementation:** [`grep_nearby_files`](plugin/doc/document_research_tools.py) in [`plugin/doc/document_research_grep.py`](../../plugin/doc/document_research_grep.py). Args: `pattern`, optional `file_subset` (basename token such as `budget` → `*budget*.od*` via `scan_nearby_files`, an absolute path, or a `file://` URL of one existing file; a `file://` URL is not a listing filter), caps (`max_files`, `max_results_per_file`, `max_total_results`). Opens each candidate hidden+read-only, searches by type (Writer paragraphs and table cells read visible text via `get_string_without_tracked_deletions` so tracked deletions do not match, with **automatic 2-paragraph context**; Calc `findAll` all sheets; Draw shape text with shape cap). Draw `match_count` is the number of matches returned: each page is searched with the remaining result budget. Draw `partial` is true when one more matching shape exists beyond that slice (the walk looks at one extra hit, same idea as Calc), or when the shape cap is hit with result budget left, or when Stop cuts the scan. Writer `match_count` is the number of matches returned; `partial` is true when the document has more hits than that slice, or when Stop cut Writer extraction or the paragraph scan. Calc `partial` is true when the sheet has more hits than the returned slice; `match_count` is the returned length, same as Writer and Draw. Stop is checked before each file and again after that file's search returns; either check, including on the last file, returns `USER_STOPPED` and does not include hits. Stop during the listing (the main-thread read of open documents and folder, or the folder scan) also returns `USER_STOPPED`. Stop is also checked on each Writer paragraph during text extraction and inside `search_paragraph_texts`. `get_paragraph_ranges` still runs to completion. An invalid regex returns one `Invalid regex:` error before any file is listed or opened. Returns snippet previews and closes hidden opens; grep does not call `processEventsToIdle` between files because the worker must not call that helper, and the chat drain pumps. One main-thread hop opens, searches, and closes each file; a marshal TimeoutError/RuntimeError for one file is recorded in errors and the scan continues. Snippet text and Writer context paragraphs are capped at 200 characters with a trailing "…" (same budget as Search hit text). Prefer grep before `delegate_read_document` when locating which file contains a keyword (hint in [`specialized_base.py`](../../plugin/doc/specialized_base.py)). `list_nearby_files`, grep and `search_nearby_files` read that state through `resolve_listing_state`.
+*   **Implementation:** [`research_grep_nearby_files`](plugin/doc/document_research_tools.py) in [`plugin/doc/document_research_grep.py`](../../plugin/doc/document_research_grep.py). Args: `pattern`, optional `file_subset` (basename token such as `budget` → `*budget*.od*` via `scan_nearby_files`, an absolute path, or a `file://` URL of one existing file; a `file://` URL is not a listing filter), caps (`max_files`, `max_results_per_file`, `max_total_results`). Opens each candidate hidden+read-only, searches by type (Writer paragraphs and table cells read visible text via `get_string_without_tracked_deletions` so tracked deletions do not match, with **automatic 2-paragraph context**; Calc `findAll` all sheets; Draw shape text with shape cap). Draw `match_count` is the number of matches returned: each page is searched with the remaining result budget. Draw `partial` is true when one more matching shape exists beyond that slice (the walk looks at one extra hit, same idea as Calc), or when the shape cap is hit with result budget left, or when Stop cuts the scan. Writer `match_count` is the number of matches returned; `partial` is true when the document has more hits than that slice, or when Stop cut Writer extraction or the paragraph scan. Calc `partial` is true when the sheet has more hits than the returned slice; `match_count` is the returned length, same as Writer and Draw. Stop is checked before each file and again after that file's search returns; either check, including on the last file, returns `USER_STOPPED` and does not include hits. Stop during the listing (the main-thread read of open documents and folder, or the folder scan) also returns `USER_STOPPED`. Stop is also checked on each Writer paragraph during text extraction and inside `search_paragraph_texts`. `get_paragraph_ranges` still runs to completion. An invalid regex returns one `Invalid regex:` error before any file is listed or opened. Returns snippet previews and closes hidden opens; grep does not call `processEventsToIdle` between files because the worker must not call that helper, and the chat drain pumps. One main-thread hop opens, searches, and closes each file; a marshal TimeoutError/RuntimeError for one file is recorded in errors and the scan continues. Snippet text and Writer context paragraphs are capped at 200 characters with a trailing "…" (same budget as Search hit text). Prefer grep before `research_delegate_read` when locating which file contains a keyword (hint in [`specialized_base.py`](../../plugin/doc/specialized_base.py)). `research_list_nearby_files`, grep and `research_search_nearby_files` read that state through `resolve_listing_state`.
 *   **Tests:** [`tests/doc/test_document_research_grep.py`](../../tests/doc/test_document_research_grep.py), [`tests/doc/test_document_research_grep_uno.py`](../../tests/doc/test_document_research_grep_uno.py).
 
 #### 7.2 Metadata Caching ("Librarian's Index")
 *   **Concept:** "Remember" the structure of nearby files so the agent can answer "Which document has the Q3 numbers?" instantly.
-*   **Implementation:** Expand the Phase 6 polish concept. Create `plugin/doc/nearby_cache.py` (using SQLite or JSON). When `open_document_for_read` is used, extract and cache the `get_tree` (Writer) or `get_sheet_summary` (Calc) keyed by `(path, st_mtime)`. Modify `list_nearby_files` to optionally return this cached structural summary in the `FileEntry` so the outer agent sees what's inside files without opening them.
+*   **Implementation:** Expand the Phase 6 polish concept. Create `plugin/doc/nearby_cache.py` (using SQLite or JSON). When `open_document_for_read` is used, extract and cache the `get_tree` (Writer) or `get_sheet_summary` (Calc) keyed by `(path, st_mtime)`. Modify `research_list_nearby_files` to optionally return this cached structural summary in the `FileEntry` so the outer agent sees what's inside files without opening them.
 
 #### 7.3 Automatic Citations & Provenance
 *   **Concept:** When facts are pulled from sibling files, automatically cite the source.
@@ -520,7 +520,7 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 1. **Active Calc, read sibling Calc:** main delegates → outer lists/opens budget → inner `read_range` → outer returns figures → main `write_range` on active sheet.
 2. **Active Calc, read sibling Writer:** inner `get_content` on brief → main `insert_html` / `write_range`.
 3. **Active Writer, read sibling Calc:** inner `get_sheet_summary` + `read_range` → main `apply_content`.
-4. **Multiple budgets:** outer `list_nearby_files(filter="budget")`, disambiguate, optionally run inner twice before returning to main.
+4. **Multiple budgets:** outer `research_list_nearby_files(filter="budget")`, disambiguate, optionally run inner twice before returning to main.
 5. **Formula semantics:** main respects Calc `;` separator rules ([`CALC_FORMULA_SYNTAX`](../../plugin/framework/constants.py)) when writing active sheet only.
 
 ---
@@ -540,9 +540,9 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 | Area | Path |
 | ---- | ---- |
 | Catalog + hidden open | [`plugin/doc/document_research.py`](../../plugin/doc/document_research.py) |
-| Outer tools | [`plugin/doc/document_research_tools.py`](../../plugin/doc/document_research_tools.py) — `list_nearby_files`, `grep_nearby_files` |
+| Outer tools | [`plugin/doc/document_research_tools.py`](../../plugin/doc/document_research_tools.py) — `research_list_nearby_files`, `research_grep_nearby_files` |
 | Grep library | [`plugin/doc/document_research_grep.py`](../../plugin/doc/document_research_grep.py) |
-| Inner + `delegate_read_document` | [`plugin/doc/document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) |
+| Inner + `research_delegate_read` | [`plugin/doc/document_research_specialized.py`](../../plugin/doc/document_research_specialized.py) |
 | Module `auto_discover` | [`plugin/doc/common_module.py`](../../plugin/doc/common_module.py) |
 | Domain enum markers | [`plugin/writer/specialized_base.py`](../../plugin/writer/specialized_base.py) (`ToolWriterDocumentResearchBase`), [`plugin/calc/base.py`](../../plugin/calc/base.py), [`plugin/draw/base.py`](../../plugin/draw/base.py) |
 | Delegate gateway + document_research guard | [`plugin/doc/specialized_base.py`](../../plugin/doc/specialized_base.py) |
@@ -586,7 +586,7 @@ Per [AGENTS.md](../../AGENTS.md): matching `test_*.py` names; run `make test` be
 - [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) — nested delegation, gateway pattern
 - [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md) — main-thread UNO, queue drain
 - [../calc/specialized-toolsets.md](../calc/specialized-toolsets.md) — Calc tool surface
-- [peer-messaging.md](peer-messaging.md) — Writer ↔ Calc ↔ Draw async `send_peer_work` / `send_peer_result` (A1 user-send + `ctx.doc` envelope; research stays read-only)
+- [peer-messaging.md](peer-messaging.md) — Writer ↔ Calc ↔ Draw async `peer_send_work` / `peer_send_result` (A1 user-send + `ctx.doc` envelope; research stays read-only)
 - [../mcp-protocol.md](../mcp-protocol.md) — `X-Document-URL`, MCP tool policy
 - [../chat/search.md](../chat/search.md) — external fetch (contrast with nearby files)
 
@@ -596,9 +596,9 @@ Per [AGENTS.md](../../AGENTS.md): matching `test_*.py` names; run `make test` be
 
 | Date | Phase / change | PR / notes |
 | ---- | -------------- | ---------- |
-| 2026-09-08 | Peer-send A1 shipped: Writer ↔ Calc ↔ Draw via async `send_peer_work` / `send_peer_result`; research stays read-only — [peer-messaging.md](peer-messaging.md) | — |
-| 2026-05-20 | **Phase 7.1 shipped:** `grep_nearby_files` + `document_research_grep.py`; shared Writer/Calc search helpers; CPU caps + `processEventsToIdle` between files | — |
-| 2026-05-19 | **Chat status (open-only):** tool + preview blocks for `delegate_read_document` via `chat_append_callback` — [`web_research_chat.py`](../../plugin/chatbot/web_research_chat.py), [`specialized_base.py`](../../plugin/doc/specialized_base.py), [`tool_loop.py`](../../plugin/chatbot/tool_loop.py) | — |
+| 2026-09-08 | Peer-send A1 shipped: Writer ↔ Calc ↔ Draw via async `peer_send_work` / `peer_send_result`; research stays read-only — [peer-messaging.md](peer-messaging.md) | — |
+| 2026-05-20 | **Phase 7.1 shipped:** `research_grep_nearby_files` + `document_research_grep.py`; shared Writer/Calc search helpers; CPU caps + `processEventsToIdle` between files | — |
+| 2026-05-19 | **Chat status (open-only):** tool + preview blocks for `research_delegate_read` via `chat_append_callback` — [`web_research_chat.py`](../../plugin/chatbot/web_research_chat.py), [`specialized_base.py`](../../plugin/doc/specialized_base.py), [`tool_loop.py`](../../plugin/chatbot/tool_loop.py) | — |
 | 2026-05-17 | **Phase 0 shipped:** `nearby.py`, `nearby_tools.py`, `nearby_specialized.py`; `document_research` on Writer/Calc/Draw delegates; two-tier smol (outer list/delegate_read, inner `READ_TOOLS_BY_DOC_TYPE`); `ToolContext.read_only_target` + `READ_ONLY_TARGET`; untitled → Work path then open-docs fallback; tests in `tests/doc/test_nearby*.py` | — |
 | *(prior)* | Plan refresh: Phase 0 = full two-tier delegation; phases renumbered 0–6; data contracts, threading, edge cases | — |
 

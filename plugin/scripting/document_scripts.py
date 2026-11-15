@@ -6,7 +6,7 @@
 
 Venv code can import library defs via ``wa.scripts.<Name>`` (My Scripts) and
 ``wa.doc.<Name>`` (This Document). See ``plugin.scripting.named_scripts``.
-``run_venv_python_script`` stays blocked (would re-enter the warm worker).
+``python_run_script`` stays blocked (would re-enter the warm worker).
 """
 
 # =========================================================================================

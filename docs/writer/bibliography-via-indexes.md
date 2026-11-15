@@ -2,7 +2,7 @@
 
 **Status:** v1 implemented (indexes overload). Design locked with Keith (2026-09).  
 **Audience:** Implementers of Writer specialized tools.  
-**Gateway:** `delegate_to_specialized_writer_toolset` with `domain=indexes` only. Do **not** productize `domain=bibliography`.
+**Gateway:** `writer_delegate_specialized` with `domain=indexes` only. Do **not** productize `domain=bibliography`.
 
 This page records **decisions**, **in-repo ground**, a **v1 UNO sketch**, a **v2 Zotero research** note (first-party local API / BBT-style, not Zotero’s LibreOffice plugin), and **open questions**. Cite insertion stays one native Writer object for both versions.
 

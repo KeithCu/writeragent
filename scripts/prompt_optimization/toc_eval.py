@@ -51,11 +51,11 @@ def links_in_answer(text: str) -> list[str]:
 
 
 def finish_answer_from_trace(trace: list[dict[str, Any]] | None) -> str:
-    """Extract answer from the last specialized_workflow_finished call in trace."""
+    """Extract answer from the last workflow_finished call in trace."""
     if not trace:
         return ""
     for entry in reversed(trace):
-        if entry.get("name") == "specialized_workflow_finished":
+        if entry.get("name") == "workflow_finished":
             args = as_dict(entry.get("arguments"))
             return str(args.get("answer") or "")
     return ""
@@ -96,7 +96,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
         name = entry.get("name") or ""
         args = as_dict(entry.get("arguments"))
 
-        if name.startswith("delegate_to_specialized_"):
+        if name.endswith("_delegate_specialized"):
             domain = str(args.get("domain") or "")
             if "indexes" in domain:
                 has_delegate = True
@@ -106,7 +106,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
                 include_links_requested = True
 
     if not has_delegate:
-        failures.append("No delegate_to_specialized_* call with domain 'indexes'")
+        failures.append("No *_delegate_specialized call with domain 'indexes'")
     if not has_list_tool:
         failures.append("No index_list_toc_entries call in trace")
 
