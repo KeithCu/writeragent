@@ -28,6 +28,16 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
 
 
+def _format_draw_delegate_description(domains: list[str]) -> str:
+    """Build the Draw/Impress delegate tool description listing the exact bound domains."""
+    domain_list = ", ".join(domains)
+    return (
+        f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
+        f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
+        f"Available domains: {domain_list}."
+    )
+
+
 class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     """Gateway tool to delegate tasks to specialized Draw toolsets.
 
@@ -36,8 +46,17 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     """
 
     name: str | None = "delegate_to_specialized_draw_toolset"
-    description: str = f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: shapes, tables, images, charts, forms, math, python, page comments, vision (return-only OCR), and (Impress only) slide layouts, slide transitions, slide masters, speaker notes, headers/footers."
+    description: str = (
+        f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
+        f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
+        "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
+        "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
+    )
 
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     _special_base_class: ClassVar[Type[ToolBase]] = ToolDrawSpecialBase  # type: ignore[type-abstract]
     _agent_label: ClassVar[str] = "Draw"
+
+    def description_for_services(self, uno_services: frozenset[str]) -> str:
+        """Return the delegate description listing only the domains bound for *uno_services*."""
+        return _format_draw_delegate_description(self.domains_for_services(uno_services))

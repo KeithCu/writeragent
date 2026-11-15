@@ -829,10 +829,10 @@ class _CoreProxy:
         return call_host_tool("get_guidance", topic=topic)
 
     def get_image(self, *, image: str | None = None, selection: bool | None = None, page: int | None = None, sheet_index: int | None = None) -> dict[str, Any]:
-        """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from image_list / get_page_objects> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look. Pass at most one of image, selection, or page.
+        """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from get_draw_tree on Draw/Impress, or get_document_content / get_sheet_summary / image_list on Writer/Calc> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look. Pass at most one of image, selection, or page.
 
         Args:
-            image (optional): Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page.
+            image (optional): Name of the embedded graphic to fetch (from get_draw_tree on Draw/Impress, or document reads / image_list). Pass at most one of image, selection, or page.
             selection (optional): If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page.
             page (optional): 0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page.
             sheet_index (optional): Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names).
