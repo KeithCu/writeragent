@@ -243,31 +243,38 @@ production-compatible version of a demo is 2–3 lines in
   - **L3 (`plugin/calc/cells.py` `SortRange.description`):** `"Multi-key sorts are multiple calls (two stable one-column passes). "` changed to `"Multi-key sorts are one call per key: tie-breaker first, main key last (a stable pass keeps the earlier order only among equal values). "`
 - **Y (`X + L2`):**
   - **L2 (`plugin/framework/prompts.py` `build_specialized_sub_agent_instructions`):** `"If this domain cannot do the task, say so in the answer instead of claiming it was done. "` changed to `"Do every part of the task these tools can do; for any part they cannot do, say so in the answer instead of claiming it was done. "`
+- **L2 (`base + L2` only, 8 runs):** isolates `L2` without `L1` or `L3`.
 
 ### Results (hard passes / valid trials)
 
-| Task | Model | base (8) | base_old (3) | base pooled | X (8) | Y (8) |
-|---|---|---:|---:|---:|---:|---:|
-| `logical_rewriting` | 120b | 7/8 | 2/3 | 9/11 | 4/8 | 7/8 |
-| `logical_rewriting` | 20b | 8/8 | 2/3 | 10/11 | 6/8 | 6/8 |
-| `table_engineering` | 120b | 8/8 | 3/3 | 11/11 | 8/8 | 8/8 |
-| `table_engineering` | 20b | 8/8 | 2/3 | 10/11 | 8/8 | 8/8 |
-| `reformat_resume` | 120b | 8/8 | 3/3 | 11/11 | 8/8 | 8/8 |
-| `reformat_resume` | 20b | 8/8 | 3/3 | 11/11 | 7/7 (1 inv) | 8/8 |
-| `data_sorting` | 120b | 4/8 | 1/2 (1 har) | 5/10 | 4/8 | 6/8 |
-| `data_sorting` | 20b | 5/5 (3 inv) | 1/2 (1 inv) | 6/7 | 2/5 (3 inv) | 5/6 (2 inv) |
+| Task | Model | base (8) | base_old (3) | base pooled | X (8) | Y (8) | L2 (8) |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `logical_rewriting` | 120b | 7/8 | 2/3 | 9/11 | 4/8 | 7/8 | 7/8 |
+| `logical_rewriting` | 20b | 8/8 | 2/3 | 10/11 | 6/8 | 6/8 | 6/8 |
+| `table_engineering` | 120b | 8/8 | 3/3 | 11/11 | 8/8 | 8/8 | 8/8 |
+| `table_engineering` | 20b | 8/8 | 2/3 | 10/11 | 8/8 | 8/8 | 8/8 |
+| `reformat_resume` | 120b | 8/8 | 3/3 | 11/11 | 8/8 | 8/8 | 8/8 |
+| `reformat_resume` | 20b | 8/8 | 3/3 | 11/11 | 7/7 (1 inv) | 8/8 | 8/8 |
+| `data_sorting` | 120b | 4/8 | 1/2 (1 har) | 5/10 | 4/8 | 6/8 | 6/7 (1 har) |
+| `data_sorting` | 20b | 5/5 (3 inv) | 1/2 (1 inv) | 6/7 | 2/5 (3 inv) | 5/6 (2 inv) | 0/5 (3 inv) |
 
 - Exclusions: `inv` = upstream Groq provider/parsing error (`invalid`); `har` = failed `data_sorting` with sheet-qualified `range_sort` (`harness`).
-- `data_sorting` `last_sort_is_revenue_desc`: `base` 5/13 (4/8 120b, 1/5 20b), `base_old` 1/4 (1/2 120b, 0/2 20b), pooled `base` 6/17 (35.3%), `X` 4/13 (30.8%: 4/8 120b, 0/5 20b), `Y` 7/14 (50.0%: 5/8 120b, 2/6 20b).
-- No Writer row in `X` or `Y` delegated to a specialized sub-agent.
+- `data_sorting` `last_sort_is_revenue_desc`: `base` 5/13 (4/8 120b, 1/5 20b), `base_old` 1/4 (1/2 120b, 0/2 20b), pooled `base` 6/17 (35.3%), `X` 4/13 (30.8%: 4/8 120b, 0/5 20b), `Y` 7/14 (50.0%: 5/8 120b, 2/6 20b), `L2` 6/12 (50.0%: 6/7 120b, 0/5 20b).
+- No Writer row in `X`, `Y`, or `L2` delegated to a specialized sub-agent.
 
 ### Decisions
 
-- **Drop L1:** `logical_rewriting + table_engineering` in `X` was 26/32 (81.3%) vs pooled `base` 40/44 (90.9%), and `logical_rewriting` alone dropped to 10/16 (62.5%) vs 19/22 (86.4%). (`reformat_resume` served as the guard against over-applying `apply_document_content` and stayed at 15/15 in `X` and 16/16 in `Y`.)
+- **Drop L1:** `logical_rewriting + table_engineering` in `X` was 26/32 (81.3%) vs pooled `base` 40/44 (90.9%), and `logical_rewriting` alone dropped to 10/16 (62.5%) vs 19/22 (86.4%). Because no Writer row in `Y` delegated, `X+Y` pools to 55/64 (85.9%) vs `base` 40/44 (90.9%), and `logical_rewriting` alone is 23/32 (71.9%) vs 19/22 (86.4%). (`reformat_resume` served as the guard against over-applying `apply_document_content` and stayed at 15/15 in `X` and 16/16 in `Y`.)
 - **Drop L3:** `data_sorting` in `X` fell to 6/13 (46.2%) vs pooled `base` 11/17 (64.7%), and `last_sort_is_revenue_desc` fell from 6/17 (35.3%) to 4/13 (30.8%).
-- **Keep L2:** `data_sorting` in `Y` rose to 11/14 (78.6%), which is +32.4 pp over `X` (6/13, 46.2%) and clears the +15 pp keep rule (and also exceeds pooled `base` 64.7%).
+- **Drop L2:** in the `L2`-only arm (`base + L2`), `data_sorting` was 6/12 (50.0%: 6/7 120b, 0/5 20b), which is −14.7 pp below pooled `base` (11/17, 64.7%) and well under the +15 pp keep bar. Most of `Y`'s +32.4 pp gap over `X` (11/14 = 78.6% vs 6/13 = 46.2%) was making up for `L3`'s damage rather than `L2`'s own lift, so `plugin/framework/prompts.py` is reverted to `base`.
 
 ### Harness confounders on `data_sorting`
 
 - **Sheet-qualified ranges:** `eval_worlds.py` `parse_a1_range('Sheet1!A1:B6')` misparses the sheet prefix and returns `"no rows moved"`, whereas production `range_sort` handles sheet-qualified ranges.
 - **Mixed-value descending order:** `eval_worlds.py` `range_sort` puts text after numbers in both directions, whereas LibreOffice (`sc/source/core/data/table3.cxx` `ScTable::CompareCell`) sorts number-before-string and negates on descending, so text sorts first when descending (empty cells stay last). Harness `data_sorting` passes therefore overstate production for `"Revenue descending, non-numeric last"`.
+
+### Follow-ups
+
+- Decide on multi-key `range_sort` and "non-numeric last" behavior in LibreOffice (`L3` hurt `data_sorting` and `range_sort` descending puts text first in Calc).
+- Revisit `CHAT_RESPONSE_FORMAT` ordering rather than strengthening `SIDEBAR_VS_DOCUMENT` (`L1` hurt `logical_rewriting`).
+- Fix `eval_worlds.py` `parse_a1_range` sheet-prefix handling and align `range_sort` text/number ordering with LibreOffice.
