@@ -31,6 +31,8 @@ Other important prompts (not assembled here):
 
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.constants import DRAW_SUBAGENT_TOOL
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -386,7 +388,7 @@ Follow CHAT RESPONSE FORMAT for that short reply."""
 # the research `task` hint are in DelegateToSpecializedWriter.description.
 WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT}:
 - You MUST NOT ask the user where to find it, or to upload or paste its contents.
-- You MUST call delegate_to_writer_subagent(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required)."""
+- You MUST call delegate_to_writer_subagent(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required)."""
 
 
 TRANSLATION_RULES = """TRANSLATION: get_content(scope=full) -> translate -> apply_content(target='full_document', content=translated).
@@ -610,11 +612,11 @@ set_style: fixed properties only — not mixed rich text in a cell; use insert_h
 # Route flowcharts/process diagrams through the shapes sub-agent and verify via its return payload.
 DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
-- You MUST call delegate_to_draw_subagent(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
+- You MUST call delegate_to_draw_subagent(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_draw_subagent(domain="web_research").
 
-{delegation_math_to_python_hint(delegate_tool="delegate_to_draw_subagent")}
-{python_orchestrator_routing_line(delegate_tool="delegate_to_draw_subagent")}
+{delegation_math_to_python_hint(delegate_tool=DRAW_SUBAGENT_TOOL)}
+{python_orchestrator_routing_line(delegate_tool=DRAW_SUBAGENT_TOOL)}
 For flowcharts and process diagrams, call delegate_to_draw_subagent(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
 
 

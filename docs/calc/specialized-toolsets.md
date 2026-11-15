@@ -19,7 +19,7 @@ LibreOffice Calc supports a large surface area through UNO: cells, ranges, formu
 
 For implementation details, see the [Writer documentation](../writer/specialized-toolsets.md#3-implementation-reference).
 
-Main chat sees one sub-agent tool per app (`delegate_to_calc_subagent` for Calc). A sub-agent with the chosen domain's tools works from a plain-language `task` and returns a summary; `vision` instead runs OCR on the selected image and inserts the recognized text below it (inserts in Writer/Calc, returns text in Draw/Impress). The Python class names (`DelegateToSpecialized*`) keep the internal `"specialized"` tier term.
+Main chat sees one sub-agent tool per app (`delegate_to_calc_subagent` for Calc). A sub-agent with the chosen domain's tools works from a plain-language `task` and returns a summary; `vision` instead runs OCR on the selected image and inserts the recognized text below it. The Python class names (`DelegateToSpecialized*`) keep the internal `"specialized"` tier term.
 
 ---
 

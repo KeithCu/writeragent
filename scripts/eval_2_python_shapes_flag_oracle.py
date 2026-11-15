@@ -633,6 +633,7 @@ def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool
     return _upsert_after_dtd(log_text, dtd_pos)
 
 
+# This oracle does not import plugin, so it mirrors plugin/framework/constants.SUBAGENT_TOOL_NAMES.
 _SUBAGENT_TOOLS = frozenset(
     {"delegate_to_writer_subagent", "delegate_to_calc_subagent", "delegate_to_draw_subagent"}
 )

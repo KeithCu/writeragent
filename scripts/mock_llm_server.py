@@ -42,6 +42,12 @@ from typing import Any, Iterator
 from urllib.parse import urlparse
 
 from plugin.framework.client.shim_helpers import SNAPSHOT_HEADER, extract_snapshot_from_messages
+from plugin.framework.constants import (
+    CALC_SUBAGENT_TOOL,
+    DRAW_SUBAGENT_TOOL,
+    SUBAGENT_TOOL_NAMES,
+    WRITER_SUBAGENT_TOOL,
+)
 
 DEFAULT_HOST = "127.0.0.1"
 # Not 8765 (historical MCP) or 18765 (current MCP).
@@ -218,9 +224,9 @@ SCENARIO_IDS = frozenset(
 )
 FAIL_MODES = ("none", "http500", "http429", "hang")
 
-_DELEGATE_WRITER = "delegate_to_writer_subagent"
-_DELEGATE_CALC = "delegate_to_calc_subagent"
-_DELEGATE_DRAW = "delegate_to_draw_subagent"
+_DELEGATE_WRITER = WRITER_SUBAGENT_TOOL
+_DELEGATE_CALC = CALC_SUBAGENT_TOOL
+_DELEGATE_DRAW = DRAW_SUBAGENT_TOOL
 # Packet E24: the venv-worker tool and a script slow enough to kill mid-run.
 PYTHON_TOOL = "run_venv_python_script"
 PYTHON_SLOW_CODE = "import time\ntime.sleep(20)\nresult = 'slept'"
@@ -992,7 +998,7 @@ def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
     safe_user = html.escape((user_text or "that request").strip()[:80] or "that request")
     if tool_name == "apply_content":
         return f"<p>Inserted content into the document.</p><p>{snippet or '(empty)'}</p>"
-    if tool_name in (_DELEGATE_WRITER, _DELEGATE_CALC, _DELEGATE_DRAW):
+    if tool_name in SUBAGENT_TOOL_NAMES:
         return (
             f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
             f"<p>{snippet or '(empty)'}</p>"

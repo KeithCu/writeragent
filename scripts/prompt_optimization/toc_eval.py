@@ -28,6 +28,11 @@ TOC_LIST_TASK_ID = "toc_list_entries"
 TOC_EDIT_TASK_ID = "toc_renumber_insert"
 TOC_TASK_IDS = frozenset({TOC_LIST_TASK_ID, TOC_EDIT_TASK_ID})
 
+# This oracle does not import plugin, so it mirrors plugin/framework/constants.SUBAGENT_TOOL_NAMES.
+_SUBAGENT_TOOLS = frozenset(
+    {"delegate_to_writer_subagent", "delegate_to_calc_subagent", "delegate_to_draw_subagent"}
+)
+
 _STRING_FAILURE = (
     "TOC benchmark tasks require the headless LO backend; "
     "the string simulator cannot run these tasks"
@@ -92,14 +97,11 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
     has_list_tool = False
     include_links_requested = False
 
-    _subagent_tools = frozenset(
-        {"delegate_to_writer_subagent", "delegate_to_calc_subagent", "delegate_to_draw_subagent"}
-    )
     for entry in trace or ():
         name = entry.get("name") or ""
         args = as_dict(entry.get("arguments"))
 
-        if name in _subagent_tools:
+        if name in _SUBAGENT_TOOLS:
             domain = str(args.get("domain") or "")
             if "indexes" in domain:
                 has_delegate = True
