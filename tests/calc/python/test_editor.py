@@ -12,8 +12,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.calc.python import editor as ed
-from plugin.calc.python.editor import confirm_unsaved_cell_edit, format_cell_a1
+from plugin.calc.python.editor import apply_cell_save, confirm_unsaved_cell_edit, format_cell_a1
 from plugin.calc.python.formula_edit import PyFormula
+from tests.doc_stubs import CalcDocStub
 
 
 def test_confirm_unsaved_cell_edit_maps_yes_no_cancel():
@@ -278,3 +279,112 @@ def test_open_missing_code_cell_shows_error():
     launch.assert_not_called()
     boxed.assert_called_once()
     assert "Missing.A1" in boxed.call_args.args[2]
+
+
+def _setup_follow_doc(formula: str = "=PY($A$1)", code: str = "result = 42"):
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    formula_cell = sheet.getCellByPosition(1, 0)
+    code_cell.setString(code)
+    formula_cell.setFormula(formula)
+    parts = PyFormula.parse(formula)
+    assert parts is not None
+    return doc, code_cell, formula_cell, parts
+
+
+@pytest.mark.parametrize("save_as_plain", [True, False])
+def test_follow_save_lifts_xl_into_formula_cell_args(save_as_plain):
+    doc, code_cell, formula_cell, parts = _setup_follow_doc("=PY($A$1)")
+    with patch("plugin.calc.python.editor.get_config", return_value=True):
+        result = apply_cell_save(
+            doc,
+            formula_cell,
+            parsed_parts=parts,
+            new_code='result = xl("C1")',
+            save_as_plain=save_as_plain,
+            data_binding_text="",
+            code_cell=code_cell,
+            code_ref=parts.code,
+        )
+    assert result["ok"] is True
+    assert code_cell.getString() == "result = data"
+    after = formula_cell.getFormula()
+    reparsed = PyFormula.parse(after)
+    assert reparsed is not None
+    assert reparsed.code == "$A$1"
+    assert reparsed.data_args() == ["C1"]
+    assert after.count(")") == 1
+
+
+def test_follow_save_appends_xl_after_existing_data_args():
+    doc, code_cell, formula_cell, parts = _setup_follow_doc("=PY($A$1; A1:A5)")
+    with patch("plugin.calc.python.editor.get_config", return_value=True):
+        result = apply_cell_save(
+            doc,
+            formula_cell,
+            parsed_parts=parts,
+            new_code='y = data\nz = xl("C1")',
+            save_as_plain=True,
+            data_binding_text="A1:A5",
+            code_cell=code_cell,
+            code_ref=parts.code,
+        )
+    assert result["ok"] is True
+    assert code_cell.getString() == "y = data[0]\nz = data[1]"
+    reparsed = PyFormula.parse(formula_cell.getFormula())
+    assert reparsed is not None
+    assert reparsed.data_args() == ["A1:A5", "C1"]
+
+
+def test_follow_save_bad_xl_errors_and_writes_nothing():
+    doc, code_cell, formula_cell, parts = _setup_follow_doc("=PY($A$1)", code="result = 42")
+    with patch("plugin.calc.python.editor.get_config", return_value=True):
+        result = apply_cell_save(
+            doc,
+            formula_cell,
+            parsed_parts=parts,
+            new_code="x = xl(name)",
+            save_as_plain=True,
+            data_binding_text="",
+            code_cell=code_cell,
+            code_ref=parts.code,
+        )
+    assert result["type"] == "error"
+    assert code_cell.getString() == "result = 42"
+    assert formula_cell.getFormula() == "=PY($A$1)"
+    assert doc._calculate_all_calls == 0
+
+
+def test_follow_save_flag_off_keeps_code_as_typed():
+    doc, code_cell, formula_cell, parts = _setup_follow_doc("=PY($A$1)")
+    with patch("plugin.calc.python.editor.get_config", return_value=False):
+        result = apply_cell_save(
+            doc,
+            formula_cell,
+            parsed_parts=parts,
+            new_code='result = xl("C1")',
+            save_as_plain=True,
+            data_binding_text="",
+            code_cell=code_cell,
+            code_ref=parts.code,
+        )
+    assert result["ok"] is True
+    assert code_cell.getString() == 'result = xl("C1")'
+    assert formula_cell.getFormula() == "=PY($A$1)"
+
+
+def test_plain_save_keeps_xl_text_when_flag_on():
+    doc = CalcDocStub()
+    cell = doc.getSheets().getByIndex(0).getCellByPosition(0, 0)
+    with patch("plugin.calc.python.editor.get_config", return_value=True):
+        result = apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=None,
+            new_code='x = xl("C1")',
+            save_as_plain=True,
+            data_binding_text="",
+        )
+    assert result["ok"] is True
+    assert cell.getString() == 'x = xl("C1")'
