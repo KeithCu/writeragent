@@ -282,6 +282,7 @@ def test_rich_widget_gets_sheet_names_only_for_calc() -> None:
     from plugin.chatbot.panel_wiring import setup_rich_control_ready
 
     calc_doc = MagicMock()
+    calc_doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.sheet.SpreadsheetDocument"
     calc_doc.getSheets.return_value.getElementNames.return_value = ("Sheet1", "My Sheet")
 
     panel = MagicMock()

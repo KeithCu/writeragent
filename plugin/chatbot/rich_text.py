@@ -160,6 +160,14 @@ _AUTOLINK_SKIP_TAGS = frozenset({"a", "code", "pre", "script", "style"})
 _AUTOLINK_TAG_RE = re.compile(r"""<!--.*?-->|<(/?)([A-Za-z][\w:-]*)(?:[^>"']|"[^"]*"|'[^']*')*>""", re.DOTALL)
 _A1_PART = r"\$?[A-Z]{1,3}\$?[0-9]{1,7}"
 _SHEET_PART = r"\$?'(?:[^'\n]|'')+'|\$?[^\W\d]\w*"
+# Lookbehind excludes: & and ; (HTML entities like R&amp;D.A1), / and @ (URLs
+# and emails), : and - (chained ranges like A1:B2:C3 and identifiers), and
+# word/dot/quote/bang/$/# characters attached to a prefix.
+# Lookahead excludes: ( (function calls like LOG10(A1)), [.:!]\w (dotted
+# versions and chained ranges like Sheet1.A1.foo or A1:B2:C3), and trailing
+# word/$ characters.
+# Standalone abs requires a leading $ so mixed A$1 does not match currency
+# like US$100 or A$50.
 _PLAIN_CELL_REF_RE = re.compile(
     rf"""(?<![\w.$'!/\\@#&;:-])
     (?:(?P<sheet>{_SHEET_PART})[.!](?P<qcell>{_A1_PART})(?::(?:(?:{_SHEET_PART})[.!])?(?P<qend>{_A1_PART}))?
@@ -199,6 +207,9 @@ def link_plain_cell_refs(html: str, sheet_names: Collection[str]) -> str:
             first = match.group("abs")
             end = None
         target = normalize_cell_address(f"{sheet}.{first}" if sheet is not None else first)
+        # Skip quote-bearing targets: _CELL_LINK_HTML_RE (rich_text.py),
+        # _CELL_LINK_ANCHOR_RE (rich_text_paste.py), and _CELL_HREF_RE (navigation.py)
+        # all stop at ' or ".
         if not target or "'" in target or '"' in target:
             return match.group(0)
         if end is not None and normalize_cell_address(end) is None:

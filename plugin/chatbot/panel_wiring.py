@@ -105,7 +105,7 @@ def setup_rich_control_ready(
         if sl is None:
             return None
         doc = sl._get_document_model()
-        if doc is not None and hasattr(doc, "getSheets"):
+        if doc is not None and is_calc(doc):
             return doc
         return None
 

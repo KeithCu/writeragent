@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.testing_runner import native_test
+from plugin.tests.testing_utils import with_native_doc
 
 
 def _hidden_writer(ctx: Any) -> Any:
@@ -197,48 +198,44 @@ def test_list_and_quote_paragraph_properties(ctx):
 
 
 @native_test
-def test_autolinked_quoted_sheet_ref_navigates_uno(ctx):
+@with_native_doc("calc")
+def test_autolinked_quoted_sheet_ref_navigates_uno(ctx, doc):
     """Auto-linked quoted sheet refs survive Writer HTML import and navigate in Calc."""
     from plugin.calc.navigation import navigate_to_cell, normalize_cell_address
     from plugin.chatbot.rich_text import _append_rich_text_with_span, link_plain_cell_refs
     from plugin.chatbot.rich_text_paste import portion_cell_href
     from plugin.framework.uno_context import enum_has_more
-    from plugin.tests.testing_utils import with_native_doc
 
-    @with_native_doc("calc")
-    def _run(ctx, doc):
-        sheets = doc.getSheets()
-        if not sheets.hasByName("My Sheet"):
-            sheets.insertNewByName("My Sheet", sheets.getCount())
-        content = link_plain_cell_refs("<p>Total in 'My Sheet'.C3</p>", sheets.getElementNames())
-        hidden = _hidden_writer(ctx)
-        addr = None
-        try:
-            ok, _previous, _added = _append_rich_text_with_span(hidden, content, role="assistant")
-            assert ok
-            paras = hidden.getText().createEnumeration()
-            while enum_has_more(paras):
-                para = paras.nextElement()
-                if not hasattr(para, "createEnumeration"):
-                    continue
-                portions = para.createEnumeration()
-                while enum_has_more(portions):
-                    portion = portions.nextElement()
-                    if portion.getString() == "'My Sheet'.C3":
-                        href = portion_cell_href(portion)
-                        assert href is not None
-                        addr = normalize_cell_address(href)
-                        break
-                if addr is not None:
+    sheets = doc.getSheets()
+    if not sheets.hasByName("My Sheet"):
+        sheets.insertNewByName("My Sheet", sheets.getCount())
+    content = link_plain_cell_refs("<p>Total in 'My Sheet'.C3</p>", sheets.getElementNames())
+    hidden = _hidden_writer(ctx)
+    addr = None
+    try:
+        ok, _previous, _added = _append_rich_text_with_span(hidden, content, role="assistant")
+        assert ok
+        paras = hidden.getText().createEnumeration()
+        while enum_has_more(paras):
+            para = paras.nextElement()
+            if not hasattr(para, "createEnumeration"):
+                continue
+            portions = para.createEnumeration()
+            while enum_has_more(portions):
+                portion = portions.nextElement()
+                if portion.getString() == "'My Sheet'.C3":
+                    href = portion_cell_href(portion)
+                    assert href is not None
+                    addr = normalize_cell_address(href)
                     break
-        finally:
-            hidden.close(True)
+            if addr is not None:
+                break
+    finally:
+        hidden.close(True)
 
-        assert addr == "My Sheet.C3"
-        assert navigate_to_cell(doc, addr) is True
-        ctrl = doc.getCurrentController()
-        assert ctrl.getActiveSheet().getName() == "My Sheet"
-        cell_addr = ctrl.getSelection().getCellAddress()
-        assert (cell_addr.Column, cell_addr.Row) == (2, 2)
-
-    _run(ctx)
+    assert addr == "My Sheet.C3"
+    assert navigate_to_cell(doc, addr) is True
+    ctrl = doc.getCurrentController()
+    assert ctrl.getActiveSheet().getName() == "My Sheet"
+    cell_addr = ctrl.getSelection().getCellAddress()
+    assert (cell_addr.Column, cell_addr.Row) == (2, 2)
