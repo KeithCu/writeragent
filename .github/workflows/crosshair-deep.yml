@@ -24,10 +24,10 @@ on:
       runner_os:
         description: 'Runner Operating System'
         required: true
-        default: 'ubuntu-latest'
+        default: 'ubuntu-26.04'
         type: choice
         options:
-          - 'ubuntu-latest'
+          - 'ubuntu-26.04'
           - 'windows-latest'
           - 'macos-latest'
       jobs:
