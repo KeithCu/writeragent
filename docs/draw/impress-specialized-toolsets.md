@@ -539,7 +539,25 @@ This pattern could be extended to other domains.
 
 ----
 
-## 9. References
+## 9. Future ideas (from Opus prompt review, Nov 2026)
+
+These ideas came out of an Opus review of the Draw and Impress prompts and tools in November 2026. They are recorded here so they are not forgotten. They are not scheduled work. Some are harder, or would be useful later, but they were deferred for the reasons below.
+
+- **Exposing nested tool schemas (review row 3, schema half only).** The structured-result half of this row (status, created and changed shape names, page, counts, warnings) is being handled separately. The deferred half is: optionally let the outer agent see the nested tool schemas of a `shapes` delegation, so it can check arguments instead of writing a prose task and getting prose back. Deferred because exposing nested schemas redesigns delegation.
+
+- **OCR overlap (review row 9).** The prompt requires vision delegation for OCR even though `get_image` already lets the model see the image. The idea is to have `get_image` return OCR text alongside pixels, or to have `get_image` say: for text extraction call vision. Deferred because it overlaps vision/OCR design.
+
+- **Delegation payload rules (review row 10).** Mechanical rules tell the model not to paste document data into `task`, to name a location instead, to pass user text verbatim, and how to word img2img. The idea is to let `delegate` accept structured refs (`page`, `shape_name`, `range`) as fields instead of prose conventions. Deferred because this is an API shape change to delegation.
+
+- **Routing rules (review row 11).** `python` vs `shapes` for computed shapes, `document_research` for any other file, `web_research` for public topics, and never ask where a file is. Routing by keyword is brittle. Keep the user-facing part (never ask the user to upload) in the prompt; let a wrong domain return a redirect error. Deferred as a later routing-error design.
+
+- **Peer protocol (review row 12).** After a peer message, stop tool use; peer work must be delivered via `document_research` `send_peer_result`; a peer result must not be acked. A multi-state protocol is enforced only by model memory. The idea is to have the runtime deliver peer results automatically at turn end and block extra tool calls while waiting. Deferred because it changes the peer-delivery runtime.
+
+Review row 14 is keep-as-is, with no work: the undo stack is shared with the user; only undo the model's own last edit and say so. That is a behaviour rule, not an API change.
+
+----
+
+## 10. References
 
 - [LibreOffice API Reference — Draw](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1drawing_1_1XDrawPage.html)
 - [LibreOffice API Reference — Presentation](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1star_1_1presentation_1_1XPresentation.html)
