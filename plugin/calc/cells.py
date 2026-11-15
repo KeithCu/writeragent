@@ -562,24 +562,21 @@ class WriteCellRange(ToolBase):
         def _format_write(results: list[Any]) -> dict[str, Any]:
             # Merge per-range write reports so multi-range writes do not
             # drop error_cells, numeric-text, apostrophe, or warning details.
-            # Keep the first warning per code so N ranges do not repeat the same
-            # advice while error_cells / text lists carry all cells.
+            # Deduplicate exact-matching warnings so identical advice across
+            # ranges collapses while different advice or counts survive.
             merged: dict[str, list[Any]] = {}
-            seen_codes: set[str] = set()
             for res in results:
                 for key in WRITE_REPORT_KEYS:
                     if key not in res:
                         continue
                     items = res.pop(key)
+                    dest = merged.setdefault(key, [])
                     if key == "warnings":
                         for warn in items:
-                            code = warn.get("code") if isinstance(warn, dict) else None
-                            if code is None or code not in seen_codes:
-                                if code is not None:
-                                    seen_codes.add(code)
-                                merged.setdefault(key, []).append(warn)
+                            if warn not in dest:
+                                dest.append(warn)
                     else:
-                        merged.setdefault(key, []).extend(items)
+                        dest.extend(items)
             message = f"Wrote to {len(rn)} ranges"
             if any("array_range" in res for res in results):
                 ranges_payload = [{"range": r, **res} for r, res in zip(rn, results)]

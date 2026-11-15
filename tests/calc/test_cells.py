@@ -2120,3 +2120,30 @@ def test_write_cell_range_multi_range_merges_write_reports():
     assert len(res["error_cells"]) == 2
     assert len(res["warnings"]) == 1
     assert "ranges" not in res
+
+
+def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
+    ctx = SimpleNamespace(doc=MagicMock())
+    res1 = {
+        "message": "Range A1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.A1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s) show an error."}],
+    }
+    res2 = {
+        "message": "Range B1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.B1", "error": "#NAME?", "formula": "=SUM(1,2)"}],
+        "warnings": [
+            {
+                "code": "FORMULA_ERROR",
+                "message": "1 formula cell(s) show an error. Calc separates function arguments with ';', not ','.",
+            }
+        ],
+    }
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = [res1, res2]
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "B1"], values="=SUMM(1)")
+
+    assert res["status"] == "ok"
+    assert len(res["error_cells"]) == 2
+    assert len(res["warnings"]) == 2
+    assert "Calc separates function arguments with ';', not ','." in res["warnings"][1]["message"]
