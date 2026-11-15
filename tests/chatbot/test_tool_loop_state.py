@@ -10,10 +10,12 @@ from plugin.chatbot.tool_loop_actions import (
     is_replaced_zero_result,
 )
 from plugin.chatbot.tool_loop_state import (
+    EDIT_NUDGE_MESSAGE,
     AddMessageEffect,
     CleanupAudioEffect,
     EventKind,
     ExitLoopEffect,
+    MessageRole,
     SpawnFinalStreamEffect,
     SpawnLLMWorkerEffect,
     SpawnToolWorkerEffect,
@@ -875,3 +877,119 @@ def test_describe_empty_response_tool_calls_handles_all_shapes() -> None:
     assert _describe_empty_response_tool_calls("not-a-list") == "present"
     assert _describe_empty_response_tool_calls({"k": 1}) == "present"
     assert _describe_empty_response_tool_calls(["not-a-dict"]) == "1"
+
+
+def test_stream_done_edit_intent_zero_tools_nudges_once() -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text="Rewrite this paragraph to be professional and concise.",
+        has_apply_tool=True,
+    )
+    tr = next_state(
+        state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Rewritten paragraph.</p>", "tool_calls": None}),
+    )
+    assert tr.state.edit_nudge_sent is True
+    assert tr.state.round_num == 1
+    assert any(isinstance(e, SpawnLLMWorkerEffect) and e.round_num == 1 for e in tr.effects)
+    assert not any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    user_msgs = [e for e in tr.effects if isinstance(e, AddMessageEffect) and e.role == MessageRole.USER]
+    assert len(user_msgs) == 1
+    assert user_msgs[0].content == EDIT_NUDGE_MESSAGE
+
+    # A second zero-tool reply in the same turn must not nudge again.
+    tr2 = next_state(
+        tr.state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Still in chat.</p>", "tool_calls": None}),
+    )
+    assert tr2.state.status == "Ready"
+    assert any(isinstance(e, ExitLoopEffect) for e in tr2.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr2.effects)
+
+
+def test_stream_done_plain_question_does_not_nudge() -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text="What is this document about?",
+        has_apply_tool=True,
+    )
+    tr = next_state(
+        state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>It summarizes Q3 results.</p>", "tool_calls": None}),
+    )
+    assert tr.state.edit_nudge_sent is False
+    assert tr.state.status == "Ready"
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr.effects)
+
+
+def test_stream_done_after_mutating_tool_does_not_nudge() -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text="Rewrite this paragraph to be concise.",
+        has_apply_tool=True,
+    )
+    tr_tool = next_state(
+        state,
+        create_event(
+            EventKind.TOOL_RESULT,
+            call_id="c1",
+            func_name="apply_document_content",
+            result='{"status": "ok"}',
+            mutates_document=True,
+        ),
+    )
+    assert tr_tool.state.has_mutated is True
+    tr_done = next_state(
+        tr_tool.state,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Done.</p>", "tool_calls": None}),
+    )
+    assert tr_done.state.status == "Ready"
+    assert any(isinstance(e, ExitLoopEffect) for e in tr_done.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_done.effects)
+
+
+def test_stream_done_stopped_or_non_writer_does_not_nudge() -> None:
+    stopped = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Stopped",
+        is_stopped=True,
+        doc_type="writer",
+        query_text="Rewrite this paragraph.",
+        has_apply_tool=True,
+    )
+    tr_stopped = next_state(
+        stopped,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Rewritten</p>", "tool_calls": None}),
+    )
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_stopped.effects)
+
+    calc = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="calc",
+        query_text="Rewrite this cell.",
+        has_apply_tool=False,
+    )
+    tr_calc = next_state(
+        calc,
+        create_event(EventKind.STREAM_DONE, response={"content": "<p>Rewritten</p>", "tool_calls": None}),
+    )
+    assert tr_calc.state.status == "Ready"
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_calc.effects)

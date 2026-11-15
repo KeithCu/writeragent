@@ -229,3 +229,118 @@ def test_transcript_includes_inner_assistant_messages(tmp_path: Path, monkeypatc
     assert len(asst_msgs) == 2
     assert asst_msgs[0]["content"] == "Let me sort that."
     assert run["rounds"][0]["reasoning"] == "Inner reasoning step"
+
+
+def test_eval_nudge_fires_once_on_edit_intent_zero_tools(monkeypatch) -> None:
+    from plugin.chatbot.tool_loop_state import EDIT_NUDGE_MESSAGE
+
+    class _SeqClient:
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.seen_messages = []
+
+        def request_with_tools(self, messages, **_kwargs):
+            self.seen_messages.append([dict(m) for m in messages])
+            return self._responses.pop(0)
+
+    apply_schema = [{"type": "function", "function": {"name": "apply_document_content"}}]
+
+    # Case 1: zero-tool edit reply gets nudged once and then applies the edit.
+    client1 = _SeqClient([
+        {"content": "<p>Rewritten paragraph.</p>", "tool_calls": None, "usage": {}},
+        {
+            "content": "",
+            "tool_calls": [_tc("apply_document_content", {"target": "full_document", "content": ["<p>Rewritten paragraph.</p>"]})],
+            "usage": {},
+        },
+        {"content": "<p>Applied.</p>", "tool_calls": None, "usage": {}},
+    ])
+    monkeypatch.setattr(llm_chat_eval, "_build_api_config", lambda **kw: {"model": kw["model"]})
+    monkeypatch.setattr(llm_chat_eval, "LlmClient", lambda cfg, ctx: client1)
+    monkeypatch.setattr(llm_chat_eval, "_eval_tools", lambda **kw: apply_schema)
+
+    final, _usage, err, trace = llm_chat_eval.run_llm_chat_eval(
+        system_prompt="Sys",
+        document_content="Original paragraph.",
+        user_question="Rewrite this paragraph to be concise.",
+        endpoint="http://unused",
+        api_key="",
+        model="test/model",
+        task_id="logical_rewriting",
+    )
+    assert err is None
+    assert len(client1.seen_messages) == 3
+    assert client1.seen_messages[1][-1] == {"role": "user", "content": EDIT_NUDGE_MESSAGE}
+    assert any(t["name"] == "apply_document_content" for t in trace)
+    assert "Rewritten paragraph." in final
+
+    # Case 2: if the model still answers in chat after the nudge, it stops (no loop).
+    client2 = _SeqClient([
+        {"content": "<p>First chat.</p>", "tool_calls": None, "usage": {}},
+        {"content": "<p>Second chat.</p>", "tool_calls": None, "usage": {}},
+    ])
+    monkeypatch.setattr(llm_chat_eval, "LlmClient", lambda cfg, ctx: client2)
+    _final2, _usage2, err2, trace2 = llm_chat_eval.run_llm_chat_eval(
+        system_prompt="Sys",
+        document_content="Original paragraph.",
+        user_question="Rewrite this paragraph to be concise.",
+        endpoint="http://unused",
+        api_key="",
+        model="test/model",
+        task_id="logical_rewriting",
+    )
+    assert err2 is None
+    assert len(client2.seen_messages) == 2
+    assert trace2 == []
+
+
+def test_eval_nudge_skipped_on_plain_question_and_after_mutation(monkeypatch) -> None:
+    class _SeqClient:
+        def __init__(self, responses):
+            self._responses = list(responses)
+            self.calls = 0
+
+        def request_with_tools(self, messages, **_kwargs):
+            self.calls += 1
+            return self._responses.pop(0)
+
+    apply_schema = [{"type": "function", "function": {"name": "apply_document_content"}}]
+    monkeypatch.setattr(llm_chat_eval, "_build_api_config", lambda **kw: {"model": kw["model"]})
+    monkeypatch.setattr(llm_chat_eval, "_eval_tools", lambda **kw: apply_schema)
+
+    # Plain question: 1 call, no nudge.
+    q_client = _SeqClient([{"content": "<p>It is about releases.</p>", "tool_calls": None, "usage": {}}])
+    monkeypatch.setattr(llm_chat_eval, "LlmClient", lambda cfg, ctx: q_client)
+    _f1, _u1, err1, _t1 = llm_chat_eval.run_llm_chat_eval(
+        system_prompt="Sys",
+        document_content="Release notes.",
+        user_question="What is this document about?",
+        endpoint="http://unused",
+        api_key="",
+        model="test/model",
+        task_id="logical_rewriting",
+    )
+    assert err1 is None
+    assert q_client.calls == 1
+
+    # After mutating tool already ran: 2 calls total (tool call + final chat), no nudge.
+    m_client = _SeqClient([
+        {
+            "content": "",
+            "tool_calls": [_tc("apply_document_content", {"target": "full_document", "content": ["<p>Updated.</p>"]})],
+            "usage": {},
+        },
+        {"content": "<p>Done.</p>", "tool_calls": None, "usage": {}},
+    ])
+    monkeypatch.setattr(llm_chat_eval, "LlmClient", lambda cfg, ctx: m_client)
+    _f2, _u2, err2, _t2 = llm_chat_eval.run_llm_chat_eval(
+        system_prompt="Sys",
+        document_content="Original.",
+        user_question="Rewrite this paragraph to be concise.",
+        endpoint="http://unused",
+        api_key="",
+        model="test/model",
+        task_id="logical_rewriting",
+    )
+    assert err2 is None
+    assert m_client.calls == 2
