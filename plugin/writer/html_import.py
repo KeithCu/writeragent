@@ -401,15 +401,14 @@ def insert_html_after_paragraph(
     deletes the empty paragraph(s) left behind.
 
     When *clean_around_table* is True (collapsed caret inserting a table), also
-    removes the trailing break after *leftover* when ``goLeft`` enters the table,
-    and removes the empty paragraph StarWriter leaves before the table.
+    removes the trailing break after *leftover* when ``goLeft`` lands before the
+    table, and removes the empty paragraph StarWriter leaves before the table
+    (see ``_delete_empty_paragraph_before_table``).
     """
     para_start: Any = None
-    host_table: Any = None
     if clean_around_table:
         para_start = text_obj.createTextCursorByRange(cursor.getStart())
         para_start.gotoStartOfParagraph(False)
-        host_table = uno_read(lambda: para_start.getPropertyValue("TextTable"), None)
 
     cursor.gotoEndOfParagraph(False)
     text_obj.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
@@ -421,7 +420,10 @@ def insert_html_after_paragraph(
     leftover.gotoEndOfParagraph(True)
     if leftover.getString() == "":
         # Delete the last imported block's break; a tracked insertion swallows it.
-        # Only drop a real break: after a table, goLeft(1) selects the table.
+        # Only drop a real break: right after a table, goLeft(1) lands before the
+        # table (SwUnoCursor::IsSelOvr keeps a UNO cursor out of table cells) and
+        # the selection then spans the whole table, so the leftover paragraph is
+        # merged forward into the paragraph after it instead.
         if not _delete_preceding_break(leftover) and clean_around_table:
             if leftover.goRight(1, True):
                 if leftover.getString() == "\n":
@@ -429,20 +431,43 @@ def insert_html_after_paragraph(
                 else:
                     leftover.collapseToStart()
 
-    # When the imported content starts with a table, StarWriter cannot join the
-    # opened empty paragraph into the table node and leaves it empty before the table.
     if clean_around_table and para_start is not None:
-        after_para = text_obj.createTextCursorByRange(para_start.getStart())
-        after_para.gotoEndOfParagraph(False)
-        if after_para.goRight(1, False) and uno_read(lambda: after_para.getPropertyValue("TextTable"), None) == host_table:
-            after_para.gotoEndOfParagraph(True)
-            if after_para.getString() == "":
-                after_para.collapseToStart()
-                probe = text_obj.createTextCursorByRange(after_para.getStart())
-                if probe.goRight(1, False) and uno_read(lambda: probe.getPropertyValue("TextTable"), None) != host_table:
-                    _delete_preceding_break(after_para)
+        _delete_empty_paragraph_before_table(text_obj, para_start)
 
     return report
+
+
+def _delete_empty_paragraph_before_table(text_obj: Any, host_para: Any) -> None:
+    """Delete the empty paragraph left between *host_para*'s paragraph and an imported table.
+
+    ``SwHTMLParser::CallParser`` (``sw/source/filter/html/swhtml.cxx``) opens the
+    import with two ``SplitNode`` calls, and ``SwHTMLParser::Continue`` joins the
+    first opened node onto the imported content with ``JoinNext``, which cannot
+    join into a table node. So content that starts with a table leaves that node
+    as an empty paragraph right after the host paragraph, directly before the table.
+
+    A text cursor cannot look for the table: ``SwUnoCursor::IsSelOvr``
+    (``sw/source/core/unocore/unocrsr.cxx``, ``m_bRemainInSection``) keeps a UNO
+    cursor out of table cells, so ``goRight`` from the empty paragraph lands after
+    the whole table with no ``TextTable`` to see. The text enumeration lists the
+    table as its own element, so walk that: host paragraph, empty paragraph, table.
+    The deletion removes only the break at the end of the host paragraph; any
+    other paragraph (text, or an image-only one) is left alone.
+    """
+    found_host = False
+    empty_after: Any = None
+    for elem in iter_elements(text_obj.createEnumeration()):
+        is_para = _uno_service_true(elem, "com.sun.star.text.Paragraph")
+        if not found_host:
+            found_host = is_para and text_obj.compareRegionStarts(host_para, elem) == 0
+        elif empty_after is None:
+            if not is_para or elem.getString() != "" or _paragraph_has_non_text_portion(elem):
+                return
+            empty_after = elem
+        else:
+            if _uno_service_true(elem, "com.sun.star.text.TextTable"):
+                _delete_preceding_break(text_obj.createTextCursorByRange(empty_after.getStart()))
+            return
 
 
 
