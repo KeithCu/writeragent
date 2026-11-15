@@ -303,7 +303,7 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
     if agent_label == "Calc":
         domain_examples = "sheets, ranges, charts"
     elif agent_label == "Draw":
-        domain_examples = "shapes, tables, speaker_notes"
+        domain_examples = "shapes, tables, images"
     else:
         domain_examples = "shapes, footnotes, tables"
     domain_rule = (
@@ -642,6 +642,29 @@ DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
 # Wording matches #782: say 0-based once; no sibling-tool list / "first page is 0".
 DRAW_GET_IMAGE_TOOL_LINE = "- get_image: page=N (0-based) renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape."
 
+IMPRESS_TEXT_FILLS_BLOCK = (
+    "IMPRESS TEXT FILLS:\n"
+    "1. Prefer list_placeholders(page=N) before set_placeholder_text.\n"
+    "2. If count=0 or set_placeholder_text returns available=[], delegate_to_specialized_draw_toolset(domain=\"slide_layouts\", task=\"set layout 'text' on page N\") then list_placeholders again.\n"
+    "3. If roles are missing but indices exist, set_placeholder_text(index=i, text=…).\n"
+    "4. page on these tools is 0-based.\n\n"
+)
+IMPRESS_LIST_DESIGNS_TOOL_LINE = "- list_designs: List shipped Impress .otp designs (e.g. Metropolis).\n"
+IMPRESS_PLACEHOLDER_READ_TOOL_LINES = (
+    "- list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).\n"
+    "- get_placeholder_text: Get text from a slide placeholder by role or index.\n"
+)
+IMPRESS_APPLY_DESIGN_TOOL_LINE = "- apply_design: Restyle the open Impress deck from a listed .otp. Does not open a new presentation.\n"
+IMPRESS_SET_PLACEHOLDER_TOOL_LINE = "- set_placeholder_text: Set text on a slide placeholder by role or index (Impress).\n"
+# Registered for PresentationDocument only; _assemble_chat_prompt removes them for Draw documents.
+IMPRESS_ONLY_DRAW_PROMPT_PARTS = (
+    IMPRESS_TEXT_FILLS_BLOCK,
+    IMPRESS_LIST_DESIGNS_TOOL_LINE,
+    IMPRESS_PLACEHOLDER_READ_TOOL_LINES,
+    IMPRESS_APPLY_DESIGN_TOOL_LINE,
+    IMPRESS_SET_PLACEHOLDER_TOOL_LINE,
+)
+
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
@@ -652,35 +675,24 @@ Do not explain - do the operation directly using tools. Perform as many steps as
 WORKFLOW:
 1. Understand the user's request.
 2. If needed, use list_pages, read_slide_text, or get_presentation_info to understand current slides and layout.
-3. Use the specialized delegation tool to perform shape operations (create, edit, group, paper-form fill via shape_fill_fields), transitions, masters, notes, or charts.
+3. Use the specialized delegation tool for shape operations (create, edit, group, paper-form fill via shape_fill_fields) and the other domains listed under SPECIALIZED DRAW.
 4. Give a short confirmation; when you changed pages/shapes, mention them.
 
-IMPRESS TEXT FILLS:
-1. Prefer list_placeholders(page=N) before set_placeholder_text.
-2. If count=0 or set_placeholder_text returns available=[], delegate_to_specialized_draw_toolset(domain="slide_layouts", task="set layout 'text' on page N") then list_placeholders again.
-3. If roles are missing but indices exist, set_placeholder_text(index=i, text=…).
-4. page on these tools is 0-based.
-
-TOOLS (grouped by use):
+{IMPRESS_TEXT_FILLS_BLOCK}TOOLS (grouped by use):
 
 READ:
 - list_pages: List pages/slides in the document.
-- list_designs: List shipped Impress .otp designs (e.g. Metropolis).
-- read_slide_text: Extract text from shapes (including grouped descendants and tables as TSV) and speaker notes from a slide.
+{IMPRESS_LIST_DESIGNS_TOOL_LINE}- read_slide_text: Extract text from shapes (including grouped descendants and tables as TSV) and speaker notes from a slide.
 - search_slides: Search shape text and speaker notes across slides (pattern, optional regex).
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
 {DRAW_GET_IMAGE_TOOL_LINE}
-- list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).
-- get_placeholder_text: Get text from a slide placeholder by role or index.
-
+{IMPRESS_PLACEHOLDER_READ_TOOL_LINES}
 WRITE:
 - add_slide: Insert a new slide (page) at specified index (inherits the assigned master).
-- apply_design: Restyle the open Impress deck from a listed .otp. Does not open a new presentation.
-- delete_slide: Remove a slide (page) by index.
+{IMPRESS_APPLY_DESIGN_TOOL_LINE}- delete_slide: Remove a slide (page) by index.
 - set_active_page: Switch active slide/page.
-- set_placeholder_text: Set text on a slide placeholder by role or index (Impress).
-
+{IMPRESS_SET_PLACEHOLDER_TOOL_LINE}
 {{specialized_delegation}}
 
 {{core_directives}}"""
@@ -786,7 +798,7 @@ def _finish_chat_system_prompt(base: str, additional_instructions: str) -> str:
     return base + tts_short_answers_prompt_suffix()
 
 
-def _assemble_chat_prompt(agent: str, ctx: Any = None) -> str:
+def _assemble_chat_prompt(agent: str, ctx: Any = None, uno_services: frozenset[str] = frozenset()) -> str:
     """Writer / Calc / Draw role template, delegation, and response format.
 
     Vision, peer, memory, and humanizer stay with the document caller.
@@ -797,7 +809,7 @@ def _assemble_chat_prompt(agent: str, ctx: Any = None) -> str:
         "draw": DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE,
     }.get(label, DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE)
     core = get_core_directives_for_type(label)
-    delegation = get_specialized_delegation_tool_hint(agent, ctx=ctx)
+    delegation = get_specialized_delegation_tool_hint(agent, ctx=ctx, uno_services=uno_services)
     venv_policy = ""
     if label == "calc":
         if _python_prompt_extras is None:
@@ -813,6 +825,11 @@ def _assemble_chat_prompt(agent: str, ctx: Any = None) -> str:
     )
     if label == "draw":
         base = _apply_draw_get_image_tool_line(base)
+        from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE
+
+        if uno_services and IMPRESS_DOCUMENT_SERVICE not in uno_services:
+            for part in IMPRESS_ONLY_DRAW_PROMPT_PARTS:
+                base = base.replace(part, "", 1)
     return base.replace(CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions())
 
 
@@ -828,7 +845,7 @@ def get_chat_system_prompt_for_kind(kind: str, additional_instructions: str = ""
     from plugin.framework import doc_type as _doc_type
 
     agent = _doc_type.agent_label_for_doc_type(kind) or "Writer"
-    base = _assemble_chat_prompt(agent, ctx=ctx)
+    base = _assemble_chat_prompt(agent, ctx=ctx, uno_services=_doc_type.uno_service_for_distinct_label(kind))
     return _finish_chat_system_prompt(base, additional_instructions)
 
 
@@ -836,8 +853,10 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
     """Single source of truth for chat system prompt. Use this so Writer vs Calc prompt cannot be mixed.
     model: document model (Writer, Calc, or Draw). additional_instructions: optional extra text appended.
     Callers must pass the document that is being chatted about."""
+    from plugin.framework.doc_type import get_document_uno_services
+
     agent = _agent_for_model(model)
-    base = _assemble_chat_prompt(agent, ctx=ctx)
+    base = _assemble_chat_prompt(agent, ctx=ctx, uno_services=get_document_uno_services(model))
 
     if ctx is not None:
         vision_directive = _call_system_prompt_block("vision", model, ctx)
