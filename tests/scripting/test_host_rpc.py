@@ -839,10 +839,10 @@ def test_wa_help_accepts_tool_name():
 
 def test_no_namespace_shadows_alias_import():
     import plugin.scripting.writeragent_api as api
-    from scripts.generate_tool_proxies import _alias_import_names
+    from scripts.generate_tool_proxies import alias_import_names
 
-    assert not hasattr(api, "vision")
+    assert "vision" not in api.__all__
     namespaces = {ns for ns, _method in api.TOOL_METHODS.values()}
-    assert not (namespaces & _alias_import_names())
+    assert not (namespaces & alias_import_names())
 
 

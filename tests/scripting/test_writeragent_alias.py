@@ -26,6 +26,9 @@ def clean_writeragent_modules(alias_import_state):
     for key in list(alias_import_state):
         del sys.modules[key]
     yield
+    # Python's import machinery sets imported submodules (writeragent.vision) as
+    # attributes on the aliased writeragent_api module; remove them so later tests see
+    # the generated module state.
     if hasattr(api, "vision"):
         delattr(api, "vision")
 

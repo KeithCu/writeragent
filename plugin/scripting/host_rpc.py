@@ -222,17 +222,17 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
     if not methods:
         # LibrePy, or proxies that did not load. Omit the catalog.
         return ""
-    namespaces: list[str] = []
+    domains: list[str] = []
     seen: set[str] = set()
     for name in ("core", *domains_tuple):
         if name not in tools or name in seen:
             continue
         seen.add(name)
-        namespaces.append(name)
+        domains.append(name)
     blocks: list[str] = []
-    for namespace in namespaces:
+    for domain in domains:
         entries: list[str] = []
-        for tool_name in tools.get(namespace) or ():
+        for tool_name in tools.get(domain) or ():
             if tool_name in _BLOCKED_FROM_VENV:
                 continue
             entry = methods.get(tool_name)
@@ -241,12 +241,12 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
                 continue
             entries.append(_format_proxy_entry(*entry))
         if entries:
-            blocks.append(f"{namespace}:")
+            blocks.append(f"{domain}:")
             blocks.append("\n\n".join(entries))
             blocks.append("")
     if not blocks:
         return ""
-    blocks = [_catalog_lead(namespaces), "", *blocks]
+    blocks = [_catalog_lead(domains), "", *blocks]
     return "\n".join(blocks).rstrip() + "\n"
 
 
