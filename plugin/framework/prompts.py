@@ -654,7 +654,7 @@ IMPRESS_PLACEHOLDER_READ_TOOL_LINES = (
     "- list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).\n"
     "- get_placeholder_text: Get text from a slide placeholder by role or index.\n"
 )
-IMPRESS_APPLY_DESIGN_TOOL_LINE = "- apply_design: Restyle the open Impress deck from a listed .otp (clone_master). Does not open a new presentation.\n"
+IMPRESS_APPLY_DESIGN_TOOL_LINE = "- apply_design: Restyle the open Impress deck from a listed .otp. Does not open a new presentation.\n"
 IMPRESS_SET_PLACEHOLDER_TOOL_LINE = "- set_placeholder_text: Set text on a slide placeholder by role or index (Impress).\n"
 # Registered for PresentationDocument only; _assemble_chat_prompt removes them for Draw documents.
 IMPRESS_ONLY_DRAW_PROMPT_PARTS = (
