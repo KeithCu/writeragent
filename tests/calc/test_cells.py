@@ -12,7 +12,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from xml.etree import ElementTree as ET
 
 import pytest
@@ -893,6 +893,24 @@ def test_set_style_accepts_typed_bold_and_font_size():
     assert kwargs["font_size"] == 12.0
 
 
+def _cell_addr(col: int, row: int) -> SimpleNamespace:
+    return SimpleNamespace(Sheet=0, StartColumn=col, EndColumn=col, StartRow=row, EndRow=row)
+
+
+def _format_groups(spec: dict[int, tuple[SimpleNamespace, ...]]) -> MagicMock:
+    """Mock of ``getUniqueCellFormatRanges()``: one group per NumberFormat key covering ``spec[key]``."""
+    groups = []
+    for key, addrs in spec.items():
+        group = MagicMock()
+        group.getPropertyValue.side_effect = lambda name, key=key: key if name == "NumberFormat" else None
+        group.getRangeAddresses.return_value = addrs
+        groups.append(group)
+    container = MagicMock()
+    container.getCount.return_value = len(groups)
+    container.getByIndex.side_effect = lambda i: groups[i]
+    return container
+
+
 def test_write_formula_range_s30_format_pass_warning():
     """S30: format-pass failure keeps value-commit success and warns in the message."""
     from plugin.calc.manipulator import CellManipulator
@@ -903,10 +921,7 @@ def test_write_formula_range_s30_format_pass_warning():
     sheet = MagicMock()
     cell_range.getSpreadsheet.return_value = sheet
     sheet.getCellRangeByPosition.return_value = cell_range
-
-    cell = MagicMock()
-    cell.getPropertyValue.return_value = 0  # General
-    sheet.getCellByPosition.return_value = cell
+    cell_range.getUniqueCellFormatRanges.return_value = _format_groups({0: (_cell_addr(0, 0),)})  # General
 
     formats = MagicMock()
     formats.getStandardIndex.return_value = 1
@@ -949,11 +964,8 @@ def test_write_formula_range_s30_warning_counts_apply_only():
     cell_range.getSpreadsheet.return_value = sheet
     sheet.getCellRangeByPosition.return_value = cell_range
 
-    general_cell = MagicMock()
-    general_cell.getPropertyValue.return_value = 0  # General key
-    date_cell = MagicMock()
-    date_cell.getPropertyValue.return_value = 37  # existing date key
-    sheet.getCellByPosition.side_effect = lambda col, row: general_cell if col == 0 else date_cell
+    # A1 is General, B1 already has a date key: the box is read as two format groups.
+    cell_range.getUniqueCellFormatRanges.return_value = _format_groups({0: (_cell_addr(0, 0),), 37: (_cell_addr(1, 0),)})
 
     formats = MagicMock()
     formats.getStandardIndex.return_value = 1
@@ -988,6 +1000,83 @@ def test_write_formula_range_s30_warning_counts_apply_only():
     assert "2 dates" in msg
     assert "could not apply date/time formats to 1 cells in A1:B1" in msg
     assert "to 2 cells" not in msg
+
+
+def _commit_text_write(sheet: MagicMock, doc: MagicMock, values: list[Any], end: tuple[int, int]) -> None:
+    """Plan and commit ``values`` into a mocked box starting at A1 with General as the standard key."""
+    from plugin.calc.manipulator import CellManipulator
+
+    bridge = MagicMock()
+    bridge.doc = doc
+    manip = CellManipulator(bridge)
+    metas = manip.plan_writes(values, None, 0)
+    formats = MagicMock()
+    formats.getByKey.return_value.getPropertyValue.return_value = 0
+    # The pytest ``uno`` stub returns a MagicMock struct; keep the keyword fields readable.
+    with patch("uno.createUnoStruct", side_effect=lambda name, **fields: SimpleNamespace(**fields)):
+        manip.commit(sheet, (0, 0), end, metas, formats)
+
+
+def test_commit_restores_text_cells_with_one_write_per_key():
+    """S29 restore groups text cells by prior key into one SheetCellRanges write each."""
+    sheet = MagicMock()
+    sheet.getRangeAddress.return_value = SimpleNamespace(Sheet=0)
+    cell_range = sheet.getCellRangeByPosition.return_value
+    # A1:B2 with a date key on column A and a number key on column B.
+    cell_range.getUniqueCellFormatRanges.return_value = _format_groups(
+        {37: (_cell_addr(0, 0), _cell_addr(0, 1)), 41: (_cell_addr(1, 0), _cell_addr(1, 1))}
+    )
+    doc = MagicMock()
+    containers: list[MagicMock] = []
+    doc.createInstance.side_effect = lambda name: containers.append(MagicMock()) or containers[-1]
+
+    _commit_text_write(sheet, doc, ["08/05/2026", "1,234", "50%", "$5"], (1, 1))
+
+    assert doc.createInstance.call_args_list == [call("com.sun.star.sheet.SheetCellRanges")] * 2
+    written: dict[int, list[tuple[int, int]]] = {}
+    for container in containers:
+        container.addRangeAddresses.assert_called_once()
+        addrs, merge = container.addRangeAddresses.call_args.args
+        assert merge is False
+        container.setPropertyValue.assert_called_once()
+        prop, key = container.setPropertyValue.call_args.args
+        assert prop == "NumberFormat"
+        written[key] = sorted((a.StartColumn, a.StartRow) for a in addrs)
+        assert all((a.EndColumn, a.EndRow) == (a.StartColumn, a.StartRow) and a.Sheet == 0 for a in addrs)
+    assert written == {37: [(0, 0), (0, 1)], 41: [(1, 0), (1, 1)]}
+    per_cell = sheet.getCellByPosition.return_value
+    assert not any(c.args and c.args[0] == "NumberFormat" for c in per_cell.setPropertyValue.call_args_list)
+    per_cell.getPropertyValue.assert_not_called()
+
+
+def test_commit_restore_skips_apostrophe_and_float_cells():
+    """S18 keeps @ on apostrophe literals and M3 never restores floats: only the plain text cell is restored."""
+    sheet = MagicMock()
+    sheet.getRangeAddress.return_value = SimpleNamespace(Sheet=0)
+    cell_range = sheet.getCellRangeByPosition.return_value
+    cell_range.getUniqueCellFormatRanges.return_value = _format_groups(
+        {37: (SimpleNamespace(Sheet=0, StartColumn=0, EndColumn=2, StartRow=0, EndRow=0),)}
+    )
+    doc = MagicMock()
+
+    _commit_text_write(sheet, doc, ["'08/05/2026", 46242.0, "note 1"], (2, 0))
+
+    doc.createInstance.assert_called_once_with("com.sun.star.sheet.SheetCellRanges")
+    container = doc.createInstance.return_value
+    addrs, unused = container.addRangeAddresses.call_args.args
+    assert [(a.StartColumn, a.StartRow) for a in addrs] == [(2, 0)]
+    container.setPropertyValue.assert_called_once_with("NumberFormat", 37)
+
+
+def test_commit_skips_format_read_without_text_or_temporal_cells():
+    """A pure float write never reads formats or restores anything."""
+    sheet = MagicMock()
+    doc = MagicMock()
+
+    _commit_text_write(sheet, doc, [1.0, 2.0], (1, 0))
+
+    sheet.getCellRangeByPosition.return_value.getUniqueCellFormatRanges.assert_not_called()
+    doc.createInstance.assert_not_called()
 
 
 def test_apply_temporal_format_runs_vertically_merges_homogeneous_column():

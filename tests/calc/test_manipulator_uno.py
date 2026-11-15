@@ -323,3 +323,89 @@ def test_anchor_expanded_write_counts_overwritten_cells(ctx, doc):
     assert "overwrote 2 non-empty cell(s)" in res.get("message", ""), res
     assert sheet.getCellByPosition(0, 0).getString() == "x"
     assert sheet.getCellByPosition(1, 1).getValue() == 1.0
+
+
+def _format_key(doc, format_str: str) -> int:
+    formats = doc.getNumberFormats()
+    locale = doc.getPropertyValue("CharLocale")
+    key = formats.queryKey(format_str, locale, False)
+    if key == -1:
+        key = formats.addNew(format_str, locale)
+    return int(key)
+
+
+def _cell_key(sheet, col: int, row: int) -> int:
+    return int(sheet.getCellByPosition(col, row).getPropertyValue("NumberFormat"))
+
+
+@native_test
+@with_native_doc("calc")
+def test_s29_restore_keeps_date_column_after_near_miss_text_uno(ctx, doc):
+    """A near-miss text (08/05/2026) into a YYYY-MM-DD cell keeps the date key; an apostrophe literal keeps @."""
+    from com.sun.star.table.CellContentType import VALUE
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    date_key = _format_key(doc, "YYYY-MM-DD")
+    text_key = _format_key(doc, "@")
+    sheet.getCellRangeByPosition(0, 0, 3, 0).setPropertyValue("NumberFormat", date_key)
+
+    # Control: a raw string commit of the same near-miss text rewrites the cell to @.
+    sheet.getCellRangeByPosition(3, 0, 3, 0).setDataArray((("08/05/2026",),))
+    assert _cell_key(sheet, 3, 0) == text_key, "raw setDataArray should force @ on a near-miss text"
+
+    res = _execute_calc_tool(
+        doc, ctx, "write_range", {"range": ["A1:C1"], "values": [["2026-08-08", "08/05/2026", "'2026-08-08"]]}
+    )
+    assert res.get("status") == "ok", res
+    a1 = sheet.getCellByPosition(0, 0)
+    assert a1.getType() == VALUE and a1.getString() == "2026-08-08", (a1.getType(), a1.getString())
+    b1 = sheet.getCellByPosition(1, 0)
+    assert b1.getString() == "08/05/2026"
+    assert _cell_key(sheet, 1, 0) == date_key, f"S29 restore missing: B1 key {_cell_key(sheet, 1, 0)} != {date_key}"
+    assert _cell_key(sheet, 2, 0) == text_key, "apostrophe literal must keep @ (S18)"
+    # The restored key is the real cell format: a serial typed into B1 renders as an ISO date.
+    b1.setValue(46242)
+    assert b1.getString() == "2026-08-08", b1.getString()
+
+
+@native_test
+@with_native_doc("calc")
+def test_s29_restore_groups_by_prior_key_uno(ctx, doc):
+    """Checkerboard of two keys over A1:B4: every text cell gets its own prior key back."""
+    sheet = doc.getCurrentController().getActiveSheet()
+    date_key = _format_key(doc, "YYYY-MM-DD")
+    num_key = _format_key(doc, "0.00")
+    expected = {}
+    for row in range(4):
+        for col in range(2):
+            key = date_key if (row + col) % 2 == 0 else num_key
+            sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
+            expected[(col, row)] = key
+
+    values = [["08/05/2026", "1,234"], ["50%", "$5"], ["12:30", "08/06/2026"], ["2,345", "75%"]]
+    res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A1:B4"], "values": values})
+    assert res.get("status") == "ok", res
+    after = {(col, row): _cell_key(sheet, col, row) for (col, row) in expected}
+    assert after == expected, f"restored keys differ: {after} != {expected}"
+    assert sheet.getCellByPosition(1, 0).getString() == "1,234"
+
+
+@native_test
+@with_native_doc("calc")
+def test_s29_batched_restore_large_column_uno(ctx, doc):
+    """3000 text cells into a date column keep their date key; the elapsed time is printed, not asserted."""
+    import time
+
+    sheet = doc.getCurrentController().getActiveSheet()
+    date_key = _format_key(doc, "YYYY-MM-DD")
+    sheet.getCellRangeByPosition(0, 0, 0, 2999).setPropertyValue("NumberFormat", date_key)
+    values = [["08/05/2026" if i % 10 == 0 else f"note {i}"] for i in range(3000)]
+
+    t0 = time.perf_counter()
+    res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A1:A3000"], "values": values})
+    elapsed = time.perf_counter() - t0
+    print(f"write_range 3000 text cells into a date column: {elapsed:.2f}s")
+    assert res.get("status") == "ok", res
+    for row in (0, 9, 2999):
+        assert _cell_key(sheet, 0, row) == date_key, f"A{row + 1} lost its date key"
+    assert sheet.getCellByPosition(0, 0).getString() == "08/05/2026"
