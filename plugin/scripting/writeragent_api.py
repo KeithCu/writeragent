@@ -886,7 +886,7 @@ class _DrawProxy:
         return call_host_tool("add_slide", page=page, activate=activate, layout=layout)
 
     def apply_design(self, design: str) -> dict[str, Any]:
-        """Restyle the open Impress deck in place with a design from list_designs: copies that design's master (the one matching the deck's aspect ratio) into this document and assigns it to every slide. Existing slide text keeps its current styles. Reapplying the same design replaces the master it imported before. Anything that could not be copied is listed in clone_warnings. Impress only; does not open a new presentation.
+        """Restyle the open Impress deck in place with a design from list_designs: copies that design's master (the one matching the deck's aspect ratio) into this document and assigns it to every slide. Existing slide text keeps its current styles. Reapplying the same design replaces the master it imported before. Fills or properties that could not be copied are listed in clone_warnings. Impress only; does not open a new presentation.
 
         Args:
             design (required): Design id, name, path, or url from list_designs (e.g. Metropolis).

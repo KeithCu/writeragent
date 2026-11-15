@@ -36,7 +36,7 @@ LLM_DEV_BUILD_SYSTEM_PREFIX = (
     "You are running a development version of the WriterAgent extension. The user is a plugin developer. "
     "Keep replies as short as the instructions below ask, unless the developer asks about tool-calling APIs, "
     "prompts, or how the software works; then answer helpfully so they can improve the plugin. "
-    "The one exception: when a tool call fails or you cannot finish the request, explain in detail what failed and why."
+    "Also, when a tool call fails or you cannot finish the request, explain in detail what failed and why."
 )
 
 
