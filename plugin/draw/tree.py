@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Tree (LO-DOM) tools for Draw/Impress documents.
 
-``get_tree`` is the main-agent read of a page. Paper-form blanks
+``shape_get_tree`` is the main-agent read of a page. Paper-form blanks
 (empty/near-empty text boxes) are marked ``fillable`` with an optional
 ``label_hint`` (nearest text to the left or above). ControlShapes are
 surfaced with type/name/value/state so the main agent can see widgets
@@ -444,7 +444,7 @@ def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[s
 
 
 class GetDrawTree(ToolBase):
-    name: str | None = "get_tree"
+    name: str | None = "shape_get_tree"
     description: str = (
         "Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. "
         "Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a "

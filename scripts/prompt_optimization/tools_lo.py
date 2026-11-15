@@ -773,7 +773,7 @@ def get_draw_export() -> str:
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "draw")
-        res = get_tools().execute_unguarded("get_tree", ctx)
+        res = get_tools().execute_unguarded("shape_get_tree", ctx)
         return json.dumps(res, ensure_ascii=False, indent=2)
 
     return LOBackend.call(_do)

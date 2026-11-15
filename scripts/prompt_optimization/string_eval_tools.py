@@ -65,7 +65,7 @@ _DRAW_IMPL: dict[str, Callable[[DrawWorld, dict[str, Any]], dict[str, Any]]] = {
     "shape_upsert": lambda s, a: s.shape_upsert(**a),
     "shape_connect": lambda s, a: s.shape_connect(**a),
     "shape_group": lambda s, a: s.shape_group(**a),
-    "get_tree": lambda s, a: s.get_tree(**a),
+    "shape_get_tree": lambda s, a: s.get_tree(**a),
     "shape_get_summary": lambda s, a: s.get_draw_summary(**a),
     "specialized_workflow_finished": _specialized_finished,
 }

@@ -358,7 +358,7 @@ ORG_CHART_GEN = {
         "Cara manages Gus and Hal (Analysts). "
         "Dan manages Ivy and Jay (Leads). "
         "Connect each manager to their reports. "
-        "Verify the layout with get_tree (nodes and connections)."
+        "Verify the layout with shape_get_tree (nodes and connections)."
     ),
     "task_id": "org_chart_gen",
     "expected_contains": [
@@ -370,7 +370,7 @@ ORG_CHART_GEN = {
     "backend": "lo",
     "rubric": (
         "Uses shape_upsert for 10 labeled boxes (rectangle). Connections via "
-        "shape_connect (9 edges, each manager as start). Final get_tree "
+        "shape_connect (9 edges, each manager as start). Final shape_get_tree "
         "shows 10 nodes and connected_start/connected_end on all 9 connectors. "
         "Matches production Draw tree structure."
     ),
@@ -382,13 +382,13 @@ FLOWCHART_GEN = {
     "user_question": (
         "Create a login flowchart: Start oval, then a Process box for user login, then a "
         "Decision diamond 'credentials valid?', Yes to End, No back to Process. "
-        "Verify the layout with get_tree (nodes and connections)."
+        "Verify the layout with shape_get_tree (nodes and connections)."
     ),
     "task_id": "flowchart_gen",
     "expected_contains": ["Start", "End", "login", "credentials"],
     "is_non_trivial": True,
     "category": "structural",
-    "rubric": "Uses shape_upsert for flowchart-* types (oval, rectangle, diamond). Connections via shape_connect or tree. Final get_tree shows proper hierarchy and connected_start/connected_end. Matches production Draw tree structure.",
+    "rubric": "Uses shape_upsert for flowchart-* types (oval, rectangle, diamond). Connections via shape_connect or tree. Final shape_get_tree shows proper hierarchy and connected_start/connected_end. Matches production Draw tree structure.",
 }
 
 # Data Sorting (eval/ideas.md Calc #6) - non-LO test using CalcStringState.range_sort
@@ -587,7 +587,7 @@ SOLAR_SLD_GEN = {
         "Main panel stays on the utility side of the Solar AC Disconnect; "
         "backup loads hang off the MID.\n"
         "6) Prefer generic names; brand names are allowed but not required.\n\n"
-        "Verify with get_tree (nodes and connections)."
+        "Verify with shape_get_tree (nodes and connections)."
     ),
     "task_id": "solar_sld_gen",
     "expected_contains": [

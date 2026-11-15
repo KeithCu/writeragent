@@ -330,7 +330,8 @@ def test_group_tools_drops_llm_orchestration_tools():
         ("style_import", None, ("style", "import_")),
         ("get_sheet_summary", "calc", ("calc", "get_sheet_summary")),
         ("get_tree", "writer", ("writer", "get_tree")),
-        ("get_tree", "draw", ("draw", "get_tree")),
+        ("shape_get_tree", None, ("shape", "get_tree")),
+        ("get_deck_info", "draw", ("draw", "get_deck_info")),
     ],
 )
 def test_split_tool_name(tool_name, app, expected):
@@ -650,18 +651,58 @@ def test_atomic_write_skips_rewrite_when_unchanged(tmp_path):
     assert target.stat().st_mtime_ns != mtime_before
 
 
-def test_same_name_tools_in_different_apps_emit_distinct_wa_namespaces():
+def test_duplicate_tool_name_fails_generation():
     tools = [
         _as_tool(MockTool("get_tree", "Writer tree.", {}, doc_types=["writer"])),
         _as_tool(MockTool("get_tree", "Draw tree.", {}, doc_types=["draw"])),
     ]
-    code = generate_module(tools)
-    compile(code, "<generated>", "exec")
-    ns: dict[str, Any] = {}
-    exec(code, ns)
-    assert "get_tree" in ns["DOMAIN_TOOLS"]["writer"]
-    assert "get_tree" in ns["DOMAIN_TOOLS"]["draw"]
-    assert callable(ns["writer"].get_tree)
-    assert callable(ns["draw"].get_tree)
+    with pytest.raises(ValueError, match="duplicate tool name 'get_tree'"):
+        generate_module(tools)
+
+
+def test_check_duplicate_registrations_rejects_clash_allows_shared():
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from scripts.generate_tool_proxies import check_duplicate_registrations
+
+    class _WriterTree(ToolBase):
+        name = "get_tree"
+        description = "Writer tree."
+        parameters = {"type": "object", "properties": {}}
+        uno_services = ["com.sun.star.text.TextDocument"]
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    class _DrawTree(ToolBase):
+        name = "get_tree"
+        description = "Draw tree."
+        parameters = {"type": "object", "properties": {}}
+        uno_services = ["com.sun.star.drawing.DrawingDocument"]
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    reg = ToolRegistry(services=None)
+    reg.register(_WriterTree())
+    reg.register(_DrawTree())
+    with pytest.raises(ValueError, match="duplicate tool name 'get_tree'"):
+        check_duplicate_registrations(reg)
+
+    # Deliberate shared classes (e.g. shape_upsert with the same class name) are allowed.
+    def _make_shared(mod_name: str, svc: str) -> ToolBase:
+        cls = type("UpsertShape", (ToolBase,), {
+            "name": "shape_upsert",
+            "description": "Upsert shape.",
+            "parameters": {"type": "object", "properties": {}},
+            "uno_services": [svc],
+            "execute": lambda self, ctx, **kw: {"status": "ok"},
+        })
+        cls.__module__ = mod_name
+        return cls()
+
+    shared_reg = ToolRegistry(services=None)
+    shared_reg.register(_make_shared("plugin.calc.shapes", "com.sun.star.sheet.SpreadsheetDocument"))
+    shared_reg.register(_make_shared("plugin.draw.shapes", "com.sun.star.drawing.DrawingDocument"))
+    check_duplicate_registrations(shared_reg)
 
 

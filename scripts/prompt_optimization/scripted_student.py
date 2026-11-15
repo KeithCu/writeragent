@@ -274,7 +274,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_draw_1",
             )
         ),
-        _tools(_tc("get_tree", {}, "tree_1")),
+        _tools(_tc("shape_get_tree", {}, "tree_1")),
         _stop(),
     ],
     "org_chart_gen": [
@@ -286,7 +286,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "task": (
                         "Create org chart: Ava CEO; Ben CTO, Cara CFO, Dan COO; "
                         "Eli Fay under Ben; Gus Hal under Cara; Ivy Jay under Dan; "
-                        "connect each manager to reports; verify with get_tree."
+                        "connect each manager to reports; verify with shape_get_tree."
                     ),
                 },
                 "del_org_1",
@@ -446,7 +446,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_org_1",
             )
         ),
-        _tools(_tc("get_tree", {}, "org_tree_1")),
+        _tools(_tc("shape_get_tree", {}, "org_tree_1")),
         _stop(),
     ],
     "solar_sld_gen": [
@@ -460,7 +460,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                         "Solar AC Disconnect→System controller (MID)→"
                         "Backup subpanel; MID/downstream on post-disconnect path; "
                         "PV+microinverters→Combiner→controller; "
-                        "AC battery→controller; verify get_tree."
+                        "AC battery→controller; verify shape_get_tree."
                     ),
                 },
                 "del_sld_1",
@@ -619,7 +619,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_sld_1",
             )
         ),
-        _tools(_tc("get_tree", {}, "sld_tree_1")),
+        _tools(_tc("shape_get_tree", {}, "sld_tree_1")),
         _stop(),
     ],
     "data_sorting": [

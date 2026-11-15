@@ -98,7 +98,7 @@ def test_scripted_specialized_names_match_schema_stages() -> None:
     assert flow[0] == "delegate_to_specialized_draw_toolset"
     assert flow[0] in core_draw
     for name in flow[1:]:
-        if name == "get_tree":
+        if name == "shape_get_tree":
             assert name in core_draw
         else:
             assert name in shapes, name

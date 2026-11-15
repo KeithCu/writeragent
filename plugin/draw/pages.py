@@ -383,7 +383,7 @@ class SearchSlides(ToolBase):
 class GetPresentationInfo(ToolBase):
     """Get presentation metadata."""
 
-    name: str | None = "get_info"
+    name: str | None = "get_deck_info"
     description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = DRAW_AND_IMPRESS

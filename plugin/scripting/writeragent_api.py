@@ -77,11 +77,11 @@ DOMAIN_TOOLS = {   'bookmarks': [   'bookmark_cleanup',
                 'web_research'],
     'draw': [   'design_apply',
                 'design_list',
-                'get_info',
-                'get_tree',
+                'get_deck_info',
                 'placeholder_get_text',
                 'placeholder_list',
                 'placeholder_set_text',
+                'shape_get_tree',
                 'slide_add',
                 'slide_delete',
                 'slide_duplicate',
@@ -273,7 +273,7 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'frame_list': ('frame', 'list'),
     'frame_set_properties': ('frame', 'set_properties'),
     'get_content': ('writer', 'get_content'),
-    'get_info': ('draw', 'get_info'),
+    'get_deck_info': ('draw', 'get_deck_info'),
     'get_sheet_summary': ('calc', 'get_sheet_summary'),
     'get_tree': ('writer', 'get_tree'),
     'image_crop_and_highlight': ('image', 'crop_and_highlight'),
@@ -360,6 +360,7 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'shape_distribute': ('shape', 'distribute'),
     'shape_fill_fields': ('shape', 'fill_fields'),
     'shape_get_summary': ('shape', 'get_summary'),
+    'shape_get_tree': ('shape', 'get_tree'),
     'shape_group': ('shape', 'group'),
     'shape_upsert': ('shape', 'upsert'),
     'sheet_apply_filter': ('sheet', 'apply_filter'),
@@ -955,17 +956,9 @@ document = _DocumentProxy()
 class _DrawProxy:
     """Proxy for draw tools."""
 
-    def get_info(self) -> dict[str, Any]:
+    def get_deck_info(self) -> dict[str, Any]:
         """Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."""
-        return call_host_tool("get_info")
-
-    def get_tree(self, *, page: int | None = None) -> dict[str, Any]:
-        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
-
-        Args:
-            page (optional): 0-based page index (active page if omitted).
-        """
-        return call_host_tool("get_tree", page=page)
+        return call_host_tool("get_deck_info")
 
 draw = _DrawProxy()
 
@@ -1280,10 +1273,10 @@ class _ImageProxy:
         return call_host_tool("image_generate", prompt=prompt, source_image=source_image, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, image_model=image_model)
 
     def get(self, *, image: str | None = None, selection: bool | None = None, page: int | None = None, sheet_index: int | None = None) -> dict[str, Any]:
-        """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from get_tree on Draw/Impress, or get_content / get_sheet_summary / image_list on Writer/Calc> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, get_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look. Pass at most one of image, selection, or page.
+        """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from shape_get_tree on Draw/Impress, or get_content / get_sheet_summary / image_list on Writer/Calc> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, shape_get_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look. Pass at most one of image, selection, or page.
 
         Args:
-            image (optional): Name of the embedded graphic to fetch (from get_tree on Draw/Impress, or document reads / image_list). Pass at most one of image, selection, or page.
+            image (optional): Name of the embedded graphic to fetch (from shape_get_tree on Draw/Impress, or document reads / image_list). Pass at most one of image, selection, or page.
             selection (optional): If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page.
             page (optional): 0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page.
             sheet_index (optional): Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names).
@@ -2067,7 +2060,7 @@ class _ShapeProxy:
         return call_host_tool("shape_distribute", page=page, indices=indices, axis=axis)
 
     def fill_fields(self, fields: list[Any], *, page: int | None = None) -> dict[str, Any]:
-        """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, path_index for group children, or label_hint from get_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
+        """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, path_index for group children, or label_hint from shape_get_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
 
         Args:
             fields (required): Fields to write. Target precedence: name (preferred; disambiguated by path_index or index), path_index, index, or label_hint. Each item needs a value.
@@ -2083,6 +2076,14 @@ class _ShapeProxy:
         """
         return call_host_tool("shape_get_summary", page=page)
 
+    def get_tree(self, *, page: int | None = None) -> dict[str, Any]:
+        """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
+
+        Args:
+            page (optional): 0-based page index (active page if omitted).
+        """
+        return call_host_tool("shape_get_tree", page=page)
+
     def group(self, indices: list[Any], *, page: int | None = None) -> dict[str, Any]:
         """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit). All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
@@ -2093,7 +2094,7 @@ class _ShapeProxy:
         return call_host_tool("shape_group", indices=indices, page=page)
 
     def upsert(self, action: str, *, index: int | str | None = None, name: str | None = None, page: int | None = None, shape_type: str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, text: str | None = None, fill_color: str | None = None, fill_style: str | None = None, line_color: str | None = None, line_width: int | None = None, text_color: str | None = None, font_size: float | None = None, font_name: str | None = None, rotation_angle: float | None = None) -> dict[str, Any]:
-        """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from get_tree — draw-page index shifts when other shapes sit between fields.
+        """Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from shape_get_tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
             action (required): Action to perform: 'create' a new shape, or 'edit' an existing one. One of: create, edit.

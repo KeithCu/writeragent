@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 READ_TOOLS_BY_DOC_TYPE: dict[str, tuple[str, ...]] = {
     "writer": ("get_content", "get_tree", "search"),
     "calc": ("get_sheet_summary", "read_range"),
-    "draw": ("slide_list", "get_tree"),
+    "draw": ("slide_list", "shape_get_tree"),
 }
 
 

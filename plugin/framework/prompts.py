@@ -630,7 +630,7 @@ DRAW_SPECIALIZED_DELEGATION_TEMPLATE = (
 
 # F: omitted from the assembled Draw prompt when the chat model has no vision.
 # Wording matches #782: say 0-based once; no sibling-tool list / "first page is 0".
-DRAW_GET_IMAGE_TOOL_LINE = "- image_get: page=N (0-based) renders that page as a PNG so a vision model can see the layout. Use alongside get_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape."
+DRAW_GET_IMAGE_TOOL_LINE = "- image_get: page=N (0-based) renders that page as a PNG so a vision model can see the layout. Use alongside shape_get_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape."
 
 IMPRESS_TEXT_FILLS_BLOCK = (
     "IMPRESS TEXT FILLS:\n"
@@ -664,7 +664,7 @@ Act directly using tools (perform as many steps as needed in one turn). Keep cha
 
 WORKFLOW:
 1. Understand the user's request.
-2. If needed, use get_tree first on Draw documents (or slide_list, slide_read_text, get_info) to understand current pages/slides and layout.
+2. If needed, use shape_get_tree first on Draw documents (or slide_list, slide_read_text, get_deck_info) to understand current pages/slides and layout.
 3. Use the specialized delegation tool for shape operations (create, edit, group, paper-form fill via the shapes sub-agent's shape_fill_fields tool) and the other domains listed under SPECIALIZED DRAW.
 4. Give a short confirmation; when you changed pages/shapes, mention them.
 
@@ -674,8 +674,8 @@ READ:
 - slide_list: List pages/slides in the document.
 {IMPRESS_LIST_DESIGNS_TOOL_LINE}- slide_read_text: Extract text from shapes (including grouped descendants and tables as TSV) and speaker notes from a slide.
 - slide_search: Search shape text and speaker notes across slides (pattern, optional regex).
-- get_info: Slide count, dimensions, master slide names, and Impress status.
-- get_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
+- get_deck_info: Slide count, dimensions, master slide names, and Impress status.
+- shape_get_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
 {DRAW_GET_IMAGE_TOOL_LINE}
 {IMPRESS_PLACEHOLDER_READ_TOOL_LINES}
 WRITE:

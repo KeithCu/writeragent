@@ -427,11 +427,7 @@ def execute_tool(
             send_cancellation=send_cancellation,
         )
 
-        tool = (
-            registry.get_for_document(tool_name, doc_type=doc_type)
-            if hasattr(registry, "get_for_document")
-            else registry.get(tool_name)
-        )
+        tool = registry.get(tool_name)
         is_async = tool is not None and tool.is_async()
         return registry, tctx, is_async
 
