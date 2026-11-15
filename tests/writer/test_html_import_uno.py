@@ -972,7 +972,8 @@ def test_selection_caret_table_leaves_no_empty_paragraphs_uno(ctx: Any, doc: Any
         report = insert_content_at_position(doc, ctx, table_html, "selection")
         assert report.snapped_to_paragraph is True
         assert doc.getTextTables().getCount() == 1
-        assert _body_structure_via_enum(doc.getText()) == expected
+        actual = _body_structure_via_enum(doc.getText())
+        assert actual == expected, f"offset={offset}: actual={actual!r} expected={expected!r}"
 
     # With Track Changes + accept-all: mid-paragraph (6) and mid-word (3)
     for offset in (6, 3):
@@ -991,5 +992,6 @@ def test_selection_caret_table_leaves_no_empty_paragraphs_uno(ctx: Any, doc: Any
         finally:
             doc.setPropertyValue("RecordChanges", False)
         assert doc.getTextTables().getCount() == 1
-        assert _body_structure_via_enum(doc.getText()) == expected
+        actual = _body_structure_via_enum(doc.getText())
+        assert actual == expected, f"offset={offset}: actual={actual!r} expected={expected!r}"
 
