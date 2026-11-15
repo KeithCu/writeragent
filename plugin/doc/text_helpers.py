@@ -32,6 +32,7 @@ from plugin.framework.errors import (
     DocumentDisposedError,
     UnoObjectError,
     best_effort,
+    is_disposal,
     reraise_if_disposed,
     uno_call,
     uno_read,
@@ -284,6 +285,66 @@ def selected_text_range(controller: Any) -> Any:
                 return rng
 
     return first_text_range
+
+
+_TEXT_RANGES_SERVICE = "com.sun.star.text.TextRanges"
+
+
+def _restorable_selection(selection: Any) -> Any:
+    """Return what to hand back to controller.select so the selection comes back unchanged.
+
+    Writer's ``SwXTextRanges`` container restores its own ``SwUnoCursor``
+    (``sw/source/core/unocore/unocrsrhelper.cxx`` ``GetSelectableFromAny``), which
+    stretches over text inserted at its end. Each item inside it is a mark-backed
+    ``SwXTextRange``, and bookmarks never grow over text inserted at their end
+    (``sw/source/core/txtnode/ndtxt.cxx`` ``SwTextNode::Update``). One non-collapsed
+    text range is restored from that range; a caret, several ranges, or an object
+    (frame, image, shape) is restored from the selection object itself so a caret
+    still moves with text inserted at it.
+    """
+    if not selection.supportsService(_TEXT_RANGES_SERVICE) or selection.getCount() != 1:
+        return selection
+    rng = selection.getByIndex(0)
+    if rng.getText().compareRegionStarts(rng.getStart(), rng.getEnd()) == 0:
+        return selection
+    return rng
+
+
+class KeepViewSelection:
+    """Put the view's selection back when the ``with`` body ends, whether or not it raised.
+
+    Implemented as a class rather than ``@contextmanager`` because pyuno turns an
+    exception re-raised from a generator context manager into a ``RuntimeException``
+    (see ``plugin.doc.compound_undo.UndoStepOrRollback``). A ``None`` controller
+    is a no-op.
+    """
+
+    def __init__(self, controller: Any) -> None:
+        self._controller: Any = controller
+        self._saved: Any = None
+
+    def __enter__(self) -> KeepViewSelection:
+        controller = self._controller
+        if controller is not None:
+            selection = uno_read(lambda: controller.getSelection(), None)
+            if selection is not None:
+                self._saved = uno_read(lambda: _restorable_selection(selection), selection)
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: Any,
+    ) -> None:
+        if self._saved is None:
+            return
+        try:
+            self._controller.select(self._saved)
+        except Exception as restore_exc:
+            if is_disposal(restore_exc):
+                raise
+            log.exception("could not restore the view selection")
 
 
 def starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
