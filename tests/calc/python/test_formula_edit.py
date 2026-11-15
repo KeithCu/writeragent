@@ -156,10 +156,28 @@ def test_non_python_returns_none():
             id="unquoted_py_unchanged",
         ),
         pytest.param(
+            '=PY(CONCAT("x = 1\\nresult = x"))',
+            '=PY(CONCAT("x = 1\\nresult = x"))',
+            None,
+            id="unquoted_py_with_backslash_n_unchanged",
+        ),
+        pytest.param(
             '=PY($A$1; C1:C10)',
             '=PY($A$1; C1:C10)',
             None,
             id="cell_ref_unchanged",
+        ),
+        pytest.param(
+            '=PY(A1;"a\\nb")',
+            '=PY(A1;"a\\nb")',
+            None,
+            id="cell_ref_with_backslash_n_unchanged",
+        ),
+        pytest.param(
+            '=PY("result = 1  # C:\\new")',
+            '=PY("result = 1  # C:\new")',
+            "result = 1  # C:\new",
+            id="trailing_comment_backslash_n_accepted_tradeoff",
         ),
     ],
 )
