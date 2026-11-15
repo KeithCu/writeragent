@@ -219,15 +219,89 @@ def test_move_slide_failure():
     assert out["status"] == "error"
 
 
+class _FakePages:
+    def __init__(self, names: list[str]) -> None:
+        from types import SimpleNamespace
+
+        self._pages = [SimpleNamespace(Name=name) for name in names]
+
+    def getCount(self) -> int:
+        return len(self._pages)
+
+    def getByIndex(self, idx: int) -> object:
+        return self._pages[idx]
+
+
 def test_move_slide_ok():
     ctx = _ctx()
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = _FakePages(["A", "B"])
         bridge.move_slide.return_value = True
         bridge.get_active_page_index.return_value = 1
         out = MoveSlide().execute(ctx, from_page=0, to_page=1)
     assert out["status"] == "ok"
+    assert out["to_page"] == 1
+    assert out["pages"] == [{"index": 0, "name": "A"}, {"index": 1, "name": "B"}]
     bridge.move_slide.assert_called_once_with(0, 1)
+
+
+@pytest.mark.parametrize(
+    ("from_page", "dest_kwargs", "expected_to"),
+    [
+        (3, {"before": "B"}, 1),
+        (0, {"after": "B"}, 1),
+        (0, {"before": "D"}, 2),
+        (1, {"after": "B"}, 1),
+    ],
+)
+def test_move_slide_before_and_after_named_slide(from_page, dest_kwargs, expected_to):
+    ctx = _ctx()
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = _FakePages(["A", "B", "C", "D"])
+        bridge.move_slide.return_value = True
+        bridge.get_active_page_index.return_value = expected_to
+        out = MoveSlide().execute(ctx, from_page=from_page, **dest_kwargs)
+    assert out["status"] == "ok"
+    assert out["to_page"] == expected_to
+    bridge.move_slide.assert_called_once_with(from_page, expected_to)
+
+
+@pytest.mark.parametrize(
+    "dest_kwargs",
+    [
+        {},
+        {"to_page": 1, "before": "B"},
+        {"before": "A", "after": "B"},
+    ],
+)
+def test_move_slide_needs_exactly_one_destination(dest_kwargs):
+    ctx = _ctx()
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        out = MoveSlide().execute(ctx, from_page=0, **dest_kwargs)
+    assert out["status"] == "error"
+    assert out["code"] == "INVALID_PARAM"
+    bridge.move_slide.assert_not_called()
+
+
+def test_move_slide_unknown_or_duplicate_slide_name():
+    ctx = _ctx()
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = _FakePages(["A", "B", "B"])
+
+        missing = MoveSlide().execute(ctx, from_page=0, before="Missing")
+        assert missing["status"] == "error"
+        assert missing["code"] == "INVALID_PARAM"
+        assert missing["details"]["available"] == ["A", "B", "B"]
+
+        dup = MoveSlide().execute(ctx, from_page=0, before="B")
+        assert dup["status"] == "error"
+        assert dup["code"] == "INVALID_PARAM"
+        assert "1, 2" in dup["message"]
+        bridge.move_slide.assert_not_called()
 
 
 def test_rename_slide_ok():
@@ -388,7 +462,7 @@ def test_add_slide_activate_false_does_not_switch():
     bridge.set_current_page_index.assert_not_called()
 
 
-def test_list_pages_uses_page_name():
+def test_list_pages_returns_index_and_name():
     ctx = _ctx()
     p0 = MagicMock()
     p0.Name = "Agenda"
@@ -406,7 +480,12 @@ def test_list_pages_uses_page_name():
         bridge.get_active_page_index.return_value = 0
         out = ListPages().execute(ctx)
     assert out["status"] == "ok"
-    assert out["pages"] == ["Agenda", "Page 1", "Page 2"]
+    assert out["count"] == 3
+    assert out["pages"] == [
+        {"index": 0, "name": "Agenda"},
+        {"index": 1, "name": ""},
+        {"index": 2, "name": ""},
+    ]
 
 
 def test_list_pages_reraises_dispose_from_name():

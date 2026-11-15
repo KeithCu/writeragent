@@ -937,7 +937,7 @@ class _DrawProxy:
         return call_host_tool("list_designs")
 
     def list_pages(self) -> dict[str, Any]:
-        """Lists all pages (slides). Each entry is that page's Name, or "Page N" when Name is missing or blank. The list position is the 0-based page index."""
+        """Lists pages (slides) in deck order as {index, name}; index is 0-based. A slide without its own name shows LibreOffice's default 'pageN' (N = 1-based position, so index 0 is 'page1'); that default changes when slides move. rename_slide gives a fixed name."""
         return call_host_tool("list_pages")
 
     def list_placeholders(self, *, page: int | None = None) -> dict[str, Any]:
@@ -948,14 +948,16 @@ class _DrawProxy:
         """
         return call_host_tool("list_placeholders", page=page)
 
-    def move_slide(self, from_page: int, to_page: int) -> dict[str, Any]:
-        """Moves a slide from from_page to to_page (both 0-based). to_page is the destination index after removal of the source (insert-at that index).
+    def move_slide(self, from_page: int, *, to_page: int | None = None, before: str | None = None, after: str | None = None) -> dict[str, Any]:
+        """Moves the slide at from_page (0-based). Give exactly one destination: to_page = the 0-based index the slide ends at, or before/after = the name of another slide from list_pages. Returns the final slide order.
 
         Args:
             from_page (required): 0-based source slide index.
-            to_page (required): 0-based destination slide index.
+            to_page (optional): 0-based destination slide index.
+            before (optional): Name of the slide to place this slide before (from list_pages).
+            after (optional): Name of the slide to place this slide after (from list_pages).
         """
-        return call_host_tool("move_slide", from_page=from_page, to_page=to_page)
+        return call_host_tool("move_slide", from_page=from_page, to_page=to_page, before=before, after=after)
 
     def read_slide_text(self, *, page: int | None = None) -> dict[str, Any]:
         """Read text from shapes on a slide (including grouped descendants and table cells as TSV) and speaker notes. Returns structured text per shape or table.
@@ -2011,7 +2013,7 @@ class _ShapeProxy:
         Args:
             action (required): Action to perform: 'create' a new shape, or 'edit' an existing one. One of: create, edit.
             index (optional): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
-            name (optional): Shape Name. Edit: look up by Name when index is omitted. Create: set the new shape's Name so later fills stay stable.
+            name (optional): Shape Name. Edit: look up by Name when index is omitted; with index, renames (must be unused on the page). Create: optional unique Name; when omitted a unique Name is assigned and returned as `name`.
             page (optional): 0-based page index (active page if omitted).
             shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
             x (optional): X position (100ths of mm) (required only for action='create').

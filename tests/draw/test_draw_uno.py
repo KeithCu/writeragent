@@ -512,6 +512,69 @@ def test_writer_star24_with_text_keeps_explicit_size(ctx, doc):
 
 
 @native_test
+@with_native_doc("impress", reuse=False)
+def test_list_pages_reports_lo_default_names(ctx, doc):
+    from plugin.draw.pages import AddSlide, ListPages
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    for _idx in range(2):
+        added = AddSlide().execute(tctx)
+        assert added.get("status") == "ok", added
+
+    out = ListPages().execute(tctx)
+    assert out.get("status") == "ok", out
+    assert out["pages"] == [
+        {"index": 0, "name": "page1"},
+        {"index": 1, "name": "page2"},
+        {"index": 2, "name": "page3"},
+    ]
+
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_move_slide_after_named_slide_reports_final_order(ctx, doc):
+    from plugin.draw.pages import AddSlide, MoveSlide, RenameSlide
+    from plugin.draw.shapes import UpsertShape
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    for _idx in range(2):
+        assert AddSlide().execute(tctx).get("status") == "ok"
+
+    for idx, title in enumerate(("Intro", "Body", "End")):
+        assert RenameSlide().execute(tctx, page=idx, name=title).get("status") == "ok"
+
+    assert (
+        UpsertShape()
+        .execute(
+            tctx,
+            action="create",
+            page=0,
+            shape_type="text",
+            x=1000,
+            y=1000,
+            width=4000,
+            height=1500,
+            text="Intro slide body",
+        )
+        .get("status")
+        == "ok"
+    )
+
+    out = MoveSlide().execute(tctx, from_page=0, after="End")
+    assert out.get("status") == "ok", out
+    assert out["to_page"] == 2
+    assert [p["name"] for p in out["pages"]] == ["Body", "End", "Intro"]
+
+    pages = doc.getDrawPages()
+    assert [pages.getByIndex(i).Name for i in range(pages.getCount())] == ["Body", "End", "Intro"]
+    moved_page = pages.getByIndex(2)
+    texts = [moved_page.getByIndex(i).getString() for i in range(moved_page.getCount()) if hasattr(moved_page.getByIndex(i), "getString")]
+    assert "Intro slide body" in texts
+
+
+@native_test
 @with_native_doc("draw")
 def test_insert_math_draw(ctx, doc):
     # Last Draw close in this file on Windows: close_doc of a Math OLE Draw
