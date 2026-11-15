@@ -70,7 +70,7 @@ def required_keys(schema: Any) -> list[Any]:
     return raw if isinstance(raw, list) else []
 
 
-def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any], extra_ok: Any = None) -> dict[str, Any]:
+def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Drop keys the schema does not declare.
 
     Returns *kwargs* unchanged when every key is allowed, so callers can
@@ -79,10 +79,9 @@ def without_unknown_kwargs(schema: Any, kwargs: dict[str, Any], extra_ok: Any = 
     props = call_properties(schema)
     if props is None:
         return kwargs
-    allowed = extra_ok or frozenset()
-    if all(key in props or key in allowed for key in kwargs):
+    if all(key in props for key in kwargs):
         return kwargs
-    return {key: value for key, value in kwargs.items() if key in props or key in allowed}
+    return {key: value for key, value in kwargs.items() if key in props}
 
 
 def _parameter_schema(tool: Any) -> tuple[str, dict[str, Any]] | None:

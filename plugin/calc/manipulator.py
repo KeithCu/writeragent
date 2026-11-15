@@ -28,13 +28,14 @@ import csv
 import io
 from itertools import chain
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard
 
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
     from com.sun.star.awt.FontSlant import ITALIC, NONE
     from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-    from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
+    from com.sun.star.table import BorderLineStyle, TableSortField
     from plugin.calc.python.diagnostics import DiagnosticEntry
     from plugin.calc.python.formula_edit import PyFormula
 else:
@@ -42,7 +43,7 @@ else:
         from com.sun.star.awt import FontWeight
         from com.sun.star.awt.FontSlant import ITALIC, NONE
         from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT, BLOCK, STANDARD
-        from com.sun.star.table import BorderLine, BorderLineStyle, TableSortField
+        from com.sun.star.table import BorderLineStyle, TableSortField
     except ImportError:
         pass
 
@@ -59,6 +60,7 @@ from plugin.calc.address_utils import (
 )
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
+from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
@@ -71,7 +73,7 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
-from plugin.framework.errors import CalcError, WriterAgentException, best_effort, is_disposal, suggest_call, uno_read
+from plugin.framework.errors import CalcError, Diagnostic, WriterAgentException, best_effort, is_disposal, suggest_call, uno_read
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_ctx
@@ -82,7 +84,13 @@ log = logging.getLogger("writeragent.calc")
 MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
+_MAX_REPORTED_CELLS = 10
+# Per-range write-report keys merged by multi-range callers.
+WRITE_REPORT_KEYS: tuple[str, ...] = ("error_cells", "text_that_looks_numeric", "apostrophe_removed", "warnings")
 _PY_PLACEMENT_SCAN_COLS = 26
+_BORDER_LINE_WIDTH = 50  # 1/100 mm
+# com.sun.star.util.NumberFormat type constants (offapi/com/sun/star/util/NumberFormat.idl).
+_NUMBER_FORMAT_PRESETS: dict[str, int] = {"general": 16, "currency": 8, "percent": 128}
 
 # Calc declares VertJustify as a long (sc/source/ui/unoobj/cellsuno.cxx,
 # SC_UNONAME_CELLVJUS). SvxVerJustifyItem::PutValue
@@ -92,11 +100,11 @@ _VERT_JUSTIFY: dict[str, int] = {"standard": 0, "top": 1, "center": 2, "bottom":
 
 
 class _CommitResult(NamedTuple):
-    formula_warning: str
     data_array: list[list[Any]]
     dest_categories: dict[tuple[int, int], str | None]
     categories: NumberFormatCategories
     cols_needing: dict[int, str]
+    py_warning: str
 
 
 class _CellWrite(NamedTuple):
@@ -204,6 +212,144 @@ def _write_summary(
 _WRITE_VALUES_CELL_ERR = (
     "Each cell in values must be string, number, boolean, or null; got {kind}."
 )
+
+_NUMBER_LIKE_RE = re.compile(
+    r"[+-]?[$€£¥]?\s?(?:\d{1,3}(?:[,.' \u00a0\u202f]\d{3})+(?:[.,]\d+)?|\d+[.,]\d+|\d+)\s?[%€$£¥]?"
+)
+_DATE_LIKE_RE = re.compile(
+    r"(?:\d{1,2}|\d{4})([./-])\d{1,2}\1(?:\d{2}|\d{4})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AaPp][Mm])?(?:Z|[+-]\d{2}:?\d{2})?)?"
+    r"|\d{1,2}:\d{2}(?::\d{2})?\s?[AaPp][Mm]"
+)
+
+
+def looks_numeric_text(text: str) -> bool:
+    """Return True if *text* matches a number-like or date/time-like shape.
+
+    These are shapes only, the same for every locale, and only emit warnings,
+    never convert values. Only plain numbers and ISO 8601 become values
+    (see ``_classify_write_cell``).
+    """
+    s = text.strip()
+    return bool(_NUMBER_LIKE_RE.fullmatch(s) or _DATE_LIKE_RE.fullmatch(s))
+
+
+def _apostrophe_only_dropped(rest: str) -> bool:
+    """Return True when a leading apostrophe protected nothing and was only stripped.
+
+    Calc strips one leading apostrophe on input (``ScColumn::ParseString`` in
+    ``sc/source/core/data/column3.cxx``), so the write does too. This reports
+    the cells where the apostrophe was not protecting a formula, doubled
+    apostrophe, ISO temporal/duration, numeric-looking text, or float.
+    """
+    if rest.startswith(("=", "'")):
+        return False
+    s = rest.strip()
+    if match_iso_temporal(s) or match_iso_duration(s) or looks_numeric_text(s):
+        return False
+    try:
+        float(rest)
+        return False
+    except ValueError:
+        return True
+
+
+def _text_write_notes(values: Sequence[Any], cell_metas: Sequence[_CellWrite]) -> tuple[list[int], list[int]]:
+    """Return flat indexes of text cells that look numeric and cells whose leading apostrophe was only dropped."""
+    numeric_idx: list[int] = []
+    apostrophe_idx: list[int] = []
+    for idx, (value, meta) in enumerate(zip(values, cell_metas)):
+        if not isinstance(value, str):
+            continue
+        if meta.kind == "text" and looks_numeric_text(value):
+            numeric_idx.append(idx)
+        elif meta.kind == "forced_text" and value.startswith("'") and _apostrophe_only_dropped(value[1:]):
+            apostrophe_idx.append(idx)
+    return numeric_idx, apostrophe_idx
+
+
+def _write_report(
+    sheet: Any,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    values: Sequence[Any],
+    cell_metas: Sequence[_CellWrite],
+    *,
+    scan_text: bool,
+) -> dict[str, Any]:
+    """Build optional error/text-note report keys and Diagnostic warnings for a committed write.
+
+    Errors are read after the whole range lands because reading ``cell.Error``
+    before later formula cells are set gives false errors on forward references,
+    and ``queryFormulaCells`` evaluates dirty cells so no recalc is needed.
+    Egress modes pass ``scan_text=False`` because they store text verbatim and
+    their callers ignore the result.
+    """
+    report: dict[str, Any] = {}
+    warnings: list[Diagnostic] = []
+
+    if any(m.kind == "formula" for m in cell_metas):
+        errors, total = formula_error_cells(
+            sheet,
+            sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1]),
+            limit=_MAX_REPORTED_CELLS,
+        )
+        if errors:
+            report["error_cells"] = [
+                {"address": e["address"], "error": e["error"]["code"], "formula": e["formula"]}
+                for e in errors
+            ]
+            warn_msg = (
+                f"{total} formula cell(s) show an error after the write "
+                f"(error_cells lists {'the first ' + str(len(errors)) if total > len(errors) else 'them'}). "
+                "A text label that starts with '=' must be written with a leading apostrophe ('=label). "
+                "Use error_detect on a cell for the cause."
+            )
+            # Calc's API grammar uses ';', and =SUM(1,2) gives 525, so a comma in a failing formula is the cue.
+            if any(e["error"]["error_code"] in (501, 508, 525) and "," in e["formula"] for e in errors):
+                warn_msg += " Calc separates function arguments with ';', not ','."
+            warnings.append({"code": "FORMULA_ERROR", "message": warn_msg})
+
+    if scan_text:
+        numeric_idx, apostrophe_idx = _text_write_notes(values, cell_metas)
+        if numeric_idx or apostrophe_idx:
+            sheet_name = str(sheet.getName())
+            num_cols = end[0] - start[0] + 1
+            if numeric_idx:
+                report["text_that_looks_numeric"] = [
+                    {
+                        "address": qualify_a1(sheet_name, format_address(start[0] + i % num_cols, start[1] + i // num_cols)),
+                        "value": values[i].strip(),
+                    }
+                    for i in numeric_idx[:_MAX_REPORTED_CELLS]
+                ]
+                warnings.append({
+                    "code": "TEXT_LOOKS_NUMERIC",
+                    "message": (
+                        f"{len(numeric_idx)} cell(s) look like a number or date but were stored as text "
+                        "(text_that_looks_numeric). Only plain numbers (1.5) and ISO dates (2026-08-05) "
+                        "become values; resend them that way if they must calculate, or leave them if they are labels."
+                    ),
+                })
+            if apostrophe_idx:
+                report["apostrophe_removed"] = [
+                    {
+                        "address": qualify_a1(sheet_name, format_address(start[0] + i % num_cols, start[1] + i // num_cols)),
+                        "value": cell_metas[i].data,
+                    }
+                    for i in apostrophe_idx[:_MAX_REPORTED_CELLS]
+                ]
+                warnings.append({
+                    "code": "APOSTROPHE_REMOVED",
+                    "message": (
+                        f"{len(apostrophe_idx)} cell(s) started with an apostrophe, which was removed as the "
+                        "force-text marker (apostrophe_removed). To keep a leading apostrophe in the text, "
+                        "double it (''90s)."
+                    ),
+                })
+
+    if warnings:
+        report["warnings"] = warnings
+    return report
 
 
 def _write_values_cell_ok(cell: Any) -> bool:
@@ -525,33 +671,39 @@ class CellManipulator:
                     arr_name = format_range(existing.StartColumn, existing.StartRow, existing.EndColumn, existing.EndRow)
                     raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
 
-    def _apply_borders(self, obj: Any, color: int) -> None:
-        """Apply borders to a cell or range object."""
+    def _apply_borders(self, obj: Any, mode: str, color: int) -> None:
+        """Apply or clear borders on a cell or range using ``TableBorder2``."""
+        import uno
 
-        def borders2() -> bool:
-            import uno
-            line = uno.createUnoStruct("com.sun.star.table.BorderLine2")
-            setattr(line, "Color", color)
-            setattr(line, "OuterLineWidth", 50)
-            setattr(line, "LineStyle", BorderLineStyle.SOLID)
-
-            obj.setPropertyValue("TopBorder2", line)
-            obj.setPropertyValue("BottomBorder2", line)
-            obj.setPropertyValue("LeftBorder2", line)
-            obj.setPropertyValue("RightBorder2", line)
-            return True
-
-        if uno_read(borders2, False):
-            return
-
-        line = BorderLine()
-        setattr(line, "Color", color)
-        line.OuterLineWidth = 50  # 1/100 mm; 50 == 0.5 mm
-
-        obj.setPropertyValue("TopBorder", line)
-        obj.setPropertyValue("BottomBorder", line)
-        obj.setPropertyValue("LeftBorder", line)
-        obj.setPropertyValue("RightBorder", line)
+        # Per-side TopBorder2/BottomBorder2/LeftBorder2/RightBorder2 on a range boxes every cell
+        # (cellsuno.cxx comment above lcl_GetCellsPropertySet), whereas TableBorder2 separates the
+        # outer frame from inner grid lines (ScHelperFunctions::FillBoxItems). Setting Is*LineValid=True
+        # with an empty BorderLine2 removes that line.
+        line = uno.createUnoStruct(
+            "com.sun.star.table.BorderLine2",
+            Color=color,
+            OuterLineWidth=_BORDER_LINE_WIDTH,
+            LineStyle=BorderLineStyle.SOLID,
+        )
+        empty = uno.createUnoStruct("com.sun.star.table.BorderLine2")
+        outer = line if mode in ("all", "outline") else empty
+        inner = line if mode in ("all", "inner") else empty
+        tb = uno.createUnoStruct(
+            "com.sun.star.table.TableBorder2",
+            TopLine=outer,
+            BottomLine=outer,
+            LeftLine=outer,
+            RightLine=outer,
+            HorizontalLine=inner,
+            VerticalLine=inner,
+            IsTopLineValid=True,
+            IsBottomLineValid=True,
+            IsLeftLineValid=True,
+            IsRightLineValid=True,
+            IsHorizontalLineValid=True,
+            IsVerticalLineValid=True,
+        )
+        obj.setPropertyValue("TableBorder2", tb)
 
     # ── Style operations ───────────────────────────────────────────────
 
@@ -567,9 +719,13 @@ class CellManipulator:
         v_align: str | None = None,
         wrap_text: bool | None = None,
         border_color: int | None = None,
-        number_format: str | None = None,
+        border_mode: str | None = None,
+        number_format_key: int | None = None,
+        column_width: int | None = None,
+        row_height: int | None = None,
+        autofit: str | None = None,
     ) -> None:
-        """Apply style to a cell or range.
+        """Apply style and layout to a cell or range.
 
         Args:
             address_or_range: Cell address, range, or named range (e.g. "A1", "A1:D10", or "Totals").
@@ -582,7 +738,11 @@ class CellManipulator:
             v_align: Vertical alignment ("top", "center", "bottom").
             wrap_text: Wrap text flag.
             border_color: Border colour (RGB int).
-            number_format: Number format string (e.g. "#,##0.00").
+            border_mode: Border mode ("all", "outline", "inner", "none").
+            number_format_key: Resolved Calc NumberFormat key.
+            column_width: Column width in 1/100 mm.
+            row_height: Row height in 1/100 mm.
+            autofit: Autofit mode ("columns", "rows", "both").
         """
         target = self.bridge.resolve_range_or_address(address_or_range)
         if bold is not None:
@@ -605,20 +765,48 @@ class CellManipulator:
                 target.setPropertyValue("VertJustify", vert)
         if wrap_text is not None:
             target.setPropertyValue("IsTextWrapped", wrap_text)
-        if border_color is not None:
-            self._apply_borders(target, border_color)
-        if number_format:
-            self._set_number_format(target, number_format)
+        if border_mode is not None:
+            self._apply_borders(target, border_mode, 0 if border_color is None else border_color)
+        if number_format_key is not None:
+            target.setPropertyValue("NumberFormat", number_format_key)
+        # Apply layout last so autofit measures the final font, wrap, and number format.
+        # Setting Width/Height or OptimalWidth/OptimalHeight on the column/row collection
+        # records an undo step; OptimalWidth=False has no effect (docuno.cxx
+        # ScTableColumnsObj::setPropertyValue).
+        if column_width is not None:
+            target.getColumns().setPropertyValue("Width", column_width)
+        elif autofit in ("columns", "both"):
+            target.getColumns().setPropertyValue("OptimalWidth", True)
+        if row_height is not None:
+            target.getRows().setPropertyValue("Height", row_height)
+        elif autofit in ("rows", "both"):
+            target.getRows().setPropertyValue("OptimalHeight", True)
         log.info("%s style updated.", address_or_range.upper())
 
-    def _set_number_format(self, target: Any, format_str: str) -> None:
+    def number_format_key(self, format_str: str) -> int:
+        """Resolve a preset name or en-US format code to a document NumberFormat key."""
+        import uno
+        from com.sun.star.util import MalformedNumberFormatException
+
         doc = self.bridge.doc
         formats = doc.getNumberFormats()
         locale = resolve_document_locale(doc)
-        format_id = formats.queryKey(format_str, locale, False)
-        if format_id == -1:
-            format_id = formats.addNew(format_str, locale)
-        target.setPropertyValue("NumberFormat", format_id)
+        preset = _NUMBER_FORMAT_PRESETS.get(format_str.strip().lower())
+        if preset is not None:
+            # Presets match LibreOffice's toolbar buttons (viewfunc.cxx ScViewFunc::SetNumberFormat);
+            # getFormatIndex currency indices return legacy DM/F codes. "general" is a preset
+            # because addNewConverted("General") throws when General is key 0 (numfmuno.cxx).
+            return int(formats.getStandardFormat(preset, locale))
+        en_us = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
+        try:
+            # Format codes are parsed as en-US and converted to the document locale (matching oox
+            # numberformatsbuffer.cxx lclCreateFormat) so "#,##0.00" is not garbled in e.g. de-DE.
+            return int(formats.addNewConverted(format_str, en_us, locale))
+        except MalformedNumberFormatException:
+            raise CalcError(
+                f"Invalid number_format {format_str!r}: use currency, percent, general, or an en-US code such as '#,##0.00'.",
+                code="INVALID_PARAM",
+            ) from None
 
     # ── Range operations ───────────────────────────────────────────────
 
@@ -989,26 +1177,27 @@ class CellManipulator:
         for col, row, key in s29_snapshots:
             sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
 
-        formula_warning = ""
+        # Non-=PY formula errors are scanned post-write in _write_report so forward references evaluate first.
+        # =PY() errors and #SPILL! still compare diagnostics before and after setFormula here.
+        py_warning = ""
         for col, row, formula in formula_cells:
             cell = sheet.getCellByPosition(col, row)
-            parts = py_formula_or_none(formula) if not formula_warning else None
+            parts = py_formula_or_none(formula) if not py_warning else None
             prior = _latest_py_diagnostic(self.bridge.doc, parts) if parts is not None else None
             cell.setFormula(formula)
-            if not formula_warning:
+            if parts is not None and not py_warning:
                 err = int(cell.Error)
                 if err != 0:
-                    hint = " (hint: Calc uses ';' as the argument separator)" if err in (508, 525, 501) else ""
-                    detail = _py_run_detail(self.bridge.doc, parts, prior) if parts is not None else ""
-                    formula_warning = f"; warning: formula gives Err:{err}{hint}{detail}"
-                elif parts is not None and cell.getString() == "#SPILL!":
                     detail = _py_run_detail(self.bridge.doc, parts, prior)
-                    formula_warning = f"; warning: {format_address(col, row)} shows #SPILL!{detail}"
+                    py_warning = f"; warning: formula gives Err:{err}{detail}"
+                elif cell.getString() == "#SPILL!":
+                    detail = _py_run_detail(self.bridge.doc, parts, prior)
+                    py_warning = f"; warning: {format_address(col, row)} shows #SPILL!{detail}"
 
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
 
-        return _CommitResult(formula_warning, data_array, dest_categories, categories, cols_needing)
+        return _CommitResult(data_array, dest_categories, categories, cols_needing, py_warning)
 
     def apply_temporal_formats(
         self,
@@ -1317,12 +1506,22 @@ class CellManipulator:
             msg = _write_summary(
                 range_str,
                 cell_metas,
-                format_warning + committed.formula_warning,
+                format_warning + committed.py_warning,
                 expand_overwrite_warning,
             )
 
             log.info("%s", msg)
-            return {"message": msg}
+            return {
+                "message": msg,
+                **_write_report(
+                    sheet,
+                    start,
+                    end,
+                    values,
+                    cell_metas,
+                    scan_text=not literal_text and not data_text,
+                ),
+            }
 
     def write_formula_range(
         self,
@@ -1356,7 +1555,10 @@ class CellManipulator:
                 ``setString``; everything else is classified as usual.
 
         Returns:
-            A dict with ``message``; an array formula adds ``array_range`` / ``rows`` / ``cols`` / ``preview``.
+            A dict with ``message``, plus optional ``error_cells``,
+            ``text_that_looks_numeric``, ``apostrophe_removed``, and
+            ``warnings`` when applicable; an array formula adds
+            ``array_range`` / ``rows`` / ``cols`` / ``preview``.
         """
         return self.commit_write(
             self.plan_write(

@@ -309,7 +309,6 @@ class ToolBase(_ToolErrorMixin, ABC):
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
-    scripting_only_parameters: frozenset[str] = frozenset()
 
     def detects_mutation(self) -> bool:
         """Return True if the tool mutates the document."""
@@ -346,18 +345,15 @@ class ToolBase(_ToolErrorMixin, ABC):
         for key in required_keys(schema):
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
-        extra_ok = self.scripting_only_parameters or frozenset()
-        # scripting_only_parameters stay allowed here because validate has no caller;
-        # _execute_impl drops them unless caller == "script" before this method runs;
-        # empty properties {} is a closed schema, not "accept any kwargs".
+        # Empty properties {} is a closed schema, not "accept any kwargs".
         props_dict = call_properties(schema)
         if props_dict is not None:
             for key in kwargs:
-                if key not in props_dict and key not in extra_ok:
+                if key not in props_dict:
                     return False, f"Unknown parameter: {key}"
             for key, value in kwargs.items():
                 prop = props_dict.get(key)
-                if not isinstance(prop, dict) or key in extra_ok:
+                if not isinstance(prop, dict):
                     continue
                 enum = prop.get("enum")
                 if isinstance(enum, list) and enum and value not in enum:
@@ -551,18 +547,13 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     """
     # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
     # from API/LLM) do not cause "Unknown parameter" validation errors.
-    # scripting_only_parameters (e.g. set_style number_format) are only kept
-    # for scripting callers — chat/MCP models must not apply hidden parameters
-    # from training memory when the property was removed from the schema
-    # (see docs/calc/date-time-handling.md S26).
     kwargs = dict(tool_kwargs)
     doc_type = getattr(ctx, "doc_type", None)
     caller = getattr(ctx, "caller", None)
 
     schema = tool.get_parameters(doc_type) or {}
     props = call_properties(schema) or {}
-    extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if caller == "script" else frozenset()
-    kept = without_unknown_kwargs(schema, kwargs, extra_ok)
+    kept = without_unknown_kwargs(schema, kwargs)
     ignored: list[str] = sorted(k for k in tool_kwargs if k not in kept)
     kwargs = kept
 

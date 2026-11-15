@@ -37,7 +37,7 @@ from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
-from plugin.calc.manipulator import CellManipulator
+from plugin.calc.manipulator import WRITE_REPORT_KEYS, CellManipulator
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
@@ -97,7 +97,8 @@ def _parse_structure_start(
     return None, sheet_prefix, 'start for columns must be a column letter (for example "C")'
 
 
-def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
+def opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
+    """Parse an optional color parameter from *kwargs* into a UNO RGB int or error message."""
     raw = kwargs.get(key)
     if raw is None or raw.strip() == "":
         return None, None
@@ -558,11 +559,28 @@ class WriteCellRange(ToolBase):
             return plan
 
         def _format_write(results: list[Any]) -> dict[str, Any]:
+            # Merge per-range write reports so multi-range writes do not
+            # drop error_cells, numeric-text, apostrophe, or warning details.
+            # Deduplicate exact-matching warnings so identical advice across
+            # ranges collapses while different advice or counts survive.
+            merged: dict[str, list[Any]] = {}
+            for res in results:
+                for key in WRITE_REPORT_KEYS:
+                    if key not in res:
+                        continue
+                    items = res.pop(key)
+                    dest = merged.setdefault(key, [])
+                    if key == "warnings":
+                        for warn in items:
+                            if warn not in dest:
+                                dest.append(warn)
+                    else:
+                        dest.extend(items)
             message = f"Wrote to {len(rn)} ranges"
             if any("array_range" in res for res in results):
                 ranges_payload = [{"range": r, **res} for r, res in zip(rn, results)]
-                return make_tool_ok(message=message, ranges=ranges_payload)
-            return make_tool_ok(message=message)
+                return make_tool_ok(message=message, ranges=ranges_payload, **merged)
+            return make_tool_ok(message=message, **merged)
 
         return _mutate_ranges(
             self,
@@ -583,7 +601,7 @@ class InsertCellHtml(ToolBase):
         "Parses HTML with the same filter as Writer and pastes rich text into one cell "
         "(e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) "
         "selects that sheet; otherwise the active sheet. Does not support images or embedded objects. "
-        "Clears existing cell text. Use set_style for table-wide borders."
+        "Clears existing cell text. Use set_style (border_color, border_mode) for borders."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -636,25 +654,62 @@ class SetCellStyle(ToolBase):
             "h_align": {"type": "string", "enum": ["left", "center", "right", "justify"], "description": "Horizontal alignment"},
             "v_align": {"type": "string", "enum": ["top", "center", "bottom"], "description": "Vertical alignment"},
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
-            "border_color": {"type": "string", "description": ("Border color (hex or name). Draws a frame around the cell/range.")},
+            "border_color": {"type": "string", "description": "Border line color (hex or name). Used by border_mode; black when border_mode is given without a color."},
+            "border_mode": {
+                "type": "string",
+                "enum": ["all", "outline", "inner", "none"],
+                "description": "all = every cell boxed (default when border_color is given); outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders.",
+            },
+            "number_format": {
+                "type": "string",
+                "description": 'Preset "currency" (the document currency), "percent", or "general" (clear), or an Excel-style en-US format code such as "#,##0.00", "0.0%" or "YYYY-MM-DD" (converted to the document locale). Date/time writes already get a format; set one only when the user asks for a different look.',
+            },
+            "column_width_mm": {"type": "number", "description": "Width of every column the range touches, in millimetres (> 0)."},
+            "row_height_mm": {"type": "number", "description": "Height of every row the range touches, in millimetres (> 0)."},
+            "autofit": {
+                "type": "string",
+                "enum": ["columns", "rows", "both"],
+                "description": "Fit whole-column widths and/or row heights to content. Cannot be combined with column_width_mm (columns) or row_height_mm (rows).",
+            },
         },
         "required": ["range"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
-    # Kept for scripting API / in-process callers; omitted from LLM schema so models cannot
-    # casually rewrite NumberFormat via set_style (see docs/calc/date-time-handling.md S26).
-    scripting_only_parameters: frozenset[str] = frozenset({"number_format"})
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
         style_kwargs: dict[str, Any] = {}
         for key in ("bg_color", "font_color", "border_color"):
-            color_val, err = _opt_color(kwargs, key)
+            color_val, err = opt_color(kwargs, key)
             if err:
                 return self._tool_error(err, code="INVALID_PARAM")
             style_kwargs[key] = color_val
+
+        border_mode = kwargs.get("border_mode")
+        if border_mode == "none" and style_kwargs["border_color"] is not None:
+            return self._tool_error("border_color has no effect with border_mode='none'.", code="INVALID_PARAM")
+        if border_mode is None and style_kwargs["border_color"] is not None:
+            border_mode = "all"
+        style_kwargs["border_mode"] = border_mode
+
+        for param_name, target_key in (("column_width_mm", "column_width"), ("row_height_mm", "row_height")):
+            raw_mm = kwargs.get(param_name)
+            if raw_mm is not None:
+                mm = float(raw_mm)
+                if mm <= 0:
+                    return self._tool_error(f"{param_name} must be greater than 0.", code="INVALID_PARAM")
+                style_kwargs[target_key] = round(mm * 100)
+            else:
+                style_kwargs[target_key] = None
+
+        autofit = kwargs.get("autofit")
+        if autofit in ("columns", "both") and style_kwargs["column_width"] is not None:
+            return self._tool_error("autofit cannot be combined with column_width_mm.", code="INVALID_PARAM")
+        if autofit in ("rows", "both") and style_kwargs["row_height"] is not None:
+            return self._tool_error("autofit cannot be combined with row_height_mm.", code="INVALID_PARAM")
+        style_kwargs["autofit"] = autofit
 
         for key in ("bold", "italic", "wrap_text", "h_align", "v_align"):
             style_kwargs[key] = kwargs.get(key)
@@ -662,14 +717,11 @@ class SetCellStyle(ToolBase):
         font_size = kwargs.get("font_size")
         style_kwargs["font_size"] = None if font_size is None else float(font_size)
 
-        # number_format is scripting-only and has no schema entry, so the validator never type-checks it.
-        raw_fmt = kwargs.get("number_format")
-        if raw_fmt is not None and not isinstance(raw_fmt, str):
-            return self._tool_error(f"number_format must be a string, got {type(raw_fmt).__name__}", code="INVALID_PARAM")
-        style_kwargs["number_format"] = raw_fmt if raw_fmt and raw_fmt.strip() else None
-
         if len(rn) == 0:
             return self._tool_error("range is required", code="INVALID_PARAM")
+
+        raw_fmt = kwargs.get("number_format")
+        style_kwargs["number_format_key"] = manipulator.number_format_key(raw_fmt) if raw_fmt and raw_fmt.strip() else None
 
         # Reject style calls where every property is None—empty mutations create useless undo steps.
         if all(v is None for v in style_kwargs.values()):

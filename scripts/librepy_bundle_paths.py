@@ -67,6 +67,8 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/calc/address_utils.py",
     "plugin/calc/calc_utils.py",
     "plugin/calc/manipulator.py",
+    "plugin/calc/error_detector.py",
+    "plugin/calc/formula_dep_chain.py",
     "plugin/calc/array_formula.py",
     "plugin/calc/formula_fill.py",
     "plugin/calc/datetime_wire.py",

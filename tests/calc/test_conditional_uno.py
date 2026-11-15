@@ -119,3 +119,49 @@ def test_calc_conditional_formula_source_position(ctx, doc):
     assert len(rules) == 1
     assert rules[0]["operator"] == "FORMULA"
     assert rules[0]["formula1"] == "C5>100"
+
+
+@native_test
+@with_native_doc("calc")
+def test_conditional_formatting_inline_style(ctx, doc):
+    from com.sun.star.awt import FontWeight
+
+    _execute_calc_tool(doc, ctx, "write_formula_range", {
+        "range": ["C1:C3"],
+        "values": [[10], [200], [50]],
+    })
+    res1 = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
+        "range": ["C1:C3"],
+        "operator": "GREATER",
+        "formula1": "100",
+        "bg_color": "red",
+        "bold": True,
+    })
+    assert res1.get("status") == "ok", res1
+    assert res1.get("style") == "WA CF bg #FF0000 bold"
+    assert res1.get("style_created") is True
+
+    cell_styles = doc.getStyleFamilies().getByName("CellStyles")
+    assert cell_styles.hasByName("WA CF bg #FF0000 bold")
+    st = cell_styles.getByName("WA CF bg #FF0000 bold")
+    assert st.getPropertyValue("Hidden") is True
+    assert int(st.getPropertyValue("CellBackColor")) == 0xFF0000
+    assert st.getPropertyValue("CharWeight") == FontWeight.BOLD
+
+    res_list = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["C1:C3"]})
+    rules = res_list.get("rules", [])
+    assert len(rules) == 1
+    assert rules[0]["style"] == "WA CF bg #FF0000 bold"
+
+    res2 = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
+        "range": ["C1:C3"],
+        "operator": "LESS",
+        "formula1": "20",
+        "bg_color": "red",
+        "bold": True,
+    })
+    assert res2.get("status") == "ok", res2
+    assert res2.get("style") == "WA CF bg #FF0000 bold"
+    assert res2.get("style_created") is False
+    wa_cf_names = [n for n in cell_styles.getElementNames() if n.startswith("WA CF")]
+    assert wa_cf_names == ["WA CF bg #FF0000 bold"]

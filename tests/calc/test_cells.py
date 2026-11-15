@@ -1768,7 +1768,48 @@ def test_set_cell_style_validation():
         manipulator.reset_mock()
         res_fmt = _tool("set_style").execute_safe(ctx, range=["A1"], number_format="#,##0.00 ")
         assert res_fmt["status"] == "ok"
-        assert manipulator.set_cell_style.call_args.kwargs["number_format"] == "#,##0.00 "
+        assert manipulator.set_cell_style.call_args.kwargs["number_format_key"] is manipulator.number_format_key.return_value
+
+
+def test_set_style_border_mode_none_with_color_is_refused():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = _tool("set_style").execute_safe(ctx, range=["A1:B2"], border_mode="none", border_color="red")
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+
+def test_set_style_border_color_alone_draws_all():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = _tool("set_style").execute_safe(ctx, range=["A1:B2"], border_color="#112233")
+        assert res["status"] == "ok"
+        assert manipulator.set_cell_style.call_args.kwargs["border_mode"] == "all"
+        assert manipulator.set_cell_style.call_args.kwargs["border_color"] == 0x112233
+
+
+def test_set_style_layout_validation():
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+
+        res_zero = _tool("set_style").execute_safe(ctx, range=["A1"], column_width_mm=0)
+        assert res_zero["status"] == "error"
+        assert res_zero["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+        res_conflict = _tool("set_style").execute_safe(ctx, range=["A1"], autofit="both", row_height_mm=10)
+        assert res_conflict["status"] == "error"
+        assert res_conflict["code"] == "INVALID_PARAM"
+        manipulator.set_cell_style.assert_not_called()
+
+        res_ok = _tool("set_style").execute_safe(ctx, range=["A1"], autofit="rows", column_width_mm=15)
+        assert res_ok["status"] == "ok"
+        assert manipulator.set_cell_style.call_args.kwargs["column_width"] == 1500
+        assert manipulator.set_cell_style.call_args.kwargs["autofit"] == "rows"
 
 
 def test_merge_cells_validation():
@@ -2099,3 +2140,51 @@ def test_cells_registry_refuses_bad_args_as_invalid_param():
     assert res_write["code"] == "INVALID_PARAM"
     mock_manip.return_value.plan_write.assert_not_called()
 
+
+def test_write_cell_range_multi_range_merges_write_reports():
+    ctx = SimpleNamespace(doc=MagicMock())
+    res1 = {
+        "message": "Range J1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.J1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    res2 = {
+        "message": "Range K1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.K1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = [res1, res2]
+        res = _tool("write_formula_range").execute_safe(ctx, range=["J1", "K1"], values="=SUMM(1)")
+
+    assert res["status"] == "ok"
+    assert len(res["error_cells"]) == 2
+    assert len(res["warnings"]) == 1
+    assert "ranges" not in res
+
+
+def test_write_cell_range_multi_range_keeps_distinct_warning_messages():
+    ctx = SimpleNamespace(doc=MagicMock())
+    res1 = {
+        "message": "Range A1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.A1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s) show an error."}],
+    }
+    res2 = {
+        "message": "Range B1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.B1", "error": "#NAME?", "formula": "=SUM(1,2)"}],
+        "warnings": [
+            {
+                "code": "FORMULA_ERROR",
+                "message": "1 formula cell(s) show an error. Calc separates function arguments with ';', not ','.",
+            }
+        ],
+    }
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = [res1, res2]
+        res = _tool("write_formula_range").execute_safe(ctx, range=["A1", "B1"], values="=SUMM(1)")
+
+    assert res["status"] == "ok"
+    assert len(res["error_cells"]) == 2
+    assert len(res["warnings"]) == 2
+    assert "Calc separates function arguments with ';', not ','." in res["warnings"][1]["message"]
