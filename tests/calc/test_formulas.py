@@ -18,7 +18,7 @@ def _identity_formula_dialects(monkeypatch):
         def __init__(self, _doc):
             pass
 
-        def to_api(self, text: str, _pos=None, *, sheet=None) -> str:
+        def to_api(self, text: str, _pos=None) -> str:
             return text
 
     monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _IdentityDialects)
@@ -95,6 +95,11 @@ class _EvalSheet:
 
     def getName(self) -> str:
         return self.name
+
+    def getRangeAddress(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
 
     def getCellByPosition(self, col: int, row: int) -> _EvalCell:
         self.positions.append((col, row))
@@ -450,7 +455,7 @@ def test_evaluate_formula_writes_calc_grammar(monkeypatch):
         def __init__(self, _doc):
             pass
 
-        def to_api(self, text: str, _pos=None, *, sheet=None) -> str:
+        def to_api(self, text: str, _pos=None) -> str:
             return "=SUM(A1;B1)" if text == "=SUM(A1,B1)" else text
 
     monkeypatch.setattr("plugin.calc.formulas.FormulaDialects", _MappedDialects)

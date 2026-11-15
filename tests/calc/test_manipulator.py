@@ -1138,7 +1138,7 @@ class _FakeDialects:
         self._mapping = mapping
         self.calls: list[str] = []
 
-    def to_api(self, text: str, _pos=None, *, sheet: int | None = None) -> str:
+    def to_api(self, text: str, _pos=None) -> str:
         self.calls.append(text)
         return self._mapping.get(text, text)
 
@@ -1147,7 +1147,7 @@ def test_plan_write_hands_formulas_to_calc_grammar() -> None:
     sheet = MagicMock()
     cell_range = MagicMock()
     cell_range.getSpreadsheet.return_value = sheet
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+    cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
 
     bridge = MagicMock(doc=MagicMock())
     bridge.resolve_range_or_address.return_value = cell_range
@@ -1159,12 +1159,12 @@ def test_plan_write_hands_formulas_to_calc_grammar() -> None:
         assert plan.values == ["=$Orders.A1*2"]
         assert plan.notes == ()
 
-        cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=1, EndRow=1)
+        cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=1, EndRow=1)
         list_plan = manipulator.plan_write("A1:B2", [["=SUM(A1,B1)", "plain, text"], ["=Orders!A1*2", 42]])
         assert list_plan.values == ["=SUM(A1;B1)", "plain, text", "=$Orders.A1*2", 42]
         assert list_plan.notes == ()
 
-        cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+        cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
         data_txt = manipulator.plan_write("A1", "=Orders!A1*2", data_text=True)
         assert data_txt.values == ["=Orders!A1*2"]
         assert data_txt.notes == ()
@@ -1181,7 +1181,7 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     sheet.getName.return_value = "Sheet1"
     cell_range = MagicMock()
     cell_range.getSpreadsheet.return_value = sheet
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=3)
+    cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=2, StartRow=1, EndColumn=2, EndRow=3)
 
     bridge = MagicMock(doc=MagicMock())
     bridge.resolve_range_or_address.return_value = cell_range
@@ -1202,7 +1202,7 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     assert pinned.values == ["=B1", "=B1", "=B1"]
     assert pinned.notes == ()
 
-    cell_range.getRangeAddress.return_value = SimpleNamespace(StartColumn=2, StartRow=1, EndColumn=2, EndRow=1)
+    cell_range.getRangeAddress.return_value = SimpleNamespace(Sheet=0, StartColumn=2, StartRow=1, EndColumn=2, EndRow=1)
     expanded = manipulator.plan_write("C2", [["=B2*2"]] * 3)
     assert expanded.range_str == "C2:C4"
     assert expanded.values == ["=B2*2", "=B2*2", "=B2*2"]

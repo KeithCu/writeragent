@@ -138,27 +138,20 @@ class FormulaDialects:
         tokens = parser.parseFormula(text, pos)
         return accepted([int(t.OpCode) for t in tokens], self._bad, self._array_open, self._array_seps)
 
-    def to_api(self, text: str, pos: Any = None, *, sheet: int | None = None) -> str:
+    def to_api(self, text: str, pos: Any = None) -> str:
         """Return *text* in Calc's API grammar if an Excel dialect parses cleanly.
 
         Returns *text* unchanged if it already parses in Calc API grammar, does
         not need a dialect check, or fails to parse cleanly in every fallback
         grammar (so Calc reports its normal cell error on write).
 
-        *pos* (a ``CellAddress``) or *sheet* sets the reference scope used for
+        *pos* (a ``CellAddress``) sets the reference scope used for
         sheet-local named ranges.
         """
         if not needs_dialect_check(text):
             return text
         self._ensure_parsers()
-        if pos is not None:
-            ref_pos = pos
-        elif sheet is not None:
-            addr: Any = uno.createUnoStruct("com.sun.star.table.CellAddress")
-            addr.Sheet = sheet
-            ref_pos = addr
-        else:
-            ref_pos = self._default_pos
+        ref_pos = pos if pos is not None else self._default_pos
         if self._clean(self._api, text, ref_pos):
             return text
         for parser, candidate in ((self._excel, strip_xlfn(text)), (self._excel_refs, text)):

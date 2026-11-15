@@ -34,6 +34,8 @@ from plugin.framework.constants import now_aware
 import logging
 from typing import TYPE_CHECKING, Any
 
+from com.sun.star.table import CellAddress
+
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
 from plugin.calc.bridge import CalcBridge
@@ -196,13 +198,16 @@ class EvaluateFormula(ToolCalcErrorBase):
         if not doc:
             raise ToolExecutionError("Document model not available.")
 
-        formula_string = FormulaDialects(doc).to_api(formula_string)
-
         sheets = doc.getSheets()
 
         # Resolve the active sheet to copy from
         active_sheet = CalcBridge(doc).get_active_sheet()
         active_name = active_sheet.getName()
+        ref_pos = CellAddress()
+        ref_pos.Sheet = active_sheet.getRangeAddress().Sheet
+        ref_pos.Column = col
+        ref_pos.Row = row
+        formula_string = FormulaDialects(doc).to_api(formula_string, ref_pos)
 
         # Ensure name uniqueness
         counter = 0
