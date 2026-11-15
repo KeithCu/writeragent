@@ -174,10 +174,28 @@ def test_non_python_returns_none():
             id="cell_ref_with_backslash_n_unchanged",
         ),
         pytest.param(
-            '=PY("result = 1  # C:\\new")',
-            '=PY("result = 1  # C:\new")',
-            "result = 1  # C:\new",
+            '=PY("result = 1  # a\\nb")',
+            '=PY("result = 1  # a\nb")',
+            "result = 1  # a\nb",
             id="trailing_comment_backslash_n_accepted_tradeoff",
+        ),
+        pytest.param(
+            '=PY("result = 1  # C:\\new")',
+            '=PY("result = 1  # C:\\new")',
+            "result = 1  # C:\\new",
+            id="comment_drive_path_kept",
+        ),
+        pytest.param(
+            '=PY("# C:\\names\\nresult = 1")',
+            '=PY("# C:\\names\nresult = 1")',
+            "# C:\\names\nresult = 1",
+            id="comment_drive_path_before_line_break",
+        ),
+        pytest.param(
+            '=PY("result = 1  # C:\\names\\nresult = result + 1")',
+            '=PY("result = 1  # C:\\names\nresult = result + 1")',
+            "result = 1  # C:\\names\nresult = result + 1",
+            id="trailing_comment_drive_path_before_line_break",
         ),
     ],
 )

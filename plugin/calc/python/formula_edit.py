@@ -528,13 +528,20 @@ def _python_parses(code: str) -> bool:
     return True
 
 
+def _is_break_escape(code: str, idx: int) -> bool:
+    """Return True when *code* has a literal ``\\n`` at *idx* not preceded by ``:``."""
+    return code.startswith("\\n", idx) and (idx == 0 or code[idx - 1] != ":")
+
+
 def _newline_escapes_to_breaks(code: str) -> str:
     # crosshair: off
     """Convert literal ``\\n`` outside Python string literals into real newlines.
 
     Scans three states:
-    - Outside strings/comments: a literal ``\\n`` becomes a real newline.
-    - Comments (``#``): copied verbatim until a real newline or the next ``\\n``.
+    - Outside strings/comments: a literal ``\\n`` not preceded by ``:`` becomes
+      a real newline.
+    - Comments (``#``): copied verbatim until a real newline or the next ``\\n``
+      not preceded by ``:``.
     - String literals (single or triple quoted): copied verbatim so Python escapes
       such as ``"a\\nb"`` stay intact.
     """
@@ -542,15 +549,16 @@ def _newline_escapes_to_breaks(code: str) -> str:
     i, n = 0, len(code)
     while i < n:
         ch = code[i]
-        if ch == "\\" and code.startswith("n", i + 1):
-            # Outside a string a backslash-n is the line break the model meant.
+        if _is_break_escape(code, i):
+            # Outside a string a backslash-n is the line break the model meant,
+            # unless preceded by ':' (e.g. a Windows drive path like C:\names).
             out.append("\n")
             i += 2
             continue
         if ch == "#":
-            # A comment ends at a real newline or at the next backslash-n.
+            # A comment ends at a real newline or at the next break escape.
             j = i
-            while j < n and code[j] != "\n" and not code.startswith("\\n", j):
+            while j < n and code[j] != "\n" and not _is_break_escape(code, j):
                 j += 1
             out.append(code[i:j])
             i = j
