@@ -14,20 +14,17 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer section tools (sections domain, specialized tier).
-
-Read-only section inspection (`section_list`, `section_read`) lives in
-``plugin.writer.structural``.
-"""
+"""Writer section tools (sections domain, specialized tier)."""
 
 from __future__ import annotations
 
 import math
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.text_helpers import get_string_without_tracked_deletions, iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import mm_to_unit
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, name_miss_details
 
 from ..edit_review import flag_style_unreviewed
 from ..page import apply_column_layout
@@ -150,6 +147,98 @@ def _commit(
     payload = result if isinstance(result, dict) else result()
     flag_style_unreviewed(payload)
     return payload
+
+
+class SectionList(ToolWriterSectionBase):
+    """List all named text sections in the document with mutability/layout flags."""
+
+    name: str | None = "section_list"
+    description: str = "List all named sections in the document."
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+    is_mutation: bool | None = False
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        doc = ctx.doc
+        supplier = doc.getTextSections()
+        names = supplier.getElementNames()
+        sections = []
+        for name in names:
+            section = supplier.getByName(name)
+            is_index = section.getPropertyValue("DocumentIndex") is not None
+            prot_key = section.getPropertyValue("ProtectionKey")
+            has_password = bool(prot_key and len(prot_key))
+            cols = section.getPropertyValue("TextColumns")
+            column_count = max(1, int(cols.getColumnCount())) if cols is not None else 1
+            sections.append(
+                {
+                    "name": name,
+                    "is_visible": getattr(section, "IsVisible", True),
+                    "is_protected": getattr(section, "IsProtected", False),
+                    "is_index": is_index,
+                    "has_password": has_password,
+                    "column_count": column_count,
+                }
+            )
+        return {"status": "ok", "sections": sections, "count": len(sections)}
+
+
+class SectionRead(ToolWriterSectionBase):
+    """Read the content of a named text section."""
+
+    name: str | None = "section_read"
+    description: str = "Read the text content of a named section. Returns the full text within the section boundaries."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Name of the section to read."},
+        },
+        "required": ["name"],
+    }
+    is_mutation: bool | None = False
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        # Accept legacy section= alias alongside standardized name=.
+        section_name = kwargs.get("name") or kwargs.get("section")
+        if not section_name:
+            return self._tool_error("name is required.")
+
+        doc = ctx.doc
+        sections = doc.getTextSections()
+        if not sections.hasByName(section_name):
+            available = list(sections.getElementNames())
+            return self._tool_error(
+                "Section '%s' not found." % section_name,
+                available=available,
+                **name_miss_details(section_name, [str(n) for n in available], "section_list"),
+            )
+
+        section = sections.getByName(section_name)
+        anchor = section.getAnchor()
+
+        enum = anchor.createEnumeration()
+        paragraphs = []
+        for para in iter_elements(enum):
+            if para.supportsService("com.sun.star.text.Paragraph"):
+                paragraphs.append(get_string_without_tracked_deletions(para))
+            elif para.supportsService("com.sun.star.text.TextTable") is True:
+                # TextTable has no getString(); read cell XTexts (this also keeps nested tables,
+                # same walk as text_helpers._table_visible_text).
+                paragraphs.append("\n".join(
+                    get_string_without_tracked_deletions(para.getCellByName(cell_name))
+                    for cell_name in para.getCellNames()
+                ))
+            else:
+                paragraphs.append("[Table]")
+
+        content = "\n".join(paragraphs)
+        return {
+            "status": "ok",
+            "section": section_name,
+            "section_name": section_name,
+            "paragraphs": paragraphs,
+            "content": content,
+            "length": len(content),
+        }
 
 
 class SectionCreate(ToolWriterSectionBase):

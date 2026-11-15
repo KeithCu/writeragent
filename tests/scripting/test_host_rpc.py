@@ -828,3 +828,37 @@ def test_wa_help_refused_during_py_recalc():
         execute_tool("writeragent_help", {}, allowed_tools=frozenset())
 
 
+def test_section_and_structural_proxies_and_allowlists(monkeypatch):
+    import plugin.scripting.writeragent_api as api
+
+    assert "section_list" in api.DOMAIN_TOOLS["section"]
+    assert "section_read" in api.DOMAIN_TOOLS["section"]
+    assert api.TOOL_METHODS["section_list"] == ("section", "list")
+    assert api.TOOL_METHODS["section_read"] == ("section", "read")
+
+    sections_allowed = resolve_allowed_tools("sections")
+    assert sections_allowed is not None
+    assert {"section_list", "section_read", "section_create"} <= sections_allowed
+
+    structural_allowed = resolve_allowed_tools("structural")
+    assert structural_allowed is not None
+    assert "section_list" in structural_allowed
+
+    calls: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(api, "call_host_tool", lambda tool, **kwargs: calls.append((tool, kwargs)) or {"status": "ok"})
+
+    api.section.list()
+    api.section.read("Intro")
+    api.structural.section_list()
+    api.structural.section_read("Intro")
+    api.structural.section_read(section="Outro")
+
+    assert calls == [
+        ("section_list", {}),
+        ("section_read", {"name": "Intro"}),
+        ("section_list", {}),
+        ("section_read", {"name": "Intro"}),
+        ("section_read", {"name": "Outro"}),
+    ]
+
+

@@ -140,10 +140,8 @@ class ToolWriterTextFramesBase(ToolWriterSpecialBase):
 class ToolWriterSectionBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "sections"
     specialized_domain_description: ClassVar[str | None] = (
-        "Create and delete text sections (named blocks of whole paragraphs) and set their columns or protection."
+        "List, read, create, and delete text sections (named blocks of whole paragraphs) and set their columns or protection."
     )
-    # Section names come from section_list (structural domain); the reads stay there.
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("section_list")
 
 
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
@@ -236,7 +234,9 @@ class ToolWriterStructuralBase(ToolWriterSpecialBase):
     # Discussion #2029: pull get_page_objects into the structural delegate toolset
     # so the delegate can resolve physical page locations without failing over to
     # full-document reads. The tool stays tier core so main chat still exposes it.
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("get_page_objects")
+    # section_list lives in the sections domain and is pulled in here so structural
+    # navigation can still list sections without a second tool definition.
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("get_page_objects", "section_list")
 
 
 class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):

@@ -113,6 +113,12 @@ def domain_proxy_namespace(python_tool_domain: str, tools: dict[str, list[str]])
     return next((key for key in (python_tool_domain, singularize_domain(python_tool_domain)) if key in tools), None)
 
 
+# Domains that pull tools from another specialized domain via required_core_tools.
+_DOMAIN_EXTRA_TOOLS: dict[str, frozenset[str]] = {
+    "structural": frozenset({"section_list"}),
+}
+
+
 def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
     """Proxy tool names for one specialized domain, without ``list_open_documents``.
 
@@ -128,7 +134,9 @@ def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
     if key is None:
         log.warning("Python tool domain %r is not a DOMAIN_TOOLS key", python_tool_domain)
         return frozenset()
-    return frozenset(tools.get(key) or ())
+    base = frozenset(tools.get(key) or ())
+    extra = _DOMAIN_EXTRA_TOOLS.get(key)
+    return base | extra if extra else base
 
 
 def inner_script_tool_domain(domains: list[str]) -> str:

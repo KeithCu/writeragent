@@ -14,9 +14,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Structural tools: section_list, nav_goto_page, get_page_objects, section_read, bookmark_resolve.
+"""Structural tools: nav_goto_page, get_page_objects, bookmark_resolve.
 
-(Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
+(Index refresh, field refresh, section list/read, and bookmark list/cleanup live in specialized domains.)"""
 
 from __future__ import annotations
 
@@ -32,7 +32,6 @@ from plugin.doc.visual_helpers import safe_get_property
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.framework.errors import name_miss_details
 
 from .specialized_base import ToolWriterStructuralBase
 
@@ -60,23 +59,6 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
         reraise_if_disposed(exc)
         log.warning("Failed to read AnchorPageNo for object %s: %s", getattr(obj, "Name", type(obj).__name__), exc)
         return None
-
-
-class SectionList(ToolWriterStructuralBase):
-    name: str | None = "section_list"
-    description: str = "List all named sections in the document."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        doc = ctx.doc
-        supplier = doc.getTextSections()
-        names = supplier.getElementNames()
-        sections = []
-        for name in names:
-            section = supplier.getByName(name)
-            sections.append({"name": name, "is_visible": getattr(section, "IsVisible", True), "is_protected": getattr(section, "IsProtected", False)})
-        return {"status": "ok", "sections": sections, "count": len(sections)}
 
 
 class NavGotoPage(ToolWriterStructuralBase):
@@ -272,52 +254,6 @@ class GetPageObjects(ToolBase):
                 shapes.append(shape_info)
 
         return {"images": images, "tables": tables, "frames": frames, "shapes": shapes}
-
-
-class SectionRead(ToolWriterStructuralBase):
-    """Read the content of a named text section."""
-
-    name: str | None = "section_read"
-    description: str = "Read the text content of a named section. Returns the full text within the section boundaries."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"section": {"type": "string", "description": "Name of the section to read."}}, "required": ["section"]}
-    uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        section_name = kwargs["section"]
-        if not section_name:
-            return self._tool_error("section is required.")
-
-        doc = ctx.doc
-        sections = doc.getTextSections()
-        if not sections.hasByName(section_name):
-            available = list(sections.getElementNames())
-            return self._tool_error(
-                "Section '%s' not found." % section_name,
-                available=available,
-                **name_miss_details(section_name, [str(n) for n in available], "section_list"),
-            )
-
-        section = sections.getByName(section_name)
-        anchor = section.getAnchor()
-
-        # Extract paragraphs within the section
-        enum = anchor.createEnumeration()
-        paragraphs = []
-        for para in iter_elements(enum):
-            if para.supportsService("com.sun.star.text.Paragraph"):
-                paragraphs.append(get_string_without_tracked_deletions(para))
-            elif para.supportsService("com.sun.star.text.TextTable") is True:
-                # TextTable has no getString(); read cell XTexts (this also keeps nested tables,
-                # same walk as text_helpers._table_visible_text).
-                paragraphs.append("\n".join(
-                    get_string_without_tracked_deletions(para.getCellByName(name))
-                    for name in para.getCellNames()
-                ))
-            else:
-                paragraphs.append("[Table]")
-
-        content = "\n".join(paragraphs)
-        return {"status": "ok", "section": section_name, "section_name": section_name, "paragraphs": paragraphs, "content": content, "length": len(content)}
 
 
 def _resolve_para_index(
