@@ -16,7 +16,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
-from plugin.calc.formula_fill import fill_repeated_formula_columns
+from plugin.calc.formula_fill import expand_single_formula, fill_repeated_formula_columns
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     _parse_formula_or_values_string,
@@ -1133,21 +1133,14 @@ class CalcWorld:
         # Production write_formula_range fill-down-adjusts relative A1 refs
         # (plugin.calc.formula_fill) when one formula string hits a 1-D range,
         # or when a list column repeats one row-aligned formula.
-        # Non-aligned JSON arrays (e.g. =B1 or =$B$2) stay exact; if
-        # formula_fill cannot be imported, the harness pins the text on every
-        # cell (the honest fallback).
+        # Non-aligned JSON arrays (e.g. =B1 or =$B$2) stay exact.
         formula_src = raw_values if isinstance(raw_values, str) else ""
         single = values[0] if values else None
         is_formula = isinstance(single, str) and single.lstrip().startswith("=")
         if len(values) == 1 and len(cells) > 1 and is_formula:
             num_rows = r1 - r0 + 1
             num_cols = c1 - c0 + 1
-            try:
-                from plugin.calc.formula_fill import expand_single_formula
-
-                fill = expand_single_formula(str(values[0]), num_rows, num_cols)
-            except Exception:
-                fill = values * len(cells)
+            fill = expand_single_formula(str(values[0]), num_rows, num_cols)
         elif len(values) == 1 and len(cells) > 1:
             fill = values * len(cells)
         else:
