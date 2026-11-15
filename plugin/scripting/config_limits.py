@@ -63,6 +63,9 @@ VISION_PROBE_TIMEOUT_SEC = 30
 VECTOR_SEARCH_PROBE_TIMEOUT_SEC = 30
 
 _DATA_CELLS_CONFIG_KEY = "scripting.python_max_data_cells"
+_DATA_CELLS_FALLBACK_DEFAULT = 250_000
+_DATA_CELLS_FALLBACK_MIN = 1000
+_DATA_CELLS_FALLBACK_MAX = 2_000_000
 
 
 def _schema_int(field_name: str, name: str, *, fallback: int | None = None, required: bool = False) -> int:
@@ -92,12 +95,16 @@ def _bounds(field_name: str) -> tuple[int, int]:
     if field_name == "python_exec_timeout":
         lo = _schema_int(field_name, "min", fallback=_TIMEOUT_FALLBACK_MIN)
         hi = _schema_int(field_name, "max", fallback=_TIMEOUT_FALLBACK_MAX)
+    elif field_name == "python_max_data_cells":
+        lo = _schema_int(field_name, "min", fallback=_DATA_CELLS_FALLBACK_MIN)
+        hi = _schema_int(field_name, "max", fallback=_DATA_CELLS_FALLBACK_MAX)
     else:
         lo = _schema_int(field_name, "min", required=True)
         hi = _schema_int(field_name, "max", required=True)
     return lo, hi
 
 
+@deal.pre(lambda field_name, value: field_name in ("python_exec_timeout", "python_max_data_cells"))
 @deal.ensure(lambda field_name, value, result: isinstance(result, int) and _bounds(field_name)[0] <= result <= _bounds(field_name)[1])
 def _clamp(field_name: str, value: int) -> int:
     lo, hi = _bounds(field_name)
@@ -145,6 +152,6 @@ def configured_python_max_data_cells() -> int:
         "python_max_data_cells",
         _configured_int(
             _DATA_CELLS_CONFIG_KEY,
-            lambda: _schema_int("python_max_data_cells", "default", required=True),
+            lambda: _schema_int("python_max_data_cells", "default", fallback=_DATA_CELLS_FALLBACK_DEFAULT),
         ),
     )
