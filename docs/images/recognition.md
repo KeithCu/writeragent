@@ -168,7 +168,7 @@ Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); r
 
 Only after Vision Helpers work end-to-end:
 
-- **LLM OCR (partial — shipped):** `*_delegate_specialized(domain="vision")` + [`image_extract_structure`](../../plugin/vision/vision_tools.py) when venv stack is ready ([§18](#18-llm-access))
+- **LLM OCR (partial — shipped):** `delegate_to_subagent(domain="vision")` + [`image_extract_structure`](../../plugin/vision/vision_tools.py) when venv stack is ready ([§18](#18-llm-access))
 - **`analyze_image` multi-helper tool** (remaining Phase 6)
 - Chat sidebar sending crops to multimodal models
 
@@ -893,7 +893,7 @@ Checklist for implementers / QA:
 | Piece | Location |
 |-------|----------|
 | Tool | [`ExtractStructureFromImage`](../../plugin/vision/vision_tools.py) — `image_extract_structure` |
-| Domain | `writer_delegate_specialized` / `calc_delegate_specialized` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
+| Domain | `delegate_to_subagent` / `delegate_to_subagent` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
 | Backend | [`run_trusted_vision`](../../plugin/vision/vision_runner.py) → [`run_vision`](../../plugin/scripting/client.py) |
 | Insert | [`insert_vision_result`](../../plugin/vision/vision_egress.py) when `insert_into_document=true` (default) |
 | Gating | [`vision_venv_configured`](../../plugin/vision/vision_availability.py) — schema/prompt gate: Settings venv path + resolvable `python` only (no import probe on Send). Package presence is validated at OCR runtime and in Settings → Python → Test (which runs [`probe_vision_packages`](../../plugin/scripting/venv_diagnostics.py)); domain/tool hidden when venv is not configured |

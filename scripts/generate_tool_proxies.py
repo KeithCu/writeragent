@@ -277,9 +277,9 @@ API_EXCLUDED_DOMAINS = frozenset({
 # LLM specialized-toolset orchestration. Chat/MCP still registers these; venv
 # scripts call document tools directly and do not run the delegate/finish loop.
 API_EXCLUDED_TOOLS = frozenset({
-    "writer_delegate_specialized",
-    "calc_delegate_specialized",
-    "draw_delegate_specialized",
+    "delegate_to_subagent",
+    "delegate_to_subagent",
+    "delegate_to_subagent",
     # Python outer→inner LLM hop. The inner smol agent still calls
     # workflow_finished as a registered ToolBase, not via this proxy.
     "python_delegate_domains",

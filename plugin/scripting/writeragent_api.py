@@ -2306,7 +2306,7 @@ class _SheetProxy:
     """Proxy for sheet tools."""
 
     def apply_filter(self, range_name: list[str], criteria: list[Any], *, has_header: bool | None = None) -> dict[str, Any]:
-        """Hide rows that do not match a standard Calc filter (not conditional formatting). calc_delegate_specialized(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
+        """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_subagent(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).
@@ -2316,7 +2316,7 @@ class _SheetProxy:
         return call_host_tool("sheet_apply_filter", range=range_name, has_header=has_header, criteria=criteria)
 
     def clear_filter(self, range_name: list[str], *, has_header: bool | None = None) -> dict[str, Any]:
-        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. calc_delegate_specialized(domain='sheets').
+        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. delegate_to_subagent(domain='sheets').
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).
@@ -2344,7 +2344,7 @@ class _SheetProxy:
         return call_host_tool("sheet_create", sheet=sheet, position=position)
 
     def get_filter(self, range_name: list[str]) -> dict[str, Any]:
-        """Return active filter criteria and has_header for a range, or empty if none. calc_delegate_specialized(domain='sheets').
+        """Return active filter criteria and has_header for a range, or empty if none. delegate_to_subagent(domain='sheets').
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).

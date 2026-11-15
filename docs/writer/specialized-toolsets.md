@@ -157,14 +157,14 @@ While the "Fat API" approach drastically reduces tool count and could potentiall
 
 ### 1.3 What "success" looks like under the Delegation model
 
-- The **main** sidebar chat sees **core**-tier tools (default main list) plus the **gateway** `writer_delegate_specialized`, not the full set of table/style/chart/… tools.
+- The **main** sidebar chat sees **core**-tier tools (default main list) plus the **gateway** `delegate_to_subagent`, not the full set of table/style/chart/… tools.
 - When the model (or product logic) calls the gateway with a **domain** and **task**, the system dynamically grants access to that domain's focused toolset.
 - **MCP** and **direct `execute(tool_name, …)`** remain able to run any registered tool by name (registry does not block execution by tier).
 - **Tests** can enumerate specialized tools with `exclude_tiers=()` when registration needs to be asserted.
 
 ### 1.4 Sub-Agent Delegation for Specialized Workflows
 
-The `writer_delegate_specialized` tool uses sub-agent delegation:
+The `delegate_to_subagent` tool uses sub-agent delegation:
 
 - The gateway tool launches a **short-lived sub-agent** (via `smolagents`) in a background thread.
 - This sub-agent receives the user's task description and has access *only* to the specialized domain tools (and `workflow_finished` as its final-answer tool).
@@ -192,7 +192,7 @@ flowchart LR
     M[Messages plus compact tool list]
   end
   subgraph gateway [Gateway tool]
-    D[writer_delegate_specialized]
+    D[delegate_to_subagent]
   end
   subgraph sub [Specialized sub-agent]
     T[Domain tools only]
@@ -238,7 +238,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 
 **File:** `[plugin/writer/specialized.py](../../plugin/writer/specialized.py)`
 
-- Tool name: `writer_delegate_specialized`.
+- Tool name: `delegate_to_subagent`.
 - Parameters: `domain` (sorted enum aligned with `_AVAILABLE_DOMAINS`), `task` (natural language; detailed rules may be ~2K–8K). Sidebar chat shows a 120-char preview (`_truncate_delegate_task` in [`tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py)); the specialized agent receives the **full** `task`.
 - `tier = "core"`, `long_running = True`, `is_async()` → **True** so the sidebar drain loop is not blocked.
 - Tool gathering:
@@ -265,14 +265,14 @@ Some Writer tools intentionally use the default main-chat tier (**`tier = "core"
 
 ### 3.5 Python specialized agent (two levels)
 
-`*_delegate_specialized(domain="python")` is itself two levels, the same shape as document research (`research_delegate_read` → `run_inner_read_agent`).
+`delegate_to_subagent(domain="python")` is itself two levels, the same shape as document research (`research_delegate_read` → `run_inner_read_agent`).
 
 1. The **outer python agent** does the work itself when venv scripts, `math_run_symbolic`, and the other python-domain helpers are enough, then calls `workflow_finished`. `python_specialized_sub_agent_hint` and the `*:python` smol examples say so. It does not receive page size, and it does not receive specialized domain tools (`shape_upsert` and the rest). It must call `python_delegate_domains` to reach them. It passes the layout in `task`.
-2. Computing coordinates, JSON, or a matplotlib figure does not place domain objects. When the document must change via other specialized domains (shapes, footnotes, tables, sheets, …), that outer agent must call **`python_delegate_domains`** with `domains` and `task` **before** `workflow_finished`. It must not finish and leave the main chat to call `*_delegate_specialized(domain="shapes")`. The `*:python` ring example is one `python_delegate_domains` whose `task` tells the inner agent to place the circles with a script for-loop.
+2. Computing coordinates, JSON, or a matplotlib figure does not place domain objects. When the document must change via other specialized domains (shapes, footnotes, tables, sheets, …), that outer agent must call **`python_delegate_domains`** with `domains` and `task` **before** `workflow_finished`. It must not finish and leave the main chat to call `delegate_to_subagent(domain="shapes")`. The `*:python` ring example is one `python_delegate_domains` whose `task` tells the inner agent to place the circles with a script for-loop.
 3. Writer and Draw main-chat routing prefers `domain="python"` only when the user asked for the python specialized path (script, via python, python agent, compute-then-place). A plain shape request still uses `domain="shapes"`. Calc chat still hides `domain="python"`.
 4. **`run_inner_domain_tool_agent`** in [`plugin/doc/python_domain_specialized.py`](../../plugin/doc/python_domain_specialized.py) loads those domains' tools, plus `python_run_script` (fetched by name; it is `specialized_cross_cutting` on the python domain) and `workflow_finished`. `inner_ctx.python_tool_domain` is the delegated list plus `core` (`inner_script_tool_domain`, comma-separated). `RunVenvPythonScript` passes that into the worker, and `host_rpc.resolve_allowed_tools` allowlists the union of those domains' `writeragent_api` tools (`shapes` → `DOMAIN_TOOLS["shapes"]`) and `DOMAIN_TOOLS["core"]`. `python_run_script` is stripped from that set so a script cannot re-enter the worker. A bare domain string that is not this inner path does not gain `core`; `None` stays unrestricted and `""` stays disabled for `=PY()`. The inner instructions append `format_script_api_catalog`: each `wa.<namespace>.<method>` call plus the full generated proxy docstring (description and Args from `writeragent_api`, the same text as `generate_tool_proxies._method_doc_lines`). The venv sandbox blocks `inspect` / `dir` / `__doc__`, so the model cannot reflect those signatures. One script loops `import writeragent as wa` / `wa.shape.upsert(...)` instead of one LLM tool call per shape. **Shapes-first:** mutators in the `shape` domain (`shape_upsert`, `shape_delete`, `shape_connect`, `shape_group`, and the other `shape` proxy tools) are not LLM tools on that inner list. `shape_get_summary` stays so the agent can verify. Other domains (footnotes, sheets, …) still pass their `ToolBase` tools. Tool lookup is marshalled with `main.call`, same as other specialized UNO reads. When `shapes` is one of the domains, the inner instructions get `format_shapes_canvas_context` (page/sheet facts, origin, HMM), fetched on the main thread, same as a normal `domain="shapes"` loop, and they tell the agent to use the script loop. The outer python instructions do not get the canvas or the script API catalog. The inner few-shot (`domain_tools:shapes`) is the script loop; the outer `*:python` few-shot is the `python_delegate_domains` call. The inner result is normalized like `DelegateToSpecializedBase`: an inner tool that returned `status: "error"` makes the whole result `status: "error"` with code `SPECIALIZED_TOOL_ERROR`; a run that never called `workflow_finished` becomes `status: "incomplete"` with code `SPECIALIZED_WORKFLOW_INCOMPLETE` instead of `ok`.
 
-The gateway parameter `python_tool_domain` on `*_delegate_specialized` stays commented out. The outer agent does not pick an allowlist; `python_delegate_domains` sets `ToolContext.python_tool_domain` on the inner context (delegated domains plus `core`). That name is the venv → LibreOffice RPC allowlist (`host_rpc.resolve_allowed_tools`), including `""` so `=PY()` cannot call document tools, and a comma-separated list when several domains are delegated. `python_delegate_domains` and `workflow_finished` stay off the script proxy (`writeragent_api`). Calc chat still hides `domain="python"` from its delegate enum (`=PY()` on the sheet); the tool is still on the python domain if that loop runs. Draw uses the same cross-cutting tool.
+The gateway parameter `python_tool_domain` on `delegate_to_subagent` stays commented out. The outer agent does not pick an allowlist; `python_delegate_domains` sets `ToolContext.python_tool_domain` on the inner context (delegated domains plus `core`). That name is the venv → LibreOffice RPC allowlist (`host_rpc.resolve_allowed_tools`), including `""` so `=PY()` cannot call document tools, and a comma-separated list when several domains are delegated. `python_delegate_domains` and `workflow_finished` stay off the script proxy (`writeragent_api`). Calc chat still hides `domain="python"` from its delegate enum (`=PY()` on the sheet); the tool is still on the python domain if that loop runs. Draw uses the same cross-cutting tool.
 
 **Naming:** Core tools use stable `verb_noun` names (`get_content`, `apply_style`, `comment_add`, `image_get`, …). Specialized tools use `domain_verb` across all apps (`image_list`, `bookmark_create`, `nav_goto_page`, `shape_delete`, …), matching `fields_*` / `footnotes_*` / `indexes_*`. Shared Draw/Calc/Writer tools use one name (Writer does not invent a second). No tool-name aliases. Graphic listing is `image_list` (`domain=images`); there is no `shape_list_images`. Comment workflow is four skinny tools (`comment_scan_tasks`, `comment_get_workflow`, `comment_set_workflow`, `comment_check_stop`), not a fat `comment_workflow`.
 
@@ -290,7 +290,7 @@ The gateway parameter `python_tool_domain` on `*_delegate_specialized` stays com
 
 **WriterAgent** modules/tools (columns 1–3) and **broader LibreOffice** gaps not covered by the agent (column 4). Core/advanced narrative lists remain in §5.5–5.6.
 
-**Math:** Editable **MathML in HTML** is imported on the **default core** tool `apply_content` (math-aware segmentation and OLE Math insertion in [`html_import.py`](../../plugin/writer/html_import.py)), not through `writer_delegate_specialized`. There is no separate specialized **domain** for equations; models use the same HTML rules as other body content (`WRITER_APPLY_DOCUMENT_HTML_RULES` in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)). See [math-tex.md](math-tex.md).
+**Math:** Editable **MathML in HTML** is imported on the **default core** tool `apply_content` (math-aware segmentation and OLE Math insertion in [`html_import.py`](../../plugin/writer/html_import.py)), not through `delegate_to_subagent`. There is no separate specialized **domain** for equations; models use the same HTML rules as other body content (`WRITER_APPLY_DOCUMENT_HTML_RULES` in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)). See [math-tex.md](math-tex.md).
 
 **`get_content` (core read):** [`plugin/writer/get_document_content.py`](../../plugin/writer/get_document_content.py) → [`document_to_content()`](../../plugin/writer/html_export.py) (XHTML export + semantic HTML). Parameters: `scope` (`full` / `selection` / `range`), `max_chars`, `start` / `end`, and **`include_images`** (boolean, default **`false`**). When `include_images` is false, inline `data:image/...;base64,...` payloads are removed from the export; external `<img src="...">` URLs are kept. Pass `include_images: true` to include embedded image bytes. `start`/`end` are plain-text offsets in the `document_length` space and `max_chars` counts HTML (approximate). CJK ruby is exported as `<ruby>base<rt>reading</rt></ruby>` and apply recreates Ruby portions ([ruby.md](ruby.md)). `tracked_changes` comes from `getRedlines()` (so header/footer/frame and cell changes are included); `tracked_changes_total` is the redline count; `tracked_changes_truncated` marks more than 100 insert/delete entries; `warning` contains `could not list tracked changes` only when the redline scan is unreliable; a format/table-only document reports a total plus a note instead. A disposed document raises instead of omitting that warning. See also [llm-styles.md](llm-styles.md) and [html-style-model-plan.md](html-style-model-plan.md).
 
@@ -301,7 +301,7 @@ The gateway parameter `python_tool_domain` on `*_delegate_specialized` stays com
 | **Page**                    | ✅ Implemented           | `page.py`: PageGet/PageSetStyleProperties, PageGet/PageSetHeaderFooterText (HTML get/set via the body XHTML/import stack), PageGet/PageSetColumns, PageInsertBreak (`page_insert_break`: optional `page_style` writes `PageDescName` on the break paragraph; optional `restart_page_number` from 1 to 32767 writes `PageNumberOffset` and is rejected without `page_style`)                                                                                                                                                | Custom page layouts; page backgrounds (see Watermark row)                                              |
 | **Text frames**             | ✅ Implemented           | `textframes.py`: FrameList, FrameGetInfo, FrameInsert, FrameDelete, FrameSetProperties                                                                                                                                                  | x/y positioning not implemented                                                                                                      |
 | **Properties/metadata**     | ✅ Specialized (fields)  | `specialized/fields.py`: `document_get_properties`, `document_set_properties` (built-ins + user-defined; product `WriterAgent*` / `ExcelPyDagMeta` hidden)                                                                      | Version history; document comparison; assembly                                                                                       |
-| **Embedded OLE**            | ✅ Specialized (insert) | `embedded.py`: `embedded_insert` inserts a Calc spreadsheet OLE via `writer_delegate_specialized(domain="embedded")` (a taken `name` is refused before the undo step). `embedded_edit` remains a stub (`ToolBaseDummy`, not registered). `.docx` export keeps cell values and formulas but drops the object name and exact visible width. | In-place activation; other OLE types (chart, math) use their own tools |
+| **Embedded OLE**            | ✅ Specialized (insert) | `embedded.py`: `embedded_insert` inserts a Calc spreadsheet OLE via `delegate_to_subagent(domain="embedded")` (a taken `name` is refused before the undo step). `embedded_edit` remains a stub (`ToolBaseDummy`, not registered). `.docx` export keeps cell values and formulas but drops the object name and exact visible width. | In-place activation; other OLE types (chart, math) use their own tools |
 | **Images**                  | ✅ Implemented           | `images.py`: ImageGenerate (async; edit selected via `source_image='selection'`), ImageList/ImageGetInfo/ImageSetProperties, ImageDownload, ImageInsert/ImageDelete/ImageReplace                                                                                                                                                  | Advanced image editing                                                                                 |
 | **Shapes**                  | ✅ Implemented           | `specialized/shapes.py`: `shape_upsert`, `shape_delete`, `shape_get_summary`, `shape_connect`, `shape_group` (Draw lineage). List graphics via `image_list` (`domain=images`).                                                                                                                                  | —                                                                                                      |
 | **Charts**                  | ✅ Specialized           | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` via `domain=charts` ([`plugin/calc/charts.py`](../../plugin/calc/charts.py); Writer/Draw wrappers). Host adapters: SheetCharts, WriterEmbeds, DrawPage. | Full 3D / per-app schema split on `chart_upsert`.                                      |
@@ -356,7 +356,7 @@ removes a table by name (nested or top-level); hosted children go with it. Do no
 
 - **Tier filtering:** `exclude_tiers` default in `ToolRegistry.get_tools` / `get_schemas` hides specialized tools from default chat/MCP lists.
 - **Domain grouping:** `ToolWriter*Base.specialized_domain` + `tier = "specialized"`.
-- **Gateway:** `writer_delegate_specialized` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized.py`.
+- **Gateway:** `delegate_to_subagent` (`tier = "core"`, `is_async()`); sub-agent or in-place domain switch per `specialized.py`.
 - **Prompt:** `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py` teaches when to delegate.
 - **Execution:** `ToolRegistry.execute` unchanged — tier affects listing, not dispatch.
 - **Lookups:** Single-object lookup helpers return either the found object or an error dict tested via `isinstance` (e.g. `ToolBase.get_item`, `_bookmark_target`, `_annotation_or_error`); multi-value helpers return a tuple whose last item is the error dict or `None`. Neither kind returns an error string, returns `None` leaving the caller to build the error, or raises (raising would log an ERROR traceback in `execute_safe` and become `TOOL_REGISTRY_ERROR` in the eval harness). The exceptions are tables raising `ValueError` inside mutation callbacks, `toc_match` returning `(hit, err_str)` as a search primitive, and `_resolve_form_page` raising `ToolExecutionError` that callers propagate.
@@ -525,7 +525,7 @@ The XHTML read path embeds graphics as `data:image/...;base64,...` in the HTML. 
 
 ### 6.7 Cross-cutting Enhancements
 
-- **MCP / API opt-in:** Config or query parameter to list `specialized` tools on `tools/list` for power users or external agents that do not use `writer_delegate_specialized`.
+- **MCP / API opt-in:** Config or query parameter to list `specialized` tools on `tools/list` for power users or external agents that do not use `delegate_to_subagent`.
 - **Review domain:** Optional `delegate` domain for **track changes** + comment workflows if the main list should shrink further; see [§6.8 Track changes](#68-track-changes-specialized-toolset) for UNO entry points.
 - **Limits:** Tune `max_steps` / timeouts for the sub-agent; add telemetry on which domains are used.
 - **Documentation:** Keep `[AGENTS.md](../../AGENTS.md)` in sync when behavior or entry points change.
@@ -539,7 +539,7 @@ The XHTML read path embeds graphics as `data:image/...;base64,...` in the HTML. 
 | ------------------------- | ----------------------------------------------------------------------- |
 | Smaller default tool list | `exclude_tiers` default in `ToolRegistry.get_tools` / `get_schemas`     |
 | Domain grouping           | `ToolWriter*Base.specialized_domain` + `tier = "specialized"`           |
-| User/model entry point    | `writer_delegate_specialized` (`tier = "core"`, async)       |
+| User/model entry point    | `delegate_to_subagent` (`tier = "core"`, async)       |
 | Sub-agent completion      | `final_answer` (`tier = "specialized_control"`)                         |
 | Prompt teaching           | `WRITER_SPECIALIZED_DELEGATION_TEMPLATE` in `prompts.py`                       |
 | Execution by name         | Unchanged `execute()` — tier only affects **listing**, not **dispatch** |

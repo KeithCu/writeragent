@@ -139,13 +139,13 @@ class ToolDrawVisionBase(ToolDrawSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "Extract text and structure from embedded graphics; results are returned only (not inserted)."
+        "Runs OCR on the currently selected image and returns the recognized text."
     )
     uno_services: list[str] | None = DRAW_AND_IMPRESS
 
 
 class ToolDrawPptMasterBase(ToolDrawSpecialBase):
-    """PPT-Master sidebar mode — not exposed via draw_delegate_specialized."""
+    """PPT-Master sidebar mode — not exposed via delegate_to_subagent."""
 
     specialized_domain: ClassVar[str | None] = "ppt-master"
     specialized_domain_description: ClassVar[str | None] = "PPT-Master workflow: export SVG projects to native Impress shapes, validate, template-fill, enhance."

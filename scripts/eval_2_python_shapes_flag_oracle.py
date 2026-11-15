@@ -634,7 +634,7 @@ def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool
 
 
 def _is_python_delegate(name: str, args: str) -> bool:
-    if not name.endswith("_delegate_specialized"):
+    if name != "delegate_to_subagent":
         return False
     return _PYTHON_DOMAIN_RE.search(_unescape_args(args)) is not None
 
@@ -649,7 +649,7 @@ def _is_images_path(name: str, args: str) -> bool:
     decoded = _unescape_args(args)
     if name in _IMAGE_TOOL_NAMES:
         return True
-    if name.endswith("_delegate_specialized"):
+    if name == "delegate_to_subagent":
         return _IMAGES_DOMAIN_RE.search(decoded) is not None
     # python_delegate_domains(domains=["images"]) is the same wrong route.
     if name == "python_delegate_domains" and _IMAGES_DOMAINS_RE.search(decoded):

@@ -167,7 +167,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
     """Apply a standard sheet filter (AutoFilter-style) on a cell range."""
 
     name: str | None = "sheet_apply_filter"
-    description: str = "Hide rows that do not match a standard Calc filter (not conditional formatting). calc_delegate_specialized(domain='sheets'). One column per criterion; chain with connection (AND default) after the first."
+    description: str = "Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_subagent(domain='sheets'). One column per criterion; chain with connection (AND default) after the first."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "description": "See criteria for AND/OR chaining.",
@@ -195,7 +195,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     """Remove the standard filter from a range (show all rows again)."""
 
     name: str | None = "sheet_clear_filter"
-    description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. calc_delegate_specialized(domain='sheets')."
+    description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. delegate_to_subagent(domain='sheets')."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -216,7 +216,7 @@ class GetSheetFilter(ToolCalcSheetBase):
     """Read back current filter criteria for a range (round-trip debugging)."""
 
     name: str | None = "sheet_get_filter"
-    description: str = "Return active filter criteria and has_header for a range, or empty if none. calc_delegate_specialized(domain='sheets')."
+    description: str = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_subagent(domain='sheets')."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": _RANGE_PARAM_SCHEMA}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

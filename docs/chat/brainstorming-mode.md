@@ -4,7 +4,7 @@ Brainstorming is a **multi-turn design sub-agent** the user starts from the Writ
 
 **Entry:** Writer deck → mode dropdown → **Brainstorming** → Send (first message sets the topic).
 
-Brainstorming is **not** exposed to the main chat LLM (`writer_delegate_specialized` omits `brainstorming` and `writing_plan` via `WRITER_SIDEBAR_ONLY_DOMAINS` in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)).
+Brainstorming is **not** exposed to the main chat LLM (`delegate_to_subagent` omits `brainstorming` and `writing_plan` via `WRITER_SIDEBAR_ONLY_DOMAINS` in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)).
 
 **Exit:** `reply_to_user` with `brainstorming_finished=true` (and `spec_saved` when a spec was written) resets the dropdown to **Chat** (or **Writing Plan** when a spec was saved). Changing the dropdown away from Brainstorming mid-session cancels the in-progress session (history is kept).
 

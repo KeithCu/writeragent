@@ -186,3 +186,9 @@ def auto_imports() -> dict[str, str]:
 def now_aware() -> _dt.datetime:
     """Return the current local time as a timezone-aware datetime."""
     return _dt.datetime.now().astimezone()
+
+
+# Main-chat gateway tool (plugin/doc/specialized_base.py). Hands a plain-language
+# task to a sub-agent that has the chosen domain's tools. The sidebar chat labels,
+# vision schema filter, peer hint, and eval harness all match on this name.
+DELEGATE_SUBAGENT_TOOL = "delegate_to_subagent"
