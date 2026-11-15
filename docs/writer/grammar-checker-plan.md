@@ -140,7 +140,7 @@ The implementation draws heavily from `Lightproof` as a mature, robust foundatio
 
 **High-level editorial context**
 
-While sentence-scoped checking is excellent for localized grammar, it inherently misses global context (e.g., tone consistency or paragraph-level flow). Rather than forcing the grammar checker to handle high-level context (and increasing cost/complexity), we utilize the **Chat Sidebar + `add_comment` tool**. This allows the model to analyze wide context at once and leave copyeditor-style comments. This separation of concerns — **native squiggles for local grammar, sidebar chat for high-level editorial review** — is a deliberate design choice. Future work may explore sliding-window paragraph analysis, but only if optimized to avoid the overhead of full-context re-submission on every edit.
+While sentence-scoped checking is excellent for localized grammar, it inherently misses global context (e.g., tone consistency or paragraph-level flow). Rather than forcing the grammar checker to handle high-level context (and increasing cost/complexity), we utilize the **Chat Sidebar + `comment_add` tool**. This allows the model to analyze wide context at once and leave copyeditor-style comments. This separation of concerns — **native squiggles for local grammar, sidebar chat for high-level editorial review** — is a deliberate design choice. Future work may explore sliding-window paragraph analysis, but only if optimized to avoid the overhead of full-context re-submission on every edit.
 
 ---
 
@@ -431,7 +431,7 @@ These are longer-horizon ideas that treat the grammar checker less as an indepen
 
 Feed this as a compact prefix or structured field in the grammar prompt (e.g. "Context: Heading 2 | Table cell under 'Revenue' column").
 
-**Rationale:** Many grammar and style rules are highly context-dependent. Models are already good at this when given the hint; we just don't give it today. This is cheap relative to the value and reuses the same `get_document_tree` / proximity machinery the main agent uses.
+**Rationale:** Many grammar and style rules are highly context-dependent. Models are already good at this when given the hint; we just don't give it today. This is cheap relative to the value and reuses the same `get_tree` / proximity machinery the main agent uses.
 
 **Implementation notes:**
 - Do the structural lookup in the main thread during `doProofreading` (or lazily in the work item) and attach it to `GrammarWorkItem`.

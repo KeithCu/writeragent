@@ -307,11 +307,11 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
 class ReadCellRange(ToolBase):
     """Read values from one or more cell ranges."""
 
-    name: str | None = "read_cell_range"
+    name: str | None = "read_range"
     description: str = (
         "Reads values from the specified cell range(s). Inspection only — keep ranges small "
         "(headers or a few dozen cells). A large dump overloads chat context; oversized reads "
-        "return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); "
+        "return a peek plus size only. Row-wise transforms use write_range (fill-down); "
         "reductions that spill a small result use =PY into one empty cell outside the data. "
         "Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, "
         "`PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and "
@@ -402,7 +402,7 @@ class ReadCellRange(ToolBase):
             if distincts:
                 payload["column_distincts"] = distincts
             payload["hint"] = (
-                "Peek only (%s). Row-wise formulas: write_formula_range on a 1-column or 1-row range. "
+                "Peek only (%s). Row-wise formulas: write_range on a 1-column or 1-row range. "
                 "A small reduction: =PY in one empty cell outside the data."
                 % preview["preview_range"]
             )
@@ -420,7 +420,7 @@ class ReadCellRange(ToolBase):
 class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
-    name: str | None = "write_formula_range"
+    name: str | None = "write_range"
     description: str = (
         "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; "
         "a 2-D array (one inner array per row) must match the range; or multiline CSV from a start "
@@ -453,9 +453,9 @@ class WriteCellRange(ToolBase):
                 "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
             },
             # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
-            # first ref) live only here; read_cell_range's description and hint just point here.
+            # first ref) live only here; read_range's description and hint just point here.
             # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
-            # keeps real unions (same pattern as apply_document_content content).
+            # keeps real unions (same pattern as apply_content content).
             "values": {
                 "type": ["string", "array", "null"],
                 "items": {
@@ -589,7 +589,7 @@ class WriteCellRange(ToolBase):
 class InsertCellHtml(ToolBase):
     """Insert HTML as rich text into a single cell (active sheet)."""
 
-    name: str | None = "insert_cell_html"
+    name: str | None = "insert_html"
     description: str = (
         "Parses HTML with the same filter as Writer and pastes rich text into one cell "
         "(e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) "
@@ -746,7 +746,7 @@ class MergeCells(ToolBase):
         "Merges the specified cell range(s). Typically used for main headers. "
         "The merged area shows the top-left cell's content; other cells keep their content "
         "(hidden, still counted by formulas) and are listed in hidden_cells. "
-        "Write text with write_formula_range (before or after merging) into the top-left cell, "
+        "Write text with write_range (before or after merging) into the top-left cell, "
         "and style with set_style. Refuses ranges overlapping an existing merge. "
         "Supports lists for non-contiguous areas."
     )
@@ -804,7 +804,7 @@ class MergeCells(ToolBase):
                         message=(
                             f"{hidden_count} cell(s) besides the top-left still hold content "
                             "(see hidden_cells). The merge hides it but keeps it, and "
-                            'formulas still read it. Clear those cells with write_formula_range (values "") '
+                            'formulas still read it. Clear those cells with write_range (values "") '
                             "if it should be gone, or write it into the top-left cell."
                         ),
                     )
@@ -824,15 +824,15 @@ class MergeCells(ToolBase):
 class SortRange(ToolCalcRangeBase):
     """Sort a range by a column."""
 
-    name: str | None = "range_sort"
+    name: str | None = "sort_range"
     # Action-time key/direction and "use this tool, don't rewrite the
     # block" live here. Do not restack another SORT Don't/Do into
     # CALC_CORE (flash merges adjacent identical shapes).
     description: str = (
         "Stable one-column sort of the specified range(s) by values in one column. "
         "Multi-key sorts are multiple calls (two stable one-column passes). "
-        "Do call range_sort to reorder rows (not rewrite the block with "
-        "write_formula_range) because hand-written order often leaves labels mid-table. "
+        "Do call sort_range to reorder rows (not rewrite the block with "
+        "write_range) because hand-written order often leaves labels mid-table. "
         "Pick sort_column for the metric to order by (0-based within the range); "
         "set ascending=false when largest values should come first. "
         "Do pass has_header=true when row 1 is labels because otherwise labels "

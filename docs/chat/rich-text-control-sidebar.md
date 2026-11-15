@@ -324,7 +324,7 @@ Search `writeragent_debug.log` for **WARNING** lines (release default `log_level
 
 `grep -E 'direct_copy_reason|element_skipped|HTML import failed|batch insert into control failed|_copy_formatted' writeragent_debug.log`
 
-If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document leak, the sidebar copy is unlikely to be the cause — check `enable_agent_log` for `apply_document_content` tool calls.
+If logs show only `via=direct_copy` / `_copy_formatted… ok` during a document leak, the sidebar copy is unlikely to be the cause — check `enable_agent_log` for `apply_content` tool calls.
 
 ---
 

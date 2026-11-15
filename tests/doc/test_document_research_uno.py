@@ -138,7 +138,7 @@ def test_open_document_for_read_hidden_readonly(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_inner_read_cell_range_on_opened_sibling(ctx, doc):
-    """Outer document_research path opens sibling; inner uses read_cell_range (no live LLM)."""
+    """Outer document_research path opens sibling; inner uses read_range (no live LLM)."""
     skip_windows_hidden_open_after_bitmap("document_research Hidden Budget_read")
     temp_dir, _unused_budget, open_path = _create_nearby_test_env(ctx, doc)
     try:
@@ -148,7 +148,7 @@ def test_inner_read_cell_range_on_opened_sibling(ctx, doc):
         assert err is None and doc_type == "calc"
         try:
             tctx = ToolContext(model, ctx, "calc", get_services(), "test", read_only_target=True)
-            result = get_tools().execute("read_cell_range", tctx, range=["B2"])
+            result = get_tools().execute("read_range", tctx, range=["B2"])
             assert result.get("status") == "ok", result
             cell_data = result.get("result")
             assert cell_data is not None

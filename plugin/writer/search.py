@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer search: search_in_document tool and shared text-find helpers for edit/dry_run paths."""
+"""Writer search: search tool and shared text-find helpers for edit/dry_run paths."""
 
 from __future__ import annotations
 
@@ -616,7 +616,7 @@ def iter_literal_ranges(
     anchor end searches), yields hits across all candidates followed by chain matches so
     downstream filtering can find matches in the target text container or boundary.
 
-    Not for whole-document replace: use apply_document_content(target='full_document') instead
+    Not for whole-document replace: use apply_content(target='full_document') instead
     of passing the entire body as old_content.
     """
     if not search_string:
@@ -1114,7 +1114,7 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
         draw_page = doc.getDrawPage()
     except Exception as exc:
         reraise_if_disposed(exc)
-        log.debug("search_in_document: draw-page sweep failed", exc_info=True)
+        log.debug("search: draw-page sweep failed", exc_info=True)
         return
     for shape in iter_draw_shapes(draw_page):
         try:
@@ -1415,7 +1415,7 @@ def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_
 class SearchInDocument(ToolBase):
     """Search for text anywhere in a document (body, tables, text boxes) and report where."""
 
-    name: str | None = "search_in_document"
+    name: str | None = "search"
     description: str = (
         "Search for text ANYWHERE in the document using LibreOffice native search — body paragraphs "
         "and headings, table cells, text boxes / frames, floating drawing shapes, page headers/footers, "
@@ -1483,7 +1483,7 @@ class SearchInDocument(ToolBase):
             found = doc.findFirst(sd)
         except Exception as exc:
             reraise_if_disposed(exc)
-            log.exception("search_in_document: createSearchDescriptor / findFirst failed")
+            log.exception("search: createSearchDescriptor / findFirst failed")
             return self._tool_error(
                 "search failed: %s" % exc,
                 code="SEARCH_FAILED",
@@ -1502,7 +1502,7 @@ class SearchInDocument(ToolBase):
                 hit_text = found.getString()
             except Exception as exc:
                 reraise_if_disposed(exc)
-                log.exception("search_in_document: getString failed")
+                log.exception("search: getString failed")
                 warning = "Text-model search ended early after a getString failure; count may be incomplete."
                 break
             if hit_text == "":
@@ -1522,7 +1522,7 @@ class SearchInDocument(ToolBase):
                 found = doc.findNext(found.getEnd(), sd)
             except Exception as exc:
                 reraise_if_disposed(exc)
-                log.exception("search_in_document: findNext failed")
+                log.exception("search: findNext failed")
                 warning = "Text-model search ended early after a findNext failure; count may be incomplete."
                 break
 

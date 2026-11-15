@@ -490,7 +490,7 @@ def prepare_auto_spill(
     Called with the origin already located and known not to be an array block
     (``CellContext.is_matrix`` on the main path, ``cell_is_matrix`` in the off-main
     callback). Returns ``"#SPILL!"`` on collision (recording the reason in the
-    diagnostics store, which the LibrePy sidebar and ``write_formula_range`` read),
+    diagnostics store, which the LibrePy sidebar and ``write_range`` read),
     ``PreparedSpill`` when the neighbor write should proceed, or ``None`` when
     ``state.key`` is empty.
     """

@@ -296,7 +296,7 @@ def test_apply_style_returns_structured_fields_uno(ctx, doc):
 @with_native_doc("writer")
 def test_apply_style_search_miss_reports_not_matched_uno(ctx, doc):
     """A target='search' miss returns an error carrying matched=False / applied!=True
-    (no silent ok), consistent with apply_document_content's no-match."""
+    (no silent ok), consistent with apply_content's no-match."""
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()

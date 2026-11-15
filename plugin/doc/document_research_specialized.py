@@ -23,9 +23,9 @@ from plugin.framework.tool import ToolBase, ToolContext
 log = logging.getLogger(__name__)
 
 READ_TOOLS_BY_DOC_TYPE: dict[str, tuple[str, ...]] = {
-    "writer": ("get_document_content", "get_document_tree", "search_in_document"),
-    "calc": ("get_sheet_summary", "read_cell_range"),
-    "draw": ("list_pages", "get_draw_tree"),
+    "writer": ("get_content", "get_tree", "search"),
+    "calc": ("get_sheet_summary", "read_range"),
+    "draw": ("slide_list", "shape_get_tree"),
 }
 
 

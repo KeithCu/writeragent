@@ -100,7 +100,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
             domain = str(args.get("domain") or "")
             if "indexes" in domain:
                 has_delegate = True
-        if name == "indexes_list_toc_entries":
+        if name == "index_list_toc_entries":
             has_list_tool = True
             if bool(args.get("include_links")):
                 include_links_requested = True
@@ -108,7 +108,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
     if not has_delegate:
         failures.append("No *_delegate_specialized call with domain 'indexes'")
     if not has_list_tool:
-        failures.append("No indexes_list_toc_entries call in trace")
+        failures.append("No index_list_toc_entries call in trace")
 
     answer = finish_answer_from_trace(trace)
     fixture_titles = [row.title for row in FIXTURE_ROWS]
@@ -127,7 +127,7 @@ def _score_toc_list(trace: list[dict[str, Any]] | None) -> TocScore:
     if found_links:
         soft.append(f"Answer reported outline hyperlinks ({len(found_links)} found)")
     if include_links_requested:
-        soft.append("indexes_list_toc_entries called with include_links=True")
+        soft.append("index_list_toc_entries called with include_links=True")
 
     passed = (len(failures) == 0)
     summary = f"toc_list_entries passed={passed} partial={partial:.3f} titles={titles_found}/40"
@@ -224,10 +224,10 @@ def _score_toc_edit(
         name = entry.get("name") or ""
         args = as_dict(entry.get("arguments"))
 
-        if name == "indexes_update_all":
-            failures.append("Trace contains indexes_update_all (TOC rebuild wiped custom edits)")
-        if name == "indexes_refresh_toc_entry" and args.get("hyperlink_url") is not None:
-            soft.append("indexes_refresh_toc_entry call passed hyperlink_url")
+        if name == "index_update_all":
+            failures.append("Trace contains index_update_all (TOC rebuild wiped custom edits)")
+        if name == "index_refresh_toc_entry" and args.get("hyperlink_url") is not None:
+            soft.append("index_refresh_toc_entry call passed hyperlink_url")
 
     passed = (len(failures) == 0)
     partial = 1.0 if passed else 0.0

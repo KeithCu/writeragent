@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for the find_tools discovery meta-tool + its tools/list gating."""
+"""Unit tests for the tool_find discovery meta-tool + its tools/list gating."""
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -78,7 +78,7 @@ def _schema(name, desc="a tool"):
 def test_execute_domain_returns_domain_schemas_without_finish_tool():
     registry = MagicMock()
     registry.get_schemas.return_value = [
-        _schema("footnotes_insert"), _schema("footnotes_list"),
+        _schema("footnote_insert"), _schema("footnote_list"),
         _schema("workflow_finished", "finish"),
     ]
     registry.get_tools.return_value = [
@@ -89,7 +89,7 @@ def test_execute_domain_returns_domain_schemas_without_finish_tool():
     result = FindTools().execute(ctx, domain="footnotes")
 
     names = {t["name"] for t in result["tools"]}
-    assert {"footnotes_insert", "footnotes_list"} <= names
+    assert {"footnote_insert", "footnote_list"} <= names
     assert "workflow_finished" not in names
     for t in result["tools"]:
         assert "inputSchema" in t
@@ -117,7 +117,7 @@ def test_execute_no_registry_errors():
 
 
 # --------------------------------------------------------------------------- #
-# tools/list gating: find_tools only in direct_discovery
+# tools/list gating: tool_find only in direct_discovery
 # --------------------------------------------------------------------------- #
 
 def _handler(mode, schemas):
@@ -138,22 +138,22 @@ def _handler(mode, schemas):
 
 def _list_names(mode):
     schemas = [
-        {"name": "find_tools", "description": "discovery", "inputSchema": {}},
+        {"name": "tool_find", "description": "discovery", "inputSchema": {}},
         {"name": "insert_footnote", "description": "footnote", "inputSchema": {}},
-        {"name": "apply_document_content", "description": "core", "inputSchema": {}},
+        {"name": "apply_content", "description": "core", "inputSchema": {}},
     ]
     handler = _handler(mode, schemas)
     return {t["name"] for t in handler._mcp_tools_list({})["tools"]}
 
 
 def test_find_tools_listed_only_in_direct_discovery():
-    assert "find_tools" not in _list_names("delegate")
-    assert "find_tools" not in _list_names("direct_flat")
-    assert "find_tools" in _list_names("direct_discovery")
+    assert "tool_find" not in _list_names("delegate")
+    assert "tool_find" not in _list_names("direct_flat")
+    assert "tool_find" in _list_names("direct_discovery")
 
 
 def test_gating_keeps_other_tools():
-    assert "apply_document_content" in _list_names("delegate")
+    assert "apply_content" in _list_names("delegate")
     assert "insert_footnote" in _list_names("direct_discovery")
 
 
@@ -243,12 +243,12 @@ class _FtBase(ToolWriterSpecialBase):
 
 
 class _FtInsert(_FtBase):
-    name = "footnotes_insert"
+    name = "footnote_insert"
     description = "insert a footnote at an anchor"
 
 
 class _FtList(_FtBase):
-    name = "footnotes_list"
+    name = "footnote_list"
     description = "list the footnotes in the document"
 
 
@@ -275,7 +275,7 @@ class _GatewayTool(ToolBase):
 
 
 class _CoreTool(ToolBase):
-    name = "apply_document_content"
+    name = "apply_content"
     description = "core document edit"
     tier = "core"
     is_mutation = False
@@ -350,10 +350,10 @@ def _handler_real(mode, registry):
 def test_execute_domain_real_registry():
     result = FindTools().execute(_ctx_real(_real_registry()), domain="footnotes")
     names = {t["name"] for t in result["tools"]}
-    assert {"footnotes_insert", "footnotes_list"} <= names
+    assert {"footnote_insert", "footnote_list"} <= names
     assert "workflow_finished" not in names
     assert "writer_delegate_specialized" not in names
-    assert "find_tools" not in names
+    assert "tool_find" not in names
 
 
 def test_mode_sizing_real_registry():
@@ -362,14 +362,14 @@ def test_mode_sizing_real_registry():
     def names(mode):
         return {t["name"] for t in _handler_real(mode, reg)._mcp_tools_list({})["tools"]}
 
-    spec = {"footnotes_insert", "footnotes_list"}
+    spec = {"footnote_insert", "footnote_list"}
     delegate = names("delegate")
-    assert not (spec & delegate) and "find_tools" not in delegate
-    assert "apply_document_content" in delegate
+    assert not (spec & delegate) and "tool_find" not in delegate
+    assert "apply_content" in delegate
     flat = names("direct_flat")
-    assert spec <= flat and "find_tools" not in flat
+    assert spec <= flat and "tool_find" not in flat
     discovery = names("direct_discovery")
-    assert "find_tools" in discovery and not (spec & discovery)
+    assert "tool_find" in discovery and not (spec & discovery)
 
 
 @pytest.mark.parametrize(
@@ -387,11 +387,11 @@ def test_mode_sizing_real_registry():
 )
 def test_execute_tolerates_malformed_schemas_in_domain_listing(bad_schemas):
     registry = MagicMock()
-    registry.get_schemas.return_value = [*bad_schemas, _schema("footnotes_insert", "add a note")]
+    registry.get_schemas.return_value = [*bad_schemas, _schema("footnote_insert", "add a note")]
     registry.get_tools.return_value = []
     result = FindTools().execute(_ctx(registry), domain="footnotes")
     assert result["status"] == "ok"
-    assert [t.get("name") for t in result["tools"]] == ["footnotes_insert"]
+    assert [t.get("name") for t in result["tools"]] == ["footnote_insert"]
 
 
 def test_non_string_domain_is_rejected_by_the_validator():
@@ -404,7 +404,7 @@ def test_non_string_domain_is_rejected_by_the_validator():
 
 def test_execute_normalizes_domain_case_and_whitespace():
     registry = MagicMock()
-    registry.get_schemas.return_value = [_schema("footnotes_insert")]
+    registry.get_schemas.return_value = [_schema("footnote_insert")]
     registry.get_tools.return_value = []
     ctx = _ctx(registry)
     result = FindTools().execute(ctx, domain="  Footnotes ")
@@ -414,22 +414,22 @@ def test_execute_normalizes_domain_case_and_whitespace():
 
 def test_find_tools_call_blocked_outside_direct_discovery():
     handler = _handler_real("delegate", _real_registry())
-    res = handler._mcp_tools_call({"name": "find_tools", "arguments": {}}, cancel=SendCancellation())
+    res = handler._mcp_tools_call({"name": "tool_find", "arguments": {}}, cancel=SendCancellation())
     assert res["isError"] is True
     assert "direct_discovery" in res["content"][0]["text"]
 
 
 def test_specialized_tool_allowed_in_direct_discovery():
-    """Specialized tools advertised via find_tools must be callable in direct_discovery mode."""
+    """Specialized tools advertised via tool_find must be callable in direct_discovery mode."""
     # In delegate mode, calling specialized tool directly is blocked
     delegate_handler = _handler_real("delegate", _real_registry())
-    res_del = delegate_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}}, cancel=SendCancellation())
+    res_del = delegate_handler._mcp_tools_call({"name": "footnote_insert", "arguments": {}}, cancel=SendCancellation())
     assert res_del["isError"] is True
     assert "not available in the current exposure mode" in res_del["content"][0]["text"]
 
     # In direct_discovery mode, specialized tool is allowed through
     disc_handler = _handler_real("direct_discovery", _real_registry())
-    res_disc = disc_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}}, cancel=SendCancellation())
+    res_disc = disc_handler._mcp_tools_call({"name": "footnote_insert", "arguments": {}}, cancel=SendCancellation())
     # Should not be rejected by exposure mode check
     if res_disc.get("isError"):
         assert "not available in the current exposure mode" not in res_disc["content"][0]["text"]
@@ -446,14 +446,14 @@ def _prepare_and_invoke(handler, tool_name, arguments=None):
 
 def test_execute_tool_on_main_runs_document_optional_without_doc():
     handler = _handler_real("direct_discovery", _real_registry())
-    res = _prepare_and_invoke(handler, "find_tools", {})
+    res = _prepare_and_invoke(handler, "tool_find", {})
     assert res.get("status") == "ok"
     assert res.get("tools") == []
 
 
 def test_execute_tool_on_main_still_requires_doc_for_normal_tools():
     handler = _handler_real("direct_discovery", _real_registry())
-    res = _prepare_and_invoke(handler, "apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_DOCUMENT_OPEN"
 
 
@@ -472,7 +472,7 @@ def test_find_tools_excludes_sidebar_only_domains_from_catalog():
 
 def test_direct_flat_excludes_sidebar_only_domains():
     names = {t["name"] for t in _handler_real("direct_flat", _real_registry())._mcp_tools_list({})["tools"]}
-    assert "footnotes_insert" in names
+    assert "footnote_insert" in names
     assert "brainstorming_search_web" not in names
 
 
@@ -579,7 +579,7 @@ def test_direct_flat_lists_app_specific_tools_without_document():
         reg.register(cls())
     names = {t["name"] for t in _handler_real("direct_flat", reg)._mcp_tools_list({})["tools"]}
     assert "create_chart" in names
-    assert "footnotes_insert" in names
+    assert "footnote_insert" in names
 
 
 def test_delegate_no_doc_keeps_doc_type_filtering():
@@ -587,7 +587,7 @@ def test_delegate_no_doc_keeps_doc_type_filtering():
     for cls in (_CoreTool, _AppSpecificCoreTool):
         reg.register(cls())
     names = {t["name"] for t in _handler_real("delegate", reg)._mcp_tools_list({})["tools"]}
-    assert "apply_document_content" in names
+    assert "apply_content" in names
     assert "calc_only_core" not in names
 
 
@@ -634,7 +634,7 @@ def test_direct_flat_treats_start_center_as_no_document():
 # --- the catalog and the no-document gate follow OPEN documents, not focus ----
 # Twelve reports said "no WriterAgent editing tools in this session" with a
 # document open, and two more said "LibreOffice isn't open" one second after
-# list_open_documents had listed it. Both came from keying off the ACTIVE
+# document_list_open had listed it. Both came from keying off the ACTIVE
 # document: a spreadsheet in front hid the Writer tools, and focus on the Start
 # Center (or another app) meant no active document at all.
 
@@ -645,7 +645,7 @@ def test_gate_falls_back_to_the_single_open_document():
     handler.services.document.open_documents.return_value = [only_doc]
     handler.services.document.detect_doc_type.return_value = "writer"
 
-    res = _prepare_and_invoke(handler, "apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") not in ("NO_DOCUMENT_OPEN", "NO_ACTIVE_DOCUMENT")
 
 
@@ -660,7 +660,7 @@ def test_gate_names_the_candidates_when_several_are_open():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("planilha.ods")]
 
-    res = _prepare_and_invoke(handler, "apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_ACTIVE_DOCUMENT"
     assert "document_url" in res["message"]
     assert "peca1.odt" in res["message"] and "planilha.ods" in res["message"]
@@ -673,7 +673,7 @@ def test_gate_never_guesses_between_two_documents_of_the_same_type():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("peca2.odt")]
 
-    res = _prepare_and_invoke(handler, "apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_ACTIVE_DOCUMENT"
     assert "peca1.odt" in res["message"] and "peca2.odt" in res["message"]
 
@@ -683,7 +683,7 @@ def test_gate_still_says_no_document_when_nothing_is_open():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = []
 
-    res = _prepare_and_invoke(handler, "apply_document_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_DOCUMENT_OPEN"
 
 
@@ -694,20 +694,20 @@ def test_catalog_covers_a_writer_open_behind_the_active_calc():
         "calc": MagicMock(), "writer": writer_doc,
     }
     schemas, broadened = handler._add_other_open_doc_schemas(
-        [_schema("read_cell_range")], "calc", frozenset()
+        [_schema("read_range")], "calc", frozenset()
     )
 
     assert set(broadened) == {"writer"}, "the caller needs the added types for its own filters"
     names = {s["name"] for s in schemas}
-    assert "read_cell_range" in names, "the active document's own tools must stay"
-    assert "apply_document_content" in names, "the open Writer document's tools must appear too"
+    assert "read_range" in names, "the active document's own tools must stay"
+    assert "apply_content" in names, "the open Writer document's tools must appear too"
 
 
 def test_catalog_broaden_propagates_enumeration_failure():
     handler = _handler_real("direct_flat", _real_registry())
     handler.services.document.open_documents_by_type.side_effect = RuntimeError("UNO gone")
     with pytest.raises(RuntimeError, match="UNO gone"):
-        handler._add_other_open_doc_schemas([_schema("read_cell_range")], "calc", frozenset())
+        handler._add_other_open_doc_schemas([_schema("read_range")], "calc", frozenset())
 
 
 def test_catalog_broaden_propagates_schema_failure():
@@ -716,7 +716,7 @@ def test_catalog_broaden_propagates_schema_failure():
     handler.services.document.open_documents_by_type.return_value = {"writer": writer_doc}
     handler.tool_registry.get_schemas = MagicMock(side_effect=RuntimeError("schema bug"))
     with pytest.raises(RuntimeError, match="schema bug"):
-        handler._add_other_open_doc_schemas([_schema("read_cell_range")], "calc", frozenset())
+        handler._add_other_open_doc_schemas([_schema("read_range")], "calc", frozenset())
 
 
 def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():

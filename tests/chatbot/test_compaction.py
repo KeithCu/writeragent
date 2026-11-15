@@ -438,12 +438,12 @@ def test_sanitize_drops_null_or_blank_tool_call_id_even_with_a_name():
                     {
                         "id": "good",
                         "type": "function",
-                        "function": {"name": "read_cell_range", "arguments": "{}"},
+                        "function": {"name": "read_range", "arguments": "{}"},
                     },
                     {
                         "id": call_id,
                         "type": "function",
-                        "function": {"name": "read_cell_range", "arguments": "{}"},
+                        "function": {"name": "read_range", "arguments": "{}"},
                     },
                 ],
             },
@@ -470,7 +470,7 @@ def test_sanitize_drops_empty_name_tool_call_and_matching_result():
                 {
                     "id": "good",
                     "type": "function",
-                    "function": {"name": "read_cell_range", "arguments": '{"range":"A1"}'},
+                    "function": {"name": "read_range", "arguments": '{"range":"A1"}'},
                 },
                 {
                     "id": "",
@@ -486,7 +486,7 @@ def test_sanitize_drops_empty_name_tool_call_and_matching_result():
     asst = [m for m in cleaned if m.get("role") == "assistant"][0]
     assert len(asst["tool_calls"]) == 1
     assert asst["tool_calls"][0]["id"] == "good"
-    assert asst["tool_calls"][0]["function"]["name"] == "read_cell_range"
+    assert asst["tool_calls"][0]["function"]["name"] == "read_range"
     tools = [m for m in cleaned if m.get("role") == "tool"]
     assert len(tools) == 1
     assert tools[0]["tool_call_id"] == "good"

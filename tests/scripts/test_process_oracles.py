@@ -19,7 +19,7 @@ from process_oracles import check_process
 
 def _write(dest: str, formula: str = '=PY("result = 1"; A1:H500)') -> dict:
     return {
-        "name": "write_formula_range",
+        "name": "write_range",
         "arguments": json.dumps({"range": [dest], "values": formula}),
         "result_status": "ok",
         "result_chars": 20,
@@ -67,7 +67,7 @@ def test_py_all_writes_earlier_inside_fails() -> None:
 def test_bulk_read_fails_no_bulk_task() -> None:
     trace = [
         {
-            "name": "read_cell_range",
+            "name": "read_range",
             "arguments": json.dumps({"range": ["A1:H500"]}),
             "result_status": "ok",
             "result_chars": 4000,

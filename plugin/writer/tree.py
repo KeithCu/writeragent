@@ -458,7 +458,7 @@ class TreeService(ServiceBase):
             names = [str(n) for n in bookmarks.getElementNames()]
             details = name_miss_details(bookmark_name, names, "bookmark_list")
             if bookmark_name.startswith("_mcp_"):
-                hint += " Use heading_text:<text> locator for resilient heading addressing, or call get_document_tree to refresh bookmarks."
+                hint += " Use heading_text:<text> locator for resilient heading addressing, or call get_tree to refresh bookmarks."
                 existing = [n for n in bookmarks.getElementNames() if n.startswith("_mcp_")]
                 if existing:
                     hint += " Existing bookmarks: " + ", ".join(existing[:10])
@@ -477,7 +477,7 @@ class TreeService(ServiceBase):
             ToolExecutionError(
                 "Bookmark '%s' anchor is not in the document. "
                 "It may be stale after an edit, save, or bookmark_cleanup. "
-                "Use heading_text:<text> or call get_document_tree to refresh bookmarks."
+                "Use heading_text:<text> or call get_tree to refresh bookmarks."
                 % bookmark_name
             ),
         )

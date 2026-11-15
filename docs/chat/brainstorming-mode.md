@@ -47,7 +47,7 @@ All brainstorming outputs use HTML — no Markdown in tool arguments.
 | Surface | Format |
 |---------|--------|
 | Sidebar (`reply_to_user`) | Single HTML string (`<p>`, `<h2>`, `<ul>`, …) |
-| Saved spec (`brainstorming_save_design_spec`) | JSON **array** of HTML strings (same as `apply_document_content.content`) |
+| Saved spec (`brainstorming_save_design_spec`) | JSON **array** of HTML strings (same as `apply_content.content`) |
 | Research shown to user | Sub-agent reformats plain-text web/doc results as HTML in chat |
 
 Rules: [`HTML_FRAGMENT_RULES`](../../plugin/framework/prompts.py), [`WRITER_APPLY_DOCUMENT_HTML_RULES`](../../plugin/framework/prompts.py), [`get_chat_response_format_instructions`](../../plugin/framework/prompts.py).
@@ -75,12 +75,12 @@ Example spec array:
 |------|------|
 | `brainstorming_search_web` | Public web research (plain text in; HTML summary out via `reply_to_user`) |
 | `research_list_nearby_files`, `research_grep_nearby_files`, `research_delegate_read` | Same-folder document research |
-| `get_document_content`, `get_document_tree`, `search_in_document` | Active Writer context |
+| `get_content`, `get_tree`, `search` | Active Writer context |
 | `brainstorming_save_design_spec` | **Only** document write path |
 | `reply_to_user` | Continue conversation (smol final-answer tool) |
 | `reply_to_user` + `brainstorming_finished=true` | End session |
 
-Raw `apply_document_content` is **not** exposed to the brainstorming sub-agent.
+Raw `apply_content` is **not** exposed to the brainstorming sub-agent.
 
 ---
 

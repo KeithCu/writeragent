@@ -304,7 +304,7 @@ def test_summarize_shape_calls_counts_creates_connectors_and_diagram():
             True,
         ),
         InnerToolCall(
-            "shape_diagram",
+            "shape_create_diagram",
             {
                 "status": "ok",
                 "page": 1,
@@ -314,7 +314,7 @@ def test_summarize_shape_calls_counts_creates_connectors_and_diagram():
             True,
         ),
         InnerToolCall(
-            "shape_summary",
+            "shape_get_summary",
             {"status": "ok", "page": 3, "shapes": []},
             False,
         ),

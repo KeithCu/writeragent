@@ -942,7 +942,7 @@ def test_plan_write_refuses_py_inside_its_data_range():
     assert exc.value.details == {
         "data_range": "A1:A2",
         "suggested_call": {
-            "tool": "write_formula_range",
+            "tool": "write_range",
             "arguments": {"range": ["Sheet1.B1"], "values": formula},
         },
     }
@@ -1193,7 +1193,7 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     assert note["code"] == "REPEATED_FORMULA"
     assert "Column C" in note["message"]
     assert note["suggested_call"] == {
-        "tool": "write_formula_range",
+        "tool": "write_range",
         "arguments": {"range": ["Sheet1.C2:C4"], "values": "=B2*Rates.B2"},
     }
 
@@ -1207,7 +1207,7 @@ def test_plan_write_warns_on_repeated_row_formula_without_rewriting() -> None:
     assert expanded.values == ["=B2*2", "=B2*2", "=B2*2"]
     assert expanded.notes[0]["code"] == "REPEATED_FORMULA"
     assert expanded.notes[0]["suggested_call"] == {
-        "tool": "write_formula_range",
+        "tool": "write_range",
         "arguments": {"range": ["Sheet1.C2:C4"], "values": "=B2*2"},
     }
 

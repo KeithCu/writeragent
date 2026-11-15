@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for navigation tools (nav_heading, nav_surroundings, nav_heading_children)."""
+"""Tests for navigation tools (nav_get_heading, nav_get_surroundings, nav_list_heading_children)."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock

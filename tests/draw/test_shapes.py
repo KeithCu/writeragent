@@ -45,6 +45,7 @@ class _RecordingShape:
     def __init__(self, events: list):
         self._events = events
         self._props: dict = {}
+        self.Name = ""
 
     def setPosition(self, position):
         self._events.append(("setPosition", position.X, position.Y))
@@ -676,6 +677,140 @@ def test_shape_upsert_off_page_adds_warning():
     assert "page_width" not in out and "width_mm" not in out
 
 
+def _make_name_test_env(existing_names: list[str], created_name: str = ""):
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    page_shapes = []
+    for existing in existing_names:
+        s = MagicMock()
+        s.Name = existing
+        s.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+        s.getPosition.return_value = _Pos(100, 100)
+        s.getSize.return_value = _Size(100, 100)
+        page_shapes.append(s)
+
+    page.add.side_effect = lambda s: page_shapes.append(s)
+    page.getCount.side_effect = lambda: len(page_shapes)
+    page.getByIndex.side_effect = lambda i: page_shapes[i]
+
+    created = MagicMock()
+    created.Name = created_name
+    created.getPosition.return_value = _Pos(100, 100)
+    created.getSize.return_value = _Size(200, 200)
+    created.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.return_value = created
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+    return ctx, doc, page, page_shapes, created
+
+
+def test_shape_upsert_create_assigns_unused_name():
+    ctx, _doc, page, _shapes, created = _make_name_test_env(["Shape1"], created_name="")
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=100, width=200, height=200)
+    assert out["status"] == "ok"
+    assert out["name"] == "Shape2"
+    assert created.Name == "Shape2"
+
+
+@pytest.mark.parametrize(
+    ("existing_names", "expected_name"),
+    [
+        (["Shape2", "Shape3"], "Shape4"),
+        (["Title", "Shape1a", "Shape\u00b2", "Shape2"], "Shape3"),
+        (["Title"], "Shape1"),
+    ],
+)
+def test_shape_upsert_create_uses_max_plus_one_not_deleted_gap(existing_names, expected_name):
+    ctx, _doc, page, _shapes, created = _make_name_test_env(existing_names, created_name="")
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=100, width=200, height=200)
+    assert out["status"] == "ok"
+    assert out["name"] == expected_name
+    assert created.Name == expected_name
+
+
+def test_shape_upsert_create_keeps_existing_name():
+    ctx, _doc, page, _shapes, created = _make_name_test_env(["Shape1"], created_name="Shape7")
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=100, width=200, height=200)
+    assert out["status"] == "ok"
+    assert out["name"] == "Shape7"
+    assert created.Name == "Shape7"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expect_status"),
+    [
+        ({"action": "create", "shape_type": "rectangle", "x": 100, "y": 100, "width": 200, "height": 200, "name": "Box"}, "error"),
+        ({"action": "edit", "index": 0, "x": 999, "name": "Box"}, "error"),
+        ({"action": "edit", "index": 0, "name": "First"}, "ok"),
+    ],
+)
+def test_shape_upsert_rejects_taken_name(kwargs, expect_status):
+    ctx, doc, page, page_shapes, _created = _make_name_test_env(["First", "Box"])
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, **kwargs)
+    assert out["status"] == expect_status
+    assert page_shapes[0].Name == "First"
+    doc.createInstance.assert_not_called()
+    if expect_status == "error":
+        assert out["code"] == "INVALID_PARAM"
+        page_shapes[0].setPosition.assert_not_called()
+
+
+def test_shape_upsert_create_strips_explicit_name():
+    ctx, _doc, page, _shapes, created = _make_name_test_env([], created_name="")
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="rectangle",
+            x=100,
+            y=100,
+            width=200,
+            height=200,
+            name=" Box",
+        )
+    assert out["status"] == "ok"
+    assert out["name"] == "Box"
+    assert created.Name == "Box"
+
+
+def test_shape_group_name_failure_adds_warning():
+    ctx, _doc, page, _shapes, _created = _make_name_test_env(["Left", "Right"])
+
+    class _ReadOnlyNameGroup:
+        @property
+        def Name(self) -> str:
+            return ""
+
+        @Name.setter
+        def Name(self, _value: str) -> None:
+            raise RuntimeError("Name is read-only")
+
+    page.group.return_value = _ReadOnlyNameGroup()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=["Left", "Right"])
+    assert out["status"] == "ok"
+    assert out["name"] == ""
+    assert out["warnings"] == ["Failed to assign group name"]
+
+
 def test_shape_upsert_within_page_has_no_warning():
     """Shapes within page bounds do not trigger the outside bounds warning."""
     page = MagicMock()
@@ -1123,28 +1258,42 @@ def test_shape_connect_group_align_distribute_by_name():
     right.getSize.return_value = MagicMock(Width=100, Height=100)
     right.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
 
+    page_shapes = [left, right]
     page = MagicMock()
-    page.getCount.return_value = 2
-    page.getByIndex.side_effect = lambda i: left if i == 0 else right
+    page.getCount.side_effect = lambda: len(page_shapes)
+    page.getByIndex.side_effect = lambda i: page_shapes[i]
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
     ctx.ctx = MagicMock()
     ctx.active_page_index = 0
 
+    conn_shape = MagicMock()
+    conn_shape.Name = ""
+    group_shape = MagicMock()
+    group_shape.Name = ""
+    page.group.return_value = group_shape
+
+    def _safe_create(*_args, **_kwargs):
+        page_shapes.append(conn_shape)
+        return (conn_shape, None, None)
+
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
         "plugin.draw.shapes.DrawShapes.safe_create_shape",
-        return_value=(MagicMock(), None, None),
+        side_effect=_safe_create,
     ), patch("plugin.draw.shapes._apply_shape_properties", return_value=[]), patch(
         "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
     ):
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         conn = ConnectShapes().execute(ctx, start="Left", end="Right")
         assert conn["status"] == "ok"
+        assert conn["name"]
 
         page.group.reset_mock()
         group_out = GroupShapes().execute(ctx, indices=["Left", "Right"])
         assert group_out["status"] == "ok"
+        assert group_out["name"]
+        assert group_out["name"] != conn["name"]
         page.group.assert_called_once()
 
         align_out = AlignShapes().execute(ctx, indices=["Left", "Right"], alignment="left")

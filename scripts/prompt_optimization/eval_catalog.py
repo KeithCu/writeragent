@@ -32,27 +32,27 @@ SCHEMA_DENSITIES: tuple[str, ...] = ("full", "skinny")
 TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
     "full": (None, None),
     # Smallest outer set that can still pass data_sorting + tax_column:
-    # tax writes via write_formula_range / get_sheet_summary; sort delegates.
+    # tax writes via write_range / get_sheet_summary; sort delegates.
     "calc_minimal": (
         "calc",
         (
-            "write_formula_range",
+            "write_range",
             "get_sheet_summary",
             "calc_delegate_specialized",
         ),
     ),
     # Calc-specific outer tools only (drops shared chatbot extras:
-    # web_research, upsert_memory, get_guidance, redo, undo).
+    # web_research, memory_upsert, manual_read, redo, undo).
     "calc_core": (
         "calc",
         (
             "delete_structure",
-            "insert_cell_html",
+            "insert_html",
             "merge_cells",
-            "read_cell_range",
+            "read_range",
             "set_style",
-            "write_formula_range",
-            "list_calc_functions",
+            "write_range",
+            "list_functions",
             "get_sheet_summary",
             "calc_delegate_specialized",
         ),
@@ -61,8 +61,8 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
     "writer_minimal": (
         "writer",
         (
-            "apply_document_content",
-            "get_document_content",
+            "apply_content",
+            "get_content",
         ),
     ),
 }
@@ -218,7 +218,7 @@ def resolve_tool_allowlist(
     """Allowlist for this catalog, or ``None`` to keep every advertised tool.
 
     Specialized inner catalogs (``active_domain`` set) are never filtered so
-    ``*_delegate_specialized`` still sees ``range_sort`` / shapes / etc.
+    ``*_delegate_specialized`` still sees ``sort_range`` / shapes / etc.
     Kind-specific presets no-op on other document kinds.
     """
     if active_domain:

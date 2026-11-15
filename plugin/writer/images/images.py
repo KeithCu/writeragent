@@ -1034,7 +1034,7 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         "the same frame: the picture as it is now. The result is baked into the picture: the cut-away "
         "part is removed from the file and marks cannot drift. Afterwards the picture IS the region "
         "(new width_px/height_px). The frame keeps its width (or width_mm) and its height follows the "
-        "new shape. Check the result with get_image."
+        "new shape. Check the result with image_get."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

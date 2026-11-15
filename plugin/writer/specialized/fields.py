@@ -95,7 +95,7 @@ def _iter_body_field_identity(doc: Any, hasher: Any) -> Any:
 
 
 class FieldsUpdateAll(ToolWriterFieldBase):
-    name: str | None = "fields_update_all"
+    name: str | None = "field_update_all"
     description: str = "Refresh all text fields (dates, page numbers, cross-references). Call after changes that affect computed fields."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
@@ -114,7 +114,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
 
 
 class FieldsList(ToolWriterFieldBase):
-    name: str | None = "fields_list"
+    name: str | None = "field_list"
     description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
@@ -159,16 +159,16 @@ class FieldsList(ToolWriterFieldBase):
 
 
 class FieldsDelete(ToolWriterFieldBase):
-    name: str | None = "fields_delete"
+    name: str | None = "field_delete"
     description: str = (
-        "Deletes one or more text fields from the document by their 1-based ID in the fields_list snapshot. "
-        "Pass the snapshot string from fields_list to ensure IDs have not shifted."
+        "Deletes one or more text fields from the document by their 1-based ID in the field_list snapshot. "
+        "Pass the snapshot string from field_list to ensure IDs have not shifted."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."},
-            "snapshot": {"type": "string", "description": "Optional snapshot hash from fields_list to prevent deleting shifted fields."},
+            "snapshot": {"type": "string", "description": "Optional snapshot hash from field_list to prevent deleting shifted fields."},
         },
         "required": ["ids"],
     }
@@ -201,7 +201,7 @@ class FieldsDelete(ToolWriterFieldBase):
             current_snapshot = hasher.hexdigest()
             if current_snapshot != snapshot:
                 return self._tool_error(
-                    "Document fields have changed since fields_list. Call fields_list again.",
+                    "Document fields have changed since field_list. Call field_list again.",
                     code="FIELD_LIST_STALE",
                     top_level={"deleted_count": 0},
                 )
@@ -235,7 +235,7 @@ class FieldsDelete(ToolWriterFieldBase):
 
         def mutate() -> dict[str, Any] | None:
             for anchor in anchors:
-                # setString("") on the anchor removes only the field (same as footnotes_delete); see test_fields_uno.py.
+                # setString("") on the anchor removes only the field (same as footnote_delete); see test_fields_uno.py.
                 anchor.setString("")
             return None
 
@@ -262,7 +262,7 @@ class FieldsDelete(ToolWriterFieldBase):
 
 
 class FieldsInsert(ToolWriterFieldBase):
-    name: str | None = "fields_insert"
+    name: str | None = "field_insert"
     description: str = (
         "Insert a text field at the specified target position. "
         "Use target='beginning', 'end', or 'selection' to insert at those positions. "
@@ -338,7 +338,7 @@ class DocumentPropertiesGet(ToolBase):
     """Read built-in and user-defined document metadata."""
     # Subclasses ToolBase (not ToolWriterFieldBase) because document properties work across all apps (Writer/Calc/Draw).
 
-    name: str | None = "document_properties_get"
+    name: str | None = "document_get_properties"
     description: str = (
         "Read document metadata: title, subject, author, description, keywords, and custom "
         "user-defined properties. Internal WriterAgent product properties are listed by name only."
@@ -370,7 +370,7 @@ class DocumentPropertiesSet(ToolBase):
     """Update built-in and user-defined document metadata."""
     # Subclasses ToolBase (not ToolWriterFieldBase) because document properties work across all apps (Writer/Calc/Draw).
 
-    name: str | None = "document_properties_set"
+    name: str | None = "document_set_properties"
     description: str = (
         "Update document metadata. Pass only fields to change. Empty string clears a built-in text "
         "field; an empty keywords array clears keywords. User-defined values must be strings."

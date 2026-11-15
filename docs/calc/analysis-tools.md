@@ -2,7 +2,7 @@
 
 This document describes the specialized tools for performing analysis in LibreOffice Calc.
 
-**Chat (2026):** Calc hides `analysis` and `python` (`CALC_HIDDEN_SPECIALIZED_DOMAINS`). Main chat runs Python only as **`=PY()`** via `write_formula_range` into an empty cell outside the data range (no in-place overwrite). Classes below remain for tests and Run Python Script helpers. They are `ToolBaseDummy` (not registered as chat or MCP tools).
+**Chat (2026):** Calc hides `analysis` and `python` (`CALC_HIDDEN_SPECIALIZED_DOMAINS`). Main chat runs Python only as **`=PY()`** via `write_range` into an empty cell outside the data range (no in-place overwrite). Classes below remain for tests and Run Python Script helpers. They are `ToolBaseDummy` (not registered as chat or MCP tools).
 
 Previously, tools lived under the **`analysis`** specialized domain (`calc_delegate_specialized(domain="analysis", task=…)`):
 
@@ -13,7 +13,7 @@ Previously, tools lived under the **`analysis`** specialized domain (`calc_deleg
 | Constrained optimization on formula cells | `calc_solver` |
 
 See [specialized-toolsets.md](specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan. DuckDB SQL support (through Phase D + honesty polish):
-- `query_folder_sql` for folder files (CSV/Parquet/JSON direct + .xlsx/.ods via LO import) and/or live ranges.
+- `sql_query_folder` for folder files (CSV/Parquet/JSON direct + .xlsx/.ods via LO import) and/or live ranges.
 - Use `tables` with a **stable identity**: `{sheet: "Sales"}` (used range), `{named_range: "SalesData"}` (named or database range), or frozen `{range: "Sales.A1:F500"}`. Sibling sheet: `files={"sales": "budget.xlsx#Sales"}` (dict key is the SQL table). See [duckdb-dev-plan.md § Table source identity](duckdb-dev-plan.md#table-source-identity).
 - `data_range` is still frozen A1 → table `data`.
 - Available in analysis domain chat or Run Python Script → SQL Helpers.

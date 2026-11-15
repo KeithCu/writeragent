@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Live get_image page=N on Draw and Impress (GraphicExportFilter on XDrawPage)."""
+"""Live image_get page=N on Draw and Impress (GraphicExportFilter on XDrawPage)."""
 import base64
 
 from plugin.testing_runner import native_test
@@ -45,7 +45,7 @@ def _assert_png_result(res, source):
     assert res.get("source") == source
     blob = res.get("_mcp_image") or {}
     raw = base64.b64decode(blob.get("data") or "")
-    assert raw[:8] == _PNG_MAGIC, "get_image must return a real PNG, not an empty placeholder"
+    assert raw[:8] == _PNG_MAGIC, "image_get must return a real PNG, not an empty placeholder"
     assert blob.get("mimeType") == "image/png"
     return raw
 

@@ -10,9 +10,9 @@ Sheet filter tools live in the **specialized** tier with domain **`sheets`**. Th
 
 | Tool | Role |
 |------|------|
-| `sheet_filter_apply` | Apply one or more conditions (`TableFilterField2` + `FilterOperator2`) to a **data range**. |
-| `sheet_filter_clear` | Remove the filter on that range (show all rows again). |
-| `sheet_filter_get` | Read back active criteria (round-trip / debugging). |
+| `sheet_apply_filter` | Apply one or more conditions (`TableFilterField2` + `FilterOperator2`) to a **data range**. |
+| `sheet_clear_filter` | Remove the filter on that range (show all rows again). |
+| `sheet_get_filter` | Read back active criteria (round-trip / debugging). |
 
 Implementation: [`plugin/calc/sheet_filter.py`](../../plugin/calc/sheet_filter.py). Base class: `ToolCalcSheetBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py). Operator labels and JSON → `TableFilterField2` parsing: [`plugin/calc/sheet_filter_criteria.py`](../../plugin/calc/sheet_filter_criteria.py).
 
@@ -33,7 +33,7 @@ Wildcards (`*`, `?`) in string conditions follow Calc’s usual rules when **`Us
 
 ---
 
-## 3. Criteria JSON shape (`sheet_filter_apply`)
+## 3. Criteria JSON shape (`sheet_apply_filter`)
 
 Each element of **`criteria`** is an object:
 
@@ -65,9 +65,9 @@ Examples:
 
 **Expressivity:** The filter is **not** a general boolean formula with arbitrary parentheses (e.g. `(A OR B) AND (C OR D)` is not necessarily the same as any single left-associative chain of four OR/AND links). If the needed logic does not match a linear chain, use **helper columns**, **multiple filter steps**, or **different tools**—not something missing from the `connection` field itself.
 
-### `sheet_filter_get` and `connection`
+### `sheet_get_filter` and `connection`
 
-`sheet_filter_get` reports `connection` from the `FilterConnection` enum's value (`"AND"` or `"OR"`). An OR chain reads back as `"OR"`, which `tests/calc/test_sheet_filter_uno.py` pins. The first criterion's `connection` value is meaningless.
+`sheet_get_filter` reports `connection` from the `FilterConnection` enum's value (`"AND"` or `"OR"`). An OR chain reads back as `"OR"`, which `tests/calc/test_sheet_filter_uno.py` pins. The first criterion's `connection` value is meaningless.
 
 ---
 
@@ -94,7 +94,7 @@ Future scope, pass-through ideas, and out-of-scope workflows are in **§5** belo
 
 ## 5. Future development and roadmap
 
-Audience: maintainers of WriterAgent’s Calc **standard filter** tools (`sheet_filter_apply`, `sheet_filter_get`, `sheet_filter_clear`). This is **not** a product roadmap for end users; it records **intentional scope**, **UNO facts**, and **candidate extensions** with risk notes.
+Audience: maintainers of WriterAgent’s Calc **standard filter** tools (`sheet_apply_filter`, `sheet_get_filter`, `sheet_clear_filter`). This is **not** a product roadmap for end users; it records **intentional scope**, **UNO facts**, and **candidate extensions** with risk notes.
 
 ### 5.1 Design constraint (current)
 
@@ -120,11 +120,11 @@ Implementation split: criteria parsing + operator labels in [`plugin/calc/sheet_
 | `FilterConnection` (AND/OR) | Mapped as JSON `connection` from the **second** criterion onward; first row always AND (ignored in JSON, matches LO convention). |
 | `IsNumeric` / `NumericValue` / `StringValue` | Via `is_numeric` + `value` heuristics and operator classes (e.g. TOP_*, EMPTY). |
 | `ContainsHeader` | `has_header` on apply/clear. |
-| Round-trip for debugging | `sheet_filter_get` reads `getFilterFields2` and maps back to JSON-shaped dicts. |
+| Round-trip for debugging | `sheet_get_filter` reads `getFilterFields2` and maps back to JSON-shaped dicts. |
 
 ### 5.3 UNO descriptor features not exposed (pass-through candidates)
 
-The filter descriptor implements additional properties (exact set varies slightly by LO version). These are **candidates for future pass-through** parameters on `sheet_filter_apply` / `sheet_filter_get` because they do not change the boolean model—only string matching and output behavior.
+The filter descriptor implements additional properties (exact set varies slightly by LO version). These are **candidates for future pass-through** parameters on `sheet_apply_filter` / `sheet_get_filter` because they do not change the boolean model—only string matching and output behavior.
 
 **Typical examples** (verify against your target LO IDL / `SheetFilterDescriptor` service):
 
@@ -136,7 +136,7 @@ The filter descriptor implements additional properties (exact set varies slightl
 
 1. After `createFilterDescriptor`, keep existing `XPropertySet` query on `fd`.
 2. Add optional tool kwargs with defaults matching current behavior (e.g. regex off if unset).
-3. Extend `sheet_filter_get` to return these when readable.
+3. Extend `sheet_get_filter` to return these when readable.
 4. Add UNO tests that set each flag and assert via `getPropertyValue` or visible behavior.
 
 **Risk:** Some properties interact with operators (e.g. regex + `CONTAINS`). Prefer **one property at a time** behind kwargs with integration tests.
@@ -157,7 +157,7 @@ Apply filter, user/agent edits, apply another filter. Scripting that reliably is
 
 #### Query / advanced filter from named ranges / database range
 
-LibreOffice also supports **Advanced Filter** / database-oriented APIs (`com.sun.star.sheet.DatabaseRange`, query descriptors). That is a **different UNO surface** than `XSheetFilterable` on a cell range. If we ever need it, add **new tools** rather than overloading `sheet_filter_apply`.
+LibreOffice also supports **Advanced Filter** / database-oriented APIs (`com.sun.star.sheet.DatabaseRange`, query descriptors). That is a **different UNO surface** than `XSheetFilterable` on a cell range. If we ever need it, add **new tools** rather than overloading `sheet_apply_filter`.
 
 ### 5.5 Engineering checklist for any change
 

@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# apply_document_content returns a machine-readable replaced_count so the agent can tell whether
+# apply_content returns a machine-readable replaced_count so the agent can tell whether
 # an edit actually landed instead of always seeing status="ok": replaced_count == 0 -> status
 # "error" (a silent no-op surfaced), N > 0 -> "ok". (No target/formatting_preserved/matched_count/
 # warning/partial-replace — minimal per maintainer request; a replace that raises mid-all_matches

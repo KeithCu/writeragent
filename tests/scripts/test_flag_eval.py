@@ -133,7 +133,7 @@ def test_shapes_hop_exposes_venv_and_hides_shape_upsert() -> None:
     rows = delegated_domain_schemas("writer", ["shapes"])
     names = {schema_tool_name(row) for row in rows}
     assert "python_run_script" in names
-    assert "shape_summary" in names
+    assert "shape_get_summary" in names
     assert "workflow_finished" in names
     assert "shape_upsert" not in names
     assert "python_delegate_domains" not in names

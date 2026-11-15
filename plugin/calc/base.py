@@ -50,7 +50,7 @@ class ToolCalcSpecialBase(ToolBase):
     is_app_specialized_tool: ClassVar[bool] = True
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary", "read_cell_range"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary", "read_range"])
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
@@ -64,7 +64,7 @@ class ToolCalcImageBase(ToolCalcSpecialBase):
 
 class ToolCalcVisionBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "vision"
-    specialized_domain_description: ClassVar[str | None] = "Extract text and structure (layout, tables) from embedded sheet graphics; extract_structure_from_image."
+    specialized_domain_description: ClassVar[str | None] = "Extract text and structure (layout, tables) from embedded sheet graphics; image_extract_structure."
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
 
 
@@ -87,7 +87,7 @@ class ToolCalcConditionalBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "conditional_formatting"
     specialized_domain_description: ClassVar[str | None] = "Apply rules to format cells based on their values."
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(
-        {"get_sheet_summary", "read_cell_range", "style_list"}
+        {"get_sheet_summary", "read_range", "style_list"}
     )
 
 
@@ -142,17 +142,17 @@ class ToolCalcSpecialTracking(ToolCalcSpecialBase):
 
 
 class ToolCalcPythonSqlBase(ToolCalcSpecialBase):
-    """Read-only DuckDB SQL (query_folder_sql). Direct subclass so the discovery catalog lists it.
+    """Read-only DuckDB SQL (sql_query_folder). Direct subclass so the discovery catalog lists it.
 
     Calc chat hides this domain (CALC_HIDDEN_SPECIALIZED_DOMAINS), same as python.
-    find_tools uses for_discovery and still offers it. Only get_sheet_summary
-    is required (no read_cell_range), keeping large data out-of-band through
+    tool_find uses for_discovery and still offers it. Only get_sheet_summary
+    is required (no read_range), keeping large data out-of-band through
     data_range and split_grid/payload_codec instead of sub-agent observations.
     """
 
     specialized_domain: ClassVar[str | None] = "python/sql"
     specialized_domain_description: ClassVar[str | None] = (
-        "Run read-only SQL (DuckDB) against folder files and live Calc ranges; query_folder_sql."
+        "Run read-only SQL (DuckDB) against folder files and live Calc ranges; sql_query_folder."
     )
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
 

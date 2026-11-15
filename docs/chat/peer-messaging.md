@@ -16,7 +16,7 @@ Recorded 2026-09-08. Implement these; do not implement the older “don’t Read
 | Decision | Current v1 |
 | -------- | ---------- |
 | **Name** | `peer_send_work` + `peer_send_result` (replaces `send_peer_message`; not `ask_peer_*`). |
-| **Surface** | **Experiment:** `document_research` specialized only (not outer/main schemas). Tier `"chat"` still hides MCP `tools/list` / `find_tools`. `execute()` allows sidebar `caller=="chat"` **or** `active_domain=="document_research"`; MCP/script stay refused. Master/#672 advertised the tool on main chat — do not restore that as this experiment’s default. |
+| **Surface** | **Experiment:** `document_research` specialized only (not outer/main schemas). Tier `"chat"` still hides MCP `tools/list` / `tool_find`. `execute()` allows sidebar `caller=="chat"` **or** `active_domain=="document_research"`; MCP/script stay refused. Master/#672 advertised the tool on main chat — do not restore that as this experiment’s default. |
 | **Shape** | `peer_send_work(document_url, message)` and `peer_send_result(document_url, message)`. Required `document_url` every call. Kind = which tool was called. `document_url` is the **one** target arg: file URL, RuntimeUID, or a display `name` that matches **exactly one** open peer. No correlation id. No separate `name` parameter. No `reply=true`, no `last_peer_from`. |
 | **Return** | `{"status": "ok", "accepted": true, "envelope_kind": "work"|"result"}`. FSM success is `status == "ok"`; do **not** return `status: "accepted"` alone. `is_mutation = False`. |
 | **Sender** | Derived from `ToolContext.doc` (`get_runtime_uid`, display name, file URL). Not authored in `message`. `ToolContext` has no frame. |
@@ -24,7 +24,7 @@ Recorded 2026-09-08. Implement these; do not implement the older “don’t Read
 | **Drain** | One UI thread; each send is a blocking drain. **Inject now, start later.** Do not start the peer drain from caller `execute()` or via `QueueExecutor.post` while `get_drain_owner()` is set — that nests (`"stream"` same-owner is allowed) and freezes the caller (A1 becomes accidental A2). Kick pending starts when drain depth hits 0. |
 | **Busy** | Queue-on-listener for **all** busy targets (outbound and replies). Not fail-fast. Policy in [§4.3](#43-live-panel--busy--queue--deck). |
 | **Kind** | Which tool was called stamps the envelope: work → `[Peer work from: …]`, result → `[Peer result from: …]`. No correlation id. Host does **not** splice the reply onto the originating tool result. Routing is `document_url` → that session, like any other send. |
-| **Discoverability** | `list_open_documents` stays `tier="mcp"` (off the chat wire). When this tool is visible, bake the open-peer catalog (name / uid / url / type) into the tool description and a short prompt block. |
+| **Discoverability** | `document_list_open` stays `tier="mcp"` (off the chat wire). When this tool is visible, bake the open-peer catalog (name / uid / url / type) into the tool description and a short prompt block. |
 | **Impress** | In v1. Research catalog `doc_type: "draw"` still folds Impress (`doc_type_family_label`). Peer catalog uses an explicit `type: "impress"` from `PresentationDocument` on the **resolved model** (checked before `DrawingDocument` so Draw-only stays `draw`). |
 | **Lock** | No extra per-doc lock in v1. Sidebar chat does not take MCP’s uid gate. |
 | **Focus** | No `toFront`, no `query.setFocus` on the extracted send. |
@@ -63,7 +63,7 @@ A user (or an eval harness) has two or three windows open in the same LibreOffic
 
 They already share the process: one `ToolRegistry` (`plugin.app.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory/skills directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
 
-**What the user wants:** the Writer agent can send the Calc agent Calc work, or the Draw agent Draw work (and any reverse), in natural language. The other sidebar **shows the message and runs it**. A reply comes back later on the caller’s transcript as a **new user turn**. Writer never advertises `write_formula_range` or `shape_upsert`; Calc never advertises `apply_document_content`.
+**What the user wants:** the Writer agent can send the Calc agent Calc work, or the Draw agent Draw work (and any reverse), in natural language. The other sidebar **shows the message and runs it**. A reply comes back later on the caller’s transcript as a **new user turn**. Writer never advertises `write_range` or `shape_upsert`; Calc never advertises `apply_content`.
 
 **What this is not:**
 
@@ -113,7 +113,7 @@ Draw already registers a sidebar deck (`DrawingDocument` in `extension/registry/
 | Resolve open model | `resolve_document_by_url` in [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | File URL **or** `RuntimeUID`. Open components only — does **not** `loadComponentFromURL`. Returns `(model, doc_type)` with Impress labeled `"draw"` (`doc_type_family_label`). |
 | RuntimeUID | `get_runtime_uid` in [`plugin/framework/uno_context.py`](../../plugin/framework/uno_context.py) | Exists for untitled docs; `""` if unavailable. Two views of one model share one uid. |
 | Write guard | `ToolRegistry.execute` and `SmolToolAdapter.forward` when `ctx.read_only_target` | Research mutations → `READ_ONLY_TARGET`. The smol path does not call the registry. Do not relax this. |
-| MCP lister | `list_open_documents` (`tier = "mcp"`) | **Not** on the chat wire. Do not promote it to core for this feature. |
+| MCP lister | `document_list_open` (`tier = "mcp"`) | **Not** on the chat wire. Do not promote it to core for this feature. |
 
 Docs: [multi-document-dev-plan.md](multi-document-dev-plan.md). Phase 0 decision #4: write-back to siblings is **out of scope** for research. Peer messaging is a **different** feature: writes happen because the **peer sidebar** ran a normal user turn on **its** bound doc.
 
@@ -123,7 +123,7 @@ Docs: [multi-document-dev-plan.md](multi-document-dev-plan.md). Phase 0 decision
 
 That path **rebinds** a fresh `ToolContext` and **blocks** the caller tool until `workflow_finished`. It is the right shape for **A2** (optional later / documented escape hatch). It is **not** v1. Draw is already first-class on this path; A1 does not need a Draw-specific send factory — same panel map + extracted send as Calc.
 
-`document_research` / `run_inner_read_agent` also rebind `ToolContext` (read-only allowlist, including Draw `list_pages` / `get_draw_tree`). Keep that for sibling **reads**. Do not flip `read_only_target` to implement peer writes.
+`document_research` / `run_inner_read_agent` also rebind `ToolContext` (read-only allowlist, including Draw `slide_list` / `get_tree`). Keep that for sibling **reads**. Do not flip `read_only_target` to implement peer writes.
 
 ### 2.4 Other “handoffs” (weaker fit)
 
@@ -251,7 +251,7 @@ Hide when alone. Hide when the only other components are Start Center or unresol
 
 Same idea as `filter_vision_delegate_schemas`: filter at schema time, not only at `execute`. Re-evaluate each caller send (open set changes). `get_open_documents` is main-thread; chat `get_schemas` already runs on the UI thread.
 
-**Catalog for the model:** when visible, the schema description (and a short prompt block) lists those peers: `name`, `uid`, `url`, type. The model cannot call `list_open_documents` from chat.
+**Catalog for the model:** when visible, the schema description (and a short prompt block) lists those peers: `name`, `uid`, `url`, type. The model cannot call `document_list_open` from chat.
 
 ### 4.3 Live panel, busy, queue, deck
 
@@ -299,7 +299,7 @@ Suggested error codes: `PEER_NOT_FOUND`, `PEER_SIDEBAR_NOT_OPEN`, `PEER_UNSUPPOR
 - `tier = "chat"` — **not** `"core"`. Inverse of `tier = "mcp"`:
   - Chat `_DEFAULT_EXCLUDE_TIERS` stays `{specialized, specialized_control, mcp}` so `"chat"` is not an MCP tier. **Experiment:** outer `get_schemas` still **strips** this name (`filter_peer_message_schemas` without `document_research`).
   - `specialized_domain = "document_research"` + `specialized_cross_cutting` so Writer/Calc/Draw/Impress inner loops can see it.
-  - Add `"chat"` to `MCP_DELEGATE_EXCLUDE_TIERS` and `MCP_DIRECT_FLAT_EXCLUDE_TIERS` in [`plugin/mcp/mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py). MCP `get_schemas` also strips the name (including `find_tools(domain=document_research)`).
+  - Add `"chat"` to `MCP_DELEGATE_EXCLUDE_TIERS` and `MCP_DIRECT_FLAT_EXCLUDE_TIERS` in [`plugin/mcp/mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py). MCP `get_schemas` also strips the name (including `tool_find(domain=document_research)`).
   - `execute()`: refuse MCP/script (`PEER_CHAT_ONLY`). Allow `caller=="chat"` (specialized inherits the parent chat context) **or** `active_domain=="document_research"` so a specialized `ToolContext` is not blocked if it is not tagged `chat`.
 - `uno_services` = Writer + Calc + Draw + Impress (`TextDocument`, `SpreadsheetDocument`, `DrawingDocument`, `PresentationDocument`). Needed when the Impress sidebar caches `doc_type="impress"` (services map is PresentationDocument only). Peer catalog type stays `impress`, not `draw`.
 - `is_mutation = False`, `is_async() = False`, not `long_running`.
@@ -346,7 +346,7 @@ GDPval GMP change-control ([`docs/eval/gdpval/58ac1cc5-…`](../eval/gdpval/58ac
 
 **Staging fact, not a product claim:** LibreOffice File → Open on a PDF often imports as **editable Draw text and shapes**, not live AcroForm widgets. A headed poke may land the gold PDF in Draw. That is eval/harness staging. It is **not** “WriterAgent edits PDFs” and **not** an AcroForm API.
 
-The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty boxes as fill targets; `draw_delegate_specialized` → `shape_fill_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `peer_send_result`s back.
+The Draw sidebar fills the stand-in with Draw tools (`shape_get_tree` marks empty boxes as fill targets; `draw_delegate_specialized` → `shape_fill_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `peer_send_result`s back.
 
 ### 4.8 Worked scenarios
 
@@ -355,15 +355,15 @@ The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty
 1. Writer **outer** schemas stay Writer-only and do **not** list peer send tools. The outer turn stays high-level and delegates `document_research`.
 2. The document_research subagent sees both peer send tools because the budget `.ods` is a resolvable other peer; it calls `peer_send_work(document_url=<budget uid>, message="Compute Q4 revenue by region and reply with an HTML table plus the ranges you used.")` → `{ok, accepted}`. It does **not** put the Writer URL in `message`.
 3. Gateway prepends `[Peer work from: Risk memo.odt | uid=… | url=…]` on the **Calc** session. The inner agent finishes (`workflow_finished`); Writer **Readys** (no further document_research / python / query in that turn). Caller drain exits.
-4. Calc **main** sees the `[Peer work from: …]` envelope (plus delivery footer), does the local work (`write_formula_range` / Total row / `ranges`→`range_sort`) **on the Calc model only**, then `calc_delegate_specialized(domain="document_research")` with a task to reply (Writer uid/url from the envelope, HTML/table). Calc main does **not** call a peer send tool on the outer loop.
+4. Calc **main** sees the `[Peer work from: …]` envelope (plus delivery footer), does the local work (`write_range` / Total row / `ranges`→`sort_range`) **on the Calc model only**, then `calc_delegate_specialized(domain="document_research")` with a task to reply (Writer uid/url from the envelope, HTML/table). Calc main does **not** call a peer send tool on the outer loop.
 5. Calc document_research calls `peer_send_result(document_url=<Writer uid or url from the envelope>, message=<table + ranges>)``, then **must** `workflow_finished` immediately. Host wraps with Calc’s `ctx.doc` envelope and queues/injects onto **Writer**.
-6. Writer follow-up turn: `apply_document_content` on the Writer doc and **stop**. This envelope is a data/result reply, not a new ask — do **not** delegate an ack specialize.
+6. Writer follow-up turn: `apply_content` on the Writer doc and **stop**. This envelope is a data/result reply, not a new ask — do **not** delegate an ack specialize.
 
 **GMP-style (Writer ↔ Draw), staged form.** Writer risk memo open; harness pre-opened the **editable Draw stand-in** (not the gold PDF as the write target). User opened the Draw sidebar once.
 
 1. Writer drafts the memo with Writer tools.
 2. Writer document_research `peer_send_work(document_url=<stand-in uid>, message="Fill the change-control fields from this discrepancy summary: … Reply with a short confirmation.")` → `{ok, accepted}` then `workflow_finished`. Writer Readys.
-3. Draw **main** sees the Writer envelope, runs `get_draw_tree` then `shape_fill_fields` (or `shape_upsert` by name) **on the Draw model only**, then `draw_delegate_specialized(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
+3. Draw **main** sees the Writer envelope, runs `shape_get_tree` then `shape_fill_fields` (or `shape_upsert` by name) **on the Draw model only**, then `draw_delegate_specialized(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
 4. Draw document_research `peer_send_result(document_url=<Writer uid or url from the envelope>, message=<confirmation>)`` then `workflow_finished`. Writer follow-up cites the form in the memo.
 
 Reverse (Draw asks Writer for a paragraph) is the same tool with a Writer uid.
@@ -443,7 +443,7 @@ Recorded after #814 landed and Scrolly ran headed cross-doc proves on tip (`cc28
 | Scenario | Pair | Verdict |
 | -------- | ---- | ------- |
 | **2** | Writer ↔ Calc (column headers) | **HAPPY** — work → result; Writer got `[Peer result from: table_fixture…]`. |
-| **4** | Writer ↔ Calc (sort revenue) | **HAPPY** — nested `ranges`/`range_sort` then `peer_send_result`; delivery-pending stamp used. |
+| **4** | Writer ↔ Calc (sort revenue) | **HAPPY** — nested `ranges`/`sort_range` then `peer_send_result`; delivery-pending stamp used. |
 | **5** | Writer ↔ Impress (Risks slide) | **HAPPY** — slide + `[Peer result from: blank.odp…]` in log. |
 | **8** | Writer ↔ Calc (+ Impress KPI) | **PARTIAL** — Calc total **254** peer result OK; Impress confirm weak (below). |
 
@@ -508,7 +508,7 @@ Ordered preference (2026-09-20): Keith preferred **(1) single-tool auto-detect**
 
 ## 6. Non-goals
 
-- **MCP exposure** of peer send tools (`tools/list`, `find_tools`, or a successful `tools/call`).
+- **MCP exposure** of peer send tools (`tools/list`, `tool_find`, or a successful `tools/call`).
 - **`reply=true` / `last_peer_from` auto-default.** Last-sender is wrong under fan-in. Every send requires explicit `document_url`.
 - **Blocking v1 `ask_*`** that waits for a compact inner result. Optional later sync wrapper (A2).
 - **Silent A2** when the peer deck is missing.

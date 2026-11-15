@@ -860,7 +860,7 @@ def test_stream_error_cleans_failed_image_from_history(test_instance):
 def test_text_send_without_wav_stamps_turn_model(test_instance, mock_get_tools):
     """A text send with no recording still stamps the chat model on the turn.
 
-    Round 0 and get_image read turn.text_model. An empty id makes
+    Round 0 and image_get read turn.text_model. An empty id makes
     has_native_vision return False, which strips every image. The stamp
     used to run only after a WAV attached.
     """
@@ -1264,7 +1264,7 @@ def test_do_send_skip_append_user_does_not_append_audio_row(test_instance, mock_
 
 
 def test_slash_sidebar_only_sends_empty_tool_list(test_instance, mock_get_tools):
-    mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_document_content"}}]
+    mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_content"}}]
     captured: list[list] = []
     from plugin.chatbot.tool_loop_actions import current_turn
 
@@ -1283,7 +1283,7 @@ def test_slash_sidebar_only_sends_empty_tool_list(test_instance, mock_get_tools)
 
 
 def test_slash_sidebar_only_refresh_keeps_empty_tools(test_instance, mock_get_tools):
-    mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_document_content"}}]
+    mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_content"}}]
     from plugin.chatbot.tool_loop_actions import current_turn
 
     turn = current_turn(test_instance)
@@ -1361,7 +1361,7 @@ def test_production_loop_nudges_once_on_zero_tool_edit_reply(test_instance):
     begin_send_turn(test_instance)
     _prime_active_tool_loop(test_instance)
     turn = current_turn(test_instance)
-    turn.active_tools = [{"type": "function", "function": {"name": "apply_document_content"}}]
+    turn.active_tools = [{"type": "function", "function": {"name": "apply_content"}}]
     turn.active_query_text = "Rewrite this paragraph to be concise."
     test_instance._sm_state = ToolLoopState(
         round_num=0,

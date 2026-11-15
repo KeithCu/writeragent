@@ -23,15 +23,15 @@ def _impress_doc() -> MagicMock:
 
 _SLIDE_SPECIALIZED_NAMES = frozenset(
     {
-        "speaker_notes_get",
-        "speaker_notes_set",
-        "slide_transition_get",
-        "slide_transition_set",
-        "slide_layout_get",
-        "slide_layout_set",
-        "slide_master_list",
-        "slide_master_get",
-        "slide_master_set",
+        "slide_get_notes",
+        "slide_set_notes",
+        "slide_get_transition",
+        "slide_set_transition",
+        "slide_get_layout",
+        "slide_set_layout",
+        "slide_list_masters",
+        "slide_get_master",
+        "slide_set_master",
         "page_comment_list",
         "page_comment_add",
         "page_comment_delete",
@@ -39,7 +39,7 @@ _SLIDE_SPECIALIZED_NAMES = frozenset(
 )
 
 
-_IMPRESS_DESIGN_CORE = frozenset({"list_designs", "apply_design"})
+_IMPRESS_DESIGN_CORE = frozenset({"design_list", "design_apply"})
 
 
 def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
@@ -56,22 +56,22 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
 @pytest.mark.parametrize(
     ("domain", "expected_subset"),
     [
-        ("speaker_notes", {"speaker_notes_get", "speaker_notes_set"}),
+        ("speaker_notes", {"slide_get_notes", "slide_set_notes"}),
         (
             "slide_transitions",
             {
-                "slide_transition_get",
-                "slide_transition_set",
+                "slide_get_transition",
+                "slide_set_transition",
             },
         ),
         (
             "slide_layouts",
             {
-                "slide_layout_get",
-                "slide_layout_set",
+                "slide_get_layout",
+                "slide_set_layout",
             },
         ),
-        ("slide_masters", {"slide_master_list", "slide_master_get", "slide_master_set"}),
+        ("slide_masters", {"slide_list_masters", "slide_get_master", "slide_set_master"}),
         (
             "page_comments",
             {
@@ -84,7 +84,7 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
         ("images", {"image_insert", "image_list", "image_delete", "image_generate"}),
         (
             "shapes",
-            {"shape_align", "shape_distribute", "shape_diagram", "shape_fill_fields"},
+            {"shape_align", "shape_distribute", "shape_create_diagram", "shape_fill_fields"},
         ),
     ],
 )

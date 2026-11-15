@@ -137,7 +137,7 @@ def _teardown_peer():
         except Exception:
             pass
     # Clear leftover peer transcript so Packet F (sidebar suite, runs after peer
-    # alphabetically) does not start with BudgetPeer / apply_document_content residue.
+    # alphabetically) does not start with BudgetPeer / apply_content residue.
     for which in ("writer", "calc"):
         try:
             _clear_chat(which)
@@ -485,7 +485,7 @@ def test_p1_total_row_peer_roundtrip(ctx):
         decided = [name for row in _capture_tools() for name in row]
         peer_sends = sum(1 for n in decided if n in ("peer_send_work", "peer_send_result"))
         if peer_sends >= 2 and (
-            "write_formula_range" in decided or "calc_delegate_specialized" in decided
+            "write_range" in decided or "calc_delegate_specialized" in decided
         ):
             _wait_both_idle(timeout=8.0)
             break
@@ -512,7 +512,7 @@ def test_p1_total_row_peer_roundtrip(ctx):
     ]
     decided = [name for row in snaps for name in (row.get("decided_tools") or [])]
     assert "peer_send_work" in decided or "peer_send_result" in decided
-    assert "write_formula_range" in decided or "SUM" in formula.upper()
+    assert "write_range" in decided or "SUM" in formula.upper()
     assert "writer_delegate_specialized" in decided
     assert "calc_delegate_specialized" in decided
 
@@ -552,7 +552,7 @@ def test_p2_wait_after_accepted_deadlocks_peer(ctx):
 
     # Inject-now may paint [Peer work from:] on Calc immediately. Lock the hang:
     # while specialized keeps calling discovery (not finish), Calc must not
-    # start write_formula_range. Do not wait for max_steps — that Readys Writer
+    # start write_range. Do not wait for max_steps — that Readys Writer
     # and finally-kicks the peer.
     deadline = time.monotonic() + 4.0
     saw_send = False
@@ -569,14 +569,14 @@ def test_p2_wait_after_accepted_deadlocks_peer(ctx):
     snaps = _captures()
     decided = [row.get("decided_tools") or [] for row in snaps]
     finished_after_send = finish_immediately_after_peer_sends(snaps)
-    formula_started = any("write_formula_range" in row for row in decided)
+    formula_started = any("write_range" in row for row in decided)
     try:
         assert saw_send, "specialized never called a peer send tool: %r" % decided
         assert saw_wait_loop or _is_busy("writer"), (
             "specialized did not stay in the wait loop after accepted: decided=%r" % decided
         )
         assert not formula_started, (
-            "peer started (write_formula_range) while specialized waited: decided=%r" % decided
+            "peer started (write_range) while specialized waited: decided=%r" % decided
         )
         assert not finished_after_send
     finally:
@@ -690,7 +690,7 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
             "Calc reply injected while Writer ramble was still streaming: %r" % writer_txt[-300:]
         )
         decided = [name for row in _capture_tools() for name in row]
-        assert "apply_document_content" not in decided
+        assert "apply_content" not in decided
     finally:
         _session.config.delay_ms = 20
         _session.config.sync_delay_ms = None
@@ -706,7 +706,7 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
         if (
             "Total row written" in writer_txt
             or writer_txt.count("[Peer work from:") > busy_txt.count("[Peer work from:")
-            or "apply_document_content" in decided
+            or "apply_content" in decided
         ):
             drained = True
             break

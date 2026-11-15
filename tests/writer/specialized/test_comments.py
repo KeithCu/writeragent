@@ -209,7 +209,7 @@ def test_ensure_annotation_name_assigns_when_empty():
     assert name != "__Annotation__1_1"
     field.setPropertyValue.assert_called_once_with("Name", name)
 
-# ---- D4: add_comment span / occurrence / author -----------------------------
+# ---- D4: comment_add span / occurrence / author -----------------------------
 
 
 def _fields_that_grow():

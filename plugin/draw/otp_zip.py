@@ -50,7 +50,7 @@ def read_member(zf: zipfile.ZipFile, name: str, limit: int = MAX_MEMBER_BYTES) -
     ``decompress(..., MAX_N)`` (~1 GiB) and only then slices to
     ``file_size``. A 64KB ``.otp`` whose declared size is 64 bytes
     still expands by ~100MB before a post-read cap can see the real
-    length. ``list_designs`` → ``derive_otp_look`` does this on the
+    length. ``design_list`` → ``derive_otp_look`` does this on the
     main thread for every discovered template, including
     user-writable dirs (thumbnail, ``styles.xml``, and
     ``Pictures/*.svg``). A declared size above *limit* is skipped,

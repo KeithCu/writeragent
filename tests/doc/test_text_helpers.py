@@ -338,7 +338,7 @@ def test_text_helpers_import_does_not_load_calc_analyzer():
 
 def test_get_text_cursor_at_range_ignores_the_short_character_count():
     """#37: CharacterCount leaves out paragraph breaks and tracked deletions, so clamping to it
-    cut a real offset from search_in_document(return_offsets) down to nothing."""
+    cut a real offset from search(return_offsets) down to nothing."""
     from plugin.doc.text_helpers import get_text_cursor_at_range
 
     model = MagicMock()
@@ -864,4 +864,122 @@ def test_go_right_chunks_large_moves():
     pre_len = sum(count for count, expand in cursor.go_right_calls)
     assert pre_len > 32767, f"pre_len {pre_len} was not large enough"
     assert all(count <= 8192 for count, expand in cursor.go_right_calls)
+
+
+def test_keep_view_selection_restores_single_range_not_container():
+    from plugin.doc.text_helpers import KeepViewSelection
+
+    class _FakeText:
+        def __init__(self, cmp_result: int) -> None:
+            self._cmp = cmp_result
+
+        def compareRegionStarts(self, start, end) -> int:
+            return self._cmp
+
+    class _FakeRange:
+        def __init__(self, cmp_result: int) -> None:
+            self._text = _FakeText(cmp_result)
+
+        def getText(self) -> _FakeText:
+            return self._text
+
+        def getStart(self) -> str:
+            return "start"
+
+        def getEnd(self) -> str:
+            return "end"
+
+    class _FakeRanges:
+        def __init__(self, items, is_text_ranges: bool = True) -> None:
+            self._items = items
+            self._is_text_ranges = is_text_ranges
+
+        def supportsService(self, name: str) -> bool:
+            return self._is_text_ranges and name == "com.sun.star.text.TextRanges"
+
+        def getCount(self) -> int:
+            return len(self._items)
+
+        def getByIndex(self, idx: int):
+            return self._items[idx]
+
+    class _FakeController:
+        def __init__(self, selection) -> None:
+            self._selection = selection
+            self.selected = []
+
+        def getSelection(self):
+            return self._selection
+
+        def select(self, target) -> bool:
+            self.selected.append(target)
+            return True
+
+    # Single non-collapsed range -> restored via the range itself, not the container.
+    non_collapsed = _FakeRange(1)
+    single_container = _FakeRanges([non_collapsed])
+    ctrl = _FakeController(single_container)
+    with KeepViewSelection(ctrl):
+        pass
+    assert ctrl.selected == [non_collapsed]
+
+    # Collapsed range -> restored via the container.
+    collapsed_container = _FakeRanges([_FakeRange(0)])
+    ctrl_collapsed = _FakeController(collapsed_container)
+    with KeepViewSelection(ctrl_collapsed):
+        pass
+    assert ctrl_collapsed.selected == [collapsed_container]
+
+    # Multi-range selection -> restored via the container.
+    multi_container = _FakeRanges([_FakeRange(1), _FakeRange(1)])
+    ctrl_multi = _FakeController(multi_container)
+    with KeepViewSelection(ctrl_multi):
+        pass
+    assert ctrl_multi.selected == [multi_container]
+
+    # Non-TextRanges selection (e.g., frame or shape) -> restored via the object itself.
+    frame_obj = _FakeRanges([], is_text_ranges=False)
+    ctrl_frame = _FakeController(frame_obj)
+    with KeepViewSelection(ctrl_frame):
+        pass
+    assert ctrl_frame.selected == [frame_obj]
+
+    # None controller is a no-op.
+    with KeepViewSelection(None):
+        pass
+
+
+def test_keep_view_selection_restore_errors():
+    from plugin.doc.text_helpers import KeepViewSelection
+
+    class DisposedException(Exception):
+        pass
+
+    class _Controller:
+        def __init__(self, select_exc: Exception) -> None:
+            self._select_exc = select_exc
+            self._sel = object()
+
+        def getSelection(self):
+            return self._sel
+
+        def select(self, target) -> None:
+            raise self._select_exc
+
+    # Disposal during restore propagates.
+    with pytest.raises(DisposedException):
+        with KeepViewSelection(_Controller(DisposedException("gone"))):
+            pass
+
+    # Non-disposal restore failure is swallowed and does not mask a body exception.
+    class _BodyError(RuntimeError):
+        pass
+
+    with pytest.raises(_BodyError):
+        with KeepViewSelection(_Controller(RuntimeError("select failed"))):
+            raise _BodyError("body failed")
+
+    # Non-disposal restore failure is swallowed on a normal exit.
+    with KeepViewSelection(_Controller(RuntimeError("select failed"))):
+        pass
 

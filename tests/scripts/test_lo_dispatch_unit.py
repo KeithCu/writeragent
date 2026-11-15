@@ -37,20 +37,20 @@ def test_write_cell_range_aliases_to_write_formula_range() -> None:
         {"range": "C2:C5", "values": [0.8, 0.4, 0.64, 1.0]},
         kind="calc",
     )
-    assert name == "write_formula_range"
+    assert name == "write_range"
     assert params["range"] == ["C2:C5"]
     assert json.loads(params["values"]) == [0.8, 0.4, 0.64, 1.0]
 
 
 def test_sort_range_name_to_index_and_used_range() -> None:
     name, params = tl.normalize_lo_tool(
-        "range_sort",
+        "sort_range",
         {"sort_column": "Revenue", "ascending": False},
         kind="calc",
         headers=["Product", "Revenue"],
         used_range="A1:B5",
     )
-    assert name == "range_sort"
+    assert name == "sort_range"
     assert params["sort_column"] == 1
     assert params["range"] == ["A1:B5"]
     assert params["ascending"] is False
@@ -58,11 +58,11 @@ def test_sort_range_name_to_index_and_used_range() -> None:
 
 def test_page_index_alias() -> None:
     name, params = tl.normalize_lo_tool(
-        "get_draw_tree",
+        "get_tree",
         {"page_index": 0},
         kind="draw",
     )
-    assert name == "get_draw_tree"
+    assert name == "get_tree"
     assert params["page"] == 0
     assert "page_index" not in params
 
@@ -106,6 +106,6 @@ def test_execute_impl_calc_alias(monkeypatch: pytest.MonkeyPatch) -> None:
 
     tl._execute_lo_tool_impl("write_cell_range", {"range": "C1", "values": "Tax"})
     call_args, call_kwargs = mock_tools.execute_unguarded.call_args
-    assert call_args[0] == "write_formula_range"
+    assert call_args[0] == "write_range"
     assert "bypass_thread_guard" not in call_kwargs
     assert call_kwargs["range"] == ["C1"]

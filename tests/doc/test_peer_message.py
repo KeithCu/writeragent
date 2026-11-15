@@ -241,26 +241,26 @@ def test_list_v1_peers_magicmock_ctx_does_not_hang():
 def test_visibility_filter_alone_hides_tool():
     schemas = [
         {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "base"}},
-        {"type": "function", "function": {"name": "undo", "description": "u"}},
+        {"type": "function", "function": {"name": "document_undo", "description": "u"}},
     ]
     out = filter_peer_message_schemas(schemas, ctx=object(), doc=object())
     names = [s["function"]["name"] for s in out]
     assert PEER_WORK_TOOL_NAME not in names
-    assert "undo" in names
+    assert "document_undo" in names
 
 
 def test_visibility_filter_two_writer_hides_on_main():
     """Experiment: outer chat never advertises peer send tools, even with peers."""
     schemas = [
         {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "base"}},
-        {"type": "function", "function": {"name": "undo", "description": "u"}},
+        {"type": "function", "function": {"name": "document_undo", "description": "u"}},
     ]
     peers = [{"name": "Other.odt", "uid": "u2", "url": "file:///tmp/Other.odt", "type": "writer"}]
     with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
         out = filter_peer_message_schemas(schemas, ctx=object(), doc=object())
     names = [s["function"]["name"] for s in out]
     assert PEER_WORK_TOOL_NAME not in names
-    assert "undo" in names
+    assert "document_undo" in names
 
 
 @pytest.mark.parametrize(
@@ -732,7 +732,7 @@ def test_annotate_outer_peer_delivery_pending():
 def test_summarize_peer_tool_on_wire():
     from plugin.doc.peer_message import format_peer_catalog, summarize_peer_tool_on_wire
 
-    assert summarize_peer_tool_on_wire([{"function": {"name": "undo"}}]) == (False, 0)
+    assert summarize_peer_tool_on_wire([{"function": {"name": "document_undo"}}]) == (False, 0)
     # A literal uid= outside a catalog row must not count.
     schemas = [
         {
@@ -968,7 +968,7 @@ def test_filter_schemas_skips_catalog_off_document_research():
     schemas = [
         {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
         {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "r"}},
-        {"type": "function", "function": {"name": "undo", "description": "u"}},
+        {"type": "function", "function": {"name": "document_undo", "description": "u"}},
     ]
     with patch("plugin.doc.peer_message.list_v1_peers") as mock_list:
         res1 = filter_peer_message_schemas(schemas, ctx=object(), doc=object(), active_domain=None)
@@ -976,8 +976,8 @@ def test_filter_schemas_skips_catalog_off_document_research():
     assert mock_list.call_count == 0
     names1 = [s["function"]["name"] for s in res1]
     names2 = [s["function"]["name"] for s in res2]
-    assert names1 == ["undo"]
-    assert names2 == ["undo"]
+    assert names1 == ["document_undo"]
+    assert names2 == ["document_undo"]
     assert PEER_WORK_TOOL_NAME not in names1 and PEER_RESULT_TOOL_NAME not in names1
     assert PEER_WORK_TOOL_NAME not in names2 and PEER_RESULT_TOOL_NAME not in names2
 

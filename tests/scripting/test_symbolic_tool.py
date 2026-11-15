@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for symbolic_math chat tool."""
+"""Tests for math_run_symbolic chat tool."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from plugin.scripting.helper_registry import names
 
 
 def _tool():
-    return get_tools().get("symbolic_math")
+    return get_tools().get("math_run_symbolic")
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def test_symbolic_math_in_python_domain():
     doc = MagicMock()
     doc.supportsService.return_value = True
     names = {t.name for t in registry.get_tools(doc=doc, active_domain="python", exclude_tiers=())}
-    assert "symbolic_math" in names
+    assert "math_run_symbolic" in names
     assert "python_run_script" in names
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
@@ -212,7 +212,7 @@ def test_symbolic_math_does_not_insert_stopped_result(mock_run, mock_insert, wri
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_rejects_non_object_params(mock_run, writer_ctx):
     tool = _tool()
-    prep = prepare_tool_call(tool, writer_ctx, "symbolic_math", {"helper": "symbolic_simplify", "params": "x^2"})
+    prep = prepare_tool_call(tool, writer_ctx, "math_run_symbolic", {"helper": "symbolic_simplify", "params": "x^2"})
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
     mock_run.assert_not_called()

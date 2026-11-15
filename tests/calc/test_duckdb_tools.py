@@ -29,7 +29,7 @@ import pytest
 
 
 def _tool():
-    return get_tools().get("query_folder_sql")
+    return get_tools().get("sql_query_folder")
 
 
 def _mk_ctx():
@@ -171,7 +171,7 @@ def _grid_for_requested_range(range_name: str) -> list[list[dict]]:
 
 
 def test_query_folder_sql_files_list_rejected_by_schema():
-    prep = prepare_tool_call(_tool(), _mk_ctx(), "query_folder_sql", {"sql": "SELECT 1", "files": ["a.csv"]})
+    prep = prepare_tool_call(_tool(), _mk_ctx(), "sql_query_folder", {"sql": "SELECT 1", "files": ["a.csv"]})
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
     assert "files" in prep.error["message"]

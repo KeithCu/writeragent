@@ -49,11 +49,11 @@ def test_extract_library_source_drops_toplevel_calls():
         "    return a + b\n"
         "K = 3\n"
         "print('nope')\n"
-        "wa.writer.apply_document_content(content=['x'], target='end')\n"
+        "wa.writer.apply_content(content=['x'], target='end')\n"
     )
     assert "def add" in src
     assert "K = 3" in src
-    assert "apply_document_content" not in src
+    assert "apply_content" not in src
     assert "print" not in src
 
 
@@ -588,7 +588,7 @@ def test_host_rpc_named_script_still_allowed_for_domain_allowlist():
         out = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
             {"name": "Helpers", "origin": "user"},
-            allowed_tools=frozenset({"apply_document_content"}),
+            allowed_tools=frozenset({"apply_content"}),
         )
     assert out["code"] == code
 
@@ -806,7 +806,7 @@ def test_extract_library_source_empty_expression_library_is_an_error():
     with pytest.raises(ValueError, match=r"lines 1"):
         extract_library_source("print('x')\n")
     with pytest.raises(ValueError, match=r"lines 1"):
-        extract_library_source("wa.writer.apply_document_content(content=['x'], target='end')\n")
+        extract_library_source("wa.writer.apply_content(content=['x'], target='end')\n")
     assert extract_library_source("pass\n") == ""
     assert extract_library_source("") == ""
     assert extract_library_source("# c\n") == ""
@@ -906,7 +906,7 @@ def test_shared_session_namespace_mutation_persists():
 def test_named_script_tool_reads_document_scripts_only_when_needed():
     from plugin.scripting.host_rpc import _dispatch_named_script, execute_tool
 
-    allowed = frozenset({"apply_document_content"})
+    allowed = frozenset({"apply_content"})
     code = "def n():\n    return 1\n"
 
     def _fail_ctx():

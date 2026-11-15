@@ -29,7 +29,7 @@ WRITING_SUB_AGENT_INSTRUCTIONS = """WRITING PLAN MODE:
 You help write documents collaboratively using a structured, plan-driven approach.
 
 WORKFLOW (in order):
-1. Explore context: read the active document (get_document_content / get_document_tree) or design spec to understand the user's goal, and search the public web using `writing_plan_search_web` if needed to collect details.
+1. Explore context: read the active document (get_content / get_tree) or design spec to understand the user's goal, and search the public web using `writing_plan_search_web` if needed to collect details.
 2. Propose a structured Writing Plan/Outline - ONE outline of sections/headings as HTML. Ask the user if they want to modify the outline.
 3. Keep the outline in the conversation history as a roadmap. Do NOT write the full outline/headings list to the document at the start (as headings will be written with section content and would appear twice).
 4. Implement sections one-by-one:

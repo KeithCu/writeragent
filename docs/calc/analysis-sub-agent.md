@@ -87,7 +87,7 @@ Calc documents are an excellent fit (ranges, sheets, named ranges, pivot caches,
 - **Two-tier (or multi-step) like document_research, but Calc-centric**: Outer layer (when cross-doc) focuses on *finding* relevant Calc data sources (sheets, ranges, named ranges, pivot tables, chart data — using `research_list_nearby_files`, the primary per-directory embeddings index, `get_sheet_summary`, range heuristics, etc.). Inner / execution layer does preparation + numpy work on specific extracted Calc data. Main chat (whether Writer or Calc) stays stable.
 - **Specialized delegation primarily on Calc**: Expose via `calc_delegate_specialized(domain="analysis")`. The gateway can be called from a Writer main agent when a Calc document is open (via document awareness or explicit delegation). Specialized analysis tools are not on the main wire schema. Builds directly on the existing narrow `"analysis"` / `"solvers"` domain in [analysis-tools.md](analysis-tools.md) (Goal Seek + Solver).
 - **Trusted execution for the heavy lifting (always in Calc context)**: Never ask the LLM to write the pandas/sklearn code for real work when a standard helper exists. Use shipped trusted modules (e.g. `plugin/calc/analysis.py` or shared under `plugin/scripting/`) called from the host with fixed stubs — full venv access (numpy stack, optional DBs/caches), efficient data handoff via existing `payload_codec` / split-grid. This is the pattern proven by `embeddings_index.py`. Analysis execution is always against a Calc model/context. Raw code via the python domain is the escape hatch.
-- **Data discovery reuses the primary index + Calc tools**: The per-directory embeddings index (see [../embeddings.md](../embeddings.md)) is the *sole* semantic cross-sibling router. Within a Calc file, use existing precise tools (`read_cell_range`, sheet summaries, named ranges, etc.). No new parallel indexes. Writer data sources are out of scope for core analysis in MVP.
+- **Data discovery reuses the primary index + Calc tools**: The per-directory embeddings index (see [../embeddings.md](../embeddings.md)) is the *sole* semantic cross-sibling router. Within a Calc file, use existing precise tools (`read_range`, sheet summaries, named ranges, etc.). No new parallel indexes. Writer data sources are out of scope for core analysis in MVP.
 - **Host extracts (from Calc), venv computes, results are compact**: Host (UNO) pulls Calc ranges/sheets into arrays/records (reuse and extend `calc_addin_data` patterns). Passes via IPC. Trusted code returns summaries, transformed data, metrics, suggested writes, chart inputs, etc. The *calling* main agent (Writer or Calc) decides what to apply.
 - **LLM role is planning + synthesis**: The sub-agent (main-style FSM or smol ReAct, running in the appropriate Calc-specialized context) decides *what data* to fetch and *what analysis* (high-level spec or call to a standard helper). It interprets results. It does *not* write low-level analysis code when helpers are available.
 - **Venv packages + python escape hatch**: Analysis helpers require the fixed stack above (`MISSING_PACKAGE` when absent). The `python` domain (`=PYTHON()`, `python_run_script`) remains the escape hatch for novel work. Goal Seek/Solver need no venv.
@@ -110,7 +110,7 @@ Analysis sub-agent (specialized, ephemeral — runs with Calc ToolContext / mode
   |
   +-- Discovery / data finding (Calc-focused; outer layer when cross-doc)
   |     - research_list_nearby_files / embeddings search (primary per-dir index) for relevant Calc siblings
-  |     - get_sheet_summary, read_cell_range, named ranges, pivot inspection, chart data sources on the target Calc model
+  |     - get_sheet_summary, read_range, named ranges, pivot inspection, chart data sources on the target Calc model
   |     - "Which sheets/ranges contain the sales data?"
   |
   +-- Extraction (host, Calc UNO)
@@ -130,7 +130,7 @@ Analysis sub-agent (specialized, ephemeral — runs with Calc ToolContext / mode
         - Return to calling main agent (via final_answer / tool result)
         |
         v
-Main agent: synthesize + apply (in Calc via write_formula_range etc.; or "cleanup" presentation into active Writer doc in supported cases)
+Main agent: synthesize + apply (in Calc via write_range etc.; or "cleanup" presentation into active Writer doc in supported cases)
 ```
 
 The sub-agent runs in a **Calc context** (ToolContext points at a Calc model). Discovery can be triggered from a Writer main agent (after using `document_research` to identify the Calc file), but execution and data model stay Calc.
@@ -144,7 +144,7 @@ See the Cross-Document Workflows section for how a Writer LLM becomes aware of t
 ## Data finding ("somehow find the relevant data") — Calc focused
 
 - **Cross-folder (Calc siblings)**: Primary tool is the embeddings index (see [../embeddings.md](../embeddings.md) — per-directory only, outer router for `document_research`). A semantic query ("sales data", "budget assumptions") surfaces candidate Calc `doc_url` + sheet/paragraph hints. Then use Calc-specific tools on the opened (hidden/read-only) Calc model. (We copy the *feature* of rich cross-workbook data awareness from Python-in-Excel, but implement it via our per-directory embeddings + document_research rather than their cloud `xl()` / `%Pn%` formula-static bridges.)
-- **Within a Calc file**: `get_sheet_summary`, `read_cell_range`, named range inspection, pivot table / cache access, chart data source enumeration, range heuristics (numeric columns + header detection). These are the natural, reliable sources. (Future: copy more of Excel's structured table / named range / `headers=True` ergonomics via `calc_addin_data.py` enhancements.)
+- **Within a Calc file**: `get_sheet_summary`, `read_range`, named range inspection, pivot table / cache access, chart data source enumeration, range heuristics (numeric columns + header detection). These are the natural, reliable sources. (Future: copy more of Excel's structured table / named range / `headers=True` ergonomics via `calc_addin_data.py` enhancements.)
 - **User hints + LLM planning**: The task from main (or from a Writer caller) often contains clues ("the sales table in the budget file"). The analysis sub-agent LLM uses those + the tools above to locate the right data.
 - **Metadata / structure**: Leverage Calc's own structures (named ranges, database ranges, pivot fields, chart series) far more than Writer-style paragraphs or tables.
 - **No duplication**: Once the right small set of Calc sources is identified, use live reads on the model (not the embeddings cache). The index is purely for *routing* to the right Calc file/sheet.
@@ -178,11 +178,11 @@ A very common real-world pattern the user described: a **Writer document** is th
 ### Results and "cleanup"
 
 - **Primary path (MVP)**: Results are applied directly in the Calc document (new sheets/columns, charts, cleaned data, named ranges with results). The Writer user then manually copies what they need (tables, key numbers, a chart image) into the Writer doc. This is simple and matches how people already work.
-- **Compact results for Writer**: The analysis sub-agent can return LLM-friendly summaries, markdown tables, key metrics, or "suggested Writer content" blocks. The Writer main agent can then use `apply_document_content` (or insert as table/text) to place them.
+- **Compact results for Writer**: The analysis sub-agent can return LLM-friendly summaries, markdown tables, key metrics, or "suggested Writer content" blocks. The Writer main agent can then use `apply_content` (or insert as table/text) to place them.
 - **"It can do the cleanup" (supported cases)**: In some flows the system can perform a post-processing "cleanup" step:
   - Take the raw analysis output (DataFrame, metrics, predictions).
   - Format it nicely (as a Writer table, bulleted findings, a formatted section with headings).
-  - Insert it at a user-specified or heuristically chosen location in the active Writer document (using `apply_document_content`, rich text helpers, or table creation tools).
+  - Insert it at a user-specified or heuristically chosen location in the active Writer document (using `apply_content`, rich text helpers, or table creation tools).
   - Optionally create a linked chart in Writer or embed a Calc chart object.
 - This "cleanup" can be triggered explicitly by the user ("run the analysis on the budget and clean it up nicely in my report") or offered by the Writer LLM after receiving results from the Calc analysis delegate.
 - Cleanup is **presentation / insertion only** — the real numeric work still happened in Calc. This avoids trying to do heavy pandas inside a Writer context.
@@ -446,7 +446,7 @@ Previously planned helpers (not yet separate tools):
 
 3. **Phase 2 (cross-doc + cleanup + Excel feature parity items)**:
    - Update Writer prompts / specialized descriptions so a Writer main agent knows it can delegate numeric work to any open Calc context (via document_research discovery + the Calc analysis domain). Copy the *feature* of conversational AI that understands data across workbooks.
-   - Add thin Writer-side "cleanup" helpers (or just document how to use existing `apply_document_content` + rich text on the compact results). This is our version of turning analysis into nice presentation (Excel has spill + object cards; we have explicit cleanup + future rich table egress).
+   - Add thin Writer-side "cleanup" helpers (or just document how to use existing `apply_content` + rich text on the compact results). This is our version of turning analysis into nice presentation (Excel has spill + object cards; we have explicit cleanup + future rich table egress).
    - Result contract as above.
    - Start adopting more Excel data handoff ergonomics (named ranges, structured table awareness, headers) in `calc_addin_data.py` so both raw Python and the high-level helpers feel more like `xl(..., headers=True)`.
    - Update `analysis-sub-agent.md` (this file) and cross-reference from ../writer/specialized-toolsets.md and [enabling_numpy Calc UX backlog](../enabling_numpy_in_libreoffice.md#calc-ux-backlog).
@@ -501,7 +501,7 @@ A critical architectural issue is how to pass large datasets to the analysis sub
    - *Pros:* Very close to how human analysts work in notebooks. The LLM gets immediate situational awareness from the summary.
    - *Cons:* Adds statefulness to the LLM interaction loop, which can be brittle.
 
-**Current enforcement (preferred path):** For the python/sql surface, `ToolCalcPythonSqlBase.required_core_tools` carries the "no read_cell_range" rule and only pulls in `get_sheet_summary` (cheap structural metadata). `read_cell_range` is deliberately excluded so the sub-agent LLM never receives full cell values in its tool results / observations. Analysis tools (`analyze_data`, and `python_run_script` for the python domain) accept `data_range` (A1 address); the host resolves + shapes via the existing main-thread + `calc_addin_data` + `payload_codec` path before the IPC hop to the venv. Tool descriptions and sub-agent hints were updated to guide toward addresses. This realizes Option 1 for Calc-resident data without new state or I/O.
+**Current enforcement (preferred path):** For the python/sql surface, `ToolCalcPythonSqlBase.required_core_tools` carries the "no read_range" rule and only pulls in `get_sheet_summary` (cheap structural metadata). `read_range` is deliberately excluded so the sub-agent LLM never receives full cell values in its tool results / observations. Analysis tools (`analyze_data`, and `python_run_script` for the python domain) accept `data_range` (A1 address); the host resolves + shapes via the existing main-thread + `calc_addin_data` + `payload_codec` path before the IPC hop to the venv. Tool descriptions and sub-agent hints were updated to guide toward addresses. This realizes Option 1 for Calc-resident data without new state or I/O.
 
 ---
 

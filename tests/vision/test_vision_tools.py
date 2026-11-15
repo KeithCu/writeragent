@@ -57,7 +57,7 @@ def _registry_with_vision_tool() -> ToolRegistry:
 def test_extract_structure_not_in_default_core_list(writer_doc):
     registry = _registry_with_vision_tool()
     names = {t.name for t in registry.get_tools(doc=writer_doc)}
-    assert "extract_structure_from_image" not in names
+    assert "image_extract_structure" not in names
     assert "extract_text_from_image" not in names
 
 
@@ -70,7 +70,7 @@ def test_extract_structure_in_vision_domain(_mock_avail, writer_doc, calc_doc):
             t.name
             for t in registry.get_tools(doc=doc, active_domain="vision", exclude_tiers=(), ctx=uno_ctx)
         }
-        assert "extract_structure_from_image" in names
+        assert "image_extract_structure" in names
         assert "extract_text_from_image" not in names
 
 
@@ -82,7 +82,7 @@ def test_extract_structure_hidden_when_vision_unavailable(_mock_avail, writer_do
         t.name
         for t in registry.get_tools(doc=writer_doc, active_domain="vision", exclude_tiers=(), ctx=uno_ctx)
     }
-    assert "extract_structure_from_image" not in names
+    assert "image_extract_structure" not in names
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)

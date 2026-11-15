@@ -52,11 +52,11 @@ def _specialized_finished(_state: Any, args: dict[str, Any]) -> dict[str, Any]:
 
 
 _WRITER_IMPL: dict[str, Callable[[WriterWorld, dict[str, Any]], dict[str, Any]]] = {
-    "get_document_content": lambda s, a: s.get_document_content(**a),
-    "apply_document_content": lambda s, a: s.apply_document_content(**a),
-    "search_in_document": lambda s, a: s.search_in_document(**a),
+    "get_content": lambda s, a: s.get_content(**a),
+    "apply_content": lambda s, a: s.apply_content(**a),
+    "search": lambda s, a: s.search(**a),
     "find_text": _writer_find_text,
-    "add_comment": lambda s, a: s.add_comment(**a),
+    "comment_add": lambda s, a: s.comment_add(**a),
     "apply_style": lambda s, a: s.apply_style(**a),
     "workflow_finished": _specialized_finished,
 }
@@ -65,17 +65,17 @@ _DRAW_IMPL: dict[str, Callable[[DrawWorld, dict[str, Any]], dict[str, Any]]] = {
     "shape_upsert": lambda s, a: s.shape_upsert(**a),
     "shape_connect": lambda s, a: s.shape_connect(**a),
     "shape_group": lambda s, a: s.shape_group(**a),
-    "get_draw_tree": lambda s, a: s.get_draw_tree(**a),
-    "shape_summary": lambda s, a: s.get_draw_summary(**a),
+    "shape_get_tree": lambda s, a: s.get_tree(**a),
+    "shape_get_summary": lambda s, a: s.get_draw_summary(**a),
     "workflow_finished": _specialized_finished,
 }
 
 _CALC_IMPL: dict[str, Callable[[CalcWorld, dict[str, Any]], dict[str, Any]]] = {
-    "range_sort": lambda s, a: s.range_sort(**a),
-    "write_formula_range": lambda s, a: s.write_formula_range(**a),
-    "write_cell_range": lambda s, a: s.write_formula_range(**a),
+    "sort_range": lambda s, a: s.sort_range(**a),
+    "write_range": lambda s, a: s.write_range(**a),
+    "write_cell_range": lambda s, a: s.write_range(**a),
     "get_sheet_summary": lambda s, a: s.get_sheet_summary(**a),
-    "read_cell_range": lambda s, a: s.read_cell_range(**a),
+    "read_range": lambda s, a: s.read_range(**a),
     "workflow_finished": _specialized_finished,
 }
 

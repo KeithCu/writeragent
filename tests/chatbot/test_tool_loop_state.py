@@ -279,7 +279,7 @@ def test_stream_done_with_tool_calls():
 
 def test_stream_done_with_tool_calls_preserves_reasoning_replay():
     state = create_base_state()
-    tool_calls = [{"id": "1", "function": {"name": "apply_document_content"}}]
+    tool_calls = [{"id": "1", "function": {"name": "apply_content"}}]
     response = {
         "tool_calls": tool_calls,
         "content": "Updating doc.",
@@ -329,7 +329,7 @@ def test_next_tool_upsert_memory_shows_key_and_value_in_chat_line():
         {
             "id": "call_1",
             "function": {
-                "name": "upsert_memory",
+                "name": "memory_upsert",
                 "arguments": '{"key": "my_key", "content": "my_val"}',
             },
             "parsed_args": {"key": "my_key", "content": "my_val"},
@@ -341,7 +341,7 @@ def test_next_tool_upsert_memory_shows_key_and_value_in_chat_line():
     running_eff = next(
         e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.TOOL_RUNNING
     )
-    assert running_eff.func_name == "upsert_memory"
+    assert running_eff.func_name == "memory_upsert"
     _status, append_text = format_tool_running_ui(running_eff.func_name, running_eff.func_args or {})
     assert "my_key" in append_text
     assert "my_val" in append_text
@@ -574,14 +574,14 @@ def test_apply_document_content_debug_uses_structured_replaced_count():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="c1",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"target": "search", "old_content": "zzz"}',
         result='{"status": "error", "message": "old_content not found in document.", "replaced_count": 0}',
         mutates_document=True,
     )
     tr = next_state(state, event)
     res_eff = next(e for e in tr.effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.TOOL_RESULT)
-    assert res_eff.func_name == "apply_document_content"
+    assert res_eff.func_name == "apply_content"
     assert is_replaced_zero_result(res_eff.result_data)
     debug_line = format_replaced_zero_debug_line(res_eff.func_args_str)
     assert debug_line.startswith("[Debug: params")
@@ -594,7 +594,7 @@ def test_apply_document_content_search_miss_skips_doc_context_refresh():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="c1b",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"target": "search", "old_content": "zzz", "content": "BAR"}',
         result='{"status": "error", "message": "old_content not found in document.", "replaced_count": 0}',
         mutates_document=True,
@@ -608,7 +608,7 @@ def test_apply_document_content_no_debug_when_replaced():
     event = create_event(
         EventKind.TOOL_RESULT,
         call_id="c2",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"target": "search", "old_content": "foo"}',
         result='{"status": "ok", "message": "Replaced 2 occurrence(s).", "replaced_count": 2}',
         mutates_document=True,
@@ -707,11 +707,11 @@ def test_tool_result_parsing():
     assert msg_eff.call_id == "call_x"
     assert msg_eff.content == '{"success": true, "message": "done"}'
 
-    # apply_document_content edge case output
+    # apply_content edge case output
     event_adc = create_event(
         EventKind.TOOL_RESULT,
         call_id="call_y",
-        func_name="apply_document_content",
+        func_name="apply_content",
         func_args_str='{"content": "' + ("A" * 1000) + '"}',
         result='{"message": "Replaced 0 occurrences", "replaced_count": 0}',
         mutates_document=False
@@ -789,17 +789,17 @@ def test_format_replaced_zero_debug_line():
 
 
 def test_format_tool_running_ui():
-    status, line = format_tool_running_ui("read_cell_range", {})
-    assert status == "Running: read_cell_range"
-    assert line == "[Running tool: read_cell_range...]\n"
+    status, line = format_tool_running_ui("read_range", {})
+    assert status == "Running: read_range"
+    assert line == "[Running tool: read_range...]\n"
 
     status, line = format_tool_running_ui("calc_delegate_specialized", {"domain": "charts", "task": "plot"})
     assert "delegate (charts)" in status
     assert line.startswith("[Running delegate (charts):")
     assert line.endswith("\n")
 
-    status, line = format_tool_running_ui("upsert_memory", {"key": "k", "content": "v"})
-    assert status == "Running: upsert_memory"
+    status, line = format_tool_running_ui("memory_upsert", {"key": "k", "content": "v"})
+    assert status == "Running: memory_upsert"
     assert "Memory update" in line
     assert line.endswith("\n")
 
@@ -946,7 +946,7 @@ def test_stream_done_after_mutating_tool_does_not_nudge() -> None:
         create_event(
             EventKind.TOOL_RESULT,
             call_id="c1",
-            func_name="apply_document_content",
+            func_name="apply_content",
             result='{"status": "ok"}',
             mutates_document=True,
         ),

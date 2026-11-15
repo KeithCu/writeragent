@@ -41,7 +41,7 @@ class SetSelection(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     description: str = (
         "Select a passage in the document (highlights it for the user and lets a following "
-        "apply_document_content/apply_style with target='selection' act on it). Select by "
+        "apply_content/apply_style with target='selection' act on it). Select by "
         "search_text (with occurrence and case_sensitive) or by character range (char_start/"
         "char_end). Selection is transient view state, so pair it with the edit that uses it. "
         "Character offsets are returned only for a fully applied char range. The search path "

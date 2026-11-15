@@ -2,17 +2,17 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""``find_tools`` -- MCP discovery meta-tool for the ``direct_discovery`` exposure mode.
+"""``tool_find`` -- MCP discovery meta-tool for the ``direct_discovery`` exposure mode.
 
 The MCP server advertises a small core tool set; the ~100+ specialized tools are
-callable by name but hidden from ``tools/list`` to keep it short. ``find_tools`` exposes
+callable by name but hidden from ``tools/list`` to keep it short. ``tool_find`` exposes
 the same full specialized **domain catalog** the sidebar/delegate gateway uses, then
 returns ready-to-call MCP schemas for a chosen ``domain`` -- so MCP-only hosts (no
 WriterAgent LLM endpoint configured) can reach the full tool set without bloating
 ``tools/list``.
 
-Workflow: ``find_tools()`` → pick a domain from ``available_domains`` →
-``find_tools(domain=…)`` → ``tools/call`` by name.
+Workflow: ``tool_find()`` → pick a domain from ``available_domains`` →
+``tool_find(domain=…)`` → ``tools/call`` by name.
 
 Direct modes intentionally skip the delegate sub-agent; the host model orchestrates
 specialized tools itself. Future enhancement: optional live context injection (Calc
@@ -81,7 +81,7 @@ def sidebar_only_tool_names(
     doc_type: str | None = None,
     uno_services_supported: frozenset[str] | None = None,
 ) -> frozenset[str]:
-    """Tool names in sidebar-only domains (MCP ``direct_flat`` only; ``find_tools`` uses the domain filter).
+    """Tool names in sidebar-only domains (MCP ``direct_flat`` only; ``tool_find`` uses the domain filter).
 
     The live document is not forwarded to the registry. With a document open,
     callers must pass ``doc_type`` and ``uno_services_supported`` (as
@@ -111,15 +111,15 @@ class FindTools(ToolBase):
     every MCP schema in that area. Document-optional.
     """
 
-    name: str | None = "find_tools"
+    name: str | None = "tool_find"
     description: str = (
         "Discover additional tools that are available but not listed here. This MCP "
         "server exposes a small core tool set; many specialized capabilities are "
         "callable by name but hidden from the default list to keep it short. Call "
-        "find_tools with no arguments to get the full specialized domain catalog "
-        "(same list as the delegate gateway). Then call find_tools with a `domain` to "
+        "tool_find with no arguments to get the full specialized domain catalog "
+        "(same list as the delegate gateway). Then call tool_find with a `domain` to "
         "get every tool schema in that area, ready to call directly. Always prefer "
-        "calling a tool returned by find_tools over giving up because a capability "
+        "calling a tool returned by tool_find over giving up because a capability "
         "seems missing."
     )
     tier: str = "mcp"
@@ -131,7 +131,7 @@ class FindTools(ToolBase):
             "domain": {
                 "type": "string",
                 "description": ("Specialized area to list tools for (e.g. 'footnotes', "
-                                "'charts', 'styles'). Call find_tools with no arguments first "
+                                "'charts', 'styles'). Call tool_find with no arguments first "
                                 "to see the available domains and their descriptions."),
             },
         },

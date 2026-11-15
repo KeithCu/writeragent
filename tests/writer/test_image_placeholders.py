@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# --- data-less images kept (get_document_content leaves the picture data out) ------------------
+# --- data-less images kept (get_content leaves the picture data out) ------------------
 
 _FRAME = ('<div data-lo-style="Standard"><div style="float:left" class="graphic-fr1" id="Assinatura">'
           '<img style="height:1cm" alt="" src=""/></div><div style="clear:both; line-height:0;">&nbsp;</div>'

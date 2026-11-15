@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# add_comment returns structured fields (matched, comment_added, anchor_text) so the agent
+# comment_add returns structured fields (matched, comment_added, anchor_text) so the agent
 # can tell whether the anchor was found and the comment actually inserted, instead of having
 # to parse the message string. Native tests also enumerate TextFields to assert the
 # Annotation registered (and that the spanning insert left the matched passage in the body).

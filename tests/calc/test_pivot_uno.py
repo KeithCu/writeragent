@@ -16,7 +16,7 @@ from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, 
 @with_native_doc("calc")
 def test_calc_pivot_table(ctx, doc):
     sn = doc.getSheets().getByIndex(0).getName()
-    res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {
+    res_write = _execute_calc_tool(doc, ctx, "write_range", {
         "range": "A1:B6",
         "values": [
             ["Month", "Sales"],
@@ -27,7 +27,7 @@ def test_calc_pivot_table(ctx, doc):
             ["May", "300"],
         ],
     })
-    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+    assert res_write.get("status") == "ok", f"write_range failed: {res_write}"
 
     res = _execute_calc_tool(doc, ctx, "pivot_table_create", {
         "name": "WA_PivotTest",
@@ -153,11 +153,11 @@ def test_pivot_create_on_apostrophe_sheet_uno(ctx, doc):
     sheets = doc.getSheets()
     sheets.insertNewByName("O'Brien", sheets.getCount())
 
-    res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {
+    res_write = _execute_calc_tool(doc, ctx, "write_range", {
         "range": "'O''Brien'.A1:B3",
         "values": [["Month", "Sales"], ["Jan", "100"], ["Feb", "150"]],
     })
-    assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
+    assert res_write.get("status") == "ok", f"write_range failed: {res_write}"
 
     res = _execute_calc_tool(doc, ctx, "pivot_table_create", {
         "name": "ApostrophePivot",
@@ -191,7 +191,7 @@ def test_pivot_create_is_one_undo_step_uno(ctx, doc):
         res_write = _execute_calc_tool(
             doc,
             ctx,
-            "write_formula_range",
+            "write_range",
             {
                 "range": f"{sn}.A1:B4",
                 "values": [["Month", "Sales"], ["Jan", "100"], ["Feb", "150"], ["Mar", "200"]],

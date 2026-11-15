@@ -15,7 +15,7 @@ from plugin.scripting.sandbox import resolve_venv_python
 log = logging.getLogger(__name__)
 
 _VISION_DOMAIN = "vision"
-_VISION_TOOL_NAME = "extract_structure_from_image"
+_VISION_TOOL_NAME = "image_extract_structure"
 _DELEGATE_GATEWAY_NAMES = frozenset({"writer_delegate_specialized", "calc_delegate_specialized", "draw_delegate_specialized"})
 
 
@@ -48,7 +48,7 @@ def vision_venv_configured(ctx: Any = None) -> bool:
 
 
 def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[Any]:
-    """Omit extract_structure_from_image when no Settings venv is configured."""
+    """Omit image_extract_structure when no Settings venv is configured."""
     if vision_venv_configured(ctx):
         return tools
     return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]

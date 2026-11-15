@@ -314,15 +314,17 @@ class DelegateToSpecializedBase(ToolBase):
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
         return True
 
-    # Domains whose work is read-only -> a long-running delegation to them must NOT
-    # take the per-document mutation lock (it would needlessly serialize research on
-    # the same doc). The gateway itself is is_mutation=True for the mutating domains.
-    def requires_document_lock(self, arguments: Any = None) -> bool:
+    # A delegation to a read-only domain never changes the active document.
+    # It skips the MCP per-document gate, and in the sidebar it does not
+    # re-read the document context or count as an edit for the zero-tool nudge.
+    # Called before schema validation (MCP prepare, sidebar TOOL_DONE), so a
+    # non-string domain must not reach the frozenset membership test (unhashable
+    # values raise TypeError); it falls through to the mutating default.
+    def detects_mutation(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
-        # requires_document_lock runs before schema validation—non-string domain must not hit READ_ONLY_DOMAINS membership.
         if isinstance(domain, str) and domain in READ_ONLY_DOMAINS:
             return False
-        return super().requires_document_lock(arguments)
+        return super().detects_mutation(arguments)
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         domain = kwargs.get("domain")

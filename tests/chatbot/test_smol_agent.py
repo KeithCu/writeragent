@@ -110,11 +110,11 @@ class TestToolcallingPromptExamples:
 
         dedicated_specs = {
             "librarian": {
-                "allowed": {"upsert_memory", "reply_to_user"},
+                "allowed": {"memory_upsert", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "brainstorming": {
-                "allowed": {"get_document_tree", "brainstorming_save_design_spec", "reply_to_user"},
+                "allowed": {"get_tree", "brainstorming_save_design_spec", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "writing_plan": {
@@ -122,7 +122,7 @@ class TestToolcallingPromptExamples:
                 "finish": "reply_to_user",
             },
             "deep_research": {
-                "allowed": {"deep_research_search_web", "apply_document_content", "reply_to_user"},
+                "allowed": {"deep_research_search_web", "apply_content", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "web_research": {
@@ -433,7 +433,7 @@ def test_smol_tool_adapter_read_only_target_rejects_mutation():
     ctx = SimpleNamespace(read_only_target=True, caller="document_research", doc_type="writer")
 
     class AsyncMutator(_StubTool):
-        name = "get_document_content"
+        name = "get_content"
         is_mutation = True
 
         def is_async(self):
@@ -727,7 +727,7 @@ class TestLibrarianSmol:
             final_answer_tool_name="reply_to_user",
         )
         assert (len(agent.tools)) == (2)  # memory + reply_to_user (no stock final_answer)
-        assert ("upsert_memory") in (agent.tools)
+        assert ("memory_upsert") in (agent.tools)
         assert ("reply_to_user") in (agent.tools)
         assert ("switch_to_document_mode") not in (agent.tools)
 
@@ -761,7 +761,7 @@ class TestLibrarianSmol:
         ctx.chat_append_callback = chat_append
 
         tc = ToolCall(
-            name="upsert_memory",
+            name="memory_upsert",
             arguments={"key": "nickname", "content": "Bob"},
             id="c1",
         )

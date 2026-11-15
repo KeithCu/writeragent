@@ -504,7 +504,7 @@ def _math_cases() -> list[DomainDemoCase]:
             python_expr=_symbolic_expr("solve_equation", {"equation": "x**2 - 4", "variable": "x"}, '["status"]'),
             expected_scalar="ok (2 solutions in full report)",
             script_hint="Math Helpers → [Math] solve_equation",
-            chat_prompt='symbolic_math helper=solve_equation params={"equation":"x**2 - 4","variable":"x"}',
+            chat_prompt='math_run_symbolic helper=solve_equation params={"equation":"x**2 - 4","variable":"x"}',
             requires_package="sympy",
             notes="RPS inserts Calc grid or Writer LO Math object",
         ),
@@ -522,7 +522,7 @@ def _math_cases() -> list[DomainDemoCase]:
             ),
             expected_scalar="1",
             script_hint="Math Helpers → [Math] symbolic_simplify",
-            chat_prompt='symbolic_math helper=symbolic_simplify params={"expression":"(x + 1)**2 - x**2 - 2*x"}',
+            chat_prompt='math_run_symbolic helper=symbolic_simplify params={"expression":"(x + 1)**2 - x**2 - 2*x"}',
             requires_package="sympy",
         ),
         DomainDemoCase(
@@ -535,7 +535,7 @@ def _math_cases() -> list[DomainDemoCase]:
             python_expr=_symbolic_expr("integrate", {"expression": "sin(x)", "variable": "x"}, '["status"]'),
             expected_scalar="ok (latex contains cos term)",
             script_hint="Math Helpers → [Math] integrate",
-            chat_prompt='symbolic_math helper=integrate params={"expression":"sin(x)","variable":"x"}',
+            chat_prompt='math_run_symbolic helper=integrate params={"expression":"sin(x)","variable":"x"}',
             requires_package="sympy",
         ),
         DomainDemoCase(
@@ -548,7 +548,7 @@ def _math_cases() -> list[DomainDemoCase]:
             python_expr=_symbolic_expr("differentiate", {"expression": "x**2", "variable": "x"}, '["text"]'),
             expected_scalar="2*x",
             script_hint="Math Helpers → [Math] differentiate",
-            chat_prompt='symbolic_math helper=differentiate params={"expression":"x**2","variable":"x"}',
+            chat_prompt='math_run_symbolic helper=differentiate params={"expression":"x**2","variable":"x"}',
             requires_package="sympy",
         ),
     ]

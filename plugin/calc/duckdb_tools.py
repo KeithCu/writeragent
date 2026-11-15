@@ -47,7 +47,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
     is the same sheet used-range identity; the dict key is the SQL table name.
     """
 
-    name: str | None = "query_folder_sql"
+    name: str | None = "sql_query_folder"
     is_mutation: bool | None = False
     description: str = (
         "Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). "

@@ -2,12 +2,12 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The shared agent manual (single source of truth read by BOTH agents) and the get_guidance tool.
+"""The shared agent manual (single source of truth read by BOTH agents) and the manual_read tool.
 
 R3/T4 introduced the sectioned manual for the MCP agent; R4 unified it; R5 re-homed the source:
 the pieces of the original chat system prompt (prompts.py) — updated in place and extended —
 ARE the manual now. The sidebar template assembles them directly; agent_manual maps topic -> piece
-for the MCP channel (get_guidance) and the agent-backend path, adding the MCP-only extras; and the
+for the MCP channel (manual_read) and the agent-backend path, adding the MCP-only extras; and the
 sections are per document type so a Calc session never reads Writer advice. No LibreOffice required."""
 
 from plugin.chatbot.agent_manual import (
@@ -121,7 +121,7 @@ def test_no_document_serves_neutral_generic_index():
 # ---- single source: the prompt pieces feed BOTH channels ---------------------
 
 def test_shared_pieces_are_identical_in_both_channels():
-    """The heart of the architecture: a topic served through get_guidance IS the same string the
+    """The heart of the architecture: a topic served through manual_read IS the same string the
     prompt templates embed — one piece, per-channel assemblies, drift impossible."""
     from plugin.framework import prompts as c
 
@@ -149,7 +149,7 @@ def test_shared_pieces_are_identical_in_both_channels():
 def test_sidebar_hybrid_prompt_composition():
     """HYBRID delivery: the ambient Writer sidebar prompt carries the original pieces plus the
     safety-critical review-modes piece exactly once; the reference pieces (search, navigation,
-    images) stay OUT of the ambient text and are pulled on demand via get_guidance, which must
+    images) stay OUT of the ambient text and are pulled on demand via manual_read, which must
     therefore be visible to the sidebar (tier core)."""
     from plugin.doc.document_research_tools import GetGuidance
     from plugin.framework import prompts as c
@@ -206,7 +206,7 @@ def test_get_guidance_no_topic_returns_writer_index():
     res = GetGuidance().execute(FakeCtx(WRITER_DOC))
     assert res["status"] == "ok" and res["doc_type"] == "writer"
     assert set(list_topics("writer")).issubset(set(res["topics"]))
-    assert "get_guidance" in res["index"]
+    assert "manual_read" in res["index"]
     assert "current_local_datetime" in res
     assert "Current local date and time:" in res["current_local_datetime"]
 
