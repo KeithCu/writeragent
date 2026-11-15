@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import name_miss_details
+from plugin.framework.errors import make_tool_ok, name_miss_details
 from plugin.framework.uno_context import create_property_value
 from plugin.calc.address_utils import format_range
 from plugin.calc.base import ToolCalcConditionalBase
@@ -120,7 +120,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
         formats = cell_range.getPropertyValue("ConditionalFormat")
         rules = [_entry_to_dict(formats.getByIndex(i), i) for i in range(formats.getCount())] if formats is not None else []
 
-        return {"status": "ok", "range": resolved_range_name, "rules": rules, "count": len(rules)}
+        return make_tool_ok(range=resolved_range_name, rules=rules, count=len(rules))
 
 
 class AddConditionalFormat(ToolCalcConditionalBase):
@@ -199,7 +199,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         cell_range.setPropertyValue("ConditionalFormat", formats)
 
         log.info("Conditional format added to %s.", range_str.upper())
-        return {"status": "ok", "range": range_str, "rule_count": formats.getCount()}
+        return make_tool_ok(range=range_str, rule_count=formats.getCount())
 
 
 class RemoveConditionalFormats(ToolCalcConditionalBase):
@@ -228,9 +228,9 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
             if 0 <= index < formats.getCount():
                 formats.removeByIndex(index)
                 cell_range.setPropertyValue("ConditionalFormat", formats)
-                return {"status": "ok", "range": range_str, "removed_index": index}
+                return make_tool_ok(range=range_str, removed_index=index)
             return self._tool_error(f"Rule index {index} not found on {range_str}.", code="INVALID_PARAM")
         if formats is not None:
             formats.clear()
             cell_range.setPropertyValue("ConditionalFormat", formats)
-        return {"status": "ok", "range": range_str, "cleared": True}
+        return make_tool_ok(range=range_str, cleared=True)

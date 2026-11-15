@@ -29,7 +29,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, NoReturn, NotRequired, TypeVar, TypedDict, overload
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_python_literal_eval  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -478,6 +478,54 @@ def make_tool_error(
     if top_level:
         payload.update(top_level)
     return payload
+
+
+_RESERVED_TOOL_OK_KEYS: frozenset[str] = frozenset({"status", "code", "details"})
+
+
+@deal.post(lambda result: isinstance(result, dict) and result.get("status") == "ok")
+def make_tool_ok(
+    *,
+    warnings: Sequence[Diagnostic | str] = (),
+    suggested_call: SuggestedCall | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """Central factory for successful tool results (the twin of make_tool_error).
+
+    Builds ``{"status": "ok", **fields}`` keeping ``fields`` in call order
+    (conventionally ``message`` first when the tool has one), then attaches
+    ``warnings`` (only when non-empty) and ``suggested_call`` (only when set).
+    Absent keys mean nothing to report; empty lists would cost tokens on every
+    call, and callers and MCP clients read ``.get("warnings", [])``. ``status``,
+    ``code``, and ``details`` are reserved because ``code``
+    and ``details`` mark an error payload and readers checking ``res.get("code")``
+    must never see one on a success. Later write reports (``cells_changed``,
+    ``error_cells``, ``spill_range``, ...) are passed as plain keyword fields.
+    Prefer ``Diagnostic`` warnings so the model receives the fix; plain strings
+    are accepted for existing chart styling notes.
+    """
+    forbidden = _RESERVED_TOOL_OK_KEYS.intersection(fields)
+    if forbidden:
+        raise ValueError(f"make_tool_ok cannot set reserved keys: {sorted(forbidden)}")
+    payload: dict[str, Any] = {"status": "ok", **fields}
+    append_warnings(payload, warnings)
+    if suggested_call is not None:
+        payload["suggested_call"] = suggested_call
+    return payload
+
+
+def append_warnings(
+    result: dict[str, Any], items: Sequence[Diagnostic | str]
+) -> dict[str, Any]:
+    """Append warnings to a successful result (creates the list); errors and empty input are untouched."""
+    if not items or result.get("status") != "ok":
+        return result
+    existing = result.get("warnings")
+    if isinstance(existing, list):
+        existing.extend(items)
+    else:
+        result["warnings"] = list(items)
+    return result
 
 
 def user_stopped_payload(message: str = "Document read stopped by user.") -> dict[str, Any]:

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, make_tool_ok
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -175,9 +175,9 @@ def _mutate_ranges(
         if len(ranges) == 1:
             single = results[0]
             if isinstance(single, dict):
-                return {"status": "ok", **single}
-            return {"status": "ok", "message": single}
-        return {"status": "ok", "message": done_message}
+                return make_tool_ok(**single)
+            return make_tool_ok(message=single)
+        return make_tool_ok(message=done_message)
     except Exception as exc:
         if is_disposal(exc):
             raise
@@ -370,7 +370,7 @@ class ReadCellRange(ToolBase):
                 "message": f"Failed to read {len(failed)} of {len(rn)} ranges: {failed!r}",
                 "result": results,
             }
-        return {"status": "ok", "result": results}
+        return make_tool_ok(result=results)
 
     def _wire_result(
         self,
@@ -388,20 +388,19 @@ class ReadCellRange(ToolBase):
             preview = _preview_if_large(bridge, range_name)
             if preview is None:
                 grid = inspector.read_range(range_name, include_format_info=True)
-                return {"status": "ok", "result": self._wire_result(grid, wire_format, range_name), "range": range_name}
+                return make_tool_ok(result=self._wire_result(grid, wire_format, range_name), range=range_name)
             grid = inspector.read_range(preview["preview_range"], include_format_info=True)
             # Size metadata uses row_count/column_count/cell_count so it cannot collide with result[0]["rows"] (2D values).
-            payload: dict[str, Any] = {
-                "status": "ok",
-                "truncated": True,
-                "message": _READ_CELL_RANGE_TRUNCATED_MSG.format(rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]),
-                "range": range_name,
-                "preview_range": preview["preview_range"],
-                "row_count": preview["rows"],
-                "column_count": preview["columns"],
-                "cell_count": preview["cells"],
-                "result": self._wire_result(grid, wire_format, range_name),
-            }
+            payload = make_tool_ok(
+                truncated=True,
+                message=_READ_CELL_RANGE_TRUNCATED_MSG.format(rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]),
+                range=range_name,
+                preview_range=preview["preview_range"],
+                row_count=preview["rows"],
+                column_count=preview["columns"],
+                cell_count=preview["cells"],
+                result=self._wire_result(grid, wire_format, range_name),
+            )
             distincts = _try_column_distinct_peek(bridge, range_name, preview)
             if distincts:
                 payload["column_distincts"] = distincts
@@ -519,12 +518,11 @@ class WriteCellRange(ToolBase):
                 msg = last["message"]
                 if len(rn) > 1:
                     msg = f"Copied {last['rows_copied']}×{last['cols_copied']} from {source} onto {len(rn)} ranges."
-                return {
-                    "status": "ok",
-                    "message": msg,
-                    "rows_copied": last["rows_copied"],
-                    "cols_copied": last["cols_copied"],
-                }
+                return make_tool_ok(
+                    message=msg,
+                    rows_copied=last["rows_copied"],
+                    cols_copied=last["cols_copied"],
+                )
 
             return _mutate_ranges(
                 self,
@@ -563,8 +561,8 @@ class WriteCellRange(ToolBase):
             message = f"Wrote to {len(rn)} ranges"
             if any("array_range" in res for res in results):
                 ranges_payload = [{"range": r, **res} for r, res in zip(rn, results)]
-                return {"status": "ok", "message": message, "ranges": ranges_payload}
-            return {"status": "ok", "message": message}
+                return make_tool_ok(message=message, ranges=ranges_payload)
+            return make_tool_ok(message=message)
 
         return _mutate_ranges(
             self,
@@ -618,7 +616,7 @@ class InsertCellHtml(ToolBase):
             return self._tool_error(f"Invalid cell address: {e}", code="INVALID_PARAM")
 
         insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
-        return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
+        return make_tool_ok(message=f"Inserted rich HTML into cell {addr.upper()}.")
 
 
 class SetCellStyle(ToolBase):
@@ -780,7 +778,7 @@ class SortRange(ToolCalcRangeBase):
             rn,
             "WriterAgent: Sort range",
             lambda r: manipulator.range_sort(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
-            format_result=(lambda results: {"status": "ok", "message": " ".join(results)}) if len(rn) > 1 else None,
+            format_result=(lambda results: make_tool_ok(message=" ".join(results))) if len(rn) > 1 else None,
         )
 
 
@@ -815,7 +813,7 @@ class _StructureTool(ToolBase):
         mutate = manipulator.insert_structure if self.insert else manipulator.delete_structure
         try:
             assert start is not None
-            return {"status": "ok", "message": mutate(structure_type, start, count=count, sheet=sheet)}
+            return make_tool_ok(message=mutate(structure_type, start, count=count, sheet=sheet))
         except Exception as e:
             # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
             if is_disposal(e) or isinstance(e, WriterAgentException):

@@ -32,7 +32,7 @@ from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
 from plugin.calc.calc_utils import range_args
 from plugin.doc.compound_undo import UndoStepOrRollback
-from plugin.framework.errors import ToolExecutionError, name_miss_details, uno_read
+from plugin.framework.errors import ToolExecutionError, make_tool_ok, name_miss_details, uno_read
 from plugin.framework.i18n import _
 
 if TYPE_CHECKING:
@@ -276,7 +276,7 @@ class NamedRangeList(ToolCalcRangeBase):
                 result.append(_extract_range_info(nr, effective_scope, doc))
 
         log.info("Named ranges listed (scope=%s): count=%d", scope_clean, len(result))
-        return {"status": "ok", "result": result}
+        return make_tool_ok(result=result)
 
 
 class NamedRangeGetInfo(ToolCalcRangeBase):
@@ -295,7 +295,7 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
         name = kwargs["name"].strip()
         doc = ctx.doc
         _container, effective_scope, _sheet, nr = _resolve_named_range_target(doc, name, kwargs.get("scope"))
-        return {"status": "ok", "result": _extract_range_info(nr, effective_scope, doc)}
+        return make_tool_ok(result=_extract_range_info(nr, effective_scope, doc))
 
 
 class NamedRangeAdd(ToolCalcRangeBase):
@@ -343,7 +343,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
 
         container.addNewByName(name, content, pos, type_mask)
         log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
-        return {"status": "ok", "message": f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'."}
+        return make_tool_ok(message=f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'.")
 
 
 class NamedRangeEdit(ToolCalcRangeBase):
@@ -420,7 +420,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
                 setter(new)
 
         log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
-        return {"status": "ok", "message": f"Named range '{new_clean or old_name}' updated successfully in scope '{effective_scope}'."}
+        return make_tool_ok(message=f"Named range '{new_clean or old_name}' updated successfully in scope '{effective_scope}'.")
 
 
 class NamedRangeDelete(ToolCalcRangeBase):
@@ -440,7 +440,7 @@ class NamedRangeDelete(ToolCalcRangeBase):
 
         container.removeByName(nr.getName())
         log.info("Named range deleted: [%s] %s", effective_scope, name)
-        return {"status": "ok", "message": f"Named range '{name}' deleted successfully from scope '{effective_scope}'."}
+        return make_tool_ok(message=f"Named range '{name}' deleted successfully from scope '{effective_scope}'.")
 
 
 class NamedRangeCreateFromTitles(ToolCalcRangeBase):
@@ -477,4 +477,4 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         container.addNewFromTitles(range_addr, border_map[border])
 
         log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border)
-        return {"status": "ok", "message": f"Named ranges created from titles along border '{border}' for range '{range_str}' in scope '{effective_scope}'."}
+        return make_tool_ok(message=f"Named ranges created from titles along border '{border}' for range '{range_str}' in scope '{effective_scope}'.")
