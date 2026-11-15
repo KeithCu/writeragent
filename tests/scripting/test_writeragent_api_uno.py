@@ -97,3 +97,26 @@ def test_calc_collections_uno(ctx, doc):
         assert "WA_P" not in api.pivot_table
     finally:
         api.call_host_tool = orig
+
+
+@native_test
+@with_native_doc("writer")
+def test_writer_comments_pythonic_uno(ctx, doc):
+    orig = api.call_host_tool
+    api.call_host_tool = lambda tool, **kw: TestingFactory.execute_tool(doc, ctx, tool, kw, doc_type="writer")
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        text.insertString(cursor, "Alpha Beta", False)
+
+        r = api.comment.add("first", search="Alpha")
+        assert r.name
+        assert "status" not in r
+
+        api.comment.add("second", search="Beta")
+        assert sorted(c.content for c in api.comment) == ["first", "second"]
+
+        exc = _assert_raises(RuntimeError, lambda: api.comment.add("x", search="Nowhere"))
+        assert getattr(exc, "code", None) == "OLD_CONTENT_NOT_FOUND"
+    finally:
+        api.call_host_tool = orig

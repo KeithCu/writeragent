@@ -417,6 +417,11 @@ COLLECTION_NAMESPACES: frozenset[str] = frozenset({
     "sheet",
 })
 
+# A non-collection list tool with an optional integer start parameter in this set
+# gets a lazy namespace __iter__ (for item in wa.<ns>). The response must hold one
+# list of dict rows plus has_more / next_index or truncated.
+PAGED_START_PARAMS = frozenset({"start_index", "offset"})
+
 # Top-level preamble of the generated writeragent_api.py, kept in one place so
 # check_api_domains derives reserved names from the AST instead of a hand copy.
 _PREAMBLE_LINES: tuple[str, ...] = (
@@ -429,6 +434,10 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     'Collection namespaces (bookmark, frame, pivot_table, section, sheet) expose Python',
     'container access (iteration, len, in, [], del) returning dict snapshots whose keys',
     'also read as attributes.',
+    'Every method returns a dict result whose keys also read as attributes (an ok',
+    'status key is dropped); a tool error raises RuntimeError with .code and Stop',
+    'raises UserStopped. Paged list namespaces (comment, page_comment, tracking)',
+    'iterate every page lazily: for item in wa.comment.',
     'Method docstrings include the full tool description and an Args section',
     '(schema description, enum values, and required or optional).',
     '',
@@ -462,14 +471,18 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '            raise AttributeError(key) from None',
     '',
     '',
-    'def _tool_failure(res: Any) -> RuntimeError:',
-    '    """Build a RuntimeError with .code matching ipc.exchange_tool_call.',
+    'def _tool_failure(res: Any) -> BaseException:',
+    '    """Build RuntimeError with .code (or UserStopped) matching ipc.exchange_tool_call.',
     '',
     '    Host tool errors arrive as dicts over RPC rather than exceptions, so',
-    '    containers inspect status and raise this uniform error shape.',
+    '    proxies inspect status and raise this uniform error shape. Stop',
+    '    becomes UserStopped so except Exception cannot swallow it.',
     '    """',
     '    if isinstance(res, dict):',
     '        msg = str(res.get("message") or res.get("error") or res)',
+    '        if res.get("code") == "USER_STOPPED":',
+    '            from plugin.framework.ipc import UserStopped',
+    '            return UserStopped(msg)',
     '        err = RuntimeError(msg)',
     '        code = res.get("code")',
     '        if code is not None:',
@@ -495,6 +508,36 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '            raise RuntimeError(f"Expected dict entries in list result, got {type(entry).__name__}")',
     '        items.append(_Item(entry))',
     '    return items',
+    '',
+    '',
+    'def _result(res: Any) -> _Item:',
+    '    """Unwrap one tool response for a flat proxy method.',
+    '',
+    '    Raises the tool failure for status error or a non-dict response. An ok',
+    '    status key is dropped; other statuses (skipped, partial) stay readable.',
+    '    """',
+    '    if not isinstance(res, dict) or res.get("status") == "error":',
+    '        raise _tool_failure(res)',
+    '    if res.get("status") == "ok":',
+    '        res = {k: v for k, v in res.items() if k != "status"}',
+    '    return _Item(res)',
+    '',
+    '',
+    'def _iter_pages(tool_name: str, start_key: str) -> Iterator[_Item]:',
+    '    """Yield every row of a paged *_list tool, fetching a page only when reached.',
+    '',
+    '    Each page is one host call and a fresh snapshot. Pages continue while the',
+    '    response says has_more (comment_list, tracking_list) or truncated',
+    '    (page_comment_list); next_index wins over start + rows when present.',
+    '    """',
+    '    start = 0',
+    '    while True:',
+    '        res = call_host_tool(tool_name, **{start_key: start})',
+    '        items = _list_items(res)',
+    '        yield from items',
+    '        if not items or not (res.get("has_more") or res.get("truncated")):',
+    '            return',
+    '        start = res.get("next_index", start + len(items))',
     '',
     '',
     'def _require_str_key(key: object) -> str:',
@@ -742,10 +785,14 @@ def collection_plan(namespace: str, tool_list: list[tuple[str, "ToolBase"]]) -> 
     if list_tool is None or delete_tool is None:
         raise ValueError(f"collection namespace {namespace!r} must have both 'list' and 'delete' tools")
 
-    list_req = [p for p in _collect_params(list_tool) if p.required]
-    if list_req:
+    list_params = _collect_params(list_tool)
+    if any(p.required for p in list_params):
         raise ValueError(
             f"collection namespace {namespace!r} list tool {list_tool.name!r} must not have required parameters"
+        )
+    if any(p.schema_key in PAGED_START_PARAMS for p in list_params):
+        raise ValueError(
+            f"collection namespace {namespace!r} list tool {list_tool.name!r} must not have a paging parameter"
         )
 
     del_req = [p for p in _collect_params(delete_tool) if p.required]
@@ -770,6 +817,24 @@ def collection_plan(namespace: str, tool_list: list[tuple[str, "ToolBase"]]) -> 
             )
 
     return CollectionPlan(list_tool=list_tool, get_tool=get_tool, delete_tool=delete_tool, key=key)
+
+
+def paging_start_param(namespace: str, tool_list: list[tuple[str, "ToolBase"]]) -> ParamRecord | None:
+    """Return the paging start ParamRecord for a paged namespace's list tool, else None."""
+    for method, tool in tool_list:
+        if method != "list":
+            continue
+        params = _collect_params(tool)
+        start = next(
+            (p for p in params if not p.required and p.schema_key in PAGED_START_PARAMS and p.annotation == "int | None"),
+            None,
+        )
+        if start is None:
+            return None
+        if any(p.required for p in params):
+            raise ValueError(f"paged namespace {namespace!r} list tool {tool.name!r} must not have required parameters")
+        return start
+    return None
 
 
 def _rpc_kwargs(params: list[ParamRecord]) -> str:
@@ -908,6 +973,30 @@ def _collection_lines(ns: str, plan: CollectionPlan) -> list[str]:
     return lines
 
 
+def _paged_doc(ns: str, dropped_optionals: list[str]) -> str:
+    arg_note = f" ({', '.join(dropped_optionals)})" if dropped_optionals else ""
+    return (
+        f"Iterator form: ``for item in wa.{ns}`` reads every page lazily, one host RPC per page, "
+        "as dict items whose keys also read as attributes. Each page is a fresh snapshot, so "
+        f"collect ``list(wa.{ns})`` before deleting in a loop. Membership (``in``) compares whole "
+        f"rows; match a field instead, e.g. ``any(r.get(key) == value for r in wa.{ns})``. "
+        f"It passes no optional arguments{arg_note}; filter the items in Python."
+    )
+
+
+def _paged_iter_lines(ns: str, list_tool: "ToolBase", start: ParamRecord) -> list[str]:
+    """Emit __iter__ for a paged namespace proxy."""
+    tool_name = list_tool.name or ""
+    lines = ["    def __iter__(self) -> Iterator[_Item]:"]
+    _append_docstring(
+        lines,
+        [f"Iterate every {ns} row lazily, one {tool_name} call per page (see list)."],
+    )
+    lines.append(f'        return _iter_pages("{tool_name}", "{start.schema_key}")')
+    lines.append("")
+    return lines
+
+
 def generate_module(tools: list["ToolBase"]) -> str:
     """Generate the complete writeragent_api.py module."""
     check_api_domains(API_DOMAINS | APP_NAMESPACES)
@@ -915,6 +1004,11 @@ def generate_module(tools: list["ToolBase"]) -> str:
     plans = {
         ns: collection_plan(ns, groups[ns])
         for ns in sorted(COLLECTION_NAMESPACES & groups.keys())
+    }
+    paged = {
+        ns: p
+        for ns in sorted(groups)
+        if ns not in plans and (p := paging_start_param(ns, groups[ns])) is not None
     }
 
     lines = list(_PREAMBLE_LINES)
@@ -1006,13 +1100,25 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
             kwargs_body = _rpc_kwargs(params)
 
-            lines.append(f"    def {method}({all_params}) -> dict[str, Any]:")
-            _append_docstring(lines, _method_doc_lines(tool, params=params))
-            lines.append(f'        return call_host_tool("{tool.name}"{kwargs_body})')
+            lines.append(f"    def {method}({all_params}) -> _Item:")
+            doc_lines = _method_doc_lines(tool, params=params)
+            if namespace in paged and method == "list":
+                start_param = paged[namespace]
+                dropped = [
+                    p.py_name
+                    for p in params
+                    if not p.required and p.schema_key != start_param.schema_key
+                ]
+                doc_lines = _with_collection_doc(doc_lines, _paged_doc(namespace, dropped))
+            _append_docstring(lines, doc_lines)
+            lines.append(f'        return _result(call_host_tool("{tool.name}"{kwargs_body}))')
             lines.append("")
 
         if plan is not None:
             lines.extend(_collection_lines(namespace, plan))
+        elif namespace in paged:
+            list_tool = dict(tool_list)["list"]
+            lines.extend(_paged_iter_lines(namespace, list_tool, paged[namespace]))
 
         lines.append(f"{namespace} = _{class_name}()")
         lines.append("")
