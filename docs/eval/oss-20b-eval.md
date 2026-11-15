@@ -229,3 +229,45 @@ production-compatible version of a demo is 2–3 lines in
 - [x] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped Calc wording
 - [x] Draw flowchart Do-because line in `DRAW_CORE_DIRECTIVES` (no empty-doc apply-target tip)
 - [x] `haystack_has` accepts scale expansions; `NEMA 4` optional; no Writer preserve-tokens tip
+
+## 2026-11 prompt A/B (EVAL-PROMPT-AB)
+
+- **Base:** `03223f746` (without EVAL-NUDGE).
+- **Models & tasks:** `openai/gpt-oss-120b:nitro` and `openai/gpt-oss-20b:nitro`, 8 runs per arm on `logical_rewriting`, `table_engineering`, `data_sorting`, and `reformat_resume` (plus 3 prior baseline runs at `a5e6bf6cb`, whose prompts match `03223f746`, pooled as `base_old`).
+
+### Arms and wording
+
+- **base:** HEAD prompts.
+- **X (`L1 + L3`):**
+  - **L1 (`plugin/framework/prompts.py` `SIDEBAR_VS_DOCUMENT`):** line 2 changed to `MUST use apply_document_content for drafts, reports, research output, and rewrites or conversions of document text; sidebar gets at most a brief confirmation.`
+  - **L3 (`plugin/calc/cells.py` `SortRange.description`):** `"Multi-key sorts are multiple calls (two stable one-column passes). "` changed to `"Multi-key sorts are one call per key: tie-breaker first, main key last (a stable pass keeps the earlier order only among equal values). "`
+- **Y (`X + L2`):**
+  - **L2 (`plugin/framework/prompts.py` `build_specialized_sub_agent_instructions`):** `"If this domain cannot do the task, say so in the answer instead of claiming it was done. "` changed to `"Do every part of the task these tools can do; for any part they cannot do, say so in the answer instead of claiming it was done. "`
+
+### Results (hard passes / valid trials)
+
+| Task | Model | base (8) | base_old (3) | base pooled | X (8) | Y (8) |
+|---|---|---:|---:|---:|---:|---:|
+| `logical_rewriting` | 120b | 7/8 | 2/3 | 9/11 | 4/8 | 7/8 |
+| `logical_rewriting` | 20b | 8/8 | 2/3 | 10/11 | 6/8 | 6/8 |
+| `table_engineering` | 120b | 8/8 | 3/3 | 11/11 | 8/8 | 8/8 |
+| `table_engineering` | 20b | 8/8 | 2/3 | 10/11 | 8/8 | 8/8 |
+| `reformat_resume` | 120b | 8/8 | 3/3 | 11/11 | 8/8 | 8/8 |
+| `reformat_resume` | 20b | 8/8 | 3/3 | 11/11 | 7/7 (1 inv) | 8/8 |
+| `data_sorting` | 120b | 4/8 | 1/2 (1 har) | 5/10 | 4/8 | 6/8 |
+| `data_sorting` | 20b | 5/5 (3 inv) | 1/2 (1 inv) | 6/7 | 2/5 (3 inv) | 5/6 (2 inv) |
+
+- Exclusions: `inv` = upstream Groq provider/parsing error (`invalid`); `har` = failed `data_sorting` with sheet-qualified `range_sort` (`harness`).
+- `data_sorting` `last_sort_is_revenue_desc`: `base` 5/13 (4/8 120b, 1/5 20b), `base_old` 1/4 (1/2 120b, 0/2 20b), pooled `base` 6/17 (35.3%), `X` 4/13 (30.8%: 4/8 120b, 0/5 20b), `Y` 7/14 (50.0%: 5/8 120b, 2/6 20b).
+- No Writer row in `X` or `Y` delegated to a specialized sub-agent.
+
+### Decisions
+
+- **Drop L1:** `logical_rewriting + table_engineering` in `X` was 26/32 (81.3%) vs pooled `base` 40/44 (90.9%), and `logical_rewriting` alone dropped to 10/16 (62.5%) vs 19/22 (86.4%). (`reformat_resume` served as the guard against over-applying `apply_document_content` and stayed at 15/15 in `X` and 16/16 in `Y`.)
+- **Drop L3:** `data_sorting` in `X` fell to 6/13 (46.2%) vs pooled `base` 11/17 (64.7%), and `last_sort_is_revenue_desc` fell from 6/17 (35.3%) to 4/13 (30.8%).
+- **Keep L2:** `data_sorting` in `Y` rose to 11/14 (78.6%), which is +32.4 pp over `X` (6/13, 46.2%) and clears the +15 pp keep rule (and also exceeds pooled `base` 64.7%).
+
+### Harness confounders on `data_sorting`
+
+- **Sheet-qualified ranges:** `eval_worlds.py` `parse_a1_range('Sheet1!A1:B6')` misparses the sheet prefix and returns `"no rows moved"`, whereas production `range_sort` handles sheet-qualified ranges.
+- **Mixed-value descending order:** `eval_worlds.py` `range_sort` puts text after numbers in both directions, whereas LibreOffice (`sc/source/core/data/table3.cxx` `ScTable::CompareCell`) sorts number-before-string and negates on descending, so text sorts first when descending (empty cells stay last). Harness `data_sorting` passes therefore overstate production for `"Revenue descending, non-numeric last"`.
