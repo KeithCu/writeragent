@@ -681,6 +681,11 @@ class WebResearchTool(ToolBase):
     name: str | None = "web_research"
     description: str = "Perform deep web research to answer complex questions. Bypasses document context to search the live web."
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    # Web research only reads the web and the document locale; it never writes
+    # the document. The name has no read verb, so without this flag it would be
+    # treated as an edit, and the sidebar would re-read the live selection into
+    # the context after every result.
+    is_mutation: bool | None = False
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

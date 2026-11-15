@@ -249,7 +249,7 @@ On Writer edit tasks (such as rewriting a paragraph or converting text to an HTM
 - **Stop before `STREAM_DONE`**: `next_state` checks `not state.is_stopped` before emitting `SpawnLLMWorkerEffect`, preserving the `@deal.ensure(_transition_invariants)` / `stopped_effects_exclude_tool_spawns` guarantee.
 - **Stop after nudge spawn**: The follow-up worker runs under the turn's `spawn_scope` / `TurnController`, so Stop aborts the HTTP stream and latches `is_stopped=True`.
 - **Clear / mode switch**: `TurnController` is aborted, so `turn.can_write(host)` and `_live_spawn_target()` drop any late `AddMessageEffect` or `SpawnLLMWorkerEffect`.
-- **Mutating tool before `STREAM_DONE`**: `EventKind.TOOL_RESULT` latches `has_mutated=True` whenever `mutates_document` is true, preventing a nudge if a later round ends with chat text.
+- **Mutating tool before `STREAM_DONE`**: `EventKind.TOOL_RESULT` latches `has_mutated=True` whenever `mutates_document` is true, preventing a nudge if a later round ends with chat text. Read-only tools (`web_research`, read-only delegations) set neither `mutates_document` nor `has_mutated`, and do not refresh `[DOCUMENT CONTENT]`.
 
 Tests: [`tests/chatbot/test_tool_loop_state.py`](../../tests/chatbot/test_tool_loop_state.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py).
 
