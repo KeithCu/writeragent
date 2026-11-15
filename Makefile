@@ -158,8 +158,8 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-bot test-full pytest test-uno test-uno-full test-uno-soak test-mock-sidebar demo-video test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full _typecheck-full-run check-ext check-setup deploy ensure-uno _check-lo-python \
-        verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
-        crosshair-cover-all crosshair-cover-all-deep \
+        verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-medium crosshair-check-all-deep \
+        crosshair-cover-all crosshair-cover-all-medium crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-incr opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit bandit-incr pyspector pyspector-incr pyspector-report ty-run mypy-run mypy-incr-run pyright-run basedpyright basedpyright-run basedpyright-incr-run basedpyright-full-run pyrefly-run \
@@ -256,8 +256,10 @@ help:
 	@echo "  make crosshair-check        CrossHair check on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-cover        CrossHair cover on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-check-all    CrossHair check every @deal. plugin module (regular: 25 iters / 5s + 120s wall; log: build/crosshair-check-all.log)"
+	@echo "  make crosshair-check-all-medium  Same sweep, medium mode (75 iters / 20s + 600s wall). START_AT=42 resumes from module 42"
 	@echo "  make crosshair-check-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall). START_AT=42 resumes from module 42"
 	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (regular: 25 iters / 5s + 120s wall; process pool; log: build/crosshair-cover-all.log)"
+	@echo "  make crosshair-cover-all-medium  Same sweep, medium mode (75 iters / 20s + 600s wall). START_AT=42 resumes from module 42"
 	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall). START_AT=42 resumes from module 42"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
@@ -927,7 +929,7 @@ crosshair-cover:
 	"$(PYTHON)" scripts/crosshair_stream.py run cover -- -v $(CROSSHAIR_MODULE)
 
 # Every plugin file with @deal. (deal contracts only). Not part of make test.
-# Regular: 25 uninteresting iters + 5s per condition + 120s module wall. Deep: 200 iters, no timeout/wall.
+# Regular: 25 uninteresting iters + 5s per condition + 120s module wall. Medium: 75 iters + 20s + 600s wall. Deep: 200 iters, no timeout/wall.
 # Regular payload_codec only: 5 / 5s (module_check_bounds / module_cover_bounds).
 # START_AT=N (optional, 1-based) resumes from module N: make crosshair-check-all-deep START_AT=42
 START_AT ?=
@@ -936,12 +938,18 @@ START_AT_FLAG := $(if $(START_AT),--start-at $(START_AT),)
 crosshair-check-all:
 	"$(PYTHON)" scripts/crosshair_check_all.py $(START_AT_FLAG)
 
+crosshair-check-all-medium:
+	"$(PYTHON)" scripts/crosshair_check_all.py --medium $(START_AT_FLAG)
+
 crosshair-check-all-deep:
 	"$(PYTHON)" scripts/crosshair_check_all.py --deep $(START_AT_FLAG)
 
 # Cover (example synthesis) on the same @deal. set / skip list. Not part of make test.
 crosshair-cover-all:
 	"$(PYTHON)" scripts/crosshair_cover_all.py $(START_AT_FLAG)
+
+crosshair-cover-all-medium:
+	"$(PYTHON)" scripts/crosshair_cover_all.py --medium $(START_AT_FLAG)
 
 crosshair-cover-all-deep:
 	"$(PYTHON)" scripts/crosshair_cover_all.py --deep $(START_AT_FLAG)
