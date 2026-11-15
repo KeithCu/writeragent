@@ -103,12 +103,13 @@ def test_uncatalogued_gemini_flash_keeps_get_image_without_catalog_get():
 def test_catalogued_text_only_model_drops_get_image_without_fetch():
     import plugin.framework.client.model_fetcher as mf
 
+    # Groq has no live vision API, so the catalog row is the answer.
     mf._catalog_memos.clear()
     with patch("plugin.framework.client.model_fetcher.fetch_available_models") as fetch, \
          patch("plugin.framework.client.model_fetcher.get_config", return_value={}), \
          patch("plugin.framework.client.model_fetcher.get_model_capability", return_value=ModelCapability.CHAT | ModelCapability.TOOLS), \
          patch("plugin.framework.client.model_fetcher.get_text_model", return_value="synthetic/text-only"), \
-         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://openrouter.ai/api"), \
+         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="https://api.groq.com/openai"), \
          patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch("plugin.framework.client.model_fetcher.run_in_background"):
         names = _openai_names()
