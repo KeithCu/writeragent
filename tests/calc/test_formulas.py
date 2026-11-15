@@ -422,3 +422,10 @@ def test_evaluate_formula_empty_formula_and_calc_error_codes():
     assert res_err["code"] == "CALC_ERROR"
     assert res_err["error_code"] == 532
     assert res_err["message"] == formula_evaluation_error_message(532)
+
+
+def test_evaluate_formula_repairs_py_literal_newlines():
+    doc = _EvalDoc()
+    res = EvaluateFormula().execute(_eval_ctx(doc), formula='=PY("x = 2\\nresult = x")')
+    assert res["status"] == "ok"
+    assert doc.temp_cell.formulas == ['=PY("x = 2\nresult = x")']

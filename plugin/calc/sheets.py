@@ -379,7 +379,7 @@ class GetSheetSummary(ToolBase):
 
     name: str | None = "get_sheet_summary"
     tier: str = "core"
-    description: str = "Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes."
+    description: str = "Returns a comprehensive summary of the active or specified sheet: used area, first_empty_col / first_empty_row (first column right of / row below the used area — a safe output spot), column headers, charts, merged cells, annotations, and shapes."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = False

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Fill-down / fill-across for a single Calc formula into a 1-D or 2-D range.
+"""Fill-down / fill-across, Excel sheet-ref dotting, and repeated-formula detection.
 
 ``write_formula_range`` fills one formula across a range instead of repeating
 the same text in every cell. Ordinary formulas shift relative A1 refs per cell
@@ -10,13 +10,27 @@ the same text in every cell. Ordinary formulas shift relative A1 refs per cell
 direction-aware span policy: only refs whose span does not cross the fill
 axis are adjusted; other refs outside the quoted Python string stay
 verbatim so a block like ``A1:H1517`` is not walked down the column.
+
+``dot_sheet_refs`` rewrites Excel-style ``Sheet!A1`` prefixes to Calc's
+``Sheet.A1`` dot form, and ``repeated_formula_columns`` detects list-write
+columns that repeat a single row-aligned formula so callers can warn.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any
 
-from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, index_to_column
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+from plugin.calc.address_utils import (
+    MAX_COL,
+    MAX_ROW,
+    column_to_index,
+    index_to_column,
+    quote_sheet_name,
+)
 from plugin.calc.array_formula import skip_quoted
 from plugin.calc.python.formula_edit import PyFormula
 
@@ -75,20 +89,8 @@ def _ref_crosses_axis(ref: _Ref, axis: str | None) -> bool:
     return False
 
 
-def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = None) -> str:
-    """Shift relative A1 refs by *dcol*/*drow*. ``$`` stays put.
-
-    Double-quoted strings (Calc ``""`` escape) are left untouched, so
-    ``A1:H10`` inside ``=PY("…")`` is not a sheet ref. Common
-    ``Sheet.A1`` / ``'Sheet'!A1`` prefixes are preserved.
-    """
-    if not formula or (dcol == 0 and drow == 0):
-        return formula
-
-    is_py = PyFormula.open_end(formula, require_equals=True) is not None
-    if is_py and axis is None:
-        axis = "both" if dcol and drow else "cols" if dcol else "rows"
-
+def _map_refs(formula: str, on_ref: Callable[[str, _Ref], str]) -> str:
+    """Walk *formula*, skipping strings, quoted names, and structured refs, and map each ref."""
     out: list[str] = []
     i = 0
     n = len(formula)
@@ -101,10 +103,7 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
         matched = _try_match_ref(formula, i)
         if matched is not None:
             end, ref = matched
-            if is_py and _ref_crosses_axis(ref, axis):
-                out.append(formula[i:end])
-            else:
-                out.append(_format_shifted_ref(ref, dcol, drow))
+            out.append(on_ref(formula[i:end], ref))
             i = end
             continue
         if formula[i] == "'":
@@ -130,6 +129,109 @@ def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = 
         out.append(formula[i])
         i += 1
     return "".join(out)
+
+
+def adjust_a1_formula(formula: str, dcol: int, drow: int, *, axis: str | None = None) -> str:
+    """Shift relative A1 refs by *dcol*/*drow*. ``$`` stays put.
+
+    Double-quoted strings (Calc ``""`` escape) are left untouched, so
+    ``A1:H10`` inside ``=PY("…")`` is not a sheet ref. Common
+    ``Sheet.A1`` / ``'Sheet'!A1`` prefixes are preserved.
+    """
+    if not formula or (dcol == 0 and drow == 0):
+        return formula
+
+    is_py = PyFormula.open_end(formula, require_equals=True) is not None
+    if is_py and axis is None:
+        axis = "both" if dcol and drow else "cols" if dcol else "rows"
+
+    def _shift(text: str, ref: _Ref) -> str:
+        if is_py and _ref_crosses_axis(ref, axis):
+            return text
+        return _format_shifted_ref(ref, dcol, drow)
+
+    return _map_refs(formula, _shift)
+
+
+def _dot_prefix(prefix: str, sheet_for: Callable[[str], str | None]) -> str:
+    stripped = prefix.strip()
+    if not stripped.endswith("!"):
+        return prefix
+    body = stripped[:-1].strip()
+    absolute = body.startswith("$")
+    if absolute:
+        body = body[1:].strip()
+    if len(body) >= 2 and body.startswith("'") and body.endswith("'"):
+        name = body[1:-1].replace("''", "'")
+    else:
+        name = body
+    real = sheet_for(name)
+    if real is None:
+        return prefix
+    return ("$" if absolute else "") + quote_sheet_name(real) + "."
+
+
+def dot_sheet_refs(formula: str, sheet_for: Callable[[str], str | None]) -> str:
+    """Rewrite Excel ``Sheet!A1`` prefixes to Calc's ``Sheet.A1`` dot form.
+
+    In Calc's API grammar (``formula/inc/core_resource.hrc``,
+    ``RID_STRLIST_FUNCTION_NAMES_ENGLISH_API``), ``!`` is ``SC_OPCODE_INTERSECT``,
+    so an unrewritten ``Orders!A1`` fails with ``#NAME?`` unless ``Orders`` is a
+    named range. Only prefixes where ``sheet_for(name)`` returns a sheet name
+    are rewritten.
+    """
+    if "!" not in formula:
+        return formula
+
+    def _replace(text: str, ref: _Ref) -> str:
+        s1 = _dot_prefix(ref.sheet1, sheet_for) if ref.sheet1 else ""
+        s2 = _dot_prefix(ref.sheet2, sheet_for) if ref.sheet2 else ""
+        if s1 == ref.sheet1 and s2 == ref.sheet2:
+            return text
+        return _format_shifted_ref(replace(ref, sheet1=s1, sheet2=s2), 0, 0)
+
+    return _map_refs(formula, _replace)
+
+
+def _relative_rows(formula: str) -> set[int]:
+    """0-based rows of every relative-row ref end in *formula*."""
+    rows: set[int] = set()
+
+    def _collect(text: str, ref: _Ref) -> str:
+        if ref.start.row is not None and not ref.start.row_abs:
+            rows.add(ref.start.row)
+        if ref.end is not None and ref.end.row is not None and not ref.end.row_abs:
+            rows.add(ref.end.row)
+        return text
+
+    _map_refs(formula, _collect)
+    return rows
+
+
+def repeated_formula_columns(
+    values: Sequence[Any], first_row: int, num_rows: int, num_cols: int
+) -> list[tuple[int, str]]:
+    """Find columns repeating one row-aligned formula across every row.
+
+    A model that pastes the same row-2 formula in every row likely meant
+    fill-down, but rewriting silently can corrupt intentional pinning, so
+    callers warn instead. Returns ``[(0-based col offset, formula), ...]``.
+    """
+    if num_rows < 2 or num_cols < 1 or len(values) != num_rows * num_cols:
+        return []
+    repeated: list[tuple[int, str]] = []
+    target_rows = {first_row}
+    for c in range(num_cols):
+        col = values[c::num_cols]
+        head = col[0]
+        if not isinstance(head, str) or not head.startswith("="):
+            continue
+        if any(v != head for v in col[1:]):
+            continue
+        if _relative_rows(head) != target_rows:
+            continue
+        repeated.append((c, head))
+    return repeated
 
 
 def _is_letter(ch: str) -> bool:
@@ -188,12 +290,9 @@ def _try_sheet_prefix(s: str, i: int) -> tuple[str, int] | None:
     if i >= n:
         return None
     if s[i] == "'":
-        j = i + 1
-        while j < n and s[j] != "'":
-            j += 1
-        if j >= n:
+        j = skip_quoted(s, i)
+        if s[j - 1] != "'":
             return None
-        j += 1
     else:
         j = i
         if s[j] == "$":

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import re
 import shutil
@@ -30,6 +31,7 @@ from plugin.calc.python.formula_edit import (
     normalize_formula_string,
     parse_data_binding_text,
     py_code_arg_is_cell_ref,
+    repair_py_code_newlines,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
@@ -100,6 +102,124 @@ def test_replace_escapes_quotes():
 
 def test_non_python_returns_none():
     assert PyFormula.parse("=SUM(A1)") is None
+
+
+@pytest.mark.parametrize(
+    ("formula", "expected_formula", "expected_code"),
+    [
+        pytest.param(
+            '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("import pandas as pd\\nimport numpy as np\\nresult = 1";A1:B5)',
+            '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("import pandas as pd\nimport numpy as np\nresult = 1";A1:B5)',
+            "import pandas as pd\nimport numpy as np\nresult = 1",
+            id="issue_shape_keeps_prefix_and_suffix",
+        ),
+        pytest.param(
+            '=PY("x = ""a\\nb""\\nresult = x")',
+            '=PY("x = ""a\\nb""\nresult = x")',
+            'x = "a\\nb"\nresult = x',
+            id="string_escape_kept",
+        ),
+        pytest.param(
+            '=PY("# total\\nresult = 6 * 7")',
+            '=PY("# total\nresult = 6 * 7")',
+            "# total\nresult = 6 * 7",
+            id="comment_first_repaired",
+        ),
+        pytest.param(
+            '=PY("x = ""a\\nb""\nresult = x")',
+            '=PY("x = ""a\\nb""\nresult = x")',
+            'x = "a\\nb"\nresult = x',
+            id="valid_multiline_with_string_escape_unchanged",
+        ),
+        pytest.param(
+            '=PY("result = ""\\n"".join([""a"",""b""])")',
+            '=PY("result = ""\\n"".join([""a"",""b""])")',
+            'result = "\\n".join(["a","b"])',
+            id="single_line_string_escape_unchanged",
+        ),
+        pytest.param(
+            '=PY("for v in data:\\n    total += v\\nresult = total")',
+            '=PY("for v in data:\n    total += v\nresult = total")',
+            "for v in data:\n    total += v\nresult = total",
+            id="for_loop_repaired",
+        ),
+        pytest.param(
+            '=PY("x = 1\\n\\tresult = x")',
+            '=PY("x = 1\\n\\tresult = x")',
+            None,
+            id="unparseable_after_repair_unchanged",
+        ),
+        pytest.param(
+            '=PY("p = ""C:\\notes""\\nresult = p")',
+            '=PY("p = ""C:\\notes""\nresult = p")',
+            'p = "C:\\notes"\nresult = p',
+            id="string_drive_path_kept",
+        ),
+        pytest.param(
+            '=CONCAT("a\\nb")',
+            '=CONCAT("a\\nb")',
+            None,
+            id="non_py_unchanged",
+        ),
+        pytest.param(
+            '=PY(sp.prime(100))',
+            '=PY(sp.prime(100))',
+            None,
+            id="unquoted_py_unchanged",
+        ),
+        pytest.param(
+            '=PY(CONCAT("x = 1\\nresult = x"))',
+            '=PY(CONCAT("x = 1\\nresult = x"))',
+            None,
+            id="unquoted_py_with_backslash_n_unchanged",
+        ),
+        pytest.param(
+            '=PY($A$1; C1:C10)',
+            '=PY($A$1; C1:C10)',
+            None,
+            id="cell_ref_unchanged",
+        ),
+        pytest.param(
+            '=PY(A1;"a\\nb")',
+            '=PY(A1;"a\\nb")',
+            None,
+            id="cell_ref_with_backslash_n_unchanged",
+        ),
+        pytest.param(
+            '=PY("result = 1  # a\\nb")',
+            '=PY("result = 1  # a\nb")',
+            "result = 1  # a\nb",
+            id="trailing_comment_backslash_n_accepted_tradeoff",
+        ),
+        pytest.param(
+            '=PY("result = 1  # C:\\new")',
+            '=PY("result = 1  # C:\\new")',
+            "result = 1  # C:\\new",
+            id="comment_drive_path_kept",
+        ),
+        pytest.param(
+            '=PY("# C:\\names\\nresult = 1")',
+            '=PY("# C:\\names\nresult = 1")',
+            "# C:\\names\nresult = 1",
+            id="comment_drive_path_before_line_break",
+        ),
+        pytest.param(
+            '=PY("result = 1  # C:\\names\\nresult = result + 1")',
+            '=PY("result = 1  # C:\\names\nresult = result + 1")',
+            "result = 1  # C:\\names\nresult = result + 1",
+            id="trailing_comment_drive_path_before_line_break",
+        ),
+    ],
+)
+def test_repair_py_code_newlines(formula: str, expected_formula: str, expected_code: str | None) -> None:
+    repaired = repair_py_code_newlines(formula)
+    assert repaired == expected_formula
+    assert repair_py_code_newlines(repaired) == repaired
+    if expected_code is not None:
+        parts = PyFormula.parse(repaired)
+        assert parts is not None
+        assert parts.code == expected_code
+        ast.parse(parts.code)
 
 
 def test_py_code_arg_is_cell_ref():

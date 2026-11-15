@@ -310,9 +310,9 @@ The gateway parameter `python_tool_domain` on `delegate_to_specialized_*` stays 
 | **Tracking**                | ✅ Implemented           | `tracking.py`: TrackChangesStart/Stop/List/Show, ManageTrackedChanges (accept/reject one or all). Writer annotations are `add_comment` (core; NBSP-aware search) plus the comments domain (`comment_list` with `location` and conditional `paragraph_index`, `comment_delete`, `comment_resolve` with named replies), not tracking.                                                                                                                       | Document comparison; version control / integration (not agent)                                         |
 | **Bookmarks**               | ✅ Implemented           | `bookmarks.py`: BookmarkList/BookmarkCleanup/BookmarkCreate/BookmarkDelete/BookmarkRename/BookmarkGet (create/delete/rename/get share one name check; a miss carries `details.hint` / `details.similar`). | —                                                                                                      |
 | **Footnotes / endnotes**    | ✅ Implemented           | `footnotes.py`: Insert, List, Edit, Delete, SettingsGet/Update (`footnotes_delete` reports a tracked deletion (`tracked: true`) instead of claiming the note is gone). | —                                                                                                      |
-| **Tables**                  | ✅ Implemented           | HTML path for cell *content*, plus `specialized/tables.py` UNO toolset via `domain=tables`: `table_list` (`cell_count`; if that is not `rows*cols` the table is not a rectangle), `table_get_cells` (Writer: `cells` name map; Draw: `matrix`; optional `cell=`), `table_set_cell` (host cells rewrite paragraphs and keep nested tables), `table_manage_structure` (insert/delete row or column; delete scans `getCellNames()`), `table_insert` (optional `parent`+`cell` to nest), `table_delete` (by name; nested or top-level; with change tracking on — review mode — recorded as a tracked deletion the user accepts or rejects). `apply_document_content` deletes a table when an empty replacement removes its last text, and leaves the table when a cell clear leaves text in another cell; it refuses a host-cell wipe. HTML export copies nested `TextTable`s and merged-table named cells. | Merge/split cells; per-cell formatting; surgical HTML rewrite of a host cell that keeps the inner table — see [§5.4](#54-future-work-writer-nested-tables) |
-| **Structural navigation**   | ✅ Implemented           | `structural.py` (`section_list`, `nav_goto_page`, `section_read`), `navigation.py` (`nav_heading`, `nav_surroundings`, `nav_heading_children`); delegate `domain=structural`. Core `get_document_tree` includes document stats (`stats` object); `get_document_stats` was removed. `get_page_objects` stays tier `core` (main chat) and is included via `required_core_tools`. Heading nodes may include `chapter_number` (Chapter Numbering paint label); `heading:1.2` is sibling-ordinal, `chapter_number:3.1` matches that label — see [chapter-numbering.md](chapter-numbering.md). | Technical docs: cross-refs, callouts, revision marks, change bars (not agent)                          |
-| **Sections**                | ✅ Partially implemented | `structural.py`: `section_list`, `section_read` (read-only). Create/edit/delete and per-section property setters not implemented. See [§5.3 Future work: Sections specialized toolset](#53-future-work-sections-specialized-toolset).             | Create/insert `TextSection`; `TextColumns`, `IsVisible`/`Condition`, `IsProtected` (+ password), `SectionLeft/RightMargin`, `BackColor`/`BackGraphic*`, `FileLink`/`LinkRegion`, `DDECommand*`, per-section footnote/endnote scoping; nesting; delete/rename |
+| **Tables**                  | ✅ Implemented           | HTML path for cell *content*, plus `specialized/tables.py` UNO toolset via `domain=tables`: `table_list` (`cell_count`; if that is not `rows*cols` the table is not a rectangle), `table_get_cells` (Writer: `cells` name map; Draw: `matrix`; optional `cell=`), `table_set_cell` (host cells rewrite paragraphs and keep nested tables), `table_manage_structure` (insert/delete row or column; delete scans `getCellNames()`), `table_merge_cells` (Writer-only: rectangular block; names renumber; untracked), `table_split_cell` (Writer-only: 2-20 parts as rows or columns; names renumber; untracked), `table_insert` (optional `parent`+`cell` to nest), `table_delete` (by name; nested or top-level; with change tracking on — review mode — recorded as a tracked deletion the user accepts or rejects). `apply_document_content` deletes a table when an empty replacement removes its last text, and leaves the table when a cell clear leaves text in another cell; it refuses a host-cell wipe. HTML export copies nested `TextTable`s and merged-table named cells. | Per-cell formatting; surgical HTML rewrite of a host cell that keeps the inner table — see [§5.4](#54-future-work-writer-nested-tables) |
+| **Structural navigation**   | ✅ Implemented           | `structural.py` (`nav_goto_page`), `navigation.py` (`nav_heading`, `nav_surroundings`, `nav_heading_children`); delegate `domain=structural`. `section_list` lives in `sections` and is pulled into `structural` via `required_core_tools`. Core `get_document_tree` includes document stats (`stats` object); `get_document_stats` was removed. `get_page_objects` stays tier `core` (main chat) and is included via `required_core_tools`. Heading nodes may include `chapter_number` (Chapter Numbering paint label); `heading:1.2` is sibling-ordinal, `chapter_number:3.1` matches that label — see [chapter-numbering.md](chapter-numbering.md). | Technical docs: cross-refs, callouts, revision marks, change bars (not agent)                          |
+| **Sections**                | ✅ Partially implemented | `sections.py` (`section_list`, `section_read`, `section_create`, `section_delete`, `section_set_columns`, `section_set_protection`). See [§5.3 Sections specialized toolset](#53-sections-specialized-toolset). | `section_get_info`, `IsVisible`/`Condition`, passworded protection, `section_rename`, `SectionLeft/RightMargin`, `BackColor`/`BackGraphic*`, `FileLink`/`LinkRegion`, `DDECommand*`, per-section footnote/endnote scoping |
 | **Forms**                   | ✅ Implemented           | `forms.py`: `form_create_control`, `form_create`, `form_generate`, `form_list_controls`, `form_edit_control`, `form_delete_control`. Batch creation and generation rollback via `commit_or_rollback` on error (`UNDO_UNAVAILABLE` on locked undo). Supports `button`, date controls (with default value), and list box; control type table is `CONTROL_TYPE_MAP` in `plugin/draw/tree.py`. Radio buttons report `name` from shape and `group_name` from model when they differ (`model.Name`). Draw/Impress `form_create` / `form_generate` stack by field `page` (active page if omitted); fields on one page share Y. Calc ignores `page`. A bad control is an entry; the rest of the page is still returned. | Database-bound controls (LO Base forms) not implemented. |
 | **Mail merge**              | ✅ Implemented           | `specialized/mail_merge.py` (`domain=mail_merge`): `mail_merge_list_sources`, `mail_merge_register_source` (`.odb` files), `mail_merge_insert_field`, `mail_merge_list_fields`, `mail_merge_run` (file / printer; email not implemented) | Labels; envelopes; live JDBC/ODBC server datasources (file registration only) |
 | **Bibliography**            | ✅ v1 via indexes overload | No `domain=bibliography`. See [bibliography-via-indexes.md](bibliography-via-indexes.md). `indexes_add_mark kind=bibliography`, `indexes_list_cites`, `indexes_create kind=bibliography`, `indexes_update_all`. | FieldMaster fat settings; Zotero v2; CSL appearance; Bib DB CRUD |
@@ -342,7 +342,10 @@ falls back to walking its host cells to name the direct parent. `table_list` als
 reads one address (Draw: `matrix` is that one cell). Host slots are the host cell's own paragraphs, not concatenated
 inner-table text. `table_set_cell` on a host cell rewrites those paragraph siblings and
 keeps the nested table (`setString` would destroy it). `table_manage_structure` delete
-refuses a host row/column (scans `getCellNames()`, not `range(cols)`). `table_insert` with
+refuses a host row/column (scans `getCellNames()`, not `range(cols)`). `table_merge_cells`
+merges a rectangular block and `table_split_cell` splits one cell into 2–20 row or column
+parts; both renumber cell names per row, return fresh `cell_names`, and are untracked even
+in review mode. `table_insert` with
 optional `parent` + `cell` nests into that host cell (at the cell end). `table_delete`
 removes a table by name (nested or top-level); hosted children go with it. Do not reuse
 `table_set_cell` as a delete. `apply_document_content` on a host-cell range is refused
@@ -371,7 +374,7 @@ Writer's OLE container (`SwXTextEmbeddedObject`) has a sensitive lifecycle compa
 
 Implementation lives on `ToolCalcChartBase` with Writer/Draw wrappers (`plugin/writer/specialized/charts.py`, `plugin/draw/charts.py`).
 
-### 5.3 Future work: Sections specialized toolset
+### 5.3 Sections specialized toolset
 
 #### What sections are
 
@@ -396,7 +399,7 @@ UI restriction worth surfacing in tool errors: a section **cannot** be hidden wh
 
 - **Schema surface is large** (file link, DDE, footnote scoping, columns, background) and overlaps **page** (page columns), **fields** (condition expressions), **footnotes** (per-section overrides), and **structural** (existing read-only navigation). Putting these in the default chat tool list would noticeably grow context and confuse tool selection — the exact problem the delegation pattern solves (see [§1.1 Why this feature exists](#11-why-this-feature-exists)).
 - **Multi-step workflows** (create section, set columns, set protection, optionally attach a file link) map well to a short-lived sub-agent with only `sections_*` tools visible.
-- **Read path already lives in `structural`**; the write path should get its own `sections` domain so `structural` stays purely navigational.
+- **All section tools live in one domain (`sections`)**, while `structural` pulls `section_list` via `required_core_tools` so navigation still sees section names without duplicating the tool definition.
 
 #### Granular APIs required (small models choke on fat tools)
 
@@ -404,43 +407,38 @@ Sections must use **fine-grained, narrowly scoped tools** — not a single `mana
 
 Deferred capabilities (file link, DDE, footnote scoping, background, rename) should land as **additional single-purpose tools** in later phases — same rule: one concern per tool, not folded into a mega-schema.
 
-#### Proposed tools (not implemented)
+#### Implemented tools (Phase 1 — `sections` domain, `wa.section.*` in scripting)
 
-**1. Discovery and Inspection Tools**
+All section tools (`section_list`, `section_read`, `section_create`, `section_delete`, `section_set_columns`, `section_set_protection`) live in `sections.py` (`sections` domain); `ToolWriterStructuralBase` pulls `section_list` into the `structural` delegate toolset via `required_core_tools`. `wa.structural.section_list` and `wa.structural.section_read` remain as thin scripting aliases.
 
-- **`sections_list()`**
-  - **Purpose:** Returns a list of all existing section names in the document.
-  - **UNO implementation:** Accesses `doc.getTextSections()` and enumerates the keys via `XNameAccess`. (Overlaps today’s core `section_list` in `structural.py`; may alias or move under the `sections` domain.)
+- **`section_list()`**
+  - Lists all named sections with `name`, `is_visible`, `is_protected`, `is_index` (`DocumentIndex is not None`, including `_Head` children), `has_password` (non-empty `ProtectionKey`), and `column_count` so callers can tell which sections mutations will refuse.
 
-- **`sections_get_info(name)`**
-  - **Purpose:** Returns a detailed JSON payload of a specific section’s current properties.
-  - **Payload fields:** Maps `IsVisible`, `Condition`, `IsProtected`, left/right margins, and column counts via `XPropertySet.getPropertyValue`. (Extends read-only `section_read`; full property surface can grow incrementally.)
+- **`section_read(name)`**
+  - Reads the full text within a named section's boundaries (accepts legacy `section=` alias).
 
-**2. Creation and Destruction Tools**
+- **`section_create(name, locator, end_locator?)`**
+  - Wraps a span of **whole paragraphs** into a named `TextSection` using `doc.createInstance("com.sun.star.text.TextSection")` and `XText.insertTextContent(cursor, section, True)`.
+  - `locator` is required (`paragraph:N`, `heading_text:…`, `bookmark:…`, or `"selection"`). `end_locator` is optional (inclusive; not allowed with `"selection"`).
+  - **Whole-paragraph widening:** the resolved range is widened to paragraph boundaries so `SwDoc::InsertSwSection` does not split paragraphs mid-sentence.
+  - **Duplicate-name refusal:** checks `getTextSections().hasByName(name)` before inserting so LibreOffice does not silently rename duplicates to `Section1`.
+  - **Overlap refusal:** partial overlap with an existing section is refused by LibreOffice and rolled back via `commit_or_rollback_mutation`; full nesting inside an existing section is supported.
 
-- **`sections_create_from_range(name, range_locator)`**
-  - **Purpose:** Wraps a specific multi-paragraph range into a named section.
-  - **UNO implementation:** Calls `doc.createInstance("com.sun.star.text.TextSection")`. Crucially, it must execute `XText.insertTextContent(xRange, xSection, bAbsorb=True)` to absorb the existing selection range without destroying text content.
+- **`section_delete(name)`**
+  - Removes the section container via `removeTextContent` while keeping its paragraphs and any nested child sections.
+  - Refuses index sections (`DocumentIndex` is not `None`, including `_Head` child sections) and password-protected sections (non-empty `ProtectionKey`).
 
-- **`sections_delete(name)`**
-  - **Purpose:** Removes the section container while preserving the underlying text payload.
-  - **UNO implementation:** Uses `XTextContent` interface constraints to invoke `removeTextContent`.
+- **`section_set_columns(name, column_count, spacing_mm?)`**
+  - Sets `column_count` (1–99, matching Writer's UI cap) and `spacing_mm` (finite `>= 0`, default `0`) on the section's `TextColumns` using the shared `apply_column_layout` helper from `page.py`.
+  - Refuses index sections and password-protected sections.
 
-**3. Layout and Property Mutation Tools**
+- **`section_set_protection(name, protected)`**
+  - Sets `IsProtected` on the section. Protection stops editing in the Writer UI only (UNO edits still go through).
+  - Refuses index sections and password-protected sections.
 
-- **`sections_set_columns(name, count, gap_mm)`**
-  - **Purpose:** Modifies multi-column properties for layout shifts on a single page.
-  - **UNO implementation:** Instantiates an independent column object via `doc.createInstance("com.sun.star.text.TextColumns")`, invokes `setColumnCount(count)`, calculates gaps in 1/100 mm, and writes it back using `setPropertyValue("TextColumns", cols)`.
+#### Later phases (not implemented; same granular rule)
 
-- **`sections_set_visibility(name, visible, condition?)`**
-  - **Purpose:** Handles conditional text hiding.
-  - **UNO implementation:** Maps `visible` to `IsVisible` and `condition` to the string property `Condition`.
-
-- **`sections_set_protection(name, protected, password?)`**
-  - **Purpose:** Toggles modification locking.
-  - **UNO implementation:** Directly writes to the `IsProtected` property set.
-
-**Later phases (same granular rule):** `sections_rename`, `sections_set_margins`, `sections_set_link` / `sections_clear_link`, `sections_set_dde`, `sections_set_footnote_scope`, background graphic tools — each as its own tool, not bundled into `sections_create_from_range` or a generic property setter.
+`section_get_info`, `section_set_visibility` (`IsVisible` / `Condition`), `section_set_password`, `section_rename`, `section_set_margins`, `section_set_link` / `section_clear_link`, `section_set_dde`, `section_set_footnote_scope`, and background graphic tools — each as its own tool, not bundled into `section_create` or a generic property setter.
 
 #### References
 
@@ -492,7 +490,7 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
 
 **Still open / out of scope**
 
-- Merge/split cells; per-cell formatting.
+- Per-cell formatting.
 - `table_set_cell` on a host cell does not rewrite paragraphs **inside** a frame or
   section (those are a different `XText`).
 - No surgical HTML rewrite of a host cell that keeps the inner table — the apply path

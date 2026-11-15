@@ -157,6 +157,12 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'named_range_list',
                  'range_sort'],
     'search': ['search_cells', 'search_replace'],
+    'section': [   'section_create',
+                   'section_delete',
+                   'section_list',
+                   'section_read',
+                   'section_set_columns',
+                   'section_set_protection'],
     'shape': [   'shape_align',
                  'shape_connect',
                  'shape_delete',
@@ -182,19 +188,16 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'slide_master': ['slide_master_get', 'slide_master_list', 'slide_master_set'],
     'slide_transition': ['slide_transition_get', 'slide_transition_set'],
     'speaker_note': ['speaker_notes_get', 'speaker_notes_set'],
-    'structural': [   'nav_goto_page',
-                      'nav_heading',
-                      'nav_heading_children',
-                      'nav_surroundings',
-                      'section_list',
-                      'section_read'],
+    'structural': ['nav_goto_page', 'nav_heading', 'nav_heading_children', 'nav_surroundings'],
     'styles': ['style_clone', 'style_create', 'style_get_info', 'style_import', 'style_list', 'style_update'],
     'table': [   'table_delete',
                  'table_get_cells',
                  'table_insert',
                  'table_list',
                  'table_manage_structure',
-                 'table_set_cell'],
+                 'table_merge_cells',
+                 'table_set_cell',
+                 'table_split_cell'],
     'textframe': ['frame_delete', 'frame_get_info', 'frame_insert', 'frame_list', 'frame_set_properties'],
     'tracking': ['tracking_list', 'tracking_manage', 'tracking_show', 'tracking_start', 'tracking_stop'],
     'vision': ['extract_structure_from_image'],
@@ -350,8 +353,12 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'search_in_document': ('writer', 'search_in_document'),
     'search_replace': ('search', 'replace'),
     'search_slides': ('draw', 'search_slides'),
-    'section_list': ('structural', 'section_list'),
-    'section_read': ('structural', 'section_read'),
+    'section_create': ('section', 'create'),
+    'section_delete': ('section', 'delete'),
+    'section_list': ('section', 'list'),
+    'section_read': ('section', 'read'),
+    'section_set_columns': ('section', 'set_columns'),
+    'section_set_protection': ('section', 'set_protection'),
     'set_active_page': ('draw', 'set_active_page'),
     'set_placeholder_text': ('draw', 'set_placeholder_text'),
     'set_selection': ('writer', 'set_selection'),
@@ -398,7 +405,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'table_insert': ('table', 'insert'),
     'table_list': ('table', 'list'),
     'table_manage_structure': ('table', 'manage_structure'),
+    'table_merge_cells': ('table', 'merge_cells'),
     'table_set_cell': ('table', 'set_cell'),
+    'table_split_cell': ('table', 'split_cell'),
     'tracking_list': ('tracking', 'list'),
     'tracking_manage': ('tracking', 'manage'),
     'tracking_show': ('tracking', 'show'),
@@ -437,6 +446,7 @@ __all__ = [   'DOMAIN_TOOLS',
     'python',
     'python_sql',
     'search',
+    'section',
     'shape',
     'sheet',
     'slide_layout',
@@ -522,7 +532,7 @@ class _CalcProxy:
         return call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm)
 
     def get_sheet_summary(self, *, sheet: str | None = None) -> dict[str, Any]:
-        """Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes.
+        """Returns a comprehensive summary of the active or specified sheet: used area, first_empty_col / first_empty_row (first column right of / row below the used area — a safe output spot), column headers, charts, merged cells, annotations, and shapes.
 
         Args:
             sheet (optional): Sheet name (active sheet if empty).
@@ -1951,6 +1961,61 @@ class _SearchProxy:
 search = _SearchProxy()
 
 
+class _SectionProxy:
+    """Proxy for section tools."""
+
+    def create(self, name: str, locator: str, *, end_locator: str | None = None) -> dict[str, Any]:
+        """Create a named text section wrapping whole paragraphs.
+
+        Args:
+            name (required): Unique name for the new section.
+            locator (required): First paragraph, e.g. paragraph:12, heading_text:Methods, bookmark:NAME, or the literal selection for the current selection.
+            end_locator (optional): Last paragraph, inclusive; defaults to locator; not allowed with selection.
+        """
+        return call_host_tool("section_create", name=name, locator=locator, end_locator=end_locator)
+
+    def delete(self, name: str) -> dict[str, Any]:
+        """Remove the section but keep its text; sections nested inside it stay.
+
+        Args:
+            name (required): Name of the section to delete.
+        """
+        return call_host_tool("section_delete", name=name)
+
+    def list(self) -> dict[str, Any]:
+        """List all named sections in the document."""
+        return call_host_tool("section_list")
+
+    def read(self, name: str) -> dict[str, Any]:
+        """Read the text content of a named section. Returns the full text within the section boundaries.
+
+        Args:
+            name (required): Name of the section to read.
+        """
+        return call_host_tool("section_read", name=name)
+
+    def set_columns(self, name: str, column_count: int, *, spacing_mm: float | None = None) -> dict[str, Any]:
+        """Set the number of columns and column spacing (in mm) for a text section.
+
+        Args:
+            name (required): Name of the section.
+            column_count (required): Number of columns (1-99).
+            spacing_mm (optional): Spacing between columns in mm. Defaults to 0.
+        """
+        return call_host_tool("section_set_columns", name=name, column_count=column_count, spacing_mm=spacing_mm)
+
+    def set_protection(self, name: str, protected: bool) -> dict[str, Any]:
+        """Set whether a text section is protected from editing (protection stops editing in the Writer UI only).
+
+        Args:
+            name (required): Name of the section.
+            protected (required): True to protect the section, False to unprotect.
+        """
+        return call_host_tool("section_set_protection", name=name, protected=protected)
+
+section = _SectionProxy()
+
+
 class _ShapeProxy:
     """Proxy for shape tools."""
 
@@ -2313,16 +2378,12 @@ class _StructuralProxy:
         return call_host_tool("nav_surroundings", locator=locator, radius=radius, include=include)
 
     def section_list(self) -> dict[str, Any]:
-        """List all named sections in the document."""
+        """Alias for wa.section.list()."""
         return call_host_tool("section_list")
 
     def section_read(self, section: str) -> dict[str, Any]:
-        """Read the text content of a named section. Returns the full text within the section boundaries.
-
-        Args:
-            section (required): Name of the section to read.
-        """
-        return call_host_tool("section_read", section=section)
+        """Alias for wa.section.read(name)."""
+        return call_host_tool("section_read", name=section)
 
 structural = _StructuralProxy()
 
@@ -2454,6 +2515,15 @@ class _TableProxy:
         """
         return call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index)
 
+    def merge_cells(self, name: str, cell_range: str) -> dict[str, Any]:
+        """Merge a rectangular block of Writer table cells into one cell. Each merged cell's text becomes its own paragraph, empty cells add nothing, and nested tables are kept. If the block cuts through an already-merged cell, LibreOffice grows the block to cover it. Cell names are renumbered per row afterwards (after merging A1:B2 in a 3×3 table the old C1 is B1), so use the returned cell_names or table_get_cells before the next edit. Ctrl+Z undoes it in one step. Not a tracked change even when review mode is on.
+
+        Args:
+            name (required): Table name from table_list.
+            cell_range (required): Two corner addresses joined by ':', e.g. 'A1:B2' (either order).
+        """
+        return call_host_tool("table_merge_cells", name=name, cell_range=cell_range)
+
     def set_cell(self, cell: str, text: str, *, name: str | None = None, page: int | None = None, index: int | None = None) -> dict[str, Any]:
         """Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). A normal cell is replaced with setString (clears in-cell formatting). A cell that hosts a nested table keeps that table and rewrites only the host paragraphs. Edit the nested table by its own name. Not a tracked change even when review mode is on.
 
@@ -2465,6 +2535,17 @@ class _TableProxy:
             index (optional): Draw/Impress: shape index on the page.
         """
         return call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index)
+
+    def split_cell(self, name: str, cell: str, direction: str, parts: int) -> dict[str, Any]:
+        """Split one Writer table cell into 2-20 parts, as rows or as columns. The cell's text and any nested table stay in the first part; the new parts are empty. Splitting a merged cell into as many parts as it spans undoes the merge. Cell names are renumbered afterwards, so use the returned cell_names. Ctrl+Z undoes it in one step. Not a tracked change even when review mode is on.
+
+        Args:
+            name (required): Table name from table_list.
+            cell (required): A1-style cell address from cell_names.
+            direction (required): rows stacks the parts top to bottom; columns puts them side by side. One of: rows, columns.
+            parts (required): Number of cells the cell becomes (2-20).
+        """
+        return call_host_tool("table_split_cell", name=name, cell=cell, direction=direction, parts=parts)
 
 table = _TableProxy()
 

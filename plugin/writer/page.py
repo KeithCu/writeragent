@@ -602,6 +602,24 @@ def _resolve_text_columns(tool: ToolWriterPageBase, doc: Any, style_name: str) -
     return style, text_columns
 
 
+def apply_column_layout(text_columns: Any, column_count: int, spacing_hmm: int) -> None:
+    """Set the column count and split spacing_hmm evenly into the inner margins (1/100 mm)."""
+    text_columns.setColumnCount(column_count)
+    cols = list(text_columns.getColumns())
+
+    # Divide spacing between adjacent columns
+    # Column 1 right margin gets half spacing, Column 2 left margin gets half, etc.
+    # Multi-column layouts always rewrite inner margins to half spacing or zero so
+    # spacing=0 clears stale gaps instead of leaving the previous column separation.
+    if column_count > 1:
+        half_spacing = spacing_hmm // 2
+        for i in range(column_count - 1):
+            cols[i].RightMargin = half_spacing
+            cols[i + 1].LeftMargin = half_spacing
+
+    text_columns.setColumns(tuple(cols))
+
+
 # ------------------------------------------------------------------
 # PageGetStyleProperties
 # ------------------------------------------------------------------
@@ -1408,20 +1426,7 @@ class PageSetColumns(ToolWriterPageBase):
             return target
         style, text_columns = target
 
-        text_columns.setColumnCount(column_count)
-        cols = list(text_columns.getColumns())
-
-        # Divide spacing between adjacent columns
-        # Column 1 right margin gets half spacing, Column 2 left margin gets half, etc.
-        # Multi-column layouts always rewrite inner margins to half spacing or zero so
-        # spacing=0 clears stale gaps instead of leaving the previous column separation.
-        if column_count > 1:
-            half_spacing = spacing_hmm // 2
-            for i in range(column_count - 1):
-                cols[i].RightMargin = half_spacing
-                cols[i + 1].LeftMargin = half_spacing
-
-        text_columns.setColumns(tuple(cols))
+        apply_column_layout(text_columns, column_count, spacing_hmm)
         style.setPropertyValue("TextColumns", text_columns)
 
         result: dict[str, Any] = {

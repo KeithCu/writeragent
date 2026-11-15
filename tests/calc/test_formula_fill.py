@@ -10,7 +10,9 @@ import pytest
 
 from plugin.calc.formula_fill import (
     adjust_a1_formula,
+    dot_sheet_refs,
     expand_single_formula,
+    repeated_formula_columns,
 )
 
 
@@ -154,3 +156,87 @@ def test_single_cell_expand_is_identity():
 )
 def test_quoted_sheet_and_whole_column_expand(formula, rows, cols, expected):
     assert expand_single_formula(formula, rows, cols) == expected
+
+
+@pytest.mark.parametrize(
+    "formula, expected",
+    [
+        pytest.param("=Orders!A1", "=Orders.A1", id="bare_sheet"),
+        pytest.param("=SUM(orders!a1:A2)", "=SUM(Orders.A1:A2)", id="case_normalized_range"),
+        pytest.param("='My Sheet'!A1", "='My Sheet'.A1", id="quoted_sheet"),
+        pytest.param("='O''Brien'!A1", "='O''Brien'.A1", id="doubled_apostrophe"),
+        pytest.param("=$Orders!$A$1", "=$Orders.$A$1", id="absolute_sheet_and_cell"),
+        pytest.param("=Orders!A1:Orders!B2", "=Orders.A1:Orders.B2", id="both_ends_prefixed"),
+        pytest.param('=PY("x"; Orders!A1:B5)', '=PY("x"; Orders.A1:B5)', id="py_data_range"),
+        pytest.param('="Orders!A1"', '="Orders!A1"', id="string_literal_untouched"),
+        pytest.param("=Missing!A1", "=Missing!A1", id="unknown_sheet_untouched"),
+        pytest.param("=A1:C3!B2:B4", "=A1:C3!B2:B4", id="intersection_untouched_without_sheet"),
+        pytest.param("=Orders.A1", "=Orders.A1", id="already_dotted"),
+    ],
+)
+def test_dot_sheet_refs(formula: str, expected: str) -> None:
+    sheets = {"orders": "Orders", "my sheet": "My Sheet", "o'brien": "O'Brien"}
+    assert dot_sheet_refs(formula, lambda name: sheets.get(name.casefold())) == expected
+
+
+def test_dot_sheet_refs_intersection_rewritten_only_when_sheet_exists() -> None:
+    assert dot_sheet_refs("=A1:C3!B2:B4", lambda name: None) == "=A1:C3!B2:B4"
+    assert dot_sheet_refs("=A1:C3!B2:B4", lambda name: "C3" if name.casefold() == "c3" else None) == "=A1:C3.B2:B4"
+
+
+def test_quoted_doubled_apostrophe_prefix_fill_down() -> None:
+    assert adjust_a1_formula("='O''Brien'!A1", 0, 1) == "='O''Brien'!A2"
+
+
+@pytest.mark.parametrize(
+    "values, first_row, num_rows, num_cols, expected",
+    [
+        pytest.param(
+            ["=B2*2", "x", "=B2*2", "y"],
+            1,
+            2,
+            2,
+            [(0, "=B2*2")],
+            id="row_aligned_col_detected",
+        ),
+        pytest.param(
+            ["=B2*Rates.B2", "=B2*Rates.B2", "=B2*Rates.B2"],
+            1,
+            3,
+            1,
+            [(0, "=B2*Rates.B2")],
+            id="cross_sheet_row_aligned_detected",
+        ),
+        pytest.param(
+            ["=SUM(B$2:B2)", "=SUM(B$2:B2)", "=SUM(B$2:B2)"],
+            1,
+            3,
+            1,
+            [(0, "=SUM(B$2:B2)")],
+            id="running_total_mixed_abs_detected",
+        ),
+        pytest.param(["=B1", "=B1", "=B1"], 1, 3, 1, [], id="header_ref_ignored"),
+        pytest.param(["=$B$2", "=$B$2", "=$B$2"], 1, 3, 1, [], id="absolute_ignored"),
+        pytest.param(
+            ["=SUM(B2:B10)", "=SUM(B2:B10)", "=SUM(B2:B10)"],
+            1,
+            3,
+            1,
+            [],
+            id="multi_row_span_ignored",
+        ),
+        pytest.param(["=B2*2", "=B3*2"], 1, 2, 1, [], id="non_identical_untouched"),
+        pytest.param(["=B2*2"], 1, 1, 1, [], id="single_row_untouched"),
+        pytest.param(
+            ['=PY("r"; A1:H500)', '=PY("r"; A1:H500)'],
+            1,
+            2,
+            1,
+            [],
+            id="py_block_untouched",
+        ),
+        pytest.param(["plain", "plain", "plain"], 1, 3, 1, [], id="plain_text_untouched"),
+    ],
+)
+def test_repeated_formula_columns(values, first_row, num_rows, num_cols, expected) -> None:
+    assert repeated_formula_columns(values, first_row, num_rows, num_cols) == expected

@@ -1280,6 +1280,7 @@ class TestFlattenTextTableCopy:
 
         theme = MagicMock(user_color=1, assistant_color=2)
 
+        cell_link_registry.clear(control)
         try:
             with _copy_patches(theme):
                 reason = _copy_formatted_from_hidden_doc_to_control(
@@ -1352,6 +1353,7 @@ class TestFlattenTextTableCopy:
                 failed_once[0] = True
                 raise RuntimeError("post-insert formatting failed after text landed")
 
+        cell_link_registry.clear(control)
         try:
             with _copy_patches(len_side_effect=_mock_len, insert_side_effect=_mock_insert):
                 reason = _copy_formatted_from_hidden_doc_to_control(

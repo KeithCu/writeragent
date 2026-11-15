@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
+from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     _parse_formula_or_values_string,
@@ -1125,22 +1126,15 @@ class CalcWorld:
             return 0
         # Production write_formula_range fill-down-adjusts relative A1 refs
         # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
-        # The harness used values * n and pinned the same text on every cell,
-        # so Tip A / tax_column false-red'd a correct =B2*0.08 into C2:C5
-        # (Banana stayed =B2*0.08). JSON arrays stay exact. 2-D / import
-        # failure keeps the honest pin.
+        # JSON arrays / explicit lists stay exact (and warn if a column repeats
+        # one row-aligned formula).
         formula_src = raw_values if isinstance(raw_values, str) else ""
         single = values[0] if values else None
         is_formula = isinstance(single, str) and single.lstrip().startswith("=")
         if len(values) == 1 and len(cells) > 1 and is_formula:
             num_rows = r1 - r0 + 1
             num_cols = c1 - c0 + 1
-            try:
-                from plugin.calc.formula_fill import expand_single_formula
-
-                fill = expand_single_formula(str(values[0]), num_rows, num_cols)
-            except Exception:
-                fill = values * len(cells)
+            fill = expand_single_formula(str(values[0]), num_rows, num_cols)
         elif len(values) == 1 and len(cells) > 1:
             fill = values * len(cells)
         else:
