@@ -316,13 +316,13 @@ ifeq ($(USE_DOCKER),1)
 build: ty ruff-for-build preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: ty ruff-for-build preview-translations vendor manifest compile-translations
+build: ty ruff-for-build preview-translations vendor manifest proxy-stubs compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: ty ruff-for-build preview-translations vendor manifest compile-translations
+build-no-recording: ty ruff-for-build preview-translations vendor manifest proxy-stubs compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -342,7 +342,7 @@ release: clean
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt
 
-release-verify: vendor manifest compile-translations
+release-verify: vendor manifest proxy-stubs compile-translations
 	"$(PYTHON)" $(SCRIPTS)/release_verify.py --lo-python "$(LO_PYTHON)"
 
 release-no-test:
@@ -703,11 +703,11 @@ endif
 PYTEST_UNIT_FLAGS = -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST) $(PYTEST_CI_DEBUG_FLAGS)
 PYTEST_UNIT = PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests $(PYTEST_UNIT_FLAGS)
 
-pytest:
+pytest: proxy-stubs
 	@echo "=== pytest ==="
 	$(PYTEST_UNIT)
 
-test-bot:
+test-bot: proxy-stubs
 	@echo "=== test-bot (incremental pytest) ==="
 	@PYTHONUNBUFFERED=1 "$(PYTHON)" $(SCRIPTS)/test_incremental.py -- "$(PYTHON)" -u -m pytest $(PYTEST_UNIT_FLAGS); \
 	rc=$$?; if [ $$rc -eq 10 ]; then $(MAKE) pytest; else exit $$rc; fi
@@ -728,13 +728,13 @@ FILTER ?=
 _check-lo-python:
 	@"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" check-lo-python --python "$(LO_PYTHON)"
 
-test-uno-full: _check-lo-python
+test-uno-full: proxy-stubs _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	# Release runs this from a /tmp tree with no .venv. The spill UNO test
 	# needs the checkout interpreter (matplotlib); VIRTUAL_ENV is stripped below.
 	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" -- -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
-test-uno: _check-lo-python
+test-uno: proxy-stubs _check-lo-python
 ifneq ($(strip $(FILTER)),)
 	@$(MAKE) test-uno-full FILTER="$(FILTER)"
 else
@@ -871,7 +871,7 @@ excel-py-roundtrip:
 	fi
 
 # Incremental typecheck + incremental pytest + incremental UNO tests (for humans and single users).
-test:
+test: proxy-stubs
 	@echo "=== make test: typecheck ==="
 	@$(MAKE) typecheck
 	@echo "=== make test: incremental pytest + incremental LibreOffice ==="
@@ -881,7 +881,7 @@ ifneq ($(SKIP_UNO),1)
 endif
 
 # SKIP_UNO=1: typecheck + pytest + excel-py-roundtrip only (PR CI unit job).
-test-full:
+test-full: proxy-stubs
 	@echo "=== make test-full: typecheck ==="
 	@$(MAKE) typecheck
 	@echo "=== make test-full: pytest + LibreOffice ==="

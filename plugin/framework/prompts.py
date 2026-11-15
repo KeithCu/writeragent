@@ -143,7 +143,7 @@ def python_orchestrator_routing_line(*, delegate_toolset: str) -> str:
 # Parent Nemotron Super rewrote "make it look like a wizard" into a generate-new
 # task; the specialist then omitted source_image. Schema + task rules must
 # keep the user's edit wording and name source_image='selection'.
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish. For edit/change/restyle of an existing or selected image, instruct the images sub-agent to call image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
 
 # Later tool calls read the live document directly; echoing modified content
 # back into chat history wastes context and corrupts links on round-trip retypes.
@@ -159,7 +159,7 @@ DELEGATE_ANCHOR_RULE = (
 SPECIALIZED_TASK_RULES = (
     "Pass a clear `task` describing what the specialized task should accomplish. "
     "When the user wants to edit, change, or restyle an existing or selected image, "
-    "the task must instruct image_generate(source_image='selection') and keep the "
+    "the task must instruct the images sub-agent to call image_generate(source_image='selection') and keep the "
     "user's wording (for example 'make it look like a wizard') so img2img replaces "
     "the graphic in place. "
     "For data already in the document, name where it is (heading, TOC entry text, "
@@ -534,27 +534,22 @@ DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE = "\n\n".join(
 
 # : str so checkers keep this as str (Writer/Draw already are, via a str-returning call).
 #
-# Keep distinct shapes and headers across sort, header, and fill-down directives.
+# The sort and has_header lines keep distinct shapes so small models do not merge them. Fill-down is taught on write_formula_range's values parameter, not here.
 CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
 - You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_calc_toolset(domain="web_research").
 Python on sheet data: write_formula_range of =PY (that tool's description).
-FORMULAS:
-Write one ordinary formula into a 1-column (or 1-row) destination — write_formula_range fill-down adjusts relative refs ($ stays absolute).
 SORT:
 Do delegate_to_specialized_calc_toolset(domain="ranges") then range_sort to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
+# Order and judgement only. Read-size caps live on read_cell_range (description and truncated hint), fill-down on write_formula_range's values parameter, =PY placement on write_formula_range's description, and populate-after-create on the sheets hop's instruction field.
 CALC_WORKFLOW = """WORKFLOW:
 1. get_sheet_summary for size/headers.
-   read_cell_range only for a small peek (headers or a few dozen cells); peeks return compact `rows` (use `format=cells` for per-cell objects).
-   A large range in chat overloads the model context — the truncated result is a peek only.
-   Row-wise ordinary Calc formulas: write_formula_range (fill-down adjusts relative refs).
-   Reductions that spill a small result: =PY into one empty cell outside the data.
 2. Do the work with tools. Use ranges, not one cell at a time.
-   Empty tabs via specialized sheets (delegate domain="sheets"); then write_formula_range with source (or values) onto the new tab — create is not populate.
+   Empty tabs via specialized sheets (delegate domain="sheets").
 3. Short confirmation; if you changed cells, name the range (e.g. "Wrote totals in B5:B8")."""
 
 
@@ -579,11 +574,9 @@ Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - Wrong: =IF(A1>0,"Yes","No"), Orders!A1
 - =PY("result = …"; DataRange) writes Python into a cell (omit DataRange if unused).
 {venv_policy}
-- Example: =PY("result = np.sum(data)"; Orders.A1:H500).
-- For tables with headers, use data.to_pandas() so row 0 becomes the column names.
 """
-    # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]).
-    "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows → TypeError int+list)."
+    # Builtin sum/min/max iterate rows of the 2D CalcRange, not cells (column A1:A3 is [[10],[20],[30]]): sum raises TypeError, min/max return a whole row.
+    "- `data` is always 2D (column A1:A3 is [[10],[20],[30]]); use np.sum(data) / np.mean(data), not builtin sum/min/max (those iterate rows: sum raises TypeError, min/max return a whole row)."
 )
 
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
@@ -596,8 +589,6 @@ Do not explain, do the operation directly using tools. Perform as many steps as 
 {CALC_WORKFLOW}
 
 {{calc_formula_syntax}}
-
-CSV DATA: Use comma (,) for write_formula_range.
 
 CELL LINKS: Reference cells with HTML only, e.g. <a href="cell://B2">B2</a> (users click these in the chat sidebar to jump to the cell).
 Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Orders.A1</a>.
@@ -614,8 +605,7 @@ set_style: fixed properties only — not mixed rich text in a cell; use insert_c
 # Draw
 # ---------------------------------------------------------------------------
 
-# flowchart_gen: gpt-oss-20b never delegated domain="shapes" and left
-# get_draw_tree empty. One Do-because line (same shape as Calc SORT routing).
+# Route flowcharts/process diagrams through the shapes sub-agent and verify via its return payload.
 DRAW_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (including when the user refers to any other file, document, spreadsheet, or sheet by name or path, e.g. "my spreadsheet", "read cell a9 from PythonInCalc", "summary.odt", etc., or asks to pull, read, search, or reference data from them):
 - You MUST NOT ask the user where the file is stored, how to find it, or to upload, paste, or share its contents.
 - You MUST call delegate_to_specialized_draw_toolset(domain="document_research") once with their described file(s) and task in task; the specialized task lists nearby files to match (paths not required).
@@ -623,7 +613,7 @@ When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_draw_t
 
 {delegation_math_to_python_hint(delegate_toolset="delegate_to_specialized_draw_toolset")}
 {python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_draw_toolset")}
-Do delegate_to_specialized_draw_toolset(domain="shapes") then shape_upsert + shape_connect for flowcharts and process diagrams because an empty get_draw_tree means the task failed."""
+For flowcharts and process diagrams, call delegate_to_specialized_draw_toolset(domain="shapes") (the sub-agent uses shape_upsert and shape_connect), then check the delegation status and counts it returns."""
 
 
 # Impress/Draw sidebar modes — PPT-Master combo box; hidden from main chat and draw delegate.
@@ -666,7 +656,7 @@ IMPRESS_ONLY_DRAW_PROMPT_PARTS = (
 )
 
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
-Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
+Act directly using tools (perform as many steps as needed in one turn). Keep chat replies short (one short paragraph, no filler); go longer when the user asks for detail, opinions, or ideas, or to explain a failure.
 
 {CHAT_RESPONSE_FORMAT}
 
@@ -674,8 +664,8 @@ Do not explain - do the operation directly using tools. Perform as many steps as
 
 WORKFLOW:
 1. Understand the user's request.
-2. If needed, use list_pages, read_slide_text, or get_presentation_info to understand current slides and layout.
-3. Use the specialized delegation tool for shape operations (create, edit, group, paper-form fill via shape_fill_fields) and the other domains listed under SPECIALIZED DRAW.
+2. If needed, use get_draw_tree first on Draw documents (or list_pages, read_slide_text, get_presentation_info) to understand current pages/slides and layout.
+3. Use the specialized delegation tool for shape operations (create, edit, group, paper-form fill via the shapes sub-agent's shape_fill_fields tool) and the other domains listed under SPECIALIZED DRAW.
 4. Give a short confirmation; when you changed pages/shapes, mention them.
 
 {IMPRESS_TEXT_FILLS_BLOCK}TOOLS (grouped by use):
@@ -691,7 +681,12 @@ READ:
 WRITE:
 - add_slide: Insert a new slide (page) at specified index (inherits the assigned master).
 {IMPRESS_APPLY_DESIGN_TOOL_LINE}- delete_slide: Remove a slide (page) by index.
+- duplicate_slide: Duplicate a slide (page) by 0-based index.
+- move_slide: Move a slide (page) from from_page to to_page (0-based).
+- rename_slide: Set a slide (page) Name property.
 - set_active_page: Switch active slide/page.
+- undo: Undo your last document change(s) if an edit went wrong (shared stack; undo only your own steps).
+- redo: Redo change(s) you just undid.
 {IMPRESS_SET_PLACEHOLDER_TOOL_LINE}
 {{specialized_delegation}}
 
@@ -749,13 +744,10 @@ def get_greeting_for_document(model: Any) -> str:
 
 # Spoken chat only. Verbatim so every endpoint sees the same brevity rules.
 TTS_SHORT_ANSWERS_INSTRUCTION = (
-    "Keep replies short by default. Lead with the answer in plain language. "
-    "Prefer one short paragraph (about 2–4 sentences). Skip preambles, filler, "
-    "restatements, and closing questions. Use lists only when they clearly help. "
-    "Go longer only when the user asks for detail, steps, code, or a full document."
+    "Keep replies short by default (one short paragraph, about 2–4 sentences, plain language, "
+    "no preambles, filler, or closing questions; use lists only when they clearly help). "
+    "Go longer when the user asks for detail, opinions, ideas, steps, code, or a full document."
 )
-# Second copy near the end of a long system prompt (Anthropic recency).
-TTS_SHORT_ANSWERS_REMINDER = "Default to one short paragraph unless more detail is requested."
 
 
 def tts_short_answers_prompt_suffix() -> str:
@@ -773,7 +765,7 @@ def tts_short_answers_prompt_suffix() -> str:
         return ""
     if not get_config("audio.tts_enabled"):
         return ""
-    return "\n\n" + TTS_SHORT_ANSWERS_INSTRUCTION + "\n\n" + TTS_SHORT_ANSWERS_REMINDER
+    return "\n\n" + TTS_SHORT_ANSWERS_INSTRUCTION
 
 
 _PROFILE_DATA_OPEN = "<<<profile>>>"

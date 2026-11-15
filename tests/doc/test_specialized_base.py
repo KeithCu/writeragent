@@ -419,19 +419,31 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
 
     oa = to_openai_schema(gateway, doc_type="draw")
     [draw_oa] = narrow_delegate_domain_enums([oa], [gateway], draw)
-    assert not impress_only & set(draw_oa["function"]["parameters"]["properties"]["domain"]["enum"])
+    draw_enum = draw_oa["function"]["parameters"]["properties"]["domain"]["enum"]
+    assert not impress_only & set(draw_enum)
+    draw_oa_desc = draw_oa["function"]["description"]
+    for dom in draw_enum:
+        assert dom in draw_oa_desc
+    for dom in impress_only:
+        assert dom not in draw_oa_desc
     [impress_oa] = narrow_delegate_domain_enums([oa], [gateway], impress)
-    assert impress_only <= set(impress_oa["function"]["parameters"]["properties"]["domain"]["enum"])
+    impress_enum = impress_oa["function"]["parameters"]["properties"]["domain"]["enum"]
+    assert impress_only <= set(impress_enum)
+    impress_oa_desc = impress_oa["function"]["description"]
+    for dom in impress_enum:
+        assert dom in impress_oa_desc
     mcp = to_mcp_schema(gateway, doc_type="draw")
     [draw_mcp] = narrow_delegate_domain_enums([mcp], [gateway], draw)
     assert not impress_only & set(draw_mcp["inputSchema"]["properties"]["domain"]["enum"])
     draw_mcp_desc = draw_mcp["inputSchema"]["properties"]["domain"]["description"]
     for dom in impress_only:
         assert dom not in draw_mcp_desc
+        assert dom not in draw_mcp["description"]
     [impress_mcp] = narrow_delegate_domain_enums([mcp], [gateway], impress)
     impress_mcp_desc = impress_mcp["inputSchema"]["properties"]["domain"]["description"]
     for dom in impress_only:
         assert dom in impress_mcp_desc
+        assert dom in impress_mcp["description"]
     # Unknown services leave the schema alone; the shared instance enum is never mutated.
     assert narrow_delegate_domain_enums([oa], [gateway], None) == [oa]
     assert impress_only <= set(gateway.parameters["properties"]["domain"]["enum"])

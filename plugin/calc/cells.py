@@ -45,15 +45,11 @@ from plugin.doc.visual_helpers import parse_color_to_uno_int
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
 _READ_CELL_RANGE_MAX_CELLS = 80
 _READ_CELL_RANGE_PREVIEW_ROWS = 10
-# Size + peek + fill-down first; =PY only for small reductions (not a hard =PY funnel).
+# message states size and that the sample is a peek; hint (set in _read_one) names the next step: fill-down for row-wise formulas, =PY for a small reduction.
 _READ_CELL_RANGE_TRUNCATED_MSG = (
     "Range is too large to load into chat (would overload the model context): "
     "{rows} rows × {columns} columns ({cells} cells). "
-    "The sample below is a peek only — do not re-read the full range. "
-    "Row-wise ordinary Calc formulas: write_formula_range into a 1-column "
-    "(or 1-row) destination; fill-down adjusts relative refs. "
-    "Reductions that spill a small result: write =PY into one empty cell "
-    "outside the data."
+    "The sample below is a peek only — do not re-read the full range."
 )
 # Truncated-path distinct peek only (not a public tool). High-unique columns
 # are summarized, not listed — no phone book in chat.
@@ -430,8 +426,7 @@ class WriteCellRange(ToolBase):
         "a 2-D array (one inner array per row) must match the range; or multiline CSV from a start "
         "cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. "
         "Supports lists for non-contiguous "
-        "areas. A single ordinary Calc formula into a 1-column or 1-row range fill-down/across "
-        "adjusts relative A1 refs ($ stays absolute). Prefer plain values/ISO "
+        "areas. Prefer plain values/ISO "
         "dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), "
         "computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or "
         "YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: "
@@ -457,10 +452,8 @@ class WriteCellRange(ToolBase):
                 "items": {"type": "string"},
                 "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
             },
-            # The fill-down rule lives on the values description (not CALC_CORE
-            # FORMULAS and not the main tool description): one formula string fills
-            # the range with shifted refs, while a JSON array of copied =B2*… writes
-            # each string as given, so every row keeps the first ref.
+            # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
+            # first ref) live only here; read_cell_range's description and hint just point here.
             # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
             # keeps real unions (same pattern as apply_document_content content).
             "values": {

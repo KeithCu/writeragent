@@ -306,6 +306,10 @@ class DelegateToSpecializedBase(ToolBase):
         bound = {e["domain"] for e in catalog_entries_from_base(agent_label=self._agent_label, uno_services=uno_services)}
         return [d for d in self._domains if d in bound]
 
+    def description_for_services(self, uno_services: frozenset[str]) -> str | None:
+        """Optional narrowed tool description for *uno_services* (None keeps the class description)."""
+        return None
+
     def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
         return True
@@ -515,6 +519,12 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
         params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
         domain_prop = params["properties"]["domain"]
         domain_prop["enum"] = tool.domains_for_services(uno_services)
+        desc = tool.description_for_services(uno_services)
+        if desc is not None:
+            if "function" in patched:
+                patched["function"]["description"] = desc
+            else:
+                patched["description"] = desc
         if "inputSchema" in patched:
             domain_prop["description"] = format_specialized_domains_description(
                 agent_label=tool._agent_label,

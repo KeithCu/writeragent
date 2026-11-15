@@ -159,11 +159,11 @@ def test_calc_sort_range_integer_column():
     assert state._grid[1][0] == "Tool"
 
 
-def test_calc_sort_mixed_types_non_numeric_last() -> None:
+def test_calc_sort_mixed_types_descending_text_first() -> None:
+    # LibreOffice ScTable::CompareCell: text sorts after numbers, so descending puts it first.
     state = CalcStringState("Product\tRevenue\nWidget\t1200\nAardvark\tn/a\nTool\t2100")
     res = state.range_sort(sort_column=1, ascending=False)
     assert res["status"] == "ok"
     names = [row[0] for row in state._grid[1:]]
-    assert names[-1] == "Aardvark"
-    assert names[0] == "Tool"
+    assert names == ["Aardvark", "Tool", "Widget"]
 
