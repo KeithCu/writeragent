@@ -528,8 +528,8 @@ def _python_parses(code: str) -> bool:
     return True
 
 
-def _is_break_escape(code: str, idx: int) -> bool:
-    """Return True when *code* has a literal ``\\n`` at *idx* not preceded by ``:``."""
+def _is_comment_break_escape(code: str, idx: int) -> bool:
+    """Return True when a comment has a break ``\\n`` at *idx* (not ``C:\\n...``)."""
     return code.startswith("\\n", idx) and (idx == 0 or code[idx - 1] != ":")
 
 
@@ -538,27 +538,25 @@ def _newline_escapes_to_breaks(code: str) -> str:
     """Convert literal ``\\n`` outside Python string literals into real newlines.
 
     Scans three states:
-    - Outside strings/comments: a literal ``\\n`` not preceded by ``:`` becomes
-      a real newline.
+    - Outside strings/comments: any literal ``\\n`` becomes a real newline.
     - Comments (``#``): copied verbatim until a real newline or the next ``\\n``
-      not preceded by ``:``.
+      not preceded by ``:`` (preserving Windows drive paths like ``C:\\names``).
     - String literals (single or triple quoted): copied verbatim so Python escapes
-      such as ``"a\\nb"`` stay intact.
+      such as ``"a\\nb"`` and paths like ``"C:\\notes"`` stay intact.
     """
     out: list[str] = []
     i, n = 0, len(code)
     while i < n:
         ch = code[i]
-        if _is_break_escape(code, i):
-            # Outside a string a backslash-n is the line break the model meant,
-            # unless preceded by ':' (e.g. a Windows drive path like C:\names).
+        if code.startswith("\\n", i):
+            # Outside strings and comments a literal backslash-n is always a line break.
             out.append("\n")
             i += 2
             continue
         if ch == "#":
             # A comment ends at a real newline or at the next break escape.
             j = i
-            while j < n and code[j] != "\n" and not _is_break_escape(code, j):
+            while j < n and code[j] != "\n" and not _is_comment_break_escape(code, j):
                 j += 1
             out.append(code[i:j])
             i = j

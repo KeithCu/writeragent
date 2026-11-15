@@ -138,10 +138,22 @@ def test_non_python_returns_none():
             id="single_line_string_escape_unchanged",
         ),
         pytest.param(
-            '=PY("for v in x:\\n\\tresult = v")',
-            '=PY("for v in x:\\n\\tresult = v")',
+            '=PY("for v in data:\\n    total += v\\nresult = total")',
+            '=PY("for v in data:\n    total += v\nresult = total")',
+            "for v in data:\n    total += v\nresult = total",
+            id="for_loop_repaired",
+        ),
+        pytest.param(
+            '=PY("x = 1\\n\\tresult = x")',
+            '=PY("x = 1\\n\\tresult = x")',
             None,
             id="unparseable_after_repair_unchanged",
+        ),
+        pytest.param(
+            '=PY("p = ""C:\\notes""\\nresult = p")',
+            '=PY("p = ""C:\\notes""\nresult = p")',
+            'p = "C:\\notes"\nresult = p',
+            id="string_drive_path_kept",
         ),
         pytest.param(
             '=CONCAT("a\\nb")',
