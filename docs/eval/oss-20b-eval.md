@@ -260,6 +260,7 @@ production-compatible version of a demo is 2–3 lines in
 
 - Exclusions: `inv` = upstream Groq provider/parsing error (`invalid`); `har` = failed `data_sorting` with sheet-qualified `range_sort` (`harness`).
 - `data_sorting` `last_sort_is_revenue_desc`: `base` 5/13 (4/8 120b, 1/5 20b), `base_old` 1/4 (1/2 120b, 0/2 20b), pooled `base` 6/17 (35.3%), `X` 4/13 (30.8%: 4/8 120b, 0/5 20b), `Y` 7/14 (50.0%: 5/8 120b, 2/6 20b), `L2` 6/12 (50.0%: 6/7 120b, 0/5 20b).
+- A concurrent `base2` batch (`5` partial/full runs alongside `L2`) scored `4/6` valid on `data_sorting` (120b `2/3` with 1 harness, 20b `2/3` with 1 invalid; `last_sort_is_revenue_desc` `4/6`), bringing the overall pooled `base` on `data_sorting` to `15/23` (`65.2%`).
 - No Writer row in `X`, `Y`, or `L2` delegated to a specialized sub-agent.
 
 ### Decisions
