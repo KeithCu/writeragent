@@ -4,7 +4,7 @@ Brainstorming is a **multi-turn design sub-agent** the user starts from the Writ
 
 **Entry:** Writer deck → mode dropdown → **Brainstorming** → Send (first message sets the topic).
 
-Brainstorming is **not** exposed to the main chat LLM (`delegate_to_specialized_writer_toolset` omits `brainstorming` and `writing_plan` via `WRITER_SIDEBAR_ONLY_DOMAINS` in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)).
+Brainstorming is **not** exposed to the main chat LLM (`writer_delegate_specialized` omits `brainstorming` and `writing_plan` via `WRITER_SIDEBAR_ONLY_DOMAINS` in [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py)).
 
 **Exit:** `reply_to_user` with `brainstorming_finished=true` (and `spec_saved` when a spec was written) resets the dropdown to **Chat** (or **Writing Plan** when a spec was saved). Changing the dropdown away from Brainstorming mid-session cancels the in-progress session (history is kept).
 
@@ -25,7 +25,7 @@ sequenceDiagram
     BrainstormSubagent-->>User: reply_to_user (HTML)
     User->>Panel: answer
     Panel->>BrainstormSubagent: next turn
-    BrainstormSubagent->>BrainstormSubagent: save_design_spec
+    BrainstormSubagent->>BrainstormSubagent: brainstorming_save_design_spec
     BrainstormSubagent-->>Panel: reply_to_user (brainstorming_finished=true)
     Panel->>Panel: clear brainstorming mode
 ```
@@ -47,7 +47,7 @@ All brainstorming outputs use HTML — no Markdown in tool arguments.
 | Surface | Format |
 |---------|--------|
 | Sidebar (`reply_to_user`) | Single HTML string (`<p>`, `<h2>`, `<ul>`, …) |
-| Saved spec (`save_design_spec`) | JSON **array** of HTML strings (same as `apply_document_content.content`) |
+| Saved spec (`brainstorming_save_design_spec`) | JSON **array** of HTML strings (same as `apply_content.content`) |
 | Research shown to user | Sub-agent reformats plain-text web/doc results as HTML in chat |
 
 Rules: [`HTML_FRAGMENT_RULES`](../../plugin/framework/prompts.py), [`WRITER_APPLY_DOCUMENT_HTML_RULES`](../../plugin/framework/prompts.py), [`get_chat_response_format_instructions`](../../plugin/framework/prompts.py).
@@ -65,7 +65,7 @@ Example spec array:
 ]
 ```
 
-`save_design_spec` uses `target="end"` by default; `full_document` only when the doc is empty.
+`brainstorming_save_design_spec` uses `target="end"` by default; `full_document` only when the doc is empty.
 
 ---
 
@@ -73,10 +73,10 @@ Example spec array:
 
 | Tool | Role |
 |------|------|
-| `brainstorm_research_web` | Public web research (plain text in; HTML summary out via `reply_to_user`) |
-| `list_nearby_files`, `grep_nearby_files`, `delegate_read_document` | Same-folder document research |
+| `brainstorming_search_web` | Public web research (plain text in; HTML summary out via `reply_to_user`) |
+| `research_list_nearby_files`, `research_grep_nearby_files`, `research_delegate_read` | Same-folder document research |
 | `get_content`, `get_tree`, `search` | Active Writer context |
-| `save_design_spec` | **Only** document write path |
+| `brainstorming_save_design_spec` | **Only** document write path |
 | `reply_to_user` | Continue conversation (smol final-answer tool) |
 | `reply_to_user` + `brainstorming_finished=true` | End session |
 
@@ -90,7 +90,7 @@ Adapted from [superpowers brainstorming](../superpowers/skills/brainstorming/SKI
 
 | Superpowers section | WriterAgent adaptation |
 |---------------------|------------------------|
-| HARD-GATE | No implementation until `save_design_spec` |
+| HARD-GATE | No implementation until `brainstorming_save_design_spec` |
 | Anti-pattern “too simple” | Short designs still require approval |
 | Scope decomposition | Flag multi-subsystem requests; one sub-project per session |
 | One question / multiple choice | `reply_to_user`, one question per turn |
@@ -98,7 +98,7 @@ Adapted from [superpowers brainstorming](../superpowers/skills/brainstorming/SKI
 | Design sections | goals, architecture, components, data flow, error handling, testing |
 | Design for isolation | DESIGN QUALITY block in prompt |
 | Existing codebases | Explore first; targeted improvements only |
-| Spec self-review (4 checks) | Step 5 before `save_design_spec` |
+| Spec self-review (4 checks) | Step 5 before `brainstorming_save_design_spec` |
 | User review gate | Step 7 — review spec in document before `reply_to_user` with `brainstorming_finished=true` |
 | Key principles | YAGNI, incremental validation, flexibility |
 | Visual companion | Not in v1 |
@@ -111,4 +111,4 @@ Instructions: `BRAINSTORMING_SUB_AGENT_INSTRUCTIONS` via `get_sub_agent_instruct
 
 ## Tests
 
-[`tests/chatbot/test_brainstorming.py`](../../tests/chatbot/test_brainstorming.py) — delegate enum exclusion, `save_design_spec` HTML passthrough, smol examples.
+[`tests/chatbot/test_brainstorming.py`](../../tests/chatbot/test_brainstorming.py) — delegate enum exclusion, `brainstorming_save_design_spec` HTML passthrough, smol examples.

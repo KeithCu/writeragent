@@ -127,7 +127,7 @@ def select_pack(
                 [],
                 error=(
                     f"{ids} declares backend=lo and cannot run on the string "
-                    "simulator (no run_venv_python_script / domain=python). "
+                    "simulator (no python_run_script / domain=python). "
                     "Use --backend auto or --backend lo."
                 ),
             )

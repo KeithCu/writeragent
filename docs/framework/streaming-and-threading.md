@@ -378,7 +378,7 @@ Tests: [`tests/framework/test_send_cancellation.py`](../../tests/framework/test_
 
 #### Related threading rule
 
-Sub-agents must not run long HTTP on the main thread; [`delegate_read_document`](../../plugin/doc/document_research_specialized.py) opens/closes on the main thread only and runs the inner read agent on the async worker.
+Sub-agents must not run long HTTP on the main thread; [`research_delegate_read`](../../plugin/doc/document_research_specialized.py) opens/closes on the main thread only and runs the inner read agent on the async worker.
 
 ## 9. Producer-Side Batching of Display Text & Global Audit (2026-05)
 

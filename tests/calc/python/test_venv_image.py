@@ -1,4 +1,4 @@
-# WriterAgent - tests for run_venv_python_script image handling
+# WriterAgent - tests for python_run_script image handling
 
 from __future__ import annotations
 

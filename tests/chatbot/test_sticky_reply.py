@@ -96,7 +96,7 @@ def test_brainstorming_spec_saved_observed_not_claimed():
     assert leave["result"] == "<p>Done</p>"
 
     # Observed save -> spec_saved is True even if omitted in kwargs
-    tool.record_tool_result("save_design_spec", {"status": "ok"})
+    tool.record_tool_result("brainstorming_save_design_spec", {"status": "ok"})
     leave2 = tool.execute(
         MagicMock(),
         answer="<p>Done</p>",

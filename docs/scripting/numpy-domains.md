@@ -111,7 +111,7 @@ flowchart TD
   result --> egress[Calc_Writer_egress]
 ```
 
-**Dual access model:** Prefer high-level `run_*({helper, params}, data, context)` (or domain-specific inputs like vision's `image`). Keep `run_venv_python_script` / `=PYTHON()` as the escape hatch for novel work. Return `MISSING_PACKAGE` when required venv packages are absent; optional pure-Python or ASCII fallbacks per domain.
+**Dual access model:** Prefer high-level `run_*({helper, params}, data, context)` (or domain-specific inputs like vision's `image`). Keep `python_run_script` / `=PYTHON()` as the escape hatch for novel work. Return `MISSING_PACKAGE` when required venv packages are absent; optional pure-Python or ASCII fallbacks per domain.
 
 **Data handoff:** Reuse [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) and [`payload_codec`](../../plugin/scripting/payload_codec.py) split-grid. For LLM/sub-agent paths, pass **`data_range`** (late binding) rather than full grids in chat context — see [Analysis Sub-Agent — Data Handoff](../calc/analysis-sub-agent.md#data-handoff--context-limits-out-of-band-data).
 
@@ -184,10 +184,10 @@ plt.plot([1, 2, 3])
 
 ```text
 # Calc chat — one step (plot inserts on the tool document, not whichever window is in front; image_path still returned)
-run_venv_python_script(code="… plt.plot(…) …")
+python_run_script(code="… plt.plot(…) …")
 
 # Writer / Draw chat — two steps
-1. run_venv_python_script(code="… plt.plot(…) …")
+1. python_run_script(code="… plt.plot(…) …")
 2. image_insert(image_path=<returned path>)
 ```
 
@@ -219,7 +219,7 @@ Viz helpers close the matplotlib figure on every exit, including when savefig fa
 
 **Analysis sub-agent:** After `run_regression`, `cluster_numeric`, `monte_carlo`, or `correlation_matrix`, `analyze_data` can auto-call a matching viz helper when `auto_plot=true` or the task hint mentions charts (see [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py)).
 
-**Chat tool results:** `plot_data` returns what `run_venv_python_script` returns (`insert_plots_and_report` in `python/venv.py`): the viz result under `result` with image bytes shown as `"<image>"`; in Calc `image_inserted`, `plot_error` and `message`, with `status` error only when no plot landed and failed plots' temp files in `image_path(s)`; outside Calc `image_path(s)`. A viz result with no image is `VIZ_ERROR`. `analyze_data` / `forecast_data` auto-plot record on their own result instead (`plot`, `image_inserted`, `plot_error`): a failed plot never fails the analysis, and a closed document propagates. Forecast auto-plot failures are `VIZ_ERROR` dicts.
+**Chat tool results:** `plot_data` returns what `python_run_script` returns (`insert_plots_and_report` in `python/venv.py`): the viz result under `result` with image bytes shown as `"<image>"`; in Calc `image_inserted`, `plot_error` and `message`, with `status` error only when no plot landed and failed plots' temp files in `image_path(s)`; outside Calc `image_path(s)`. A viz result with no image is `VIZ_ERROR`. `analyze_data` / `forecast_data` auto-plot record on their own result instead (`plot`, `image_inserted`, `plot_error`): a failed plot never fails the analysis, and a closed document propagates. Forecast auto-plot failures are `VIZ_ERROR` dicts.
 
 **Packages:** `matplotlib` (required); `seaborn` (recommended). Settings → Python **Visualization Libraries** group lists both.
 
@@ -619,9 +619,9 @@ Insert report writes into the Writer document that is active when Insert is clic
 
 **Requirements in the venv:** `spacy` + `textdescriptives` + at least one model for the spaCy features. `transformers` + `torch` (CPU) for the `sentiment` helper (multilingual XLM-RoBERTa default). `scikit-learn` for the `topics` helper. The document's `CharLocale` (if present) is passed to prefer a better model for spaCy. `xx_ent_wiki_sm` is only the last-resort model (NER, no parser or sentence boundaries). On that model key phrases are empty and sentence counts are 0; entities still run. Prefer `xx_sent_ud_sm` or a `*_core_*` model.
 
-**Direct use:** From any `run_venv_python_script` or Run Python Script you can `from writeragent.scripting.text_analytics import analyze_text, run_text_analytics`.
+**Direct use:** From any `python_run_script` or Run Python Script you can `from writeragent.scripting.text_analytics import analyze_text, run_text_analytics`.
 
-**No LLM tool surface** for this helper yet; access via the dialog or by writing/running scripts. The LLM can still reach it via the `python` domain / `run_venv_python_script` or by invoking the trusted helper directly.
+**No LLM tool surface** for this helper yet; access via the dialog or by writing/running scripts. The LLM can still reach it via the `python` domain / `python_run_script` or by invoking the trusted helper directly.
 
 ---
 

@@ -28,7 +28,7 @@ This page is the technical reference for WriterAgent's **host↔venv compute bri
 │                    LibreOffice Process                    │
 │                                                          │
 │  ┌─────────────┐    ┌──────────────────────────────────┐ │
-│  │  LLM / Chat │───▶│  run_venv_python_script / =PYTHON │ │
+│  │  LLM / Chat │───▶│  python_run_script / =PYTHON │ │
 │  │  (tool loop) │    │  → run_code_in_user_venv          │ │
 │  └─────────────┘    └──────────┬───────────────────────┘ │
 │                                │                         │
@@ -104,7 +104,7 @@ Env scrub on spawn: strip vars matching `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`AUTH`
 
 ### Venv ↔ LibreOffice tool RPC
 
-**Current (production):** data-in/data-out for `=PY()` (tool RPC disabled during recalc). **Run Python Script…** / chat `run_venv_python_script` can also send `tool_call` frames on the same Pickle5 pipe; the host dispatches via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) → `ToolRegistry.execute()` and replies until the code-result frame. Optional proxy kwargs that are `None` are omitted so tool defaults apply. Chat pins `ctx.doc` for that execute (`doc:…`, host-only). The same turn's stop checker and send-cancellation scope are copied onto that `ToolContext`. A script call such as `wa.web.research` or image generation can abort an in-flight HTTP wait. Stop still refuses the next `tool_call` before dispatch. Document mutations are not aborted mid-write. `wa.draw` / `wa.shape` bind to that document. The pin is not the worker `session_id`, so Isolated mode still starts a fresh kernel. Run Python Script and PPT-Master keep using their `rps:` / `ppt_master:` ids when no pin is set. Child protocol writes after `claim_ipc_channel()` use `get_child_ipc_stream()`. That includes PPT-Master `plugin/ppt_master/venv/ipc.py`. `sys.stdout.buffer` is fd 1, which the claim points at stderr. `worker_harness.main` calls `claim_ipc_stdin()` before the first read. Tool replies and PPT-Master host responses are read with `get_child_ipc_stdin()`. That stream is the raw `FileIO`, so the Windows id-mismatch drain's `PeekNamedPipe` sees bytes a `BufferedReader` would have kept in userspace.
+**Current (production):** data-in/data-out for `=PY()` (tool RPC disabled during recalc). **Run Python Script…** / chat `python_run_script` can also send `tool_call` frames on the same Pickle5 pipe; the host dispatches via [`host_rpc.py`](../../plugin/scripting/host_rpc.py) → `ToolRegistry.execute()` and replies until the code-result frame. Optional proxy kwargs that are `None` are omitted so tool defaults apply. Chat pins `ctx.doc` for that execute (`doc:…`, host-only). The same turn's stop checker and send-cancellation scope are copied onto that `ToolContext`. A script call such as `wa.web.research` or image generation can abort an in-flight HTTP wait. Stop still refuses the next `tool_call` before dispatch. Document mutations are not aborted mid-write. `wa.draw` / `wa.shape` bind to that document. The pin is not the worker `session_id`, so Isolated mode still starts a fresh kernel. Run Python Script and PPT-Master keep using their `rps:` / `ppt_master:` ids when no pin is set. Child protocol writes after `claim_ipc_channel()` use `get_child_ipc_stream()`. That includes PPT-Master `plugin/ppt_master/venv/ipc.py`. `sys.stdout.buffer` is fd 1, which the claim points at stderr. `worker_harness.main` calls `claim_ipc_stdin()` before the first read. Tool replies and PPT-Master host responses are read with `get_child_ipc_stdin()`. That stream is the raw `FileIO`, so the Windows id-mismatch drain's `PeekNamedPipe` sees bytes a `BufferedReader` would have kept in userspace.
 
 **Wire:** worker writes `{"type": "tool_call", "id", "tool", "args"}`; host replies `{"status", "id", "result"|"message"}`. No extra frame type. Domain allowlists (`python_tool_domain`) stay on the host. Sketch / usage: [core §7 — tool RPC](../enabling_numpy_in_libreoffice.md#venv--libreoffice-tool-rpc).
 
@@ -436,7 +436,7 @@ Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../../plugin/scripting/payload_codec.py).
 
-**Fresh namespace every call** ([core strategy](../enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PY()` or `run_venv_python_script` invocation unless the product adds an explicit cache ([Priority 6 — worker payload cache](#priority-6--worker-payload-cache-same-range-many-recalcs)).
+**Fresh namespace every call** ([core strategy](../enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PY()` or `python_run_script` invocation unless the product adds an explicit cache ([Priority 6 — worker payload cache](#priority-6--worker-payload-cache-same-range-many-recalcs)).
 
 ### Matrix formula result session (IPC reduction) {#matrix-formula-result-session-ipc-reduction}
 

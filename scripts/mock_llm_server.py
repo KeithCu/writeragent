@@ -84,13 +84,13 @@ _HTTP_URL_RE = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 _ACTION_NAME_RE = re.compile(r'(?m)^Action:\s*\{\s*"name"\s*:\s*"([^"]+)"')
 # Inner document_research often has no get_tree. Call *one* discovery
 # tool first so Packet E7 shows nested status and E8 has time to click Stop.
-# Do not walk every discovery tool — delegate_read_document with an empty path
-# opens junk files and never reaches specialized_workflow_finished.
+# Do not walk every discovery tool — research_delegate_read with an empty path
+# opens junk files and never reaches workflow_finished.
 _SPECIALIZED_INNER_PRE_FINISH = (
     "get_tree",
-    "list_nearby_files",
-    "search_nearby_files",
-    "grep_nearby_files",
+    "research_list_nearby_files",
+    "research_search_nearby_files",
+    "research_grep_nearby_files",
 )
 
 # Phrase → scenario. First match wins. Keep distinct from research/comment keywords.
@@ -218,14 +218,14 @@ SCENARIO_IDS = frozenset(
 )
 FAIL_MODES = ("none", "http500", "http429", "hang")
 
-_DELEGATE_WRITER = "delegate_to_specialized_writer_toolset"
-_DELEGATE_CALC = "delegate_to_specialized_calc_toolset"
-_DELEGATE_DRAW = "delegate_to_specialized_draw_toolset"
+_DELEGATE_WRITER = "writer_delegate_specialized"
+_DELEGATE_CALC = "calc_delegate_specialized"
+_DELEGATE_DRAW = "draw_delegate_specialized"
 # Packet E24: the venv-worker tool and a script slow enough to kill mid-run.
-PYTHON_TOOL = "run_venv_python_script"
+PYTHON_TOOL = "python_run_script"
 PYTHON_SLOW_CODE = "import time\ntime.sleep(20)\nresult = 'slept'"
-_PEER_WORK_TOOL = "send_peer_work"
-_PEER_RESULT_TOOL = "send_peer_result"
+_PEER_WORK_TOOL = "peer_send_work"
+_PEER_RESULT_TOOL = "peer_send_result"
 _PEER_TOOLS = frozenset({_PEER_WORK_TOOL, _PEER_RESULT_TOOL})
 _PEER_ENVELOPE_RE = re.compile(
     r"\[Peer (?P<kind>work|result) from:\s*(?P<name>[^|\]]+?)\s*\|\s*uid=(?P<uid>[^|\]]*?)\s*\|\s*"
@@ -252,7 +252,7 @@ class MockLLMConfig:
     transcript: str | None = DEFAULT_TRANSCRIPT
     # Packet E10: HTTP 500 on chat POSTs whose last message is role=tool (mid-loop).
     fail_tool_followup: bool = False
-    # Packet E22: inner specialized HTTP never emits final_answer / specialized_workflow_finished.
+    # Packet E22: inner specialized HTTP never emits final_answer / workflow_finished.
     nested_never_finish: bool = False
     # Packet E17: inner finish tool with empty answer (phrase may be missing on inner POSTs).
     empty_nested_answer: bool = False
@@ -835,14 +835,14 @@ def _is_smol_research(tool_names: set[str]) -> bool:
 
 
 def _is_specialized_inner(tool_names: set[str]) -> bool:
-    # Live document_research inner HTTP advertises specialized_workflow_finished
+    # Live document_research inner HTTP advertises workflow_finished
     # plus domain tools; get_tree is often *not* on that list (core
     # tree is not a specialized_domain tool). Phrase "outline this" must not
     # fall through to the main-chat delegate scenario (Packet E7).
-    if "specialized_workflow_finished" in tool_names:
+    if "workflow_finished" in tool_names:
         return True
     return "get_tree" in tool_names and bool(
-        tool_names & {"final_answer", "specialized_workflow_finished"}
+        tool_names & {"final_answer", "workflow_finished"}
     )
 
 
@@ -992,7 +992,7 @@ def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
     safe_user = html.escape((user_text or "that request").strip()[:80] or "that request")
     if tool_name == "apply_content":
         return f"<p>Inserted content into the document.</p><p>{snippet or '(empty)'}</p>"
-    if tool_name.startswith("delegate_to_specialized"):
+    if tool_name.endswith("_delegate_specialized"):
         return (
             f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
@@ -1109,9 +1109,9 @@ def _smol_research_completion(messages: list[Any], tool_names: set[str], config:
 def _specialized_inner_args(name: str) -> dict[str, Any]:
     if name == "get_tree":
         return {"strategy": "heading_only", "depth": 1}
-    if name == "search_nearby_files":
+    if name == "research_search_nearby_files":
         return {"query": "outline"}
-    if name == "grep_nearby_files":
+    if name == "research_grep_nearby_files":
         return {"pattern": "outline"}
     return {}
 
@@ -1128,14 +1128,14 @@ def _specialized_inner_discovery(tool_names: set[str]) -> Completion | None:
 
 
 def _peer_phrase(text: str) -> bool:
-    # Include the live Calc-reply task ("reply to the peer" / send_peer_result).
+    # Include the live Calc-reply task ("reply to the peer" / peer_send_result).
     # Phrase-only "add a total row" matches the inbound envelope; after
     # write_range the specialized POST is the scripted Reply string
-    # (P3). Without this, leftover-Calc discovery (list_nearby_files) wins.
+    # (P3). Without this, leftover-Calc discovery (research_list_nearby_files) wins.
     return bool(
         re.search(
             r"\b(add a total row|ask the budget workbook|peer total|wait after accepted|"
-            r"do not finish peer|send_peer_result|reply to the peer)\b",
+            r"do not finish peer|peer_send_result|reply to the peer)\b",
             text or "",
             re.IGNORECASE,
         )
@@ -1168,7 +1168,7 @@ def _should_script_peer_inner(
 
     Advertisement of peer tools is not enough. After Packet P / E12 a leftover
     Calc stays open, so the document_research inner wire lists those tools. Treating
-    ``tool in names`` as a peer scenario made E22 call specialized_workflow_finished
+    ``tool in names`` as a peer scenario made E22 call workflow_finished
     instead of looping until nested max_steps.
     """
     if _nested_never_finish(messages, config):
@@ -1193,13 +1193,13 @@ def _peer_specialized_inner(
     tool_names: set[str],
     config: MockLLMConfig | None,
 ) -> Completion:
-    """#673: send_peer_work/result then specialized_workflow_finished immediately.
+    """#673: peer_send_work/result then workflow_finished immediately.
 
     ``peer_wait`` / ``peer_wait_after_accepted`` skips finish so the peer
     never starts — that is the Scrolly hang lock.
     """
     called = _called_tool_names(messages)
-    finish_name = "final_answer" if "final_answer" in tool_names else "specialized_workflow_finished"
+    finish_name = "final_answer" if "final_answer" in tool_names else "workflow_finished"
     user_raw = _last_user_raw(messages)
     forced = config.scenario if config is not None else "none"
     scenario = detect_scenario(_current_query(messages, user_raw), forced)
@@ -1207,7 +1207,7 @@ def _peer_specialized_inner(
 
     if _peer_tool_called(called):
         if wait:
-            name = "list_nearby_files" if "list_nearby_files" in tool_names else _SPECIALIZED_INNER_PRE_FINISH[0]
+            name = "research_list_nearby_files" if "research_list_nearby_files" in tool_names else _SPECIALIZED_INNER_PRE_FINISH[0]
             return Completion(
                 tool_name=name,
                 tool_args=_specialized_inner_args(name),
@@ -1223,9 +1223,9 @@ def _peer_specialized_inner(
     catalog_text = _system_text(messages)
     peers = parse_peer_catalog(catalog_text)
     query = _current_query(messages, user_raw)
-    # Reply path: inbound work envelope, or an outer task that asks for send_peer_result.
+    # Reply path: inbound work envelope, or an outer task that asks for peer_send_result.
     reply = bool(env and env.get("kind") == "work") or bool(
-        re.search(r"send_peer_result|reply to the peer|reply to the peer envelope", query or "", re.I)
+        re.search(r"peer_send_result|reply to the peer|reply to the peer envelope", query or "", re.I)
     )
     if reply:
         target = ""
@@ -1281,7 +1281,7 @@ def _specialized_inner_completion(
     config: MockLLMConfig | None = None,
 ) -> Completion:
     called = _called_tool_names(messages)
-    finish_name = "final_answer" if "final_answer" in tool_names else "specialized_workflow_finished"
+    finish_name = "final_answer" if "final_answer" in tool_names else "workflow_finished"
     user_text = _last_user_text(messages)
     forced = config.scenario if config is not None else "none"
     scenario = detect_scenario(_current_query(messages, user_text), forced)
@@ -1330,7 +1330,7 @@ def _specialized_inner_completion(
     if scenario == "python_slow" and PYTHON_TOOL in tool_names:
         return Completion(tool_name=PYTHON_TOOL, tool_args={"code": PYTHON_SLOW_CODE}, finish_reason="tool_calls")
     # One discovery step, then finish. Calling every advertised tool (especially
-    # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
+    # research_delegate_read with path="") loops the inner agent (Packet E7 soak).
     if any(name in called for name in _SPECIALIZED_INNER_PRE_FINISH):
         return _finish("Mock outline complete. Nested document_research tools finished.")
     disc = _specialized_inner_discovery(tool_names)
@@ -1530,7 +1530,7 @@ def _scenario_user_turn(
             )
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning, finish_reason="stop")
     if scenario == "python_slow":
-        # run_venv_python_script is specialized-tier: delegate to the python domain.
+        # python_run_script is specialized-tier: delegate to the python domain.
         delegate = _delegate_for_tools(tool_names)
         if delegate:
             return _tool_or_html(tool_names, delegate, {"domain": "python", "task": user_text}, user_text, turn)
@@ -1567,7 +1567,7 @@ def _scenario_user_turn(
                 delegate,
                 {
                     "domain": "document_research",
-                    "task": user_text or "Add a Total row and reply via send_peer_result.",
+                    "task": user_text or "Add a Total row and reply via peer_send_result.",
                 },
                 user_text,
                 turn,
@@ -1629,7 +1629,7 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
             delegate = _delegate_for_tools(tool_names) or _DELEGATE_CALC
             env = envelope or {}
             task = (
-                "Reply to the peer envelope with send_peer_result: document_url=%s "
+                "Reply to the peer envelope with peer_send_result: document_url=%s "
                 "message=<one HTML/result string> then finish immediately."
                 % (env.get("uid") or env.get("url") or "writer",)
             )

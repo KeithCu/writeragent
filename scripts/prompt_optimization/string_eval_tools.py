@@ -58,7 +58,7 @@ _WRITER_IMPL: dict[str, Callable[[WriterWorld, dict[str, Any]], dict[str, Any]]]
     "find_text": _writer_find_text,
     "comment_add": lambda s, a: s.comment_add(**a),
     "apply_style": lambda s, a: s.apply_style(**a),
-    "specialized_workflow_finished": _specialized_finished,
+    "workflow_finished": _specialized_finished,
 }
 
 _DRAW_IMPL: dict[str, Callable[[DrawWorld, dict[str, Any]], dict[str, Any]]] = {
@@ -67,7 +67,7 @@ _DRAW_IMPL: dict[str, Callable[[DrawWorld, dict[str, Any]], dict[str, Any]]] = {
     "shape_group": lambda s, a: s.shape_group(**a),
     "shape_get_tree": lambda s, a: s.get_tree(**a),
     "shape_get_summary": lambda s, a: s.get_draw_summary(**a),
-    "specialized_workflow_finished": _specialized_finished,
+    "workflow_finished": _specialized_finished,
 }
 
 _CALC_IMPL: dict[str, Callable[[CalcWorld, dict[str, Any]], dict[str, Any]]] = {
@@ -76,7 +76,7 @@ _CALC_IMPL: dict[str, Callable[[CalcWorld, dict[str, Any]], dict[str, Any]]] = {
     "write_cell_range": lambda s, a: s.write_range(**a),
     "get_sheet_summary": lambda s, a: s.get_sheet_summary(**a),
     "read_range": lambda s, a: s.read_range(**a),
-    "specialized_workflow_finished": _specialized_finished,
+    "workflow_finished": _specialized_finished,
 }
 
 

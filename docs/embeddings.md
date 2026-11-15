@@ -10,9 +10,9 @@
 
 WriterAgent can index the **sibling files in your document folder** and answer “which file has this?” without opening every `.odt`, `.ods`, or `.docx` in the directory.
 
-When **Cross-file search** is enabled, retrieval is **hybrid**: every query runs **keyword search (FTS5 BM25/NEAR)** and **semantic vector search** in parallel, then **Reciprocal Rank Fusion (RRF)** merges the ranked lists. Users and agents call **`search_nearby_files` once** — there is no per-query choice between grep and embeddings.
+When **Cross-file search** is enabled, retrieval is **hybrid**: every query runs **keyword search (FTS5 BM25/NEAR)** and **semantic vector search** in parallel, then **Reciprocal Rank Fusion (RRF)** merges the ranked lists. Users and agents call **`research_search_nearby_files` once** — there is no per-query choice between grep and embeddings.
 
-When Cross-file search is **Off**, the `document_research` agent uses **`grep_nearby_files`** for discovery instead. That is a **settings** choice, not a routing decision inside a single search.
+When Cross-file search is **Off**, the `document_research` agent uses **`research_grep_nearby_files`** for discovery instead. That is a **settings** choice, not a routing decision inside a single search.
 
 The index lives beside your documents (not in the LibreOffice profile):
 
@@ -45,7 +45,7 @@ The first search may return **“index building in the background — retry shor
 
 ### What gets indexed
 
-Same extensions as `list_nearby_files` / maintain ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)):
+Same extensions as `research_list_nearby_files` / maintain ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)):
 
 | Family | Extensions |
 |--------|------------|
@@ -58,7 +58,7 @@ Same extensions as `list_nearby_files` / maintain ([`embeddings_fs.py`](../plugi
 
 ### Untitled documents
 
-When the active document has no `file://` URL, the listing root is LibreOffice **My Documents** (Tools → Options → Paths → **Work**). That applies to search, rebuild, and `list_nearby_files`.
+When the active document has no `file://` URL, the listing root is LibreOffice **My Documents** (Tools → Options → Paths → **Work**). That applies to search, rebuild, and `research_list_nearby_files`.
 
 ### Disk use
 
@@ -101,9 +101,9 @@ flowchart LR
   Inner["Inner sub-agent\none opened file"]
   Read["search / range read"]
   Main -->|"delegate"| Outer
-  Outer -->|"search_nearby_files"| Index
+  Outer -->|"research_search_nearby_files"| Index
   Index --> Hits
-  Hits -->|"delegate_read_document"| Inner --> Read
+  Hits -->|"research_delegate_read"| Inner --> Read
 ```
 
 **Outer tier** discovers which sibling file(s) matter. **Inner tier** reads the opened file with precise tools (`search`, `get_content`, Calc ranges, etc.). The index is a **router**, not a document store.
@@ -114,20 +114,20 @@ Controlled by [`filter_document_research_discovery_tools`](../plugin/doc/documen
 
 | `embeddings.folder_search_mode` | Discovery | Always available |
 |--------------------------------|-----------|------------------|
-| **`none` (Off, default)** | `grep_nearby_files` | `list_nearby_files`, `delegate_read_document` |
-| **`hybrid`** (Embeddings + FTS) | `search_nearby_files` | same |
-| **`llama_index`** | `search_nearby_files` | same |
-| **`zvec`** (experimental) | `search_nearby_files` | same |
-| **`lancedb`** (experimental) | `search_nearby_files` | same |
+| **`none` (Off, default)** | `research_grep_nearby_files` | `research_list_nearby_files`, `research_delegate_read` |
+| **`hybrid`** (Embeddings + FTS) | `research_search_nearby_files` | same |
+| **`llama_index`** | `research_search_nearby_files` | same |
+| **`zvec`** (experimental) | `research_search_nearby_files` | same |
+| **`lancedb`** (experimental) | `research_search_nearby_files` | same |
 
 Workflow hints ([`get_document_research_workflow_hint`](../plugin/framework/prompts.py)):
 
-- **Off:** `list_nearby_files` → `grep_nearby_files` → `delegate_read_document`
-- **Index on:** `list_nearby_files` → `search_nearby_files` → `delegate_read_document` → inner `search` on snippet or topic
+- **Off:** `research_list_nearby_files` → `research_grep_nearby_files` → `research_delegate_read`
+- **Index on:** `research_list_nearby_files` → `research_search_nearby_files` → `research_delegate_read` → inner `search` on snippet or topic
 
 ### Search hit shape {#search-hit-shape}
 
-`search_nearby_files` returns:
+`research_search_nearby_files` returns:
 
 ```json
 {"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage…", "para_index": 12}
@@ -274,8 +274,8 @@ Embeddings use **`WORKER_POOL_EMBEDDINGS`** — a second warm venv child isolate
 
 | Pool | Use |
 |------|-----|
-| `WORKER_POOL_DEFAULT` | Calc, chat `run_venv_python_script` |
-| `WORKER_POOL_EMBEDDINGS` | Folder maintain, `search_nearby_files`, Search dialog |
+| `WORKER_POOL_DEFAULT` | Calc, chat `python_run_script` |
+| `WORKER_POOL_EMBEDDINGS` | Folder maintain, `research_search_nearby_files`, Search dialog |
 
 Same `scripting.python_venv_path`; uses the single internal long trusted budget (via `embeddings_worker_timeout_sec` which delegates to `LONG_TRUSTED_WORKER_TIMEOUT_SEC`).
 
@@ -298,7 +298,7 @@ One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin
 
 Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)).
 
-`search_nearby_files` does not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. It does not run a vector query against that index. `folder_store` treats an explicit foreign `schema_version` as empty so search does not query it. A JSON object with a non-current `schema_version` is deleted by `maybe_upgrade_legacy_index` on the host `corpus-index-*` thread before the venv RPC, and the venv `maintain_folder_corpus` call stays. A matching cache is read immediately, and maintain is enqueued in the background.
+`research_search_nearby_files` does not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. It does not run a vector query against that index. `folder_store` treats an explicit foreign `schema_version` as empty so search does not query it. A JSON object with a non-current `schema_version` is deleted by `maybe_upgrade_legacy_index` on the host `corpus-index-*` thread before the venv RPC, and the venv `maintain_folder_corpus` call stays. A matching cache is read immediately, and maintain is enqueued in the background.
 
 ### Module map
 
@@ -310,7 +310,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_locale.py`](../plugin/embeddings/embeddings_locale.py) | Document default + run-level BCP-47 from ODF/OOXML for prose sentence breaking |
 | [`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) | Cold/incremental maintain loop |
 | [`embeddings_periodic.py`](../plugin/embeddings/embeddings_periodic.py) | Periodic folder tick |
-| [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) | `search_nearby_files` tool |
+| [`document_research_fts_tool.py`](../plugin/embeddings/document_research_fts_tool.py) | `research_search_nearby_files` tool |
 | [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py) | Hybrid corpus search |
 | [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py) | `corpus.db` schema, DML, and indexed-file state access |
 | [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py) | LangGraph: split → embed → upsert |
@@ -689,7 +689,7 @@ Optional in-process top-k over normalized float32 vectors — mirror [`writerage
 
 ### Implementation status {#development-plan}
 
-Cross-file hybrid search is **shipped** (schema v3 `corpus.db`, `search_nearby_files`, background indexer, Search dialog, dedicated embeddings worker pool). Alternative backends (LlamaIndex, Zvec, LanceDB) are optional Settings toggles — see appendices.
+Cross-file hybrid search is **shipped** (schema v3 `corpus.db`, `research_search_nearby_files`, background indexer, Search dialog, dedicated embeddings worker pool). Alternative backends (LlamaIndex, Zvec, LanceDB) are optional Settings toggles — see appendices.
 
 ---
 
@@ -766,7 +766,7 @@ User query
   → [2] FTS5 keyword leg (BM25/NEAR on passages) — SQL only
   → [3] RRF fusion (QueryFusionRetriever, reciprocal rank — math, no model)
   → [4] Cross-encoder rerank (optional; see below)
-  → Top-k hits (doc_url, snippet, score) → search_nearby_files tool → chat LLM reads them
+  → Top-k hits (doc_url, snippet, score) → research_search_nearby_files tool → chat LLM reads them
 ```
 
 | Step | Component | LLM? | Role |
@@ -872,7 +872,7 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — capabilities the 
 |---|-----------|--------|----------------------------|
 | A1 | **Hierarchical / parent–child retrieval** | **Shipped (paragraph level):** merge sub-chunks by `para_index`, return full paragraph in `snippet` on all backends — [`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py). Section / heading parents remain future. | AutoMergingRetriever semantics |
 | A2 | **Rich metadata on ingest** | Filter/boost by heading level, doc type (Writer / Calc / ODP), file title, recency — cross-file routing when filenames lie | [`IngestionPipeline`](https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/) transforms, `MetadataFilters`, title/summary extractors on `TextNode.metadata` |
-| A3 | **Sub-question / decomposed retrieval** | Complex prompts (“compare Q3 and Q4 budget language across the folder”) split into sub-queries, retrieve per part, fuse — better than one `search_nearby_files` call | [`SubQuestionQueryEngine`](https://developers.llamaindex.ai/python/examples/query_engine/sub_question_query_engine/) or custom multi-query retriever + RRF |
+| A3 | **Sub-question / decomposed retrieval** | Complex prompts (“compare Q3 and Q4 budget language across the folder”) split into sub-queries, retrieve per part, fuse — better than one `research_search_nearby_files` call | [`SubQuestionQueryEngine`](https://developers.llamaindex.ai/python/examples/query_engine/sub_question_query_engine/) or custom multi-query retriever + RRF |
 | A4 | **Swappable rerankers and postprocessors** | Quality tuning becomes config + eval presets, not a new `embeddings_*` module each time | [`SentenceTransformerRerank`](https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/), `SimilarityPostprocessor`, recency / metadata boosts |
 
 ##### Tier B — Agent and product shape
@@ -929,7 +929,7 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — capabilities the 
 
 **Why it exists:** the default **`hybrid`** path is a hand-rolled sqlite-vec + FTS5 + vendored RRF stack — you own schema sync, hybrid glue, incremental state, and alignment repair. **LlamaIndex** ([Appendix A](#llamaindex-option)) bets on a *retrieval framework* atop the same `corpus.db`. **Zvec** bets on replacing the *storage and hybrid execution engine itself* with a purpose-built embedded DB for dense + sparse vectors + native FTS + hybrid queries in one engine. It is the other major “get a better vector database than custom sqlite glue” path.
 
-**Current status (2026-06):** Side-by-side implementation is complete — Settings toggle, mode-aware host checks and UI, venv RPC, full folder maintain (shared extraction + embedding model), knn and hybrid search with the same hit shapes as `search_nearby_files` and the Search dialog, tests ([`test_embeddings_zvec_backend.py`](../tests/embeddings/test_embeddings_zvec_backend.py)). Deeper incremental maintenance, index tuning, and any decision to slim the custom sqlite hybrid path are gated on real A/B data from folders such as `~/Desktop/Writing`.
+**Current status (2026-06):** Side-by-side implementation is complete — Settings toggle, mode-aware host checks and UI, venv RPC, full folder maintain (shared extraction + embedding model), knn and hybrid search with the same hit shapes as `research_search_nearby_files` and the Search dialog, tests ([`test_embeddings_zvec_backend.py`](../tests/embeddings/test_embeddings_zvec_backend.py)). Deeper incremental maintenance, index tuning, and any decision to slim the custom sqlite hybrid path are gated on real A/B data from folders such as `~/Desktop/Writing`.
 
 ### Design and implementation
 
@@ -1098,7 +1098,7 @@ Approximate nearest neighbor for bounded in-RAM subsets — PyPI `hnsw-lite`. Re
 
 ### Phase B (shipped) {#phase-b}
 
-Cross-file hybrid search shipped as schema v3 `corpus.db`, `search_nearby_files`, background indexer, and Search dialog. See [Implementation status](#development-plan).
+Cross-file hybrid search shipped as schema v3 `corpus.db`, `research_search_nearby_files`, background indexer, and Search dialog. See [Implementation status](#development-plan).
 
 ### Schema v1 BLOB fallback {#search-fallback}
 

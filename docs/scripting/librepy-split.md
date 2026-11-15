@@ -43,7 +43,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 | In core extension | WriterAgent extension only |
 |-------------------|---------------------------|
 | `=PYTHON()` / `=PY()` Calc add-in + warm venv worker | `=PROMPT()`, chat sidebar, MCP, grammar |
-| **Run Python Script…**, document scripts, init script, **Reset Python Session**, `wa.scripts` / `wa.doc` named libraries (`named_scripts.py`; host fetch via `host_rpc`, not `writeragent_api`) | Chat tools (`run_venv_python_script`, `analyze_data`, `image_extract_structure`, …) |
+| **Run Python Script…**, document scripts, init script, **Reset Python Session**, `wa.scripts` / `wa.doc` named libraries (`named_scripts.py`; host fetch via `host_rpc`, not `writeragent_api`) | Chat tools (`python_run_script`, `analyze_data`, `image_extract_structure`, …) |
 | **Monaco** (Edit Python in Cell…, Run Python Script editor) | Analysis Sub-Agent, tool loop, LLM client |
 | **LibrePy Python sidebar** (Calc deck: cells + diagnostics; also in WriterAgent.oxt) | WriterAgent chat deck (`WriterAgentDeck`) |
 | **NumPy domain trusted helpers** (Analysis, Viz, Symbolic, Units, Forecast, Optimize, Quant, Text Analytics menu) | Embeddings (`plugin/embeddings/`, folder FTS, hybrid search) |
@@ -465,7 +465,7 @@ These share the venv worker or trusted RPC with core but **must not ship** in a 
 
 | Surface | Entry | Uses venv? | Inserts? |
 |---------|--------|------------|---------|
-| **Chat `run_venv_python_script`** | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Yes | No — JSON to agent |
+| **Chat `python_run_script`** | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Yes | No — JSON to agent |
 
 Additional files: `plugin/calc/base.py`, `plugin/calc/inspector.py`, `plugin/framework/tool.py`, full `plugin/chatbot/*` tool loop.
 
@@ -484,7 +484,7 @@ Additional files: `plugin/calc/base.py`, `plugin/calc/inspector.py`, `plugin/fra
 
 ### Writer chat (venv, no menu insert)
 
-[`run_venv_python_script`](../../plugin/calc/python/venv.py) on Writer ignores `data_range`; the model inserts via Writer HTML tools, not `python_runner`. Menu-driven Writer insert: [Layer 2](#layer-2--run-python-script).
+[`python_run_script`](../../plugin/calc/python/venv.py) on Writer ignores `data_range`; the model inserts via Writer HTML tools, not `python_runner`. Menu-driven Writer insert: [Layer 2](#layer-2--run-python-script).
 
 ### Other WriterAgent-only trees
 
@@ -508,7 +508,7 @@ flowchart TB
   end
   subgraph writerAgent [WriterAgent only]
     chat[Chat tool loop]
-    toolV[run_venv_python_script]
+    toolV[python_run_script]
     toolA[analyze_data etc]
   end
   PY --> helpers
@@ -637,7 +637,7 @@ Then:
 | **Core** | `scripting/`, `calc/python/{addin,function,editor,...}`, `framework/` (config subset), `writer/format`, `vision/`, `main_core.py`, … — [Layers 0–6](#feature-bundles-layers) |
 | **WriterAgent** | `chatbot/`, `mcp/`, `calc/prompt_*`, `calc/base.py`, `calc/python/venv.py` (chat tool), `calc/analysis.py` (chat tools), `framework/prompts.py`, `embeddings/`, `main.py`, `framework/client/llm_*`, … — [WriterAgent-only](#writeragent-only-surfaces) |
 
-Chat `run_venv_python_script` imports `plugin.scripting.venv_worker` — resolved from **core’s** extension root. WriterAgent must **not** bundle duplicate `plugin/scripting/` in its OXT after the strip.
+Chat `python_run_script` imports `plugin.scripting.venv_worker` — resolved from **core’s** extension root. WriterAgent must **not** bundle duplicate `plugin/scripting/` in its OXT after the strip.
 
 ### 3. WriterAgent strip list (assume core installed)
 
@@ -697,7 +697,7 @@ Shared Settings helpers (both OXTs): [`plugin/scripting/venv_probe_ui.py`](../..
 
 WriterAgent-only `module.yaml` settings keys can carry **`librepy_exclude: true`** (e.g. `scripting.ppt_master_data_path`). LibrePy manifest generation (`make manifest-core` / `generate_manifest.py --skip-writeragent-extension`) omits those keys from `_manifest_librepy.py` and from generated `SettingsDialog.xdl` page 3 controls.
 
-One venv + one shared-kernel session for `=PY()` and chat `run_venv_python_script` — desirable when both are installed.
+One venv + one shared-kernel session for `=PY()` and chat `python_run_script` — desirable when both are installed.
 
 Keep **`writeragent.json`**. Do **not** invent `librepy.json` + `python_config.py` unless option B later needs separate config files. LLM combobox helpers in [`config.py`](../../plugin/framework/config.py) (`endpoint_from_selector_text`, model-placeholder checks) are `ImportError`-guarded; LibrePy falls back to [`normalize_endpoint_url`](../../plugin/framework/url_utils.py) and skips chat placeholder rejection. Dialog titles in shared Python UI use [`product_display_name`](../../plugin/framework/uno_context.py) (`LibrePy` vs `WriterAgent`).
 

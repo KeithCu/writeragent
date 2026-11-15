@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""document_research search_nearby_files tool (hybrid FTS + embeddings via RRF)."""
+"""document_research research_search_nearby_files tool (hybrid FTS + embeddings via RRF)."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ class _FolderHybridSearchFailed(Exception):
 class SearchNearbyFiles(ToolBase):
     """Hybrid keyword + semantic search over indexed paragraphs in the active document folder."""
 
-    name: str | None = "search_nearby_files"
+    name: str | None = "research_search_nearby_files"
     description: str = (
         "Search the active folder index (keyword BM25/NEAR + semantic embeddings, fused ranking). "
         "Returns ranked doc_url, score, snippet, and optional para_index hint. "
@@ -162,7 +162,7 @@ class SearchNearbyFiles(ToolBase):
                 "hits": [],
                 "folder_key": context_result["folder_key"],
                 "stale": True,
-                "message": "Folder index is building in the background. Retry search_nearby_files shortly.",
+                "message": "Folder index is building in the background. Retry research_search_nearby_files shortly.",
             }
 
         search_path = context_result["search_path"]
@@ -198,7 +198,7 @@ class SearchNearbyFiles(ToolBase):
                     doc_url_filter=doc_url_filter,
                 )
             except Exception as exc:
-                log.exception("search_nearby_files failed")
+                log.exception("research_search_nearby_files failed")
                 raise _FolderHybridSearchFailed(str(exc)) from exc
             if result.get("error"):
                 raise _FolderHybridSearchFailed(str(result["error"]))

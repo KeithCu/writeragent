@@ -197,7 +197,7 @@ def get_sub_agent_instructions(mode_instructions: str, *, tool_names: Sequence[s
 
     parts = [mode_instructions]
     tool_set = set(tool_names)
-    if tool_set & {"apply_content", "write_document_section", "save_design_spec"}:
+    if tool_set & {"apply_content", "writing_plan_write_section", "brainstorming_save_design_spec"}:
         parts.append(SUB_AGENT_HTML_CONTENT_RULES.strip())
         # Sub-agents have no manual_read, so the examples ride along.
         parts.append(HTML_MATH_AND_LINK_EXAMPLES.strip())
