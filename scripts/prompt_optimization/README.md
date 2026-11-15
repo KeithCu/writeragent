@@ -11,7 +11,16 @@ make eval-deps                    # uv pip install dspy-ai (eval + optimize only
 export OPENROUTER_API_KEY=sk-…   # or OPENAI_API_KEY / WRITERAGENT_API_KEY
 make run_eval-smoke               # one model, one example
 make run_eval EVAL_ARGS="--models openai/gpt-oss-120b:nitro -n 2 -j 1"
+make eval-ab SUITE=calc           # A/B compare origin/master vs working tree (calc, writer, draw, all, string, lo)
 ```
+
+### Prompt A/B (`make eval-ab`)
+
+`make eval-ab SUITE=calc` compares `origin/master` (Side A, in a reused detached worktree `/tmp/wa-eval-ab-master`) against your working tree (Side B) using `scripts/prompt_optimization/eval_ab.py`:
+
+- Defaults: `SUITE=all`, `MODELS=openai/gpt-oss-20b:nitro,openai/gpt-oss-120b:nitro`, `REPEATS=3`, optional `TASKS=task1,task2`.
+- Runs `scripts/generate_manifest.py` first, then executes one `run_eval_multi.py` at a time in the foreground (`-j 1 --lo-workers 2 --backend auto`).
+- Writes resumable results to `/tmp/wa-eval-ab/<suite>/<A|B>-rN.json` (skipping completed repeats) and prints a per-task pass-rate / quality table plus a `B better` / `B worse` / `B same` summary line.
 
 Local OpenAI-compatible (Ollama, vLLM, etc.):
 

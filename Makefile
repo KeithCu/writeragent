@@ -164,7 +164,7 @@ endif
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core extract-strings merge-translations refresh-pot auto-translate reset-lang preview-translations check ty mypy pyright pyrefly bandit bandit-incr pyspector pyspector-incr pyspector-report ty-run mypy-run mypy-incr-run pyright-run basedpyright basedpyright-run basedpyright-incr-run basedpyright-full-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar vulture \
-        eval-deps run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
+        eval-deps eval-ab run_eval run_eval-smoke run_eval-lo-scripted schema-docs mock-llm
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -244,6 +244,7 @@ help:
 	@echo ""
 	@echo "Benchmarks (prompt optimization / eval):"
 	@echo "  make eval-deps              uv pip install dspy-ai (after uv sync)"
+	@echo "  make eval-ab                A/B prompt eval (SUITE=calc|writer|draw|all|string|lo, REPEATS=3, MODELS=..., TASKS=...)"
 	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
 	@echo "  make run_eval-smoke         Quick smoke: one model, one example (gpt-oss-120b:nitro; needs a key)"
 	@echo "  make run_eval-lo-scripted   Headless LO + scripted student (no API key)"
@@ -949,9 +950,21 @@ crosshair-cover-all-deep:
 
 PO_EVAL_REQ := scripts/prompt_optimization/requirements.txt
 EVAL_ARGS ?=
+SUITE ?= all
+MODELS ?= openai/gpt-oss-20b:nitro,openai/gpt-oss-120b:nitro
+REPEATS ?= 3
+TASKS ?=
 
 eval-deps:
 	uv pip install -r $(PO_EVAL_REQ)
+
+eval-ab:
+	"$(PYTHON)" scripts/generate_manifest.py
+	"$(PYTHON)" scripts/prompt_optimization/eval_ab.py \
+		--suite "$(SUITE)" \
+		--models "$(MODELS)" \
+		--repeats "$(REPEATS)" \
+		$(if $(strip $(TASKS)),--tasks "$(TASKS)",)
 
 run_eval:
 	"$(PYTHON)" scripts/benchmark.py $(EVAL_ARGS)

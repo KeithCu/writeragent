@@ -12,7 +12,7 @@ WriterAgent includes an **eval-1 LLM Evaluation Suite** for real-world tasks in 
 
 Tasks 18–19 (`python_shapes_flag`, `org_chart_gen`) **need native** headless LO; they cannot be faked on string. Headed **eval-2** is a separate harder suite ([`eval-2/benchmarks.md`](eval-2/benchmarks.md)) — do **not** treat native LO as eval-2-only, and do **not** merge eval-2 tables into this pack.
 
-How to run: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimization/README.md). Broader plan notes: [eval-dev-plan.md](eval-dev-plan.md). String-world upgrade history: [string-harness-upgrade.md](string-harness-upgrade.md).
+How to run: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimization/README.md). To A/B test a prompt change against `origin/master`, run `make eval-ab SUITE=calc` (or `writer`, `draw`, `all`, `string`, `lo`; see `scripts/prompt_optimization/eval_ab.py`). Broader plan notes: [eval-dev-plan.md](eval-dev-plan.md). String-world upgrade history: [string-harness-upgrade.md](string-harness-upgrade.md).
 
 ## Snapshot ranking (34×19 dual-lane)
 
