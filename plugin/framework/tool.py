@@ -228,6 +228,8 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
 
 def field_from_tool_arguments(arguments: Any, field: str) -> Any:
     """Read *field* from tool arguments (dict or JSON string), or None."""
+    # CrossHair's regex engine crashes inside the json.loads repair path.
+    # crosshair: off
     if arguments is None:
         return None
     if isinstance(arguments, dict):

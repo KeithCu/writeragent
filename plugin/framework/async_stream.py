@@ -166,6 +166,8 @@ class _DrainState:
         self.close_thinking()
 
     def notify_stopped(self) -> None:
+        # CrossHair cannot deep-copy the thread lock inside the drain queue.
+        # crosshair: off
         self.outcome.done = True
         self.outcome.reason = "stopped"
         try:
