@@ -2087,3 +2087,60 @@ def test_replace_full_document_and_insert_content_call_restore_with_text_obj():
         assert mock_restore.call_args[0][0] is doc
         assert mock_restore.call_args[0][1] is body_text
         assert mock_restore.call_args[1]["nonce"] is not None
+
+
+@pytest.mark.parametrize(
+    "content,at_start,at_end,math,expected",
+    [
+        ("new ", False, False, False, "inline"),
+        ("<b>x</b> ", True, False, False, "inline"),
+        ("<p>A</p>", False, False, False, "after"),
+        ("<p>A</p>", False, True, False, "after"),
+        ("A\nB", False, False, False, "after"),
+        ("<p>A</p>", True, False, False, "import"),
+        ("<p>A</p>", True, True, False, "import"),
+        ("new ", True, True, False, "import"),
+        ("x", False, False, True, "import"),
+    ],
+)
+def test_insert_content_at_position_caret_routing(content, at_start, at_end, math, expected):
+    from plugin.writer.html_import import insert_content_at_position
+    from plugin.writer.html_import_styles import WriteReport
+
+    rng = MagicMock()
+    rng_text = MagicMock()
+    rng_text.compareRegionStarts.return_value = 0
+    cursor = MagicMock()
+    cursor.isStartOfParagraph.return_value = at_start
+    cursor.isEndOfParagraph.return_value = at_end
+    rng_text.createTextCursorByRange.return_value = cursor
+    rng.getText.return_value = rng_text
+
+    model = MagicMock()
+    model.getCurrentController.return_value = MagicMock()
+
+    with (
+        patch("plugin.writer.html_import.selected_text_range", return_value=rng),
+        patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False),
+        patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"),
+        patch("plugin.writer.html_import.html_fragment_contains_mixed_math", return_value=math),
+        patch("plugin.writer.html_import.insert_inline_at_cursor") as mock_inline,
+        patch("plugin.writer.html_import.insert_html_after_paragraph", return_value=WriteReport()) as mock_after,
+        patch("plugin.writer.html_import._insert_mixed_or_plain_html", return_value=WriteReport()) as mock_import,
+    ):
+        report = insert_content_at_position(model, MagicMock(), content, "selection")
+
+    rng.setString.assert_called_once_with("")
+    if expected == "inline":
+        mock_inline.assert_called_once()
+        mock_after.assert_not_called()
+        mock_import.assert_not_called()
+    elif expected == "after":
+        mock_after.assert_called_once()
+        mock_inline.assert_not_called()
+        mock_import.assert_not_called()
+        assert report.snapped_to_paragraph is (not at_end)
+    else:
+        mock_import.assert_called_once()
+        mock_inline.assert_not_called()
+        mock_after.assert_not_called()

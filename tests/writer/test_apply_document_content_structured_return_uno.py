@@ -299,3 +299,38 @@ def test_end_invalid_tex_reports_math_import_failed_warning_uno(ctx, doc):
     assert len(math_objs) == 0, names
     assert doc.getText().getString().strip().endswith(r"[Math import failed] \sqrt{")
 
+
+@native_test
+@with_native_doc("writer")
+def test_selection_caret_block_snaps_after_paragraph_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    text.insertString(cur, "Alpha beta gamma.", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para.", False)
+
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoStart(False)
+    vc.goRight(6, False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="selection",
+        content="<p>Current population is 5.</p>",
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("snapped_to_paragraph") is True, res
+    enum = text.createEnumeration()
+    paras = []
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el.getString())
+    assert paras == ["Alpha beta gamma.", "Current population is 5.", "Second para."]
+

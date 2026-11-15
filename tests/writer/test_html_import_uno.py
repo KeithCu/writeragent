@@ -800,3 +800,145 @@ def test_full_document_review_margins_follow_new_style_and_reject_keeps_old_uno(
         assert int(b.Color) == int(readback_border.Color)
     assert str(p_restored.getPropertyValue("NumberingStyleName")) == readback_num
 
+
+def _seed_two_paras_and_place_caret(doc: Any, offset: int) -> None:
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    text.insertString(cur, "Alpha beta gamma.", False)
+    text.insertControlCharacter(cur, 0, False)
+    text.insertString(cur, "Second para.", False)
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoStart(False)
+    if offset:
+        vc.goRight(offset, False)
+
+
+def _para_texts_via_enum(text_obj: Any) -> list[str]:
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = text_obj.createEnumeration()
+    out: list[str] = []
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            out.append(el.getString())
+    return out
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_caret_block_goes_after_paragraph_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    content = "<p>New A</p><p>New B</p>"
+    _seed_two_paras_and_place_caret(doc, 6)
+    report_mid = insert_content_at_position(doc, ctx, content, "selection")
+    assert report_mid.snapped_to_paragraph is True
+    assert _para_texts_via_enum(doc.getText()) == ["Alpha beta gamma.", "New A", "New B", "Second para."]
+
+    _seed_two_paras_and_place_caret(doc, 17)
+    report_end = insert_content_at_position(doc, ctx, content, "selection")
+    assert report_end.snapped_to_paragraph is False
+    assert _para_texts_via_enum(doc.getText()) == ["Alpha beta gamma.", "New A", "New B", "Second para."]
+
+    _seed_two_paras_and_place_caret(doc, 0)
+    report_start = insert_content_at_position(doc, ctx, content, "selection")
+    assert report_start.snapped_to_paragraph is False
+    assert _para_texts_via_enum(doc.getText()) == ["New A", "New B", "Alpha beta gamma.", "Second para."]
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_caret_block_at_document_end_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    _seed_two_paras_and_place_caret(doc, 0)
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoEnd(False)
+    insert_content_at_position(doc, ctx, "<p>New A</p><p>New B</p>", "selection")
+    assert _para_texts_via_enum(doc.getText()) == ["Alpha beta gamma.", "Second para.", "New A", "New B"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_caret_inline_stays_in_paragraph_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_import import insert_content_at_position
+
+    _seed_two_paras_and_place_caret(doc, 6)
+    first_para = doc.getText().createEnumeration().nextElement()
+    first_para.setPropertyValue("ParaStyleName", "Heading 1")
+
+    insert_content_at_position(doc, ctx, "new ", "selection")
+    assert _para_texts_via_enum(doc.getText()) == ["Alpha new beta gamma.", "Second para."]
+    first_para = doc.getText().createEnumeration().nextElement()
+    assert first_para.getPropertyValue("ParaStyleName") == "Heading 1"
+
+    _seed_two_paras_and_place_caret(doc, 6)
+    insert_content_at_position(doc, ctx, "<b>bold</b> ", "selection")
+    assert _para_texts_via_enum(doc.getText()) == ["Alpha bold beta gamma.", "Second para."]
+    first_para = doc.getText().createEnumeration().nextElement()
+    p_enum = first_para.createEnumeration()
+    bold_weights = []
+    while enum_has_more(p_enum):
+        portion = p_enum.nextElement()
+        if portion.getString() == "bold":
+            bold_weights.append(portion.getPropertyValue("CharWeight"))
+    assert bold_weights == [150]
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_caret_block_in_table_cell_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    text.insertTextContent(cur, table, False)
+    cell = table.getCellByName("A1")
+    cell.setString("Cell words here")
+
+    vc = doc.getCurrentController().getViewCursor()
+    cell_cur = cell.createTextCursor()
+    cell_cur.gotoStart(False)
+    cell_cur.goRight(5, False)
+    vc.gotoRange(cell_cur, False)
+
+    insert_content_at_position(doc, ctx, "<p>New A</p><p>New B</p>", "selection")
+    assert _para_texts_via_enum(cell) == ["Cell words here", "New A", "New B"]
+    assert doc.getTextTables().getCount() == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_caret_block_tracked_changes_uno(ctx: Any, doc: Any) -> None:
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.html_import import insert_content_at_position
+
+    _seed_two_paras_and_place_caret(doc, 6)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        insert_content_at_position(doc, ctx, "<p>New A</p><p>New B</p>", "selection")
+        assert _para_texts_via_enum(doc.getText()) == [
+            "Alpha beta gamma.",
+            "New A",
+            "New B",
+            "Second para.",
+        ]
+        rl_enum = doc.getRedlines().createEnumeration()
+        rl_types = []
+        while enum_has_more(rl_enum):
+            rl = rl_enum.nextElement()
+            rl_types.append(str(rl.getPropertyValue("RedlineType")))
+        assert set(rl_types) == {"Insert"}, rl_types
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+

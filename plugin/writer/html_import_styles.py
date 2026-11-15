@@ -640,19 +640,23 @@ class WriteReport:
     not whole paragraphs or tracked changes were recording. ``style_tokens`` is the distinct
     non-empty data-lo-style tokens in the content, in first-seen order; a skip with no token
     still explains the data-lo-para skip but names no style. ``math`` is one entry per
-    formula conversion attempt. all_matches merges one report per match with ``extend``.
+    formula conversion attempt. ``snapped_to_paragraph`` is True when a collapsed-caret
+    insert moved to after the caret's paragraph because the content was block-level.
+    all_matches merges one report per match with ``extend``.
     """
 
     unapplied_para: list[str] = field(default_factory=list)
     style_skips: list[StyleSkipCode] = field(default_factory=list)
     style_tokens: list[str] = field(default_factory=list)
     math: list[dict[str, Any]] = field(default_factory=list)
+    snapped_to_paragraph: bool = False
 
     def extend(self, other: WriteReport) -> None:
         self.unapplied_para.extend(other.unapplied_para)
         self.style_skips.extend(other.style_skips)
         self.style_tokens = list(dict.fromkeys(self.style_tokens + other.style_tokens))
         self.math.extend(other.math)
+        self.snapped_to_paragraph = self.snapped_to_paragraph or other.snapped_to_paragraph
 
 
 def attach_write_report(
