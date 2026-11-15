@@ -35,6 +35,7 @@ from ..specialized_base import ToolWriterSectionBase, index_error
 from ..target_resolver import resolve_target_cursor
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from plugin.framework.tool import ToolContext
 
 # Matches LibreOffice Writer's UI limit (sw/source/uibase/inc/column.hxx: nMaxCols = 99).
@@ -108,9 +109,7 @@ def _paragraph_span(
             return tool._tool_error(
                 f"end_locator paragraph {last} is before locator paragraph {first}."
             )
-        if not paras[first].supportsService("com.sun.star.text.Paragraph") or not paras[
-            last
-        ].supportsService("com.sun.star.text.Paragraph"):
+        if not all(paras[i].supportsService("com.sun.star.text.Paragraph") for i in (first, last)):
             return tool._tool_error(
                 "Locator points at a table; use the paragraph before or after it."
             )
@@ -123,6 +122,34 @@ def _paragraph_span(
     cursor.gotoRange(end, True)
     cursor.gotoEndOfParagraph(True)
     return cursor
+
+
+def _commit(
+    tool: ToolWriterSectionBase,
+    ctx: ToolContext,
+    title: str,
+    what: str,
+    code: str,
+    mutate: Callable[[], None],
+    result: dict[str, Any] | Callable[[], dict[str, Any]],
+    *,
+    undo_unavailable_msg: str | None = None,
+    rollback_msg: str | None = None,
+) -> dict[str, Any]:
+    err = commit_or_rollback_mutation(
+        tool,
+        ctx.doc,
+        title,
+        mutate,
+        undo_unavailable_msg or f"Undo is unavailable; could not {what}.",
+        rollback_msg or f"Failed to {what}; the change was rolled back",
+        code=code,
+    )
+    if err is not None:
+        return err
+    payload = result if isinstance(result, dict) else result()
+    flag_style_unreviewed(payload)
+    return payload
 
 
 class SectionCreate(ToolWriterSectionBase):
@@ -174,6 +201,13 @@ class SectionCreate(ToolWriterSectionBase):
         if isinstance(cursor, dict):
             return cursor
 
+        enclosing = cursor.getPropertyValue("TextSection")
+        if enclosing is not None and enclosing.getPropertyValue("DocumentIndex") is not None:
+            return self._tool_error(
+                f"Target range is inside index section '{enclosing.getName()}'; use the indexes domain.",
+                code="INDEX_SECTION",
+            )
+
         section = doc.createInstance("com.sun.star.text.TextSection")
         section.setName(name)
 
@@ -181,21 +215,17 @@ class SectionCreate(ToolWriterSectionBase):
         def mutate() -> None:
             cursor.getText().insertTextContent(cursor, section, True)
 
-        err = commit_or_rollback_mutation(
+        return _commit(
             self,
-            doc,
+            ctx,
             "WriterAgent: Create section",
+            "create the section",
+            "CREATE_SECTION_FAILED",
             mutate,
-            "Undo is unavailable; no section was created.",
-            "Failed to create the section (a range that partly overlaps another section is refused); the change was rolled back",
-            code="CREATE_SECTION_FAILED",
+            lambda: {"status": "ok", "section_name": section.getName()},
+            undo_unavailable_msg="Undo is unavailable; no section was created.",
+            rollback_msg="Failed to create the section (a range that partly overlaps another section is refused); the change was rolled back",
         )
-        if err is not None:
-            return err
-
-        result: dict[str, Any] = {"status": "ok", "section_name": section.getName()}
-        flag_style_unreviewed(result)
-        return result
 
 
 class SectionDelete(ToolWriterSectionBase):
@@ -220,23 +250,17 @@ class SectionDelete(ToolWriterSectionBase):
 
         # removeTextContent disposes the section and calls DelSectionFormat with bDelNodes=false, so paragraphs stay.
         def mutate() -> None:
-            ctx.doc.getText().removeTextContent(section)
+            section.getAnchor().getText().removeTextContent(section)
 
-        err = commit_or_rollback_mutation(
+        return _commit(
             self,
-            ctx.doc,
+            ctx,
             "WriterAgent: Delete section",
+            "delete the section",
+            "DELETE_SECTION_FAILED",
             mutate,
-            "Undo is unavailable; section was not deleted.",
-            "Failed to delete the section; the change was rolled back",
-            code="DELETE_SECTION_FAILED",
+            {"status": "ok", "section_name": name, "deleted": True},
         )
-        if err is not None:
-            return err
-
-        result: dict[str, Any] = {"status": "ok", "section_name": name, "deleted": True}
-        flag_style_unreviewed(result)
-        return result
 
 
 class SectionSetColumns(ToolWriterSectionBase):
@@ -282,26 +306,20 @@ class SectionSetColumns(ToolWriterSectionBase):
             apply_column_layout(cols, column_count, mm_to_unit(spacing_mm))
             section.setPropertyValue("TextColumns", cols)
 
-        err = commit_or_rollback_mutation(
+        return _commit(
             self,
-            ctx.doc,
+            ctx,
             "WriterAgent: Set section columns",
+            "set section columns",
+            "SET_SECTION_COLUMNS_FAILED",
             mutate,
-            "Undo is unavailable; section columns were not changed.",
-            "Failed to set section columns; the change was rolled back",
-            code="SET_SECTION_COLUMNS_FAILED",
+            {
+                "status": "ok",
+                "section_name": name,
+                "column_count": column_count,
+                "spacing_mm": spacing_mm,
+            },
         )
-        if err is not None:
-            return err
-
-        result: dict[str, Any] = {
-            "status": "ok",
-            "section_name": name,
-            "column_count": column_count,
-            "spacing_mm": spacing_mm,
-        }
-        flag_style_unreviewed(result)
-        return result
 
 
 class SectionSetProtection(ToolWriterSectionBase):
@@ -331,18 +349,12 @@ class SectionSetProtection(ToolWriterSectionBase):
         def mutate() -> None:
             section.setPropertyValue("IsProtected", protected)
 
-        err = commit_or_rollback_mutation(
+        return _commit(
             self,
-            ctx.doc,
+            ctx,
             "WriterAgent: Set section protection",
+            "set section protection",
+            "SET_SECTION_PROTECTION_FAILED",
             mutate,
-            "Undo is unavailable; section protection was not changed.",
-            "Failed to set section protection; the change was rolled back",
-            code="SET_SECTION_PROTECTION_FAILED",
+            {"status": "ok", "section_name": name, "protected": protected},
         )
-        if err is not None:
-            return err
-
-        result: dict[str, Any] = {"status": "ok", "section_name": name, "protected": protected}
-        flag_style_unreviewed(result)
-        return result

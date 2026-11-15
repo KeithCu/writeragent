@@ -1,5 +1,6 @@
 import os
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 
 import uno
@@ -111,11 +112,28 @@ def test_section_columns_and_protection_saved_uno(ctx, doc):
     assert SectionSetProtection().execute(tctx, name="Cols", protected=True)["status"] == "ok"
 
     xml = _save_odt_content_xml(doc)
-    assert 'text:name="Cols"' in xml
-    assert 'text:protected="true"' in xml
-    assert 'fo:column-count="2"' in xml
+    root = ET.fromstring(xml)
+    text_ns = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+    style_ns = "urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+    fo_ns = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+    cols_elem = next(
+        el
+        for el in root.iter(f"{{{text_ns}}}section")
+        if el.attrib.get(f"{{{text_ns}}}name") == "Cols"
+    )
+    assert cols_elem.attrib.get(f"{{{text_ns}}}protected") == "true"
+    style_name = cols_elem.attrib[f"{{{text_ns}}}style-name"]
+    style_elem = next(
+        el
+        for el in root.iter(f"{{{style_ns}}}style")
+        if el.attrib.get(f"{{{style_ns}}}name") == style_name
+    )
+    columns_elem = style_elem.find(f".//{{{style_ns}}}columns")
+    assert columns_elem is not None
+    assert columns_elem.attrib.get(f"{{{fo_ns}}}column-count") == "2"
 
     sec = doc.getTextSections().getByName("Cols")
+    assert sec.getPropertyValue("TextColumns").getColumnCount() == 2
     assert sec.getPropertyValue("IsProtected") is True
     doc.getUndoManager().undo()
     assert sec.getPropertyValue("IsProtected") is False
@@ -176,3 +194,8 @@ def test_section_guards_uno(ctx, doc):
     assert toc_del["code"] == "INDEX_SECTION"
     assert doc.getDocumentIndexes().getCount() == 1
     assert doc.getTextSections().hasByName("Table of Contents1")
+
+    toc_create = SectionCreate().execute(tctx, name="InsideTOC", locator="paragraph:4")
+    assert toc_create["status"] == "error"
+    assert toc_create["code"] == "INDEX_SECTION"
+    assert not doc.getTextSections().hasByName("InsideTOC")
