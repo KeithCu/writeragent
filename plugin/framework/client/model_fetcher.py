@@ -40,6 +40,7 @@ from typing import Any
 from plugin.framework.constants import ModelCapability
 from plugin.framework.default_models import (
     DEFAULT_MODELS,
+    PROVIDER_VISION,
     get_model_capability,
     get_provider_defaults,
     resolve_model_id,
@@ -174,12 +175,16 @@ def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
     return out
 
 
-def _stated_input_modalities(row: dict[str, Any]) -> list[Any] | None:
-    """input_modalities when this row states a list. None when the field is absent.
+def _row_vision_flag(row: dict[str, Any]) -> bool | None:
+    """True/False when the row states image input, else None.
 
-    An empty list is a statement (no image). A missing field is not.
-    A non-dict architecture is treated as field absent; a top-level list
-    on the row still counts.
+    ``input_modalities`` (top level, else ``architecture.input_modalities``)
+    wins; a non-list top-level ``input_modalities`` blocks the nested fallback.
+    An empty list is a statement (False); a missing field is not (None).
+    A non-dict architecture is treated as field absent. Otherwise
+    ``capabilities.vision`` (Mistral, LM Studio) or
+    ``capabilities.image_input.supported`` (Anthropic) is used when it is a
+    ``bool``.
     """
     arch = row.get("architecture")
     nested = None
@@ -189,27 +194,45 @@ def _stated_input_modalities(row: dict[str, Any]) -> list[Any] | None:
     if chosen is None:
         chosen = nested
     if isinstance(chosen, list):
-        return chosen
+        return "image" in chosen
+    caps = row.get("capabilities")
+    if isinstance(caps, dict):
+        vision = caps.get("vision")
+        if isinstance(vision, bool):
+            return vision
+        image_input = caps.get("image_input")
+        if isinstance(image_input, dict):
+            supported = image_input.get("supported")
+            if isinstance(supported, bool):
+                return supported
     return None
 
 
 def _vision_declarations_from_v1_entries(entries: list[Any]) -> dict[str, bool]:
-    """id -> image input, only for rows that listed input_modalities.
+    """id -> image input, only for rows that state vision support.
 
-    Omitted input_modalities is not an entry. Callers must not treat a missing
-    id as an explicit no.
+    Supports OpenRouter/Together/DeepSeek/xAI ``input_modalities``, Mistral and
+    LM Studio ``capabilities.vision``, Anthropic
+    ``capabilities.image_input.supported``, and ``aliases`` lists (Mistral/xAI).
+    Omitted fields are not entries; callers must not treat a missing id as an
+    explicit no.
     """
     out: dict[str, bool] = {}
     for row in entries:
         if not isinstance(row, dict):
             continue
-        mid = row.get("id")
+        mid = row.get("id") or row.get("key")
         if not mid:
             continue
-        stated = _stated_input_modalities(row)
-        if stated is None:
+        flag = _row_vision_flag(row)
+        if flag is None:
             continue
-        out[str(mid)] = "image" in stated
+        out[str(mid)] = flag
+        aliases = row.get("aliases")
+        if isinstance(aliases, list):
+            for alias in aliases:
+                if isinstance(alias, str) and alias:
+                    out[alias] = flag
     return out
 
 
@@ -446,7 +469,11 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             memo.ids = list(models)
             if provider != "openrouter":
                 memo.image_ids = list(image_models) if image_models is not None else None
-            memo.vision_declarations = dict(vision_declared) if isinstance(vision_declared, dict) else None
+            # xAI and LM Studio state vision on a separate list (/language-models,
+            # /api/v1/models); a Settings /v1/models fetch must not overwrite a
+            # warm vision memo with {}.
+            if _vision_list_url(provider, key_slot) == "":
+                memo.vision_declarations = dict(vision_declared) if isinstance(vision_declared, dict) else None
             memo.context_tokens = _context_tokens_from_v1_entries(entries)
             return list(models)
         log.warning("fetch_available_models unexpected body structure for %s: %s", url, type(data).__name__)
@@ -1082,25 +1109,80 @@ def _vision_support_key(endpoint: Any, model_id: Any) -> str:
     return f"{endpoint_str}@{model_str.casefold()}"
 
 
+# Providers whose GET /v1/models rows state image input (fetch_available_models fills the memo).
+_VISION_FROM_V1_MODELS: frozenset[str] = frozenset({"openrouter", "together", "mistral", "deepseek", "anthropic"})
+
+
+def _vision_list_url(provider: str | None, endpoint: str) -> str:
+    """Alternate model-list URL for providers whose ``/v1/models`` carries only ids.
+
+    xAI publishes ``input_modalities`` on ``/language-models``, and LM Studio
+    publishes ``capabilities.vision`` on ``/api/v1/models`` (gated on a
+    suitable endpoint URL). Returns ``""`` for all other providers.
+    """
+    if provider == "xai":
+        return _v1_url(endpoint, "/language-models")
+    if provider == "lmstudio":
+        base = _key_slot_base(endpoint)
+        if base and endpoint_url_suitable_for_v1_models_fetch(base):
+            return f"{base}/api/v1/models"
+    return ""
+
+
+def _fetch_vision_list(endpoint: str, provider: str | None, api_key_override: str | None) -> None:
+    """GET _vision_list_url once; store id -> bool in CatalogMemo.vision_declarations.
+
+    A failed or unparsable fetch stores nothing so the next check retries.
+    """
+    url = _vision_list_url(provider, endpoint)
+    if not url:
+        return
+    req_headers = _model_fetch_auth_headers(
+        _key_slot_base(endpoint),
+        api_key_override,
+        url,
+        is_openwebui=False,
+        is_openrouter=False,
+        log_label="vision list",
+    )
+    if req_headers is None:
+        return
+    try:
+        from plugin.framework.client.requests import sync_request
+
+        data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
+        entries = _v1_models_entries_from_body(data)
+        if entries is None and isinstance(data, dict) and isinstance(data.get("models"), list):
+            entries = data["models"]
+        if entries is not None:
+            _get_catalog_memo(endpoint, api_key_override).vision_declarations = _vision_declarations_from_v1_entries(entries)
+            return
+        log.warning("vision list unexpected body structure for %s: %s", url, type(data).__name__)
+    except NetworkError as e:
+        log.warning("vision list NetworkError for %s: %s", url, e)
+    except (ValueError, TypeError, IOError) as e:
+        log.warning("vision list network/parse error for %s: %s", url, e)
+    except Exception:
+        log.exception("vision list unexpected error for %s", url)
+
+
 def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, api_key_override: str | None) -> tuple[bool, bool | None]:
     """(memo is warm, answer) from the in-process provider memos. No I/O.
 
-    Direct Anthropic is always warm with True because its chat models accept
-    image input. Other providers without vision metadata are always warm with
-    no answer.
+    Covers providers whose /v1/models or alternate vision list states image
+    input, plus Ollama /api/show. Other providers are always warm with no
+    answer (and fall through to catalog / PROVIDER_VISION).
     """
-    if provider in ("openrouter", "together"):
+    if provider in _VISION_FROM_V1_MODELS or _vision_list_url(provider, endpoint):
         # Uses the normalized request triple and api_key_override matching catalog fetch.
         built = _v1_models_request(endpoint, api_key_override)
         if built is None:
             return True, None
         key = _catalog_memo_key(endpoint, api_key_override)
         memo = _catalog_memos.get(key)
-        if memo is None or (memo.ids is None and memo.vision_declarations is None):
+        if memo is None or memo.vision_declarations is None:
             return False, None
-        # A row that omitted input_modalities is not a "no": it stays unknown.
-        if not isinstance(memo.vision_declarations, dict):
-            return True, None
+        # A row that omitted vision metadata is not a "no": it stays unknown.
         return True, _declared_vision_flag(provider, memo.vision_declarations, model_id)
     if provider == "ollama":
         key = _catalog_memo_key(endpoint)
@@ -1112,8 +1194,6 @@ def _vision_provider_memo(provider: str | None, endpoint: str, model_id: str, ap
             return False, None
         show_caps = cached_show.get("capabilities") or []
         return True, "vision" in show_caps if isinstance(show_caps, list) else False
-    if provider == "anthropic":
-        return True, True
     return True, None
 
 
@@ -1150,16 +1230,19 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     1. Empty model_id -> False.
     2. Persistent user config (``vision_support_map`` under ``_vision_support_key``),
        including explicit False.
-    3. Static default models list (``ModelCapability.VISION``).
-    4. Warm in-process provider memo (OpenRouter/Together ``input_modalities``,
-       Ollama ``/api/show`` capabilities, or direct Anthropic ``True``).
-    5. Cold memo (OpenRouter, Together, Ollama): on the UI thread
+    3. Warm in-process provider memo (OpenRouter, Together, Mistral, DeepSeek,
+       and Anthropic via ``/v1/models``, xAI via ``/v1/language-models``, LM
+       Studio via ``/api/v1/models``, and Ollama via ``/api/show``).
+    4. Cold memo for those providers: on the UI thread
        (``main.is_current()``) never fetch; schedule one background lookup and
        fall through. Off the UI thread, fetch inline and re-read the memo.
        Answers live only in those process memos; a failed fetch stores
        nothing, so the next check tries again.
-    6. Not settled: False when the static catalog has a row for this model
-       without VISION (caps != NONE), else None. No name heuristics.
+    5. Static default models list (``DEFAULT_MODELS``): fallback only when the
+       API fetch failed or the provider has no vision API. ``ModelCapability.VISION``
+       -> True; else if ``PROVIDER_VISION`` has the provider -> that value; else
+       a catalog row without VISION -> False.
+    6. Else None. No name heuristics.
     """
     if not model_id:
         return False
@@ -1171,17 +1254,11 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     if isinstance(cache, dict) and support_key in cache:
         return as_bool(cache[support_key])
 
-    # 3. Static Default Models check
     raw_ep = endpoint if isinstance(endpoint, str) else ""
     endpoint_str = normalize_endpoint_url(raw_ep)
-    caps = get_model_capability(model_id_str, endpoint_str)
-    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
-    if caps & ModelCapability.VISION:
-        return True
-
     provider = get_provider_from_endpoint(endpoint_str)
 
-    # 4. Warm in-process memo. 5. Cold: the UI thread schedules, a worker fetches.
+    # 3. Warm in-process memo. 4. Cold: the UI thread schedules, a worker fetches.
     warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)
     if not warm:
         if main.is_current():
@@ -1190,14 +1267,27 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
             assert not main.is_current()
             if provider == "ollama":
                 query_ollama_show(raw_ep, model_id_str)
+            elif _vision_list_url(provider, raw_ep):
+                _fetch_vision_list(raw_ep, provider, api_key_override)
             else:
                 fetch_available_models(raw_ep, api_key_override=api_key_override)
             answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)[1]
     if answer is not None:
         return answer
 
-    # 6. A catalog row without VISION is a no; anything else is unknown.
-    if caps != ModelCapability.NONE:
+    # 5. Static Default Models fallback (API fetch failed or provider has no vision API).
+    caps = get_model_capability(model_id_str, endpoint_str)
+    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
+    if caps & ModelCapability.VISION:
+        return True
+    # 6. Provider-wide facts before catalog text-only so shared rows (e.g. Gemini)
+    # that dropped VISION for OpenRouter still resolve via PROVIDER_VISION["google"].
+    if provider and provider in PROVIDER_VISION:
+        return PROVIDER_VISION[provider]
+    # Live-vision providers drop VISION from DEFAULT_MODELS, so a catalog row
+    # without VISION on those providers means "not in catalog for vision", not False.
+    has_live_api = bool(provider in _VISION_FROM_V1_MODELS or provider == "ollama" or _vision_list_url(provider, raw_ep))
+    if not has_live_api and caps != ModelCapability.NONE:
         return False
     return None
 

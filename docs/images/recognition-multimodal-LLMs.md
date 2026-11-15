@@ -46,10 +46,10 @@ Status as of PR #364 and related multimodal work. Code paths below are live; do 
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → `DEFAULT_MODELS` `ModelCapability.VISION` (defaults only) → OpenRouter/Together `input_modalities` / Ollama `POST /api/show`. The process memo key is the same `_v1_models_request` triple as the catalog fetch. Keyword-only `api_key_override` is forwarded to that fetch. The UI thread never fetches: it schedules background resolution and returns None (unknown). Off the UI thread, a cold memo fetches inline. Stored config answers are read but never written by lookups (in-process memo only; `set_native_vision_support` writes only for user settings / image error recovery). Callers attach images on `is True` and hide `get_image` on `is False`. No name heuristics. |
+| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → in-process provider memos (OpenRouter/Together/DeepSeek `input_modalities`, Mistral `capabilities.vision`, and Anthropic `capabilities.image_input.supported` from `/v1/models`; xAI `input_modalities` from `/v1/language-models`; LM Studio `capabilities.vision` from `/api/v1/models`; Ollama `POST /api/show`) → `DEFAULT_MODELS` / `PROVIDER_VISION` fallback when API fetch failed or provider has no vision API (`ModelCapability.VISION` → True, `PROVIDER_VISION` Google → True, catalog row without `VISION` → False) → None. The UI thread never fetches: it schedules background resolution and returns None (unknown). Off the UI thread, a cold memo fetches inline. Stored config answers are read but never written by lookups (in-process memo only; `set_native_vision_support` writes only for user settings / image error recovery). Callers attach images on `is True` and hide `get_image` on `is False`. No name heuristics. |
 | `set_native_vision_support(model_id, endpoint, supported)` | same | Persists to `vision_support_map` |
 | `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe (shared cache also keeps runtime `num_ctx` for the #570 crash sentence; never trained `model_info["*.context_length"]`) |
-| Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | e.g. Gemini 3.1 Flash Lite, Mistral Large 3 declare `ModelCapability.VISION` |
+| Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | Minimal fallback only for providers whose `/models` API does not report vision (Groq `qwen/qwen3.8-27b`, Z.ai `glm-5.3-flash`, `glm-5.3-flashx`) |
 
 **Doc correction:** `has_native_vision` takes `(model_id, endpoint)` — **not** `ctx`. Callers use `get_text_model()` and `get_current_endpoint()` (no component context on the config path).
 
@@ -79,7 +79,7 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 | Modes | same | `image=<name>`, `selection=true` (or implicit when no name), `page=<n>` (0-based whole-page PNG) |
 | Page render | `_render_page_png` | Writer: native `writer_png_Export` after `jumpToPage` (XRenderable abandoned — BUG-5). Draw/Impress: `GraphicExportFilter` on the `XDrawPage` (`MediaType=image/png`; same bytes as `draw_png_Export` / `impress_png_Export` after `setCurrentPage`, without a view jump). Fail-loud — never returns empty PNG. |
 | Wire marker | same | Returns `{"status":"ok","source":...,"_mcp_image":{"data":"<b64>","mimeType":"image/png"}}` |
-| Schema gating | [`vision_availability.py`](../../plugin/vision/vision_availability.py) `filter_get_image_for_text_only_model` | On **openai** schema path only: drops `get_image` when `has_native_vision` is false. Fail-open on lookup errors. MCP path always exposes it (client assumed vision-capable). Hook in [`tool.py`](../../plugin/framework/tool.py) `get_schemas`. |
+| Schema gating | [`tool.py`](../../plugin/framework/tool.py) `get_schemas` | On **openai** schema path only: drops `get_image` when `has_native_vision` `is False`. MCP path always exposes it (client assumed vision-capable). |
 
 ### MCP native image content blocks
 
@@ -102,7 +102,6 @@ MCP vision clients receive the picture itself, not base64 pasted as text.
 |------|------|
 | `has_native_vision` tiered logic | [`tests/framework/client/test_model_fetcher.py`](../../tests/framework/client/test_model_fetcher.py) |
 | `normalize_multimodal_messages` per provider | [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py), [`tests/framework/client/test_response_normalizers.py`](../../tests/framework/client/test_response_normalizers.py) |
-| `filter_get_image_for_text_only_model` | [`tests/vision/test_vision_availability.py`](../../tests/vision/test_vision_availability.py) |
 | `call_tool_result_image` | [`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py) |
 | `_render_page_png` error/control-flow | [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py) (Writer + Draw/Impress) |
 | Draw/Impress `page=N` PNG (live) | [`tests/writer/test_get_image_uno.py`](../../tests/writer/test_get_image_uno.py) |
@@ -176,8 +175,7 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 
 ### 8. Minor code-quality (low)
 
-- **`filter_get_image_for_text_only_model`** lives in [`vision_availability.py`](../../plugin/vision/vision_availability.py) (OCR/venv gating) but gates a core Writer tool on chat model capability. Consider `model_fetcher.py` or a small `multimodal_availability.py` — cosmetic only.
-- **`has_native_vision` metadata:** Uncatalogued ids (for example `google/gemini-3.8-flash`) are vision-capable when OpenRouter/Together `architecture.input_modalities` includes `image`. The sidebar still skips that GET so the combobox stays LRU + defaults; the capability check fetches once per process and writes `vision_support_map`. Do not add a `DEFAULT_MODELS` row per model id.
+- **`has_native_vision` metadata:** Uncatalogued ids (for example `google/gemini-3.8-flash`) are vision-capable when OpenRouter/Together `architecture.input_modalities` includes `image`. The sidebar still skips that GET so the combobox stays LRU + defaults; the capability check fetches once per process and stores the result in the in-process `CatalogMemo` (never `vision_support_map`). Do not add a `DEFAULT_MODELS` row per model id.
 
 ---
 
@@ -185,13 +183,35 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 
 Priority order for `has_native_vision(model_id, endpoint)`:
 
-1. **Persistent user config cache** — `vision_support_map` (`{ "endpoint@model": true/false }`).
-2. **Static catalog** — `DEFAULT_MODELS` entries with `ModelCapability.VISION`.
-3. **Dynamic provider metadata:**
-   - OpenRouter / Together: `architecture.input_modalities` containing `"image"` from `/v1/models`.
+1. **Empty model id** → `False`.
+2. **Persistent user config cache** — `vision_support_map` (`{ "endpoint@model": true/false }`).
+3. **Dynamic provider metadata (warm memo or cold fetch):**
+   - OpenRouter / Together / DeepSeek (`input_modalities`), Mistral (`capabilities.vision`), and Anthropic (`capabilities.image_input.supported`) from `/v1/models`.
+   - xAI (`input_modalities` + `aliases`) from `/v1/language-models`.
+   - LM Studio (`capabilities.vision`, keyed by `key`) from `/api/v1/models`.
    - Ollama: `POST /api/show` → `capabilities` contains `"vision"`.
    Lookups check warm in-process memos without I/O. When cold, calls on the UI thread never fetch; they schedule a background lookup and return `None` (unknown). Calls off the UI thread fetch inline. Lookups never persist provider answers to `vision_support_map`.
-4. **Static catalog without vision** — returns `False` when catalogued text-only, else `None`. No name heuristics.
+4. **Static catalog and provider-wide defaults** (fallback only when the API fetch failed or the provider has no vision API):
+   - `DEFAULT_MODELS` entries with `ModelCapability.VISION` → `True` (Groq / Z.ai).
+   - `PROVIDER_VISION` → `True` for `google`.
+   - Catalog row without `VISION` (`caps != ModelCapability.NONE`) → `False`.
+   - Else `None`. No name heuristics.
+
+`get_image` is hidden only on `is False` and images are attached only on `is True` because a UI-thread `None` is transient while a cold lookup runs in the background.
+
+| Provider | Field | List URL | Smart default |
+|---|---|---|---|
+| Anthropic (`anthropic`) | `capabilities.image_input.supported` | `GET /v1/models` | Live lookup |
+| Google Gemini (`google`) | — | — | `PROVIDER_VISION` (`True`) |
+| OpenRouter (`openrouter`) | `architecture.input_modalities` | `GET /v1/models` | Live lookup |
+| Together (`together`) | `input_modalities` | `GET /v1/models` | Live lookup |
+| Mistral (`mistral`) | `capabilities.vision` (+ `aliases`) | `GET /v1/models` | Live lookup |
+| DeepSeek (`deepseek`) | `input_modalities` | `GET /v1/models` | Live lookup |
+| xAI (`xai`) | `input_modalities` (+ `aliases`) | `GET /v1/language-models` | Live lookup |
+| LM Studio (`lmstudio`) | `capabilities.vision` (id: `key`) | `GET /api/v1/models` | Live lookup |
+| Ollama (`ollama`) | `capabilities` | `POST /api/show` | Live lookup |
+| Groq / Z.ai | — | — | Catalog rows (`qwen/qwen3.8-27b`, `glm-5.3-flash`, `glm-5.3-flashx`) |
+| Cerebras / Perplexity / NVIDIA | — | — | `None` (unknown) |
 
 ---
 
@@ -274,4 +294,4 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - Reuse `get_selected_image_base64` and graphic export machinery from the vision stack.
 - Session/DB may store list-style user `content` when an image was attached; UI must tolerate placeholders.
 - MCP image wire shape: `_mcp_image` dict in tool result → `call_tool_result_image` in protocol handler only (do not duplicate serializer elsewhere).
-- Fail-open when vision capability cannot be determined (`filter_get_image_for_text_only_model`).
+- Fail-open when vision capability cannot be determined (`get_image` is hidden in [`tool.py`](../../plugin/framework/tool.py) `get_schemas` only when `has_native_vision(...) is False`).
