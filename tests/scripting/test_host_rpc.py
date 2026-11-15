@@ -792,7 +792,7 @@ def test_section_and_structural_proxies_and_allowlists(monkeypatch):
 
     assert "section_list" in api.DOMAIN_TOOLS["sections"]
     assert "section_read" in api.DOMAIN_TOOLS["sections"]
-    assert api.TOOL_METHODS["section_list"] == ("section", "list")
+    assert api.TOOL_METHODS["section_list"] == ("section", "__iter__")
     assert api.TOOL_METHODS["section_read"] == ("section", "read")
 
     sections_allowed = resolve_allowed_tools("sections")
@@ -804,9 +804,16 @@ def test_section_and_structural_proxies_and_allowlists(monkeypatch):
     assert "section_list" in structural_allowed
 
     calls: list[tuple[str, dict[str, object]]] = []
-    monkeypatch.setattr(api, "call_host_tool", lambda tool, **kwargs: calls.append((tool, kwargs)) or {"status": "ok"})
 
-    api.section.list()
+    def _fake_call(tool: str, **kwargs: object):
+        calls.append((tool, kwargs))
+        if tool == "section_list":
+            return {"status": "ok", "sections": [{"name": "Intro"}], "count": 1}
+        return {"status": "ok"}
+
+    monkeypatch.setattr(api, "call_host_tool", _fake_call)
+
+    assert [s.name for s in api.section] == ["Intro"]
     api.section.read("Intro")
 
     assert calls == [
@@ -845,4 +852,21 @@ def test_no_namespace_shadows_alias_import():
     namespaces = {ns for ns, _method in api.TOOL_METHODS.values()}
     assert not (namespaces & alias_import_names())
 
+
+def test_catalog_and_help_show_collection_forms():
+    import plugin.scripting.writeragent_api as api
+    from plugin.scripting.host_rpc import _format_script_api_catalog_cached, format_script_api_catalog
+
+    _format_script_api_catalog_cached.cache_clear()
+    catalog = format_script_api_catalog(["sheets"])
+    assert "for item in wa.sheet" in catalog
+    assert "wa.sheet[sheet]" in catalog
+    assert "del wa.sheet[sheet]" in catalog
+    assert "wa.sheet.rename(" in catalog
+    assert "wa.sheet.list(" not in catalog
+
+    assert api.help("bookmark_get").startswith("wa.bookmark[name]")
+    full_help = api.help()
+    assert "wa.bookmark[name] (bookmark_get)" in full_help
+    assert "__getitem__" not in full_help
 

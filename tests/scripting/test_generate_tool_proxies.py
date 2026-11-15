@@ -293,7 +293,7 @@ def test_group_tools_drops_llm_orchestration_tools():
     tools.append(
         _as_tool(
             MockTool(
-                "sheet_apply_filter",
+                "table_apply_filter",
                 "Hide rows. delegate_to_subagent(domain='sheets').",
                 {
                     "type": "object",
@@ -308,7 +308,7 @@ def test_group_tools_drops_llm_orchestration_tools():
     emitted = [tool.name for entries in groups.values() for _short, tool in entries]
     for name in API_EXCLUDED_TOOLS:
         assert name not in emitted
-    assert "sheet" in groups
+    assert "table" in groups
 
     code = generate_module(tools)
     compile(code, "<generated>", "exec")
@@ -619,14 +619,14 @@ def test_proxy_qualifies_list_annotation_when_list_method_present():
         specialized_domain="charts",
     )
     no_list = MockTool(
-        "bookmark_add",
-        "Add bookmark.",
+        "footnote_add",
+        "Add footnote.",
         {
             "type": "object",
             "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
             "required": ["tags"],
         },
-        specialized_domain="bookmarks",
+        specialized_domain="footnotes",
     )
     code = generate_module([_as_tool(chart_upsert), _as_tool(chart_list), _as_tool(no_list)])
     compile(code, "<generated>", "exec")
@@ -705,4 +705,268 @@ def test_check_duplicate_registrations_rejects_clash_allows_shared():
     shared_reg.register(_make_shared("plugin.draw.shapes", "com.sun.star.drawing.DrawingDocument"))
     check_duplicate_registrations(shared_reg)
 
+
+def _exec_generated_proxy(tools: list[ToolBase], handler):
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    ns: dict[str, object] = {}
+    exec(code, ns)
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def _fake(tool: str, **kwargs: object):
+        calls.append((tool, kwargs))
+        return handler(tool, kwargs)
+
+    ns["call_host_tool"] = _fake
+    return ns, calls
+
+
+def _bookmark_tools() -> list[ToolBase]:
+    return [
+        _as_tool(MockTool("bookmark_list", "List bookmarks.", {"type": "object", "properties": {}}, specialized_domain="bookmarks")),
+        _as_tool(
+            MockTool(
+                "bookmark_get",
+                "Get bookmark.",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+                specialized_domain="bookmarks",
+            )
+        ),
+        _as_tool(
+            MockTool(
+                "bookmark_delete",
+                "Delete bookmark.",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+                specialized_domain="bookmarks",
+            )
+        ),
+        _as_tool(
+            MockTool(
+                "bookmark_create",
+                "Create bookmark.",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+                specialized_domain="bookmarks",
+            )
+        ),
+    ]
+
+
+def test_collection_namespace_is_a_container():
+    def _handler(tool: str, kwargs: dict[str, object]):
+        if tool == "bookmark_list":
+            return {"status": "ok", "bookmarks": [{"name": "A", "text": "short"}, {"name": "B", "text": "b"}], "count": 2}
+        if tool == "bookmark_get":
+            if kwargs["name"] == "A":
+                return {"status": "ok", "bookmark": {"name": "A", "text": "full"}}
+            return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "not found"}
+        if tool == "bookmark_delete":
+            if kwargs["name"] == "A":
+                return {"status": "ok", "deleted": "A"}
+            return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "not found"}
+        if tool == "bookmark_create":
+            return {"status": "ok", "name": kwargs["name"]}
+        raise AssertionError(tool)
+
+    ns, calls = _exec_generated_proxy(_bookmark_tools(), _handler)
+    bm = ns["bookmark"]
+
+    assert [item.name for item in bm] == ["A", "B"]
+    assert len(bm) == 2
+    assert "A" in bm
+    assert "Z" not in bm
+    assert bm["A"].text == "full"
+    assert bm["A"]["name"] == "A"
+
+    with pytest.raises(KeyError):
+        _ = bm["Z"]
+    with pytest.raises(KeyError):
+        del bm["Z"]
+
+    del bm["A"]
+    assert ("bookmark_delete", {"name": "A"}) in calls
+    assert not hasattr(bm, "list")
+    assert not hasattr(bm, "get")
+    assert not hasattr(bm, "delete")
+
+    assert bm.create("C") == {"status": "ok", "name": "C"}
+    assert ns["TOOL_METHODS"] == {
+        "bookmark_list": ("bookmark", "__iter__"),
+        "bookmark_get": ("bookmark", "__getitem__"),
+        "bookmark_delete": ("bookmark", "__delitem__"),
+        "bookmark_create": ("bookmark", "create"),
+    }
+
+
+def test_collection_error_for_present_name_raises_runtime_error_with_code():
+    list_fails = False
+
+    def _handler(tool: str, kwargs: dict[str, object]):
+        if tool == "bookmark_list":
+            if list_fails:
+                return {"status": "error", "code": "LIST_FAIL", "message": "list broke"}
+            return {"status": "ok", "bookmarks": [{"name": "A"}], "count": 1}
+        if tool in ("bookmark_get", "bookmark_delete"):
+            return {"status": "error", "code": "LOCKED", "message": "cannot touch"}
+        raise AssertionError(tool)
+
+    ns, _calls = _exec_generated_proxy(_bookmark_tools(), _handler)
+    bm = ns["bookmark"]
+
+    with pytest.raises(RuntimeError, match="cannot touch") as exc_info:
+        _ = bm["A"]
+    assert getattr(exc_info.value, "code", None) == "LOCKED"
+
+    with pytest.raises(RuntimeError, match="cannot touch") as del_exc:
+        del bm["A"]
+    assert getattr(del_exc.value, "code", None) == "LOCKED"
+
+    list_fails = True
+    with pytest.raises(RuntimeError, match="cannot touch") as fallback_exc:
+        _ = bm["Z"]
+    assert getattr(fallback_exc.value, "code", None) == "LOCKED"
+
+
+def test_collection_without_get_tool_reads_item_from_list():
+    tools = [
+        _as_tool(MockTool("sheet_list", "List sheets.", {"type": "object", "properties": {}}, specialized_domain="sheets")),
+        _as_tool(
+            MockTool(
+                "sheet_delete",
+                "Delete sheet.",
+                {"type": "object", "properties": {"sheet": {"type": "string"}}, "required": ["sheet"]},
+                specialized_domain="sheets",
+            )
+        ),
+    ]
+
+    def _handler(tool: str, kwargs: dict[str, object]):
+        if tool == "sheet_list":
+            return {"status": "ok", "result": [{"name": "S1", "visible": True}, {"name": "S2", "visible": False}]}
+        if tool == "sheet_delete":
+            return {"status": "ok"}
+        raise AssertionError(tool)
+
+    ns, calls = _exec_generated_proxy(tools, _handler)
+    sheet = ns["sheet"]
+
+    assert sheet["S2"].visible is False
+    assert calls == [("sheet_list", {})]
+
+    with pytest.raises(KeyError):
+        _ = sheet["Missing"]
+
+    del sheet["S1"]
+    assert calls[-1] == ("sheet_delete", {"sheet": "S1"})
+
+
+def test_collection_drops_optional_arguments():
+    tools = [
+        _as_tool(
+            MockTool(
+                "pivot_table_list",
+                "List pivots.",
+                {"type": "object", "properties": {"sheet": {"type": "string"}}},
+                specialized_domain="pivot_tables",
+            )
+        ),
+        _as_tool(
+            MockTool(
+                "pivot_table_delete",
+                "Delete pivot.",
+                {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "sheet": {"type": "string"}},
+                    "required": ["name"],
+                },
+                specialized_domain="pivot_tables",
+            )
+        ),
+    ]
+
+    def _handler(tool: str, kwargs: dict[str, object]):
+        if tool == "pivot_table_list":
+            return {"status": "ok", "pivot_tables": [{"name": "P", "sheet": "S1"}], "count": 1}
+        if tool == "pivot_table_delete":
+            return {"status": "ok"}
+        raise AssertionError(tool)
+
+    ns, calls = _exec_generated_proxy(tools, _handler)
+    pt = ns["pivot_table"]
+
+    assert [item.name for item in pt] == ["P"]
+    del pt["P"]
+    assert calls == [("pivot_table_list", {}), ("pivot_table_delete", {"name": "P"})]
+
+
+@pytest.mark.parametrize(
+    "bad_tools",
+    [
+        # No delete tool
+        [MockTool("bookmark_list", "List.", {"type": "object", "properties": {}})],
+        # Two required delete parameters
+        [
+            MockTool("bookmark_list", "List.", {"type": "object", "properties": {}}),
+            MockTool(
+                "bookmark_delete",
+                "Delete.",
+                {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "scope": {"type": "string"}},
+                    "required": ["name", "scope"],
+                },
+            ),
+        ],
+        # Integer key
+        [
+            MockTool("bookmark_list", "List.", {"type": "object", "properties": {}}),
+            MockTool(
+                "bookmark_delete",
+                "Delete.",
+                {"type": "object", "properties": {"index": {"type": "integer"}}, "required": ["index"]},
+            ),
+        ],
+        # Required list parameter
+        [
+            MockTool(
+                "bookmark_list",
+                "List.",
+                {"type": "object", "properties": {"scope": {"type": "string"}}, "required": ["scope"]},
+            ),
+            MockTool(
+                "bookmark_delete",
+                "Delete.",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            ),
+        ],
+        # Get key different from delete key
+        [
+            MockTool("bookmark_list", "List.", {"type": "object", "properties": {}}),
+            MockTool(
+                "bookmark_get",
+                "Get.",
+                {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            ),
+            MockTool(
+                "bookmark_delete",
+                "Delete.",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            ),
+        ],
+    ],
+)
+def test_collection_namespace_shape_errors(bad_tools):
+    with pytest.raises(ValueError, match="bookmark"):
+        generate_module([_as_tool(t) for t in bad_tools])
+
+
+def test_collection_rejects_non_dict_list_entries():
+    ns, _calls = _exec_generated_proxy(
+        _bookmark_tools(),
+        lambda tool, kwargs: {"status": "ok", "bookmarks": ["A"], "count": 1},
+    )
+    bm = ns["bookmark"]
+    with pytest.raises(RuntimeError, match="Expected dict entries"):
+        _ = "A" in bm
+    with pytest.raises(RuntimeError, match="Expected dict entries"):
+        list(bm)
 

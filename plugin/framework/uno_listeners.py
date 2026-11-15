@@ -91,6 +91,9 @@ if TYPE_CHECKING:
 
     class _XTerminateListenerParent:
         pass
+
+    class _XStatusListenerParent:
+        pass
 else:
     # Each fallback is its own class. One shared stub is a duplicate base
     # on BaseListener(_BaseParent, _XEventListenerParent).
@@ -114,6 +117,7 @@ else:
         from com.sun.star.container import XContainerListener as _XContainerListenerParent
         from com.sun.star.util import XModifyListener as _XModifyListenerParent
         from com.sun.star.frame import XTerminateListener as _XTerminateListenerParent
+        from com.sun.star.frame import XStatusListener as _XStatusListenerParent
 
         _BaseParent = unohelper.Base
         HAVE_UNO = True
@@ -135,6 +139,7 @@ else:
         _XTopWindowListenerParent = type("_DummyTopWindowListener", (), {})
         _XModifyListenerParent = type("_DummyModifyListener", (), {})
         _XTerminateListenerParent = type("_DummyTerminateListener", (), {})
+        _XStatusListenerParent = type("_DummyStatusListener", (), {})
 
 
 # Marker on wrappers from ``_catch_and_log``. Prefer this over ``id()`` so a
@@ -564,6 +569,17 @@ class BaseTerminateListener(BaseListener, _XTerminateListenerParent):
         pass
 
     def on_notify_termination(self, Event: Any) -> None:
+        pass
+
+
+class BaseStatusListener(BaseListener, _XStatusListenerParent):
+    """Base listener for dispatch feature state (XStatusListener)."""
+
+    @_catch_and_log
+    def statusChanged(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        self.on_status_changed(Event)
+
+    def on_status_changed(self, Event: Any) -> None:
         pass
 
 
