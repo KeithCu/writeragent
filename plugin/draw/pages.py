@@ -478,20 +478,21 @@ def _slide_index_by_name(
     tool: ToolBase,
     entries: list[dict[str, Any]],
     wanted: str,
-) -> tuple[int | None, dict[str, Any] | None]:
+) -> int | dict[str, Any]:
+    """Resolve *wanted* to a 0-based page index; UNO allows duplicate slide names, so multiple hits fail."""
     key = wanted.strip()
     hits = [e["index"] for e in entries if key and e["name"] == key]
     if len(hits) == 1:
-        return hits[0], None
+        return hits[0]
     if not hits:
         names = [e["name"] for e in entries]
-        return None, tool._tool_error(
+        return tool._tool_error(
             "No slide named %r." % wanted,
             code="INVALID_PARAM",
             available=names,
             **available_miss_details(wanted, names),
         )
-    return None, tool._tool_error(
+    return tool._tool_error(
         "Several slides named %r at index %s; pass to_page instead." % (wanted, ", ".join(str(i) for i in hits)),
         code="INVALID_PARAM",
         candidates=hits,
@@ -530,10 +531,9 @@ class MoveSlide(_SlideMutationTool):
         if dests[0] == "to_page":
             to_page = kwargs["to_page"]
         else:
-            anchor, err = _slide_index_by_name(self, page_entries(pages), str(kwargs[dests[0]]))
-            if err is not None:
-                return err
-            assert anchor is not None
+            anchor = _slide_index_by_name(self, page_entries(pages), str(kwargs[dests[0]]))
+            if isinstance(anchor, dict):
+                return anchor
             to_page = _index_relative_to(from_page, anchor, after=(dests[0] == "after"))
 
         try:

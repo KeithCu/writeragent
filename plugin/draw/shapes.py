@@ -67,12 +67,9 @@ def _ensure_shape_name(page: Any, shape: Any) -> str:
     if current:
         return current
     used = set(_page_shape_names(page))
-    for n in itertools.count(1):
-        candidate = f"Shape{n}"
-        if candidate not in used:
-            shape.Name = candidate
-            return candidate
-    raise AssertionError("unreachable")  # pragma: no cover
+    candidate = next(f"Shape{n}" for n in itertools.count(1) if f"Shape{n}" not in used)
+    shape.Name = candidate
+    return candidate
 
 
 def _name_taken_error(tool: ToolBase, name: str) -> dict[str, Any]:
@@ -434,8 +431,9 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
         _try(failed_props, "text", _apply_text)
 
-    if kwargs.get("name") and hasattr(shape, "Name"):
-        _try(failed_props, "name", lambda: setattr(shape, "Name", str(kwargs["name"])))
+    stripped_name = str(kwargs.get("name") or "").strip()
+    if stripped_name and hasattr(shape, "Name"):
+        _try(failed_props, "name", lambda: setattr(shape, "Name", stripped_name))
 
     # Background/Fill Color
     if kwargs.get("fill_color"):
@@ -630,6 +628,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
     page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
     if action == "create":
+        # Without this check, an explicit duplicate name would undo the
+        # page-unique Name guarantee that auto-naming relies on.
         wanted_name = str(kwargs.get("name") or "").strip()
         if wanted_name and wanted_name in _page_shape_names(page):
             return _name_taken_error(tool, wanted_name)
@@ -730,6 +730,8 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         if find_err or shape is None:
             return tool._tool_error(find_err or "Shape not found.")
 
+        # Without this check, renaming by index to an existing name would
+        # create a duplicate on the page.
         new_name = str(kwargs.get("name") or "").strip()
         if "index" in kwargs and new_name and new_name != str(getattr(shape, "Name", "") or "").strip() and new_name in _page_shape_names(page):
             return _name_taken_error(tool, new_name)
@@ -911,13 +913,25 @@ class GroupShapes(_AnyDocumentShapeTool):
             shape_collection.add(shape)
         # page.group is the first page mutation; failure propagates to execute_safe.
         group = page.group(shape_collection)
+        group_name = ""
+        warnings: list[str] = []
+        try:
+            group_name = _ensure_shape_name(page, group)
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            log.debug("group name assignment failed", exc_info=True)
+            warnings.append("Failed to assign group name")
 
-        return {
+        res: dict[str, Any] = {
             "status": "ok",
             "message": f"Grouped {len(indices)} shapes.",
             "index": page.getCount() - 1,  # Grouping replaces the individuals with this group shape
-            "name": _ensure_shape_name(page, group),
+            "name": group_name,
         }
+        if warnings:
+            res["warnings"] = warnings
+        return res
 
 
 def _shape_box(shape: Any) -> tuple[int, int, int, int]:

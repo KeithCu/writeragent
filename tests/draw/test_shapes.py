@@ -730,25 +730,66 @@ def test_shape_upsert_create_keeps_existing_name():
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "expect_status", "expect_create_called"),
+    ("kwargs", "expect_status"),
     [
-        ({"action": "create", "shape_type": "rectangle", "x": 100, "y": 100, "width": 200, "height": 200, "name": "Box"}, "error", False),
-        ({"action": "edit", "index": 0, "x": 999, "name": "Box"}, "error", False),
-        ({"action": "edit", "index": 0, "name": "First"}, "ok", False),
+        ({"action": "create", "shape_type": "rectangle", "x": 100, "y": 100, "width": 200, "height": 200, "name": "Box"}, "error"),
+        ({"action": "edit", "index": 0, "x": 999, "name": "Box"}, "error"),
+        ({"action": "edit", "index": 0, "name": "First"}, "ok"),
     ],
 )
-def test_shape_upsert_rejects_taken_name(kwargs, expect_status, expect_create_called):
+def test_shape_upsert_rejects_taken_name(kwargs, expect_status):
     ctx, doc, page, page_shapes, _created = _make_name_test_env(["First", "Box"])
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = UpsertShape().execute(ctx, **kwargs)
     assert out["status"] == expect_status
+    assert page_shapes[0].Name == "First"
+    doc.createInstance.assert_not_called()
     if expect_status == "error":
         assert out["code"] == "INVALID_PARAM"
-        assert page_shapes[0].Name == "First"
         page_shapes[0].setPosition.assert_not_called()
-    if not expect_create_called:
-        doc.createInstance.assert_not_called()
+
+
+def test_shape_upsert_create_strips_explicit_name():
+    ctx, _doc, page, _shapes, created = _make_name_test_env([], created_name="")
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(
+            ctx,
+            action="create",
+            shape_type="rectangle",
+            x=100,
+            y=100,
+            width=200,
+            height=200,
+            name=" Box",
+        )
+    assert out["status"] == "ok"
+    assert out["name"] == "Box"
+    assert created.Name == "Box"
+
+
+def test_shape_group_name_failure_adds_warning():
+    ctx, _doc, page, _shapes, _created = _make_name_test_env(["Left", "Right"])
+
+    class _ReadOnlyNameGroup:
+        @property
+        def Name(self) -> str:
+            return ""
+
+        @Name.setter
+        def Name(self, _value: str) -> None:
+            raise RuntimeError("Name is read-only")
+
+    page.group.return_value = _ReadOnlyNameGroup()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=["Left", "Right"])
+    assert out["status"] == "ok"
+    assert out["name"] == ""
+    assert out["warnings"] == ["Failed to assign group name"]
 
 
 def test_shape_upsert_within_page_has_no_warning():
