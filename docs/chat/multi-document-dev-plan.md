@@ -23,7 +23,7 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 **Phase 0** provides same-directory discovery and cross-file **read** via **two-tier delegation**. Main adds only `document_research` to the existing delegate enum — no new core tools on main.
 
-**User flow:** one `delegate_to_specialized_*_toolset(domain="document_research", task="…")` call → **outer** sub-agent lists/opens → **inner** sub-agent(s) read with production read tools → compact result to main → main writes **active** doc only.
+**User flow:** one `delegate_to_*_subagent(domain="document_research", task="…")` call → **outer** sub-agent lists/opens → **inner** sub-agent(s) read with production read tools → compact result to main → main writes **active** doc only.
 
 - Same folder as the active saved document’s **parent directory** (no config dirs, no recursion).
 - **Untitled** active doc: list from LibreOffice profile **Work** folder ([`get_work_directory`](../../plugin/doc/document_research.py) via `com.sun.star.util.thePathSettings`); if that path is missing, fall back to other **open** LO file URLs only (see [Edge cases](#edge-cases-and-failure-modes)).
@@ -35,7 +35,7 @@ Unlike a code repo with thousands of files, a typical office folder has **tens**
 
 | Principle | Detail |
 | --------- | ------ |
-| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_content`, `get_tree`, `search`, `get_sheet_summary`, `read_range`, Draw read tools, …) via `SmolToolAdapter` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_specialized_*_toolset`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
+| **Same read tools, not main’s schema** | The **inner** sub-agent calls the same production read tools as today (`get_content`, `get_tree`, `search`, `get_sheet_summary`, `read_range`, Draw read tools, …) via `SmolToolAdapter` — not a parallel extractor. Main chat does **not** register those tools; it only has **core** tools plus `delegate_to_*_subagent`. **Discovery** (`list_nearby_files` on the **outer** agent) and **targeting** (open hidden/read-only, point `ToolContext.doc` at that model) live in the document_research domain. |
 | **Read-only on other files** | Mutation tools apply to the **active** document only. Sibling files are opened **read-only**; write APIs are **not** exposed on those models in Phase 0 (see [Read-only enforcement](#read-only-enforcement) and [Open questions](#open-questions) #4). |
 | **Writer + Calc + Draw** | Calc is first-class (budget → table). Draw/Impress: `slide_list` + shape/text tools where applicable. |
 | **Active doc unchanged** | Cross-doc reads must not steal focus or mutate the user’s window; hidden open in the **same** LO process for Phase 0. |
@@ -102,7 +102,7 @@ MVP: basename **substring** filter on `list_nearby_files(filter=…)` plus **new
 flowchart TD
     UserMsg["User: grab Q4 from budget"]
     MainAgent["Main agent — active doc only"]
-    Delegate["delegate_to_specialized_*_toolset domain=document_research"]
+    Delegate["delegate_to_*_subagent domain=document_research"]
     Outer["Outer sub-agent — orchestration"]
     ListOpen["list_nearby_files, open hidden ReadOnly"]
     Inner["Inner sub-agent — one opened file"]
@@ -129,7 +129,7 @@ See [Threading / nested delegation](#threading--nested-delegation) for UNO threa
 
 ## Tool API contract (in-process parity, read-only elsewhere)
 
-**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_specialized_{writer|calc|draw}_toolset`** gateway per app. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent ([`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py)).
+**Main chat today:** sidebar exposes **core**-tier tools for the active doc plus one **`delegate_to_{writer|calc|draw}_subagent`** gateway per app. That delegate’s `domain` parameter is an enum of specialized domains (shapes, python, web_research, …) — not the specialized tools themselves. [`ToolRegistry.get_schemas`](../../plugin/framework/tool.py) excludes `specialized` / `specialized_control` from the main wire list; specialized work runs in a sub-agent ([`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py)).
 
 **Multi-document extension:**
 
@@ -154,7 +154,7 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 | Layer | Responsibility | Tool surface |
 | ----- | -------------- | ------------ |
-| **Main agent** | User intent; edits **active** doc only. | **Core** tools on active `ToolContext.doc` + `delegate_to_specialized_{writer\|calc\|draw}_toolset` (domain enum includes **`document_research`**). No specialized-tier tools on main’s wire schema. |
+| **Main agent** | User intent; edits **active** doc only. | **Core** tools on active `ToolContext.doc` + `delegate_to_{writer\|calc\|draw}_subagent` (domain enum includes **`document_research`**). No specialized-tier tools on main’s wire schema. |
 | **Outer sub-agent** | Natural-language **task** from main. Lists nearby files, resolves names, calls **inner** per file, aggregates. | `list_nearby_files`, `delegate_read_document(path, task)`, `specialized_workflow_finished` / final answer. **No** `apply_*` / `write_*`. |
 | **Inner sub-agent** | One run per opened file; `doc_type` known. | **Read tools for that type only** — Writer inner never sees `read_range`; Calc inner never sees `get_tree`. Same production schemas; **no writes.** |
 
@@ -338,7 +338,7 @@ flowchart LR
 
 **Main (unchanged wire shape):**
 
-- `delegate_to_specialized_{writer|calc|draw}_toolset(domain="document_research", task="…")` only.
+- `delegate_to_{writer|calc|draw}_subagent(domain="document_research", task="…")` only.
 - No `list_nearby_files`, no read tools, no new core tools on main.
 - Delegate gateway descriptions mention `domain=document_research` (Writer/Calc/Draw).
 
@@ -475,7 +475,7 @@ flowchart LR
 
 - **Active document:** unchanged — `X-Document-URL` on [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py).
 - **Nearby reads:** path or `url` in tool args / delegate task; **do not** retarget `X-Document-URL` to sibling files.
-- **Tool surface:** same as sidebar — document_research via `delegate_to_specialized_*_toolset(domain="document_research", …)`, not dozens of new MCP tool names ([../mcp-protocol.md](../mcp-protocol.md) specialized-tier policy).
+- **Tool surface:** same as sidebar — document_research via `delegate_to_*_subagent(domain="document_research", …)`, not dozens of new MCP tool names ([../mcp-protocol.md](../mcp-protocol.md) specialized-tier policy).
 - **Test:** [`test_mcp_server.py`](../../plugin/tests/mcp/test_mcp_server.py) — document_research delegate with header pointing at active Writer doc.
 
 ---

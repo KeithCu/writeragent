@@ -167,7 +167,7 @@ def test_transcript_includes_inner_assistant_messages(tmp_path: Path, monkeypatc
             "reasoning": "Outer reasoning",
             "tool_calls": [
                 _tc(
-                    "delegate_to_specialized_calc_toolset",
+                    "delegate_to_calc_subagent",
                     {"domain": "ranges", "task": "Sort A1:B3"},
                     tid="outer_1",
                 )

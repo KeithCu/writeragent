@@ -22,6 +22,7 @@ from plugin.chatbot.tool_loop_state import (
     tools_have_apply_document_content,
 )
 from plugin.doc.specialized_catalog import InnerToolCall, normalize_inner_result
+from plugin.framework.constants import SUBAGENT_TOOL_NAMES
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.client.llm_client import LlmClient
@@ -45,13 +46,6 @@ from eval_catalog import apply_schema_density, apply_schema_patches, prepare_eva
 from eval_worlds import CalcWorld, DrawWorld, WriterWorld
 from string_eval_tools import dispatch_string_tool
 
-DELEGATE_TOOL_NAMES = frozenset(
-    {
-        "delegate_to_specialized_writer_toolset",
-        "delegate_to_specialized_calc_toolset",
-        "delegate_to_specialized_draw_toolset",
-    }
-)
 SPECIALIZED_FINISH = "specialized_workflow_finished"
 INNER_MAX_ROUNDS = 12
 
@@ -201,7 +195,7 @@ def _eval_tools(
 
     ``tools_spec`` filters the *outer* catalog only. Specialized inner loops
     pass ``active_domain`` and still get the full domain schemas (plus
-    density + patches) so ``delegate_to_specialized_*`` keeps working.
+    density + patches) so ``delegate_to_*_subagent`` keeps working.
     """
     return prepare_eval_tool_schemas(
         kind=kind,
@@ -231,7 +225,7 @@ def delegated_domain_schemas(
 
     from eval_catalog import schema_tool_name
 
-    hidden: set[str] = set(DELEGATE_TOOL_NAMES)
+    hidden: set[str] = set(SUBAGENT_TOOL_NAMES)
     hidden.add("delegate_tool_domains")
     for domain in domains:
         hidden |= set(script_only_llm_tool_names(domain))
@@ -429,7 +423,7 @@ def _run_specialized_inner(
                     allow=allow_delegate_domains,
                     _capture=_capture,
                 )
-            elif name in DELEGATE_TOOL_NAMES:
+            elif name in SUBAGENT_TOOL_NAMES:
                 result = json.dumps(
                     {
                         "status": "error",
@@ -773,7 +767,7 @@ def _run_llm_chat_eval_impl(
                         _capture=_capture,
                     )
                     trace.append(_trace_entry(name, raw_args, result))
-                elif name in DELEGATE_TOOL_NAMES:
+                elif name in SUBAGENT_TOOL_NAMES:
                     args = safe_json_loads(raw_args)
                     if not isinstance(args, dict):
                         args = {}

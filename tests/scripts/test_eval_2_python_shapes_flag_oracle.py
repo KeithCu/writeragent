@@ -37,7 +37,7 @@ from eval_2_python_shapes_flag_oracle import (  # noqa: E402
 _PASS_LOG = "\n".join((
     "=== Tool-calling loop START (max 50 rounds) ===",
     "Tool loop round 0: sending 2 messages to API...",
-    "Tool call: delegate_to_specialized_writer_toolset("
+    "Tool call: delegate_to_writer_subagent("
     '{"domain": "python", "task": "American flag with shapes"})',
     "Tool loop round 1: sending 4 messages to API...",
     "streaming_loop: accumulated tool_calls tool_calls=["
@@ -144,7 +144,7 @@ def test_few_shot_text_is_not_execution() -> None:
 _NESTED_EMPTY_DTD_LOG = "\n".join((
     "=== Tool-calling loop START (max 50 rounds) ===",
     "Tool loop round 0: sending 2 messages to API...",
-    'Tool call: delegate_to_specialized_writer_toolset('
+    'Tool call: delegate_to_writer_subagent('
     '{"domain": "python", "task": "American flag with shapes"})',
     _FEW_SHOT_ONLY,
     "SmolToolAdapter executing async tool 'delegate_tool_domains' on worker",
@@ -155,7 +155,7 @@ _NESTED_EMPTY_DTD_LOG = "\n".join((
     "Tool loop round 1: sending 4 messages to API...",
 ))
 _SYNC_SHAPES_DTD_LOG = "\n".join((
-    'Tool call: delegate_to_specialized_writer_toolset('
+    'Tool call: delegate_to_writer_subagent('
     '{"domain": "python", "task": "American flag with shapes"})',
     "=== Sync response: {",
     '  "choices": [',
@@ -179,7 +179,7 @@ _SYNC_SHAPES_DTD_LOG = "\n".join((
     _FEW_SHOT_ONLY,
 ))
 _FOOTNOTES_ONLY_DTD_LOG = "\n".join((
-    'Tool call: delegate_to_specialized_writer_toolset('
+    'Tool call: delegate_to_writer_subagent('
     '{"domain": "python", "task": "add a footnote"})',
     "=== Sync response: {",
     '  "choices": [',
@@ -241,7 +241,7 @@ def test_sync_response_tool_call_args_count_for_nested_dtd() -> None:
 
 def test_tool_async_empty_dtd_counts_when_later_venv_upserts() -> None:
     log = "\n".join((
-        'Tool call: delegate_to_specialized_writer_toolset({"domain": "python", "task": "flag"})',
+        'Tool call: delegate_to_writer_subagent({"domain": "python", "task": "flag"})',
         "thread='tool-async-delegate_tool_domains'",
         "SmolToolAdapter executing async tool 'run_venv_python_script' on worker",
         'Tool call: run_venv_python_script("import writeragent as wa\\nwa.shape.upsert(\'create\')")',
@@ -395,7 +395,7 @@ def test_blank_page_fails() -> None:
 
 def test_llm_shape_upsert_without_venv_fails() -> None:
     log = "\n".join((
-        'Tool call: delegate_to_specialized_draw_toolset({"domain": "shapes", "task": "flag"})',
+        'Tool call: delegate_to_draw_subagent({"domain": "shapes", "task": "flag"})',
         'Tool call: shape_upsert({"action": "create", "shape_type": "rectangle", "width": 19001})',
     ))
     evidence = parse_path_evidence(log)
@@ -415,7 +415,7 @@ def test_llm_shape_upsert_without_venv_fails() -> None:
 def test_images_png_path_fails_even_with_venv() -> None:
     log = "\n".join((
         _PASS_LOG,
-        'Tool call: delegate_to_specialized_writer_toolset({"domain": "images", "task": "png flag"})',
+        'Tool call: delegate_to_writer_subagent({"domain": "images", "task": "png flag"})',
         'Tool call: image_generate({"prompt": "american flag"})',
     ))
     evidence = parse_path_evidence(log)
@@ -498,7 +498,7 @@ def test_venv_args_wa_shape_upsert_is_bonus() -> None:
 def test_eval_trace_is_path_evidence_without_debug_log() -> None:
     trace = [
         {
-            "name": "delegate_to_specialized_writer_toolset",
+            "name": "delegate_to_writer_subagent",
             "arguments": '{"domain": "python", "task": "American flag"}',
         },
         {

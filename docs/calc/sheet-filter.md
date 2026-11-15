@@ -6,7 +6,7 @@ This document describes **sheet data filtering** in LibreOffice Calc: hiding row
 
 ## 1. User-facing behavior (extension tools)
 
-Sheet filter tools live in the **specialized** tier with domain **`sheets`**. The main chat agent does not see them in the default tool list; use **`delegate_to_specialized_calc_toolset`** with `domain: "sheets"`. See [specialized-toolsets.md](specialized-toolsets.md).
+Sheet filter tools live in the **specialized** tier with domain **`sheets`**. The main chat agent does not see them in the default tool list; use **`delegate_to_calc_subagent`** with `domain: "sheets"`. See [specialized-toolsets.md](specialized-toolsets.md).
 
 | Tool | Role |
 |------|------|

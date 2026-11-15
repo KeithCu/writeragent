@@ -567,7 +567,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     ctx.send_cancellation = None
     ctx.doc_type = "writer"
 
-    gateway = registry.get("delegate_to_specialized_writer_toolset")
+    gateway = registry.get("delegate_to_writer_subagent")
     result = gateway.execute_safe(ctx, domain="python", task="Add a footnote after the revenue sentence")
     assert result["status"] == "incomplete"
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"

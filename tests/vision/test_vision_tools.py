@@ -99,7 +99,7 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
     schema = {
         "type": "function",
         "function": {
-            "name": "delegate_to_specialized_writer_toolset",
+            "name": "delegate_to_writer_subagent",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -245,7 +245,7 @@ def test_vision_directive_draw_names_draw_gateway(_mock_avail):
     doc = MagicMock()
     doc.supportsService.side_effect = lambda svc: svc in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
     text = get_vision_core_directive(doc, MagicMock())
-    assert 'delegate_to_specialized_draw_toolset(domain="vision"' in text
+    assert 'delegate_to_draw_subagent(domain="vision"' in text
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
@@ -304,7 +304,7 @@ def test_get_vision_core_directive_calc_when_available(_mock_avail, calc_doc):
     from plugin.vision.vision_availability import get_vision_core_directive
 
     text = get_vision_core_directive(calc_doc, MagicMock())
-    assert 'delegate_to_specialized_calc_toolset(domain="vision"' in text
+    assert 'delegate_to_calc_subagent(domain="vision"' in text
 
 
 @patch("plugin.framework.queue_executor.main.call")

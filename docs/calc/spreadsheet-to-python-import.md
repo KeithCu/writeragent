@@ -420,7 +420,7 @@ flowchart TB
 | `convert_spreadsheet_to_python` | Menu action (Calc → Convert Sheet to Python…), not an agent tool |
 | `list_functions` | Agent lookup unsupported function |
 | `detect_errors` | Pre/post validation |
-| `delegate_to_specialized_calc_toolset` | N/A for v1 |
+| `delegate_to_calc_subagent` | N/A for v1 |
 
 ### Table D — External libraries (research; not shipped)
 

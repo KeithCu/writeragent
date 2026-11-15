@@ -29,7 +29,7 @@ Recreate these the same way for a re-run. They are not checked in.
 
 ## Expected domains
 
-Writer: `delegate_to_specialized_writer_toolset`. Calc: `delegate_to_specialized_calc_toolset`.
+Writer: `delegate_to_writer_subagent`. Calc: `delegate_to_calc_subagent`.
 
 | Area | Expected domain | Notes |
 |------|-----------------|-------|

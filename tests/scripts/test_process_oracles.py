@@ -84,7 +84,7 @@ def test_flag_task_allows_domain_python() -> None:
     # same trace must not zero it before the flag oracle runs.
     trace = [
         {
-            "name": "delegate_to_specialized_writer_toolset",
+            "name": "delegate_to_writer_subagent",
             "arguments": json.dumps({"domain": "python", "task": "flag"}),
             "result_status": "ok",
             "result_chars": 10,
@@ -98,7 +98,7 @@ def test_flag_task_allows_domain_python() -> None:
 def test_domain_python_fails() -> None:
     trace = [
         {
-            "name": "delegate_to_specialized_calc_toolset",
+            "name": "delegate_to_calc_subagent",
             "arguments": json.dumps({"domain": "python", "task": "unique"}),
             "result_status": "error",
             "result_chars": 10,

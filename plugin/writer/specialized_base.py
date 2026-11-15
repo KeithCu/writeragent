@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar, Type
 
-from plugin.framework.constants import ALL_DOCUMENT_SERVICES
+from plugin.framework.constants import ALL_DOCUMENT_SERVICES, WRITER_SUBAGENT_TOOL
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -36,8 +36,6 @@ from plugin.framework.prompts import (
 )
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
-
-_WRITER_DELEGATE_TOOL = "delegate_to_specialized_writer_toolset"
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 
@@ -94,12 +92,12 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
     to focus on the user's specific request, preventing context pollution.
     """
 
-    name: str | None = _WRITER_DELEGATE_TOOL
+    name: str | None = WRITER_SUBAGENT_TOOL
     description: str = (
-        "Delegates a specialized task with a focused toolset. "
+        "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
         "For document_research and web_research, describe what to research in task (topics, sections, depth). "
-        f"{delegation_math_to_python_hint(delegate_toolset=_WRITER_DELEGATE_TOOL)} "
-        f"{python_orchestrator_routing_line(delegate_toolset=_WRITER_DELEGATE_TOOL)}"
+        f"{delegation_math_to_python_hint(delegate_tool=WRITER_SUBAGENT_TOOL)} "
+        f"{python_orchestrator_routing_line(delegate_tool=WRITER_SUBAGENT_TOOL)}"
     )
 
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
@@ -166,7 +164,7 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "OCR: extract text and structure (layout, tables) from the selected graphic and insert it into the document (task is ignored). Use this call for OCR."
+        "Runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, after it in the document. Use this call for OCR."
     )
 
 

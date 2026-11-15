@@ -485,7 +485,7 @@ def test_p1_total_row_peer_roundtrip(ctx):
         decided = [name for row in _capture_tools() for name in row]
         peer_sends = sum(1 for n in decided if n in ("send_peer_work", "send_peer_result"))
         if peer_sends >= 2 and (
-            "write_range" in decided or "delegate_to_specialized_calc_toolset" in decided
+            "write_range" in decided or "delegate_to_calc_subagent" in decided
         ):
             _wait_both_idle(timeout=8.0)
             break
@@ -513,8 +513,8 @@ def test_p1_total_row_peer_roundtrip(ctx):
     decided = [name for row in snaps for name in (row.get("decided_tools") or [])]
     assert "send_peer_work" in decided or "send_peer_result" in decided
     assert "write_range" in decided or "SUM" in formula.upper()
-    assert "delegate_to_specialized_writer_toolset" in decided
-    assert "delegate_to_specialized_calc_toolset" in decided
+    assert "delegate_to_writer_subagent" in decided
+    assert "delegate_to_calc_subagent" in decided
 
 
 @native_test

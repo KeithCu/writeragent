@@ -706,11 +706,11 @@ def test_delegate_when_advertised_else_html():
     hit = decide_completion(
         {
             "messages": [{"role": "user", "content": "outline this document"}],
-            "tools": _tools("delegate_to_specialized_writer_toolset", "web_research"),
+            "tools": _tools("delegate_to_writer_subagent", "web_research"),
         },
         cfg,
     )
-    assert hit.tool_name == "delegate_to_specialized_writer_toolset"
+    assert hit.tool_name == "delegate_to_writer_subagent"
     assert hit.tool_args is not None
     assert hit.tool_args["domain"] == "document_research"
     miss = decide_completion(
@@ -793,12 +793,12 @@ def test_specialized_inner_finish_only_when_no_discovery_tools():
 
 
 def test_empty_nested_answer_delegates_then_empty_finish():
-    main = _tools("delegate_to_specialized_writer_toolset", "web_research", "apply_content")
+    main = _tools("delegate_to_writer_subagent", "web_research", "apply_content")
     out = decide_completion(
         {"messages": [{"role": "user", "content": "empty nested answer"}], "tools": main},
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "delegate_to_specialized_writer_toolset"
+    assert out.tool_name == "delegate_to_writer_subagent"
     inner = _tools("list_nearby_files", "specialized_workflow_finished")
     finish = decide_completion(
         {"messages": [{"role": "user", "content": "empty nested answer"}], "tools": inner},
@@ -957,16 +957,16 @@ def test_fail_native_audio_400_then_stt_ok():
         ),
         pytest.param(
             "outline this",
-            "delegate_to_specialized_writer_toolset",
+            "delegate_to_writer_subagent",
             "Mock outline complete.",
-            ("delegate_to_specialized_writer_toolset", "get_tree", "web_research"),
-            id="delegate_to_specialized_writer_toolset",
+            ("delegate_to_writer_subagent", "get_tree", "web_research"),
+            id="delegate_to_writer_subagent",
         ),
         pytest.param(
             "two tools",
             "get_tree",
             '{"headings": []}',
-            ("delegate_to_specialized_writer_toolset", "get_tree", "web_research"),
+            ("delegate_to_writer_subagent", "get_tree", "web_research"),
             id="get_tree",
         ),
     ],
@@ -1604,13 +1604,13 @@ def test_http_models_lists_stt_id(mock_http):
 _WRITER_OUTER = (
     "web_research",
     "apply_content",
-    "delegate_to_specialized_writer_toolset",
+    "delegate_to_writer_subagent",
     "get_tree",
 )
 _CALC_OUTER = (
     "sheet_list",
     "write_range",
-    "delegate_to_specialized_calc_toolset",
+    "delegate_to_calc_subagent",
 )
 _INNER_PEER = (
     "send_peer_work",
@@ -1667,7 +1667,7 @@ def test_peer_total_writer_outer_delegates_not_send_peer():
         _payload("Ask the budget workbook to add a Total row", _WRITER_OUTER, system=_PEER_SYS),
         MockLLMConfig(delay_ms=0),
     )
-    assert out.tool_name == "delegate_to_specialized_writer_toolset"
+    assert out.tool_name == "delegate_to_writer_subagent"
     assert (out.tool_args or {}).get("domain") == "document_research"
     names = [n for n, _a in completion_tool_calls(out)]
     assert "send_peer_work" not in names
@@ -1730,7 +1730,7 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
         _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("write_range", '{"status":"ok"}')),
         MockLLMConfig(delay_ms=0),
     )
-    assert delegate.tool_name == "delegate_to_specialized_calc_toolset"
+    assert delegate.tool_name == "delegate_to_calc_subagent"
     assert (delegate.tool_args or {}).get("domain") == "document_research"
     assert "send_peer_result" in ((delegate.tool_args or {}).get("task") or "")
     assert "send_peer_work" not in [n for n, _a in completion_tool_calls(delegate)]
@@ -1794,7 +1794,7 @@ def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
         _payload(envelope, _CALC_OUTER, system=_WRITER_SYS, prior=_tool_follow("write_range", '{"status":"ok"}')),
         cfg,
     )
-    assert reply.tool_name == "delegate_to_specialized_calc_toolset"
+    assert reply.tool_name == "delegate_to_calc_subagent"
     assert "send_peer_work" not in [n for n, _a in completion_tool_calls(reply)]
 
 

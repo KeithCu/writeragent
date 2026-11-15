@@ -122,7 +122,7 @@ WriterAgent deliberately runs **two orchestration idioms** sharing one HTTP clie
 
 Explicit rule from that doc: **do not merge `tool_loop` with `ToolCallingAgent`** — different transcript semantics. Adding LangChain `AgentExecutor` would introduce a **third** idiom.
 
-Multi-step autonomous work (Phase 5's original goal) is already covered: main chat calls `delegate_to_specialized_*_toolset` → smol sub-agent → result folded into main history without ReAct pollution.
+Multi-step autonomous work (Phase 5's original goal) is already covered: main chat calls `delegate_to_*_subagent` → smol sub-agent → result folded into main history without ReAct pollution.
 
 ### Cost/benefit summary
 
@@ -225,7 +225,7 @@ Prioritized by leverage vs. complexity. **Do not** re-implement Phases 1–2 via
 **Shipped approach:**
 
 - **Main chat** keeps `ToolCallingMixin` / `tool_loop.py` for sidebar streaming, UNO safety, and OpenAI-shaped history.
-- **Multi-step work** uses **smolagents sub-agents** via delegate gateway tools (`delegate_to_specialized_writer_toolset`, etc.) and dedicated tools (`web_research`, librarian onboarding).
+- **Multi-step work** uses **smolagents sub-agents** via delegate gateway tools (`delegate_to_writer_subagent`, etc.) and dedicated tools (`web_research`, librarian onboarding).
 - **Human-in-the-loop** for web search is implemented in `tool_loop.py` (`APPROVAL_REQUIRED`, `begin_inline_web_approval`) — not LangChain callbacks.
 
 Example user goal ("Analyze this table, find errors, and format erroneous cells red") flows: main chat → delegate to calc specialized toolset → smol `ToolCallingAgent` with domain tools → structured result back to main history.

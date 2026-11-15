@@ -10,13 +10,13 @@ import logging
 from typing import Any
 
 from plugin.framework.config import get_config
+from plugin.framework.constants import SUBAGENT_TOOL_NAMES
 from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
 
 _VISION_DOMAIN = "vision"
 _VISION_TOOL_NAME = "image_extract_structure"
-_DELEGATE_GATEWAY_NAMES = frozenset({"delegate_to_specialized_writer_toolset", "delegate_to_specialized_calc_toolset", "delegate_to_specialized_draw_toolset"})
 
 
 def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
@@ -64,7 +64,7 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
     out: list[dict[str, Any]] = []
     for schema in schemas:
         fn = schema.get("function") if isinstance(schema, dict) else None
-        if not isinstance(fn, dict) or fn.get("name") not in _DELEGATE_GATEWAY_NAMES:
+        if not isinstance(fn, dict) or fn.get("name") not in SUBAGENT_TOOL_NAMES:
             out.append(schema)
             continue
         params = fn.get("parameters")
@@ -95,14 +95,14 @@ def get_vision_core_directive(model: Any, ctx: Any) -> str:
     if _doc_type.is_draw(model):
         return (
             'When the user wants OCR or content from an embedded image, '
-            'delegate_to_specialized_draw_toolset(domain="vision", task=""). '
-            "That extracts text and structure from the selected graphic and returns the text only "
-            "(nothing is inserted into the slide). You must use this call to perform OCR."
+            'call delegate_to_draw_subagent(domain="vision"). '
+            "That runs OCR on the currently selected image and returns the recognized text "
+            "(the slide stays unchanged). You must use this call to perform OCR."
         )
     if not _doc_type.is_calc(model):
         return ""
     return (
-        'When the user wants OCR or content from an embedded image, delegate_to_specialized_calc_toolset(domain="vision", task=""). '
-        "That extracts text and structure from the selected graphic and inserts a high-quality representation "
-        "into the document (no sub-agent; task is ignored). You must use this call to perform OCR."
+        'When the user wants OCR or content from an embedded image, call delegate_to_calc_subagent(domain="vision"). '
+        "That runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, "
+        "below the image. You must use this call to perform OCR."
     )

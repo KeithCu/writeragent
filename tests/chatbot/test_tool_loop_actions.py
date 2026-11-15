@@ -514,7 +514,7 @@ def test_execute_fn_marshals_draw_active_page_index(doc_type_str):
             mock_bridge_cls.return_value.get_active_page_index.return_value = 2
             mock_marshal.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
             execute_fn(
-                "delegate_to_specialized_draw_toolset",
+                "delegate_to_draw_subagent",
                 {"domain": "shapes", "task": "x"},
                 doc,
                 host.ctx,
@@ -1006,7 +1006,7 @@ def test_subagent_append_and_approval_use_the_captured_queue():
             interpreter.execute(
                 SpawnToolWorkerEffect(
                     call_id="call_doc",
-                    func_name="delegate_to_specialized_writer_toolset",
+                    func_name="delegate_to_writer_subagent",
                     func_args_str="{}",
                     func_args={"domain": "document_research", "task": "read"},
                     is_async=True,

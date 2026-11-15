@@ -131,7 +131,7 @@ def test_document_research_outer_delegation_gets_document_research_tools(smol_ag
         ListNearbyFiles(), GrepNearbyFiles(), DelegateReadDocument(), DelegateToSpecializedWriter()
     )
 
-    gw = r.get("delegate_to_specialized_writer_toolset")
+    gw = r.get("delegate_to_writer_subagent")
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
         result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
     assert result["status"] == "incomplete"
@@ -156,7 +156,7 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(smol_
     )
     ctx.active_domain = None
     peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
-    gw = r.get("delegate_to_specialized_writer_toolset")
+    gw = r.get("delegate_to_writer_subagent")
     with (
         patch("plugin.doc.document_research.get_open_documents", return_value=[]),
         patch("plugin.doc.peer_message.list_v1_peers", return_value=peers),
@@ -191,7 +191,7 @@ def test_document_research_chat_append_on_delegate_read_document(mock_executor_c
     r, ctx = _make_delegate_ctx(ListNearbyFiles(), DelegateReadDocument(), DelegateToSpecializedWriter())
     ctx.chat_append_callback = captured.append
 
-    gw = r.get("delegate_to_specialized_writer_toolset")
+    gw = r.get("delegate_to_writer_subagent")
     with patch("plugin.doc.document_research.get_open_documents", return_value=[]):
         result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
     assert result["status"] == "incomplete"
@@ -247,7 +247,7 @@ def test_document_research_return_idles_outer_after_peer_send(mock_executor_cls,
     r, ctx = _make_delegate_ctx(
         ListNearbyFiles(), DelegateReadDocument(), SendPeerWork(), DelegateToSpecializedWriter()
     )
-    gw = r.get("delegate_to_specialized_writer_toolset")
+    gw = r.get("delegate_to_writer_subagent")
     peers = [{"name": "Budget.ods", "uid": "u2", "url": "", "type": "calc"}]
     with (
         patch("plugin.doc.document_research.get_open_documents", return_value=[]),
@@ -278,7 +278,7 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(_mock_peer_work
         DelegateToSpecializedCalc(),
         service="com.sun.star.sheet.SpreadsheetDocument",
     )
-    gw = r.get("delegate_to_specialized_calc_toolset")
+    gw = r.get("delegate_to_calc_subagent")
     result = gw.execute_safe(ctx, domain="ranges", task="Sort A2:B5 descending")
     assert result["status"] == "ok"
     assert PEER_OUTER_DELIVERY_STILL_REQUIRED in result["message"]
@@ -327,7 +327,7 @@ def test_document_research_send_peer_result_skips_delivery_pending(
         DelegateToSpecializedCalc(),
         service="com.sun.star.sheet.SpreadsheetDocument",
     )
-    gw = r.get("delegate_to_specialized_calc_toolset")
+    gw = r.get("delegate_to_calc_subagent")
     peers = [{"name": "Memo.odt", "uid": "u1", "url": "", "type": "writer"}]
     with (
         patch("plugin.doc.document_research.get_open_documents", return_value=[]),
@@ -398,7 +398,7 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
         DelegateToSpecializedCalc(),
         service="com.sun.star.sheet.SpreadsheetDocument",
     )
-    gw = r.get("delegate_to_specialized_calc_toolset")
+    gw = r.get("delegate_to_calc_subagent")
     peers = [{"name": "Memo.odt", "uid": "u1", "url": "", "type": "writer"}]
     for code in _PEER_SEND_FAILURE_CODES:
         failed_code["code"] = code
@@ -625,7 +625,7 @@ def test_document_research_delegation_includes_open_documents_context(smol_agent
     ]
 
     with patch("plugin.doc.document_research.get_open_documents", return_value=mock_docs):
-        gw = r.get("delegate_to_specialized_writer_toolset")
+        gw = r.get("delegate_to_writer_subagent")
         result = gw.execute_safe(ctx, domain="document_research", task="Find Q4 in budget")
         assert result["status"] == "incomplete"
         assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"

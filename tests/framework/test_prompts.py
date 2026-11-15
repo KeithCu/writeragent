@@ -167,7 +167,7 @@ def test_get_core_directives_for_type_is_string_only():
 
 def test_draw_core_directives_flowchart_routes_to_shapes():
     """flowchart_gen left an empty tree when shapes stayed off the core list."""
-    assert 'delegate_to_specialized_draw_toolset(domain="shapes")' in DRAW_CORE_DIRECTIVES
+    assert 'delegate_to_draw_subagent(domain="shapes")' in DRAW_CORE_DIRECTIVES
 
 
 def test_writer_and_draw_python_orchestrator_not_direct_shapes():
@@ -175,9 +175,9 @@ def test_writer_and_draw_python_orchestrator_not_direct_shapes():
     from plugin.framework.prompts import python_orchestrator_routing_line
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
-    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") in DelegateToSpecializedWriter.description
-    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_draw_toolset") in DRAW_CORE_DIRECTIVES
-    assert python_orchestrator_routing_line(delegate_toolset="delegate_to_specialized_writer_toolset") not in WRITER_CORE_DIRECTIVES
+    assert python_orchestrator_routing_line(delegate_tool="delegate_to_writer_subagent") in DelegateToSpecializedWriter.description
+    assert python_orchestrator_routing_line(delegate_tool="delegate_to_draw_subagent") in DRAW_CORE_DIRECTIVES
+    assert python_orchestrator_routing_line(delegate_tool="delegate_to_writer_subagent") not in WRITER_CORE_DIRECTIVES
 
 
 def test_sheets_create_completion_instruction_is_create_not_populate():

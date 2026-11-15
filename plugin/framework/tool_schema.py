@@ -369,7 +369,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         # For MCP schemas, use a compact description to avoid duplicating the long domain list
         # (the detailed domain guidance lives in the 'domain' property description instead).
         # The full verbose guidance with examples is still used in chat system prompts.
-        desc = (f"{desc} Delegates to a specialized {agent_label} task. See the 'domain' property for available areas and the 'task' parameter rules.").strip()
+        desc = f"{desc} See the 'domain' property for available areas and the 'task' parameter rules.".strip()
 
         if "domain" in props and isinstance(props["domain"], dict):
             props["domain"]["description"] = format_specialized_domains_description(agent_label=agent_label)

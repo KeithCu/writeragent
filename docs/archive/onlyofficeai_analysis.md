@@ -179,7 +179,7 @@ Separate `RegisteredFunction` names: `addDataBars`, `addIconSet`, `addColorScale
 
 ### 7.4 WriterAgent Calc surface OO does not mirror
 
-[`sheet_list`](plugin/calc/sheets.py), [`sheet_switch`](plugin/calc/sheets.py), [`sheet_create`](plugin/calc/sheets.py), [`get_sheet_summary`](plugin/calc/sheets.py); [`read_cell_range`](plugin/calc/cells.py), [`write_formula_range`](plugin/calc/cells.py), [`merge_cells`](plugin/calc/cells.py), [`delete_structure`](plugin/calc/cells.py); [`list_named_ranges`](plugin/calc/navigation.py), [`search_cells`](plugin/calc/search.py), [`search_replace`](plugin/calc/search.py); comments in [`plugin/calc/comments.py`](plugin/calc/comments.py); [`delegate_to_specialized_calc_toolset`](plugin/calc/specialized.py).
+[`sheet_list`](plugin/calc/sheets.py), [`sheet_switch`](plugin/calc/sheets.py), [`sheet_create`](plugin/calc/sheets.py), [`get_sheet_summary`](plugin/calc/sheets.py); [`read_cell_range`](plugin/calc/cells.py), [`write_formula_range`](plugin/calc/cells.py), [`merge_cells`](plugin/calc/cells.py), [`delete_structure`](plugin/calc/cells.py); [`list_named_ranges`](plugin/calc/navigation.py), [`search_cells`](plugin/calc/search.py), [`search_replace`](plugin/calc/search.py); comments in [`plugin/calc/comments.py`](plugin/calc/comments.py); [`delegate_to_calc_subagent`](plugin/calc/specialized.py).
 
 ### 7.5 Where to mine OnlyOffice Calc code
 
@@ -209,7 +209,7 @@ Separate `RegisteredFunction` names: `addDataBars`, `addIconSet`, `addColorScale
 | Placeholders / notes | [`plugin/draw/placeholders.py`](plugin/draw/placeholders.py), [`plugin/draw/notes.py`](plugin/draw/notes.py) |
 | Masters / transitions | [`plugin/draw/masters.py`](plugin/draw/masters.py), [`plugin/draw/transitions.py`](plugin/draw/transitions.py) |
 | Tree | [`get_draw_tree`](plugin/draw/tree.py) |
-| Delegate | [`delegate_to_specialized_draw_toolset`](plugin/draw/specialized.py) |
+| Delegate | [`delegate_to_draw_subagent`](plugin/draw/specialized.py) |
 
 ### 8.3 Overlap diagram
 

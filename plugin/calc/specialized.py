@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.calc.base import ToolCalcSpecialBase
+from plugin.framework.constants import CALC_SUBAGENT_TOOL
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 
 if TYPE_CHECKING:
@@ -35,8 +36,14 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
     to focus on the user's specific request, preventing context pollution.
     """
 
-    name: str | None = "delegate_to_specialized_calc_toolset"
-    description: str = f"Delegates a specialized Calc task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: images, vision (extract text and structure from images when configured), sheets, ranges, search, charts, shapes, pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
+    name: str | None = CALC_SUBAGENT_TOOL
+    description: str = (
+        f"Starts a Calc sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
+        f"in this spreadsheet and returns a summary. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
+        f"web_research {DELEGATION_PUBLIC_WEB_HINT}; vision runs OCR on the currently selected image and inserts the "
+        f"recognized text below it (when configured). Also: images, sheets, ranges, search, charts, shapes, "
+        f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
+    )
 
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     _special_base_class: ClassVar[Type[ToolBase]] = ToolCalcSpecialBase  # type: ignore[type-abstract]

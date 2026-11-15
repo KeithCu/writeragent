@@ -56,10 +56,10 @@ A user (or an eval harness) has two or three windows open in the same LibreOffic
 
 | Instance | Bound document | Main-chat tool surface | Chat loop |
 | -------- | -------------- | ---------------------- | --------- |
-| Writer sidebar | That Writer model (`frame.getController().getModel()`) | Writer **core** tools + `delegate_to_specialized_writer_toolset` | `ChatSession` + `ToolCallingMixin` |
-| Calc sidebar | That Calc model | Calc **core** tools + `delegate_to_specialized_calc_toolset` | A **second** `ChatSession` + `ToolCallingMixin` |
-| Draw sidebar | That Draw model (`com.sun.star.drawing.DrawingDocument`) | Draw **core** tools + `delegate_to_specialized_draw_toolset` | A **third** `ChatSession` + `ToolCallingMixin` |
-| Impress sidebar | That Impress model (`com.sun.star.presentation.PresentationDocument`; also supports `DrawingDocument`) | Same Draw **core** tools + `delegate_to_specialized_draw_toolset` | A **fourth** `ChatSession` + `ToolCallingMixin` |
+| Writer sidebar | That Writer model (`frame.getController().getModel()`) | Writer **core** tools + `delegate_to_writer_subagent` | `ChatSession` + `ToolCallingMixin` |
+| Calc sidebar | That Calc model | Calc **core** tools + `delegate_to_calc_subagent` | A **second** `ChatSession` + `ToolCallingMixin` |
+| Draw sidebar | That Draw model (`com.sun.star.drawing.DrawingDocument`) | Draw **core** tools + `delegate_to_draw_subagent` | A **third** `ChatSession` + `ToolCallingMixin` |
+| Impress sidebar | That Impress model (`com.sun.star.presentation.PresentationDocument`; also supports `DrawingDocument`) | Same Draw **core** tools + `delegate_to_draw_subagent` | A **fourth** `ChatSession` + `ToolCallingMixin` |
 
 They already share the process: one `ToolRegistry` (`plugin.app.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory/skills directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
 
@@ -119,7 +119,7 @@ Docs: [multi-document-dev-plan.md](multi-document-dev-plan.md). Phase 0 decision
 
 ### 2.3 Specialized delegation (contrast — A2 only)
 
-`DelegateToSpecializedBase` + `build_toolcalling_agent` + `SmolAgentExecutor.execute_safe` is the closest shipped “task in, compact result out” loop. Writer / Calc / Draw already have `delegate_to_specialized_*` (`DrawingDocument` + `PresentationDocument` on the Draw gateway).
+`DelegateToSpecializedBase` + `build_toolcalling_agent` + `SmolAgentExecutor.execute_safe` is the closest shipped “task in, compact result out” loop. Writer / Calc / Draw already have `delegate_to_*_subagent` (`DrawingDocument` + `PresentationDocument` on the Draw gateway).
 
 That path **rebinds** a fresh `ToolContext` and **blocks** the caller tool until `specialized_workflow_finished`. It is the right shape for **A2** (optional later / documented escape hatch). It is **not** v1. Draw is already first-class on this path; A1 does not need a Draw-specific send factory — same panel map + extracted send as Calc.
 
@@ -174,7 +174,7 @@ A2 is also the shape you get **by accident** if the peer drain starts on the cal
 
 ### B–E. Discarded (unchanged reasons)
 
-- **B.** Calling the other app’s `delegate_to_specialized_*` from Writer fails `tool_supports_document` / wrong `ctx.doc`. That gateway is “specialized domains **of this** document.”
+- **B.** Calling the other app’s `delegate_to_*_subagent` from Writer fails `tool_supports_document` / wrong `ctx.doc`. That gateway is “specialized domains **of this** document.”
 - **C.** In-place Writer↔Calc↔Draw tool switch on one `ChatSession` mixes histories and schemas. `document_research` already refuses in-place mode.
 - **D.** Write-enabling research. Trust model in [multi-document-dev-plan.md](multi-document-dev-plan.md) stays read-only on siblings.
 - **E.** MCP / EventBus / udprops / files / Collabora as the **message**. Keep MCP for **external** hosts calling ordinary document tools. v1 does **not** expose peer send tools on MCP (not “call by name later”).
@@ -309,7 +309,7 @@ Suggested error codes: `PEER_NOT_FOUND`, `PEER_SIDEBAR_NOT_OPEN`, `PEER_UNSUPPOR
 
 **Prompts** (shorter than #672’s main-wire `PEER_MESSAGING_RULES`; outer may name `send_peer_result` as the delivery goal, but does not advertise the tools):
 
-- **Outer / main chat** (`PEER_OUTER_DELEGATE_HINT`, per-app `{delegate}` = `delegate_to_specialized_writer_toolset` / `_calc_` / `_draw_`): when a v1 peer is open — Do `{delegate}(domain="document_research")` for sibling work. After that inner result means a peer message was sent/accepted (or the answer says waiting for a peer reply): stop tool use and Ready (short “peer was asked” chat is OK). Why: the reply is a later user turn; more tools in this turn race the peer. When this turn is a `[Peer work from: …]` envelope: do local work (including nested specializes), then you **MUST** Do `{delegate}(domain="document_research")` to deliver via `send_peer_result` (envelope uid/url + one HTML/result string). Nested specialize done ≠ peer delivery. When this turn is a `[Peer result from: …]` envelope: information for the requester; insert into the document only if the user asked, then stop — do not delegate an ack specialize. No Open-peers catalog on the outer loop. Specialize return may append idle-after-send only when an inner `send_peer_work` / `send_peer_result` returned accepted (`status` ok and `accepted` true). A call that errors with `PEER_NOT_FOUND`, `PEER_SIDEBAR_NOT_OPEN`, `PEER_QUEUE_FULL`, or `PEER_NOT_CHAT_MODE` is not delivery. A Peer-work turn that finished without an accepted `send_peer_result` gets `PEER_OUTER_DELIVERY_STILL_REQUIRED`.
+- **Outer / main chat** (`PEER_OUTER_DELEGATE_HINT`, per-app `{delegate}` = `delegate_to_writer_subagent` / `_calc_` / `_draw_`): when a v1 peer is open — Do `{delegate}(domain="document_research")` for sibling work. After that inner result means a peer message was sent/accepted (or the answer says waiting for a peer reply): stop tool use and Ready (short “peer was asked” chat is OK). Why: the reply is a later user turn; more tools in this turn race the peer. When this turn is a `[Peer work from: …]` envelope: do local work (including nested specializes), then you **MUST** Do `{delegate}(domain="document_research")` to deliver via `send_peer_result` (envelope uid/url + one HTML/result string). Nested specialize done ≠ peer delivery. When this turn is a `[Peer result from: …]` envelope: information for the requester; insert into the document only if the user asked, then stop — do not delegate an ack specialize. No Open-peers catalog on the outer loop. Specialize return may append idle-after-send only when an inner `send_peer_work` / `send_peer_result` returned accepted (`status` ok and `accepted` true). A call that errors with `PEER_NOT_FOUND`, `PEER_SIDEBAR_NOT_OPEN`, `PEER_QUEUE_FULL`, or `PEER_NOT_CHAT_MODE` is not delivery. A Peer-work turn that finished without an accepted `send_peer_result` gets `PEER_OUTER_DELIVERY_STILL_REQUIRED`.
 - **Inner document_research** (`PEER_INNER_CHOICE_RULES` + catalog): **Ask vs reply** is selected only by a `[Peer work from: …]` envelope in the task — mentioning `send_peer_result` / “reply back” in an ask task does **not** flip polarity. **Ask path** (Open peer file, no envelope): Do `send_peer_work` then `specialized_workflow_finished`; **never** `delegate_read_document` on that open peer; **never** `send_peer_result` from the asker. Why: the live peer will reply; silent reopen races them; asker `send_peer_result` stamps a result onto the peer. When the ask needs a change/fill/write on that peer's own document, ask them in `message` to perform the edit and include the values/facts. Do `delegate_read_document` only when the file is **not** in Open peers. **Reply path** (task replies to a `[Peer work from: …]` envelope — outer stuffed uid/url + HTML/result): you **must** `send_peer_result` with that `document_url` **before** `specialized_workflow_finished`; on this path only, HTML/table/result text in the task is the `message` argument. Do `send_peer_result` even when you can answer from the task alone. After `ok`/`accepted` (ask or reply) you **must** `specialized_workflow_finished` immediately.
 
 **Undo:** peer edits use the peer document’s undo. `WriterCompoundUndo` only if the peer is Writer.
@@ -346,7 +346,7 @@ GDPval GMP change-control ([`docs/eval/gdpval/58ac1cc5-…`](../eval/gdpval/58ac
 
 **Staging fact, not a product claim:** LibreOffice File → Open on a PDF often imports as **editable Draw text and shapes**, not live AcroForm widgets. A headed poke may land the gold PDF in Draw. That is eval/harness staging. It is **not** “WriterAgent edits PDFs” and **not** an AcroForm API.
 
-The Draw sidebar fills the stand-in with Draw tools (`get_tree` marks empty boxes as fill targets; `delegate_to_specialized_draw_toolset` → `shape_fill_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `send_peer_result`s back.
+The Draw sidebar fills the stand-in with Draw tools (`get_tree` marks empty boxes as fill targets; `delegate_to_draw_subagent` → `shape_fill_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `send_peer_result`s back.
 
 ### 4.8 Worked scenarios
 
@@ -355,7 +355,7 @@ The Draw sidebar fills the stand-in with Draw tools (`get_tree` marks empty boxe
 1. Writer **outer** schemas stay Writer-only and do **not** list peer send tools. The outer turn stays high-level and delegates `document_research`.
 2. The document_research subagent sees both peer send tools because the budget `.ods` is a resolvable other peer; it calls `send_peer_work(document_url=<budget uid>, message="Compute Q4 revenue by region and reply with an HTML table plus the ranges you used.")` → `{ok, accepted}`. It does **not** put the Writer URL in `message`.
 3. Gateway prepends `[Peer work from: Risk memo.odt | uid=… | url=…]` on the **Calc** session. The inner agent finishes (`specialized_workflow_finished`); Writer **Readys** (no further document_research / python / query in that turn). Caller drain exits.
-4. Calc **main** sees the `[Peer work from: …]` envelope (plus delivery footer), does the local work (`write_range` / Total row / `ranges`→`sort_range`) **on the Calc model only**, then `delegate_to_specialized_calc_toolset(domain="document_research")` with a task to reply (Writer uid/url from the envelope, HTML/table). Calc main does **not** call a peer send tool on the outer loop.
+4. Calc **main** sees the `[Peer work from: …]` envelope (plus delivery footer), does the local work (`write_range` / Total row / `ranges`→`sort_range`) **on the Calc model only**, then `delegate_to_calc_subagent(domain="document_research")` with a task to reply (Writer uid/url from the envelope, HTML/table). Calc main does **not** call a peer send tool on the outer loop.
 5. Calc document_research calls `send_peer_result(document_url=<Writer uid or url from the envelope>, message=<table + ranges>)``, then **must** `specialized_workflow_finished` immediately. Host wraps with Calc’s `ctx.doc` envelope and queues/injects onto **Writer**.
 6. Writer follow-up turn: `apply_content` on the Writer doc and **stop**. This envelope is a data/result reply, not a new ask — do **not** delegate an ack specialize.
 
@@ -363,7 +363,7 @@ The Draw sidebar fills the stand-in with Draw tools (`get_tree` marks empty boxe
 
 1. Writer drafts the memo with Writer tools.
 2. Writer document_research `send_peer_work(document_url=<stand-in uid>, message="Fill the change-control fields from this discrepancy summary: … Reply with a short confirmation.")` → `{ok, accepted}` then `specialized_workflow_finished`. Writer Readys.
-3. Draw **main** sees the Writer envelope, runs `get_tree` then `shape_fill_fields` (or `shape_upsert` by name) **on the Draw model only**, then `delegate_to_specialized_draw_toolset(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
+3. Draw **main** sees the Writer envelope, runs `get_tree` then `shape_fill_fields` (or `shape_upsert` by name) **on the Draw model only**, then `delegate_to_draw_subagent(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
 4. Draw document_research `send_peer_result(document_url=<Writer uid or url from the envelope>, message=<confirmation>)`` then `specialized_workflow_finished`. Writer follow-up cites the form in the memo.
 
 Reverse (Draw asks Writer for a paragraph) is the same tool with a Writer uid.

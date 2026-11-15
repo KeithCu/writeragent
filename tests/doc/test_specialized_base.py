@@ -623,7 +623,7 @@ def test_specialized_delegation_sub_agent_mode(
 
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_writer_toolset")
+    gateway_tool = registry.get("delegate_to_writer_subagent")
 
     registry_ctx.stop_checker = lambda: False
 
@@ -703,7 +703,7 @@ def test_shapes_delegation_includes_canvas_in_instructions(
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Shapes done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_writer_toolset")
+    gateway_tool = registry.get("delegate_to_writer_subagent")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(
@@ -814,7 +814,7 @@ def test_calc_specialized_delegation_sub_agent(
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Calc done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_calc_toolset")
+    gateway_tool = registry.get("delegate_to_calc_subagent")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(registry_ctx, domain="images", task="Insert image")
@@ -855,7 +855,7 @@ def test_draw_specialized_delegation_sub_agent(
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="Draw done")]
     mock_agent_class.return_value = mock_agent_instance
 
-    gateway_tool = registry.get("delegate_to_specialized_draw_toolset")
+    gateway_tool = registry.get("delegate_to_draw_subagent")
     registry_ctx.stop_checker = lambda: False
 
     result = gateway_tool.execute_safe(registry_ctx, domain="draw_test_domain", task="Create shape")
@@ -1094,3 +1094,17 @@ def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_documen
         out_unknown = gw.execute(ctx, domain="slide_layouts", task="Set layout")
         assert out_unknown["status"] == "error"
         assert "No specialized tools found" in out_unknown["message"]
+
+
+def test_subagent_tool_names_match_registered_gateways() -> None:
+    """Every registered sub-agent gateway name must be in SUBAGENT_TOOL_NAMES (and vice versa)."""
+    from plugin.app import get_tools
+    from plugin.doc.specialized_base import DelegateToSpecializedBase
+    from plugin.framework.constants import SUBAGENT_TOOL_NAMES
+
+    registered = {
+        t.name
+        for t in get_tools().get_tools(filter_doc_type=False, exclude_tiers=frozenset())
+        if isinstance(t, DelegateToSpecializedBase)
+    }
+    assert registered == SUBAGENT_TOOL_NAMES

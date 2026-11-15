@@ -512,7 +512,7 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
     return bool(getattr(t, "is_app_specialized_tool", False))
 
 
-# Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
+# Hidden from default chat/MCP tool lists; exposed via delegate_to_writer_subagent.
 _DEFAULT_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "mcp"})
 
 def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services_supported: frozenset[str] | None) -> bool:

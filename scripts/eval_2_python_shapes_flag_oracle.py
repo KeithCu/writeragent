@@ -633,8 +633,13 @@ def _empty_dtd_counts_as_shapes(log_text: str, calls: list[_LoggedCall]) -> bool
     return _upsert_after_dtd(log_text, dtd_pos)
 
 
+_SUBAGENT_TOOLS = frozenset(
+    {"delegate_to_writer_subagent", "delegate_to_calc_subagent", "delegate_to_draw_subagent"}
+)
+
+
 def _is_python_delegate(name: str, args: str) -> bool:
-    if not (name.startswith("delegate_to_specialized_") and name.endswith("_toolset")):
+    if name not in _SUBAGENT_TOOLS:
         return False
     return _PYTHON_DOMAIN_RE.search(_unescape_args(args)) is not None
 
@@ -649,7 +654,7 @@ def _is_images_path(name: str, args: str) -> bool:
     decoded = _unescape_args(args)
     if name in _IMAGE_TOOL_NAMES:
         return True
-    if name.startswith("delegate_to_specialized_") and name.endswith("_toolset"):
+    if name in _SUBAGENT_TOOLS:
         return _IMAGES_DOMAIN_RE.search(decoded) is not None
     # delegate_tool_domains(domains=["images"]) is the same wrong route.
     if name == "delegate_tool_domains" and _IMAGES_DOMAINS_RE.search(decoded):

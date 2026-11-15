@@ -22,20 +22,23 @@ from typing import TYPE_CHECKING, ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
+from plugin.framework.constants import DRAW_SUBAGENT_TOOL
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
 
+_DRAW_DELEGATE_LEAD = (
+    "Starts a Draw sub-agent that has the chosen domain's tools. It carries out task, written in plain language, "
+    "on this drawing or presentation and returns a summary. "
+    f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
+)
+
 
 def _format_draw_delegate_description(domains: list[str]) -> str:
     """Build the Draw/Impress delegate tool description listing the exact bound domains."""
     domain_list = ", ".join(domains)
-    return (
-        f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
-        f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
-        f"Available domains: {domain_list}."
-    )
+    return f"{_DRAW_DELEGATE_LEAD}Available domains: {domain_list}."
 
 
 class DelegateToSpecializedDraw(DelegateToSpecializedBase):
@@ -45,10 +48,9 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     user's specific request, preventing context pollution.
     """
 
-    name: str | None = "delegate_to_specialized_draw_toolset"
+    name: str | None = DRAW_SUBAGENT_TOOL
     description: str = (
-        f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
-        f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
+        f"{_DRAW_DELEGATE_LEAD}"
         "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
         "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
     )

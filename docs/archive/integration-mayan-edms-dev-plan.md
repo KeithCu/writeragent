@@ -162,7 +162,7 @@ flowchart LR
 
 ### Sidebar chat stays simple
 
-The sidebar keeps **core** tools on the active document plus `delegate_to_specialized_{writer|calc|draw}_toolset`. Users describe tasks in natural language; they do not pass `source="mayan"` or cabinet IDs unless they want to.
+The sidebar keeps **core** tools on the active document plus `delegate_to_{writer|calc|draw}_subagent`. Users describe tasks in natural language; they do not pass `source="mayan"` or cabinet IDs unless they want to.
 
 Discovery tools (`list_documents`, `search_documents`, `list_mayan_cabinets`, …) live in the **`document_research` sub-agent** only — the same pattern as local `list_nearby_files` today. The sub-agent receives configured default scopes and task text, picks local vs Mayan (or both), and returns a compact result with provenance.
 

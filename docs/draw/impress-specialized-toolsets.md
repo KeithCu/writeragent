@@ -17,13 +17,15 @@ Draw/Impress tools follow the same **nested delegation** pattern as Writer:
 | `ToolDrawSpecialBase` | Base class for specialized Draw tools | `plugin/draw/base.py` |
 | `specialized_domain` | Domain identifier (e.g., `"charts"`, `"web_research"`, `"forms"`) | Class attribute |
 | `tier = "specialized"` | Marks tool for domain-specific sub-agent | Class attribute |
-| `delegate_to_specialized_draw_toolset` | Gateway tool for delegation | `plugin/draw/specialized.py` |
+| `delegate_to_draw_subagent` | Gateway tool for delegation | `plugin/draw/specialized.py` |
 | `uno_services` | Document type filtering | Class attribute |
 
 **Delegation flow:**
 ```
-Main chat → delegate_to_specialized_draw_toolset → Sub-agent (filtered tools) → final_answer
+Main chat → delegate_to_draw_subagent → Sub-agent (filtered tools) → final_answer
 ```
+
+Main chat sees one sub-agent tool per app (`delegate_to_draw_subagent` for Draw/Impress). A sub-agent with the chosen domain's tools works from a plain-language `task` and returns a summary; `vision` instead runs OCR on the selected image and returns the recognized text (inserts in Writer/Calc, returns text in Draw/Impress). The Python class names (`DelegateToSpecialized*`) keep the internal `"specialized"` tier term.
 
 ----
 
@@ -52,11 +54,11 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `placeholder_list` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
 | `placeholder_get_text` | `placeholders.py` | Presentation | Get text from a placeholder |
 | `placeholder_set_text` | `placeholders.py` | Presentation | Set text in a placeholder |
-| `delegate_to_specialized_draw_toolset` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
+| `delegate_to_draw_subagent` | `specialized.py` | Drawing+Presentation | Gateway for sub-agent delegation |
 
 ### 2.2 Specialized Tools (tier = "specialized")
 
-These are available only via `delegate_to_specialized_draw_toolset`:
+These are available only via `delegate_to_draw_subagent`:
 
 Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps (see [Writer specialized toolsets](../writer/specialized-toolsets.md)).
 
@@ -99,7 +101,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 > `transform_schema.py`. Do not extend the DSL; deleting or finishing it is a
 > separate change.
 
-**Python domain (two-level).** `delegate_to_specialized_draw_toolset(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `delegate_tool_domains` with `domains` (for example `shapes`, `tables`, `images`) and `task` when those domain tools are required. The inner agent gets `run_venv_python_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
+**Python domain (two-level).** `delegate_to_draw_subagent(domain="python")` uses the same outer→inner path as Writer: do venv / symbolic work on the python toolset, and call `delegate_tool_domains` with `domains` (for example `shapes`, `tables`, `images`) and `task` when those domain tools are required. The inner agent gets `run_venv_python_script` allowlisted to those domains (shapes mutators are script API calls, not inner LLM tools). See [Writer specialized toolsets §3.5](../writer/specialized-toolsets.md#35-python-specialized-agent-two-levels).
 
 ### 2.3 Unit & Coordinate System
 
@@ -236,7 +238,7 @@ Legacy class names in this section (`CreateShape`, `EditShape`, …) map to regi
 
 ### 4.2 Impress-Only vs Delegated APIs
 
-The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`delegate_to_specialized_draw_toolset`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
+The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`delegate_to_draw_subagent`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
 
 **Slide master** tools (`slide_list_masters`, `slide_get_master`, `slide_set_master`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_deck_info` summarizes.
 

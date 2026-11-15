@@ -264,7 +264,7 @@ class _FinishTool(ToolBase):
 
 
 class _GatewayTool(ToolBase):
-    name = "delegate_to_specialized_writer_toolset"
+    name = "delegate_to_writer_subagent"
     description = "delegate to a specialized writer toolset"
     tier = "core"
     is_mutation = False
@@ -352,7 +352,7 @@ def test_execute_domain_real_registry():
     names = {t["name"] for t in result["tools"]}
     assert {"footnote_insert", "footnote_list"} <= names
     assert "specialized_workflow_finished" not in names
-    assert "delegate_to_specialized_writer_toolset" not in names
+    assert "delegate_to_writer_subagent" not in names
     assert "tool_find" not in names
 
 

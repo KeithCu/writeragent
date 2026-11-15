@@ -19,7 +19,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 ### Tools and document insertion
 
-[`plugin/writer/images/images.py`](../../plugin/writer/images/images.py) — `image_generate` tool (also via `delegate_to_specialized_*_toolset(domain="images")`):
+[`plugin/writer/images/images.py`](../../plugin/writer/images/images.py) — `image_generate` tool (also via `delegate_to_*_subagent(domain="images")`):
 
 - Text-to-image from a prompt using the configured Settings endpoint. Cancelling generation with Stop returns `USER_STOPPED`.
 - Img2img when `source_image='selection'` and an image is selected in the document. Omitting `source_image` while a graphic is selected also edits in place (parent/specialist often drop the argument after rewriting an edit into a generate-new prompt). Passing any other `source_image` (e.g. file path or URL) returns `INVALID_PARAM`.
@@ -98,7 +98,7 @@ Single `generate_image(prompt, source_image=...)` API. Per-dropdown wire format,
 
 Tool usage: pass `source_image='selection'` with an image selected in the document. If `source_image` is omitted and a graphic is selected, `image_generate` treats that as an in-place edit. Clear the selection to create a new image. Passing any other value returns `INVALID_PARAM`. Generation uses the configured Settings endpoint (knobs such as `provider` and `strength` are not part of the tool schema).
 
-The **parent** main agent is steered in `SPECIALIZED_TASK_RULES` and `DELEGATE_SPECIALIZED_TASK_PARAM_HINT`: when the user wants to edit/change/restyle an existing or selected image, the `delegate_to_specialized_*` `task` must instruct `image_generate(source_image='selection')` and keep the user's wording. A generate-new paraphrase (“Generate an image of … dressed as a wizard”) is what the specialist then executes as create-new.
+The **parent** main agent is steered in `SPECIALIZED_TASK_RULES` and `DELEGATE_SPECIALIZED_TASK_PARAM_HINT`: when the user wants to edit/change/restyle an existing or selected image, the `delegate_to_*_subagent` `task` must instruct `image_generate(source_image='selection')` and keep the user's wording. A generate-new paraphrase (“Generate an image of … dressed as a wizard”) is what the specialist then executes as create-new.
 
 The images specialist is steered the same way: `images_specialized_sub_agent_hint()` plus `IMAGES_SPECIALIZED_EXAMPLES` (`writer:images` / `calc:images` / `draw:images`). Edit/change/restyle of an existing or selected image (e.g. “make it look like a wizard”) must call `image_generate` with `source_image='selection'` so img2img + `image_replace` keep the graphic in the same frame. A delete plus a prompt-only generate creates a new image instead of editing.
 

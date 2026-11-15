@@ -51,7 +51,7 @@ Not in-repo (Keith: avoid bloating history). For this run they were on the box a
 | Create multi-slide deck from prompt | **OK** — coherent title + bullet slides on the space elevator |
 | Edit existing slide (title / body / bullet) | **OK** after an off-by-one correction |
 | Structural `slide_add` | **OK** — ended at 5 slides |
-| Visual shape | **OK** — `delegate_to_specialized_draw_toolset(domain="shapes")` → `shape_upsert` create rectangle, green fill, on page 0 |
+| Visual shape | **OK** — `delegate_to_draw_subagent(domain="shapes")` → `shape_upsert` create rectangle, green fill, on page 0 |
 | Model identity | Confirmed `inception/mercury-2.5` on OpenRouter for chat + nested specialist calls |
 
 Mercury was fast enough for interactive headed play and did call tools (not only chat prose) once the run was unstuck.
@@ -274,7 +274,7 @@ Add a short WORKFLOW bullet block, roughly:
 IMPRESS TEXT FILLS:
 1. Prefer placeholder_list(page=N) before placeholder_set_text.
 2. If count=0 or placeholder_set_text returns available=[], call
-   delegate_to_specialized_draw_toolset(domain="slide_layouts",
+   delegate_to_draw_subagent(domain="slide_layouts",
      task="set layout 'text' on page N") then placeholder_list again.
 3. If roles are missing but indices exist, placeholder_set_text(index=i, text=…).
 4. page on these tools is 0-based; image_get page= is 1-based.

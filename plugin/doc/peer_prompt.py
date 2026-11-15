@@ -8,6 +8,7 @@ from typing import Any
 # Module import, not a name import: tests patch plugin.doc.peer_message.list_v1_peers
 # at the owner, and that one patch must also cover this prompt builder.
 from plugin.doc import peer_message
+from plugin.framework.constants import CALC_SUBAGENT_TOOL, DRAW_SUBAGENT_TOOL, WRITER_SUBAGENT_TOOL
 from plugin.framework.doc_type import is_calc, is_draw
 from plugin.framework.queue_executor import main
 
@@ -157,8 +158,8 @@ def _agent_for_model(model: Any) -> str:
 
 
 def format_peer_outer_delegate_hint(model: Any) -> str:
-    """Outer DO+why with the matching specialized gateway name."""
-    delegate = f"delegate_to_specialized_{_agent_for_model(model).lower()}_toolset"
+    """Outer DO+why with the matching sub-agent gateway name."""
+    delegate = {"Writer": WRITER_SUBAGENT_TOOL, "Calc": CALC_SUBAGENT_TOOL, "Draw": DRAW_SUBAGENT_TOOL}[_agent_for_model(model)]
     return PEER_OUTER_DELEGATE_HINT.format(delegate=delegate)
 
 

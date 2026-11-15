@@ -5,7 +5,7 @@ This document is for maintainers who need to understand **how WriterAgent expose
 
 ## 1. User-facing behavior (extension tools)
 
-Conditional formatting tools live in the **specialized** tier (`conditional_formatting` domain). The main chat agent does **not** see them in the default tool list; callers use **`delegate_to_specialized_calc_toolset`** with `domain: "conditional_formatting"`. See [`specialized-toolsets.md`](specialized-toolsets.md) and [`AGENTS.md`](../../AGENTS.md) (Calc section).
+Conditional formatting tools live in the **specialized** tier (`conditional_formatting` domain). The main chat agent does **not** see them in the default tool list; callers use **`delegate_to_calc_subagent`** with `domain: "conditional_formatting"`. See [`specialized-toolsets.md`](specialized-toolsets.md) and [`AGENTS.md`](../../AGENTS.md) (Calc section).
 
 | Tool | Role |
 |------|------|
@@ -130,7 +130,7 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 | [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py) | Tools + UNO helpers + `_OPS` |
 | [`plugin/calc/base.py`](../../plugin/calc/base.py) | `ToolCalcConditionalBase`, `specialized_domain` |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Range resolution |
-| [`plugin/calc/specialized.py`](../../plugin/calc/specialized.py) | `delegate_to_specialized_calc_toolset` |
+| [`plugin/calc/specialized.py`](../../plugin/calc/specialized.py) | `delegate_to_calc_subagent` |
 | [`specialized-toolsets.md`](specialized-toolsets.md) | Delegation overview |
 | [`sheet-filter.md`](sheet-filter.md) | **Separate feature:** standard sheet filter / AutoFilter (`sheet_filter` domain) |
 ---

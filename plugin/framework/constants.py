@@ -186,3 +186,13 @@ def auto_imports() -> dict[str, str]:
 def now_aware() -> _dt.datetime:
     """Return the current local time as a timezone-aware datetime."""
     return _dt.datetime.now().astimezone()
+
+
+# Main-chat gateway tools, one per app (plugin/doc/specialized_base.py). Each hands a
+# plain-language task to a sub-agent that has the chosen domain's tools. The sidebar chat
+# labels, the vision schema filter, the peer hint and the eval harness all match on these
+# exact names, so they are defined once here.
+WRITER_SUBAGENT_TOOL = "delegate_to_writer_subagent"
+CALC_SUBAGENT_TOOL = "delegate_to_calc_subagent"
+DRAW_SUBAGENT_TOOL = "delegate_to_draw_subagent"
+SUBAGENT_TOOL_NAMES: frozenset[str] = frozenset({WRITER_SUBAGENT_TOOL, CALC_SUBAGENT_TOOL, DRAW_SUBAGENT_TOOL})

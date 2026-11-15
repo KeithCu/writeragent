@@ -1414,7 +1414,7 @@ def test_e7_outline_delegate(ctx):
     for row in snaps:
         decided.extend(row.get("decided_tools") or [])
         called.extend(row.get("called_tools") or [])
-    assert "delegate_to_specialized_writer_toolset" in set(decided + called), (
+    assert "delegate_to_writer_subagent" in set(decided + called), (
         "E7 expected delegate, snaps=%r" % snaps[-8:]
     )
     for row in snaps:
@@ -1660,7 +1660,7 @@ def test_e14_outline_twice(ctx):
     n_delegate = sum(
         1
         for row in snaps
-        if "delegate_to_specialized_writer_toolset" in (row.get("decided_tools") or [])
+        if "delegate_to_writer_subagent" in (row.get("decided_tools") or [])
     )
     assert n_delegate >= 2, "E14 expected two delegate sends, got %s snaps=%r" % (n_delegate, snaps[-10:])
     _hello_ok()
@@ -1683,7 +1683,7 @@ def test_e17_empty_nested_final_answer(ctx):
         decided = []
         for row in snaps:
             decided.extend(row.get("decided_tools") or [])
-        assert "delegate_to_specialized_writer_toolset" in set(decided), (
+        assert "delegate_to_writer_subagent" in set(decided), (
             "E17 expected delegate, snaps=%r" % snaps[-8:]
         )
         body = _transcript().lower()
@@ -1740,7 +1740,7 @@ def test_e22_nested_max_steps(ctx):
         decided = []
         for row in snaps:
             decided.extend(row.get("decided_tools") or [])
-        assert "delegate_to_specialized_writer_toolset" in set(decided), (
+        assert "delegate_to_writer_subagent" in set(decided), (
             "E22 expected delegate, snaps=%r" % snaps[-8:]
         )
         finish_names = {"final_answer", "specialized_workflow_finished"}

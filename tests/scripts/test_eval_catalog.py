@@ -113,7 +113,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch, t
             sidebar_rows = sidebar.get_schemas("openai", **kwargs)
             eval_rows = eval_reg.get_schemas("openai", **kwargs)
             assert sidebar_rows == eval_rows
-            delegate_name = f"delegate_to_specialized_{kind}_toolset"
+            delegate_name = f"delegate_to_{kind}_subagent"
             assert _delegate_domain_enum(sidebar_rows, delegate_name) == _delegate_domain_enum(
                 eval_rows, delegate_name
             )

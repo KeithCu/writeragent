@@ -64,7 +64,9 @@ class ToolCalcImageBase(ToolCalcSpecialBase):
 
 class ToolCalcVisionBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "vision"
-    specialized_domain_description: ClassVar[str | None] = "Extract text and structure (layout, tables) from embedded sheet graphics; image_extract_structure."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Runs OCR on the currently selected image and inserts the recognized text, with its layout and tables, below it in the sheet."
+    )
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
 
 
