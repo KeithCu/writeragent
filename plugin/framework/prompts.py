@@ -637,7 +637,8 @@ IMPRESS_TEXT_FILLS_BLOCK = (
     "1. Prefer list_placeholders(page=N) before set_placeholder_text.\n"
     "2. If count=0 or set_placeholder_text returns available=[], delegate_to_specialized_draw_toolset(domain=\"slide_layouts\", task=\"set layout 'text' on page N\") then list_placeholders again.\n"
     "3. If roles are missing but indices exist, set_placeholder_text(index=i, text=…).\n"
-    "4. page on these tools is 0-based.\n\n"
+    "4. page on these tools is 0-based.\n"
+    "5. Users and the slide pane count from 1, so slide 3 is index 2.\n\n"
 )
 IMPRESS_LIST_DESIGNS_TOOL_LINE = "- list_designs: List shipped Impress .otp designs (e.g. Metropolis).\n"
 IMPRESS_PLACEHOLDER_READ_TOOL_LINES = (
