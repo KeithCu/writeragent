@@ -324,8 +324,15 @@ def to_wire(
 
         # 6. DataFrame
         if pd_mod is not None and isinstance(val, pd_mod.DataFrame):
-            columns = dedupe_column_names([flat_label(c) for c in val.columns])
-            data_part = [] if len(val) == 0 or len(val.columns) == 0 else _frame_body(val, depth)
+            # Default RangeIndex(0..N-1) columns are synthetic labels generated
+            # by pandas (e.g. pd.DataFrame(data) on a sheet range). As a header
+            # they spill as a junk "0 | 1 | ..." row above the data, so send the
+            # body alone, matching how an unnamed Series is handled below.
+            cols = val.columns
+            if len(cols) > 0 and isinstance(cols, pd_mod.RangeIndex) and cols.start == 0 and cols.step == 1:
+                return [] if len(val) == 0 else _frame_body(val, depth)
+            columns = dedupe_column_names([flat_label(c) for c in cols])
+            data_part = [] if len(val) == 0 or len(cols) == 0 else _frame_body(val, depth)
             return pack_dataframe_envelope(columns, data_part)
 
         # 7. Series

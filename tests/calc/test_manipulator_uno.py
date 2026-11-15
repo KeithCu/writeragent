@@ -36,6 +36,7 @@ def test_refused_array_write_leaves_no_undo_step(ctx, doc):
 
     res = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"})
     assert res.get("status") == "error", f"occupied write should fail: {res}"
+    assert res.get("code") == "SPILL_BLOCKED", res
     after = list(undo_mgr.getAllUndoActionTitles())
     assert after == before, f"refused array write left an undo step: before={before} after={after} res={res}"
     assert doc.isModified() == was_modified, "refused array write changed the modified flag"
@@ -178,3 +179,22 @@ def test_refuse_occupied_cells_uno(ctx, doc):
         assert "(first: A1)" in msg, msg
 
     refuse_occupied_cells(sheet, 3, 0, 4, 0)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_inside_its_data_range_is_refused(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    sheet.getCellByPosition(0, 0).setValue(1)
+    sheet.getCellByPosition(0, 1).setValue(2)
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_formula_range",
+        {"range": ["A1"], "values": '=PY("result = np.sum(data)"; A1:A2)'},
+    )
+    assert res.get("status") == "error", res
+    assert res.get("code") == "PY_CIRCULAR", res
+    assert res.get("suggested_call", {}).get("arguments", {}).get("range") == ["Sheet1.B1"], res
+    assert sheet.getCellByPosition(0, 0).getValue() == 1.0
