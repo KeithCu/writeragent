@@ -62,7 +62,7 @@ Explain the code that is here **now**, for a reader who would otherwise be lost.
 | `make release` | Typecheck + bandit, verify a stripped tree in `/tmp` (`compileall` + pytest + LO tests), then build/register `build/WriterAgent.oxt` |
 | `make eval-ab SUITE=...` | To test a prompt change, run `make eval-ab SUITE=calc` (or `writer`, `draw`, `all`, `string`, `lo`). |
 
-Usual targets generate `plugin/_manifest.py` when needed. Other Makefile targets exist for fuzz and niche tooling—see the `Makefile` when you need them.
+Usual targets generate `plugin/_manifest.py` and `plugin/scripting/writeragent_api.py` (`make proxy-stubs`) when needed. Other Makefile targets exist for fuzz and niche tooling—see the `Makefile` when you need them.
 
 ---
 

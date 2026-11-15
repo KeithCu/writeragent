@@ -134,7 +134,9 @@ def test_generator_script_runs_without_libreoffice(tmp_path):
     api_path = os.path.join(repo, "plugin", "scripting", "writeragent_api.py")
     with open(api_path, encoding="utf-8") as handle:
         expected = handle.read()
-    assert result.stdout == expected
+    assert result.stdout == expected, (
+        "plugin/scripting/writeragent_api.py is out of date; run `make proxy-stubs` to regenerate."
+    )
 
 
 def test_generate_module_escapes_python_keyword_method_names():
@@ -624,4 +626,21 @@ def test_proxy_qualifies_list_annotation_when_list_method_present():
     assert "headers: builtins.list[str]" in code
     assert "def add(self, tags: list[str]" in code
     assert "tags: builtins.list[str]" not in code
+
+
+def test_atomic_write_skips_rewrite_when_unchanged(tmp_path):
+    from scripts.generate_tool_proxies import _atomic_write
+
+    target = tmp_path / "writeragent_api.py"
+    _atomic_write(str(target), "# same content\n")
+    os.utime(target, (1_000_000_000, 1_000_000_000))
+    mtime_before = target.stat().st_mtime_ns
+
+    _atomic_write(str(target), "# same content\n")
+    assert target.stat().st_mtime_ns == mtime_before
+
+    _atomic_write(str(target), "# updated content\n")
+    assert target.read_text(encoding="utf-8") == "# updated content\n"
+    assert target.stat().st_mtime_ns != mtime_before
+
 
