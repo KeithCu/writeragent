@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Discover ``@deal.`` modules under ``plugin/`` and run CrossHair cover (bounded).
+"""Discover modules under ``plugin/`` with a ``@deal.*`` decorator and run CrossHair cover (bounded).
 
 Runs modules in a process pool (default ``max(2, cpu_count - 2)`` workers) so wall
 clock scales with cores. Each worker still owns one CrossHair process — an engine
@@ -429,7 +429,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "targets",
         nargs="*",
-        help="Optional file paths (default: every plugin/**/*.py containing @deal.)",
+        help="Optional file paths (default: every plugin/**/*.py with a @deal.* decorator)",
     )
     parser.add_argument(
         "--plugin-root",

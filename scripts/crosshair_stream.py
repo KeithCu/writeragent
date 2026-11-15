@@ -421,7 +421,7 @@ def find_crosshair() -> str:
 
 
 def discover_deal_plugin_files(plugin_root: Path | None = None) -> list[Path]:
-    """Return ``plugin/**/*.py`` files that contain ``@deal.`` (instrumented modules)."""
+    """Return ``plugin/**/*.py`` files that decorate a callable or class with ``@deal.*`` (comments and docstrings do not count)."""
     root = plugin_root if plugin_root is not None else Path("plugin")
     if not root.is_dir():
         raise SystemExit(f"plugin root not found: {root}")
@@ -433,9 +433,37 @@ def discover_deal_plugin_files(plugin_root: Path | None = None) -> list[Path]:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if "@deal." in text:
+        if source_has_deal_decorator(text):
             files.append(path)
     return files
+
+
+def _is_deal_decorator(dec: ast.expr) -> bool:
+    """True for ``@deal.pre(...)``-style decorators (attribute chain rooted at ``deal``)."""
+    node = dec.func if isinstance(dec, ast.Call) else dec
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return isinstance(node, ast.Name) and node.id == "deal"
+
+
+def source_has_deal_decorator(source: str) -> bool:
+    """True when *source* decorates a function or class with ``@deal.*``.
+
+    Comments and docstrings that mention ``@deal.ensure`` do not count, so a
+    module with no contracts is not swept (CrossHair would cover its UNO hosts).
+    The substring test only skips the parse for files that cannot match.
+    """
+    if "@deal." not in source:
+        return False
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and any(_is_deal_decorator(dec) for dec in node.decorator_list)
+        for node in ast.walk(tree)
+    )
 
 
 def plugin_path_to_module_fqn(path: Path) -> str:
@@ -492,20 +520,13 @@ def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str
     module_fqn = plugin_path_to_module_fqn(path)
     targets: list[str] = []
 
-    def _has_deal_decorator(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-        for dec in node.decorator_list:
-            dumped = ast.dump(dec)
-            if "deal" in dumped:
-                return True
-        return False
-
     def _maybe_add(qual: str, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         if node.name.startswith("_deal_"):
             return
         segment = ast.get_source_segment(text, node)
         if segment is None or source_has_crosshair_off(segment):
             return
-        if require_deal and not _has_deal_decorator(node):
+        if require_deal and not any(_is_deal_decorator(dec) for dec in node.decorator_list):
             return
         targets.append(qual)
 

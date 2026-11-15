@@ -156,6 +156,8 @@ _LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")(
 
 def _double_latex_clash(match: re.Match[str]) -> str:
     """Double one backslash before a clash word, except dotted abbreviations."""
+    # CrossHair cannot build a symbolic re.Match argument, so cover skips this helper.
+    # crosshair: off
     word = match.group(1)
     tail = match.string[match.end() : match.end() + 2]
     if len(word) == 2 and word[:1] in _escape_map and tail[:1] == "." and tail[1:2].isalpha():

@@ -267,6 +267,8 @@ _T = TypeVar("_T")
 
 
 def _field(data: dict[str, Any], key: str, typ: type[_T], default: _T) -> _T:
+    # CrossHair asserts on type[TypeVar] parameters.
+    # crosshair: off
     val = data.get(key)
     return val if isinstance(val, typ) else default
 
@@ -343,6 +345,8 @@ def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition
 
 
 def _assistant_text_effects(content: str, payload: dict[str, Any]) -> list[Any]:
+    # An Any payload dict uses up the whole medium cover wall.
+    # crosshair: off
     return [
         AddMessageEffect(
             role=MessageRole.ASSISTANT,
