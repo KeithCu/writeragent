@@ -236,6 +236,3 @@ def test_formula_error_cells_stops_at_limit_and_counts_all():
     assert len(errors) == 2
     assert total == 5
     assert [e["address"] for e in errors] == ["Sheet1.A1", "Sheet1.A2"]
-
-
-

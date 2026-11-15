@@ -2118,7 +2118,5 @@ def test_write_cell_range_multi_range_merges_write_reports():
 
     assert res["status"] == "ok"
     assert len(res["error_cells"]) == 2
-    assert len(res["warnings"]) == 2
+    assert len(res["warnings"]) == 1
     assert "ranges" not in res
-
-

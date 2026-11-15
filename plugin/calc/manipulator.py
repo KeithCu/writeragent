@@ -248,6 +248,91 @@ def _text_write_notes(values: Sequence[Any], cell_metas: Sequence[_CellWrite]) -
     return numeric_idx, apostrophe_idx
 
 
+def _write_report(
+    sheet: Any,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    values: Sequence[Any],
+    cell_metas: Sequence[_CellWrite],
+    *,
+    scan_text: bool,
+) -> dict[str, Any]:
+    """Build optional error/text-note report keys and Diagnostic warnings for a committed write.
+
+    Errors are read after the whole range lands because reading ``cell.Error``
+    before later formula cells are set gives false errors on forward references,
+    and ``queryFormulaCells`` evaluates dirty cells so no recalc is needed.
+    Egress modes pass ``scan_text=False`` because they store text verbatim and
+    their callers ignore the result.
+    """
+    report: dict[str, Any] = {}
+    warnings: list[Diagnostic] = []
+
+    if any(m.kind == "formula" for m in cell_metas):
+        errors, total = formula_error_cells(
+            sheet,
+            sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1]),
+            limit=_MAX_REPORTED_CELLS,
+        )
+        if errors:
+            report["error_cells"] = [
+                {"address": e["address"], "error": e["error"]["code"], "formula": e["formula"]}
+                for e in errors
+            ]
+            warn_msg = (
+                f"{total} formula cell(s) show an error after the write "
+                f"(error_cells lists {'the first ' + str(len(errors)) if total > len(errors) else 'them'}). "
+                "A text label that starts with '=' must be written with a leading apostrophe ('=label). "
+                "Use error_detect on a cell for the cause."
+            )
+            # Calc's API grammar uses ';', and =SUM(1,2) gives 525, so a comma in a failing formula is the cue.
+            if any(e["error"]["error_code"] in (501, 508, 525) and "," in e["formula"] for e in errors):
+                warn_msg += " Calc separates function arguments with ';', not ','."
+            warnings.append({"code": "FORMULA_ERROR", "message": warn_msg})
+
+    if scan_text:
+        numeric_idx, apostrophe_idx = _text_write_notes(values, cell_metas)
+        if numeric_idx or apostrophe_idx:
+            sheet_name = str(sheet.getName())
+            num_cols = end[0] - start[0] + 1
+            if numeric_idx:
+                report["text_that_looks_numeric"] = [
+                    {
+                        "address": qualify_a1(sheet_name, format_address(start[0] + i % num_cols, start[1] + i // num_cols)),
+                        "value": values[i].strip(),
+                    }
+                    for i in numeric_idx[:_MAX_REPORTED_CELLS]
+                ]
+                warnings.append({
+                    "code": "TEXT_LOOKS_NUMERIC",
+                    "message": (
+                        f"{len(numeric_idx)} cell(s) look like a number or date but were stored as text "
+                        "(text_that_looks_numeric). Only plain numbers (1.5) and ISO dates (2026-08-05) "
+                        "become values; resend them that way if they must calculate, or leave them if they are labels."
+                    ),
+                })
+            if apostrophe_idx:
+                report["apostrophe_removed"] = [
+                    {
+                        "address": qualify_a1(sheet_name, format_address(start[0] + i % num_cols, start[1] + i // num_cols)),
+                        "value": cell_metas[i].data,
+                    }
+                    for i in apostrophe_idx[:_MAX_REPORTED_CELLS]
+                ]
+                warnings.append({
+                    "code": "APOSTROPHE_REMOVED",
+                    "message": (
+                        f"{len(apostrophe_idx)} cell(s) started with an apostrophe, which was removed as the "
+                        "force-text marker (apostrophe_removed). To keep a leading apostrophe in the text, "
+                        "double it (''90s)."
+                    ),
+                })
+
+    if warnings:
+        report["warnings"] = warnings
+    return report
+
+
 def _write_values_cell_ok(cell: Any) -> bool:
     if cell is None:
         return True
@@ -968,6 +1053,7 @@ class CellManipulator:
         for col, row, key in s29_snapshots:
             sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
 
+        # Formula errors are scanned post-write in _write_report so forward references evaluate first.
         for col, row, formula in formula_cells:
             sheet.getCellByPosition(col, row).setFormula(formula)
 
@@ -1244,69 +1330,18 @@ class CellManipulator:
                 expand_overwrite_warning,
             )
 
-            report: dict[str, Any] = {}
-            warnings: list[Diagnostic] = []
-            num_cols = end[0] - start[0] + 1
-            sheet_name: str | None = None
-
-            def _addr(i: int) -> str:
-                nonlocal sheet_name
-                if sheet_name is None:
-                    sheet_name = str(sheet.getName())
-                return qualify_a1(sheet_name, format_address(start[0] + i % num_cols, start[1] + i // num_cols))
-
-            if any(m.kind == "formula" for m in cell_metas):
-                errors, total = formula_error_cells(
-                    sheet,
-                    sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1]),
-                    limit=_MAX_REPORTED_CELLS,
-                )
-                if errors:
-                    report["error_cells"] = [
-                        {"address": e["address"], "error": e["error"]["code"], "formula": e["formula"]}
-                        for e in errors
-                    ]
-                    warn_msg = (
-                        f"{total} formula cell(s) show an error after the write "
-                        f"(error_cells lists {'the first ' + str(len(errors)) if total > len(errors) else 'them'}). "
-                        "A text label that starts with '=' must be written with a leading apostrophe ('=label). "
-                        "Use error_detect on a cell for the cause."
-                    )
-                    if any(e["error"]["error_code"] in (501, 508, 525) and "," in e["formula"] for e in errors):
-                        warn_msg += " Calc separates function arguments with ';', not ','."
-                    warnings.append({"code": "FORMULA_ERROR", "message": warn_msg})
-
-            if not literal_text and not data_text:
-                numeric_idx, apostrophe_idx = _text_write_notes(values, cell_metas)
-                if numeric_idx:
-                    report["text_that_looks_numeric"] = [
-                        {"address": _addr(i), "value": values[i].strip()}
-                        for i in numeric_idx[:_MAX_REPORTED_CELLS]
-                    ]
-                    warnings.append({
-                        "code": "TEXT_LOOKS_NUMERIC",
-                        "message": (
-                            f"{len(numeric_idx)} cell(s) look like a number or date but were stored as text "
-                            "(text_that_looks_numeric). Only plain numbers (1.5) and ISO dates (2026-08-05) "
-                            "become values; resend them that way if they must calculate, or leave them if they are labels."
-                        ),
-                    })
-                if apostrophe_idx:
-                    report["apostrophe_removed"] = [
-                        {"address": _addr(i), "value": cell_metas[i].data}
-                        for i in apostrophe_idx[:_MAX_REPORTED_CELLS]
-                    ]
-                    warnings.append({
-                        "code": "APOSTROPHE_REMOVED",
-                        "message": (
-                            f"{len(apostrophe_idx)} cell(s) started with an apostrophe, which was removed as the "
-                            "force-text marker (apostrophe_removed). To keep a leading apostrophe in the text, "
-                            "double it (''90s)."
-                        ),
-                    })
-
             log.info("%s", msg)
-            return {"message": msg, **report, **({"warnings": warnings} if warnings else {})}
+            return {
+                "message": msg,
+                **_write_report(
+                    sheet,
+                    start,
+                    end,
+                    values,
+                    cell_metas,
+                    scan_text=not literal_text and not data_text,
+                ),
+            }
 
     def write_formula_range(
         self,

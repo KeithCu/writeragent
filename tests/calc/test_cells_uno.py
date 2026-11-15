@@ -924,5 +924,3 @@ def test_multi_range_write_reports_error_cells(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     assert sheet.getCellByPosition(7, 0).getString() == "#NAME?"
     assert sheet.getCellByPosition(8, 0).getString() == "#NAME?"
-
-
