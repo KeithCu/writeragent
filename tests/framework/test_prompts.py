@@ -498,7 +498,7 @@ def test_draw_prompt_names_only_bound_tools_and_domains(is_impress: bool) -> Non
 def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path: str, service: str) -> None:
     import importlib
     from plugin.app import get_tools
-    from plugin.doc.specialized_catalog import _get_specialized_domains_str, catalog_entries_from_base
+    from plugin.doc.specialized_catalog import catalog_entries_from_base, get_specialized_delegation_tool_hint
 
     get_tools()
     mod_name, cls_name = gateway_cls_path.rsplit(".", 1)
@@ -511,7 +511,7 @@ def test_chat_prompt_domain_list_matches_narrowed_gateway_enum(gateway_cls_path:
         prompt = get_chat_system_prompt_for_document(doc)
 
     domains = gw.domains_for_services(frozenset({service}))
-    rendered = _get_specialized_domains_str(agent_label=gw._agent_label, uno_services=frozenset({service}))
+    rendered = get_specialized_delegation_tool_hint(gw._agent_label, uno_services=frozenset({service}))
     assert rendered in prompt
     rendered_names = {
         entry["domain"]
