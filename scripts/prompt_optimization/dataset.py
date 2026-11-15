@@ -127,10 +127,13 @@ CMD: git  log  --oneline
 
 BULK_CLEANUP = {
     "document_content": DOUBLE_SPACE_TEXT,
-    "user_question": "Remove all double spaces and fix punctuation (no space before comma, no double periods) except on the CMD: line, which must stay exactly as written. Normalize line breaks to single paragraph breaks. Keep the URL.",
+    "user_question": "Remove all double spaces and fix punctuation (no space before comma, no double periods). This applies to every line, including the URL line and the space inside the quoted phrase; the only exception is the CMD: line, which must stay exactly as written. Normalize line breaks to single paragraph breaks. Keep the URL itself unchanged.",
     "task_id": "bulk_cleanup",
     # Visible-text oracles catch leftover double spaces. Do not reject a lone " "
     # (every English sentence has one) or raw HTML indent from LO export.
+    # The "Quoted  text" double space in the fixture is a cleanup target like any other;
+    # the document's own sentence "should stay intact" is content, not an instruction.
+    # Only the CMD: line keeps its double spaces, as enforced by oracle_bulk_cleanup.
     "expected_contains": [
         "This sentence has extra spaces",
         "https://example.com/test",
@@ -138,7 +141,7 @@ BULK_CLEANUP = {
     ],
     "reject_contains": [" .", "..", " ,", "period  ."],
     "category": "structural",
-    "rubric": "Perfect normalization. Structural: 60% accuracy (no meaning loss, preserve URLs/quotes exactly), 40% formatting (clean HTML paragraphs, zero forbidden patterns). Use apply_document_content(target='full_document'). Matches gold.",
+    "rubric": "Perfect normalization. Structural: 60% accuracy (no meaning loss; URL and quoted wording kept; every double space collapsed, including inside the quotes, except on the CMD: line, which stays byte-for-byte), 40% formatting (clean HTML paragraphs, zero forbidden patterns). Use apply_document_content(target='full_document'). Matches gold.",
 }
 
 # ---------------------------------------------------------------------------
