@@ -157,12 +157,13 @@ def test_requires_document_lock_default_forwards_arguments() -> None:
         def detects_mutation(self, arguments: Any = None) -> bool:
             return arguments == {"w": 1}
 
-        def execute(self, ctx, **kwargs):
+        def execute(self, ctx: Any, **kwargs: Any) -> Any:
             pass
 
     tool = ArgAwareTool()
     assert tool.requires_document_lock({"w": 1}) is True
     assert tool.requires_document_lock({}) is False
+
 
 def test_validate():
     tool = ValidTool()
