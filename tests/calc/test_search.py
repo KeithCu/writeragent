@@ -22,7 +22,7 @@ def _tool(name: str):
 
 @pytest.mark.parametrize("bad_max", [0, -1])
 def test_search_in_spreadsheet_invalid_max_results(bad_max):
-    tool = _tool("calc_search_cells")
+    tool = _tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=None)
     with patch("plugin.calc.search.search_spreadsheet_cells") as mock_search:
         res = tool.execute_safe(ctx, pattern="test", max_results=bad_max)
@@ -34,11 +34,11 @@ def test_search_in_spreadsheet_invalid_max_results(bad_max):
 
 @pytest.mark.parametrize("bad_max", ["5", True])
 def test_search_cells_schema_rejects_non_int_max_results(bad_max):
-    tool = _tool("calc_search_cells")
+    tool = _tool("search_cells")
     prep = prepare_tool_call(
         tool,
         types.SimpleNamespace(doc_type="calc"),
-        "calc_search_cells",
+        "search_cells",
         {"pattern": "test", "max_results": bad_max},
     )
     assert prep.error is not None
@@ -46,7 +46,7 @@ def test_search_cells_schema_rejects_non_int_max_results(bad_max):
 
 
 def test_search_in_spreadsheet_valid_max_results():
-    tool = _tool("calc_search_cells")
+    tool = _tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=None)
     with patch("plugin.calc.search.search_spreadsheet_cells", return_value=[{"cell": "A1", "value": "test"}]) as mock_search:
         res = tool.execute_safe(ctx, pattern="test", max_results=5)
@@ -58,7 +58,7 @@ def test_search_in_spreadsheet_valid_max_results():
 
 
 def test_search_in_spreadsheet_forwards_cancel():
-    tool = _tool("calc_search_cells")
+    tool = _tool("search_cells")
     scope = SendCancellation()
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=scope)
     with patch("plugin.calc.search.search_spreadsheet_cells", return_value=[]) as mock_search:
@@ -69,7 +69,7 @@ def test_search_in_spreadsheet_forwards_cancel():
 
 
 def test_search_in_spreadsheet_case_sensitive_explicit():
-    tool = _tool("calc_search_cells")
+    tool = _tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=None)
     with patch("plugin.calc.search.search_spreadsheet_cells", return_value=[]) as mock_search:
         res = tool.execute_safe(ctx, pattern="test", case_sensitive=True)
@@ -79,7 +79,7 @@ def test_search_in_spreadsheet_case_sensitive_explicit():
 
 
 def test_replace_in_spreadsheet_matched_case_sensitive():
-    tool = _tool("calc_replace_cells")
+    tool = _tool("replace_cells")
     sheet = MagicMock()
     rd = MagicMock()
     sheet.createReplaceDescriptor.return_value = rd
@@ -100,7 +100,7 @@ def test_replace_in_spreadsheet_matched_case_sensitive():
 
 
 def test_search_in_spreadsheet_invalid_regex():
-    tool = _tool("calc_search_cells")
+    tool = _tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), send_cancellation=None)
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
     res = tool.execute_safe(ctx, pattern="([a-", regex=True)
@@ -109,7 +109,7 @@ def test_search_in_spreadsheet_invalid_regex():
 
 
 def test_replace_in_spreadsheet_invalid_regex():
-    tool = _tool("calc_replace_cells")
+    tool = _tool("replace_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock())
     ctx.ctx.ServiceManager.createInstanceWithContext.return_value.searchForward.return_value.subRegExpressions = 0
     res = tool.execute_safe(ctx, search="([a-", replace="x", regex=True)
@@ -118,7 +118,7 @@ def test_replace_in_spreadsheet_invalid_regex():
 
 
 def test_search_cells_empty_pattern_is_invalid_param():
-    tool = _tool("calc_search_cells")
+    tool = _tool("search_cells")
     ctx = types.SimpleNamespace(doc=MagicMock(), ctx=MagicMock(), send_cancellation=None)
     res = tool.execute_safe(ctx, pattern="")
     assert res["status"] == "error"

@@ -179,7 +179,7 @@ def convert_starmath_to_latex(ctx: Any, starmath: str) -> MathExportResult:
 
 
 def wrap_latex_delimiters(latex: str, *, display_block: bool) -> str:
-    """Wrap TeX for ``writer_apply_content`` / chat (``$…$`` vs ``$$…$$``)."""
+    """Wrap TeX for ``apply_content`` / chat (``$…$`` vs ``$$…$$``)."""
     inner = (latex or "").strip()
     if inner.startswith("$$") and inner.endswith("$$"):
         return inner

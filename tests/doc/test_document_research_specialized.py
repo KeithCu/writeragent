@@ -472,8 +472,8 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
     assert result == "Q4=100"
     tools_arg = mock_build_agent.call_args[0][1]
     tool_names = [t.name for t in tools_arg]
-    assert "calc_read_range" in tool_names
-    assert "calc_get_sheet_summary" in tool_names
+    assert "read_range" in tool_names
+    assert "get_sheet_summary" in tool_names
     inner_ctx = mock_build_agent.call_args[0][0]
     assert inner_ctx.doc is opened
     assert inner_ctx.doc_type == "calc"

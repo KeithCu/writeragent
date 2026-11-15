@@ -228,7 +228,7 @@ def test_search_in_document_max_results_wrong_type_is_rejected_before_execute(ba
     from plugin.writer.search import SearchInDocument
 
     ctx = SimpleNamespace(doc_type="writer", caller="test")
-    prep = prepare_tool_call(SearchInDocument(), ctx, "writer_search", {"pattern": "test", "max_results": bad_val})
+    prep = prepare_tool_call(SearchInDocument(), ctx, "search", {"pattern": "test", "max_results": bad_val})
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
     assert prep.error["message"].startswith("Invalid type for max_results: expected integer")
@@ -241,7 +241,7 @@ def test_search_in_document_null_max_results_uses_the_default():
     from plugin.writer.search import SearchInDocument
 
     ctx = SimpleNamespace(doc_type="writer", caller="test")
-    prep = prepare_tool_call(SearchInDocument(), ctx, "writer_search", {"pattern": "test", "max_results": None})
+    prep = prepare_tool_call(SearchInDocument(), ctx, "search", {"pattern": "test", "max_results": None})
     assert prep.error is None
     assert prep.kwargs == {"pattern": "test"}
 
@@ -1426,7 +1426,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     doc = _SampleFakeDoc("Apple pie and apple tart")
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
 
-    # 1. writer_search
+    # 1. search
     # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
     s_default = SearchInDocument().execute(ctx, pattern="apple")
     assert s_default["status"] == "ok"
@@ -1447,7 +1447,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     assert s_exact_miss["matches"] == []
     assert s_exact_miss["matched_case_sensitive"] is True
 
-    # 2. writer_set_selection
+    # 2. set_selection
     # Default (omitted) is case-insensitive: occurrence 0 hits first match "Apple"
     sel_default = SetSelection().execute(ctx, search_text="apple")
     assert sel_default["status"] == "ok"
@@ -1470,7 +1470,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     assert "search_text not found in document" in sel_exact_miss["message"]
     assert sel_exact_miss["matched_case_sensitive"] is True
 
-    # 3. writer_apply_content (dry_run preview)
+    # 3. apply_content (dry_run preview)
     # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
     app_default = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", dry_run=True)
     assert app_default["status"] == "ok"
@@ -1506,7 +1506,7 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     assert app_none["matched_case_sensitive"] is False
     assert [m["text"] for m in app_none["replaceable"]] == ["Apple", "apple"]
 
-    # 5. writer_apply_content non-dry-run replace with all_matches=True
+    # 5. apply_content non-dry-run replace with all_matches=True
     doc_replace = _SampleFakeDoc("Apple pie and apple tart")
     ctx_replace = TestingFactory.create_context(doc=doc_replace, doc_type="writer")
 
@@ -1870,7 +1870,7 @@ def test_drawing_shape_containing_fails_safe_on_count_error():
 
 # --- an empty replacement deletes a table only when it removes the last text --
 # Regression: asked to delete a table, agents emptied its text with
-# writer_apply_content, got status ok, and reported success -- the shell stayed.
+# apply_content, got status ok, and reported success -- the shell stayed.
 # Clearing one cell of a table that still has other text is a normal edit.
 
 class _Cell:

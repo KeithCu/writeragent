@@ -32,12 +32,12 @@ SCHEMA_DENSITIES: tuple[str, ...] = ("full", "skinny")
 TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
     "full": (None, None),
     # Smallest outer set that can still pass data_sorting + tax_column:
-    # tax writes via calc_write_range / calc_get_sheet_summary; sort delegates.
+    # tax writes via write_range / get_sheet_summary; sort delegates.
     "calc_minimal": (
         "calc",
         (
-            "calc_write_range",
-            "calc_get_sheet_summary",
+            "write_range",
+            "get_sheet_summary",
             "delegate_to_specialized_calc_toolset",
         ),
     ),
@@ -46,14 +46,14 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
     "calc_core": (
         "calc",
         (
-            "calc_delete_structure",
-            "calc_insert_html",
-            "calc_merge_cells",
-            "calc_read_range",
-            "calc_set_style",
-            "calc_write_range",
-            "calc_list_functions",
-            "calc_get_sheet_summary",
+            "delete_structure",
+            "insert_html",
+            "merge_cells",
+            "read_range",
+            "set_style",
+            "write_range",
+            "list_functions",
+            "get_sheet_summary",
             "delegate_to_specialized_calc_toolset",
         ),
     ),
@@ -61,8 +61,8 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
     "writer_minimal": (
         "writer",
         (
-            "writer_apply_content",
-            "writer_get_content",
+            "apply_content",
+            "get_content",
         ),
     ),
 }
@@ -218,7 +218,7 @@ def resolve_tool_allowlist(
     """Allowlist for this catalog, or ``None`` to keep every advertised tool.
 
     Specialized inner catalogs (``active_domain`` set) are never filtered so
-    ``delegate_to_specialized_*`` still sees ``calc_sort_range`` / shapes / etc.
+    ``delegate_to_specialized_*`` still sees ``sort_range`` / shapes / etc.
     Kind-specific presets no-op on other document kinds.
     """
     if active_domain:

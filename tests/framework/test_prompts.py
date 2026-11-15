@@ -59,7 +59,7 @@ def test_html_fragment_rules_appear_once_in_writer_prompt():
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     assert prompt.count("Use <br> for line breaks within an element") == 1
-    assert get_sub_agent_instructions("BASE", tool_names=["writer_apply_content"]).count("Use <br> for line breaks within an element") == 1
+    assert get_sub_agent_instructions("BASE", tool_names=["apply_content"]).count("Use <br> for line breaks within an element") == 1
 
 
 def test_writer_chat_prompt_section_order_matches_assembly():
@@ -133,7 +133,7 @@ def test_draw_prompt_omits_get_image_when_model_has_no_vision():
         prompt = get_chat_system_prompt_for_document(model)
     assert DRAW_GET_IMAGE_TOOL_LINE not in prompt
     assert "image_get" not in prompt
-    assert "draw_get_tree" in prompt
+    assert "get_tree" in prompt
 
 
 def test_draw_prompt_keeps_get_image_when_model_has_vision():

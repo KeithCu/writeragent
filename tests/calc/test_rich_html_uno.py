@@ -55,13 +55,13 @@ def test_insert_cell_html(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "calc_insert_html",
+        "insert_html",
         {
             "cell": "Z99",
             "html": "Plain <b>BoldBit</b> tail",
         },
     )
-    assert res.get("status") == "ok", f"calc_insert_html failed: {res}"
+    assert res.get("status") == "ok", f"insert_html failed: {res}"
     # Close skipped after paste. Windows defers this suite until after
     # document_research_uno 3/3 (34648929578). Cached leftover_open
     # for later leftover reuse. Do not enum getComponents.
@@ -83,7 +83,7 @@ def test_insert_cell_html_sheet_prefix_without_switching(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "calc_insert_html",
+        "insert_html",
         {"cell": "Sheet2.A1", "html": "<b>remote</b>"},
     )
     assert res.get("status") == "ok", res
@@ -103,7 +103,7 @@ def test_insert_cell_html_is_one_undo_step_uno(ctx, doc):
     before = undo_titles(doc)
     assert before is not None
 
-    res = _execute_calc_tool(doc, ctx, "calc_insert_html", {"cell": "D5", "html": "<b>new</b>"})
+    res = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "D5", "html": "<b>new</b>"})
     assert res.get("status") == "ok", res
     assert "new" in d5.getString()
 
@@ -202,12 +202,12 @@ def test_insert_cell_html_reports_replaced_formula(ctx, doc):
     a1 = sheet.getCellByPosition(0, 0)
     a1.setFormula("=1+2")
 
-    res = _execute_calc_tool(doc, ctx, "calc_insert_html", {"cell": "A1", "html": "<b>x</b>"})
+    res = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "A1", "html": "<b>x</b>"})
     note_windows_html_paste_leftover()
     assert res.get("status") == "ok", res
     assert res["replaced_text"] == "=1+2"
     assert "x" in a1.getString()
 
-    res_empty = _execute_calc_tool(doc, ctx, "calc_insert_html", {"cell": "B1", "html": "<b>y</b>"})
+    res_empty = _execute_calc_tool(doc, ctx, "insert_html", {"cell": "B1", "html": "<b>y</b>"})
     assert res_empty.get("status") == "ok", res_empty
     assert "replaced_text" not in res_empty

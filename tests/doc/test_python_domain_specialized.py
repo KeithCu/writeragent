@@ -367,10 +367,10 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     tools_arg = mock_build.call_args[0][1]
     names = {tool.name for tool in tools_arg}
     assert "sheet_list" in names
-    assert "calc_sort_range" in names
+    assert "sort_range" in names
     assert "footnote_insert" not in names
     by_name = {tool.name: tool for tool in tools_arg}
-    assert by_name["calc_sort_range"].inputs["range"]["type"] == "array"
+    assert by_name["sort_range"].inputs["range"]["type"] == "array"
     assert "shape_upsert" not in names
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.python_tool_domain == "sheets,ranges,core"
@@ -379,7 +379,7 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
     assert allowed is not None
     assert "sheet_list" in allowed
-    assert "calc_sort_range" in allowed
+    assert "sort_range" in allowed
     assert "shape_upsert" not in allowed
     assert "document_undo" in allowed
     assert "run_venv_python_script" not in allowed

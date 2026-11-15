@@ -60,7 +60,7 @@ def resolve_target_cursor(
         # Resolve the explicit selection, else the view cursor. NEVER silently fall back to the end
         # of the document (a gotoEnd fallback would append edits at the very end and still
         # report ok). Only when BOTH are unavailable do we raise a clear error, so a headless MCP
-        # client that never set a selection is told to use writer_set_selection / target='search'.
+        # client that never set a selection is told to use set_selection / target='search'.
         controller = uno_read(doc.getCurrentController, None)
         rng = None
         if controller is not None:
@@ -70,7 +70,7 @@ def resolve_target_cursor(
         if rng is None:
             raise ValueError(
                 "Could not resolve the current selection. Select text first, or use "
-                "target='search' with old_content, or call writer_set_selection.")
+                "target='search' with old_content, or call set_selection.")
         # Build the cursor in the SELECTION's own text object: a selection inside a table cell or
         # text frame is a different XText, and gotoRange on a body cursor raises a raw UNO
         # RuntimeException that escapes callers expecting ValueError. Same pattern as the search
@@ -78,7 +78,7 @@ def resolve_target_cursor(
         return _span_cursor(
             rng,
             "Could not span the current selection (%s). Use target='search' "
-            "with old_content, or call writer_set_selection.",
+            "with old_content, or call set_selection.",
         )
 
     if target != "search":

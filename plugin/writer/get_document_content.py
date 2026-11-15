@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Writer writer_get_content tool — export document content as HTML."""
+"""Writer get_content tool — export document content as HTML."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def _summarize_redlines(
 class GetDocumentContent(ToolBase):
     """Export the document (or a portion) as formatted content."""
 
-    name: str | None = "writer_get_content"
+    name: str | None = "get_content"
     description: str = (
         "Get document (or selection/range) content. Result includes document_length (plain-text "
         "characters) and length (HTML characters). scope: full, selection, or range (requires start, "
@@ -107,7 +107,7 @@ class GetDocumentContent(ToolBase):
         "tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected "
         "returns empty content plus a warning. "
         "CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> "
-        "and writer_apply_content of that markup recreates live Ruby portions."
+        "and apply_content of that markup recreates live Ruby portions."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -116,7 +116,7 @@ class GetDocumentContent(ToolBase):
             "max_chars": {"type": "integer", "description": "Maximum characters of exported HTML to return (approximate: the truncation marker adds about 20 characters)."},
             "start": {"type": "integer", "description": "Plain-text start offset (0-based), same coordinate space as document_length. Required for scope 'range'; must be less than end."},
             "end": {"type": "integer", "description": "Plain-text end offset (exclusive), same coordinate space as document_length. Required for scope 'range'."},
-            "include_images": {"type": "boolean", "description": "Include embedded image data (base64) in export. Default false: an image comes back as its wrapper with the picture's name (<div|span ... id=\"Name\"><img src=\"\"/></...>); keep that wrapper in writer_apply_content content to keep the picture there, drop it to delete the picture."},
+            "include_images": {"type": "boolean", "description": "Include embedded image data (base64) in export. Default false: an image comes back as its wrapper with the picture's name (<div|span ... id=\"Name\"><img src=\"\"/></...>); keep that wrapper in apply_content content to keep the picture there, drop it to delete the picture."},
         },
         "required": [],
     }
@@ -127,7 +127,7 @@ class GetDocumentContent(ToolBase):
         t0 = time.perf_counter()
         scope = kwargs.get("scope") or "full"
         max_chars = kwargs.get("max_chars")
-        log.debug("writer_get_content: start scope=%r max_chars=%r", scope, max_chars)
+        log.debug("get_content: start scope=%r max_chars=%r", scope, max_chars)
 
         if max_chars is not None and max_chars < 1:
             return self._tool_error("max_chars must be a positive integer.")
@@ -174,7 +174,7 @@ class GetDocumentContent(ToolBase):
             result["hint"] = (
                 "HTML was cut at max_chars (%d chars returned). Continue with scope='range' and "
                 "plain-text start/end in 0..document_length (%d), or raise max_chars. "
-                "writer_get_tree lists headings."
+                "get_tree lists headings."
                 % (len(content), doc_len)
             )
         if scope == "range":
@@ -214,10 +214,10 @@ class GetDocumentContent(ToolBase):
         except Exception as exc:
             # A closed document is not an ok read with the changes omitted.
             reraise_if_disposed(exc, object_type="Document")
-            log.exception("writer_get_content: could not collect tracked changes")
+            log.exception("get_content: could not collect tracked changes")
             _append_warning(result, _UNLISTED_NOTE)
         log.debug(
-            "writer_get_content: done scope=%r content_len=%d document_length=%d total_ms=%.1f",
+            "get_content: done scope=%r content_len=%d document_length=%d total_ms=%.1f",
             scope,
             len(content) if isinstance(content, str) else -1,
             doc_len,

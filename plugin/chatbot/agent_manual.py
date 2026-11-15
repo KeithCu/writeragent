@@ -72,7 +72,7 @@ _MCP_CONCURRENCY_RULES = (
 # editing-html section follows immediately, so a "go read that topic" pointer would dangle.
 # ---------------------------------------------------------------------------
 _EDITING_HTML_POINTER = (
-    "\n\nFor writer_apply_content's full contract (targets, the JSON array of HTML "
+    "\n\nFor apply_content's full contract (targets, the JSON array of HTML "
     "fragments, math, named styles, reach), read the editing-html topic."
 )
 
@@ -108,7 +108,7 @@ _WRITER_TOPICS: tuple[_Topic, ...] = (
     _Topic(
         "editing-html",
         WRITER_APPLY_DOCUMENT_HTML_RULES + HTML_MATH_AND_LINK_EXAMPLES,
-        "writer_apply_content contract: targets, HTML array, math and heading-link examples, styles, reach",
+        "apply_content contract: targets, HTML array, math and heading-link examples, styles, reach",
     ),
     _Topic(
         "review-modes",

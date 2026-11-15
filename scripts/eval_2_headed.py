@@ -160,7 +160,7 @@ DRAW_PRIMARY_ODG_NAME = "Process Flow Map.odg"
 PYTHON_SHAPES_ODT_NAME = "American Flag.odt"
 # Stamp copy. --score copies Thumbnails/thumbnail.png out as preview.png.
 PYTHON_SHAPES_STAMP_ODT = "final_flag.odt"
-# Form-920 Section 1 blanks. Labels sit to the left so draw_get_tree
+# Form-920 Section 1 blanks. Labels sit to the left so get_tree
 # can attach label_hint. Names stay stable for shape_fill_fields / oracle.
 GMP_FILLABLE_FIELDS: tuple[tuple[str, str], ...] = (
     ("fld_change_title", "Change Title"),

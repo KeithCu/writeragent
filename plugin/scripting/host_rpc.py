@@ -222,6 +222,11 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
     if not methods:
         # LibrePy, or proxies that did not load. Omit the catalog.
         return ""
+    api: Any
+    try:
+        import plugin.scripting.writeragent_api as api
+    except ImportError:
+        api = None
     domains: list[str] = []
     seen: set[str] = set()
     for name in ("core", *domains_tuple):
@@ -235,7 +240,14 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
         for tool_name in tools.get(domain) or ():
             if tool_name in _BLOCKED_FROM_VENV:
                 continue
-            entry = methods.get(tool_name)
+            entry = None
+            if api is not None and domain in ("writer", "calc", "draw"):
+                proxy = getattr(api, domain, None)
+                method = getattr(proxy, tool_name, None)
+                if callable(method):
+                    entry = (domain, method)
+            if entry is None:
+                entry = methods.get(tool_name)
             if entry is None:
                 log.warning("script API catalog: no proxy method for %s", tool_name)
                 continue
@@ -415,7 +427,11 @@ def execute_tool(
             send_cancellation=send_cancellation,
         )
 
-        tool = registry.get(tool_name)
+        tool = (
+            registry.get_for_document(tool_name, doc_type=doc_type)
+            if hasattr(registry, "get_for_document")
+            else registry.get(tool_name)
+        )
         is_async = tool is not None and tool.is_async()
         return registry, tctx, is_async
 

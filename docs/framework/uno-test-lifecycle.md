@@ -327,7 +327,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `document_research_uno: store/list_nearby start/done`,
 `close_doc: start/done uid= leftovers=` (Windows Writer),
 `close_doc: skip writer close leftovers open=N uid=…`,
-`draw_get_tree: body start/execute done/body done`,
+`get_tree: body start/execute done/body done`,
 `close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
 `insert_math_draw: math_insert start/done` and `body done`,
 `import_filter_uno: load start/done` (`target=_wa_notebook` on
@@ -555,7 +555,7 @@ MathML leftover Hidden skips fired (suites green). Then
 Writer + close returned; the second hung. Same leftover Hidden
 family. Apply-content UNO tests now
 `skip_windows_leftover_hidden_load`
-(`windows leftover skip: writer_apply_content Hidden _default
+(`windows leftover skip: apply_content Hidden _default
 swriter leftovers=N`; removed 2026-11, TSLOP-WIN stage 2; pending
 Windows UNO round-1 run id). Not a product change.
 
@@ -577,13 +577,13 @@ FAIL (`origin detection improved`) under leftover writer reuse;
 suite continued (passed=10 failed=1) until the later apply hang.
 Linux still pins CharWeight=150; `styles.py` still compares value
 vs old style default. Windows leftover skip
-(`windows leftover skip: writer_apply_style origin canary leftover reuse`)
+(`windows leftover skip: apply_style origin canary leftover reuse`)
 — leftover pollution, not a product change.
 
 GHA 34685648395 (PR #746 tip `71d559c6`): content-style write /
 apply-style origin canary leftover skips fired (suites green).
 `test_apply_document_content_target_full_preserves_colors` printed
-`windows leftover skip: writer_apply_content Hidden _default
+`windows leftover skip: apply_content Hidden _default
 swriter` then hung 30s in `finally: small_doc.close(True)` after
 Hidden `_blank` factory load. SkipTest still runs `finally`.
 Windows now skips that test *before* the factory load
@@ -693,13 +693,13 @@ when leftover_open>0 (no 30s Timeout on leftover Writer
 `doc.close(True)`), apply-content heading rewrite, later apply UNO
 (content-style write, format apply, track-changes apply)
 `TEST end … SKIP` with
-`windows leftover skip: writer_apply_content Hidden _default
+`windows leftover skip: apply_content Hidden _default
 swriter` when leftover_open>0 (no 30s Timeout on
 `html_to_plain_text` Hidden `_default` swriter after leftover
 writer reuse — GHA 34681661844 heading `_b_uno`, GHA 34683742049
 content-style `test_write_compact_heading1_resolves_to_spaced_uno`),
 apply-style origin canary `TEST end … SKIP` with
-`windows leftover skip: writer_apply_style origin canary leftover reuse`
+`windows leftover skip: apply_style origin canary leftover reuse`
 when leftover_open>0 (no FAIL claiming origin detection improved —
 GHA 34683742049 leftover reuse; Linux still pins CharWeight=150),
 format_uno Hidden `_blank` small_doc `TEST end … SKIP` with
@@ -857,9 +857,9 @@ print while URP still answers, then the process exits before the next open.
    (`PAIR=dup-move` body). Confirm: isolate `slide_duplicate` only; Error
    during the tool call vs during teardown; `activate=False` vs `True`.
    Does **not** explain the blank/label killer.
-3. **Draw `TextShape` create / empty `getString` / `draw_get_tree` property
+3. **Draw `TextShape` create / empty `getString` / `get_tree` property
    walk** (`test_get_draw_tree_marks_blank_and_label_hint`). Confirm: soak
-   that test alone; Error during `shape_upsert` vs `draw_get_tree` vs close.
+   that test alone; Error during `shape_upsert` vs `get_tree` vs close.
 4. **`--pair tree-math` prefix bleed** (harness fact, now fixed). Filter
    `test_get_draw_tree` also matched `test_get_draw_tree_marks_blank_and_label_hint`.
    QA’s tree-math Error on the blank test may be that extra test, not
@@ -886,7 +886,7 @@ What the two killer tests do (no product change):
   (activate default True), `slide_rename`, `slide_move` (`duplicate` +
   reorder).
 - `test_get_draw_tree_marks_blank_and_label_hint`: two `TextShape`s
-  (label + empty named blank), `draw_get_tree` → `build_shape_tree`
+  (label + empty named blank), `get_tree` → `build_shape_tree`
   (`getString`, geometry, `FillColor` / `CustomShapeGeometry`).
 
 ## What the breadcrumb prints

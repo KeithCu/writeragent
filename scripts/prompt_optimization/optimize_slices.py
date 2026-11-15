@@ -40,20 +40,20 @@ class SliceSpec:
 SLICE_SPECS: dict[str, SliceSpec] = {
     "calc_core": SliceSpec("calc_core", "prompt_fragment", prompt_attr="CALC_CORE_DIRECTIVES"),
     "writer_core": SliceSpec("writer_core", "prompt_fragment", prompt_attr="WRITER_CORE_DIRECTIVES"),
-    # writer_apply_content / HTML-diff contract (Writer ambient prompt; recency block).
+    # apply_content / HTML-diff contract (Writer ambient prompt; recency block).
     "apply_html": SliceSpec(
         "apply_html", "prompt_fragment", prompt_attr="WRITER_APPLY_DOCUMENT_HTML_RULES"
     ),
-    "calc_write_range": SliceSpec(
-        "calc_write_range", "tool_description", tool_name="calc_write_range"
+    "write_range": SliceSpec(
+        "write_range", "tool_description", tool_name="write_range"
     ),
     "write_formula_range.values": SliceSpec(
         "write_formula_range.values",
         "tool_param",
-        tool_name="calc_write_range",
+        tool_name="write_range",
         param_name="values",
     ),
-    "calc_sort_range": SliceSpec("calc_sort_range", "tool_description", tool_name="calc_sort_range"),
+    "sort_range": SliceSpec("sort_range", "tool_description", tool_name="sort_range"),
     # Fallback: treat the assembled eval prompt as the instruction (opaque).
     "full_prompt": SliceSpec("full_prompt", "full_prompt"),
 }
@@ -86,9 +86,9 @@ def _tool_baseline(tool_name: str, param_name: str = "") -> str:
     from plugin.calc.cells import SortRange, WriteCellRange
 
     cls: Any
-    if tool_name == "calc_write_range":
+    if tool_name == "write_range":
         cls = WriteCellRange
-    elif tool_name == "calc_sort_range":
+    elif tool_name == "sort_range":
         cls = SortRange
     else:
         raise ValueError(f"No baseline class for tool {tool_name!r}")

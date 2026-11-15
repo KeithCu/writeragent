@@ -252,8 +252,8 @@ class TestPromptToolMatching:
         assert html_rules in w_instr
         assert target_rules not in w_instr
 
-        # Deep research with writer_apply_content: both present
-        d_instr = get_sub_agent_instructions("BASE", tool_names=["writer_apply_content"])
+        # Deep research with apply_content: both present
+        d_instr = get_sub_agent_instructions("BASE", tool_names=["apply_content"])
         assert html_rules in d_instr
         assert target_rules in d_instr
 

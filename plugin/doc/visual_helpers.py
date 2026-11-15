@@ -247,7 +247,7 @@ def parse_color_to_uno_int(color_val: Any) -> int | None:
     """Convert hex, named, rgb()/rgba(), int, or RGB tuple/list to a UNO RGB int.
 
     Returns ``None`` when *color_val* is falsy or unparseable. Integers are masked
-    to 24-bit RGB. Callers that only accept strings (e.g. Calc ``calc_set_style``) should
+    to 24-bit RGB. Callers that only accept strings (e.g. Calc ``set_style``) should
     reject non-strings before calling this.
     """
     if isinstance(color_val, bool):

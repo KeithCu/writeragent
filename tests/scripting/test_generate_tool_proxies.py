@@ -16,12 +16,13 @@ except ImportError:
     pytest.skip("scripts module not available (e.g., in bundled release builds)", allow_module_level=True)
 
 class MockTool:
-    def __init__(self, name, description, parameters, specialized_domain=None, tier="specialized"):
+    def __init__(self, name, description, parameters, specialized_domain=None, tier="specialized", doc_types=None):
         self.name = name
         self.description = description
         self.parameters = parameters
         self.specialized_domain = specialized_domain
         self.tier = tier
+        self.doc_types = doc_types
 
 
 def _as_tool(tool: MockTool) -> ToolBase:
@@ -47,9 +48,9 @@ def test_schema_to_signature_positional_and_keyword():
 
 
 def test_schema_to_signature_optional_bool_without_default_is_none():
-    """writer_apply_content dry_run has no schema default; True would be a silent no-op."""
+    """apply_content dry_run has no schema default; True would be a silent no-op."""
     tool = MockTool(
-        "writer_apply_content",
+        "apply_content",
         "Insert or replace content.",
         {
             "type": "object",
@@ -75,7 +76,7 @@ def test_group_tools_by_domain():
         _as_tool(MockTool("footnote_insert", "Insert footnote.", {}, specialized_domain="footnotes")),
         _as_tool(MockTool("footnote_list", "List footnotes.", {}, specialized_domain="footnotes")),
         _as_tool(MockTool("bookmark_add", "Add bookmark.", {}, specialized_domain="bookmarks")),
-        _as_tool(MockTool("writer_get_tree", "Get tree.", {}, specialized_domain=None, tier="core")),
+        _as_tool(MockTool("get_tree", "Get tree.", {}, specialized_domain=None, tier="core", doc_types=["writer"])),
     ]
     groups = group_tools(tools)
 
@@ -177,7 +178,7 @@ def test_method_docstring_includes_full_description_and_schema_args():
         "shape_upsert",
         (
             "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name "
-            "from draw_get_tree — draw-page index shifts when other shapes sit between fields."
+            "from get_tree — draw-page index shifts when other shapes sit between fields."
         ),
         {
             "type": "object",
@@ -209,13 +210,13 @@ def test_method_docstring_includes_full_description_and_schema_args():
     exec(code, namespace)
     doc = namespace["shape"].upsert.__doc__
     assert doc is not None
-    assert "draw_get_tree" in doc
+    assert "get_tree" in doc
     assert "Action to perform: 'create' a new shape" in doc
 
 
 def test_method_docstring_escapes_backslashes_and_triple_quotes():
     tool = MockTool(
-        "calc_weird",
+        "weird",
         'Keep C:\\temp and """quotes""" intact.\n\nSecond paragraph.',
         {
             "type": "object",
@@ -224,6 +225,7 @@ def test_method_docstring_escapes_backslashes_and_triple_quotes():
             },
             "required": ["note"],
         },
+        doc_types=["calc"],
     )
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
@@ -319,20 +321,30 @@ def test_group_tools_drops_llm_orchestration_tools():
 
 
 @pytest.mark.parametrize(
-    ("tool_name", "expected"),
+    ("tool_name", "app", "expected"),
     [
-        ("page_comment_add", ("page_comment", "add")),
-        ("page_get_columns", ("page", "get_columns")),
-        ("named_range_get_info", ("named_range", "get_info")),
-        ("sheet_apply_filter", ("sheet", "apply_filter")),
-        ("style_import", ("style", "import_")),
-        ("calc_get_sheet_summary", ("calc", "get_sheet_summary")),
+        ("page_comment_add", None, ("page_comment", "add")),
+        ("page_get_columns", None, ("page", "get_columns")),
+        ("named_range_get_info", None, ("named_range", "get_info")),
+        ("sheet_apply_filter", None, ("sheet", "apply_filter")),
+        ("style_import", None, ("style", "import_")),
+        ("get_sheet_summary", "calc", ("calc", "get_sheet_summary")),
+        ("get_tree", "writer", ("writer", "get_tree")),
+        ("get_tree", "draw", ("draw", "get_tree")),
     ],
 )
-def test_split_tool_name(tool_name, expected):
+def test_split_tool_name(tool_name, app, expected):
     from scripts.generate_tool_proxies import split_tool_name
 
-    assert split_tool_name(tool_name) == expected
+    assert split_tool_name(tool_name, app=app) == expected
+
+
+@pytest.mark.parametrize("bad_name", ["writer_get_tree", "calc_read_range", "draw_get_info"])
+def test_split_tool_name_rejects_app_prefix(bad_name):
+    from scripts.generate_tool_proxies import split_tool_name
+
+    with pytest.raises(ValueError, match="app prefix"):
+        split_tool_name(bad_name, app="writer")
 
 
 def test_unknown_domain_raises():
@@ -363,21 +375,21 @@ def test_rule_collision_raises():
 
 def test_domain_tools_key_is_specialized_domain():
     tools = [
-        _as_tool(MockTool("calc_sort_range", "Sort.", {}, specialized_domain="ranges")),
-        _as_tool(MockTool("named_range_add", "Add.", {}, specialized_domain="ranges")),
+        _as_tool(MockTool("sort_range", "Sort.", {}, specialized_domain="ranges", doc_types=["calc"])),
+        _as_tool(MockTool("named_range_add", "Add.", {}, specialized_domain="ranges", doc_types=["calc"])),
     ]
     code = generate_module(tools)
     compile(code, "<generated>", "exec")
     ns: dict[str, Any] = {}
     exec(code, ns)
-    assert ns["DOMAIN_TOOLS"]["ranges"] == ["calc_sort_range", "named_range_add"]
-    assert ns["TOOL_METHODS"]["calc_sort_range"] == ("calc", "sort_range")
+    assert ns["DOMAIN_TOOLS"]["ranges"] == ["named_range_add", "sort_range"]
+    assert ns["TOOL_METHODS"]["sort_range"] == ("calc", "sort_range")
     assert ns["TOOL_METHODS"]["named_range_add"] == ("named_range", "add")
 
 
 def test_range_schema_becomes_range_name_python_param():
     tool = MockTool(
-        "calc_read_range",
+        "read_range",
         "Read cells.",
         {
             "type": "object",
@@ -387,6 +399,7 @@ def test_range_schema_becomes_range_name_python_param():
             },
             "required": ["range"],
         },
+        doc_types=["calc"],
     )
     pos, kw = schema_to_signature(_as_tool(tool))
     assert pos == ["range_name: list[str]"]
@@ -394,7 +407,7 @@ def test_range_schema_becomes_range_name_python_param():
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
     assert "def read_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:" in code
-    assert 'return call_host_tool("calc_read_range", range=range_name, format=format)' in code
+    assert 'return call_host_tool("read_range", range=range_name, format=format)' in code
 
 
 def test_schema_to_signature_parameterizes_object_and_array():
@@ -418,7 +431,7 @@ def test_schema_to_signature_parameterizes_object_and_array():
 
 
 def test_rpc_call_logic_in_generated_code():
-    tools = [_as_tool(MockTool("calc_t", "d", {}))]
+    tools = [_as_tool(MockTool("t", "d", {}, doc_types=["calc"]))]
     code = generate_module(tools)
     assert "from plugin.scripting.host_tool_call import call_host_tool" in code
     assert "call_host_tool(" in code
@@ -427,7 +440,7 @@ def test_rpc_call_logic_in_generated_code():
 def test_tool_methods_and_all_in_generated_code():
     tools = [
         _as_tool(MockTool("shape_upsert", "Upsert shape.", {}, specialized_domain="shapes")),
-        _as_tool(MockTool("calc_read_range", "Read cell range.", {}, specialized_domain="ranges")),
+        _as_tool(MockTool("read_range", "Read cell range.", {}, specialized_domain="ranges", doc_types=["calc"])),
     ]
     code = generate_module(tools)
     ns: dict[str, Any] = {}
@@ -500,7 +513,7 @@ def test_main_check_flag(tmp_path):
 
 def test_method_docstring_trailing_quote_compiles():
     desc = 'Keep the trailing "quote"'
-    tool = MockTool("calc_trailing_quote", desc, {})
+    tool = MockTool("trailing_quote", desc, {}, doc_types=["calc"])
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
     ns: dict[str, Any] = {}
@@ -513,21 +526,22 @@ def test_method_docstring_trailing_quote_compiles():
 @pytest.mark.parametrize("bad_key", ["self", "foo-bar", "1x"])
 def test_invalid_parameter_name_raises(bad_key):
     tool = MockTool(
-        "calc_bad",
+        "bad",
         "desc",
         {
             "type": "object",
             "properties": {bad_key: {"type": "string"}},
             "required": [bad_key],
         },
+        doc_types=["calc"],
     )
-    with pytest.raises(ValueError, match=rf"Invalid parameter name {bad_key!r} in tool 'calc_bad'"):
+    with pytest.raises(ValueError, match=rf"Invalid parameter name {bad_key!r} in tool 'bad'"):
         generate_module([_as_tool(tool)])
 
 
 def test_keyword_parameter_compiles_and_uses_splat():
     tool = MockTool(
-        "calc_keyword",
+        "keyword",
         "desc",
         {
             "type": "object",
@@ -537,16 +551,17 @@ def test_keyword_parameter_compiles_and_uses_splat():
             },
             "required": ["class"],
         },
+        doc_types=["calc"],
     )
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
     assert "def keyword(self, class_: str, *, reg: int | None = None) -> dict[str, Any]:" in code
-    assert 'return call_host_tool("calc_keyword", **{"class": class_}, reg=reg)' in code
+    assert 'return call_host_tool("keyword", **{"class": class_}, reg=reg)' in code
 
 
 def test_default_none_emits_optional_annotation():
     tool = MockTool(
-        "calc_test",
+        "test",
         "desc",
         {
             "type": "object",
@@ -554,6 +569,7 @@ def test_default_none_emits_optional_annotation():
                 "val": {"type": "string", "default": None},
             },
         },
+        doc_types=["calc"],
     )
     pos, kw = schema_to_signature(_as_tool(tool))
     assert pos == []
@@ -565,7 +581,7 @@ def test_default_none_emits_optional_annotation():
 
 def test_union_array_string_type_emits_union_annotation():
     tool = MockTool(
-        "writer_apply_content",
+        "apply_content",
         "desc",
         {
             "type": "object",
@@ -574,6 +590,7 @@ def test_union_array_string_type_emits_union_annotation():
             },
             "required": ["content"],
         },
+        doc_types=["writer"],
     )
     pos, kw = schema_to_signature(_as_tool(tool))
     assert pos == ["content: list[str] | str"]
@@ -631,5 +648,20 @@ def test_atomic_write_skips_rewrite_when_unchanged(tmp_path):
     _atomic_write(str(target), "# updated content\n")
     assert target.read_text(encoding="utf-8") == "# updated content\n"
     assert target.stat().st_mtime_ns != mtime_before
+
+
+def test_same_name_tools_in_different_apps_emit_distinct_wa_namespaces():
+    tools = [
+        _as_tool(MockTool("get_tree", "Writer tree.", {}, doc_types=["writer"])),
+        _as_tool(MockTool("get_tree", "Draw tree.", {}, doc_types=["draw"])),
+    ]
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    ns: dict[str, Any] = {}
+    exec(code, ns)
+    assert "get_tree" in ns["DOMAIN_TOOLS"]["writer"]
+    assert "get_tree" in ns["DOMAIN_TOOLS"]["draw"]
+    assert callable(ns["writer"].get_tree)
+    assert callable(ns["draw"].get_tree)
 
 

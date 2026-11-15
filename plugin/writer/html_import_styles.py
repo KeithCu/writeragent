@@ -702,8 +702,8 @@ def attach_write_report(
             msg = (
                 f"{subject} was not applied{scope_clause}; "
                 "applying it would restyle neighboring text in the host paragraph. "
-                "writer_apply_style restyles the whole paragraph containing the match. "
-                "Restyle with writer_apply_style(target='search', old_content=...)."
+                "apply_style restyles the whole paragraph containing the match. "
+                "Restyle with apply_style(target='search', old_content=...)."
             )
             partial_diag: Diagnostic = {
                 "code": "STYLE_IGNORED_PARTIAL_MATCH",
@@ -722,7 +722,7 @@ def attach_write_report(
             rec_msg = (
                 f"{subject} was not applied{rec_scope} while tracked changes are recording, "
                 "because a paragraph style on this replace would turn the deletion into a format change. "
-                "Restyle with writer_apply_style(target='search', old_content=...) after the change is accepted."
+                "Restyle with apply_style(target='search', old_content=...) after the change is accepted."
             )
             rec_diag: Diagnostic = {
                 "code": "STYLE_IGNORED_RECORDING",

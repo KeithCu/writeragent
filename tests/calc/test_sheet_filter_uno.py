@@ -29,7 +29,7 @@ def test_calc_sheet_filter_apply_get_clear(ctx, doc):
     # G40:I43 → header row index 39; data rows Alice/Bob/Carol at 40–42.
     data_i0, data_i1 = 40, 42
 
-    res_write = _execute_calc_tool(doc, ctx, "calc_write_range", {
+    res_write = _execute_calc_tool(doc, ctx, "write_range", {
         "range": ["G40:I43"],
         "values": [
             ["Name", "Region", "Score"],
@@ -38,7 +38,7 @@ def test_calc_sheet_filter_apply_get_clear(ctx, doc):
             ["Carol", "East", "30"],
         ],
     })
-    assert res_write.get("status") == "ok", f"calc_write_range failed: {res_write}"
+    assert res_write.get("status") == "ok", f"write_range failed: {res_write}"
 
     res_apply = _execute_calc_tool(doc, ctx, "sheet_apply_filter", {
         "range": ["G40:I43"],

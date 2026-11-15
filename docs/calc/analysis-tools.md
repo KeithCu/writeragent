@@ -2,7 +2,7 @@
 
 This document describes the specialized tools for performing analysis in LibreOffice Calc.
 
-**Chat (2026):** Calc hides `analysis` and `python` (`CALC_HIDDEN_SPECIALIZED_DOMAINS`). Main chat runs Python only as **`=PY()`** via `calc_write_range` into an empty cell outside the data range (no in-place overwrite). Classes below remain for tests and Run Python Script helpers. They are `ToolBaseDummy` (not registered as chat or MCP tools).
+**Chat (2026):** Calc hides `analysis` and `python` (`CALC_HIDDEN_SPECIALIZED_DOMAINS`). Main chat runs Python only as **`=PY()`** via `write_range` into an empty cell outside the data range (no in-place overwrite). Classes below remain for tests and Run Python Script helpers. They are `ToolBaseDummy` (not registered as chat or MCP tools).
 
 Previously, tools lived under the **`analysis`** specialized domain (`delegate_to_specialized_calc_toolset(domain="analysis", task=…)`):
 

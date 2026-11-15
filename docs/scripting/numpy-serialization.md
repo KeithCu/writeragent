@@ -419,7 +419,7 @@ Calc UNO range
   → pickle.dumps(response)       (child: binary response, protocol 5)
   → pickle.loads(response)       (host)
   → _normalize_response → host_unpack_data (host: split_grid → nested lists for Calc / LLM / UI)
-  → finalize_python_return / calc_write_range
+  → finalize_python_return / write_range
 ```
 
 Plain dicts and lists pack (`child_pack_result`) without NumPy, and `materialize_inputs` wraps a plain list without NumPy; a `split_grid` envelope still needs NumPy in the child. Numeric and mixed-string child unpack both require the float buffer's length to equal `nrows * ncols` before reshape. A short or long mixed buffer raises `ValueError` instead of becoming a different-sized 1D list.
@@ -474,7 +474,7 @@ User-facing varargs examples: [core §9 — Multi-Range Support](../enabling_num
 - **Host may use small vendored natives** — e.g. future embeddings search (`sqlite-vec` `vec0`, ~1 MB per OS in [../embeddings.md](../embeddings.md)) or an optional host-side serialization codec. Sidebar audio capture no longer vendors PortAudio in the OXT; it uses the user venv ([../chat/audio-architecture.md](../chat/audio-architecture.md)). Any host native must stay in the **few-MB** budget — not a 50–100 MB science stack.
 - **Wire format uses length-prefixed binary streams carrying Pickle5 payloads** — this standard provides extremely fast, out-of-band zero-copy buffer sharing between processes without any Base64 encoding or JSON parsing overhead. Since we package both the extension host and the sandboxed child worker together inside the OXT, backward compatibility is not a constraint, allowing us to evolve the IPC protocol to be as fast as possible.
 - **Sandbox must not grant arbitrary filesystem access** — [`LocalPythonExecutor`](../../plugin/contrib/smolagents/local_python_executor.py) blocks `os` / `pathlib` in user code; temp files and mmap paths must be **host-allocated, host-trusted paths** passed in the request envelope, not paths chosen by LLM-generated scripts.
-- **LLM and Calc still need scalar or small structured outputs** eventually — even an optimized ingress path usually ends with compact `result` (scalar, short list, summary stats) or a second-phase host tool (`calc_write_range`) for sheet output ([core user guide](../enabling_numpy_in_libreoffice.md#3-user-guide)). The wire itself is Pickle5 + split_grid (or small lists); any JSON-safe requirement is at the final consumer (text for the model, cells for Calc), not the IPC.
+- **LLM and Calc still need scalar or small structured outputs** eventually — even an optimized ingress path usually ends with compact `result` (scalar, short list, summary stats) or a second-phase host tool (`write_range`) for sheet output ([core user guide](../enabling_numpy_in_libreoffice.md#3-user-guide)). The wire itself is Pickle5 + split_grid (or small lists); any JSON-safe requirement is at the final consumer (text for the model, cells for Calc), not the IPC.
 
 ### Building host native extensions (Cython)
 
@@ -513,7 +513,7 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 |-----------|--------|
 | Dense numeric or mixed numeric/strings 2D grids (≥100 cells) | **Pickle5 + Split-Grid envelope** (shipped) |
 | Small ranges (&lt;100 cells), 1D mixed types, scalars | **Standard Pickle lists** (no envelope) |
-| LLM chat with huge outputs | Summaries + **tool RPC** / `calc_write_range`, not giant `result` payloads |
+| LLM chat with huge outputs | Summaries + **tool RPC** / `write_range`, not giant `result` payloads |
 | Host still slow after split_grid in LO profiles | Vendored msgpack/orjson (few MB OXT) |
 | Very large ranges / stdin size limits | **Temp file + mmap** + optional **payload cache** |
 | **Next optimizations** | See [Future work — serialization performance](#future-work--serialization-performance) (profile in LO first, then summaries → host paths → defer vendored/mmap) |
@@ -573,7 +573,7 @@ Often beats another codec — product, prompts, and formula patterns:
 
 | Area | Action |
 |------|--------|
-| **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `calc_write_range`”, not 10⁵-element lists in `result`. |
+| **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_range`”, not 10⁵-element lists in `result`. |
 | **`=PY()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`WorkerResultSession`](../../plugin/calc/python/function.py); avoid N recalcs each resending the same `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
@@ -605,7 +605,7 @@ See [Host pack hot path — pure-Python optimizations](#host-pack-hot-path--pure
 [`host_unpack_split_grid`](../../plugin/scripting/payload_codec.py) expands split_grid to nested lists for Calc matrix/session paths. If leg D dominates:
 
 - Keep **`split_grid` opaque** through more of the pipeline; decode to lists only when emitting per-cell UNO values, or  
-- Insert via **`calc_write_range`** from host after one decode (pairs with future **tool RPC**).
+- Insert via **`write_range`** from host after one decode (pairs with future **tool RPC**).
 
 Larger architectural slice than “faster JSON.”
 

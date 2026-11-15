@@ -129,7 +129,7 @@ Settings UI: `web_research_cache_enabled` only. Cache matching tuning (`web_rese
 
 ### Deep Research (sidebar mode)
 
-Choose **Deep Research** in the sidebar mode dropdown (Writer, Calc, Draw, and Impress) to run a **breadth/depth multi-query loop** via a dedicated sub-agent. On Writer it can **`writer_apply_content`** after synthesis when that tool is in the sub-agent tool list; on Calc, Draw, and Impress the session exposes web research only.
+Choose **Deep Research** in the sidebar mode dropdown (Writer, Calc, Draw, and Impress) to run a **breadth/depth multi-query loop** via a dedicated sub-agent. On Writer it can **`apply_content`** after synthesis when that tool is in the sub-agent tool list; on Calc, Draw, and Impress the session exposes web research only.
 
 Shallow **Web Research** sidebar mode streams results to chat only and does not expose document editing tools.
 
@@ -147,7 +147,7 @@ The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-rese
 
 `VisitWebpageTool` does not cache fetch-error strings (a transient 403/timeout must not replay for `web_cache_validity_days`).
 
-Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web_research_deep.py) (adaptive orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `writer_apply_content`); shallow agent helper [`_run_web_agent`](../../plugin/chatbot/web_research.py).
+Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web_research_deep.py) (adaptive orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `apply_content`); shallow agent helper [`_run_web_agent`](../../plugin/chatbot/web_research.py).
 
 **Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_max_rounds`, `chatbot.deep_research_concurrency`, `chatbot.deep_research_max_sub_queries`, `chatbot.deep_research_quality_threshold`, `chatbot.deep_research_sub_agent_steps`.
 
@@ -175,9 +175,9 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 
 ## 7. Document full-text index (`advanced_search`)
 
-`IndexService` ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py), service `writer_index`) backs the Writer **`advanced_search`** and **`get_index_stats`** tool names in older docs. Those classes are **`ToolBaseDummy`** only ([`search.py`](../../plugin/writer/search.py)) — **parked 2026-11-05**; use **`writer_search`** (no second search tool).
+`IndexService` ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py), service `writer_index`) backs the Writer **`advanced_search`** and **`get_index_stats`** tool names in older docs. Those classes are **`ToolBaseDummy`** only ([`search.py`](../../plugin/writer/search.py)) — **parked 2026-11-05**; use **`search`** (no second search tool).
 
-- Coverage is body paragraphs of the top-level text enumeration. A table keeps its slot as the literal text `"[Table]"` and its cell text is not indexed; text frames, headers/footers, and drawing shapes are not walked. Use `writer_search` for text in those places.
+- Coverage is body paragraphs of the top-level text enumeration. A table keeps its slot as the literal text `"[Table]"` and its cell text is not indexed; text frames, headers/footers, and drawing shapes are not walked. Use `search` for text in those places.
 - Language: the document-level `CharLocale` wins; otherwise the first non-empty body paragraph with a usable locale (tables and blank paragraphs are skipped, `zxx` is ignored). The response reports `detected_language` (the tag as read), `language` (the Snowball algorithm actually used; still `english` when unsupported) and `stem_fallback: true` when the detected tag has no Snowball algorithm.
 - Stop words from [`stop_words.py`](../../plugin/writer/locale/stop_words.py) are normalized through the same tokenizer as document and query tokens, so accented and punctuated entries match.
 - Grammar: `AND` is the default, plus `OR`, `NOT`, and one `NEAR/N` per query. `NEAR/N` is *paragraph-index distance* (within N paragraphs), not word proximity. Mixed `AND`/`OR` and a second `NEAR/N` are rejected with an error.

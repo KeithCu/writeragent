@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# writer_get_content embeds the paragraph style model in the HTML: each named-style block
+# get_content embeds the paragraph style model in the HTML: each named-style block
 # carries a COMPACT data-lo-style token (no spaces: "Heading1"), direct char overrides are
 # inlined as style="..." (no synthetic classes leak), and synthetic autostyle paragraphs are
 # omitted (write treats a missing token as the default body style). Read path = XHTML Writer
@@ -100,7 +100,7 @@ def test_read_order_survives_table_uno(ctx, doc):
     assert "paragraph-" not in content, content
 
 
-# --- Write path: writer_apply_content honors compact data-lo-style -------
+# --- Write path: apply_content honors compact data-lo-style -------
 
 @native_test
 @with_native_doc("writer")
@@ -404,8 +404,8 @@ def test_write_search_does_not_restyle_surrounding_text_uno(ctx, doc):
     assert "warning" not in res
     assert "warnings" in res
     assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
-    assert "writer_apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
-    assert "writer_apply_style(target='search', old_content=...)" in res["message"]
+    assert "apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
+    assert "apply_style(target='search', old_content=...)" in res["message"]
     pairs = _para_pairs(doc)
     # Nothing got restyled to Caption/Heading 2 (styles are not applied on partial search).
     assert all(s not in ("Caption", "Heading 2") for s, _ in pairs), pairs
@@ -566,8 +566,8 @@ def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
     assert "warning" not in res
     assert "warnings" in res
     assert res["warnings"][0]["code"] == "STYLE_IGNORED_PARTIAL_MATCH"
-    assert "writer_apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
-    assert "writer_apply_style(target='search', old_content=...)" in res["message"]
+    assert "apply_style(target='search', old_content=...)" in res["warnings"][0]["message"]
+    assert "apply_style(target='search', old_content=...)" in res["message"]
     pairs = _para_pairs(doc)
     assert all(s != "Heading 2" for s, _ in pairs), pairs
     assert any("tail" in t for _, t in pairs), pairs
@@ -767,7 +767,7 @@ def test_partial_match_suggested_call_replay_uno(ctx, doc):
     assert diag["matches_total"] == 1
     assert "suggested_call" in diag
     suggested = diag["suggested_call"]
-    assert suggested["tool"] == "writer_apply_style"
+    assert suggested["tool"] == "apply_style"
     assert suggested["arguments"]["target"] == "search"
     assert suggested["arguments"]["old_content"] == "Replacement"
     assert suggested["arguments"]["style"] == "Heading 2"

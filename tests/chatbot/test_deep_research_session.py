@@ -17,22 +17,22 @@ from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 
 
 def test_deep_research_instructions_include_apply_document_content_when_writer_tools():
-    tool_names = ["deep_research_web", "writer_apply_content", "reply_to_user"]
+    tool_names = ["deep_research_web", "apply_content", "reply_to_user"]
     mode = compose_deep_research_mode_instructions(tool_names)
     text = get_sub_agent_instructions(mode, tool_names=tool_names)
-    assert "writer_apply_content" in text
+    assert "apply_content" in text
     assert "deep_research_web" in text
 
 
 def test_deep_research_calc_instructions_omit_apply_document_content():
-    tool_names = ["deep_research_web", "reply_to_user", "writer_get_content"]
+    tool_names = ["deep_research_web", "reply_to_user", "get_content"]
     mode = compose_deep_research_mode_instructions(tool_names)
     text = get_sub_agent_instructions(mode, tool_names=tool_names)
-    assert "writer_apply_content" not in text
+    assert "apply_content" not in text
 
 
 class _GetDocumentContentStub(ToolBase):
-    name = "writer_get_content"
+    name = "get_content"
     description = "stub"
     tier = "core"
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -43,7 +43,7 @@ class _GetDocumentContentStub(ToolBase):
 
 def test_collect_deep_research_tools_calc_omits_apply_document_content():
     class _ApplyStub(ToolBase):
-        name = "writer_apply_content"
+        name = "apply_content"
         description = "stub"
         tier = "core"
         uno_services = ["com.sun.star.text.TextDocument"]
@@ -64,7 +64,7 @@ def test_collect_deep_research_tools_calc_omits_apply_document_content():
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)}
     assert "deep_research_web" in names
-    assert "writer_apply_content" not in names
+    assert "apply_content" not in names
 
 
 def test_collect_deep_research_tools_includes_apply_on_writer(apply_document_content_stub):
@@ -81,8 +81,8 @@ def test_collect_deep_research_tools_includes_apply_on_writer(apply_document_con
     )
     names = {t.name for t in collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)}
     assert "deep_research_web" in names
-    assert "writer_apply_content" in names
-    assert "writer_get_content" in names
+    assert "apply_content" in names
+    assert "get_content" in names
 
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")

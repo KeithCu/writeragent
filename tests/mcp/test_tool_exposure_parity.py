@@ -197,7 +197,7 @@ def test_an_unavailable_domains_tools_are_dropped_from_the_list(monkeypatch):
     [
         pytest.param(True, "image_extract_structure", "vision", id="configured_domain_stays_listed"),
         # Core tools have no specialized domain and must pass through whatever the gate says.
-        pytest.param(False, "writer_get_content", None, id="tools_without_domain_never_dropped"),
+        pytest.param(False, "get_content", None, id="tools_without_domain_never_dropped"),
     ],
 )
 def test_a_configured_domain_stays_listed(monkeypatch, venv_configured, tool_name, domain):

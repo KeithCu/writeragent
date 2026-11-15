@@ -433,7 +433,7 @@ paying, which is why the rule is applied per file, not to the run.
 
 **A file is done when its last two passes were both low-yield**, where
 low-yield means fewer than 5 net lines removed *or* fewer than 1.5 lines
-deleted per line inserted. One low pass is not enough: `writer_apply_content`
+deleted per line inserted. One low pass is not enough: `apply_content`
 reshuffled on its 3rd pass (83 in, 79 out) and then removed 36 and 61 net
 lines on the next two. Two in a row is the signal. The line count is still not
 the metric for a *single* pass (`venv_worker` lost concepts at constant

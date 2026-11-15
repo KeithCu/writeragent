@@ -52,12 +52,12 @@ def _specialized_finished(_state: Any, args: dict[str, Any]) -> dict[str, Any]:
 
 
 _WRITER_IMPL: dict[str, Callable[[WriterWorld, dict[str, Any]], dict[str, Any]]] = {
-    "writer_get_content": lambda s, a: s.writer_get_content(**a),
-    "writer_apply_content": lambda s, a: s.writer_apply_content(**a),
-    "writer_search": lambda s, a: s.writer_search(**a),
+    "get_content": lambda s, a: s.get_content(**a),
+    "apply_content": lambda s, a: s.apply_content(**a),
+    "search": lambda s, a: s.search(**a),
     "find_text": _writer_find_text,
     "comment_add": lambda s, a: s.comment_add(**a),
-    "writer_apply_style": lambda s, a: s.writer_apply_style(**a),
+    "apply_style": lambda s, a: s.apply_style(**a),
     "specialized_workflow_finished": _specialized_finished,
 }
 
@@ -65,17 +65,17 @@ _DRAW_IMPL: dict[str, Callable[[DrawWorld, dict[str, Any]], dict[str, Any]]] = {
     "shape_upsert": lambda s, a: s.shape_upsert(**a),
     "shape_connect": lambda s, a: s.shape_connect(**a),
     "shape_group": lambda s, a: s.shape_group(**a),
-    "draw_get_tree": lambda s, a: s.draw_get_tree(**a),
+    "get_tree": lambda s, a: s.get_tree(**a),
     "shape_get_summary": lambda s, a: s.get_draw_summary(**a),
     "specialized_workflow_finished": _specialized_finished,
 }
 
 _CALC_IMPL: dict[str, Callable[[CalcWorld, dict[str, Any]], dict[str, Any]]] = {
-    "calc_sort_range": lambda s, a: s.calc_sort_range(**a),
-    "calc_write_range": lambda s, a: s.calc_write_range(**a),
-    "write_cell_range": lambda s, a: s.calc_write_range(**a),
-    "calc_get_sheet_summary": lambda s, a: s.calc_get_sheet_summary(**a),
-    "calc_read_range": lambda s, a: s.calc_read_range(**a),
+    "sort_range": lambda s, a: s.sort_range(**a),
+    "write_range": lambda s, a: s.write_range(**a),
+    "write_cell_range": lambda s, a: s.write_range(**a),
+    "get_sheet_summary": lambda s, a: s.get_sheet_summary(**a),
+    "read_range": lambda s, a: s.read_range(**a),
     "specialized_workflow_finished": _specialized_finished,
 }
 

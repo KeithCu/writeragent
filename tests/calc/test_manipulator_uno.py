@@ -16,7 +16,7 @@ def test_undo_restores_previously_empty_cells(ctx, doc):
     from com.sun.star.table.CellContentType import EMPTY
 
     sheet = doc.getCurrentController().getActiveSheet()
-    res = _execute_calc_tool(doc, ctx, "calc_write_range", {"range": ["H1:I1"], "values": [["A", "B"]]})
+    res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["H1:I1"], "values": [["A", "B"]]})
     assert res.get("status") == "ok", f"write failed: {res}"
     assert sheet.getCellByPosition(7, 0).getString() == "A"
 
@@ -34,7 +34,7 @@ def test_refused_array_write_leaves_no_undo_step(ctx, doc):
     before = list(undo_mgr.getAllUndoActionTitles())
     was_modified = doc.isModified()
 
-    res = _execute_calc_tool(doc, ctx, "calc_write_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"})
+    res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A1"], "values": "=SEQUENCE(3;2)"})
     assert res.get("status") == "error", f"occupied write should fail: {res}"
     assert res.get("code") == "SPILL_BLOCKED", res
     after = list(undo_mgr.getAllUndoActionTitles())
@@ -50,7 +50,7 @@ def test_clear_part_of_array_is_refused(ctx, doc):
     from plugin.framework.errors import CalcError
 
     sheet = doc.getCurrentController().getActiveSheet()
-    res = _execute_calc_tool(doc, ctx, "calc_write_range", {"range": ["A5"], "values": "=SEQUENCE(2;1)"})
+    res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A5"], "values": "=SEQUENCE(2;1)"})
     assert res.get("status") == "ok", f"array write failed: {res}"
 
     manipulator = CellManipulator(CalcBridge(doc))
@@ -101,7 +101,7 @@ def test_range_sort_reorders_visible_rows(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "calc_sort_range",
+        "sort_range",
         {"range": ["A1:B6"], "sort_column": 1, "ascending": False, "has_header": True},
     )
     assert res.get("status") == "ok", f"sort failed: {res}"
@@ -127,7 +127,7 @@ def test_range_sort_reorders_visible_rows(ctx, doc):
     res_noop = _execute_calc_tool(
         doc,
         ctx,
-        "calc_sort_range",
+        "sort_range",
         {"range": ["A1:B6"], "sort_column": 1, "ascending": False, "has_header": True},
     )
     assert res_noop.get("status") == "ok", f"second sort failed: {res_noop}"
@@ -143,13 +143,13 @@ def test_set_style_v_align_and_merge_center_vertical_justify_uno(ctx, doc):
 
     sheet = doc.getCurrentController().getActiveSheet()
     for addr, v_align, expected in (("A1", "top", 1), ("A2", "center", 2), ("A3", "bottom", 3)):
-        res = _execute_calc_tool(doc, ctx, "calc_set_style", {"range": [addr], "v_align": v_align})
-        assert res.get("status") == "ok", f"calc_set_style failed for {v_align}: {res}"
+        res = _execute_calc_tool(doc, ctx, "set_style", {"range": [addr], "v_align": v_align})
+        assert res.get("status") == "ok", f"set_style failed for {v_align}: {res}"
         row = int(addr[1:]) - 1
         assert sheet.getCellByPosition(0, row).getPropertyValue("VertJustify") == expected
 
-    res_merge = _execute_calc_tool(doc, ctx, "calc_merge_cells", {"range": ["C1:D2"]})
-    assert res_merge.get("status") == "ok", f"calc_merge_cells failed: {res_merge}"
+    res_merge = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["C1:D2"]})
+    assert res_merge.get("status") == "ok", f"merge_cells failed: {res_merge}"
     c1 = sheet.getCellByPosition(2, 0)
     assert c1.getPropertyValue("VertJustify") == 2
     assert c1.getPropertyValue("HoriJustify") == CENTER
@@ -191,7 +191,7 @@ def test_py_inside_its_data_range_is_refused(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "calc_write_range",
+        "write_range",
         {"range": ["A1"], "values": '=PY("result = np.sum(data)"; A1:A2)'},
     )
     assert res.get("status") == "error", res
@@ -213,7 +213,7 @@ def test_bang_ref_formula_evaluates_uno(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "calc_write_range",
+        "write_range",
         {"range": ["D1:D2"], "values": [["=Orders!A1*2"], ["='My Sheet'!A1"]]},
     )
     assert res.get("status") == "ok", res
@@ -228,7 +228,7 @@ def test_bang_ref_formula_evaluates_uno(ctx, doc):
     missing_res = _execute_calc_tool(
         doc,
         ctx,
-        "calc_write_range",
+        "write_range",
         {"range": ["D3"], "values": "=Missing!A1"},
     )
     assert missing_res.get("error_cells"), missing_res
@@ -246,7 +246,7 @@ def test_repeated_row_formula_warns_without_rewriting_uno(ctx, doc):
     res = _execute_calc_tool(
         doc,
         ctx,
-        "calc_write_range",
+        "write_range",
         {"range": ["C2:C4"], "values": [["=B2*2"], ["=B2*2"], ["=B2*2"]]},
     )
     assert res.get("status") == "ok", res
@@ -268,19 +268,19 @@ def test_py_literal_newlines_are_repaired_on_write(ctx, doc):
         res_a = _execute_calc_tool(
             doc,
             ctx,
-            "calc_write_range",
+            "write_range",
             {"range": ["A1"], "values": '=PY("x = 2\\nresult = x * 21")'},
         )
         res_b = _execute_calc_tool(
             doc,
             ctx,
-            "calc_write_range",
+            "write_range",
             {"range": ["B1"], "values": '=PY("s = ""a\\nb""\\nresult = len(s)")'},
         )
         res_c = _execute_calc_tool(
             doc,
             ctx,
-            "calc_write_range",
+            "write_range",
             {"range": ["C1"], "values": '=PY("# total\\nresult = 6 * 7")'},
         )
         doc.calculateAll()

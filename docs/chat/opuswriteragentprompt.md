@@ -13,7 +13,7 @@
 | 1 | `warnings` array for dropped attributes | 2.2 | 🟡 Exists for `data-lo-para` and `data-lo-style` (`_attach_para_warnings`). Not yet a general mechanism for all drops (table-cell styles, etc.) | #3260 |
 | 2 | Near-miss report when search fails | 2.4 | ✅ Near-miss on a miss, with the miss paths unified | #3261 |
 | 3 | Honor `data-lo-style` on whole-paragraph search/selection matches | 2.1 | ✅ | #3263 |
-| 4 | Partial match: ignore style but warn with `writer_apply_style` call | 2.1 | ✅ Diagnostic warning carries `suggested_call` for `writer_apply_style`; prompt prefers `suggested_call` | #3263, #3288 |
+| 4 | Partial match: ignore style but warn with `apply_style` call | 2.1 | ✅ Diagnostic warning carries `suggested_call` for `apply_style`; prompt prefers `suggested_call` | #3263, #3288 |
 | 5 | Paragraph alignment, colour, margins on write | 2.2 | ✅ Alignment, margins, background via `data-lo-para`. Also top/bottom margin, indent, line-height | #3260, #3270 |
 | 6 | Accept `data-lo-para` on write (read/write symmetry) | 2.2 | 🟡 Geometry round-trips with no warnings. Paragraph-level font/size/weight/style/colour stay read-only on purpose, because setting `Char*` on the paragraph merges spans. A unit test guards the read table against drifting from the write table | #3260, #3270 |
 | 7 | `full_document` summary result | 2.1 | ✅ Block summary with a shared slot extractor | #3262 |
@@ -25,7 +25,7 @@
 | 13 | Header/footer contradiction removed | 2.5 | ✅ Prompt now says `target='search'` edits headers and footers. Page-domain delegation dropped. UNO test added | #3256 |
 | 14 | No table deletion as a side effect | 2.5 | 🟡 Deletion is now reported (`table_deleted`, tracked-change aware). An empty replacement that removes a table's last text still deletes it. No `allow_table_delete` opt-in found | pre-existing |
 | 15 | Literal `code` / `pre` content, no math parsing | 2.7 | ⬜ `html_import` still detects `$$`, `\(`, `\[` in content with no code-span exemption found | n/a |
-| 16 | Report every Math object created | 2.7 | ✅ `writer_apply_content` reports `math_objects` on ok results; any formula conversion failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, marker text still inserted | #3286 |
+| 16 | Report every Math object created | 2.7 | ✅ `apply_content` reports `math_objects` on ok results; any formula conversion failure reports a `MATH_IMPORT_FAILED` warning with `math_objects`, marker text still inserted | #3286 |
 | 17 | Resolve bare `#Heading` links / `$` math | 2.7 | ✅ Bare `#Heading` resolved to `#Heading\|outline` on import; complete `$...$` routed through HTML import; warnings on missing targets | #3295 |
 | 18 | Rename `clear_direct` options | 2.6 | ⬜ Still `none` / `style_props` / `all` | n/a |
 | 19 | Report removed indents on restyle / track style changes | 2.6 | ⬜ `style_unreviewed` rule still in the prompt | n/a |
@@ -57,12 +57,12 @@
 
 ## 4. Prompt shrinkage check (§6 of the original)
 
-The original goal was to delete about half of the `writer_apply_content` section of the prompt once the tool enforces the rules. Several rules can now be trimmed or already have been:
+The original goal was to delete about half of the `apply_content` section of the prompt once the tool enforces the rules. Several rules can now be trimmed or already have been:
 
 - ✅ Header/footer delegation: removed in #3256.
 - This PR trimmed the oversized-`old_content` lecture, the multi-line paragraph grammar, the lenient-match and near-miss restatements, drawing-shape routing, the partial `data-lo-style` warning restatement, and the html/body wrap note; case-sensitivity wording and an ignored-on-search line were already absent.
-- Must stay until the matching items ship: ~~`|outline` links~~ (bare links are resolved, #3295; the example is pull-only), no `$` math, `style_unreviewed`, ~~`clear_direct` explanation~~ (lives only in the `writer_apply_style` schema).
-- PROMPT-TRIM-2 (Opus 2026-11-10 cut list): one copy of the HTML tag rules (document side), one merged data-lo-style/data-lo-para line, a one-line TOOLS section, generic confirm-by-fields rule, review modes folded to four bullets, research routing said once (core directives + catalog), the translation old_content line and the "Failed tool call" line dropped (enforced by the tool), and the writer_apply_style / writer_apply_content descriptions no longer repeat their own parameter descriptions. Rejected: moving python-vs-shapes into the delegate description (no per-turn saving), the OCR line (not ambient), a manual_read pointer (same object as the ambient block).
+- Must stay until the matching items ship: ~~`|outline` links~~ (bare links are resolved, #3295; the example is pull-only), no `$` math, `style_unreviewed`, ~~`clear_direct` explanation~~ (lives only in the `apply_style` schema).
+- PROMPT-TRIM-2 (Opus 2026-11-10 cut list): one copy of the HTML tag rules (document side), one merged data-lo-style/data-lo-para line, a one-line TOOLS section, generic confirm-by-fields rule, review modes folded to four bullets, research routing said once (core directives + catalog), the translation old_content line and the "Failed tool call" line dropped (enforced by the tool), and the apply_style / apply_content descriptions no longer repeat their own parameter descriptions. Rejected: moving python-vs-shapes into the delegate description (no per-turn saving), the OCR line (not ambient), a manual_read pointer (same object as the ambient block).
 - PROMPT-TRIM-3: dropped the TOOLS line (in `GetGuidance.description`), `data-lo-para` property lists and `clear_direct`/quote-indent lines (in tool warnings and `ApplyStyle` schema), and the `web_research` repeat; moved Writer python/shapes routing and research `task` hint into `DelegateToSpecializedWriter.description` (python/shapes moved despite the TRIM-2 rejection because it replaces the research-trigger repeat in the same description, net −1,560 chars/turn), Writer OCR routing into `ToolWriterVisionBase.specialized_domain_description` (the `vision` catalog line, gated by `vision_venv_configured` rather than the static delegate description), and the math/`|outline` examples into `HTML_MATH_AND_LINK_EXAMPLES` (served via `manual_read` `editing-html`, `full_manual`, and sub-agents). Writer system prompt (`get_chat_system_prompt_for_kind("writer")`): 12,115 → 10,053 chars.
 
 ## 5. Regression tests

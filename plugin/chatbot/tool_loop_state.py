@@ -273,7 +273,7 @@ def _field(data: dict[str, Any], key: str, typ: type[_T], default: _T) -> _T:
 
 EDIT_NUDGE_MESSAGE = (
     "You answered in chat, so the document is unchanged. "
-    "Apply your changes to the document now by calling writer_apply_content."
+    "Apply your changes to the document now by calling apply_content."
 )
 
 _EDIT_QUERY_RE = re.compile(
@@ -293,12 +293,12 @@ _EDIT_QUERY_RE = re.compile(
 
 
 def tools_have_apply_document_content(tools: Sequence[Any]) -> bool:
-    """Return True when ``writer_apply_content`` is in the offered tool schemas."""
+    """Return True when ``apply_content`` is in the offered tool schemas."""
     # crosshair: off
     return any(
         isinstance(t, dict)
         and isinstance(t.get("function"), dict)
-        and t["function"].get("name") == "writer_apply_content"
+        and t["function"].get("name") == "apply_content"
         for t in tools
     )
 
@@ -326,7 +326,7 @@ def should_nudge_zero_tool_edit(
     if not text:
         return False
     # Reply-side signals: model pasted a tool-call JSON object or an HTML table in chat.
-    if '"writer_apply_content"' in text and '"name"' in text:
+    if '"apply_content"' in text and '"name"' in text:
         return True
     if "<table" in text.lower():
         return True
@@ -451,7 +451,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     effects.append(
                         LogAgentEffect(
                             location="tool_loop_state.py:edit_nudge",
-                            message="Nudging model to apply edits with writer_apply_content",
+                            message="Nudging model to apply edits with apply_content",
                             data={"round": state.round_num},
                         )
                     )

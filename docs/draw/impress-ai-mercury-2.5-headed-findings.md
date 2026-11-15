@@ -313,7 +313,7 @@ Error payload was:
 Placeholder 'title' not found.   details.available = []
 ```
 
-That is true but **not actionable**: it does not say “slide has no presentation placeholders; try slide_set_layout('text')” or “shapes exist as TitleTextShape/OutlinerShape — use index / draw_get_tree.” In the successful run’s document snapshot, content often appeared as `TitleTextShape` / `OutlinerShape` even when role lookup failed — `_list_placeholders` only includes shapes with `getString`, and role tagging depends on `ClassName` patterns in `_PLACEHOLDER_ROLES`.
+That is true but **not actionable**: it does not say “slide has no presentation placeholders; try slide_set_layout('text')” or “shapes exist as TitleTextShape/OutlinerShape — use index / get_tree.” In the successful run’s document snapshot, content often appeared as `TitleTextShape` / `OutlinerShape` even when role lookup failed — `_list_placeholders` only includes shapes with `getString`, and role tagging depends on `ClassName` patterns in `_PLACEHOLDER_ROLES`.
 
 The probe confirmed the mechanism: before layout the slide has **zero** shapes, so `available` is genuinely empty (not a lookup failure); after layout it has `TitleTextShape` + `OutlinerShape`, but `ClassName`/`PresObj` raise and `Name` is empty on this build, so no `role`/`class` is ever attached and `_find_placeholder` resolves by position only. That means C1's hint is the main payoff here, and C2 must not assume clean class tags exist.
 
@@ -344,7 +344,7 @@ When role miss and `available` empty, return e.g.:
 }
 ```
 
-If `_list_placeholders` is empty but `draw_get_tree`-style text shapes exist, include `fallback_indices: [{index, class, name}]` in details (read-only hint, no write).
+If `_list_placeholders` is empty but `get_tree`-style text shapes exist, include `fallback_indices: [{index, class, name}]` in details (read-only hint, no write).
 
 **C2 — Optional write fallback (more aggressive)**
 
@@ -378,7 +378,7 @@ After (C2): role miss still writes outline/title shape when present → fewer la
 
 Headed run showed off-by-one / wrong-slide edits (edit intended slide 2, wrong active page; thumbnail vs canvas lag). Model-facing text mixes:
 
-- Most Draw/Impress tools: **`page` = 0-based** (`slide_list`, `slide_add`, `placeholder_set_text`, `draw_get_tree`, shapes `page`, …)
+- Most Draw/Impress tools: **`page` = 0-based** (`slide_list`, `slide_add`, `placeholder_set_text`, `get_tree`, shapes `page`, …)
 - `image_get`: **`page=N` is 1-based** (first page is 1) — already noted in `docs/draw/impress-specialized-toolsets.md` and the Draw prompt
 
 Mercury has no vision, so `image_get` was less used, but index confusion still hit `placeholder_set_text` / `slide_set_active` / specialist `page` args (shapes specialist was told active index 4 while creating on page 0 for the green box — that part was intentional, but the mismatch in prompt context is easy to misread).

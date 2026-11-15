@@ -61,7 +61,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 |------------------|-----------------|
 | `hello` | Streams two HTML paragraphs with rotating templates (bold, lists, tables, `<pre>`). |
 | `look up …` | Calls `web_research` (then executes smol search loop). |
-| `comment` | Calls `comment_add` (or empty-doc `writer_apply_content`). |
+| `comment` | Calls `comment_add` (or empty-doc `apply_content`). |
 | `keep talking` / `ramble` / `stop me` | Streams ~200 content chunks (for testing **Stop**). |
 | `say nothing` / `empty reply` | No content, `finish_reason=length` → `[Response truncated -- the model ran out of tokens...]`. |
 | `empty finish stop` / `blank stop reason` | No content, `finish_reason=stop` → `[No text from model; any tool changes were still applied.]` + `[Debug: …]`. |
@@ -77,18 +77,18 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `outline this` / `use the writer toolset` | Calls `delegate_to_specialized_writer_toolset` (`document_research`). |
 | `empty nested answer` | Specialized delegate emits inner `final_answer` with an empty `answer`. |
 | `endless nested outline` | Specialized delegate loops without finishing until `max_tool_rounds`. |
-| `mixed tools` / `one tool fails` | Calls `comment_add` (empty search → error) + `writer_apply_content` filler. |
-| `two tools` / `in parallel` | Calls `writer_search` + `writer_get_tree` in a single round. |
-| `insert filler` / `append a paragraph` | Calls `writer_apply_content` to mutate the document end. |
+| `mixed tools` / `one tool fails` | Calls `comment_add` (empty search → error) + `apply_content` filler. |
+| `two tools` / `in parallel` | Calls `search` + `get_tree` in a single round. |
+| `insert filler` / `append a paragraph` | Calls `apply_content` to mutate the document end. |
 | `generate an image` | Calls `image_generate` (or delegates to the images domain). |
 | `generate two images` | Calls two `image_generate` tools in one turn (or delegates to the images domain). |
 | `ocr image` | Calls `image_extract_structure` (or delegates to the vision domain). |
-| `single agent edit` | Calls `writer_apply_content` for a single in-paragraph replacement (one undo step). |
-| `adjacent agent edits` | Calls `writer_apply_content` twice for adjacent in-paragraph replacements. |
-| `three agent edits` | Calls `writer_apply_content` three times for three separate paragraph edits. |
-| `style tools` | Calls `writer_apply_style` followed by `writer_get_tree` in parallel. |
+| `single agent edit` | Calls `apply_content` for a single in-paragraph replacement (one undo step). |
+| `adjacent agent edits` | Calls `apply_content` twice for adjacent in-paragraph replacements. |
+| `three agent edits` | Calls `apply_content` three times for three separate paragraph edits. |
+| `style tools` | Calls `apply_style` followed by `get_tree` in parallel. |
 | `list sheets` / `list pages` | Calls Calc/Draw list tools (`sheet_list` / `slide_list`) when advertised. |
-| `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately. Calc envelope → `calc_write_range` then reply via specialized. |
+| `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately. Calc envelope → `write_range` then reply via specialized. |
 | `wait after accepted` / `do not finish peer` | Packet P hang lock: inner sends then never finishes (peer does not start). |
 | `crash the stream` / `error 500` | Returns HTTP 500 JSON error payload. |
 | `rate limit` / `error 429` | Returns HTTP 429 Rate Limit error. |
@@ -296,9 +296,9 @@ Every test must satisfy:
 | **E1** | CI | `--offline`, `look up latest Python` | Send query | Smol research steps execute; HTML summary in transcript; mock sees `### CURRENT QUERY:`; `next_hello_ok()` | **OK / Landed** |
 | **E2** | CI | `look up …` (online) | Send query with live DuckDuckGo | Single `web_search` → `visit_webpage` → HTML wrap-up (no infinite loop) | **Dropped** (live network; E1 offline covers the loop) |
 | **E3** | CI | Document with text "Welcome…", `add a comment` | Send query | Comment anchored on first word; log shows `comment_add`; sidebar mentions comment; `next_hello_ok()` | **OK / Landed** |
-| **E4** | CI | **Empty** doc, `insert a comment` | Send query | Two-round loop: `writer_apply_content` then `comment_add`; doc nonempty; `next_hello_ok()` | **OK / Landed** |
+| **E4** | CI | **Empty** doc, `insert a comment` | Send query | Two-round loop: `apply_content` then `comment_add`; doc nonempty; `next_hello_ok()` | **OK / Landed** |
 | **E5** | CI | `insert filler` | Send query | Paragraph appended; next turn's system prompt includes updated length (`refresh_document_context`); `next_hello_ok()` | **OK / Landed** |
-| **E6** | CI | `two tools` / `in parallel` | Send query | Both `writer_search` and `writer_get_tree` execute in one turn; single HTML summary; `next_hello_ok()` | **OK / Landed** |
+| **E6** | CI | `two tools` / `in parallel` | Send query | Both `search` and `get_tree` execute in one turn; single HTML summary; `next_hello_ok()` | **OK / Landed** |
 | **E7** | CI | `outline this` | Send query | Calls `delegate_to_specialized_writer_toolset`; inner discovery executes; returns canned outline; `next_hello_ok()` | **OK / Landed** |
 | **E8a** | CI | `outline this`, `delay_ms=80`, `sync_delay_ms=8000` | Call `press_stop()` during nested POST | Nested agent stops; `is_busy` becomes False; log shows `SendCancellation` / `USER_STOPPED`; `next_hello_ok()` | **OK / Landed** |
 | **E8b** | CI | Same as E8a | Cancel with `press_stop_mouse()` | Same cancellation behavior via mouse listener | **Dropped** (mouse; E8a covers Stop) |
@@ -310,12 +310,12 @@ Every test must satisfy:
 | **E9e** | CI | E9 state | Call `press_stop()` ActionEvent | Dispatches Change/Reject branch, NOT `StopSendEffect` | **OK / Landed** |
 | **E10** | CI | Tool follow-up returning 500 | Send tool query | Tool error displayed in transcript; returns to idle; `next_hello_ok()` | **OK / Landed** |
 | **E11** | CI | `insert filler` then `add a comment` | Send as two sequential turns | Both mutations applied; context refreshed between turns; `next_hello_ok()` | **OK / Landed** |
-| **E12** | CI | Calc doc, `list sheets` | `open_calc_document` + Calc deck send | Calc tools advertised; `calc_get_sheet_summary` (or `sheet_list` if specialized is on the wire); HTML wrap-up; Writer session restored | **OK / Landed** |
+| **E12** | CI | Calc doc, `list sheets` | `open_calc_document` + Calc deck send | Calc tools advertised; `get_sheet_summary` (or `sheet_list` if specialized is on the wire); HTML wrap-up; Writer session restored | **OK / Landed** |
 | **E13** | CI | `comment_add` with mock tool delay | Call `press_stop()` during tool execution | Partial/no mutation; not stuck busy; no UI freeze; `next_hello_ok()` | **OK / Landed** |
 | **E14** | CI | `outline this` | Run delegate twice in succession | Nested agent functions repeatedly without stale session leaks; `next_hello_ok()` | **OK / Landed** |
 | **E15** | CI | `insert filler` | Stop after tool result queued, before HTML | Mutation applied; UI returns to idle; no double drain; `next_hello_ok()` | **OK / Landed** |
 | **E17** | CI | `empty nested answer` | Specialized delegate returns empty answer | Main wrap-up displays clean empty banner; no stale HTML paste-over; `next_hello_ok()` | **OK / Landed** |
-| **E21** | CI | `mixed tools` / `one tool fails` | Send query | `writer_apply_content` succeeds while `comment_add` fails; mutation kept, error surfaced; `next_hello_ok()` | **OK / Landed** |
+| **E21** | CI | `mixed tools` / `one tool fails` | Send query | `apply_content` succeeds while `comment_add` fails; mutation kept, error surfaced; `next_hello_ok()` | **OK / Landed** |
 | **E23** | mock-sidebar | Scripted rule `prompt cell ping`, then `error 401` | Open Calc; `setFormula('=PROMPT(...)')` on A1 and A2 | A1 shows the exact mock reply via one `stream=False` POST; A2 shows error text (401); `next_hello_ok()` | **Landed** |
 | **E24** | mock-sidebar | `run slow python` | Kill the venv worker (`KILL_VENV_WORKER`, repeated until the tool round returns) | Tool round returns an error (no `slept`); turn goes idle; `next_hello_ok()` | **Landed** |
 | **E22** | CI | `endless nested outline` | Specialized delegate never finishes | Triggers max tool budget error; main UI returns to idle; inner `decided_tools` must not include `final_answer` / `specialized_workflow_finished`; `next_hello_ok()` | **OK / Landed** (leftover Calc after E12/P advertises `send_peer_work / send_peer_result`; mock must not take the Packet P finish-immediately path — never-finish / phrase wins so smol hits `chatbot.max_tool_rounds`) |
@@ -436,13 +436,13 @@ Every test must satisfy:
 
 - **Focus:** Writer + Calc sidebars sharing one process-global mock OpenAI server. Scripts branch on advertised tools, `[Peer from:]` envelopes, and the specialized-inner wire.
 - **Mode:** Automated (`make test-mock-sidebar FILTER=P`). Unit scripts always run in `make pytest` (`tests/scripts/test_mock_llm_server.py`).
-- **Protocol locked:** outer main delegates `document_research` (never advertises `send_peer_work / send_peer_result`); inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately; Calc does `calc_write_range` then delegates to reply with `envelope kind (work/result)`.
+- **Protocol locked:** outer main delegates `document_research` (never advertises `send_peer_work / send_peer_result`); inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately; Calc does `write_range` then delegates to reply with `envelope kind (work/result)`.
 - **Calc open:** same `open_calc_document` / `adopt_chat_sidebar` helper as E12/G17 (VCL-posted `factory/scalc` + `_blank`; keep Writer open). Never `loadComponentFromURL("private:factory/scalc")` from the URP client after a Writer deck. After Writer Ready, P1 dispatches `KICK_PEERS` so soffice starts the queued extracted send. If dual decks cannot be wired, P1–P3 SkipTest — unit scripts still lock finish-after-accepted, reply-via-specialized, and busy-then-queue.
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
 | **P1** | mock-sidebar | `Ask the budget workbook to add a Total row` | Dual decks; Writer send | Both Ready; Calc wrote Total; Writer saw reply; finish immediately after accepted; no outer `send_peer_work / send_peer_result` | **Landed** (SkipTest if Calc deck cannot open) |
-| **P2** | mock-sidebar | `wait after accepted then hang` | Writer send; assert before max_steps | Specialized stays in discovery after accepted; Calc does not `calc_write_range` (inject-now envelope is OK) | **Landed** (same skip) |
+| **P2** | mock-sidebar | `wait after accepted then hang` | Writer send; assert before max_steps | Specialized stays in discovery after accepted; Calc does not `write_range` (inject-now envelope is OK) | **Landed** (same skip) |
 | **P3** | mock-sidebar + unit | Writer Ready, then `keep talking` (slow SSE); `KICK_PEERS` after Stop enabled | Writer busy when Calc `send_peer_work / send_peer_result`s | Reply queues (no inject); after Stop/Ready + kick, extracted send starts | **Landed** (live may SkipTest if dual-deck Send misses ramble; units `test_p3_*` always lock; E12 follow-up if Calc deck missing). Calc reply specialized task is the scripted `Reply to the peer envelope … envelope kind (work/result)=` string — mock peer-inner must match that, not only inbound "add a total row", or leftover-Calc discovery (`list_nearby_files`) finishes without a reply. |
 
 See [peer-messaging.md](../chat/peer-messaging.md#dual-mock-peer-tests).
@@ -518,7 +518,7 @@ Smol ReAct web-research subagent compaction is out of scope.
 | **R4** | CI | `insert filler` (delay 100ms, record mode) | Stop mid-stream | Body all-or-nothing; a completed edit is exactly one pending change, else none | **Landed** |
 | **R5** | CI | `list sheets` in Calc (delay 400ms) | Close the Calc doc mid-turn | No traceback; Writer chat still works | **Landed** |
 | **R6** | CI | `single agent edit` (record mode) | Undo, then accept the stale token | Accept returns False; body unchanged | **Landed** |
-| **R7** | CI | `style tools` | 5x writer_apply_style + writer_get_tree | Heading 1 applied each round; no new thread-guard violations (counted via `_notify_thread_violation`) | **Landed** |
+| **R7** | CI | `style tools` | 5x apply_style + get_tree | Heading 1 applied each round; no new thread-guard violations (counted via `_notify_thread_violation`) | **Landed** |
 | **R8** | CI | `look up cats` (HITL on, mock online) | Stop then Accept on the approval | Turn settles; web_research runs at most once | **Landed** |
 | **R9** | CI | `three agent edits` (3 paragraphs, record mode) | User redline in paragraph 2; resolve all | 2 resolved with a user note; the middle agent change stays pending | **Landed** |
 

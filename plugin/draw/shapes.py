@@ -536,7 +536,7 @@ def _outside_page(page: Any, shape: Any) -> bool:
 
 class UpsertShape(_AnyDocumentShapeTool):
     name: str | None = "shape_upsert"
-    description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from draw_get_tree — draw-page index shifts when other shapes sit between fields."
+    description: str = "Create or edit a shape on a page. When filling a paper-form blank, edit by shape Name from get_tree — draw-page index shifts when other shapes sit between fields."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -690,7 +690,7 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
     elif action == "edit":
         from plugin.draw.tree import find_shape_on_page
 
-        # Index is fragile for peer "fill field X"; Name from draw_get_tree stays stable
+        # Index is fragile for peer "fill field X"; Name from get_tree stays stable
         # when non-fields sit between boxes. Index wins when both are passed.
         lookup_name = kwargs.get("name") if "index" not in kwargs else None
         shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs.get("index"), name=lookup_name)

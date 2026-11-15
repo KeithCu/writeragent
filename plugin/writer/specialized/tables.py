@@ -277,7 +277,7 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
 def delete_writer_table(doc: Any, uno_ctx: Any, table: Any, name: str, nesting: dict[str, Any]) -> bool:
     """Remove *table*. True when the deletion was recorded as a tracked change.
 
-    ``table_delete`` and ``writer_apply_content`` both call this. The caller
+    ``table_delete`` and ``apply_content`` both call this. The caller
     wraps it in the EditReviewSession it already has, so RecordChanges is on
     before the tracked path runs. A second review wrapper here would nest
     sessions and tag the redlines twice.
@@ -293,7 +293,7 @@ def record_table_deletions(session: Any, doc: Any, ctx: Any, doomed: list[tuple[
     """Delete tables inside the caller's already-open review session.
 
     Returns True when at least one deletion was a tracked change. Does not
-    open a second EditReviewSession: writer_apply_content is already in
+    open a second EditReviewSession: apply_content is already in
     one, and nesting would tag the same redlines twice.
     """
     tracked = False

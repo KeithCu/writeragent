@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Selection: target='selection' must not silently append at the document end, and writer_set_selection
+"""Selection: target='selection' must not silently append at the document end, and set_selection
 lets a headless client pick a passage. No LibreOffice required."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -34,7 +34,7 @@ def test_selection_raises_when_both_selection_and_viewcursor_fail_not_gotoEnd():
     ctx, cursor = _ctx_with_controller(controller)
     with pytest.raises(ValueError) as ei:
         resolve_target_cursor(ctx, "selection", None)
-    assert "writer_set_selection" in str(ei.value) or "search" in str(ei.value)
+    assert "set_selection" in str(ei.value) or "search" in str(ei.value)
     cursor.gotoEnd.assert_not_called()  # both selection and view cursor failed: must not silently gotoEnd(False)
 
 
@@ -116,7 +116,7 @@ def test_selection_target_disposed_raises_document_disposed():
         resolve_target_cursor(ctx, "selection", None)
 
 
-# ---- C2: writer_set_selection -------------------------------------------------------
+# ---- C2: set_selection -------------------------------------------------------
 
 def _selection_ctx():
     doc = MagicMock()
@@ -213,7 +213,7 @@ def test_set_selection_char_range_bool_is_rejected_before_execute():
     from plugin.framework.tool import prepare_tool_call
 
     ctx = SimpleNamespace(doc_type="writer", caller="test")
-    prep = prepare_tool_call(SetSelection(), ctx, "writer_set_selection", {"char_start": True, "char_end": 10})
+    prep = prepare_tool_call(SetSelection(), ctx, "set_selection", {"char_start": True, "char_end": 10})
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
     assert prep.error["message"] == "Invalid type for char_start: expected integer, got bool"

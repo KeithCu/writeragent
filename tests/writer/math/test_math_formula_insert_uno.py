@@ -93,7 +93,7 @@ def test_display_math_inserts_embed(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_end_with_mathml(ctx: Any, doc: Any) -> None:
-    """End-to-end: ``writer_apply_content`` tool on a hidden doc with MathML HTML."""
+    """End-to-end: ``apply_content`` tool on a hidden doc with MathML HTML."""
     from plugin.app import get_services, get_tools
     from plugin.framework.tool import ToolContext
 
@@ -106,7 +106,7 @@ def test_apply_document_content_end_with_mathml(ctx: Any, doc: Any) -> None:
         "<p>Outro</p>"
     )
     res = get_tools().execute(
-        "writer_apply_content",
+        "apply_content",
         ctx_tool,
         content=content,
         target="end",

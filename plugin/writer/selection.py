@@ -2,10 +2,10 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""writer_set_selection — select a passage so the user sees it highlighted and target='selection' can
+"""set_selection — select a passage so the user sees it highlighted and target='selection' can
 act on it. Headless MCP clients have no way to set a selection otherwise, which made
 target='selection' a trap (see the target_resolver fix). Selection is view state and transient,
-so for headless flows writer_set_selection and the follow-up edit should be consecutive."""
+so for headless flows set_selection and the follow-up edit should be consecutive."""
 from typing import Any
 import logging
 
@@ -29,19 +29,19 @@ def _read_selection_fields(target_range: Any) -> dict[str, Any]:
         selected = target_range.getString()
     except Exception as exc:
         reraise_if_disposed(exc)
-        log.exception("writer_set_selection: could not read selected text")
+        log.exception("set_selection: could not read selected text")
         return {"warning": "Could not read selected text."}
     return {"selected_text": selected, "length": len(selected)}
 
 
 class SetSelection(ToolBase):
-    name: str | None = "writer_set_selection"
+    name: str | None = "set_selection"
     tier: str = "core"
     is_mutation: bool | None = False
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     description: str = (
         "Select a passage in the document (highlights it for the user and lets a following "
-        "writer_apply_content/writer_apply_style with target='selection' act on it). Select by "
+        "apply_content/apply_style with target='selection' act on it). Select by "
         "search_text (with occurrence and case_sensitive) or by character range (char_start/"
         "char_end). Selection is transient view state, so pair it with the edit that uses it. "
         "Character offsets are returned only for a fully applied char range. The search path "

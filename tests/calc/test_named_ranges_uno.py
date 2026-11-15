@@ -208,8 +208,8 @@ def test_transparent_named_range_read_write(ctx, doc):
     sheet.getCellByPosition(1, 9).setString("Banana")
 
     # 1. Read using the named range
-    res_read = _execute_calc_tool(doc, ctx, "calc_read_range", {"range": ["TransparentRange"]})
-    assert res_read.get("status") == "ok", f"calc_read_range failed: {res_read}"
+    res_read = _execute_calc_tool(doc, ctx, "read_range", {"range": ["TransparentRange"]})
+    assert res_read.get("status") == "ok", f"read_range failed: {res_read}"
 
     result_data = res_read["result"][0]["result"][0]
     assert result_data["range"] == "TransparentRange"
@@ -217,11 +217,11 @@ def test_transparent_named_range_read_write(ctx, doc):
     assert result_data["rows"] == [["Apple", "Banana"]]
 
     # 2. Write using the named range
-    res_write = _execute_calc_tool(doc, ctx, "calc_write_range", {
+    res_write = _execute_calc_tool(doc, ctx, "write_range", {
         "range": ["TransparentRange"],
         "values": '["Cherry", "Date"]'
     })
-    assert res_write.get("status") == "ok", f"calc_write_range failed: {res_write}"
+    assert res_write.get("status") == "ok", f"write_range failed: {res_write}"
     assert sheet.getCellByPosition(0, 9).getString() == "Cherry"
     assert sheet.getCellByPosition(1, 9).getString() == "Date"
 

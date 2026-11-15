@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""HTML entities on writer_apply_content's format-preserving (plain text) path."""
+"""HTML entities on apply_content's format-preserving (plain text) path."""
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.apply_document_content import ApplyDocumentContent

@@ -278,7 +278,7 @@ class CellInspector:
             except Exception as e:
                 if is_disposal(e):
                     raise
-                # Some Calc builds do not expose format-range queries; calc_read_range then returns the raw values without date/time enrichment.
+                # Some Calc builds do not expose format-range queries; read_range then returns the raw values without date/time enrichment.
                 log.exception("Date/time format enrichment failed for range %s; returning raw values", range_name)
 
         col_letters = [index_to_column(c) for c in range(addr.StartColumn, addr.EndColumn + 1)]
@@ -321,7 +321,7 @@ def grid_to_rows(
     Per-cell address/formula/type objects are about 10× the values alone; keep
     one enrichment path and serialize here for tools. ``format_category``,
     ``format_code``, and non-temporal ``type`` values (``formula``/``value``/
-    ``text``/``empty``) are omitted — use ``calc_read_range`` with
+    ``text``/``empty``) are omitted — use ``read_range`` with
     ``format=cells`` for the full per-cell grid.
     """
     origin = grid[0][0]["address"]

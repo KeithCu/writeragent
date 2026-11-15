@@ -1,6 +1,6 @@
 # Writer list numbering (list-only)
 
-This page locks **multi-level list** numbering after `writer_apply_content`
+This page locks **multi-level list** numbering after `apply_content`
 HTML import. It is **not** Tools → Chapter Numbering (heading outline numbers).
 Do not enable `ChapterNumberingRules` to exercise these paths. Chapter /
 heading paint labels live on `writer_tree` as optional `chapter_number` —
@@ -9,11 +9,11 @@ see [chapter-numbering.md](chapter-numbering.md).
 There is **no** `numbering_inspect` tool and no numbering specialized domain.
 Tests and debug code read UNO paragraph properties (`NumberingStyleName`,
 `NumberingLevel`, `ListId`, `ListLabelString`, `NumberingRules`) and
-`writer_get_content` XHTML directly.
+`get_content` XHTML directly.
 
 ## What HTML import does
 
-Nested `<ol>` / `<ul>` via `writer_apply_content` become real Writer lists
+Nested `<ol>` / `<ul>` via `apply_content` become real Writer lists
 (StarWriter `HTML (StarWriter)` import):
 
 | HTML | UNO |
@@ -38,10 +38,10 @@ project does not turn it on for these tests.
 - Bullets export as `Bullet_20_Symbols` (`•`). `ListLabelString` on the
   bullet paragraph is empty; `NumberingType` at that level is `CHAR_SPECIAL`
   (6). Nested numbered children use `ARABIC` (4) and `1.`.
-- `writer_search("1.")` and `writer_search("1.2")` return **0**.
+- `search("1.")` and `search("1.2")` return **0**.
   LibreOffice `XSearchable` does not see generated list labels. Search the
   item **text** instead.
-- Title-only `writer_apply_content` search replace of that item text keeps
+- Title-only `apply_content` search replace of that item text keeps
   `NumberingLevel` / `NumberingStyleName` / `ListId` on the paragraph.
 
 `NumberingStyleName` and `ListId` are generated per import. Assert they are
@@ -52,7 +52,7 @@ non-empty and equal (or unequal) across items — never pin a literal id.
 [`tests/writer/test_numbering_lists_uno.py`](../../tests/writer/test_numbering_lists_uno.py)
 builds the fixture in-process (`target='full_document'` HTML). It uses the
 same `@with_native_doc` pattern as other
-`writer_apply_content` Writer UNO suites.
+`apply_content` Writer UNO suites.
 
 Notebook leftover-list leak checks stay in
 [`tests/notebook/test_writer_importer_uno.py`](../../tests/notebook/test_writer_importer_uno.py)

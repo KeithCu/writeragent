@@ -122,7 +122,7 @@ def test_mcp_tools_list_direct_flat_exposes_full_layout(writer_mcp_setup):
 
     # In direct_flat, all specialized + core tools are listed (specialized_control excluded)
     assert len(tools_list) >= 95
-    assert "writer_apply_content" in tool_names
+    assert "apply_content" in tool_names
     assert "bookmark_create" in tool_names
     assert "footnote_insert" in tool_names
     assert "table_list" in tool_names
@@ -149,7 +149,7 @@ def test_mcp_tools_list_delegate_mode_only_core(writer_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     # Specialized tools must not be listed in delegate mode
-    assert "writer_apply_content" in tool_names
+    assert "apply_content" in tool_names
     assert "bookmark_create" not in tool_names
     assert "footnote_insert" not in tool_names
     assert "table_list" not in tool_names
@@ -174,7 +174,7 @@ def test_mcp_tools_list_direct_discovery_mode(writer_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     assert "tool_find" in tool_names
-    assert "writer_apply_content" in tool_names
+    assert "apply_content" in tool_names
     assert "bookmark_create" not in tool_names
 
 

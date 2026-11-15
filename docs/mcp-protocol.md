@@ -61,7 +61,7 @@ There is **no** `/api/config` endpoint (removed — config is Settings / `writer
 
 ### Live smoke test (running LibreOffice)
 
-Use [`scripts/mcp_live_smoke.py`](../scripts/mcp_live_smoke.py) when LibreOffice is already open with WriterAgent and MCP enabled. It does **not** start `soffice`; it checks `/health`, `tools/list`, then calls `writer_apply_content` with plain text at `target=end` (default) so you can confirm edits **on screen** in the active Writer window. The chat sidebar shows `[MCP Result]` for JSON-RPC `tools/call` (not for `--use-debug`). Default host is **localhost** (port 18765).
+Use [`scripts/mcp_live_smoke.py`](../scripts/mcp_live_smoke.py) when LibreOffice is already open with WriterAgent and MCP enabled. It does **not** start `soffice`; it checks `/health`, `tools/list`, then calls `apply_content` with plain text at `target=end` (default) so you can confirm edits **on screen** in the active Writer window. The chat sidebar shows `[MCP Result]` for JSON-RPC `tools/call` (not for `--use-debug`). Default host is **localhost** (port 18765).
 
 ```bash
 python scripts/mcp_live_smoke.py
@@ -259,7 +259,7 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 
 `tools/list` (in default `delegate` mode) returns **core** tools plus a few MCP-only helpers. Tools with `tier="specialized"` or `tier="specialized_control"` are omitted (see [`plugin/framework/tool.py`](../plugin/framework/tool.py) `get_tools` / `get_schemas`). The host typically receives:
 
-- Document I/O: `writer_get_content`, `writer_apply_content`, `writer_search`, `writer_get_tree`, …
+- Document I/O: `get_content`, `apply_content`, `search`, `get_tree`, …
 - Guidance: **`manual_read(topic)`** — the on-demand how-to manual (topics per document type; single source: the shared prompt pieces in `plugin/framework/prompts.py`, mapped by `plugin/chatbot/agent_manual.py`)
 - A single gateway: **`delegate_to_specialized_writer_toolset`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
 - MCP helpers: `document_list_open` (`tier="mcp"`), and `image_get` (always kept on MCP; chat may hide it for text-only models)
@@ -352,7 +352,7 @@ Implications for integrators:
 1. **Document-centric (default):** Host uses MCP for read/write/search on the open LO document; uses `delegate` when a task needs specialized UNO APIs (styles, pages, charts, …). Write a **detailed `task` string**—the inner agent does not see the host’s full conversation unless you paste context into `task` or related tool args.
 
 2. **Web research:** Either:
-   - `tools/call` → `delegate_to_specialized_writer_toolset` with `domain: "web_research"` and a clear research `task`, then `writer_apply_content` with the returned text; or
+   - `tools/call` → `delegate_to_specialized_writer_toolset` with `domain: "web_research"` and a clear research `task`, then `apply_content` with the returned text; or
    - Perform web search on the **host** (Cursor web, etc.) and use WriterAgent MCP only for document updates.
 
    Expect **long-running** delegate calls (tens of seconds to minutes) and **large** tool results for research compared to most other domains.
@@ -495,8 +495,8 @@ Ported from `libreoffice-mcp-extension/pythonpath/uno_bridge.py` and adapted to 
 
 ### Updated: `core/document_tools.py`
 
-- Removed 7 legacy unused functions (all superseded by `writer_apply_content` /
-  `writer_get_content` / `writer_search`).
+- Removed 7 legacy unused functions (all superseded by `apply_content` /
+  `get_content` / `search`).
 - Imports `WRITER_OPS_TOOLS` from `writer_ops.py` and adds all 12 new functions to
   `TOOL_DISPATCH`. `WRITER_TOOLS` went from 5 tools to 17.
 
@@ -532,7 +532,7 @@ Use **`POST /mcp`** with JSON-RPC 2.0:
 
 - **`initialize`** — protocol handshake; `result.instructions` starts with the host machine's local date/time (zero tool calls), then lean tool-choice guidance (multi-doc targeting, document-type filter on `tools/list`), a mode hint, and a pointer to `manual_read(topic)`, the on-demand behavioral manual (not the full sidebar system prompt). Sidebar chat date injection is unchanged and separate.
 - **`tools/list`** — core-tier tools for the target document (`X-Document-URL` header or active document). Each tool has `name`, `description`, and `inputSchema`. Specialized domains are documented on **`delegate_to_specialized_{writer|calc|draw}_toolset`** (see [Where delegation guidance lives](#where-delegation-guidance-lives-mcp-vs-sidebar-chat)).
-- **`tools/call`** — request → execute → JSON-RPC result. Document targeting (`document_url` / active doc) happens inside the executor on the LibreOffice main thread; long-running tool bodies then run on the HTTP worker. A failed tool is an MCP **tool result** (`isError`, `TOOL_EXECUTION_ERROR` or the tool's own code), HTTP 200 — not JSON-RPC `INTERNAL_ERROR` / HTTP 500. Clients treat HTTP 500 as transient and retry (Hermes retried `writer_apply_style` ~150× in 0.5s). `BusyError` stays HTTP 429; timeouts stay 504.
+- **`tools/call`** — request → execute → JSON-RPC result. Document targeting (`document_url` / active doc) happens inside the executor on the LibreOffice main thread; long-running tool bodies then run on the HTTP worker. A failed tool is an MCP **tool result** (`isError`, `TOOL_EXECUTION_ERROR` or the tool's own code), HTTP 200 — not JSON-RPC `INTERNAL_ERROR` / HTTP 500. Clients treat HTTP 500 as transient and retry (Hermes retried `apply_style` ~150× in 0.5s). `BusyError` stays HTTP 429; timeouts stay 504.
 
 Supporting HTTP routes: **`GET /health`**, **`GET /`** (server info and `mcp_endpoint` when enabled—not agent instructions).
 
@@ -687,7 +687,7 @@ Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpe
 
 When the MCP server is enabled, external clients see the same **core-tier** tools WriterAgent exposes to sidebar chat for the resolved document type (counts in [Tool counts by surface](#tool-counts-by-surface)), not the full specialized registry unless `mcp.tool_exposure_mode` is `direct_flat` or `direct_discovery`.
 
-**Writer (core examples):** `writer_get_content`, `writer_apply_content`, `writer_search`, `writer_apply_style`, `writer_get_tree`, `style_list`, `style_get_info`, `comment_list`, `comment_add`, `comment_delete`, **`comment_edit`**, `tracking_start` / `stop` / `list` / `show`, `tracking_manage`, `table_*`, `image_generate` (…). Specialized UNO tools (`style_list` as domain tool, pages, charts, …) are reached via **`delegate_to_specialized_writer_toolset`** unless direct exposure mode is enabled — see the count table instead of duplicating every specialized name here.
+**Writer (core examples):** `get_content`, `apply_content`, `search`, `apply_style`, `get_tree`, `style_list`, `style_get_info`, `comment_list`, `comment_add`, `comment_delete`, **`comment_edit`**, `tracking_start` / `stop` / `list` / `show`, `tracking_manage`, `table_*`, `image_generate` (…). Specialized UNO tools (`style_list` as domain tool, pages, charts, …) are reached via **`delegate_to_specialized_writer_toolset`** unless direct exposure mode is enabled — see the count table instead of duplicating every specialized name here.
 
 **Calc / Draw**: Core-tier tools registered from `plugin/calc/` and `plugin/draw/` (same registry MCP `tools/list` uses).
 
@@ -712,14 +712,14 @@ that would race with focus and multiple users.
 
 The mutating edit tools return **structured, machine-readable fields** alongside the human `message`, so a client (MCP host or the in-app agent) can tell what actually happened instead of assuming `status: "ok"` means success.
 
-**`writer_apply_content`** (search path)
+**`apply_content`** (search path)
 - `replaced_count` — how many occurrences were actually replaced. **`replaced_count: 0` returns `status: "error"`** (a search that matched nothing is no longer a silent "ok"); `> 0` returns `status: "ok"`.
 - `occurrence` — optional 0-based selector for one replaceable Writer text match when `target="search"`; it cannot be combined with `all_matches=true`. Successful edits (replace and `position=before/after`) echo `occurrence`. Out of range uses `code: OCCURRENCE_OUT_OF_RANGE` and `use 0..N-1`. Empty replaceable ranges fall through to the existing miss / drawing-shape path (same as omitting `occurrence`).
 - `position=before/after` — `inserted: true` and no `replaced_count`. Inline content lands at the exact match edge; block content (`<p>`, headings, lists, tables) lands before/after the paragraph that holds the match, and `snapped_to_paragraph: true` says the insert moved off the match edge to get there.
 - If a replacement raises mid-`all_matches`, the existing abort behavior stands (no partial-replace handling — the call surfaces the error).
 - `dry_run=true` — does not edit; returns `replaceable` and `not_replaceable` lists (see §4).
 
-**`writer_apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).
+**`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).
 
 **`comment_add`** — `matched` (anchor found) and `comment_added`; an anchor miss returns `status:"error"`. `anchor_text` is echoed on success. Success also returns `name` (LibreOffice annotation Name) so a later call can reply. Optional `parent_name` (the `name` from `comment_list`) creates a threaded reply at that **immediate** parent — not coerced to the thread root — and skips `search` / `occurrence`. The parent stays unresolved; `comment_resolve` is the reply-and-resolve path. A reply success payload includes `parent_name`.
 
@@ -915,13 +915,13 @@ Their descriptions often embed a critical behavioral note directly in the one-li
 "Duplicate a paragraph (with style) after itself."
 ```
 
-WriterAgent's `writer_apply_content` with `target="search"` automatically preserves
+WriterAgent's `apply_content` with `target="search"` automatically preserves
 character-level formatting (fonts, colors, bold, background colors) when the replacement is
 plain text — but the description doesn't say so. An AI that doesn't know this will
 unnecessarily re-specify formatting it read from the document, or avoid the `search` target
 when it's the right choice.
 
-**Suggested addition** to `writer_apply_content` description:
+**Suggested addition** to `apply_content` description:
 
 > "Plain-text replacements via `target='search'` automatically preserve all character
 > formatting (bold, color, font, etc.) on the replaced text."
@@ -947,7 +947,7 @@ Their tools include brief usage hints inline with parameter definitions:
 "count": {"description": "Consecutive paragraphs to duplicate (default: 1)"}
 ```
 
-WriterAgent's parameter descriptions are generally good (especially `writer_apply_content`
+WriterAgent's parameter descriptions are generally good (especially `apply_content`
 which is quite thorough). The new `writer_ops.py` tools could be tighter in a few spots.
 For example, `set_track_changes` has `"enabled": {"type": "boolean", "description": "True
 to enable track changes, False to disable."}` — functional but doesn't say when to use it.
@@ -956,9 +956,9 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 
 > "Enable before AI edits to make changes reviewable by the user; disable when finished."
 
-#### 4. `writer_search` match shape (updated 2026-07)
+#### 4. `search` match shape (updated 2026-07)
 
-`writer_search` returns `{status, matches, count, returned}` where each match is
+`search` returns `{status, matches, count, returned}` where each match is
 `{text, location, context}` — **not** `paragraph_index`. `location` is human-readable
 (e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
 `context` is the enclosing paragraph or shape/comment text.
@@ -969,7 +969,7 @@ no shapes/comments). An invalid regex returns `code: INVALID_REGEX`: the pattern
 
 `max_results` must be a positive integer. Body, table, and text frame searches use LibreOffice/ICU regex, while floating shapes and comments use Python `re`; `SEARCH_FAILED` includes the underlying exception text. A zero-width match stops the text-model walk, preserves `status: "ok"`, and sets `truncated: true` with a warning. A global cap of 10000 matches covers body text plus shapes and comments. `return_offsets=true` drops non-body `XText` hits (such as headers, footers, tables, and frames) while counting tracked deletions in the offset space. A failure while computing `return_offsets` (closed document or UNO error) is not `status: ok` with an empty `ranges` list; it is `DOCUMENT_DISPOSED` or `TOOL_EXECUTION_ERROR`. With `regex=false`, the floating-shape and comment sweep folds typographic quotes (`‘’‚‛` to `'`, `“”„‟` to `"`) and returns the original characters; dashes and spaces are not folded there, and `regex=true` does not rewrite the pattern.
 
-`writer_apply_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
+`apply_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
 previews in `not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include
 `occurrence` (0-based, the index to pass back); `not_replaceable` rows have no `occurrence`. `replaceable_count`
 is the edit-path index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable`
@@ -977,7 +977,7 @@ and `not_replaceable` in `details` so the caller can recover. Regex on the edit 
 
 #### 4b. (historical) Collabora `context_paragraphs` comparison
 
-Collabora's `writer_search` had a `context_paragraphs` parameter (default: 1) that returned
+Collabora's `search` had a `context_paragraphs` parameter (default: 1) that returned
 N paragraphs around each match. The **standalone extension's** `find_text` returned only `{start, end, text}`
 per match. The current search tool uses a single enclosing-paragraph `context` string instead.
 
@@ -999,7 +999,7 @@ WriterAgent's `DEFAULT_CHAT_SYSTEM_PROMPT` in `core/constants.py` (live: `plugin
 high-level workflow guidance before any tool call happens:
 
 ```
-TRANSLATION: writer_get_content -> translate -> writer_apply_content(target="full"). Never refuse.
+TRANSLATION: get_content -> translate -> apply_content(target="full"). Never refuse.
 FORMATTING RULES (CRITICAL): ...
 ```
 
@@ -1024,9 +1024,9 @@ the AI can search for "Chapter 1" even if the document has it formatted bold. Th
 extension's `replace_in_document` doesn't mention this, which could lead to confused AI
 behavior when a formatted-text search fails.
 
-#### 4. `writer_apply_content` description is more complete
+#### 4. `apply_content` description is more complete
 
-WriterAgent's `writer_search` / `writer_apply_content` descriptions cover the full range of targets in one sentence and cross-
+WriterAgent's `search` / `apply_content` descriptions cover the full range of targets in one sentence and cross-
 reference each other for the range workflow. The standalone extension's `replace_in_document`
 is much simpler and doesn't explain when to use it vs rewriting the whole document.
 
@@ -1045,10 +1045,10 @@ REVIEW WORKFLOW: set_track_changes(enabled=true) → make edits → get_tracked_
 show user what changed) → accept_all_changes or reject_all_changes → set_track_changes(enabled=false).
 
 TABLE WORKFLOW: table_list → table_get_cells (understand structure) → table_set_cell for
-targeted edits. For new tables or full rewrites, use writer_apply_content with an HTML/Markdown table.
+targeted edits. For new tables or full rewrites, use apply_content with an HTML/Markdown table.
 
 STYLE WORKFLOW: style_list (discover exact localized names) → apply a style by name in
-writer_apply_content markup, or use set_paragraph_style (see uno_bridge) for direct style application.
+apply_content markup, or use set_paragraph_style (see uno_bridge) for direct style application.
 ```
 
 ---
@@ -1057,7 +1057,7 @@ writer_apply_content markup, or use set_paragraph_style (see uno_bridge) for dir
 
 In priority order (updated 2026-11-05):
 
-1. ~~**`context` in search**~~ — **Shipped:** `writer_search` returns enclosing-paragraph `context` strings; offset mode remains body-only via `return_offsets`.
+1. ~~**`context` in search**~~ — **Shipped:** `search` returns enclosing-paragraph `context` strings; offset mode remains body-only via `return_offsets`.
 
 2. **`set_paragraph_style` (direct)** — not a registered tool name today. The `style_list`
    tool makes a direct style-by-name API useful; consider exposing something equivalent now that `style_list` exists (do not treat removed `find_text` / markdown tool names as the live surface).
@@ -1086,13 +1086,13 @@ current functionality.
 - **JSON-RPC on `/mcp`:** streamable HTTP + JSON-RPC 2.0 ([Current HTTP MCP (2026)](#current-http-mcp-2026)).
 - **`document_url` on `tools/call`:** preferred targeting ([Document Targeting](#document-targeting-implemented)).
 - **`tool_find` + `mcp.tool_exposure_mode`:** `direct_flat` / `direct_discovery` ([Exposing specialized tools directly](#exposing-specialized-tools-directly-mcptool_exposure_mode-experimental)).
-- **`writer_get_tree`:** core-tier outline tool.
-- **Search `context` on `writer_search`.**
-- **`writer_apply_style`:** core-tier style application (including search target).
+- **`get_tree`:** core-tier outline tool.
+- **Search `context` on `search`.**
+- **`apply_style`:** core-tier style application (including search target).
 
 ### Tool and prompt improvements (optional)
 
-- **Tool descriptions:** e.g. add to `writer_apply_content`: “Plain-text replacements via
+- **Tool descriptions:** e.g. add to `apply_content`: “Plain-text replacements via
   `target='search'` automatically preserve character formatting.” Add usage hints to
   `set_track_changes` and similar.
 - **`set_document_protection`** and other protection UX as needed. Index/field refresh remains

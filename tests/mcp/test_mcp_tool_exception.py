@@ -22,7 +22,7 @@ def test_unexpected_tool_exception_is_tool_execution_error_with_full_message():
     boom = RuntimeError("max index out of range in table cell")
     with patch.object(handler, "_run_tool", side_effect=boom):
         result = handler._mcp_tools_call(
-            {"name": "writer_apply_style", "arguments": {"style": "Heading 1"}},
+            {"name": "apply_style", "arguments": {"style": "Heading 1"}},
             document_url=None,
             cancel=SendCancellation(),
         )
@@ -46,7 +46,7 @@ def test_writeragent_exception_is_tool_result_not_jsonrpc_internal():
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "writer_apply_style", "arguments": {"style": "Heading 1"}},
+            "params": {"name": "apply_style", "arguments": {"style": "Heading 1"}},
         })
     assert status == 200
     result = body["result"]
@@ -62,7 +62,7 @@ def _tools_call(handler):
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
-        "params": {"name": "writer_apply_style", "arguments": {"style": "Heading 1"}},
+        "params": {"name": "apply_style", "arguments": {"style": "Heading 1"}},
     })
 
 

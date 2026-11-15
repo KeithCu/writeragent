@@ -189,7 +189,7 @@ class FillDrawFields(ToolDrawShapeBase):
         "Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page "
         "so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create "
         "new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), "
-        "draw-page index, path_index for group children, or label_hint from draw_get_tree. Returns per-field "
+        "draw-page index, path_index for group children, or label_hint from get_tree. Returns per-field "
         "ok/fail so you can recover. Not a PDF/AcroForm API."
     )
     parameters: dict[str, Any] | None = {
@@ -205,16 +205,16 @@ class FillDrawFields(ToolDrawShapeBase):
                 "items": {
                     "type": "object",
                     "properties": {
-                        "name": {"type": "string", "description": "Shape Name or Control.Name from draw_get_tree."},
+                        "name": {"type": "string", "description": "Shape Name or Control.Name from get_tree."},
                         "index": {
                             "type": "integer",
                             "description": "0-based draw-page shape index (fragile when non-fields sit between boxes; disambiguates duplicate names).",
                         },
                         "path_index": {
                             "type": "string",
-                            "description": 'Dotted path from draw_get_tree for a shape inside a group (e.g. "2.0"); use when the group child has no name.',
+                            "description": 'Dotted path from get_tree for a shape inside a group (e.g. "2.0"); use when the group child has no name.',
                         },
-                        "label_hint": {"type": "string", "description": "Neighbor label from draw_get_tree (left/above heuristic)."},
+                        "label_hint": {"type": "string", "description": "Neighbor label from get_tree (left/above heuristic)."},
                         "value": {
                             "type": ["string", "number", "boolean", "null"],
                             "description": "Value to write (text, or checkbox/radio State 0/1/yes/no). Explicit null clears a text box; omitting 'value' reports an error.",
@@ -228,7 +228,7 @@ class FillDrawFields(ToolDrawShapeBase):
     }
     doc_types: list[str] | None = ["draw", "impress"]
     is_mutation: bool | None = True
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["draw_get_tree"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_tree"])
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge

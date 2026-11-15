@@ -275,7 +275,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     implement ``execute``.
 
     Attributes:
-        name:        Unique tool identifier (e.g. "writer_get_tree").
+        name:        Unique tool identifier (e.g. "get_tree").
         description: Human-readable description shown to LLMs.
         parameters:  JSON Schema dict (MCP ``inputSchema`` format).
         uno_services: List of UNO services the tool supports (e.g.,
@@ -305,7 +305,7 @@ class ToolBase(_ToolErrorMixin, ABC):
     # tool_find discovery meta-tool); the default requires an open document.
     requires_document: bool = True
     # Extra tools this domain's sub-agent should see, by name. Core readers
-    # (writer_get_content) or one specialized tool from another domain
+    # (get_content) or one specialized tool from another domain
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
     is_app_specialized_tool: ClassVar[bool] = False
@@ -597,6 +597,25 @@ class SchemaFilterContext(NamedTuple):
     tools: list[Any]
 
 
+def _tool_apps(tool: ToolBase) -> frozenset[str]:
+    """Return the app bucket(s) ('writer', 'calc', 'draw') a tool targets."""
+    apps: set[str] = set()
+    for d in getattr(tool, "doc_types", None) or ():
+        dl = str(d).lower()
+        apps.add("draw" if dl == "impress" else dl)
+    if not apps:
+        for svc in getattr(tool, "uno_services", None) or ():
+            if "text.TextDocument" in svc:
+                apps.add("writer")
+            elif "sheet.SpreadsheetDocument" in svc:
+                apps.add("calc")
+            elif "drawing.DrawingDocument" in svc or "presentation.PresentationDocument" in svc:
+                apps.add("draw")
+    if not apps and getattr(tool, "uno_services", None) is None and getattr(tool, "doc_types", None) is None:
+        return frozenset({"writer", "calc", "draw"})
+    return frozenset(apps)
+
+
 class ToolRegistry:
     """Registers and dispatches tools.
 
@@ -608,6 +627,8 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
+        # Tools that share a name across disjoint apps (e.g. get_tree in Writer and Draw).
+        self._tool_variants: dict[str, list[ToolBase]] = {}
         self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
         self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []
         # Shared names (shape_upsert / chart_upsert) last-wins the instance but
@@ -632,20 +653,30 @@ class ToolRegistry:
             return
 
         if tool.name in self._tools:
-            existing_tool = self._tools[tool.name]
+            variants = self._tool_variants.get(tool.name, [self._tools[tool.name]])
             # Same class object, including a re-import that got the cached module: return, no log.
-            if type(existing_tool) is type(tool):
+            if any(type(v) is type(tool) for v in variants):
                 return
-            # A different class object replaces. Warn only when __name__ or __module__ differs
-            # (shared Writer/Calc/Draw names). Same __name__ and __module__ on a new class
-            # object replaces with no warning (reload).
-            if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
-                log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
-            # Shared names replace the instance (Writer loads last). Union both
-            # required_core_tools sets, plus any prior merge, or Calc
-            # shapes/charts never request calc_get_sheet_summary / calc_read_range.
-            # get_tools still drops cores that fail tool_supports_document
-            # for the active doc.
+            # Same __name__ and __module__ on a new class object replaces with no warning (reload).
+            for idx, existing_tool in enumerate(variants):
+                if type(existing_tool).__name__ == type(tool).__name__ and type(existing_tool).__module__ == type(tool).__module__:
+                    variants[idx] = tool
+                    if self._tools[tool.name] is existing_tool:
+                        self._tools[tool.name] = tool
+                    return
+            # Tools for disjoint apps (e.g. get_tree in Writer and Draw) coexist under the same name.
+            new_apps = _tool_apps(tool)
+            if new_apps and all(new_apps.isdisjoint(_tool_apps(v)) for v in variants):
+                self._tool_variants[tool.name] = [*variants, tool]
+                self._tools[tool.name] = tool
+                prev = self._required_core_union.get(tool.name) or getattr(variants[-1], "required_core_tools", None)
+                nxt = getattr(tool, "required_core_tools", None)
+                if prev or nxt:
+                    self._required_core_union[tool.name] = frozenset(prev or ()) | frozenset(nxt or ())
+                return
+            existing_tool = self._tools[tool.name]
+            # A different class object for an overlapping app replaces with a warning.
+            log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
             prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
             nxt = getattr(tool, "required_core_tools", None)
             if prev or nxt:
@@ -719,7 +750,14 @@ class ToolRegistry:
             ctx: Optional ToolContext or context for filtering vision specialized tools.
         """
         # crosshair: off
-        tools: Any = self._tools.values()
+        all_tools: list[ToolBase] = []
+        for name, primary in self._tools.items():
+            variants = self._tool_variants.get(name)
+            if variants:
+                all_tools.extend(variants)
+            else:
+                all_tools.append(primary)
+        tools: Any = all_tools
 
         # Doc-type probe is main-thread-only because get_document_type accesses UNO.
         # In release builds @main_thread_only logs and continues rather than raising,
@@ -825,6 +863,23 @@ class ToolRegistry:
             convert = to_mcp_schema
 
         schemas = [convert(t, doc_type=doc_type) for t in tools]
+        # When a filter_doc_type=False listing includes multiple app variants of
+        # the same tool name (e.g. get_tree in Writer and Draw), prefix each with
+        # its app so the combined schema list has unique names.
+        name_counts: dict[str, int] = {}
+        for t in tools:
+            if t.name:
+                name_counts[t.name] = name_counts.get(t.name, 0) + 1
+        if any(c > 1 for c in name_counts.values()):
+            for t, sch in zip(tools, schemas):
+                if t.name and name_counts.get(t.name, 0) > 1:
+                    apps = _tool_apps(t)
+                    if len(apps) == 1:
+                        app = next(iter(apps))
+                        if "function" in sch and isinstance(sch["function"], dict):
+                            sch["function"]["name"] = f"{app}_{t.name}"
+                        elif "name" in sch:
+                            sch["name"] = f"{app}_{t.name}"
         ctx = kwargs.get("ctx")
         filter_ctx = SchemaFilterContext(
             protocol=protocol,
@@ -839,8 +894,36 @@ class ToolRegistry:
             schemas = filt(schemas, filter_ctx)
         return schemas
 
+    def has_tool(self, name: str) -> bool:
+        """Return True if *name* is registered (for at least one app)."""
+        return name in self._tools
+
+    def multi_app_tool_names(self) -> frozenset[str]:
+        """Return tool names that have distinct per-app implementations."""
+        return frozenset(self._tool_variants.keys())
+
     def get(self, name: str) -> ToolBase | None:
         """Get a tool by name, or None."""
+        return self._tools.get(name)
+
+    def get_for_document(
+        self,
+        name: str,
+        *,
+        doc_type: str | None = None,
+        uno_services_supported: Any = None,
+    ) -> ToolBase | None:
+        """Get a tool by name, resolving per-app variants (e.g. ``get_tree``) for the document."""
+        variants = self._tool_variants.get(name)
+        if variants and (doc_type is not None or uno_services_supported is not None):
+            for variant in variants:
+                if tool_supports_document(
+                    variant,
+                    doc_type=doc_type,
+                    uno_services_supported=uno_services_supported,
+                ):
+                    return variant
+            return None
         return self._tools.get(name)
 
     # ── Execution ─────────────────────────────────────────────────────
@@ -992,8 +1075,16 @@ class ToolRegistry:
             tool_kwargs: Raw arguments passed by caller.
         """
         try:
-            tool = self._tools.get(tool_name)
+            doc_type = getattr(ctx, "doc_type", None)
+            uno_services = getattr(ctx, "uno_services_supported", None)
+            tool = self.get_for_document(tool_name, doc_type=doc_type, uno_services_supported=uno_services)
             if tool is None:
+                if tool_name in self._tools:
+                    return make_tool_error(
+                        f"Tool '{tool_name}' does not support the current document.",
+                        code="UNSUPPORTED_DOCUMENT",
+                        tool_name=tool_name,
+                    )
                 # Return a structured error instead of raising KeyError so the model
                 # receives actionable feedback ('no tool named X', plus the closest
                 # offered names) rather than an opaque traceback via execute_fn's

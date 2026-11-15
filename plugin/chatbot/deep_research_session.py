@@ -26,7 +26,7 @@ DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS = """DEEP RESEARCH MODE:
 You perform multi-step public web research and write formatted results into the active document when appropriate.
 
 WORKFLOW:
-1. Read document context when helpful (writer_get_content / writer_get_tree / writer_search).
+1. Read document context when helpful (get_content / get_tree / search).
 2. Run deep_research_web for the user's research query. This may take several minutes (parallel searches, adaptive rounds).
 3. reply_to_user with a brief HTML summary of what you researched. Do NOT paste the full report into reply_to_user; highlight key findings only.
 
@@ -34,26 +34,26 @@ TOOLS:
 - deep_research_web: multi-step adaptive web research only (not the shallow web_research tool).
 - reply_to_user: short HTML confirmation when the turn is complete."""
 
-DEEP_RESEARCH_WRITER_INSERT_INSTRUCTIONS = """WRITER DOCUMENT INSERT (writer_apply_content is in your tool list):
-After step 2, convert the plain-text report to HTML and insert it with writer_apply_content (JSON array of HTML strings; target end unless the user asked otherwise). Do NOT paste the full report into reply_to_user.
+DEEP_RESEARCH_WRITER_INSERT_INSTRUCTIONS = """WRITER DOCUMENT INSERT (apply_content is in your tool list):
+After step 2, convert the plain-text report to HTML and insert it with apply_content (JSON array of HTML strings; target end unless the user asked otherwise). Do NOT paste the full report into reply_to_user.
 Then reply_to_user with a brief HTML summary of what you researched and where it was inserted.
 
 HTML RULES (CRITICAL):
-- writer_apply_content content must be a JSON array of HTML strings — no Markdown (#, **, ```).
+- apply_content content must be a JSON array of HTML strings — no Markdown (#, **, ```).
 - reply_to_user must be HTML and brief (status/summary only).
 - Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
-- Rewrite plain-text deep_research_web results as structured HTML (headings, paragraphs, lists) before writer_apply_content.
+- Rewrite plain-text deep_research_web results as structured HTML (headings, paragraphs, lists) before apply_content.
 
-- writer_apply_content: the ONLY way to write research into the document."""
+- apply_content: the ONLY way to write research into the document."""
 
 DEEP_RESEARCH_REPLY_ONLY_INSTRUCTIONS = """OUTPUT (no document insert tools):
 Your reply_to_user HTML summary is the only output the user receives from this research run. Include the most important findings there; do not claim text was inserted into the document."""
 
 
 def compose_deep_research_mode_instructions(tool_names: list[str] | tuple[str, ...]) -> str:
-    """Base deep-research prompt plus Writer insert steps only when writer_apply_content is available."""
+    """Base deep-research prompt plus Writer insert steps only when apply_content is available."""
     parts = [DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS.strip()]
-    if "writer_apply_content" in tool_names:
+    if "apply_content" in tool_names:
         parts.append(DEEP_RESEARCH_WRITER_INSERT_INSTRUCTIONS.strip())
     else:
         parts.append(DEEP_RESEARCH_REPLY_ONLY_INSTRUCTIONS.strip())
@@ -65,16 +65,16 @@ class DeepResearchWebTool(SubAgentResearchWebBase):
     specialized_domain: ClassVar[str | None] = "deep_research"
     specialized_cross_cutting: ClassVar[bool] = True
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset([
-        "writer_get_content",
-        "writer_get_tree",
-        "writer_search",
-        "writer_apply_content",
+        "get_content",
+        "get_tree",
+        "search",
+        "apply_content",
     ])
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     name: str | None = "deep_research_web"
     description: str = (
         "Run breadth/depth public web research on a topic. Returns plain text. "
-        "Summarize findings in reply_to_user; insert formatted HTML with writer_apply_content "
+        "Summarize findings in reply_to_user; insert formatted HTML with apply_content "
         "only when that tool is in your tool list."
     )
     deep_research: ClassVar[bool] = True

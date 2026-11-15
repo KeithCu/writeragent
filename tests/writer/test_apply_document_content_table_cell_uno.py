@@ -6,7 +6,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Regression test: writer_apply_content(target='search') editing text inside a
+# Regression test: apply_content(target='search') editing text inside a
 # table cell. replace_preserving_format built its cursor on the document body text
 # (model.getText()) instead of the matched range's own XText (the cell), raising the
 # UNO RuntimeException "End of content node doesn't have the proper start node" and
@@ -45,7 +45,7 @@ def test_apply_document_content_edits_table_cell_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_refuses_host_cell_with_nested_table_uno(ctx, doc):
-    """Rewriting a host cell via writer_apply_content would wipe the nested table."""
+    """Rewriting a host cell via apply_content would wipe the nested table."""
     text = doc.getText()
     outer = doc.createInstance("com.sun.star.text.TextTable")
     outer.initialize(2, 2)

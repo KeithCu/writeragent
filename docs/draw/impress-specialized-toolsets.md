@@ -44,11 +44,11 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `slide_set_active` | `pages.py` | Drawing+Presentation | Switch current view (not a mutation) |
 | `slide_read_text` | `pages.py` | Drawing+Presentation | Text from shapes (grouped descendants, tables as TSV) and speaker notes |
 | `slide_search` | `pages.py` | Drawing+Presentation | Search shape text and speaker notes across slides |
-| `draw_get_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
+| `get_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
 | `design_list` | `designs.py` | Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix). Each entry includes a short `look` vibe string from the template ZIP thumbnail (mood, accent hues, illustrated / graphic chrome). Thumbnails whose width×height exceeds the decoder pixel cap are skipped before one RGB tuple is allocated per pixel (a few-KB 1-bit PNG must not expand into millions of tuples); look then uses the styles.xml / SVG hex fallback. ZIP member reads (thumbnail, styles.xml, Pictures/*.svg) do not trust the declared uncompressed size — a forged ``file_size`` used to inflate up to ``ZipExtFile.MAX_N`` before the member-byte cap — and 1/2/4-bit grayscale samples are scaled to 0–255 so an all-white thumbnail stays a light background. |
 | `design_apply` | `designs.py` | Presentation | Restyle the **open** Impress deck: Hidden `.otp` master clone + assign-all (no system clipboard, no new window). The master matching the deck's aspect ratio and design name is cloned and assigned to every slide; other layout masters are not imported. Groups, custom-shape geometry, polygons, rotation, gradient and hatch structs, solid master backgrounds, line and character properties, and pictures are cloned; bitmap fills and presentation style families are not (copying them shares the hidden source pool and aborts LibreOffice). The result may include `clone_warnings` when a property is rejected, an aspect ratio mismatch occurs, or a bitmap fill was not reproduced. The result includes `source_master` and `selection`; a fallback warning names the master when several untitled masters tie. Existing placeholder text stays on current styles; reapplying the same design replaces the previously imported master of that name. Partial slide assignments roll back and report slides updated/restored. When apply succeeds with partial chrome, the message notes how many chrome shapes imported. Hidden in Draw; the guard covers callers that only pass the family label. |
-| `draw_get_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes and layout; `fillable` blanks + ControlShape value/state |
-| `image_get` | `writer/get_image.py` | Text+Drawing+Presentation+Spreadsheet | Vision: embedded graphic or selection on all four; **`page=N` PNG** on Writer/Draw/Impress only (0-based). Complements `draw_get_tree`; does not replace it. |
+| `get_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes and layout; `fillable` blanks + ControlShape value/state |
+| `image_get` | `writer/get_image.py` | Text+Drawing+Presentation+Spreadsheet | Vision: embedded graphic or selection on all four; **`page=N` PNG** on Writer/Draw/Impress only (0-based). Complements `get_tree`; does not replace it. |
 | `placeholder_list` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
 | `placeholder_get_text` | `placeholders.py` | Presentation | Get text from a placeholder |
 | `placeholder_set_text` | `placeholders.py` | Presentation | Set text in a placeholder |
@@ -103,7 +103,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 
 ### 2.3 Unit & Coordinate System
 
-- **Slide Dimensions**: `draw_get_info` reports slide width and height in **millimeters** (e.g. $280\text{mm} \times 157\text{mm}$ for 16:9).
+- **Slide Dimensions**: `get_info` reports slide width and height in **millimeters** (e.g. $280\text{mm} \times 157\text{mm}$ for 16:9).
 - **Shape Coordinates & Sizes**: Shape tools (`shape_upsert`, `shape_connect`) operate in **$1/100\text{ths}$ of a millimeter** ($1\text{mm} = 100\text{ units}$, $10\text{mm} = 1000\text{ units}$, $100\text{mm} = 10000\text{ units}$).
 
 ### 2.4 math_insert (math domain)
@@ -200,7 +200,7 @@ These are **two different problems**. The old “Forms ✅ Complete” row only 
 
 | Kind | What it is | How to fill | Do not |
 |------|------------|-------------|--------|
-| **A. Paper form** | Empty / near-empty TextShapes (and other text-capable boxes) next to labels. Typical when LibreOffice opens a PDF as editable Draw text/shapes. | `draw_get_tree` → `shape_fill_fields` (batch) or `shape_upsert` `action=edit` by **name** | Do not create new ControlShapes unless the user asked. Do not claim PDF/AcroForm fill. |
+| **A. Paper form** | Empty / near-empty TextShapes (and other text-capable boxes) next to labels. Typical when LibreOffice opens a PDF as editable Draw text/shapes. | `get_tree` → `shape_fill_fields` (batch) or `shape_upsert` `action=edit` by **name** | Do not create new ControlShapes unless the user asked. Do not claim PDF/AcroForm fill. |
 | **B. Live ControlShapes** | `com.sun.star.drawing.ControlShape` + `com.sun.star.form.component.*` | Shared `form_*` (list/edit/delete by **name** or draw-page index; checkbox/radio `State`) | Index-only addressing — non-controls between widgets shift the draw-page index. |
 | **C. PDF AcroForm** | Live PDF form widgets | **Out of scope.** Not a product API. | Do not add AcroForm bindings. |
 
@@ -210,7 +210,7 @@ These are **two different problems**. The old “Forms ✅ Complete” row only 
 
 **Slice 1 — paper-form (`plugin/draw/tree.py`, `field_fill.py`, `shapes.py`)**
 
-- `draw_get_tree` marks empty / near-empty text-capable shapes with `fillable=true`, always includes `name` + `geometry` (bbox) on those nodes, and adds `label_hint`: nearest sibling text **to the left** (vertically aligned) or **above** (horizontally aligned). Left wins a distance tie. Slack is 200 units (2 mm) so PDF→Draw imports that barely overlap still match. Heuristic, not a reading-order parser.
+- `get_tree` marks empty / near-empty text-capable shapes with `fillable=true`, always includes `name` + `geometry` (bbox) on those nodes, and adds `label_hint`: nearest sibling text **to the left** (vertically aligned) or **above** (horizontally aligned). Left wins a distance tie. Slack is 200 units (2 mm) so PDF→Draw imports that barely overlap still match. Heuristic, not a reading-order parser.
 - ControlShape nodes include `control.type`, `control.name`, and current `text` / `state` / `selected` so the main agent can see widgets without a forms delegation.
 - `shape_upsert` edit accepts **name or index** (integer or dotted path like "2.0.1"). Create can set `Name` so later fills stay stable. An edit of a shape inside a group (by name or dotted index) returns that child's dotted path `index` (e.g. "2.0.1"). `shape_delete` also accepts a dotted index. `shape_fill_fields` still uses `path_index`.
 - `shape_fill_fields` (`domain=shapes`) takes `fields: [{name\|index\|path_index\|label_hint, value}, …]` and optional `page`. Resolves via the tree (name-first; `index`/`path_index` disambiguate duplicate names; group children addressable by `path_index`), then `setString` (or ControlShape `Text` / `State`). Missing `value` fails without writing; explicit `null` clears text. Returns per-field ok/fail.
@@ -238,7 +238,7 @@ Legacy class names in this section (`CreateShape`, `EditShape`, …) map to regi
 
 The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`delegate_to_specialized_draw_toolset`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
 
-**Slide master** tools (`slide_list_masters`, `slide_get_master`, `slide_set_master`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `draw_get_info` summarizes.
+**Slide master** tools (`slide_list_masters`, `slide_get_master`, `slide_set_master`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_info` summarizes.
 
 Core **placeholders** remain on the default list (`placeholder_list`, `placeholder_get_text`, `placeholder_set_text`).
 
@@ -251,7 +251,7 @@ The Draw/Impress prompt, the delegate enum, and the MCP domain description all c
 Some tools are implemented in shared modules but work with Draw/Impress:
 
 - **Charts** (`plugin/draw/charts.py`): Chart tools work across all document types that support charts
-- **Forms** (`plugin/writer/specialized/forms.py`): Live ControlShape tools inherit from `ToolWriterFormBase` ∪ `ToolDrawFormBase` and work across Writer/Calc/Draw/Impress. Paper-form blanks (empty TextShapes) are a different path — `draw_get_tree` + `shape_fill_fields` / `shape_upsert` — see [§3.1](#31-controlshapes-vs-paper-form-fill).
+- **Forms** (`plugin/writer/specialized/forms.py`): Live ControlShape tools inherit from `ToolWriterFormBase` ∪ `ToolDrawFormBase` and work across Writer/Calc/Draw/Impress. Paper-form blanks (empty TextShapes) are a different path — `get_tree` + `shape_fill_fields` / `shape_upsert` — see [§3.1](#31-controlshapes-vs-paper-form-fill).
 
 > This document focuses on Draw/Impress-specific usage of these shared tools.
 

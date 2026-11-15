@@ -16,7 +16,7 @@ LibreOffice maintains a rigorous structural hierarchy of its documents via the U
 
 ### Draw and Impress (Draw Tree)
 
-The `draw_get_tree` tool extracts the hierarchical structure of a Draw page or Impress slide. It translates raw UNO objects (`com.sun.star.drawing.RectangleShape`) into semantic JSON nodes. Vision-capable chat can also call `image_get page=N` for a PNG of that page — a screenshot for layout QA, not a substitute for this tree. `image_get` `page` is **0-based**.
+The `get_tree` tool extracts the hierarchical structure of a Draw page or Impress slide. It translates raw UNO objects (`com.sun.star.drawing.RectangleShape`) into semantic JSON nodes. Vision-capable chat can also call `image_get page=N` for a PNG of that page — a screenshot for layout QA, not a substitute for this tree. `image_get` `page` is **0-based**.
 
 **Features of the Draw Tree:**
 * **Hierarchy:** Grouped shapes become parent nodes with nested children.
@@ -29,11 +29,11 @@ The `draw_get_tree` tool extracts the hierarchical structure of a Draw page or I
 
 ### Writer (Heading Tree)
 
-Writer documents use a different hierarchy based on `OutlineLevel`. The `writer_get_tree` tool (backed by the `writer_tree` service, `TreeService` in `plugin/writer/tree.py`) constructs a navigable index of headings and body paragraphs. `writer_get_tree` performs a single top-level paragraph range enumeration per call, reusing those ranges for tree construction, heading bookmarks, and body preview slices. This prevents the model from needing to read 100 pages of text linearly. Instead, it "skims" the table of contents and zooms into specific sections. When Tools → Chapter Numbering is on, each heading node includes `chapter_number` (the paint label Writer shows, e.g. `3.1`); the key is omitted when numbering is off. `heading:1.2` is sibling-ordinal addressing, not that label — use `chapter_number:3.1` when the field is present. See [chapter-numbering.md](chapter-numbering.md).
+Writer documents use a different hierarchy based on `OutlineLevel`. The `get_tree` tool (backed by the `writer_tree` service, `TreeService` in `plugin/writer/tree.py`) constructs a navigable index of headings and body paragraphs. `get_tree` performs a single top-level paragraph range enumeration per call, reusing those ranges for tree construction, heading bookmarks, and body preview slices. This prevents the model from needing to read 100 pages of text linearly. Instead, it "skims" the table of contents and zooms into specific sections. When Tools → Chapter Numbering is on, each heading node includes `chapter_number` (the paint label Writer shows, e.g. `3.1`); the key is omitted when numbering is off. `heading:1.2` is sibling-ordinal addressing, not that label — use `chapter_number:3.1` when the field is present. See [chapter-numbering.md](chapter-numbering.md).
 
 ### Writer (Page-by-Page Context & Embedded Shapes)
 
-While `writer_get_tree` extracts the heading structure, language models suffer from the "Needle in a Haystack" problem when fed too much data. To solve this, WriterAgent employs a **Page-by-Page Strategy**.
+While `get_tree` extracts the heading structure, language models suffer from the "Needle in a Haystack" problem when fed too much data. To solve this, WriterAgent employs a **Page-by-Page Strategy**.
 
 The `page_get_objects` tool jumps the view cursor to a specific physical page and extracts a highly concentrated, multimodal JSON snapshot:
 *   **Paragraphs:** The exact text visible on that physical page.

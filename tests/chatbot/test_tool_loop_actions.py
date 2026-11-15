@@ -294,7 +294,7 @@ def test_sync_tool_disposed_document_queues_error_not_tool_done():
     interpreter.execute(
         SpawnToolWorkerEffect(
             call_id="call_1",
-            func_name="writer_apply_content",
+            func_name="apply_content",
             func_args_str="{}",
             func_args={},
             is_async=False,
@@ -343,7 +343,7 @@ def test_execute_fn_reraises_disposed_document():
     registry.execute.side_effect = DisposedException("gone")
     try:
         with pytest.raises(DisposedException):
-            execute_fn("writer_apply_content", {"content": "hi"}, MagicMock(), MagicMock())
+            execute_fn("apply_content", {"content": "hi"}, MagicMock(), MagicMock())
     finally:
         _restore_main(old_main)
 
@@ -355,7 +355,7 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
     interpreter.execute(
         SpawnToolWorkerEffect(
             call_id="call_1",
-            func_name="writer_apply_content",
+            func_name="apply_content",
             func_args_str='{"content": "hi"}',
             func_args={"content": "hi"},
             is_async=False,
@@ -364,7 +364,7 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
 
     item = host._active_q.get(timeout=2)
     host._active_execute_tool_fn.assert_called_once()
-    assert host._active_execute_tool_fn.call_args.args == ("writer_apply_content", {"content": "hi"}, host._active_model, host.ctx)
+    assert host._active_execute_tool_fn.call_args.args == ("apply_content", {"content": "hi"}, host._active_model, host.ctx)
     kwargs = host._active_execute_tool_fn.call_args.kwargs
     assert kwargs["send_cancellation"].is_cancelled() is False
     assert "captured_q" not in kwargs
@@ -372,7 +372,7 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
     from plugin.chatbot.tool_loop_actions import current_turn
 
     assert kwargs["captured_turn"] is current_turn(host)
-    assert item == (StreamQueueKind.TOOL_DONE, "call_1", "writer_apply_content", '{"content": "hi"}', '{"status": "ok"}')
+    assert item == (StreamQueueKind.TOOL_DONE, "call_1", "apply_content", '{"content": "hi"}', '{"status": "ok"}')
 
 
 def _install_fake_main_registry():
@@ -409,7 +409,7 @@ def test_sync_tool_returns_before_the_tool_finishes():
     interpreter.execute(
         SpawnToolWorkerEffect(
             call_id="call_1",
-            func_name="writer_apply_content",
+            func_name="apply_content",
             func_args_str="{}",
             func_args={},
             is_async=False,
@@ -441,7 +441,7 @@ def test_sync_tool_stop_before_body_does_not_run_the_tool(is_async):
         interpreter.execute(
             SpawnToolWorkerEffect(
                 call_id="call_1",
-                func_name="writer_apply_content",
+                func_name="apply_content",
                 func_args_str="{}",
                 func_args={},
                 is_async=is_async,
@@ -465,7 +465,7 @@ def test_execute_fn_reraises_document_disposed_payload():
     }
     try:
         with pytest.raises(DocumentDisposedError):
-            execute_fn("writer_apply_content", {}, MagicMock(), MagicMock())
+            execute_fn("apply_content", {}, MagicMock(), MagicMock())
     finally:
         _restore_main(old_main)
     registry.execute.assert_called_once()
@@ -488,7 +488,7 @@ def test_sync_document_disposed_dict_queues_error():
             interpreter.execute(
                 SpawnToolWorkerEffect(
                     call_id="call_1",
-                    func_name="writer_apply_content",
+                    func_name="apply_content",
                     func_args_str="{}",
                     func_args={},
                     is_async=False,
@@ -1098,7 +1098,7 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
             interpreter.execute(
                 SpawnToolWorkerEffect(
                     call_id="call_old",
-                    func_name="writer_apply_content",
+                    func_name="apply_content",
                     func_args_str="{}",
                     func_args={"content": "hi"},
                     is_async=True,
@@ -1129,7 +1129,7 @@ def test_execute_fn_without_send_cancellation_does_not_read_host_scope():
 
     registry.execute.side_effect = registry_execute
     try:
-        execute_fn("writer_apply_content", {"content": "hi"}, MagicMock(), MagicMock())
+        execute_fn("apply_content", {"content": "hi"}, MagicMock(), MagicMock())
     finally:
         _restore_main(old_main)
 
@@ -1470,7 +1470,7 @@ def test_non_image_tool_does_not_read_image_selector():
     interpreter.execute(
         SpawnToolWorkerEffect(
             call_id="call_doc",
-            func_name="writer_apply_content",
+            func_name="apply_content",
             func_args_str='{"content": "hi"}',
             func_args=args,
             is_async=False,
@@ -1640,26 +1640,26 @@ def test_interpreter_handles_tool_running_and_result_effects():
     interpreter = ToolLoopEffectInterpreter(host)
 
     # Tool running effect
-    eff_running = ToolLoopUIEffect(kind=UIEffectKind.TOOL_RUNNING, func_name="calc_read_range", func_args={})
+    eff_running = ToolLoopUIEffect(kind=UIEffectKind.TOOL_RUNNING, func_name="read_range", func_args={})
     assert interpreter.execute(eff_running) is False
-    assert "calc_read_range" in host.statuses[-1]
-    assert "calc_read_range" in host.appended[-1][0]
+    assert "read_range" in host.statuses[-1]
+    assert "read_range" in host.appended[-1][0]
 
     # Tool result effect
     eff_result = ToolLoopUIEffect(
         kind=UIEffectKind.TOOL_RESULT,
-        func_name="calc_read_range",
+        func_name="read_range",
         func_args={},
         result_data={"status": "ok", "message": "done"},
     )
     assert interpreter.execute(eff_result) is False
-    assert "calc_read_range" in host.appended[-1][0]
+    assert "read_range" in host.appended[-1][0]
     assert "done" in host.appended[-1][0]
 
-    # writer_apply_content zero-replaced result appends debug line
+    # apply_content zero-replaced result appends debug line
     eff_zero = ToolLoopUIEffect(
         kind=UIEffectKind.TOOL_RESULT,
-        func_name="writer_apply_content",
+        func_name="apply_content",
         func_args={},
         func_args_str='{"target": "search"}',
         result_data={"status": "error", "replaced_count": 0},

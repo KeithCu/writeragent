@@ -754,7 +754,7 @@ def get_document_length(model: Any) -> int:
 
     Writer: the length of the visible text (pending tracked deletions hidden, paragraph breaks
     counted, fields and footnote numbers as shown), read with the same helper
-    writer_get_content scope='range' counts its offsets with. It does not use the
+    get_content scope='range' counts its offsets with. It does not use the
     ``CharacterCount`` statistic, which leaves out the breaks and the deleted text, so a
     range read near the end would be cut short. Cursor steps minus
     the deleted text is no substitute: a field or

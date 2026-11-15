@@ -50,7 +50,7 @@ class ToolCalcSpecialBase(ToolBase):
     is_app_specialized_tool: ClassVar[bool] = True
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["calc_get_sheet_summary", "calc_read_range"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary", "read_range"])
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
 
 
@@ -87,7 +87,7 @@ class ToolCalcConditionalBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "conditional_formatting"
     specialized_domain_description: ClassVar[str | None] = "Apply rules to format cells based on their values."
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(
-        {"calc_get_sheet_summary", "calc_read_range", "style_list"}
+        {"get_sheet_summary", "read_range", "style_list"}
     )
 
 
@@ -145,8 +145,8 @@ class ToolCalcPythonSqlBase(ToolCalcSpecialBase):
     """Read-only DuckDB SQL (sql_query_folder). Direct subclass so the discovery catalog lists it.
 
     Calc chat hides this domain (CALC_HIDDEN_SPECIALIZED_DOMAINS), same as python.
-    tool_find uses for_discovery and still offers it. Only calc_get_sheet_summary
-    is required (no calc_read_range), keeping large data out-of-band through
+    tool_find uses for_discovery and still offers it. Only get_sheet_summary
+    is required (no read_range), keeping large data out-of-band through
     data_range and split_grid/payload_codec instead of sub-agent observations.
     """
 
@@ -154,7 +154,7 @@ class ToolCalcPythonSqlBase(ToolCalcSpecialBase):
     specialized_domain_description: ClassVar[str | None] = (
         "Run read-only SQL (DuckDB) against folder files and live Calc ranges; sql_query_folder."
     )
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["calc_get_sheet_summary"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
 
 
 class ToolCalcPythonBase(ToolCalcSpecialBase):

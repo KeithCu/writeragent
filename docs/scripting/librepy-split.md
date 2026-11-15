@@ -335,7 +335,7 @@ flowchart LR
   w[Writer: format_result_for_writer]
   insW[insert_content_at_position HTML]
   c[Calc: insert_result_into_calc]
-  insC[calc_write_range from selection]
+  insC[write_range from selection]
   menu --> dlg --> venv
   venv --> w --> insW
   venv --> c --> insC
@@ -346,7 +346,7 @@ flowchart LR
 | App | Insertion | Result shaping |
 |-----|-----------|----------------|
 | **Writer** | HTML at **selection** via [`insert_content_at_position`](../../plugin/writer/html_import.py) | [`format_result_for_writer`](../../plugin/scripting/python_runner.py) — lists → tables, dicts → sections |
-| **Calc** | Values from **active selection** via [`insert_result_into_calc`](../../plugin/scripting/python_runner.py) | Dict title/summary + tables; 1D/2D lists via `calc_write_range` |
+| **Calc** | Values from **active selection** via [`insert_result_into_calc`](../../plugin/scripting/python_runner.py) | Dict title/summary + tables; 1D/2D lists via `write_range` |
 | **Draw/Impress** | None (message box) | — |
 
 Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `last_python_script_name_draw`.
@@ -372,7 +372,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) | HTML post-process |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Active sheet / document access |
 | [`plugin/calc/address_utils.py`](../../plugin/calc/address_utils.py) | `index_to_column` for anchor cell |
-| [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) | `calc_write_range` (1-D formula fill-down via [`formula_fill.py`](../../plugin/calc/formula_fill.py); array results via [`array_formula.py`](../../plugin/calc/array_formula.py)) |
+| [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) | `write_range` (1-D formula fill-down via [`formula_fill.py`](../../plugin/calc/formula_fill.py); array results via [`array_formula.py`](../../plugin/calc/array_formula.py)) |
 | [`plugin/calc/tabular_egress.py`](../../plugin/calc/tabular_egress.py) | Tabular helper results → sheet |
 | [`plugin/calc/rich_html.py`](../../plugin/calc/rich_html.py) | Rich HTML cell insert (Vision Calc egress) |
 | [`plugin/main_core.py`](../../plugin/main_core.py) | LibrePy bootstrap — **not** [`plugin/main.py`](../../plugin/main.py) |

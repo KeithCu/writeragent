@@ -140,8 +140,8 @@ def test_jsonrpc_success_tools_list_golden_envelope():
 
 
 def test_call_tool_request_params_from_params():
-    params = wire_types.CallToolRequestParams.from_params({"name": "writer_get_content", "arguments": {"scope": "full"}})
-    assert params.name == "writer_get_content"
+    params = wire_types.CallToolRequestParams.from_params({"name": "get_content", "arguments": {"scope": "full"}})
+    assert params.name == "get_content"
     assert params.arguments == {"scope": "full"}
 
 
@@ -159,7 +159,7 @@ def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     payload = wire_types.call_tool_result_image("A" * (DEAL_MAX_SOURCE + 8), mime_type="image/png")
     assert payload["content"][0]["data"].startswith("A")
     params = wire_types.CallToolRequestParams.from_params(
-        {"name": "writer_get_content", "arguments": {"n": 1, "items": [1, 2], "text": "é" * 100}, "timeout": 3}
+        {"name": "get_content", "arguments": {"n": 1, "items": [1, 2], "text": "é" * 100}, "timeout": 3}
     )
     assert params.arguments["n"] == 1
     wide = {"jsonrpc": "2.0", "id": 1, "method": "ping", **{f"k{i}": i for i in range(40)}}

@@ -1227,7 +1227,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
         "Does not export the document and does not call index update(). "
         "Use this to inspect or validate TOC entries. "
         "index_list returns only the index name and type. "
-        "Do not use writer_get_content for a linked TOC: that export runs "
+        "Do not use get_content for a linked TOC: that export runs "
         "the XHTML Writer filter, entry text often comes back empty, and a long outline can hang."
     )
     parameters: dict[str, Any] | None = {
@@ -1241,7 +1241,7 @@ class IndexesListTocEntries(ToolWriterIndexBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        # Listing TOC rows must not call writer_get_content. That
+        # Listing TOC rows must not call get_content. That
         # exports the whole document through the XHTML Writer filter on
         # the LibXSLT thread. A linked TOC comes back with empty entry
         # text, and a long outline can sit there for minutes, while the

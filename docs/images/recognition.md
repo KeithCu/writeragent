@@ -374,7 +374,7 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 | Alt text from visible text | `extract_text` → description (**later**) | optional |
 | Find logos / UI elements | `detect_objects` (Phase 4) | same |
 | “What does this diagram *mean*?” | — | LLM vision ([§18](#18-llm-access-deferred)) |
-| Draw/Impress **vector** slides | LO-DOM [`draw_get_tree`](../writer/lo-dom-semantic-tree.md) | structure; layout QA uses [`image_get`](../../plugin/writer/get_image.py) `page=N` (0-based; unified with `slide_list` / `draw_get_tree`; vision screenshot, not a tree replacement) |
+| Draw/Impress **vector** slides | LO-DOM [`get_tree`](../writer/lo-dom-semantic-tree.md) | structure; layout QA uses [`image_get`](../../plugin/writer/get_image.py) `page=N` (0-based; unified with `slide_list` / `get_tree`; vision screenshot, not a tree replacement) |
 
 ---
 

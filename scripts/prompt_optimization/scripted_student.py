@@ -34,7 +34,7 @@ def _stop(text: str = "done") -> dict[str, Any]:
 def _apply_html(html: str, call_id: str = "apply_1") -> dict[str, Any]:
     return _tools(
         _tc(
-            "writer_apply_content",
+            "apply_content",
             {"target": "full_document", "content": html},
             call_id,
         )
@@ -274,7 +274,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_draw_1",
             )
         ),
-        _tools(_tc("draw_get_tree", {}, "tree_1")),
+        _tools(_tc("get_tree", {}, "tree_1")),
         _stop(),
     ],
     "org_chart_gen": [
@@ -286,7 +286,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "task": (
                         "Create org chart: Ava CEO; Ben CTO, Cara CFO, Dan COO; "
                         "Eli Fay under Ben; Gus Hal under Cara; Ivy Jay under Dan; "
-                        "connect each manager to reports; verify with draw_get_tree."
+                        "connect each manager to reports; verify with get_tree."
                     ),
                 },
                 "del_org_1",
@@ -446,7 +446,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_org_1",
             )
         ),
-        _tools(_tc("draw_get_tree", {}, "org_tree_1")),
+        _tools(_tc("get_tree", {}, "org_tree_1")),
         _stop(),
     ],
     "solar_sld_gen": [
@@ -460,7 +460,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                         "Solar AC Disconnect→System controller (MID)→"
                         "Backup subpanel; MID/downstream on post-disconnect path; "
                         "PV+microinverters→Combiner→controller; "
-                        "AC battery→controller; verify draw_get_tree."
+                        "AC battery→controller; verify get_tree."
                     ),
                 },
                 "del_sld_1",
@@ -619,7 +619,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "fin_sld_1",
             )
         ),
-        _tools(_tc("draw_get_tree", {}, "sld_tree_1")),
+        _tools(_tc("get_tree", {}, "sld_tree_1")),
         _stop(),
     ],
     "data_sorting": [
@@ -638,7 +638,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "calc_sort_range",
+                "sort_range",
                 {
                     "range": ["A1:B6"],
                     "sort_column": 0,
@@ -650,7 +650,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "calc_sort_range",
+                "sort_range",
                 {
                     "range": ["A1:B6"],
                     "sort_column": 1,
@@ -669,7 +669,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "calc_write_range",
+                "write_range",
                 {
                     "range": ["A2:B6"],
                     "values": [
@@ -686,15 +686,15 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         _stop(),
     ],
     "tax_column": [
-        _tools(_tc("calc_get_sheet_summary", {}, "sum_1")),
+        _tools(_tc("get_sheet_summary", {}, "sum_1")),
         _tools(
             _tc(
-                "calc_write_range",
+                "write_range",
                 {"range": ["C1"], "values": "Tax"},
                 "tax_hdr",
             ),
             _tc(
-                "calc_write_range",
+                "write_range",
                 {
                     "range": ["C2:C5"],
                     "values": '["=B2*0.08","=B3*0.08","=B4*0.08","=B5*0.08"]',
@@ -702,12 +702,12 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "tax_vals",
             ),
             _tc(
-                "calc_write_range",
+                "write_range",
                 {"range": ["C6:C7"], "values": '["", ""]'},
                 "tax_skip",
             ),
         ),
-        _tools(_tc("calc_get_sheet_summary", {}, "sum_2")),
+        _tools(_tc("get_sheet_summary", {}, "sum_2")),
         _stop(),
     ],
 }
@@ -715,7 +715,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
 _PY_FORMULA = '=PY("result = data.to_pandas().drop_duplicates()"; A1:H500)'
 _PY_WRITE = _tools(
     _tc(
-        "calc_write_range",
+        "write_range",
         {"range": ["J1"], "values": _PY_FORMULA},
         "py_1",
     )

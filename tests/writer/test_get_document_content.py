@@ -230,7 +230,7 @@ def test_get_document_content_wrong_arguments_are_rejected_before_execute(args):
     from plugin.writer.get_document_content import GetDocumentContent
 
     ctx = SimpleNamespace(doc_type="writer", caller="test")
-    prep = prepare_tool_call(GetDocumentContent(), ctx, "writer_get_content", args)
+    prep = prepare_tool_call(GetDocumentContent(), ctx, "get_content", args)
     assert prep.error is not None
     assert prep.error["code"] == "VALIDATION_ERROR"
 

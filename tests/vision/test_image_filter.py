@@ -39,7 +39,7 @@ class _Named(ToolBase):
 
 def _openai_names() -> list[str]:
     reg = ToolRegistry(ServiceRegistry())
-    for name in ("writer_apply_content", "image_get", "writer_search"):
+    for name in ("apply_content", "image_get", "search"):
         tool = _Named()
         tool.name = name
         reg.register(tool)
@@ -67,7 +67,7 @@ def test_get_image_gating_by_vision_support(vision: bool | None, expect_get_imag
     with p1, p2, p3:
         names = _openai_names()
     assert ("image_get" in names) is expect_get_image
-    assert "writer_apply_content" in names and "writer_search" in names
+    assert "apply_content" in names and "search" in names
 
 
 def test_exceptions_not_swallowed():

@@ -383,7 +383,7 @@ def test_get_draw_tree(ctx, doc):
 
     # GHA 34606276107: this TEST end OK; the next insert_math_draw close
     # killed soffice. Name the tree call vs teardown.
-    _progress("draw_get_tree: body start")
+    _progress("get_tree: body start")
     # Ensure there is at least one shape to build a tree with
     _exec_tool(doc, ctx, "shape_upsert", {
         "action": "create",
@@ -393,10 +393,10 @@ def test_get_draw_tree(ctx, doc):
         "fill_color": "#FF0000"
     })
 
-    result = _exec_tool(doc, ctx, "draw_get_tree", {"page": _active_draw_page_index(doc)})
+    result = _exec_tool(doc, ctx, "get_tree", {"page": _active_draw_page_index(doc)})
     data = json.loads(result)
-    _progress("draw_get_tree: execute done status=%s" % data.get("status"))
-    assert data.get("status") == "ok", f"draw_get_tree failed: {result}"
+    _progress("get_tree: execute done status=%s" % data.get("status"))
+    assert data.get("status") == "ok", f"get_tree failed: {result}"
     tree = data.get("tree", [])
     assert len(tree) > 0, "Draw tree is empty"
 
@@ -407,7 +407,7 @@ def test_get_draw_tree(ctx, doc):
             found = True
             break
     assert found, "Created shape not found in draw tree"
-    _progress("draw_get_tree: body done")
+    _progress("get_tree: body done")
 
 
 @native_test
@@ -431,9 +431,9 @@ def test_get_draw_tree_marks_blank_and_label_hint(ctx, doc):
         "page": page_idx,
     })
 
-    result = _exec_tool(doc, ctx, "draw_get_tree", {"page": page_idx})
+    result = _exec_tool(doc, ctx, "get_tree", {"page": page_idx})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"draw_get_tree failed: {result}"
+    assert data.get("status") == "ok", f"get_tree failed: {result}"
     blanks = [n for n in data.get("tree", []) if n.get("fillable")]
     assert blanks, f"expected a fillable blank in tree: {data.get('tree')}"
     named = [n for n in blanks if n.get("name") == "fld_product"]

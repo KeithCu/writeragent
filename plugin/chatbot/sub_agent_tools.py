@@ -72,7 +72,7 @@ def normalize_html_content_array(content: Any) -> list[str] | None:
     return None
 
 
-SUB_AGENT_DOC_CORE_TOOLS = frozenset(["writer_get_content", "writer_get_tree", "writer_search"])
+SUB_AGENT_DOC_CORE_TOOLS = frozenset(["get_content", "get_tree", "search"])
 
 
 class HtmlContentToolBase(ToolWriterSpecialBase):
@@ -99,9 +99,9 @@ class HtmlContentToolBase(ToolWriterSpecialBase):
             target = "end"
 
         registry = ctx.services.get("tools") if ctx.services else None
-        apply_tool = registry.get("writer_apply_content") if registry else None
+        apply_tool = registry.get("apply_content") if registry else None
         if apply_tool is None:
-            return self._tool_error("writer_apply_content is not available.", code="TOOL_NOT_FOUND")
+            return self._tool_error("apply_content is not available.", code="TOOL_NOT_FOUND")
 
         return apply_tool.execute_safe(ctx, content=content, target=target)
 
@@ -197,11 +197,11 @@ def get_sub_agent_instructions(mode_instructions: str, *, tool_names: Sequence[s
 
     parts = [mode_instructions]
     tool_set = set(tool_names)
-    if tool_set & {"writer_apply_content", "write_document_section", "save_design_spec"}:
+    if tool_set & {"apply_content", "write_document_section", "save_design_spec"}:
         parts.append(SUB_AGENT_HTML_CONTENT_RULES.strip())
         # Sub-agents have no manual_read, so the examples ride along.
         parts.append(HTML_MATH_AND_LINK_EXAMPLES.strip())
-    if "writer_apply_content" in tool_set:
+    if "apply_content" in tool_set:
         parts.append(APPLY_DOCUMENT_TARGET_RULES.strip())
     parts.append(get_chat_response_format_instructions())
     h_block = format_humanizer_guidance_prompt_block()

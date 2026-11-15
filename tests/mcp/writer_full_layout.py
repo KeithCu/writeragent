@@ -197,15 +197,15 @@ def generate_random_tool_arguments(
 
 # Mutate-nested-then-read: independent tool picks never put a cursor in a cell
 # then read it. These pairs stay on the MCP wire (MagicMock execute) but the
-# *order* is what found writer_apply_content using body XText inside a cell.
+# *order* is what found apply_content using body XText inside a cell.
 WRITER_MUTATE_READ_PAIRS: Mapping[str, Tuple[str, ...]] = {
-    "table_insert": ("writer_get_content", "writer_apply_content", "table_get_cells"),
-    "table_set_cell": ("writer_get_content", "writer_apply_content"),
-    "table_manage_structure": ("writer_get_content", "table_get_cells"),
-    "table_delete": ("writer_get_content", "table_list"),
-    "writer_apply_content": ("writer_get_content",),
-    "writer_set_selection": ("writer_apply_content", "writer_get_content"),
-    "writer_search": ("writer_get_content", "writer_apply_content"),
+    "table_insert": ("get_content", "apply_content", "table_get_cells"),
+    "table_set_cell": ("get_content", "apply_content"),
+    "table_manage_structure": ("get_content", "table_get_cells"),
+    "table_delete": ("get_content", "table_list"),
+    "apply_content": ("get_content",),
+    "set_selection": ("apply_content", "get_content"),
+    "search": ("get_content", "apply_content"),
 }
 
 
@@ -276,7 +276,7 @@ def run_randomized_mcp_fuzz(
             tool = tool_map[tool_name]
             schema = to_mcp_schema(tool, doc_type="writer")
             arguments = generate_random_tool_arguments(schema, rng, mutate_error_rate=mutate_error_rate)
-            if tool_name == "writer_apply_content" and rng.random() < 0.5:
+            if tool_name == "apply_content" and rng.random() < 0.5:
                 arguments["target"] = "selection"
 
             # Patch tool.execute to return valid structured responses without external network I/O

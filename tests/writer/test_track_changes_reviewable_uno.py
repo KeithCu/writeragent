@@ -10,7 +10,7 @@
 # safe under recording (a clean Delete+Insert per change, never a per-character mess or a
 # Format redline that keeps old text on Accept), the streamed rewrite session, attribution
 # (insertions and deletions authored distinctly for by-author coloring), the style_unreviewed
-# flag, and the writer_apply_content tool wiring end to end (incl. never block-waiting on the
+# flag, and the apply_content tool wiring end to end (incl. never block-waiting on the
 # main thread). The EditReviewSession itself is covered in test_edit_review_uno.py; the inline
 # review UI helpers in test_inline_review_uno.py.
 import contextlib
@@ -368,7 +368,7 @@ def test_split_authors_surgical_off_one_color_uno(ctx, doc):
         assert _para_text(doc) == "New clause body here.", "accept must yield the new text, got %r" % _para_text(doc)
 
 
-# --- the writer_apply_content tool end to end (config read + session wiring) -----------
+# --- the apply_content tool end to end (config read + session wiring) -----------
 
 @native_test
 @with_native_doc("writer")
@@ -572,7 +572,7 @@ def test_streamed_append_no_output_restores_prior_recording_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_update_style_flags_unreviewed_when_review_on_uno(ctx, doc):
-    """Like writer_apply_style, update_style is a style mutation -> not reviewable -> must flag the agent."""
+    """Like apply_style, update_style is a style mutation -> not reviewable -> must flag the agent."""
     from plugin.writer.styles import StyleUpdate
 
     _reset(doc, ctx, "Body text for style update.")

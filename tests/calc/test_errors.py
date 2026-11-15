@@ -91,7 +91,7 @@ def test_detect_errors_multi_range_aggregates():
 def test_error_detect_registry_rejects_bad_range_as_invalid_param():
     ctx = MagicMock()
     with patch("plugin.calc.errors.ErrorDetector") as mock_detector:
-        res = get_tools().get("calc_detect_errors").execute_safe(ctx, range=[123])
+        res = get_tools().get("detect_errors").execute_safe(ctx, range=[123])
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
     mock_detector.assert_not_called()

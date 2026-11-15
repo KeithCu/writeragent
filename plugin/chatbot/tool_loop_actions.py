@@ -210,14 +210,14 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
 
 
 def format_replaced_zero_debug_line(func_args_str: str) -> str:
-    """Preview parameters when writer_apply_content finds 0 occurrences."""
+    """Preview parameters when apply_content finds 0 occurrences."""
     # crosshair: off
     params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
     return f"[Debug: params {params_display}]\n"
 
 
 def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
-    """True when writer_apply_content reported zero replacements (structured or legacy message)."""
+    """True when apply_content reported zero replacements (structured or legacy message)."""
     # crosshair: off
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
     # Only a real int zero counts. ``replaced_count == 0`` is also true
@@ -1032,7 +1032,7 @@ class ToolLoopEffectInterpreter:
             result_data = effect.result_data or {}
             chat_text = format_tool_result_chat_text(effect.func_name, func_args, result_data)
             host._append_response(chat_text)
-            if effect.func_name == "writer_apply_content" and is_replaced_zero_result(result_data):
+            if effect.func_name == "apply_content" and is_replaced_zero_result(result_data):
                 host._append_response(format_replaced_zero_debug_line(effect.func_args_str))
         elif effect.kind == UIEffectKind.EMPTY_MODEL_DEBUG:
             debug = "[Debug: %s]" % format_empty_model_response_debug(effect.round_num, effect.response or {})

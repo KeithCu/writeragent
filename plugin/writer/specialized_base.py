@@ -83,7 +83,7 @@ class ToolWriterSpecialBase(ToolBase):
     # Subclasses MUST override this.
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["writer_get_content", "writer_get_tree"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_content", "get_tree"])
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
 
@@ -118,7 +118,7 @@ def _writer_core_tools(*extra: str) -> frozenset[str]:
 class ToolWriterStyleBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "styles"
     specialized_domain_description: ClassVar[str | None] = "Manage and edit paragraph, character, and list styles."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("writer_search")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterPageBase(ToolWriterSpecialBase):
@@ -209,7 +209,7 @@ class ToolWriterIndexBase(ToolWriterSpecialBase):
 class ToolWriterFieldBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "fields"
     specialized_domain_description: ClassVar[str | None] = "Manage document fields, variables, and cross-references."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("writer_search")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterCommentBase(ToolWriterSpecialBase):
@@ -225,7 +225,7 @@ class WriterAgentSpecialTracking(ToolWriterSpecialBase):
 class ToolWriterBookmarkBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "bookmarks"
     specialized_domain_description: ClassVar[str | None] = "Manage document bookmarks and navigation points."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("writer_search")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterStructuralBase(ToolWriterSpecialBase):
@@ -253,7 +253,7 @@ class ToolWriterTableBase(ToolWriterSpecialBase, ToolDrawTableBase):
 class ToolWriterFootnoteBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "footnotes"
     specialized_domain_description: ClassVar[str | None] = "Create and manage footnotes and endnotes."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("writer_search")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFormBase):
@@ -280,7 +280,7 @@ class ToolWriterDocumentResearchBase(ToolWriterSpecialBase):
 class ToolWriterMailMergeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "mail_merge"
     specialized_domain_description: ClassVar[str | None] = "Configure data sources, insert database merge fields, and execute mail merge jobs."
-    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("writer_search")
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("search")
 
 
 class SpecializedWorkflowFinished(ToolBase):

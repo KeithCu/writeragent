@@ -304,7 +304,7 @@ def apply_paragraph_style_preserving_direct_char(
     are detected by VALUE (Char* differs from the paragraph's current style default).
 
     *clear_direct* decides what happens to those captured overrides. The helper default is
-    ``"none"`` so HTML import / style-restore callers keep inline fonts; ``writer_apply_style``
+    ``"none"`` so HTML import / style-restore callers keep inline fonts; ``apply_style``
     defaults to ``"style_props"`` so a house-font update is visible without a retry:
       ``"style_props"`` restores everything except STYLE_GOVERNED_CHAR_PROPERTIES and clears
       CLEARABLE_PARA_PROPERTIES, so font/size/indent obey the style and bold/italic/colour survive;
@@ -481,7 +481,7 @@ def _close_style_names(wanted: str, names: list[str]) -> list[str]:
     """Best hint first: exact case-insensitive, then prefix, then substring.
 
     Shortest name wins on prefix/substring ('body text' → 'Body Text', not
-    'Body Text Indent 2'). Same ranking as writer_apply_style.
+    'Body Text Indent 2'). Same ranking as apply_style.
     """
     low = wanted.lower()
     exact = [n for n in names if n.lower() == low]
@@ -844,11 +844,11 @@ def _validate_conditional_rules(rules: Any, style_family: Any) -> str | None:
 
 
 def _no_character_style_token_error(tool: Any, family: str, style_name: str) -> dict[str, Any] | None:
-    # 'No Character Style' is the clear-character-style token for writer_apply_style (CharStyleName = "").
+    # 'No Character Style' is the clear-character-style token for apply_style (CharStyleName = "").
     # Resolving or updating it as a style object would modify the root 'Default Style' character style.
     if family == "CharacterStyles" and style_name.strip() == "No Character Style":
         return tool._tool_error(
-            "No Character Style is the writer_apply_style token that clears CharStyleName. "
+            "No Character Style is the apply_style token that clears CharStyleName. "
             "It is not a style you can inspect, update, or clone. "
             "The character style object is named 'Default Style'.",
             code="INVALID_PARAM",
@@ -1158,7 +1158,7 @@ class StyleList(ToolWriterStyleBase):
 
             entry = {"name": name, "is_user_defined": user_defined, "is_in_use": in_use}
             # Present the UNO "Default Style" as "No Character Style" — the
-            # clearer name that matches what the LLM should pass to writer_apply_style.
+            # clearer name that matches what the LLM should pass to apply_style.
             if family == "CharacterStyles" and name == "Default Style":
                 entry["name"] = "No Character Style"
             try:
@@ -1221,7 +1221,7 @@ class StyleGetInfo(ToolWriterStyleBase):
 class ApplyStyle(FrameworkToolBase):
     """Apply a paragraph or character style."""
 
-    name: str | None = "writer_apply_style"
+    name: str | None = "apply_style"
     description: str = (
         "Apply a style to a target. Use family='ParagraphStyles' for paragraph "
         "styles (e.g. Heading 1) or family='CharacterStyles' for character "

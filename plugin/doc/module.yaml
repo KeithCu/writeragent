@@ -107,7 +107,7 @@ config:
     default: "off"
     widget: select
     label: Agent edit review
-    helper: "Off = direct edits. Record = tracked changes you accept/reject yourself. Wait = writer_apply_content blocks (on chat/MCP worker thread) until you review."
+    helper: "Off = direct edits. Record = tracked changes you accept/reject yourself. Wait = apply_content blocks (on chat/MCP worker thread) until you review."
     options:
       - value: "off"
         label: "Off"
@@ -123,7 +123,7 @@ config:
     widget: number
     internal: true
     label: Edit review max wait (seconds)
-    helper: "Only used when mode is Wait. Max time writer_apply_content blocks before returning with pending changes."
+    helper: "Only used when mode is Wait. Max time apply_content blocks before returning with pending changes."
 
   agent_edit_diff_threshold:
     type: float

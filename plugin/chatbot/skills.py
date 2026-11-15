@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 # Compact, high-signal default for WriterAgent / office documents.
 # Derived from the Hermes humanizer patterns (MIT) but trimmed and tuned for
-# professional writing, writer_apply_content workflows, and avoiding AI slop
+# professional writing, apply_content workflows, and avoiding AI slop
 # while preserving meaning and document intent.
 HUMANIZER_GUIDANCE = """HUMANIZER GUIDANCE (make prose sound natural and human):
 

@@ -188,7 +188,7 @@ def test_guard_message_does_not_name_a_tool_that_may_not_call_it() -> None:
     msg = str(exc_info.value)
     assert "Child" in msg
     assert "table_set_cell" in msg
-    assert "writer_apply_content" not in msg
+    assert "apply_content" not in msg
 
 
 def test_cell_walk_disposal_mid_enumeration_propagates() -> None:

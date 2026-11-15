@@ -65,9 +65,9 @@ def test_slice_injection_is_noop_on_other_task_kind(task_id: str, slice_name: st
 
 def test_sort_range_slice_patches_specialized_schema() -> None:
     marker = "SORT_SLICE_MARKER"
-    patches = schema_patches_for_slice("calc_sort_range", marker)
-    assert patches == {"calc_sort_range": {"description": marker}}
-    prompt, applied = apply_named_slice("data_sorting", "calc_sort_range", marker)
+    patches = schema_patches_for_slice("sort_range", marker)
+    assert patches == {"sort_range": {"description": marker}}
+    prompt, applied = apply_named_slice("data_sorting", "sort_range", marker)
     assert prompt == get_eval_system_prompt("data_sorting")
     assert applied == patches
     schemas = apply_schema_patches(
@@ -76,7 +76,7 @@ def test_sort_range_slice_patches_specialized_schema() -> None:
     fn = next(
         (row.get("function") or row)
         for row in schemas
-        if (row.get("function") or row).get("name") == "calc_sort_range"
+        if (row.get("function") or row).get("name") == "sort_range"
     )
     assert fn["description"] == marker
 
@@ -88,7 +88,7 @@ def test_write_formula_range_values_slice() -> None:
     fn = next(
         (row.get("function") or row)
         for row in apply_schema_patches(build_eval_tool_schemas(kind="calc"), patches)
-        if (row.get("function") or row).get("name") == "calc_write_range"
+        if (row.get("function") or row).get("name") == "write_range"
     )
     assert fn["parameters"]["properties"]["values"]["description"] == marker
 
@@ -118,7 +118,7 @@ def test_live_eval_path_scripted_with_injected_slice() -> None:
     assert error is None
     assert final
     assert usage["total_tokens"] == 0
-    assert any(entry.get("name") == "calc_write_range" for entry in trace)
+    assert any(entry.get("name") == "write_range" for entry in trace)
 
 
 def test_filter_examples_comma_list() -> None:

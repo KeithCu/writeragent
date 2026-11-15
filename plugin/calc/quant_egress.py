@@ -22,7 +22,7 @@ from plugin.calc.tabular_egress import (
 
 
 def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:
-    """Turn a quant helper result dict into a row-major grid for ``calc_write_range``."""
+    """Turn a quant helper result dict into a row-major grid for ``write_range``."""
     rows: list[list[Any]] = []
 
     if result.get("status") == "error":

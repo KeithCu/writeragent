@@ -39,7 +39,7 @@ atomic action ListTools:
         last_call_mode = mode
 
 atomic action CallTool:
-    tool_name = oneof ["writer_apply_content", "writer_get_content", "tool_find", "invalid_tool"]
+    tool_name = oneof ["apply_content", "get_content", "tool_find", "invalid_tool"]
     if status != State.INITIALIZED:
         last_error = "SERVER_NOT_INITIALIZED"
     elif tool_name == "invalid_tool":

@@ -101,7 +101,7 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
 def _tool_name_without_template_suffix(name: str) -> str:
     """Strip a leaked chat-template channel tag from a tool name."""
     # gpt-oss (harmony chat format) sometimes appends its channel tag to the
-    # function name (e.g. ``calc_read_range<|channel|>commentary``). ``<|``
+    # function name (e.g. ``read_range<|channel|>commentary``). ``<|``
     # never appears in a real tool name, so everything from the first ``<|``
     # on is dropped. A name that is only a tag is left alone so the registry
     # reports it as unknown instead of merging it as a split fragment.

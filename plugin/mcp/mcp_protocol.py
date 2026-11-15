@@ -169,7 +169,7 @@ def format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
 
     Emits the local wall clock in Calc's accepted ISO shape (no offset / ``Z``).
     Weekday and timezone *name* follow the process locale / OS tzname; the numeric
-    stamp itself stays locale-independent so models can copy it into ``calc_write_range``.
+    stamp itself stays locale-independent so models can copy it into ``write_range``.
     """
     local_now = now.astimezone() if now is not None else datetime.datetime.now().astimezone()
     # Drop tzinfo so isoformat() cannot emit +HH:MM / Z — Calc serials are timezone-less.
@@ -182,6 +182,41 @@ def format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
 
 # Clock stamp is already offset-free; remind models not to re-add Z/offsets from other sources.
 _MCP_CALC_DATETIME_HINT = " When writing Calc date/time cells, use the same offset-free ISO as the clock above (YYYY-MM-DD, HH:MM[:SS], YYYY-MM-DDTHH:MM[:SS]) or PTnHnMnS for elapsed values; do not append a timezone offset or Z."
+
+
+def _registry_get_for_doc(
+    registry: Any,
+    name: str,
+    *,
+    doc_type: str | None = None,
+    uno_services_supported: Any = None,
+) -> Any:
+    if hasattr(registry, "get_for_document"):
+        return registry.get_for_document(
+            name,
+            doc_type=doc_type,
+            uno_services_supported=uno_services_supported,
+        )
+    return registry.get(name)
+
+
+def _resolve_mcp_tool_name(registry: Any, tool_name: str) -> tuple[str, str | None]:
+    """Map an MCP tool name to ``(registry_name, forced_doc_type)``.
+
+    Multi-app ``tools/list`` responses prefix colliding tool names with their app
+    (e.g. ``get_tree`` / ``get_tree``); single-app lists use the bare
+    name (``get_tree``).
+    """
+    has_tool = registry.has_tool(tool_name) if hasattr(registry, "has_tool") else (registry.get(tool_name) is not None)
+    if has_tool:
+        return tool_name, None
+    multi = registry.multi_app_tool_names() if hasattr(registry, "multi_app_tool_names") else frozenset()
+    for prefix in ("writer", "calc", "draw"):
+        if tool_name.startswith(prefix + "_"):
+            base = tool_name[len(prefix) + 1 :]
+            if base in multi:
+                return base, prefix
+    return tool_name, None
 
 
 def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = None) -> str:
@@ -794,7 +829,12 @@ class MCPProtocolHandler:
         tool_name = call_params.name
         arguments = dict(call_params.arguments)
 
-        tool = self.tool_registry.get(tool_name)
+        actual_name, forced_doc_type = _resolve_mcp_tool_name(self.tool_registry, tool_name)
+        tool = (
+            _registry_get_for_doc(self.tool_registry, actual_name, doc_type=forced_doc_type)
+            if forced_doc_type
+            else self.tool_registry.get(actual_name)
+        )
         tool_params = tool.get_parameters() if tool else {}
         tool_props = tool_params.get("properties", {}) if tool_params else {}
 
@@ -834,7 +874,7 @@ class MCPProtocolHandler:
         except Exception as e:
             # Tool failures must be MCP tool results (isError), not JSON-RPC
             # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
-            # (Hermes retried writer_apply_style ~150× in 0.5s). BusyError/TimeoutError
+            # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
             # Map unexpected tool errors to MCP isError results, not HTTP 500 retries.
             log.exception("MCP tool %s raised unexpectedly", tool_name)
             code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
@@ -1010,12 +1050,30 @@ class MCPProtocolHandler:
             return schemas, {}
 
         seen = {sch.get("name") for sch in schemas}
+        active_prefix = "draw" if active_doc_type == "impress" else active_doc_type
+        multi_app = self.tool_registry.multi_app_tool_names() if hasattr(self.tool_registry, "multi_app_tool_names") else frozenset()
         for other_type, other_doc in others.items():
             # A get_schemas failure is a bug. Skipping the type hid that tool family.
             extra = self.tool_registry.get_schemas("mcp", doc_type=other_type, uno_services_supported=uno_services_for_document(other_doc, other_type), exclude_tiers=exclude_tiers)
+            other_prefix = "draw" if other_type == "impress" else other_type
             for sch in extra:
                 name = sch.get("name")
-                if name and name not in seen:
+                if not name:
+                    continue
+                if name in multi_app and name in seen and active_prefix and other_prefix != active_prefix:
+                    # Both open app types define this tool name (e.g. get_tree in Writer and Draw):
+                    # keep the app prefix on this combined tools/list so each app's tool stays distinct.
+                    for existing in schemas:
+                        if existing.get("name") == name:
+                            existing["name"] = f"{active_prefix}_{name}"
+                            seen.discard(name)
+                            seen.add(existing["name"])
+                    prefixed = f"{other_prefix}_{name}"
+                    sch["name"] = prefixed
+                    if prefixed not in seen:
+                        seen.add(prefixed)
+                        schemas.append(sch)
+                elif name not in seen:
                     seen.add(name)
                     schemas.append(sch)
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
@@ -1028,9 +1086,15 @@ class MCPProtocolHandler:
 
         Callers pass the scope captured on the worker. This method does not read the main thread's send contextvar or the request-scope map.
         """
-        tool = self.tool_registry.get(tool_name)
-        if tool is None:
+        actual_name, forced_doc_type = _resolve_mcp_tool_name(self.tool_registry, tool_name)
+        has_tool = self.tool_registry.has_tool(actual_name) if hasattr(self.tool_registry, "has_tool") else (self.tool_registry.get(actual_name) is not None)
+        if not has_tool:
             return {"status": "error", "code": "UNKNOWN_TOOL", "message": "No tool named '%s'. Check tools/list for the exact name (tools are filtered by the open document's type)." % tool_name}
+        initial_tool = (
+            _registry_get_for_doc(self.tool_registry, actual_name, doc_type=forced_doc_type)
+            if forced_doc_type
+            else self.tool_registry.get(actual_name)
+        )
 
         doc = None
         doc_type = "writer"
@@ -1047,7 +1111,7 @@ class MCPProtocolHandler:
 
         if doc is None and document_url:
             return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": ("No open document matches document_url '%s'. Call document_list_open and retry with one of the returned url or uid values." % document_url), "details": {"document_url": document_url}}
-        if doc is None and getattr(tool, "requires_document", True):
+        if doc is None and getattr(initial_tool, "requires_document", True):
             # Without document_url, resolve among open documents instead of denying when focus is elsewhere.
             # Count DOCUMENTS, not types: with two Writer documents open and neither active,
             # a per-type view has one entry and would silently pick the first -- possibly the
@@ -1073,6 +1137,20 @@ class MCPProtocolHandler:
 
         ctx = uno_context.get_ctx()
         uno_services = uno_services_for_document(doc, doc_type)
+        effective_type = "draw" if doc_type == "impress" else doc_type
+        if forced_doc_type and doc is not None and effective_type != forced_doc_type:
+            return {"status": "error", "code": "UNSUPPORTED_DOCUMENT", "message": f"Tool '{tool_name}' does not support the current {doc_type} document.", "details": {"tool_name": tool_name}}
+        if doc is not None:
+            tool = _registry_get_for_doc(
+                self.tool_registry,
+                actual_name,
+                doc_type=forced_doc_type or doc_type,
+                uno_services_supported=None if forced_doc_type else uno_services,
+            )
+        else:
+            tool = initial_tool
+        if tool is None:
+            return {"status": "error", "code": "UNSUPPORTED_DOCUMENT", "message": f"Tool '{tool_name}' does not support the current document.", "details": {"tool_name": tool_name}}
         active_page_idx = None
         if doc_type in ("draw", "impress"):
             # get_active_page_index returns 0 for a missing page and re-raises
@@ -1109,7 +1187,8 @@ class MCPProtocolHandler:
         safe_args = {k: v for k, v in arguments.items() if k != "bypass_thread_guard"}
         t0 = time.perf_counter()
 
-        result = self.tool_registry.execute(tool_name, prepared.context, **safe_args)
+        actual_name = getattr(prepared.tool, "name", None) or tool_name
+        result = self.tool_registry.execute(actual_name, prepared.context, **safe_args)
 
         elapsed = time.perf_counter() - t0
         if isinstance(result, dict):

@@ -152,7 +152,7 @@ Rules (each returns `{kind, shapes, hint}`):
 - `overlap` — text boxes overlapping text boxes beyond a small tolerance (recorded Draw failure: `docs/eval/eval-2/headed-failure-autopsy.md`).
 - `one_char_line` — text box too narrow for its character count (recorded vertical-text bug).
 
-Geometry helpers stay pure in `plugin/draw/layout.py` (`layout_issues` wrapping `draw_get_tree` / `_shape_box`) so they stay unit-testable without UNO. Do **not** add theme-gutter / folio-shape rules — those assume a WA `DeckTheme`.
+Geometry helpers stay pure in `plugin/draw/layout.py` (`layout_issues` wrapping `get_tree` / `_shape_box`) so they stay unit-testable without UNO. Do **not** add theme-gutter / folio-shape rules — those assume a WA `DeckTheme`.
 
 ### 3.6 Recipes: alias, or invent only after an LO wall
 
@@ -217,7 +217,7 @@ LO-first work touches existing Draw modules and adds a small “design/backgroun
 | `plugin/draw/themes.py` (new, **only if §3.8 probe finds a real API**) | `list` / `get` / `apply` color + font schemes | Conditional (M1′ probe) |
 | `plugin/framework/prompts.py` | ~8–12 line DECK MODE block (§3.5) | **M2′** |
 | `plugin/draw/layout.py` | `layout_issues(...)` over LO boxes / placeholder / HF flags — lint, not carriers | **M2′** |
-| Lint tool on an existing specialized base (`check_deck_layout` or similar) | Wraps `draw_get_tree` + HF/master/placeholder reads | **M2′** |
+| Lint tool on an existing specialized base (`check_deck_layout` or similar) | Wraps `get_tree` + HF/master/placeholder reads | **M2′** |
 | `scripts/eval_2_draw_oracle.py` | Geometry + HF/master/placeholder fields; M0′ pass criteria fields | M0′ / M2′ |
 | `tests/draw/test_*` | `test_draw_layout.py` for lint; `test_designs_uno.py` / `test_master_background_uno.py` for M1′; `test_themes.py` only if themes exist | M1′ / M2′ |
 | `docs/draw/impress-specialized-toolsets.md` | Replace the **Themes** ❌ row with the probe result; flip **Templates** when apply-design lands | When tools land |

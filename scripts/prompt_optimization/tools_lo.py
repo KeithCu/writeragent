@@ -62,7 +62,7 @@ FACTORY_URLS = {
 
 # Eval-schema names → production ToolRegistry names.
 _TOOL_ALIASES = {
-    "write_cell_range": "calc_write_range",
+    "write_cell_range": "write_range",
 }
 
 
@@ -562,7 +562,7 @@ def get_content_as_html() -> str:
 
             ctx = _tool_ctx(doc, "writer")
             res = get_tools().execute_unguarded(
-                "writer_get_content",
+                "get_content",
                 ctx,
                 scope="full",
             )
@@ -592,7 +592,7 @@ def writer_get_content(scope="full", max_chars=None, start=None, end=None, **kwa
                 params[k] = v
 
         ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute_unguarded("writer_get_content", ctx, **params)
+        res = get_tools().execute_unguarded("get_content", ctx, **params)
         return json.dumps(res, ensure_ascii=False)
 
     return LOBackend.call(_do)
@@ -610,7 +610,7 @@ def writer_apply_content(content: str, old_content: str = "", all_matches: bool 
             if v is not None:
                 params[k] = v
         ctx = _tool_ctx(doc, "writer")
-        res = get_tools().execute_unguarded("writer_apply_content", ctx, **params)
+        res = get_tools().execute_unguarded("apply_content", ctx, **params)
         return json.dumps(res, ensure_ascii=False)
 
     return LOBackend.call(_do)
@@ -694,7 +694,7 @@ def normalize_lo_tool(
     if "page_index" in params and "page" not in params:
         params["page"] = params.pop("page_index")
 
-    if prod == "calc_write_range":
+    if prod == "write_range":
         rng = params.get("range")
         if isinstance(rng, str):
             params["range"] = [rng]
@@ -704,7 +704,7 @@ def normalize_lo_tool(
         elif isinstance(values, (int, float)) and not isinstance(values, bool):
             params["values"] = str(values)
 
-    if prod == "calc_sort_range":
+    if prod == "sort_range":
         col = params.get("sort_column")
         if isinstance(col, str) and headers:
             try:
@@ -737,7 +737,7 @@ def _execute_lo_tool_impl(
     doc = LOBackend.acquire_document()
     headers = None
     used = None
-    if kind == "calc" and name in ("calc_sort_range", "write_cell_range", "calc_write_range", "calc_get_sheet_summary"):
+    if kind == "calc" and name in ("sort_range", "write_cell_range", "write_range", "get_sheet_summary"):
         try:
             headers, used = _sheet_headers_and_used(doc)
         except Exception:
@@ -773,7 +773,7 @@ def get_draw_export() -> str:
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "draw")
-        res = get_tools().execute_unguarded("draw_get_tree", ctx)
+        res = get_tools().execute_unguarded("get_tree", ctx)
         return json.dumps(res, ensure_ascii=False, indent=2)
 
     return LOBackend.call(_do)
@@ -787,7 +787,7 @@ def get_calc_export() -> str:
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "calc")
-        summary = get_tools().execute_unguarded("calc_get_sheet_summary", ctx)
+        summary = get_tools().execute_unguarded("get_sheet_summary", ctx)
         grid = _read_sheet_grid(doc)
         headers = grid[0] if grid else []
         payload = {
@@ -876,10 +876,10 @@ def with_logging(func, name):
 
 def get_tools_subset(names: list[str] | None = None):
     mapping = {
-        "writer_get_content": dspy_get_document_content,
-        "writer_apply_content": dspy_apply_document_content,
+        "get_content": dspy_get_document_content,
+        "apply_content": dspy_apply_document_content,
         "find_text": dspy_find_text,
     }
     if names is None:
-        names = ["writer_get_content", "writer_apply_content", "find_text"]
+        names = ["get_content", "apply_content", "find_text"]
     return [with_logging(mapping[n], n) for n in names if n in mapping]

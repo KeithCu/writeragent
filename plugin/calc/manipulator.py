@@ -434,7 +434,7 @@ def _write_report(
                 f"{total} formula cell(s) show an error after the write "
                 f"(error_cells lists {'the first ' + str(len(errors)) if total > len(errors) else 'them'}). "
                 "A text label that starts with '=' must be written with a leading apostrophe ('=label). "
-                "Use calc_detect_errors on a cell for the cause."
+                "Use detect_errors on a cell for the cause."
             )
             # Calc's API grammar uses ';', and =SUM(1,2) gives 525, so a comma in a failing formula is the cue.
             if any(e["error"]["error_code"] in (501, 508, 525) and "," in e["formula"] for e in errors):
@@ -1473,7 +1473,7 @@ class CellManipulator:
                     dest = _free_cell_right_of(sheet, sheet_name, arg, args) if len(values) == 1 else None
                     details: dict[str, Any] = {"data_range": arg}
                     if dest:
-                        details["suggested_call"] = suggest_call("calc_write_range", range=[dest], values=value)
+                        details["suggested_call"] = suggest_call("write_range", range=[dest], values=value)
                     raise CalcError(
                         f"=PY in {target} reads {arg}, which includes {target} itself, "
                         "so Calc would show an error and the value there would be lost. "
@@ -1605,7 +1605,7 @@ class CellManipulator:
                             f"Column {col_letter} repeated {head} on every row, so every row stayed pinned to {head}. "
                             "If you meant fill-down, resend as a single formula string (or use $ to pin intentionally)."
                         ),
-                        "suggested_call": suggest_call("calc_write_range", range=[target_range], values=head),
+                        "suggested_call": suggest_call("write_range", range=[target_range], values=head),
                     })
 
             if formulas_on:
@@ -2037,7 +2037,7 @@ class CellManipulator:
                     raise CalcError(
                         f"Deleting {count} {structure_type} on sheet {name} would turn {n} formula cell(s) "
                         f"into #REF! (broken_cells lists {', '.join(sample)}). Nothing was deleted. "
-                        "Tell the user which formulas would break; call calc_delete_structure again with confirm=true "
+                        "Tell the user which formulas would break; call delete_structure again with confirm=true "
                         "only if they still want it.",
                         code="REFS_WOULD_BREAK",
                         details={"sheet": name, "refs_broken": n, "broken_cells": sample},

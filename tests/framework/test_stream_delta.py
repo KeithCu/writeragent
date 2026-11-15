@@ -165,11 +165,11 @@ def test_coalesce_split_tool_calls_lone_empty_name_dropped():
 
 def test_coalesce_strips_harmony_suffix_from_tool_name():
     out = coalesce_split_tool_calls([
-        {"id": "c1", "function": {"name": "calc_read_range<|channel|>commentary", "arguments": "{}"}},
+        {"id": "c1", "function": {"name": "read_range<|channel|>commentary", "arguments": "{}"}},
     ])
     assert len(out) == 1
     assert out[0]["id"] == "c1"
-    assert out[0]["function"]["name"] == "calc_read_range"
+    assert out[0]["function"]["name"] == "read_range"
     assert out[0]["function"]["arguments"] == "{}"
 
 

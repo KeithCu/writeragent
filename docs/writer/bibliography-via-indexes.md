@@ -201,7 +201,7 @@ Update: find the existing field by `Identifier` / stored Zotero key, replace `Fi
 | CSL field with no `BibliographyDataField` | Drop or park in `CUSTOM1`–`CUSTOM5`; say so in the tool result. |
 | Duplicate `Identifier` | Refuse or suffix; LO treats identifier as the short name. |
 | Official Zotero plugin marks already in the doc | Detect ReferenceMark/Bookmark codes; do not write a second system into the same paragraph. |
-| `writer_apply_content` full replace | Same HTML-destruction risk as other fields ([specialized-toolsets.md §6.9](specialized-toolsets.md)); not a bibliography-specific fix. |
+| `apply_content` full replace | Same HTML-destruction risk as other fields ([specialized-toolsets.md §6.9](specialized-toolsets.md)); not a bibliography-specific fix. |
 | User edited the LO Bibliography `.odb` | Not the cite object; ignore unless we later add an import. |
 
 ### Sources

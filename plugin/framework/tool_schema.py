@@ -194,7 +194,7 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     when this property's type includes array. Nested ``range`` fields are
     not walked.
 
-    ``calc_write_range`` values accept string or native array on the source
+    ``write_range`` values accept string or native array on the source
     schema; only a bare number is coerced to string for single-cell fill.
     """
     if not isinstance(kwargs, dict):
@@ -214,7 +214,7 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
                 if _type_includes(t, "integer"):
                     out[k] = int(v)
 
-    if tool_name == "calc_write_range":
+    if tool_name == "write_range":
         fov = out.get("values")
         if isinstance(fov, (int, float)) and not isinstance(fov, bool):
             out["values"] = str(fov)
@@ -270,7 +270,7 @@ def _normalize_schema_for_strict_providers(params: Any, *, for_mcp: bool = False
     # Dedupe only. One remaining name becomes a string. An empty list
     # becomes "string". Do not collapse a real union to one member:
     # ["string", "number"] must stay both, and ["array", "string"] must
-    # not become "array" (writer_apply_content accepts either).
+    # not become "array" (apply_content accepts either).
     if "type" in params and isinstance(params["type"], list):
         types = params["type"]
         if not types:
@@ -320,7 +320,7 @@ def to_openai_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any
         {
             "type": "function",
             "function": {
-                "name": "writer_get_tree",
+                "name": "get_tree",
                 "description": "...",
                 "parameters": { ... JSON Schema ... }
             }

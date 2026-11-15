@@ -121,8 +121,8 @@ def test_mcp_calc_tools_list_direct_flat(calc_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     assert len(tools_list) >= 50
-    assert "calc_read_range" in tool_names
-    assert "calc_write_range" in tool_names
+    assert "read_range" in tool_names
+    assert "write_range" in tool_names
     assert "sheet_create" in tool_names
     assert "named_range_add" in tool_names
     assert "run_venv_python_script" in tool_names
@@ -148,8 +148,8 @@ def test_mcp_calc_tools_list_delegate_mode(calc_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     # Core tools only
-    assert "calc_read_range" in tool_names
-    assert "calc_write_range" in tool_names
+    assert "read_range" in tool_names
+    assert "write_range" in tool_names
     # Specialized domain tools must be omitted
     assert "sheet_create" not in tool_names
     assert "named_range_add" not in tool_names
@@ -175,7 +175,7 @@ def test_mcp_calc_tools_list_direct_discovery(calc_mcp_setup):
     tool_names = {t["name"] for t in tools_list}
 
     assert "tool_find" in tool_names
-    assert "calc_read_range" in tool_names
+    assert "read_range" in tool_names
     assert "sheet_create" not in tool_names
 
 

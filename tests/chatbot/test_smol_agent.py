@@ -114,7 +114,7 @@ class TestToolcallingPromptExamples:
                 "finish": "reply_to_user",
             },
             "brainstorming": {
-                "allowed": {"writer_get_tree", "save_design_spec", "reply_to_user"},
+                "allowed": {"get_tree", "save_design_spec", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "writing_plan": {
@@ -122,7 +122,7 @@ class TestToolcallingPromptExamples:
                 "finish": "reply_to_user",
             },
             "deep_research": {
-                "allowed": {"deep_research_web", "writer_apply_content", "reply_to_user"},
+                "allowed": {"deep_research_web", "apply_content", "reply_to_user"},
                 "finish": "reply_to_user",
             },
             "web_research": {
@@ -433,7 +433,7 @@ def test_smol_tool_adapter_read_only_target_rejects_mutation():
     ctx = SimpleNamespace(read_only_target=True, caller="document_research", doc_type="writer")
 
     class AsyncMutator(_StubTool):
-        name = "writer_get_content"
+        name = "get_content"
         is_mutation = True
 
         def is_async(self):

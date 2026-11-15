@@ -41,7 +41,7 @@ class _DummyAnalysisBase(ToolCalcSpecialBase):
     # Domain-less intermediate base: a direct ToolCalcSpecialBase subclass with a
     # domain would leak "analysis" into the discovery catalog for the whole test run.
     specialized_domain: ClassVar[str | None] = None
-    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["calc_get_sheet_summary"])
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary"])
 
 
 class _DummyAnalysisTool(_DummyAnalysisBase):

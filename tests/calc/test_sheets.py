@@ -76,7 +76,7 @@ def test_get_sheet_summary_rejects_leading_underscore_names():
         patch("plugin.calc.sheets.SheetAnalyzer") as analyzer_cls,
     ):
         for hidden in ("_foo", "__Anonymous_Sheet_DB__0"):
-            result = _tool("calc_get_sheet_summary").execute_safe(ctx, sheet=hidden)
+            result = _tool("get_sheet_summary").execute_safe(ctx, sheet=hidden)
             assert result["status"] == "error"
             assert hidden in result.get("message", "")
         analyzer_cls.return_value.get_sheet_summary.assert_not_called()
@@ -90,7 +90,7 @@ def test_get_sheet_summary_keeps_normal_names():
         patch("plugin.calc.sheets.SheetAnalyzer") as analyzer_cls,
     ):
         analyzer_cls.return_value.get_sheet_summary.return_value = summary
-        result = _tool("calc_get_sheet_summary").execute_safe(ctx, sheet="Sheet1")
+        result = _tool("get_sheet_summary").execute_safe(ctx, sheet="Sheet1")
 
     assert result["status"] == "ok"
     assert result["result"]["sheet_name"] == "Sheet1"

@@ -15,7 +15,7 @@ Native multimodal vision lets a vision-capable LLM **see** document images — f
 ```mermaid
 flowchart TB
   subgraph lazy [Default read path]
-    GDC["writer_get_content<br/>(include_images=false)"]
+    GDC["get_content<br/>(include_images=false)"]
     GDC --> TextModel[Text model — no vision tokens]
   end
   subgraph ondemand [On-demand vision]
@@ -34,7 +34,7 @@ flowchart TB
   end
 ```
 
-**Lazy perception:** Embedded image bytes are stripped from `writer_get_content` by default (`include_images=false`). When the model actually needs to *see* one image, it calls the core [`image_get`](../../plugin/writer/get_image.py) tool (by graphic name, current selection, or `page=<n>` for a whole-page PNG — 0-based, unified with Draw/Impress `slide_list`). That avoids upfront vision-token cost on every document read.
+**Lazy perception:** Embedded image bytes are stripped from `get_content` by default (`include_images=false`). When the model actually needs to *see* one image, it calls the core [`image_get`](../../plugin/writer/get_image.py) tool (by graphic name, current selection, or `page=<n>` for a whole-page PNG — 0-based, unified with Draw/Impress `slide_list`). That avoids upfront vision-token cost on every document read.
 
 ---
 
@@ -69,7 +69,7 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 - `normalize_multimodal_messages(messages, provider)` — re-attaches extracted base64 images and remote `http(s)` URLs per provider rules (OpenAI-compatible: move to nearest preceding `user` message; Anthropic: can stay in `tool`; Gemini: flexible).
 - Called from [`llm_client.py`](../../plugin/framework/client/llm_client.py) `make_chat_request` before the shim builds the wire payload.
 
-**Covers:** `writer_get_content(include_images=true)` HTML with embedded `data:image` URIs, and remote `http(s)` `image_url` blocks in tool/assistant turns. **Does not yet cover:** `_mcp_image` tool results (see follow-ups).
+**Covers:** `get_content(include_images=true)` HTML with embedded `data:image` URIs, and remote `http(s)` `image_url` blocks in tool/assistant turns. **Does not yet cover:** `_mcp_image` tool results (see follow-ups).
 
 ### Core `image_get` tool (lazy on-demand vision)
 
@@ -240,7 +240,7 @@ Two sources of images in tool results:
 
 | Source | Format | Normalization today |
 |--------|--------|---------------------|
-| `writer_get_content(include_images=true)` | `data:image/...;base64,...` in HTML/text | **Done** — `normalize_multimodal_messages` |
+| `get_content(include_images=true)` | `data:image/...;base64,...` in HTML/text | **Done** — `normalize_multimodal_messages` |
 | `image_get` | `_mcp_image: {data, mimeType}` in JSON tool result | **Not done** on chat path; **done** on MCP path |
 
 Required behavior for any new source (including `_mcp_image`):
@@ -271,7 +271,7 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 1. Writer doc + selected image + vision model → Send "Describe this image" (send-path attachment).
 2. Vision model + `image_get` via **MCP** → client shows native image block.
 3. Vision model + `image_get` via **chat sidebar** → confirm whether model sees image (**expected gap** until follow-up §1).
-4. `writer_get_content(include_images=true)` in tool loop → model receives image, not only `[Image Ref]` text.
+4. `get_content(include_images=true)` in tool loop → model receives image, not only `[Image Ref]` text.
 5. Text-only model → `image_get` absent from tool list (openai schema path); selected image ignored on send.
 6. Ollama vision model → `/api/show` or `vision_support_map` records capability.
 
@@ -283,7 +283,7 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - **Not all vision models support tools** on local stacks.
 - **Send-path selection:** Raster images in Writer/Calc selection only; Draw/Impress vectors use other paths.
 - **Main chat model only** for send-path attachment; sub-agents/delegates have separate rules.
-- **`image_get`** is on Writer, Draw, Impress, and Calc (named/selection on Calc; page render on layout apps only). Draw/Impress `page=N` (0-based, unified with `slide_list` / `draw_get_tree`) is a screenshot; `draw_get_tree` stays the structure read.
+- **`image_get`** is on Writer, Draw, Impress, and Calc (named/selection on Calc; page render on layout apps only). Draw/Impress `page=N` (0-based, unified with `slide_list` / `get_tree`) is a screenshot; `get_tree` stays the structure read.
 - **Complementary OCR:** Use `domain=vision` + `image_extract_structure` for text and structure + insert; use native multimodal for visual reasoning.
 
 ---

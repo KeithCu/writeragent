@@ -140,7 +140,7 @@ def _list_names(mode):
     schemas = [
         {"name": "tool_find", "description": "discovery", "inputSchema": {}},
         {"name": "insert_footnote", "description": "footnote", "inputSchema": {}},
-        {"name": "writer_apply_content", "description": "core", "inputSchema": {}},
+        {"name": "apply_content", "description": "core", "inputSchema": {}},
     ]
     handler = _handler(mode, schemas)
     return {t["name"] for t in handler._mcp_tools_list({})["tools"]}
@@ -153,7 +153,7 @@ def test_find_tools_listed_only_in_direct_discovery():
 
 
 def test_gating_keeps_other_tools():
-    assert "writer_apply_content" in _list_names("delegate")
+    assert "apply_content" in _list_names("delegate")
     assert "insert_footnote" in _list_names("direct_discovery")
 
 
@@ -275,7 +275,7 @@ class _GatewayTool(ToolBase):
 
 
 class _CoreTool(ToolBase):
-    name = "writer_apply_content"
+    name = "apply_content"
     description = "core document edit"
     tier = "core"
     is_mutation = False
@@ -365,7 +365,7 @@ def test_mode_sizing_real_registry():
     spec = {"footnote_insert", "footnote_list"}
     delegate = names("delegate")
     assert not (spec & delegate) and "tool_find" not in delegate
-    assert "writer_apply_content" in delegate
+    assert "apply_content" in delegate
     flat = names("direct_flat")
     assert spec <= flat and "tool_find" not in flat
     discovery = names("direct_discovery")
@@ -453,7 +453,7 @@ def test_execute_tool_on_main_runs_document_optional_without_doc():
 
 def test_execute_tool_on_main_still_requires_doc_for_normal_tools():
     handler = _handler_real("direct_discovery", _real_registry())
-    res = _prepare_and_invoke(handler, "writer_apply_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_DOCUMENT_OPEN"
 
 
@@ -587,7 +587,7 @@ def test_delegate_no_doc_keeps_doc_type_filtering():
     for cls in (_CoreTool, _AppSpecificCoreTool):
         reg.register(cls())
     names = {t["name"] for t in _handler_real("delegate", reg)._mcp_tools_list({})["tools"]}
-    assert "writer_apply_content" in names
+    assert "apply_content" in names
     assert "calc_only_core" not in names
 
 
@@ -645,7 +645,7 @@ def test_gate_falls_back_to_the_single_open_document():
     handler.services.document.open_documents.return_value = [only_doc]
     handler.services.document.detect_doc_type.return_value = "writer"
 
-    res = _prepare_and_invoke(handler, "writer_apply_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") not in ("NO_DOCUMENT_OPEN", "NO_ACTIVE_DOCUMENT")
 
 
@@ -660,7 +660,7 @@ def test_gate_names_the_candidates_when_several_are_open():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("planilha.ods")]
 
-    res = _prepare_and_invoke(handler, "writer_apply_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_ACTIVE_DOCUMENT"
     assert "document_url" in res["message"]
     assert "peca1.odt" in res["message"] and "planilha.ods" in res["message"]
@@ -673,7 +673,7 @@ def test_gate_never_guesses_between_two_documents_of_the_same_type():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = [_titled("peca1.odt"), _titled("peca2.odt")]
 
-    res = _prepare_and_invoke(handler, "writer_apply_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_ACTIVE_DOCUMENT"
     assert "peca1.odt" in res["message"] and "peca2.odt" in res["message"]
 
@@ -683,7 +683,7 @@ def test_gate_still_says_no_document_when_nothing_is_open():
     handler.services.document.get_active_document.return_value = None
     handler.services.document.open_documents.return_value = []
 
-    res = _prepare_and_invoke(handler, "writer_apply_content", {})
+    res = _prepare_and_invoke(handler, "apply_content", {})
     assert res.get("code") == "NO_DOCUMENT_OPEN"
 
 
@@ -694,20 +694,20 @@ def test_catalog_covers_a_writer_open_behind_the_active_calc():
         "calc": MagicMock(), "writer": writer_doc,
     }
     schemas, broadened = handler._add_other_open_doc_schemas(
-        [_schema("calc_read_range")], "calc", frozenset()
+        [_schema("read_range")], "calc", frozenset()
     )
 
     assert set(broadened) == {"writer"}, "the caller needs the added types for its own filters"
     names = {s["name"] for s in schemas}
-    assert "calc_read_range" in names, "the active document's own tools must stay"
-    assert "writer_apply_content" in names, "the open Writer document's tools must appear too"
+    assert "read_range" in names, "the active document's own tools must stay"
+    assert "apply_content" in names, "the open Writer document's tools must appear too"
 
 
 def test_catalog_broaden_propagates_enumeration_failure():
     handler = _handler_real("direct_flat", _real_registry())
     handler.services.document.open_documents_by_type.side_effect = RuntimeError("UNO gone")
     with pytest.raises(RuntimeError, match="UNO gone"):
-        handler._add_other_open_doc_schemas([_schema("calc_read_range")], "calc", frozenset())
+        handler._add_other_open_doc_schemas([_schema("read_range")], "calc", frozenset())
 
 
 def test_catalog_broaden_propagates_schema_failure():
@@ -716,7 +716,7 @@ def test_catalog_broaden_propagates_schema_failure():
     handler.services.document.open_documents_by_type.return_value = {"writer": writer_doc}
     handler.tool_registry.get_schemas = MagicMock(side_effect=RuntimeError("schema bug"))
     with pytest.raises(RuntimeError, match="schema bug"):
-        handler._add_other_open_doc_schemas([_schema("calc_read_range")], "calc", frozenset())
+        handler._add_other_open_doc_schemas([_schema("read_range")], "calc", frozenset())
 
 
 def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
@@ -752,3 +752,78 @@ def test_sidebar_only_tool_names_registry_failure_is_raised_not_an_empty_set():
     registry.get_tools.side_effect = RuntimeError("registry broken")
     with pytest.raises(RuntimeError, match="registry broken"):
         sidebar_only_tool_names(registry, None, doc_type="writer", uno_services_supported=frozenset())
+
+
+def test_multi_app_get_tree_keeps_prefix_only_when_combined():
+    """Single-app tools/list uses bare get_tree; multi-app lists prefix writer_get_tree / draw_get_tree."""
+    from plugin.framework.tool import ToolBase
+
+    class _WriterGetTree(ToolBase):
+        name = "get_tree"
+        description = "Writer tree."
+        parameters = {"type": "object", "properties": {}}
+        tier = "core"
+        uno_services = ["com.sun.star.text.TextDocument"]
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    class _DrawGetTree(ToolBase):
+        name = "get_tree"
+        description = "Draw tree."
+        parameters = {"type": "object", "properties": {}}
+        tier = "core"
+        uno_services = ["com.sun.star.drawing.DrawingDocument"]
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    reg = _real_registry()
+    reg.register(_WriterGetTree())
+    reg.register(_DrawGetTree())
+
+    # Single-app: Writer open -> bare get_tree, no writer_get_tree / draw_get_tree.
+    handler_writer = _handler_real("delegate", reg)
+    writer_doc = MagicMock()
+    writer_doc.supportsService.side_effect = lambda s: s in (
+        "com.sun.star.document.OfficeDocument",
+        "com.sun.star.text.TextDocument",
+    )
+    handler_writer.services.document.get_active_document.return_value = writer_doc
+    handler_writer.services.document.detect_doc_type.return_value = "writer"
+    handler_writer.services.document.open_documents_by_type.return_value = {"writer": writer_doc}
+    writer_names = {t["name"] for t in handler_writer._mcp_tools_list({})["tools"]}
+    assert "get_tree" in writer_names
+    assert "writer_get_tree" not in writer_names
+    assert "draw_get_tree" not in writer_names
+
+    # Multi-app: direct_flat with no document open -> writer_get_tree and draw_get_tree.
+    handler_flat = _handler_real("direct_flat", reg)
+    flat_names = {t["name"] for t in handler_flat._mcp_tools_list({})["tools"]}
+    assert "writer_get_tree" in flat_names
+    assert "draw_get_tree" in flat_names
+    assert "get_tree" not in flat_names
+
+    # Multi-app: Writer active + Draw open behind it -> writer_get_tree and draw_get_tree.
+    draw_doc = MagicMock()
+    draw_doc.supportsService.side_effect = lambda s: s in (
+        "com.sun.star.document.OfficeDocument",
+        "com.sun.star.drawing.DrawingDocument",
+    )
+    handler_both = _handler_real("delegate", reg)
+    handler_both.services.document.get_active_document.return_value = writer_doc
+    handler_both.services.document.detect_doc_type.return_value = "writer"
+    handler_both.services.document.open_documents_by_type.return_value = {"writer": writer_doc, "draw": draw_doc}
+    both_names = {t["name"] for t in handler_both._mcp_tools_list({})["tools"]}
+    assert "writer_get_tree" in both_names
+    assert "draw_get_tree" in both_names
+    assert "get_tree" not in both_names
+
+    # Execution resolves writer_get_tree -> Writer's get_tree, and draw_get_tree -> Draw's get_tree.
+    from plugin.framework.send_cancellation import SendCancellation
+    prep_w = handler_both._prepare_mcp_execution("writer_get_tree", {}, cancel=SendCancellation())
+    assert prep_w.tool.name == "get_tree"
+    assert "com.sun.star.text.TextDocument" in (prep_w.tool.uno_services or ())
+
+    prep_wrong = handler_both._prepare_mcp_execution("draw_get_tree", {}, cancel=SendCancellation())
+    assert isinstance(prep_wrong, dict) and prep_wrong.get("code") == "UNSUPPORTED_DOCUMENT"

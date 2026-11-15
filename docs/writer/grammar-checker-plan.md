@@ -431,7 +431,7 @@ These are longer-horizon ideas that treat the grammar checker less as an indepen
 
 Feed this as a compact prefix or structured field in the grammar prompt (e.g. "Context: Heading 2 | Table cell under 'Revenue' column").
 
-**Rationale:** Many grammar and style rules are highly context-dependent. Models are already good at this when given the hint; we just don't give it today. This is cheap relative to the value and reuses the same `writer_get_tree` / proximity machinery the main agent uses.
+**Rationale:** Many grammar and style rules are highly context-dependent. Models are already good at this when given the hint; we just don't give it today. This is cheap relative to the value and reuses the same `get_tree` / proximity machinery the main agent uses.
 
 **Implementation notes:**
 - Do the structural lookup in the main thread during `doProofreading` (or lazily in the work item) and attach it to `GrammarWorkItem`.

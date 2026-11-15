@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Swap and restore data-less image placeholders across Writer HTML imports.
 
-When writer_get_content leaves image data out (include_images=false), pictures
+When get_content leaves image data out (include_images=false), pictures
 come back as frame wrappers (<div ... id="Name"> / <span ... id="Name">) around
 empty <img> tags. These helpers swap them for temporary markers before import and
 restore or clean them up afterwards.
@@ -29,7 +29,7 @@ log = logging.getLogger("writeragent.writer")
 
 
 # --- images that come back without their data ------------------------------------------------
-# writer_get_content leaves image data out (include_images=false), so a picture comes back as
+# get_content leaves image data out (include_images=false), so a picture comes back as
 # its frame's wrapper -- <div ... id="Name"> for paragraph/character/page anchors, <span ...
 # id="Name"> inside a line -- around <img src="">, and a floating frame is followed by a
 # clear:both <div>. Imported as is, the picture would be lost: the edit deletes the
@@ -99,7 +99,7 @@ def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptI
                  if missing else "")
         raise ToolExecutionError(
             "The content has an image without its data (src=\"\"), so it would be lost.%s Keep the "
-            "image's wrapper exactly as writer_get_content returned it (<div ... id=\"Name\"> or "
+            "image's wrapper exactly as get_content returned it (<div ... id=\"Name\"> or "
             "<span ... id=\"Name\">) so the tool puts that picture back, leave the image out to "
             "delete it, or read with include_images=true to copy it from another document." % named)
     return swapped, kept

@@ -338,7 +338,7 @@ def test_text_helpers_import_does_not_load_calc_analyzer():
 
 def test_get_text_cursor_at_range_ignores_the_short_character_count():
     """#37: CharacterCount leaves out paragraph breaks and tracked deletions, so clamping to it
-    cut a real offset from writer_search(return_offsets) down to nothing."""
+    cut a real offset from search(return_offsets) down to nothing."""
     from plugin.doc.text_helpers import get_text_cursor_at_range
 
     model = MagicMock()

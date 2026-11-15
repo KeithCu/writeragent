@@ -45,7 +45,7 @@ def test_get_sheet_summary_missing_sheet_is_uno_object_error():
     sheets.hasByName.side_effect = lambda name: name in ("Sheet1", "Data")
     sheets.getElementNames.return_value = ("Sheet1", "Data")
 
-    tool = get_tools().get("calc_get_sheet_summary")
+    tool = get_tools().get("get_sheet_summary")
     assert tool is not None
     res = tool.execute_safe(SimpleNamespace(doc=doc), sheet="Nope")
 

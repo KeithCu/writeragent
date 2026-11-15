@@ -44,9 +44,9 @@ def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
 def test_resolve_allowed_tools_writer_domain_includes_apply():
     allowed = resolve_allowed_tools("writer")
     assert allowed is not None
-    assert "writer_apply_content" in allowed
+    assert "apply_content" in allowed
     assert "document_list_open" in allowed
-    assert "calc_write_range" not in allowed
+    assert "write_range" not in allowed
 
 
 def test_resolve_allowed_tools_plural_domain_name():
@@ -123,7 +123,7 @@ def test_inner_script_allowlist_unions_core_without_widening_other_scopes():
     # A domain string that is not the inner path does not pick up core.
     writer = resolve_allowed_tools("writer")
     assert writer is not None
-    assert "writer_apply_content" in writer
+    assert "apply_content" in writer
     assert "document_undo" not in writer
     assert "web_research" not in writer
     assert "document_list_open" in writer
@@ -148,7 +148,7 @@ def test_resolve_allowed_tools_shapes_and_multi_domain_union():
     assert union is not None
     assert "shape_upsert" in union
     assert "footnote_insert" in union
-    assert "calc_sort_range" not in union
+    assert "sort_range" not in union
     assert "document_list_open" in union
     assert union == shapes | resolve_allowed_tools("footnotes")
 
@@ -160,7 +160,7 @@ def test_execute_tool_blocks_recursive_venv_script():
 
 def test_execute_tool_disabled_during_py_recalc():
     with pytest.raises(RuntimeError, match=r"=PY\(\)"):
-        execute_tool("writer_apply_content", {"content": ["x"]}, allowed_tools=frozenset())
+        execute_tool("apply_content", {"content": ["x"]}, allowed_tools=frozenset())
 
 
 def test_execute_tool_named_scripts_blocked_during_py_recalc():
@@ -172,19 +172,19 @@ def test_execute_tool_named_scripts_blocked_during_py_recalc():
 
 def test_execute_tool_rejects_out_of_domain():
     with pytest.raises(RuntimeError, match="not available"):
-        execute_tool("calc_write_range", {}, allowed_tools=frozenset({"writer_apply_content"}))
+        execute_tool("write_range", {}, allowed_tools=frozenset({"apply_content"}))
 
 
 def test_handle_tool_call_frame_writes_ok_response():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "abc", "tool": "writer_apply_content", "args": {"content": ["<p>Hi</p>"], "target": "end"}},
+            {"type": "tool_call", "id": "abc", "tool": "apply_content", "args": {"content": ["<p>Hi</p>"], "target": "end"}},
             stdin_write=written.append,
         )
     assert handled is True
     mock_tool.assert_called_once()
-    assert mock_tool.call_args[0][0] == "writer_apply_content"
+    assert mock_tool.call_args[0][0] == "apply_content"
     assert mock_tool.call_args[0][1]["target"] == "end"
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
@@ -294,13 +294,13 @@ def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
 
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
         ok = handle_tool_call_frame(
-            {"type": "tool_call", "id": "ok1", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "ok1", "tool": "apply_content", "args": {}},
             stdin_write=_oserror,
         )
     assert ok is True
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("boom")):
         failed = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e1", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "e1", "tool": "apply_content", "args": {}},
             stdin_write=_oserror,
         )
     assert failed is True
@@ -310,7 +310,7 @@ def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
 
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
         ve_ok = handle_tool_call_frame(
-            {"type": "tool_call", "id": "ok2", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "ok2", "tool": "apply_content", "args": {}},
             stdin_write=_valueerror,
         )
     assert ve_ok is True
@@ -320,7 +320,7 @@ def test_handle_tool_call_frame_writes_error_response():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("boom")):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e1", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "e1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -352,7 +352,7 @@ def test_handle_tool_call_frame_uno_message_skips_str():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=HostileUno()):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e_uno", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "e_uno", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -379,7 +379,7 @@ def test_handle_tool_call_frame_uno_message_skips_str():
     written_empty: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=HostileUnoEmptyMessage()):
         handled_empty = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e_uno_empty", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "e_uno_empty", "tool": "apply_content", "args": {}},
             stdin_write=written_empty.append,
         )
     assert handled_empty is True
@@ -396,7 +396,7 @@ def test_handle_tool_call_frame_blank_message_uses_type_name():
     written_blank: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("")):
         handled_blank = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e_blank", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "e_blank", "tool": "apply_content", "args": {}},
             stdin_write=written_blank.append,
         )
     assert handled_blank is True
@@ -417,7 +417,7 @@ def test_handle_tool_call_frame_includes_error_code():
         side_effect=ToolExecutionError("cancelled by user", code="USER_STOPPED"),
     ):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e2", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "e2", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -439,7 +439,7 @@ def test_handle_tool_call_frame_rejects_non_dict_args():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "e1", "tool": "writer_apply_content", "args": ["not", "a", "dict"]},
+            {"type": "tool_call", "id": "e1", "tool": "apply_content", "args": ["not", "a", "dict"]},
             stdin_write=written.append,
         )
     assert handled is True
@@ -462,7 +462,7 @@ def test_handle_tool_call_frame_unpicklable_result():
 
     with patch("plugin.scripting.host_rpc.execute_tool", return_value=unpicklable()):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "u1", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "u1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -482,9 +482,9 @@ def test_rpc_call_drops_none_kwargs():
     with patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}), patch(
         "plugin.framework.ipc.exchange_tool_call", return_value={}
     ) as mock_exchange:
-        api.call_host_tool("writer_apply_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
+        api.call_host_tool("apply_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
     mock_exchange.assert_called_once_with(
-        "writer_apply_content",
+        "apply_content",
         {"content": ["<p>Hi</p>"], "target": "end"},
     )
 
@@ -617,7 +617,7 @@ def test_handle_tool_call_frame_forwards_cancel_to_execute_tool():
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "fwd1", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "fwd1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
             cancel=scope,
         )
@@ -642,7 +642,7 @@ def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"blob": "x"}):
         handled = handle_tool_call_frame(
-            {"type": "tool_call", "id": "over1", "tool": "writer_apply_content", "args": {}},
+            {"type": "tool_call", "id": "over1", "tool": "apply_content", "args": {}},
             stdin_write=written.append,
         )
     assert handled is True
@@ -666,7 +666,7 @@ def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"blob": "x"}):
         with pytest.raises(IpcPayloadSizeError):
             handle_tool_call_frame(
-                {"type": "tool_call", "id": "over2", "tool": "writer_apply_content", "args": {}},
+                {"type": "tool_call", "id": "over2", "tool": "apply_content", "args": {}},
                 stdin_write=written.append,
             )
 
@@ -680,7 +680,7 @@ def test_handle_tool_call_frame_write_timeout_propagates():
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
         with pytest.raises(RuntimeError, match="timed out"):
             handle_tool_call_frame(
-                {"type": "tool_call", "id": "to1", "tool": "writer_apply_content", "args": {}},
+                {"type": "tool_call", "id": "to1", "tool": "apply_content", "args": {}},
                 stdin_write=_timeout_write,
             )
 
@@ -820,7 +820,7 @@ def test_ranges_allowlist_spans_two_namespaces():
 
     allowed = resolve_allowed_tools("ranges")
     assert allowed is not None
-    assert {"calc_sort_range", "named_range_add"} <= allowed
+    assert {"sort_range", "named_range_add"} <= allowed
 
     _format_script_api_catalog_cached.cache_clear()
     catalog = format_script_api_catalog(["ranges"])
@@ -831,7 +831,7 @@ def test_ranges_allowlist_spans_two_namespaces():
 def test_wa_help_accepts_tool_name():
     import plugin.scripting.writeragent_api as api
 
-    by_tool = api.help("calc_read_range")
+    by_tool = api.help("read_range")
     by_ns = api.help("calc.read_range")
     assert by_tool.startswith("wa.calc.read_range(")
     assert by_tool == by_ns

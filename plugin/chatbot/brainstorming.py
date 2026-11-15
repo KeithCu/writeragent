@@ -35,7 +35,7 @@ ANTI-PATTERN — "This Is Too Simple To Need A Design" (too simple to design): E
 SCOPE: Before detailed questions, check whether the request spans multiple independent subsystems. If so, say so in HTML, help decompose (independent pieces, how they relate, build order), and brainstorm ONE sub-project through this flow. Other pieces need their own spec cycles later.
 
 WORKFLOW (in order):
-1. Explore context: active document (writer_get_content / writer_get_tree), nearby files (list_nearby_files, grep_nearby_files, delegate_read_document), and public topics (brainstorm_research_web) when useful.
+1. Explore context: active document (get_content / get_tree), nearby files (list_nearby_files, grep_nearby_files, delegate_read_document), and public topics (brainstorm_research_web) when useful.
 2. Ask clarifying questions — ONE question per reply_to_user call. Prefer multiple-choice when possible. Focus on purpose, constraints, and success criteria.
 3. Propose 2–3 approaches with trade-offs as HTML (<ul> lists). Lead with your recommended option and why. Apply YAGNI — drop unnecessary features from every option.
 4. Present the design in sections as HTML in reply_to_user. Cover when relevant: goals, architecture, components, data flow, error handling, testing. Scale each section: a few sentences if simple, up to ~200–300 words if nuanced. Ask after EACH section whether it looks right; be ready to revise earlier sections.
@@ -45,7 +45,7 @@ WORKFLOW (in order):
    - Scope check: Is this focused enough for a single implementation plan, or does it need decomposition?
    - Ambiguity check: Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
    Fix issues in the array before calling save_design_spec. Optionally summarize fixes in one HTML reply_to_user.
-6. After full approval and self-review, call save_design_spec with the JSON array of HTML fragments (same rules as writer_apply_content).
+6. After full approval and self-review, call save_design_spec with the JSON array of HTML fragments (same rules as apply_content).
 7. User review gate: reply_to_user with HTML like: <p>I've saved the design spec at the end of your document. Please read it there and tell me if you want any changes before implementation.</p> Wait for the user's response. If they request changes, revise in chat, re-run self-review, and save again (target end or full_document as appropriate).
 8. Call reply_to_user with an HTML answer and brainstorming_finished=true when the user approves the written spec to transition to implementation (the main chat will then invoke the writing-plans / implementation plan skill). Set spec_saved=true if save_design_spec ran.
 
@@ -70,7 +70,7 @@ HTML RULES (CRITICAL):
 COMPLETION TOOLS:
 - reply_to_user: continue the brainstorming conversation (questions, design sections, summaries).
 - reply_to_user with brainstorming_finished=true: END the session after the spec is saved and the user has reviewed it in the document.
-- save_design_spec: the ONLY way to write to the document (never call writer_apply_content)."""
+- save_design_spec: the ONLY way to write to the document (never call apply_content)."""
 
 
 class BrainstormResearchWeb(ToolWriterSpecialBase, SubAgentResearchWebBase):
