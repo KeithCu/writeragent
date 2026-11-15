@@ -1320,11 +1320,14 @@ class CellManipulator:
                     formula_cells.append((col, row, formula))
                 data_row.append(data_val)
                 if cell_write.kind == "text" or cell_write.kind == "temporal":
-                    key = prior_keys.get((col, row), 0)
-                    if cell_write.kind == "text":
+                    # A failed group read leaves prior_keys empty. Text cells with no known key
+                    # are then not restored at all: writing General over a date column would be
+                    # worse than the stray @ Calc leaves on a few parseable strings.
+                    key = prior_keys.get((col, row))
+                    if cell_write.kind == "text" and key is not None:
                         s29_snapshots.append((col, row, key))
                     if cell_write.kind == "temporal":
-                        dest_cat = uno_read(lambda: categories.category(key), None)
+                        dest_cat = uno_read(lambda: categories.category(key if key is not None else 0), None)
                         dest_categories[(col, row)] = dest_cat
                         if dest_cat is None and col not in cols_needing:
                             cols_needing[col] = cell_write.input_category or ""

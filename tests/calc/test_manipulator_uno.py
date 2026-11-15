@@ -406,6 +406,9 @@ def test_s29_batched_restore_large_column_uno(ctx, doc):
     elapsed = time.perf_counter() - t0
     print(f"write_range 3000 text cells into a date column: {elapsed:.2f}s")
     assert res.get("status") == "ok", res
-    for row in (0, 9, 2999):
-        assert _cell_key(sheet, 0, row) == date_key, f"A{row + 1} lost its date key"
-    assert sheet.getCellByPosition(0, 0).getString() == "08/05/2026"
+    # Only the near-miss rows (every tenth) are rewritten to @ by Calc, so they are the ones that
+    # prove the restore reached the whole column; a note row is the no-op control.
+    lost = [row for row in range(0, 3000, 10) if _cell_key(sheet, 0, row) != date_key]
+    assert not lost, f"near-miss rows lost their date key: {lost[:5]} ({len(lost)} of 300)"
+    assert _cell_key(sheet, 0, 2999) == date_key, "A3000 (note row) lost its date key"
+    assert sheet.getCellByPosition(0, 2990).getString() == "08/05/2026"

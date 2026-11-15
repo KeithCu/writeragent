@@ -1068,6 +1068,21 @@ def test_commit_restore_skips_apostrophe_and_float_cells():
     container.setPropertyValue.assert_called_once_with("NumberFormat", 37)
 
 
+def test_commit_skips_restore_when_format_read_fails():
+    """A failed group read restores nothing: General must not be written over a date column."""
+    sheet = MagicMock()
+    sheet.getRangeAddress.return_value = SimpleNamespace(Sheet=0)
+    sheet.getCellRangeByPosition.return_value.getUniqueCellFormatRanges.side_effect = RuntimeError("no formats")
+    doc = MagicMock()
+
+    _commit_text_write(sheet, doc, ["08/05/2026", "note 1"], (1, 0))
+
+    sheet.getCellRangeByPosition.return_value.setDataArray.assert_called_once()
+    doc.createInstance.assert_not_called()
+    per_cell = sheet.getCellByPosition.return_value
+    assert not any(c.args and c.args[0] == "NumberFormat" for c in per_cell.setPropertyValue.call_args_list)
+
+
 def test_commit_skips_format_read_without_text_or_temporal_cells():
     """A pure float write never reads formats or restores anything."""
     sheet = MagicMock()
