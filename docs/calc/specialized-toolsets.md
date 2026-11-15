@@ -160,9 +160,7 @@ For testing and operations details, see the [Writer documentation](../writer/spe
 
 These ideas came out of an Opus review of the Calc prompts and tools in November 2026. They are recorded here so they are not forgotten. They are not scheduled work. Some are harder, or would be useful later, but they were deferred for the reasons below.
 
-- **Formula separators (review row 1).** The prompt repeats “use `;` not `,`” in several places, and smaller models still write Excel-style formulas such as `=IF(A1>0,"Y","N")`. One suggested fix is to accept both separators, either by parsing with `XFormulaParser` and the English/OOXML grammar, or by rewriting commas outside string literals, and to report `normalized_formula` in the result. Deferred because rewriting commas outside quotes breaks decimal-comma locales. The only safe path is to parse with the English-grammar `XFormulaParser`; that work is larger and is left for later.
-
-- **Locale date and number coercion (review rows 6 and 32, coercion half only).** Row 6 also suggested optionally parsing unambiguous locale date forms. Row 32 also suggested optionally coercing strings such as `1,5` based on the document locale. The warn-only half of those rows (report values that look like dates or numbers but were stored as text, with no conversion) is being handled separately. Coercion itself is deferred because guessing locale dates or numbers is risky.
+- **Locale date and number coercion (review rows 6 and 32, coercion half only).** Row 6 also suggested optionally parsing unambiguous locale date forms. Row 32 also suggested optionally coercing strings such as `1,5` based on the document locale. The warn-only half of those rows (report values that look like dates or numbers but were stored as text, with no conversion) shipped in PR 3560. Coercion itself is deferred because guessing locale dates or numbers is risky.
 
 - **Multi-key sort in one call (review row 14).** The prompt describes delegating, `has_header`, and two stable passes for multi-key sorts. The suggestion was to expose `keys:[{col, asc}]` (Calc’s sort descriptor already supports three or more keys) and to auto-detect the header row, reporting `header_detected`. Deferred because this overlaps the EVAL-PROMPT-AB sort work; revisit after that lands.
 
@@ -170,13 +168,11 @@ These ideas came out of an Opus review of the Calc prompts and tools in November
 
 - **Create-and-fill a sheet in one call (review row 16).** `sheet_create` currently creates an empty tab. The suggestion was to let sheet creation accept optional `source`/`values` so a new sheet can be created and filled in one call. Deferred as a low-priority API addition.
 
-- **Vision `task` parameter (review row 18).** The prompt says `task` is ignored for vision, but `task` is still required. The suggestion was to make `task` optional for that domain, or to split vision into its own tool with no `task` parameter. Deferred as a low-priority API addition.
-
 - **Infer image edits from the selection (review row 19).** The prompt has to say “instruct `image_generate(source_image=selection)`” for edits. The suggestion was to have the images domain infer img2img when an image is selected and the request is an edit. Deferred as a low-priority API addition.
 
 - **Render Markdown in the sidebar (review row 21).** The prompt demands HTML, not Markdown, and includes good/bad examples. The suggestion was to render or convert Markdown in the sidebar, which would remove a rule small models often break. Deferred because Markdown rendering in the sidebar is a big UI change.
 
-- **Auto-linkify cell references in chat (review row 22).** The prompt teaches `<a href=cell://B2>` links. The suggestion was to auto-linkify `A1` / `Sheet.A1` references in chat output. Deferred because auto-linkify needs UI work.
+Since this list was written, three rows were picked up and are no longer deferred: row 1 (PR 3592 adds a silent Excel-grammar fallback when parsing model-written formulas, while the prompt and read tools keep using Calc syntax), row 18 (PR 3596 drops `task` from the vision call and describes it only as running OCR on the selected image), and row 22 (PR 3589 auto-links plain cell references in Calc chat).
 
 Review row 35 is keep-as-is, with no work: undo only right after the model’s own mistake; don’t paste document data into a delegate task; color and polish remain judgment calls. Those are behaviour and user-experience rules, not API mechanics.
 
