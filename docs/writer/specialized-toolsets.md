@@ -180,6 +180,7 @@ The outcome of sub-agent delegation is evaluated by `apply_inner_outcome` (share
 - **`status: "error"`, `code: "SPECIALIZED_TOOL_ERROR"`**: One or more domain tools encountered errors that were never retried and resolved.
 - **`note`** (on `ok`, `incomplete`, or `error`): set to `"No document-editing tool ran during this delegation; the document is unchanged by it."` when an editing domain ran no `mutating` tool at all (e.g. read-only tools only, finish only, or stopped/errored before any edit). Note: tool mutation is based on the tool's declared `detects_mutation()` capability; a mutating tool that returns without changes counts as an editing attempt.
 - Every delegation payload except a pass-through error carries `domains` (the gateway's one domain as a one-element list; the python loop's requested list), built by `start_inner_payload`. Per-domain loop prompt sentences (footnotes, charts) come from `loop_hint` in `specialized_catalog.py` and are the same text in the gateway, the python inner loop, and MCP `find_tools`.
+- For `domain="shapes"` gateway delegations, every non-pass-through payload (`ok`, `incomplete`, and `error`) carries `shapes_created`, `connectors_created`, `shapes_changed`, and `shapes_deleted`, plus `pages`, `created_names`/`changed_names` (non-empty names only, capped at 40) and `warnings` when non-empty. These are read from the inner shape tools' own results (`summarize_shape_calls`). A user-stopped run is passed through without them, and the python `delegate_tool_domains` path does not report them.
 
 ---
 

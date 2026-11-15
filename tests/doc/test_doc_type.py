@@ -219,4 +219,14 @@ def test_doc_type_str_from_doc() -> None:
     assert doc_type_str_from_doc(_BrokenModel()) is None
 
 
+def test_uno_service_for_distinct_label() -> None:
+    from plugin.framework.doc_type import uno_service_for_distinct_label
+
+    assert uno_service_for_distinct_label("draw") == frozenset({_DRAW_SERVICE})
+    assert uno_service_for_distinct_label("impress") == frozenset({_IMPRESS_SERVICE})
+    assert uno_service_for_distinct_label(" Calc ") == frozenset({_CALC_SERVICE})
+    assert uno_service_for_distinct_label("unknown") == frozenset()
+    assert uno_service_for_distinct_label(None) == frozenset()
+
+
 

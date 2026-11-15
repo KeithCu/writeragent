@@ -72,6 +72,20 @@ def uno_services_for_doc_type_label(doc_type: str | None) -> frozenset[str]:
     return _LABEL_TO_UNO_SERVICES.get((doc_type or "").strip().lower(), frozenset())
 
 
+def uno_service_for_distinct_label(label: str | None) -> frozenset[str]:
+    """Return the single UNO service for a distinct doc-type label, or empty if unknown.
+
+    Unlike ``uno_services_for_doc_type_label``, ``"draw"`` here means a Draw document
+    (``DrawingDocument`` only), not the Draw/Impress family
+    (``sd/source/ui/unoidl/unomodel.cxx:SdXImpressDocument::getSupportedServiceNames``).
+    """
+    normalized = (label or "").strip().lower()
+    for service, row_label in _TYPE_ROWS.values():
+        if row_label == normalized:
+            return frozenset((service,))
+    return frozenset()
+
+
 def uno_services_for_document(model: Any, doc_type: str | None) -> frozenset[str]:
     """Return UNO services for tool filtering: main-thread probe when possible, else doc_type map."""
     from plugin.framework.queue_executor import main
