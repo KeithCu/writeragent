@@ -506,15 +506,16 @@ bookmark = _BookmarkProxy()
 class _CalcProxy:
     """Proxy for calc tools."""
 
-    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None) -> dict[str, Any]:
-        """Deletes rows or columns. Use for structural changes; prefer ranges for data operations.
+    def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None) -> dict[str, Any]:
+        """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas would turn into #REF! unless confirm=true.
 
         Args:
             structure_type (required): Type of structure to delete. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
             count (optional): Number to delete (default 1).
+            confirm (optional): Set true to delete even when formulas would turn into #REF!. Default false: such a delete is refused and nothing changes.
         """
-        return call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count)
+        return call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm)
 
     def get_sheet_summary(self, *, sheet: str | None = None) -> dict[str, Any]:
         """Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes.
@@ -525,7 +526,7 @@ class _CalcProxy:
         return call_host_tool("get_sheet_summary", sheet=sheet)
 
     def insert_cell_html(self, cell: str, html: str) -> dict[str, Any]:
-        """Parses HTML with the same filter as Writer and pastes rich text into one cell (e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) selects that sheet; otherwise the active sheet. Does not support images or embedded objects. Clears existing cell text. Use set_style (border_color, border_mode) for borders.
+        """Parses HTML with the same filter as Writer and pastes rich text into one cell (e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) selects that sheet; otherwise the active sheet. Does not support images or embedded objects. Replaces the cell's existing content (text, number or formula); replaced_text in the result shows what was there. Use set_style (border_color, border_mode) for borders.
 
         Args:
             cell (required): Single cell (e.g. "A1" or "Sheet2.A1").
@@ -538,7 +539,7 @@ class _CalcProxy:
 
         Args:
             structure_type (required): Type of structure to insert. One of: rows, columns.
-            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5).
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
             count (optional): Number to insert (default 1).
         """
         return call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count)
@@ -552,7 +553,7 @@ class _CalcProxy:
         return call_host_tool("list_calc_functions", filter=filter)
 
     def merge_cells(self, range_name: list[str], *, center: bool | None = None, unmerge: bool | None = None) -> dict[str, Any]:
-        """Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas.
+        """Merges the specified cell range(s). Typically used for main headers. The merged area shows the top-left cell's content; other cells keep their content (hidden, still counted by formulas) and are listed in hidden_cells. Write text with write_formula_range (before or after merging) into the top-left cell, and style with set_style. Refuses ranges overlapping an existing merge. Supports lists for non-contiguous areas.
 
         Args:
             range_name (required): Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).

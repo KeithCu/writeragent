@@ -29,7 +29,7 @@ from plugin.framework.i18n import _
 from plugin.framework.scratch_writer import clear_writer_body
 from plugin.framework.uno_context import create_property_value, get_desktop, get_service_manager
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface
+from plugin.calc.calc_utils import FORMULA, query_interface
 import plugin.writer.html_import as html_import
 
 log = logging.getLogger(__name__)
@@ -88,8 +88,8 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
         return
 
 
-def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) -> None:
-    """Replace one cell's text with rich content parsed from *html*.
+def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) -> str:
+    """Replace one cell's content with rich text parsed from *html*.
 
     *cell_address* may include a sheet prefix (resolved via CalcBridge).
 
@@ -97,6 +97,9 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
 
     Imports HTML using the same StarWriter HTML filter as Writer, then pastes
     into the target cell. Images and embedded objects are not supported.
+
+    Returns the cell's prior content (formula text when it held a formula,
+    otherwise its display string; ``""`` when empty).
     """
     global _keeper_loaded
     if not (html or "").strip():
@@ -104,6 +107,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
 
     # Cell addresses use the bridge so sheet prefixes resolve (same as other cell tools).
     cell = CalcBridge(doc).get_cell_by_address(cell_address.strip())
+    replaced = str(cell.getFormula()) if cell.getType() == FORMULA else str(cell.getString())
 
     content = html_std.unescape(html)
     prepared = html_import.ensure_html_linebreaks(content)
@@ -191,3 +195,4 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
             step = _step("close hidden Writer")
             best_effort(lambda: temp_doc.close(True), "temp Writer close failed")
             _keeper_loaded = False
+    return replaced

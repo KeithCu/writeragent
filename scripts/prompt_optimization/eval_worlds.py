@@ -15,6 +15,7 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 
+from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
     _parse_formula_or_values_string,
@@ -119,10 +120,8 @@ def restyle_html_needle(
 
 
 def a1_to_col_row(addr: str) -> tuple[int, int]:
-    """Parse A1 / Sheet1.C2 into 0-based (col, row)."""
-    text = (addr or "").strip()
-    if "." in text:
-        text = text.split(".")[-1]
+    """Parse A1 / Sheet1.C2 / 'My Sheet'!C2 into 0-based (col, row)."""
+    unused_sheet, text = split_sheet_prefix(addr or "")
     letters: list[str] = []
     digits: list[str] = []
     for ch in text:
@@ -149,10 +148,8 @@ def col_row_to_a1(col: int, row: int) -> str:
 
 
 def parse_a1_range(rng: str) -> tuple[int, int, int, int]:
-    """Return (c0, r0, c1, r1) inclusive from ``A1:H500`` or ``J1``."""
-    raw = (rng or "").strip()
-    if "." in raw:
-        raw = raw.split(".")[-1]
+    """Return (c0, r0, c1, r1) inclusive from ``A1:H500``, ``J1``, or sheet-qualified ranges."""
+    unused_sheet, raw = split_sheet_prefix(rng or "")
     start, end = (raw.split(":", 1) + [raw])[:2]
     c0, r0 = a1_to_col_row(start)
     c1, r1 = a1_to_col_row(end)
@@ -972,12 +969,14 @@ class CalcWorld:
                     num = float(str(raw).replace(",", "").replace("$", ""))
                     if math.isnan(num):
                         raise ValueError
-                    return (0, num if ascending else -num)
+                    # Match ScTable::CompareCell: numbers before strings ascending,
+                    # negated (strings before numbers) descending, empties always last.
+                    return (0 if ascending else 1, num if ascending else -num)
                 except (TypeError, ValueError):
                     text = str(raw).lower()
                     if ascending:
                         return (1, text)
-                    return (1, tuple(-ord(ch) for ch in text) + (1,))
+                    return (0, tuple(-ord(ch) for ch in text) + (1,))
 
             slices.sort(key=_key)
             after = [s[col_idx] for s in slices]

@@ -13,7 +13,7 @@ _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
-from eval_worlds import CalcWorld, DrawWorld, WriterWorld
+from eval_worlds import CalcWorld, DrawWorld, WriterWorld, parse_a1_range
 
 
 def test_html_apply_round_trip_heading_and_table() -> None:
@@ -96,7 +96,7 @@ def test_sort_two_pass_stable_device_before_widget() -> None:
     calc.range_sort(sort_column=0, ascending=True, has_header=True)
     calc.range_sort(sort_column=1, ascending=False, has_header=True)
     names = [row[0] for row in calc._grid[1:]]
-    assert names == ["Tool", "Device", "Widget", "Gadget", "Aardvark"]
+    assert names == ["Aardvark", "Tool", "Device", "Widget", "Gadget"]
 
 
 def test_calc_write_formula_range_rejects_length_mismatch() -> None:
@@ -265,3 +265,30 @@ def test_write_formula_range_does_not_json_parse_py_formula_with_brackets() -> N
     assert res["written"] == 1
     assert calc.formulas["C2"] == formula
     assert calc._grid[1][2] == formula
+
+
+def test_parse_a1_range_sheet_qualified_and_range_sort() -> None:
+    assert parse_a1_range("Sheet1!A1:B6") == (0, 0, 1, 5)
+    assert parse_a1_range("'My Sheet'!A1:B6") == (0, 0, 1, 5)
+    assert parse_a1_range("'Q1.Sales'!B2:C4") == (1, 1, 2, 3)
+
+    calc = CalcWorld("Item\tVal\nB\t20\nA\t10\nC\t30")
+    res = calc.range_sort(range=["'My Sheet'!A1:B4"], sort_column=1, ascending=True, has_header=True)
+    assert res["status"] == "ok"
+    assert "sorted ascending" in res["message"]
+    assert [row[0] for row in calc._grid[1:]] == ["A", "B", "C"]
+
+
+def test_range_sort_mixed_ascending() -> None:
+    calc = CalcWorld("Item\tVal\nalpha\tbeta\nnum10\t10\nempty\t\nnum2\t2\napple\tapple")
+    res = calc.range_sort(range=["A1:B6"], sort_column=1, ascending=True, has_header=True)
+    assert res["status"] == "ok"
+    assert [row[1] for row in calc._grid[1:]] == ["2", "10", "apple", "beta", ""]
+
+
+def test_range_sort_mixed_descending_with_empties() -> None:
+    calc = CalcWorld("Item\tVal\nnum2\t2\nempty1\t\napple\tapple\nnum10\t10\nbeta\tbeta\nempty2\t")
+    res = calc.range_sort(range=["A1:B7"], sort_column=1, ascending=False, has_header=True)
+    assert res["status"] == "ok"
+    assert [row[1] for row in calc._grid[1:]] == ["beta", "apple", "10", "2", "", ""]
+    assert [row[0] for row in calc._grid[1:]] == ["beta", "apple", "num10", "num2", "empty1", "empty2"]

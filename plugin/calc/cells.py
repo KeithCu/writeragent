@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Callable, ClassVar
-from plugin.framework.errors import ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, make_tool_ok
+from plugin.framework.errors import CalcError, Diagnostic, ToolExecutionError, WriterAgentException, format_error_payload, is_disposal, make_tool_ok
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -601,7 +601,8 @@ class InsertCellHtml(ToolBase):
         "Parses HTML with the same filter as Writer and pastes rich text into one cell "
         "(e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) "
         "selects that sheet; otherwise the active sheet. Does not support images or embedded objects. "
-        "Clears existing cell text. Use set_style (border_color, border_mode) for borders."
+        "Replaces the cell's existing content (text, number or formula); replaced_text in the result shows what was there. "
+        "Use set_style (border_color, border_mode) for borders."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -633,8 +634,11 @@ class InsertCellHtml(ToolBase):
         except ValueError as e:
             return self._tool_error(f"Invalid cell address: {e}", code="INVALID_PARAM")
 
-        insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
-        return make_tool_ok(message=f"Inserted rich HTML into cell {addr.upper()}.")
+        replaced = insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
+        fields: dict[str, Any] = {"message": f"Inserted rich HTML into cell {addr.upper()}."}
+        if replaced:
+            fields["replaced_text"] = replaced[:200] + "…" if len(replaced) > 200 else replaced
+        return make_tool_ok(**fields)
 
 
 class SetCellStyle(ToolBase):
@@ -745,7 +749,14 @@ class MergeCells(ToolBase):
     """Merge a cell range."""
 
     name: str | None = "merge_cells"
-    description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
+    description: str = (
+        "Merges the specified cell range(s). Typically used for main headers. "
+        "The merged area shows the top-left cell's content; other cells keep their content "
+        "(hidden, still counted by formulas) and are listed in hidden_cells. "
+        "Write text with write_formula_range (before or after merging) into the top-left cell, "
+        "and style with set_style. Refuses ranges overlapping an existing merge. "
+        "Supports lists for non-contiguous areas."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -763,11 +774,49 @@ class MergeCells(ToolBase):
         center: bool = kwargs.get("center", True)
         unmerge: bool = kwargs.get("unmerge", False)
 
-        def _apply_merge(r: Any) -> str:
-            manipulator.merge_cells(r, center=center, unmerge=unmerge)
+        def _apply_merge(r: Any) -> dict[str, Any]:
+            outcome = manipulator.merge_cells(r, center=center, unmerge=unmerge)
             if unmerge:
-                return f"Unmerged cells {r}"
-            return f"Merged cells {r}"
+                return {"message": f"Unmerged cells {r}"}
+            if not outcome.merged:
+                raise CalcError(
+                    f"Calc did not merge {r}: it overlaps an existing merged area or the sheet is protected. "
+                    "Unmerge the existing area first (merge_cells unmerge=true) or choose a range that does not overlap it.",
+                    code="INVALID_PARAM",
+                )
+            res: dict[str, Any] = {"message": f"Merged cells {r}"}
+            if outcome.hidden_count:
+                res["hidden_count"] = outcome.hidden_count
+                res["hidden_cells"] = outcome.hidden_cells
+            return res
+
+        def _format_merge(results: list[dict[str, Any]]) -> dict[str, Any]:
+            msg = (
+                results[0]["message"]
+                if len(results) == 1
+                else f"{'Unmerged' if unmerge else 'Merged'} cells in {len(results)} ranges"
+            )
+            hidden_count = sum(r.get("hidden_count", 0) for r in results)
+            hidden_cells: list[str] = []
+            for r in results:
+                hidden_cells.extend(r.get("hidden_cells", ()))
+            fields: dict[str, Any] = {"message": msg}
+            warnings: list[Diagnostic] = []
+            if hidden_count:
+                fields["hidden_count"] = hidden_count
+                fields["hidden_cells"] = hidden_cells
+                warnings.append(
+                    Diagnostic(
+                        code="MERGE_HIDES_CONTENT",
+                        message=(
+                            f"{hidden_count} cell(s) besides the top-left still hold content "
+                            "(see hidden_cells). The merge hides it but keeps it, and "
+                            'formulas still read it. Clear those cells with write_formula_range (values "") '
+                            "if it should be gone, or write it into the top-left cell."
+                        ),
+                    )
+                )
+            return make_tool_ok(warnings=warnings, **fields)
 
         return _mutate_ranges(
             self,
@@ -775,7 +824,7 @@ class MergeCells(ToolBase):
             rn,
             "WriterAgent: Merge cells",
             _apply_merge,
-            f"Merged cells in {len(rn)} ranges",
+            format_result=_format_merge,
         )
 
 
@@ -834,6 +883,12 @@ class SortRange(ToolCalcRangeBase):
         )
 
 
+_STRUCTURE_START_DESCRIPTION = (
+    'For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). '
+    "Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet."
+)
+
+
 class _StructureTool(ToolBase):
     """Base for row/column insert and delete tools.
 
@@ -862,10 +917,14 @@ class _StructureTool(ToolBase):
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         sheet = bridge.get_sheet(sheet_prefix) if sheet_prefix is not None else None
-        mutate = manipulator.insert_structure if self.insert else manipulator.delete_structure
         try:
             assert start is not None
-            return make_tool_ok(message=mutate(structure_type, start, count=count, sheet=sheet))
+            if self.insert:
+                result = manipulator.insert_structure(structure_type, start, count=count, sheet=sheet)
+            else:
+                confirm = kwargs.get("confirm", False) is True
+                result = manipulator.delete_structure(structure_type, start, count=count, sheet=sheet, confirm=confirm)
+            return make_tool_ok(**result)
         except Exception as e:
             # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
             if is_disposal(e) or isinstance(e, WriterAgentException):
@@ -878,13 +937,20 @@ class DeleteStructure(_StructureTool):
 
     insert: ClassVar[bool] = False
     name: str | None = "delete_structure"
-    description: str = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
+    description: str = (
+        "Deletes rows or columns. Use for structural changes; prefer ranges for data operations. "
+        "Refused (nothing deleted) when formulas would turn into #REF! unless confirm=true."
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
-            "start": {"type": ["integer", "string"], "description": ('For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C").')},
+            "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
             "count": {"type": "integer", "description": "Number to delete (default 1)."},
+            "confirm": {
+                "type": "boolean",
+                "description": "Set true to delete even when formulas would turn into #REF!. Default false: such a delete is refused and nothing changes.",
+            },
         },
         "required": ["structure_type", "start"],
     }
@@ -900,7 +966,7 @@ class InsertStructure(_StructureTool):
         "type": "object",
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
-            "start": {"type": ["integer", "string"], "description": ('For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5).')},
+            "start": {"type": ["integer", "string"], "description": _STRUCTURE_START_DESCRIPTION},
             "count": {"type": "integer", "description": "Number to insert (default 1)."},
         },
         "required": ["structure_type", "start"],

@@ -59,6 +59,7 @@ from plugin.calc.address_utils import (
     qualify_a1,
 )
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
+from plugin.calc.bridge import is_agent_visible_sheet
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
 from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_fill import expand_single_formula
@@ -73,7 +74,9 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
+from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.framework.errors import CalcError, Diagnostic, WriterAgentException, best_effort, is_disposal, suggest_call, uno_read
+from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_ctx
@@ -85,6 +88,7 @@ MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
 _MAX_REPORTED_CELLS = 10
+_CELL_FLAG_FORMULA = 16  # com.sun.star.sheet.CellFlags.FORMULA
 # Per-range write-report keys merged by multi-range callers.
 WRITE_REPORT_KEYS: tuple[str, ...] = ("error_cells", "text_that_looks_numeric", "apostrophe_removed", "warnings")
 _PY_PLACEMENT_SCAN_COLS = 26
@@ -105,6 +109,79 @@ class _CommitResult(NamedTuple):
     categories: NumberFormatCategories
     cols_needing: dict[int, str]
     py_warning: str
+
+
+class MergeOutcome(NamedTuple):
+    merged: bool
+    hidden_count: int
+    hidden_cells: list[str]
+
+
+class _DeleteHeldBack(Exception):
+    """Internal sentinel that rolls back a delete that would break formulas.
+
+    Using a private sentinel ensures that only this refusal becomes
+    ``REFS_WOULD_BREAK``, while UNO and disposal errors from ``removeByIndex``
+    keep propagating unchanged.
+    """
+
+
+def _ref_formula_cells(doc: Any) -> set[tuple[str, int, int]]:
+    """Return ``(sheet_name, col, row)`` for every formula cell containing ``#REF!`` on visible sheets.
+
+    ``getFormulaArray`` formats formulas with the English API grammar
+    (``sc/source/ui/unoobj/cellsuno.cxx``, ``lcl_GetInputString``), so ``#REF!``
+    is locale-independent.
+    """
+    refs: set[tuple[str, int, int]] = set()
+    sheets = doc.getSheets()
+    for sheet_idx in range(sheets.getCount()):
+        sheet = sheets.getByIndex(sheet_idx)
+        name = str(sheet.getName())
+        if not is_agent_visible_sheet(name):
+            continue
+        formula_ranges = sheet.queryContentCells(_CELL_FLAG_FORMULA)
+        for ra in formula_ranges.getRangeAddresses():
+            sc, sr, ec, er = int(ra.StartColumn), int(ra.StartRow), int(ra.EndColumn), int(ra.EndRow)
+            formulas = sheet.getCellRangeByPosition(sc, sr, ec, er).getFormulaArray()
+            for r_off, row in enumerate(formulas):
+                for c_off, text in enumerate(row):
+                    if isinstance(text, str) and "#REF!" in text:
+                        refs.add((name, sc + c_off, sr + r_off))
+    return refs
+
+
+def _surviving_ref_cells(
+    cells: set[tuple[str, int, int]],
+    sheet_name: str,
+    rows: bool,
+    index: int,
+    count: int,
+) -> set[tuple[str, int, int]]:
+    """Map pre-delete ``#REF!`` coordinates to their post-delete positions.
+
+    A ``#REF!`` that existed before the delete moves with its row or column
+    and must not be counted as newly broken.
+    """
+    surviving: set[tuple[str, int, int]] = set()
+    end = index + count
+    for s_name, col, row in cells:
+        if s_name != sheet_name:
+            surviving.add((s_name, col, row))
+            continue
+        pos = row if rows else col
+        if index <= pos < end:
+            continue
+        shifted = pos - count if pos >= end else pos
+        surviving.add((s_name, col, shifted) if rows else (s_name, shifted, row))
+    return surviving
+
+
+def _structure_index(structure_type: str, start: Any) -> int:
+    """Return the 0-based row or column index for *start*."""
+    if structure_type == "rows":
+        return int(start) - 1
+    return column_to_index(str(start).upper())
 
 
 class _CellWrite(NamedTuple):
@@ -651,9 +728,8 @@ class CellManipulator:
         if start_col > c1 or start_row > r1:
             return
 
-        # Only formula cells can belong to an array, so probe just those
-        # (CellFlags.FORMULA = 16) instead of every cell: a big clear stays cheap.
-        formula_ranges = sheet.getCellRangeByPosition(start_col, start_row, c1, r1).queryContentCells(16)
+        # Only formula cells can belong to an array, so probe just those instead of every cell: a big clear stays cheap.
+        formula_ranges = sheet.getCellRangeByPosition(start_col, start_row, c1, r1).queryContentCells(_CELL_FLAG_FORMULA)
         contained: list[Any] = []
         for fa in formula_ranges.getRangeAddresses():
             for r in range(fa.StartRow, fa.EndRow + 1):
@@ -824,8 +900,8 @@ class CellManipulator:
         cell_range.clearContents(23)
         log.info("Range %s cleared.", range_str.upper())
 
-    def merge_cells(self, range_str: str, center: bool = True, *, unmerge: bool = False) -> None:
-        """Merge a cell range.
+    def merge_cells(self, range_str: str, center: bool = True, *, unmerge: bool = False) -> MergeOutcome:
+        """Merge or unmerge a cell range.
 
         Args:
             range_str: Cell range to merge (e.g. "A1:D1").
@@ -833,16 +909,45 @@ class CellManipulator:
             unmerge: When true, split the range instead of merging (center is skipped).
         """
         cell_range = self.bridge.resolve_range_or_address(range_str)
-        # merge(False) splits the range, so unmerge=True passes False.
-        cell_range.merge(not unmerge)
         if unmerge:
+            # merge(False) splits the range, so unmerge=True passes False.
+            cell_range.merge(False)
             log.info("Range %s unmerged.", range_str.upper())
-            return
-        log.info("Range %s merged.", range_str.upper())
+            return MergeOutcome(True, 0, [])
 
+        addr = _uno_range_address(cell_range)
+        sc, sr, ec, er = int(addr.StartColumn), int(addr.StartRow), int(addr.EndColumn), int(addr.EndRow)
+        sheet = cell_range.getSpreadsheet()
+        occupied = _occupied_cells(sheet, sc, sr, ec, er, skip=[(sc, sr, sc, sr)])
+
+        # ScCellRangeObj::merge (sc/source/ui/unoobj/cellsuno.cxx) passes bContents=false
+        # to ScDocFunc::MergeCells (sc/source/ui/docshell/docfunc.cxx), so non-top-left
+        # cells keep their content (hidden, still counted by formulas).
+        cell_range.merge(True)
+
+        # ScCellRangeObj::merge ignores the bool returned by ScDocFunc::MergeCells when
+        # the range overlaps an existing merge or is protected, so check the resulting
+        # merged area on the top-left cell. getIsMerged() is not used because it returns
+        # True when the range merely contains a smaller merge.
+        cur = sheet.createCursorByRange(sheet.getCellRangeByPosition(sc, sr, sc, sr))
+        cur.collapseToMergedArea()
+        merged_addr = _uno_range_address(cur)
+        if (
+            int(merged_addr.StartColumn),
+            int(merged_addr.StartRow),
+            int(merged_addr.EndColumn),
+            int(merged_addr.EndRow),
+        ) != (sc, sr, ec, er):
+            return MergeOutcome(False, 0, [])
+
+        log.info("Range %s merged.", range_str.upper())
         if center:
             cell_range.setPropertyValue("HoriJustify", CENTER)
             cell_range.setPropertyValue("VertJustify", _VERT_JUSTIFY["center"])
+
+        sheet_name = str(sheet.getName())
+        hidden_cells = [qualify_a1(sheet_name, format_address(c, r)) for c, r in occupied[:_MAX_REPORTED_CELLS]]
+        return MergeOutcome(True, len(occupied), hidden_cells)
 
     def range_sort(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
         """Sort a range.
@@ -1750,41 +1855,115 @@ class CellManipulator:
         *,
         insert: bool,
         sheet: Any | None = None,
-    ) -> str:
+    ) -> dict[str, Any]:
         # The tool schema and the tool's assert restrict structure_type to "rows" or "columns".
         target = sheet if sheet is not None else self.bridge.get_active_sheet()
         assert target is not None
+        name = str(target.getName())
+        index = _structure_index(structure_type, start)
         if structure_type == "rows":
             rows = target.getRows()
-            index = start - 1
             if insert:
                 rows.insertByIndex(index, count)
             else:
                 rows.removeByIndex(index, count)
             kind, where = "row", start
         else:
-            where = start.upper()
+            where = str(start).upper()
             kind = "column"
             cols = target.getColumns()
-            index = column_to_index(where)
             if insert:
                 cols.insertByIndex(index, count)
             else:
                 cols.removeByIndex(index, count)
         if insert:
-            log.info("%d %s(s) inserted starting at %s %s.", count, kind, kind, where)
-            return f"{count} {kind}(s) inserted starting at {kind} {where}."
-        log.info("%d %s(s) deleted starting from %s %s.", count, kind, kind, where)
-        return f"{count} {kind}(s) deleted starting from {kind} {where}."
+            msg = f"{count} {kind}(s) inserted starting at {kind} {where} on sheet {name}."
+            log.info("%s", msg)
+            return {"message": msg, "sheet": name}
+        msg = f"{count} {kind}(s) deleted starting from {kind} {where} on sheet {name}."
+        log.info("%s", msg)
+        return {"message": msg, "sheet": name}
 
     def delete_structure(
-        self, structure_type: str, start: Any, count: int = 1, *, sheet: Any | None = None
-    ) -> str:
-        """Delete rows or columns."""
-        return self._structure_mutate(structure_type, start, count, insert=False, sheet=sheet)
+        self,
+        structure_type: str,
+        start: Any,
+        count: int = 1,
+        *,
+        sheet: Any | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """Delete rows or columns, refusing when formulas would turn into ``#REF!`` unless *confirm* is true."""
+        target = sheet if sheet is not None else self.bridge.get_active_sheet()
+        assert target is not None
+        name = str(target.getName())
+        index = _structure_index(structure_type, start)
+        rows = structure_type == "rows"
+        doc = self.bridge.doc
+        before = _ref_formula_cells(doc)
+        title = _("WriterAgent: Delete rows or columns")
+        # UNO has no dry run for row/column removal (sc/source/ui/unoobj/cellsuno.cxx),
+        # and predicting breaks across relative refs, names, 3-D refs, and INDIRECT
+        # is far more code than deleting inside an undo group and rolling back.
+        group = UndoStepOrRollback(doc, title)
+        result: dict[str, Any] = {}
+        broken: list[tuple[str, int, int]] = []
+        try:
+            with group:
+                result = self._structure_mutate(structure_type, start, count, insert=False, sheet=target)
+                after = _ref_formula_cells(doc)
+                # Subtract shifted pre-existing #REF! cells so they are not reported as newly broken.
+                broken = sorted(
+                    after - _surviving_ref_cells(before, name, rows, index, count),
+                    key=lambda t: (t[0], t[2], t[1]),
+                )
+                if broken and not confirm:
+                    raise _DeleteHeldBack()
+        except _DeleteHeldBack:
+            pass
+
+        if broken:
+            n = len(broken)
+            sample = [qualify_a1(s, format_address(c, r)) for s, c, r in broken[:_MAX_REPORTED_CELLS]]
+            if not confirm:
+                if group.rolled_back:
+                    um = doc.getUndoManager()
+                    # Without clearing this redo entry, Ctrl+Y would perform the deletion that
+                    # was just refused.
+                    if um is not None and tuple(um.getAllRedoActionTitles() or ())[:1] == (title,):
+                        best_effort(um.clearRedo, "clearRedo after held-back delete failed")
+                    raise CalcError(
+                        f"Deleting {count} {structure_type} on sheet {name} would turn {n} formula cell(s) "
+                        f"into #REF! (broken_cells lists {', '.join(sample)}). Nothing was deleted. "
+                        "Tell the user which formulas would break; call delete_structure again with confirm=true "
+                        "only if they still want it.",
+                        code="REFS_WOULD_BREAK",
+                        details={"sheet": name, "refs_broken": n, "broken_cells": sample},
+                    )
+                if group.rollback_error is not None:
+                    raise CalcError(
+                        f"Rollback failed after refusing to delete {count} {structure_type} on sheet {name}; "
+                        f"the deletion may remain in the document ({group.rollback_error}).",
+                        code="ROLLBACK_FAILED",
+                        details={"sheet": name, "refs_broken": n, "broken_cells": sample},
+                    )
+            result["refs_broken"] = n
+            result["broken_cells"] = sample
+            undo_note = (
+                "One Ctrl+Z undoes the deletion."
+                if group.entered
+                else "Undo was unavailable, so the deletion could not be held for confirmation."
+            )
+            result["warnings"] = [
+                Diagnostic(
+                    code="REFS_BROKEN",
+                    message=f"{n} formula cell(s) now show #REF! ({', '.join(sample)}). {undo_note}",
+                )
+            ]
+        return result
 
     def insert_structure(
         self, structure_type: str, start: Any, count: int = 1, *, sheet: Any | None = None
-    ) -> str:
+    ) -> dict[str, Any]:
         """Insert empty rows or columns."""
         return self._structure_mutate(structure_type, start, count, insert=True, sheet=sheet)
