@@ -452,9 +452,8 @@ class WriteCellRange(ToolBase):
                 "items": {"type": "string"},
                 "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"]). Use a dot for other sheets (Sheet1.B2), never Excel Sheet1!B2. Sheet prefixes target that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
             },
-            # The fill-down rule lives only on this values description: one formula string fills
-            # the range with shifted refs, while a JSON array of copied =B2*… writes
-            # each string as given, so every row keeps the first ref.
+            # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
+            # first ref) live only here; read_cell_range's description and hint just point here.
             # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
             # keeps real unions (same pattern as apply_document_content content).
             "values": {
