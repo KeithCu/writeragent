@@ -496,7 +496,8 @@ def make_tool_ok(
     (conventionally ``message`` first when the tool has one), then attaches
     ``warnings`` (only when non-empty) and ``suggested_call`` (only when set).
     Absent keys mean nothing to report; empty lists would cost tokens on every
-    call. ``status``, ``code``, and ``details`` are reserved because ``code``
+    call, and callers and MCP clients read ``.get("warnings", [])``. ``status``,
+    ``code``, and ``details`` are reserved because ``code``
     and ``details`` mark an error payload and readers checking ``res.get("code")``
     must never see one on a success. Later write reports (``cells_changed``,
     ``error_cells``, ``spill_range``, ...) are passed as plain keyword fields.

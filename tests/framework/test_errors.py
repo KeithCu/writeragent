@@ -1138,16 +1138,33 @@ def test_calc_tool_success_results_use_make_tool_ok():
             continue
         tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Dict):
-                continue
-            for key_node, val_node in zip(node.keys, node.values):
-                if (
-                    isinstance(key_node, ast.Constant)
-                    and key_node.value == "status"
-                    and isinstance(val_node, ast.Constant)
-                    and val_node.value == "ok"
-                ):
-                    rel = py_file.relative_to(repo_root)
-                    offenders.append(f"{rel}:{node.lineno}")
+            if isinstance(node, ast.Dict):
+                for key_node, val_node in zip(node.keys, node.values):
+                    if (
+                        isinstance(key_node, ast.Constant)
+                        and key_node.value == "status"
+                        and isinstance(val_node, ast.Constant)
+                        and val_node.value == "ok"
+                    ):
+                        rel = py_file.relative_to(repo_root)
+                        offenders.append(f"{rel}:{node.lineno}")
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict":
+                for kw in node.keywords:
+                    if kw.arg == "status" and isinstance(kw.value, ast.Constant) and kw.value.value == "ok":
+                        rel = py_file.relative_to(repo_root)
+                        offenders.append(f"{rel}:{node.lineno}")
+            elif (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Constant)
+                and node.value.value == "ok"
+            ):
+                for target in node.targets:
+                    if (
+                        isinstance(target, ast.Subscript)
+                        and isinstance(target.slice, ast.Constant)
+                        and target.slice.value == "status"
+                    ):
+                        rel = py_file.relative_to(repo_root)
+                        offenders.append(f"{rel}:{node.lineno}")
 
     assert offenders == [], f"Found raw status='ok' dicts in Calc modules: {offenders}"
