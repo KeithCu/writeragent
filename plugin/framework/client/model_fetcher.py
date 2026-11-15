@@ -182,7 +182,9 @@ def _row_vision_flag(row: dict[str, Any]) -> bool | None:
     wins; a non-list top-level ``input_modalities`` blocks the nested fallback.
     An empty list is a statement (False); a missing field is not (None).
     A non-dict architecture is treated as field absent. Otherwise
-    ``capabilities.vision`` is used when it is a ``bool``.
+    ``capabilities.vision`` (Mistral, LM Studio) or
+    ``capabilities.image_input.supported`` (Anthropic) is used when it is a
+    ``bool``.
     """
     arch = row.get("architecture")
     nested = None
@@ -198,6 +200,11 @@ def _row_vision_flag(row: dict[str, Any]) -> bool | None:
         vision = caps.get("vision")
         if isinstance(vision, bool):
             return vision
+        image_input = caps.get("image_input")
+        if isinstance(image_input, dict):
+            supported = image_input.get("supported")
+            if isinstance(supported, bool):
+                return supported
     return None
 
 
@@ -205,7 +212,8 @@ def _vision_declarations_from_v1_entries(entries: list[Any]) -> dict[str, bool]:
     """id -> image input, only for rows that state vision support.
 
     Supports OpenRouter/Together/DeepSeek/xAI ``input_modalities``, Mistral and
-    LM Studio ``capabilities.vision``, and ``aliases`` lists (Mistral/xAI).
+    LM Studio ``capabilities.vision``, Anthropic
+    ``capabilities.image_input.supported``, and ``aliases`` lists (Mistral/xAI).
     Omitted fields are not entries; callers must not treat a missing id as an
     explicit no.
     """
@@ -1102,7 +1110,7 @@ def _vision_support_key(endpoint: Any, model_id: Any) -> str:
 
 
 # Providers whose GET /v1/models rows state image input (fetch_available_models fills the memo).
-_VISION_FROM_V1_MODELS: frozenset[str] = frozenset({"openrouter", "together", "mistral", "deepseek"})
+_VISION_FROM_V1_MODELS: frozenset[str] = frozenset({"openrouter", "together", "mistral", "deepseek", "anthropic"})
 
 
 def _vision_list_url(provider: str | None, endpoint: str) -> str:
@@ -1222,18 +1230,19 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     1. Empty model_id -> False.
     2. Persistent user config (``vision_support_map`` under ``_vision_support_key``),
        including explicit False.
-    3. Static default models list (``ModelCapability.VISION``).
-    4. Warm in-process provider memo (OpenRouter, Together, Mistral and
-       DeepSeek via ``/v1/models``, xAI via ``/v1/language-models``, LM Studio
-       via ``/api/v1/models``, and Ollama via ``/api/show``).
-    5. Cold memo for those providers: on the UI thread
+    3. Warm in-process provider memo (OpenRouter, Together, Mistral, DeepSeek,
+       and Anthropic via ``/v1/models``, xAI via ``/v1/language-models``, LM
+       Studio via ``/api/v1/models``, and Ollama via ``/api/show``).
+    4. Cold memo for those providers: on the UI thread
        (``main.is_current()``) never fetch; schedule one background lookup and
        fall through. Off the UI thread, fetch inline and re-read the memo.
        Answers live only in those process memos; a failed fetch stores
        nothing, so the next check tries again.
-    6. A catalog row without VISION means False.
-    7. ``PROVIDER_VISION`` for provider-wide facts (Anthropic, Google), else
-       None. No name heuristics.
+    5. Static default models list (``DEFAULT_MODELS``): fallback only when the
+       API fetch failed or the provider has no vision API. ``ModelCapability.VISION``
+       -> True; else if ``PROVIDER_VISION`` has the provider -> that value; else
+       a catalog row without VISION -> False.
+    6. Else None. No name heuristics.
     """
     if not model_id:
         return False
@@ -1245,17 +1254,11 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     if isinstance(cache, dict) and support_key in cache:
         return as_bool(cache[support_key])
 
-    # 3. Static Default Models check
     raw_ep = endpoint if isinstance(endpoint, str) else ""
     endpoint_str = normalize_endpoint_url(raw_ep)
-    caps = get_model_capability(model_id_str, endpoint_str)
-    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
-    if caps & ModelCapability.VISION:
-        return True
-
     provider = get_provider_from_endpoint(endpoint_str)
 
-    # 4. Warm in-process memo. 5. Cold: the UI thread schedules, a worker fetches.
+    # 3. Warm in-process memo. 4. Cold: the UI thread schedules, a worker fetches.
     warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)
     if not warm:
         if main.is_current():
@@ -1272,11 +1275,21 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     if answer is not None:
         return answer
 
-    # 6. A catalog row without VISION is a no.
-    if caps != ModelCapability.NONE:
+    # 5. Static Default Models fallback (API fetch failed or provider has no vision API).
+    caps = get_model_capability(model_id_str, endpoint_str)
+    log.debug("has_native_vision: model=%r endpoint_str=%r caps=%r catalog_vision=%s", model_id_str, endpoint_str, caps, bool(caps & ModelCapability.VISION))
+    if caps & ModelCapability.VISION:
+        return True
+    # 6. Provider-wide facts before catalog text-only so shared rows (e.g. Gemini)
+    # that dropped VISION for OpenRouter still resolve via PROVIDER_VISION["google"].
+    if provider and provider in PROVIDER_VISION:
+        return PROVIDER_VISION[provider]
+    # Live-vision providers drop VISION from DEFAULT_MODELS, so a catalog row
+    # without VISION on those providers means "not in catalog for vision", not False.
+    has_live_api = bool(provider in _VISION_FROM_V1_MODELS or provider == "ollama" or _vision_list_url(provider, raw_ep))
+    if not has_live_api and caps != ModelCapability.NONE:
         return False
-    # 7. Provider-wide facts, else unknown.
-    return PROVIDER_VISION.get(provider) if provider else None
+    return None
 
 
 def set_native_vision_support(model_id: Any, endpoint: Any, supported: bool) -> None:

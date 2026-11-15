@@ -46,10 +46,10 @@ Status as of PR #364 and related multimodal work. Code paths below are live; do 
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → `DEFAULT_MODELS` `ModelCapability.VISION` (defaults only) → in-process provider memos (OpenRouter/Together/DeepSeek `input_modalities` and Mistral `capabilities.vision` from `/v1/models`, xAI `input_modalities` from `/v1/language-models`, LM Studio `capabilities.vision` from `/api/v1/models`, Ollama `POST /api/show`) → catalog row without `VISION` (False) → `PROVIDER_VISION` (Anthropic, Google) → None. The UI thread never fetches: it schedules background resolution and returns None (unknown). Off the UI thread, a cold memo fetches inline. Stored config answers are read but never written by lookups (in-process memo only; `set_native_vision_support` writes only for user settings / image error recovery). Callers attach images on `is True` and hide `get_image` on `is False`. No name heuristics. |
+| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → in-process provider memos (OpenRouter/Together/DeepSeek `input_modalities`, Mistral `capabilities.vision`, and Anthropic `capabilities.image_input.supported` from `/v1/models`; xAI `input_modalities` from `/v1/language-models`; LM Studio `capabilities.vision` from `/api/v1/models`; Ollama `POST /api/show`) → `DEFAULT_MODELS` / `PROVIDER_VISION` fallback when API fetch failed or provider has no vision API (`ModelCapability.VISION` → True, `PROVIDER_VISION` Google → True, catalog row without `VISION` → False) → None. The UI thread never fetches: it schedules background resolution and returns None (unknown). Off the UI thread, a cold memo fetches inline. Stored config answers are read but never written by lookups (in-process memo only; `set_native_vision_support` writes only for user settings / image error recovery). Callers attach images on `is True` and hide `get_image` on `is False`. No name heuristics. |
 | `set_native_vision_support(model_id, endpoint, supported)` | same | Persists to `vision_support_map` |
 | `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe (shared cache also keeps runtime `num_ctx` for the #570 crash sentence; never trained `model_info["*.context_length"]`) |
-| Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | e.g. Gemini 3.1 Flash Lite, Mistral Large 3 declare `ModelCapability.VISION` |
+| Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | Minimal fallback only for providers whose `/models` API does not report vision (Groq `qwen/qwen3.8-27b`, Z.ai `glm-5.3-flash`, `glm-5.3-flashx`) |
 
 **Doc correction:** `has_native_vision` takes `(model_id, endpoint)` — **not** `ctx`. Callers use `get_text_model()` and `get_current_endpoint()` (no component context on the config path).
 
@@ -185,21 +185,23 @@ Priority order for `has_native_vision(model_id, endpoint)`:
 
 1. **Empty model id** → `False`.
 2. **Persistent user config cache** — `vision_support_map` (`{ "endpoint@model": true/false }`).
-3. **Static catalog** — `DEFAULT_MODELS` entries with `ModelCapability.VISION` → `True`.
-4. **Dynamic provider metadata (warm memo or cold fetch):**
-   - OpenRouter / Together / DeepSeek (`input_modalities`) and Mistral (`capabilities.vision`) from `/v1/models`.
+3. **Dynamic provider metadata (warm memo or cold fetch):**
+   - OpenRouter / Together / DeepSeek (`input_modalities`), Mistral (`capabilities.vision`), and Anthropic (`capabilities.image_input.supported`) from `/v1/models`.
    - xAI (`input_modalities` + `aliases`) from `/v1/language-models`.
    - LM Studio (`capabilities.vision`, keyed by `key`) from `/api/v1/models`.
    - Ollama: `POST /api/show` → `capabilities` contains `"vision"`.
    Lookups check warm in-process memos without I/O. When cold, calls on the UI thread never fetch; they schedule a background lookup and return `None` (unknown). Calls off the UI thread fetch inline. Lookups never persist provider answers to `vision_support_map`.
-5. **Static catalog without vision** — returns `False` when catalogued text-only (`caps != ModelCapability.NONE`).
-6. **Provider-wide defaults (`PROVIDER_VISION`)** — `True` for `anthropic` and `google`, else `None`. No name heuristics.
+4. **Static catalog and provider-wide defaults** (fallback only when the API fetch failed or the provider has no vision API):
+   - `DEFAULT_MODELS` entries with `ModelCapability.VISION` → `True` (Groq / Z.ai).
+   - `PROVIDER_VISION` → `True` for `google`.
+   - Catalog row without `VISION` (`caps != ModelCapability.NONE`) → `False`.
+   - Else `None`. No name heuristics.
 
 `get_image` is hidden only on `is False` and images are attached only on `is True` because a UI-thread `None` is transient while a cold lookup runs in the background.
 
 | Provider | Field | List URL | Smart default |
 |---|---|---|---|
-| Anthropic (`anthropic`) | — | — | `PROVIDER_VISION` (`True`) |
+| Anthropic (`anthropic`) | `capabilities.image_input.supported` | `GET /v1/models` | Live lookup |
 | Google Gemini (`google`) | — | — | `PROVIDER_VISION` (`True`) |
 | OpenRouter (`openrouter`) | `architecture.input_modalities` | `GET /v1/models` | Live lookup |
 | Together (`together`) | `input_modalities` | `GET /v1/models` | Live lookup |
