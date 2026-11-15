@@ -341,9 +341,10 @@ def test_table_merge_cells_keeps_nested_table_uno(ctx, doc):
     text.insertTextContent(text.getEnd(), outer, False)
     outer.setName("Outer")
     host = outer.getCellByName("B2")
+    host.setString("host")
     inner = doc.createInstance("com.sun.star.text.TextTable")
     inner.initialize(1, 1)
-    host.insertTextContent(host.getStart(), inner, False)
+    host.insertTextContent(host.getEnd(), inner, False)
     inner.setName("Inner")
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
