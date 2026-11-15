@@ -218,7 +218,9 @@ def _catalog_lead(domains: list[str]) -> str:
     return (
         "python_run_script has access to the following APIs you can call from within it. "
         "Only the Python script may call these wa.* functions; they are not additional LLM tool names. "
-        "Inside the script, import writeragent as wa and call the listed APIs."
+        "Inside the script, import writeragent as wa and call the listed APIs. "
+        "Each call returns a dict whose keys also read as attributes (result.text or result['text']); "
+        "a tool error raises RuntimeError with .code; results carry no ok status key."
         f"{example} "
         "Call wa.help() to list namespaces or wa.help('namespace.method') for signatures and arguments. "
         "When the work is bulk or scripted, do that domain work in one python_run_script."

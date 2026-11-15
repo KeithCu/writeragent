@@ -99,8 +99,8 @@ def test_generate_module_output_is_valid_python():
     compile(code, "<generated>", "exec")
     
     assert "class _FootnoteProxy:" in code
-    assert "def insert(self, text: str) -> dict[str, Any]:" in code
-    assert 'return call_host_tool("footnote_insert", text=text)' in code
+    assert "def insert(self, text: str) -> _Item:" in code
+    assert 'return _result(call_host_tool("footnote_insert", text=text))' in code
     assert "footnote = _FootnoteProxy()" in code
     assert "DOMAIN_TOOLS =" in code
 
@@ -152,8 +152,8 @@ def test_generate_module_escapes_python_keyword_method_names():
     ]
     code = generate_module(tools)
     compile(code, "<generated>", "exec")
-    assert "def import_(self, file_path: str) -> dict[str, Any]:" in code
-    assert 'return call_host_tool("style_import", file_path=file_path)' in code
+    assert "def import_(self, file_path: str) -> _Item:" in code
+    assert 'return _result(call_host_tool("style_import", file_path=file_path))' in code
     assert "def import(self" not in code
     ns: dict[str, Any] = {}
     exec(code, ns)
@@ -205,7 +205,7 @@ def test_method_docstring_includes_full_description_and_schema_args():
     assert "0-based index of the shape on the page (edit: pass index or name)." in code
     assert "action (required):" in code
     assert "index (optional):" in code
-    assert "-> dict[str, Any]:" in code
+    assert "-> _Item:" in code
     namespace: dict[str, Any] = {}
     exec(code, namespace)
     doc = namespace["shape"].upsert.__doc__
@@ -407,8 +407,8 @@ def test_range_schema_becomes_range_name_python_param():
     assert kw == ["format: str = 'rows'"]
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def read_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:" in code
-    assert 'return call_host_tool("read_range", range=range_name, format=format)' in code
+    assert "def read_range(self, range_name: list[str], *, format: str = 'rows') -> _Item:" in code
+    assert 'return _result(call_host_tool("read_range", range=range_name, format=format))' in code
 
 
 def test_schema_to_signature_parameterizes_object_and_array():
@@ -556,8 +556,8 @@ def test_keyword_parameter_compiles_and_uses_splat():
     )
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def keyword(self, class_: str, *, reg: int | None = None) -> dict[str, Any]:" in code
-    assert 'return call_host_tool("keyword", **{"class": class_}, reg=reg)' in code
+    assert "def keyword(self, class_: str, *, reg: int | None = None) -> _Item:" in code
+    assert 'return _result(call_host_tool("keyword", **{"class": class_}, reg=reg))' in code
 
 
 def test_default_none_emits_optional_annotation():
@@ -577,7 +577,7 @@ def test_default_none_emits_optional_annotation():
     assert kw == ["val: str | None = None"]
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def test(self, *, val: str | None = None) -> dict[str, Any]:" in code
+    assert "def test(self, *, val: str | None = None) -> _Item:" in code
 
 
 def test_union_array_string_type_emits_union_annotation():
@@ -597,7 +597,7 @@ def test_union_array_string_type_emits_union_annotation():
     assert pos == ["content: list[str] | str"]
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def apply_content(self, content: list[str] | str) -> dict[str, Any]:" in code
+    assert "def apply_content(self, content: list[str] | str) -> _Item:" in code
 
 
 def test_proxy_qualifies_list_annotation_when_list_method_present():
@@ -788,7 +788,7 @@ def test_collection_namespace_is_a_container():
     assert not hasattr(bm, "get")
     assert not hasattr(bm, "delete")
 
-    assert bm.create("C") == {"status": "ok", "name": "C"}
+    assert bm.create("C") == {"name": "C"}
     assert ns["TOOL_METHODS"] == {
         "bookmark_list": ("bookmark", "__iter__"),
         "bookmark_get": ("bookmark", "__getitem__"),
@@ -959,6 +959,48 @@ def test_collection_namespace_shape_errors(bad_tools):
         generate_module([_as_tool(t) for t in bad_tools])
 
 
+def test_collection_namespace_rejects_paging_parameter():
+    tools = [
+        _as_tool(
+            MockTool(
+                "bookmark_list",
+                "List.",
+                {"type": "object", "properties": {"start_index": {"type": "integer"}}},
+            )
+        ),
+        _as_tool(
+            MockTool(
+                "bookmark_delete",
+                "Delete.",
+                {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]},
+            )
+        ),
+    ]
+    with pytest.raises(ValueError, match="paging parameter"):
+        generate_module(tools)
+
+
+def test_paging_start_param_rejects_required_parameters():
+    tools = [
+        _as_tool(
+            MockTool(
+                "comment_list",
+                "List.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "scope": {"type": "string"},
+                        "start_index": {"type": "integer"},
+                    },
+                    "required": ["scope"],
+                },
+            )
+        ),
+    ]
+    with pytest.raises(ValueError, match="must not have required parameters"):
+        generate_module(tools)
+
+
 def test_collection_rejects_non_dict_list_entries():
     ns, _calls = _exec_generated_proxy(
         _bookmark_tools(),
@@ -969,4 +1011,189 @@ def test_collection_rejects_non_dict_list_entries():
         _ = "A" in bm
     with pytest.raises(RuntimeError, match="Expected dict entries"):
         list(bm)
+
+
+def test_flat_method_raises_tool_error_with_code():
+    def _handler(tool: str, kwargs: dict[str, object]):
+        if kwargs.get("text") == "bad":
+            return {"status": "error", "code": "LOCKED", "message": "cannot touch"}
+        return "oops"
+
+    ns, _calls = _exec_generated_proxy(
+        [
+            _as_tool(
+                MockTool(
+                    "footnote_insert",
+                    "Insert.",
+                    {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                )
+            )
+        ],
+        _handler,
+    )
+    fn = ns["footnote"]
+    with pytest.raises(RuntimeError, match="cannot touch") as exc_info:
+        fn.insert("bad")
+    assert getattr(exc_info.value, "code", None) == "LOCKED"
+
+    with pytest.raises(RuntimeError, match="oops"):
+        fn.insert("non_dict")
+
+
+def test_flat_method_user_stopped_dict_raises_user_stopped():
+    from plugin.framework.ipc import UserStopped
+
+    ns, _calls = _exec_generated_proxy(
+        [
+            _as_tool(
+                MockTool(
+                    "web_research",
+                    "Research.",
+                    {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]},
+                )
+            )
+        ],
+        lambda tool, kwargs: {"status": "error", "code": "USER_STOPPED", "message": "stopped by user"},
+    )
+    with pytest.raises(UserStopped, match="stopped by user"):
+        try:
+            ns["web"].research("hello")
+        except Exception as exc:
+            raise AssertionError(f"UserStopped must not be caught by except Exception: {exc}") from exc
+
+
+def test_flat_method_result_reads_as_attributes():
+    def _handler(tool: str, kwargs: dict[str, object]):
+        if kwargs.get("text") == "skip":
+            return {"status": "skipped", "message": "already exists"}
+        return {"status": "ok", "text": "hi"}
+
+    ns, _calls = _exec_generated_proxy(
+        [
+            _as_tool(
+                MockTool(
+                    "footnote_insert",
+                    "Insert.",
+                    {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                )
+            )
+        ],
+        _handler,
+    )
+    fn = ns["footnote"]
+    r = fn.insert("ok")
+    assert r.text == r["text"] == "hi"
+    assert "status" not in r
+    with pytest.raises(AttributeError):
+        _ = r.missing_key
+
+    skipped = fn.insert("skip")
+    assert skipped.status == "skipped"
+    assert skipped.message == "already exists"
+
+
+def test_paged_list_iterates_lazily():
+    rows = [{"name": f"c{i}", "content": f"body{i}"} for i in range(5)]
+
+    def _handler(tool: str, kwargs: dict[str, object]):
+        assert tool == "comment_list"
+        start = int(kwargs.get("start_index") or 0)
+        page = rows[start : start + 2]
+        next_idx = start + len(page)
+        has_more = next_idx < len(rows)
+        return {
+            "status": "ok",
+            "comments": page,
+            "has_more": has_more,
+            "next_index": next_idx if has_more else None,
+        }
+
+    tools = [
+        _as_tool(
+            MockTool(
+                "comment_list",
+                "List comments.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "author_filter": {"type": "string"},
+                        "start_index": {"type": "integer"},
+                        "max_comments": {"type": "integer"},
+                    },
+                },
+            )
+        )
+    ]
+    ns, calls = _exec_generated_proxy(tools, _handler)
+
+    it = iter(ns["comment"])
+    assert calls == []
+
+    first = next(it)
+    assert first.name == "c0"
+    assert calls == [("comment_list", {"start_index": 0})]
+
+    second = next(it)
+    assert second.name == "c1"
+    assert len(calls) == 1
+
+    third = next(it)
+    assert third.name == "c2"
+    assert len(calls) == 2
+
+    rest = [c.name for c in it]
+    assert rest == ["c3", "c4"]
+    assert [kw["start_index"] for _tool, kw in calls] == [0, 2, 4]
+
+    one_page = ns["comment"].list(start_index=2)
+    assert one_page.has_more is True
+    assert [c["name"] for c in one_page.comments] == ["c2", "c3"]
+    assert ns["TOOL_METHODS"]["comment_list"] == ("comment", "list")
+
+
+def test_paged_offset_list_follows_truncated():
+    rows = [{"content": f"p{i}"} for i in range(5)]
+
+    def _handler(tool: str, kwargs: dict[str, object]):
+        assert tool == "page_comment_list"
+        offset = int(kwargs.get("offset") or 0)
+        page = rows[offset : offset + 2]
+        truncated = offset + len(page) < len(rows)
+        return {"status": "ok", "comments": page, "truncated": truncated, "offset": offset, "count": len(page)}
+
+    tools = [
+        _as_tool(
+            MockTool(
+                "page_comment_list",
+                "List page comments.",
+                {"type": "object", "properties": {"page": {"type": "integer"}, "offset": {"type": "integer"}}},
+            )
+        )
+    ]
+    ns, calls = _exec_generated_proxy(tools, _handler)
+    assert [c.content for c in ns["page_comment"]] == ["p0", "p1", "p2", "p3", "p4"]
+    assert [kw["offset"] for _tool, kw in calls] == [0, 2, 4]
+
+
+def test_paged_iteration_raises_on_later_page_error():
+    def _handler(tool: str, kwargs: dict[str, object]):
+        if kwargs.get("start_index") == 0:
+            return {"status": "ok", "comments": [{"name": "c0"}], "has_more": True, "next_index": 1}
+        return {"status": "error", "code": "LIST_FAIL", "message": "page 2 failed"}
+
+    tools = [
+        _as_tool(
+            MockTool(
+                "comment_list",
+                "List comments.",
+                {"type": "object", "properties": {"start_index": {"type": "integer"}}},
+            )
+        )
+    ]
+    ns, _calls = _exec_generated_proxy(tools, _handler)
+    it = iter(ns["comment"])
+    assert next(it).name == "c0"
+    with pytest.raises(RuntimeError, match="page 2 failed") as exc_info:
+        next(it)
+    assert getattr(exc_info.value, "code", None) == "LIST_FAIL"
 
