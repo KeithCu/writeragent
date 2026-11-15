@@ -275,12 +275,13 @@ _SEARCH_URL = "https://lite.duckduckgo.com/lite/"
 _SEARCH_READ_TIMEOUT_SEC = 10
 # DDG handshakes succeed in ~0.07 s; a stalled one gets 5 s per attempt instead of waiting the full LLM connect timeout.
 _SEARCH_CONNECT_TIMEOUT_SEC = 5
+SEARCH_ERROR_PREFIX = "Error fetching search results:"
 _SEARCH_UNAVAILABLE = (
-    "Error fetching search results: the search service did not answer after several attempts. "
+    f"{SEARCH_ERROR_PREFIX} the search service did not answer after several attempts. "
     "This is a network or rate-limit problem, not a problem with the query, so rewording the query will not help. "
     "Use visit_webpage on URLs you already have, or call final_answer with what you found and say that web search was unavailable."
 )
-_SEARCH_STOPPED = "Error fetching search results: stopped by user."
+_SEARCH_STOPPED = f"{SEARCH_ERROR_PREFIX} stopped by user."
 
 def _norm_recency(value):
     """Normalize recency to a cache-key token. Unknown or unset values are 'any'."""
@@ -352,6 +353,7 @@ class DuckDuckGoSearchTool(Tool):
         }
         try:
             # Retry, backoff, Stop cancellation, and per-host cooldown come from LlmHttpTransport.exchange.
+            # Shared transport connects directly; system proxies are not used, same as LLM traffic.
             raw = sync_request(
                 _SEARCH_URL,
                 data,
@@ -369,7 +371,7 @@ class DuckDuckGoSearchTool(Tool):
             # Fixed message tells the model that rewording the query will not fix a network or rate-limit failure.
             return _SEARCH_UNAVAILABLE
         except Exception as e:
-            return f"Error fetching search results: {str(e)}"
+            return f"{SEARCH_ERROR_PREFIX} {str(e)}"
 
         class SimpleResultParser(HTMLParser):
             """Parses DDG Lite result rows.

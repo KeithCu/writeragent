@@ -13,7 +13,9 @@ Concurrency: each ``LlmHttpTransport`` owns one keep-alive HTTP connection
 (the stdlib ``http.client`` object). That object is not safe for two threads
 to ``request`` / ``getresponse`` at once, so callers create a **new**
 ``LlmClient`` (and thus a new transport) per job — sidebar chat, grammar, a
-Calc ``=PROMPT()`` cell, and smolagents each have their own. Catalog, speech, image-URL downloads, and web search use a short-lived transport around ``exchange``.
+Calc ``=PROMPT()`` cell, and smolagents each have their own. Catalog, speech,
+image-URL downloads, and web search use a short-lived transport around
+``exchange``.
 When the user hits Stop, another thread calls ``close()`` and shuts the
 socket while the worker may still be blocked in ``getresponse``. That abort
 is intentional. Do not put a lock around ``send()`` to make HTTP thread-safe:
@@ -122,7 +124,7 @@ class LlmHttpTransport:
         self._timeout_getter = timeout_getter
         self._pacer = RequestPacer()
         self._openrouter_getter = openrouter_getter
-        # Read default at construction time so tests monkeypatching LLM_CONNECT_TIMEOUT_SEC still apply.
+        # None means the shared LLM connect budget; callers whose host should answer fast (web search) pass a shorter one.
         self._connect_timeout = LLM_CONNECT_TIMEOUT_SEC if connect_timeout is None else float(connect_timeout)
         self._persistent_conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
         self._conn_key: tuple[str, str, int, str] | None = None

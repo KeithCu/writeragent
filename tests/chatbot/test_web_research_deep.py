@@ -966,7 +966,7 @@ def test_deep_preview_search_honours_stop():
         out = _run_deep_web_research(MagicMock(), "topic", params)
     assert out == ("report", "topic")
     https_conn.assert_not_called()
-    assert "stopped by user" in run_deep.call_args.kwargs["initial_search_snippet"]
+    assert run_deep.call_args.kwargs["initial_search_snippet"] == ""
 
 
 class _RecordingClient:

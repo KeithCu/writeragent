@@ -33,19 +33,18 @@ def _response(status: int, body: bytes, reason: str = "OK"):
     return response
 
 
-def _patch_https(conn_or_response_list):
-    items = list(conn_or_response_list)
+def _conn_returning(response):
+    conn = MagicMock()
+    conn.getresponse.return_value = response
+    return conn
+
+
+def _patch_https(connections):
+    conns = list(connections)
     created = []
 
     def _factory(*args, **kwargs):
-        item = items.pop(0)
-        if isinstance(item, MagicMock) and (
-            hasattr(item.getresponse, "side_effect") and item.getresponse.side_effect is not None
-        ):
-            conn = item
-        else:
-            conn = MagicMock()
-            conn.getresponse.return_value = item
+        conn = conns.pop(0)
         created.append((args, kwargs, conn))
         return conn
 
@@ -193,7 +192,7 @@ def test_web_search_retries_reset_then_returns_results():
     ).encode("utf-8")
     first = MagicMock()
     first.getresponse.side_effect = ConnectionResetError(104, "Connection reset by peer")
-    ok = _response(200, html, "OK")
+    ok = _conn_returning(_response(200, html, "OK"))
     patcher, created = _patch_https([first, ok])
 
     with patcher, patch("plugin.framework.client.http_transport.wait_abortable", return_value=True):
@@ -208,7 +207,8 @@ def test_web_search_exhausted_retries_returns_unavailable_uncached(tmp_path):
     conns = []
     for _idx in range(RETRY_MAX_ATTEMPTS):
         conn = MagicMock()
-        conn.getresponse.side_effect = TimeoutError("_ssl.c:1067: The handshake operation timed out")
+        conn.sock = None
+        conn.connect.side_effect = TimeoutError("_ssl.c:1067: The handshake operation timed out")
         conns.append(conn)
     patcher, created = _patch_https(conns)
 
@@ -218,11 +218,14 @@ def test_web_search_exhausted_retries_returns_unavailable_uncached(tmp_path):
     assert result == default_tools._SEARCH_UNAVAILABLE
     assert "_ssl.c" not in result
     assert len(created) == RETRY_MAX_ATTEMPTS
+    assert [kwargs["timeout"] for _args, kwargs, _conn in created] == [
+        default_tools._SEARCH_CONNECT_TIMEOUT_SEC
+    ] * RETRY_MAX_ATTEMPTS
     assert _web_cache_get(db_file, "search", _search_cache_key("AI news", None), max_age_days=30) is None
 
 
 def test_web_search_http_202_is_unavailable_not_no_results():
-    patcher, _created = _patch_https([_response(202, b"<html><body>challenge</body></html>", "Accepted")])
+    patcher, _created = _patch_https([_conn_returning(_response(202, b"<html><body>challenge</body></html>", "Accepted"))])
     with patcher:
         result = DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news")
 

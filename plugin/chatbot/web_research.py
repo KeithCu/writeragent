@@ -558,7 +558,7 @@ def _run_deep_web_research(
     replaces the original before the preview, the loop, and the caller's
     cache write.
     """
-    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
+    from plugin.contrib.smolagents.default_tools import SEARCH_ERROR_PREFIX, DuckDuckGoSearchTool
     from plugin.framework.config import get_config
     from plugin.chatbot.web_research_deep import run_deep_research
     from plugin.framework.client.llm_client import LlmClient
@@ -648,7 +648,10 @@ def _run_deep_web_research(
             cache_max_age_days=agent_params.cache_max_age_days,
             cancel=agent_params.cancel,
         )
-        initial_snippet = str(preview.forward(query_str))[:4000]
+        preview_text = str(preview.forward(query_str))
+        # Do not leak tool-level error/stop instructions into the deep planner prompt.
+        if not preview_text.startswith(SEARCH_ERROR_PREFIX):
+            initial_snippet = preview_text[:4000]
     except Exception as preview_exc:
         log.debug("deep_research preview search skipped: %s", preview_exc)
 
