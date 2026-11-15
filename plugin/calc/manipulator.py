@@ -1102,7 +1102,9 @@ class CellManipulator:
         sheet_name = sheet.getName()
         width = end[0] - start[0] + 1
         for idx, value in enumerate(values):
-            if not isinstance(value, str):
+            # Plain text is never a formula; skip before py_formula_or_none so
+            # long string writes cannot hit PyFormula.parse's 8192-char @deal contract.
+            if not isinstance(value, str) or not value.startswith("="):
                 continue
             parts = py_formula_or_none(value)
             # formula_edit.parse_data_binding_text has an ASCII CrossHair contract

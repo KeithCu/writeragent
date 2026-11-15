@@ -789,6 +789,11 @@ def test_plan_write_refuses_py_inside_its_data_range():
         assert exc_open.value.code == "PY_CIRCULAR"
         assert exc_open.value.details == {"data_range": open_arg}
 
+    # Long plain-text values containing "py" must not reach PyFormula.parse's 8192-char @deal contract.
+    long_text = "happy " * 1500
+    assert len(long_text) > 8192
+    assert manipulator.plan_write("A1", long_text).kind == "cells"
+
 
 def test_commit_quotes_the_py_run_error():
     from plugin.calc.python.diagnostics import get_diagnostics_store
