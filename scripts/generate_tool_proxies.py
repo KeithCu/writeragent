@@ -662,6 +662,10 @@ def validate_generated(code: str) -> None:
 
 
 def _atomic_write(target_path: str, content: str) -> None:
+    if os.path.exists(target_path):
+        with open(target_path, encoding="utf-8") as f:
+            if f.read() == content:
+                return
     target_dir = os.path.dirname(os.path.abspath(target_path))
     os.makedirs(target_dir, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", dir=target_dir, delete=False, encoding="utf-8") as f:
