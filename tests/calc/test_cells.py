@@ -1084,12 +1084,12 @@ def test_write_cell_range_tool_error_return():
 
 def test_json_array_value_count_and_a1_shape():
     from plugin.calc.address_utils import range_shape
-    from plugin.calc.manipulator import _parse_formula_or_values_string
+    from plugin.calc.manipulator import _parse_json_array_string
 
-    assert len(_parse_formula_or_values_string('["a", "b", "c", "d"]')) == 4
-    assert _parse_formula_or_values_string("=B2+1") is None
-    assert _parse_formula_or_values_string("") is None
-    assert _parse_formula_or_values_string("[]") == []
+    assert len(_parse_json_array_string('["a", "b", "c", "d"]')) == 4
+    assert _parse_json_array_string("=B2+1") is None
+    assert _parse_json_array_string("") is None
+    assert _parse_json_array_string("[]") == []
     assert range_shape("C2:C9") == (8, 8, 1)
     assert range_shape("Sheet1.C2:C9") == (8, 8, 1)
     assert range_shape("A1:B1") == (2, 1, 2)

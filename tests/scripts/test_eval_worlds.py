@@ -292,3 +292,11 @@ def test_range_sort_mixed_descending_with_empties() -> None:
     assert res["status"] == "ok"
     assert [row[1] for row in calc._grid[1:]] == ["beta", "apple", "10", "2", "", ""]
     assert [row[0] for row in calc._grid[1:]] == ["beta", "apple", "num10", "num2", "empty1", "empty2"]
+
+
+def test_write_range_refuses_delimited_text() -> None:
+    calc = CalcWorld("A\tB")
+    before = [list(row) for row in calc._grid]
+    res = calc.write_range(range=["A2"], values="x,1\ny,2")
+    assert res["status"] == "error"
+    assert calc._grid == before

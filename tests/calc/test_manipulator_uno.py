@@ -305,3 +305,22 @@ def test_py_literal_newlines_are_repaired_on_write(ctx, doc):
         st = WorkbookState.known(doc)
         if st is not None:
             WorkbookState.forget_key(st.key)
+
+
+@native_test
+@with_native_doc("calc")
+def test_anchor_expanded_write_counts_overwritten_cells(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+    sheet.getCellByPosition(0, 0).setString("old")
+    sheet.getCellByPosition(1, 1).setValue(7)
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "write_range",
+        {"range": ["A1"], "values": [["x", "y"], ["z", 1]]},
+    )
+    assert res.get("status") == "ok", res
+    assert "overwrote 2 non-empty cell(s)" in res.get("message", ""), res
+    assert sheet.getCellByPosition(0, 0).getString() == "x"
+    assert sheet.getCellByPosition(1, 1).getValue() == 1.0

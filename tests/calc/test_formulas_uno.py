@@ -39,54 +39,58 @@ def test_write_formula_range(ctx, doc):
     assert res_jp.get("status") == "ok", f"write_range JP sentence failed: {res_jp}"
     assert active_sheet.getCellByPosition(3, 0).getString() == jp_sentence, "Comma in single-cell prose mangled"
 
-    # Two cells in one contiguous range: comma-separated row still maps one field per cell
-    res_two = _execute_calc_tool(doc, ctx, "write_range", {"range": "E1:F1", "values": "Left,Right"})
-    assert res_two.get("status") == "ok", f"write_range two-cell CSV failed: {res_two}"
-    assert active_sheet.getCellByPosition(4, 0).getString() == "Left", "E1 should be first CSV field"
-    assert active_sheet.getCellByPosition(5, 0).getString() == "Right", "F1 should be second CSV field"
+    # Two cells in one contiguous range: delimited text is refused; send a 2-D array.
+    res_refused = _execute_calc_tool(doc, ctx, "write_range", {"range": "E1:F1", "values": "Left,Right"})
+    assert res_refused.get("status") == "error", res_refused
+    assert res_refused.get("code") == "INVALID_PARAM", res_refused
+    assert active_sheet.getCellByPosition(4, 0).getString() == ""
+    assert active_sheet.getCellByPosition(5, 0).getString() == ""
+
+    res_two = _execute_calc_tool(doc, ctx, "write_range", {"range": "E1:F1", "values": [["Left", "Right"]]})
+    assert res_two.get("status") == "ok", f"write_range two-cell 2-D array failed: {res_two}"
+    assert active_sheet.getCellByPosition(4, 0).getString() == "Left"
+    assert active_sheet.getCellByPosition(5, 0).getString() == "Right"
 
 
 @native_test
 @with_native_doc("calc")
-def test_import_csv_from_string(ctx, doc):
+def test_write_2d_array_from_anchor_cell(ctx, doc):
     active_sheet = doc.getCurrentController().getActiveSheet()
 
-    # Test case 1: Standard comma-separated
-    csv_1 = "Name,Age\nAlice,30\nBob,25"
+    # Raw CSV string at an anchor cell is refused without writing anything.
+    res_csv = _execute_calc_tool(doc, ctx, "write_range", {
+        "values": "Name,Age\nAlice,30\nBob,25",
+        "range": "E1",
+    })
+    assert res_csv.get("status") == "error", res_csv
+    assert res_csv.get("code") == "INVALID_PARAM", res_csv
+    assert active_sheet.getCellByPosition(4, 0).getString() == ""  # E1
+    assert active_sheet.getCellByPosition(4, 1).getString() == ""  # E2
+    assert active_sheet.getCellByPosition(5, 1).getString() == ""  # F2
+
     res1 = _execute_calc_tool(doc, ctx, "write_range", {
-        "values": csv_1,
-        "range": "E1"
+        "values": [["Name", "Age"], ["Alice", 30], ["Bob", 25]],
+        "range": "E1",
     })
-    assert res1.get("status") == "ok", f"CSV import failed: {res1}"
-    assert active_sheet.getCellByPosition(4, 0).getString() == "Name" # E1
-    assert active_sheet.getCellByPosition(5, 0).getString() == "Age"  # F1
-    assert active_sheet.getCellByPosition(4, 1).getString() == "Alice" # E2
-    assert active_sheet.getCellByPosition(5, 1).getValue() == 30.0    # F2
-    assert active_sheet.getCellByPosition(5, 2).getValue() == 25.0    # F3
+    assert res1.get("status") == "ok", f"2-D array write failed: {res1}"
+    assert active_sheet.getCellByPosition(4, 0).getString() == "Name"  # E1
+    assert active_sheet.getCellByPosition(5, 1).getValue() == 30.0     # F2
+    assert active_sheet.getCellByPosition(5, 2).getValue() == 25.0     # F3
 
-    # Test case 2: Semicolon-separated
-    csv_2 = "Item;Price\nApple;1.5\nBanana;0.75"
-    res2 = _execute_calc_tool(doc, ctx, "write_range", {
-        "values": csv_2,
-        "range": "G1"
-    })
-    assert res2.get("status") == "ok", f"Semicolon CSV import failed: {res2}"
-    assert active_sheet.getCellByPosition(6, 0).getString() == "Item" # G1
-    assert active_sheet.getCellByPosition(7, 0).getString() == "Price"# H1
-    assert active_sheet.getCellByPosition(6, 1).getString() == "Apple"# G2
-    assert active_sheet.getCellByPosition(7, 1).getValue() == 1.5     # H2
-
-    # Test case 3: CSV with quoted commas
-    csv_3 = "Person,Description\nCarol,\"Smart, Funny, Tall\"\nDave,Cool"
     res3 = _execute_calc_tool(doc, ctx, "write_range", {
-        "values": csv_3,
-        "range": "E5"
+        "values": [["Person", "Description"], ["Carol", "Smart, Funny, Tall"]],
+        "range": "E5",
     })
-    assert res3.get("status") == "ok", f"Quoted CSV import failed: {res3}"
-    assert active_sheet.getCellByPosition(4, 5).getString() == "Carol" # E6
-    # The cell at F6 (5, 5) should contain the comma text
-    desc = active_sheet.getCellByPosition(5, 5).getString()
-    assert desc == "Smart, Funny, Tall", f"Quoted comma parsed incorrectly: {desc}"
+    assert res3.get("status") == "ok", f"2-D array with comma text failed: {res3}"
+    assert active_sheet.getCellByPosition(5, 5).getString() == "Smart, Funny, Tall"  # F6
+
+    res_multiline = _execute_calc_tool(doc, ctx, "write_range", {
+        "values": [["Line one\nLine two"]],
+        "range": "H1",
+    })
+    assert res_multiline.get("status") == "ok", res_multiline
+    assert active_sheet.getCellByPosition(7, 0).getString() == "Line one\nLine two"  # H1
+    assert active_sheet.getCellByPosition(7, 1).getString() == ""  # H2
 
 
 @native_test

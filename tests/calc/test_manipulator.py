@@ -13,7 +13,8 @@ from plugin.framework.errors import CalcError, UnoObjectError
 from plugin.calc.manipulator import (
     CellManipulator,
     WritePlan,
-    _parse_formula_or_values_string,
+    _delimited_text_message,
+    _parse_json_array_string,
     _write_report,
     looks_numeric_text,
 )
@@ -610,8 +611,9 @@ def test_plan_write_single_cell_prose_is_one_value():
     two_cells.getRangeAddress.return_value = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0, Sheet=0)
     bridge.resolve_range_or_address.return_value = two_cells
 
-    plan_pair = manipulator.plan_write("A1:B1", "Hello, world")
-    assert plan_pair.values == ["Hello", "world"]
+    with pytest.raises(CalcError) as exc:
+        manipulator.plan_write("A1:B1", "Hello, world")
+    assert exc.value.code == "INVALID_PARAM"
 
 
 def test_plan_write_expands_2d_from_one_cell():
@@ -700,84 +702,89 @@ def test_refuse_occupied_cells_reads_once_and_skips_boxes():
     refuse_occupied_cells(empty_sheet, 0, 0, 1, 1)
 
 
-@pytest.mark.parametrize(
-    ("text", "grid"),
-    [
-        ("Name,Age,Country\nJohn,28,USA", [["Name", "Age", "Country"], ["John", "28", "USA"]]),
-        ("Name;Age;Country\nJohn;28;USA", [["Name", "Age", "Country"], ["John", "28", "USA"]]),
-        ("Name,Age;Country\nJohn,28;USA", [["Name", "Age;Country"], ["John", "28;USA"]]),  # comma wins when both appear
-        ("NameAgeCountry\nJohn28USA", [["NameAgeCountry"], ["John28USA"]]),  # no delimiter -> one column
-    ],
-)
-def test_csv_text_delimiter_choice_gives_grid(text, grid):
-    assert _parse_formula_or_values_string(text) == grid
-
-
 class TestFormulaParsingLogic:
     def test_parse_json_array(self):
         s = '["A"; "B"; "C"]'
-        assert _parse_formula_or_values_string(s) == ["A", "B", "C"]
-
-    def test_parse_raw_semicolon(self):
-        s = "Name;Age;Country;Salary"
-        assert _parse_formula_or_values_string(s) == ["Name", "Age", "Country", "Salary"]
+        assert _parse_json_array_string(s) == ["A", "B", "C"]
 
     def test_complex_formula_in_json_array(self):
         s = '["Highest Consumer"; "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]'
         # Ensure the semicolon inside the formula is NOT replaced by a comma
-        result = _parse_formula_or_values_string(s)
+        result = _parse_json_array_string(s)
         assert result == ["Highest Consumer", "=INDEX(A2:A11;MATCH(MAX(B2:B11);B2:B11;0))"]
-
-    def test_complex_formula_in_raw_string(self):
-        # If the AI sends a raw string containing a semicolon-delimited list of values
-        # where one value is a formula. NOTE: This is less common but we handle it via csv.reader.
-        s = 'ID; "=INDEX(A2:A11;MATCH(1;B2:B11;0))"'
-        result = _parse_formula_or_values_string(s)
-        assert result == ["ID", "=INDEX(A2:A11;MATCH(1;B2:B11;0))"]
 
     def test_formula_not_split(self):
         # Should return None so it's treated as a single formula string
-        assert _parse_formula_or_values_string("=SUM(A1;A2)") is None
+        assert _parse_json_array_string("=SUM(A1;A2)") is None
 
     def test_single_value_not_split(self):
-        assert _parse_formula_or_values_string("Plain text") is None
+        assert _parse_json_array_string("Plain text") is None
+        assert _parse_json_array_string("Name;Age;Salary") is None
 
     def test_nested_json_arrays(self):
         s = '[["r1c1"; "r1c2"]; ["r2c1"; "r2c2"]]'
-        assert _parse_formula_or_values_string(s) == [["r1c1", "r1c2"], ["r2c1", "r2c2"]]
+        assert _parse_json_array_string(s) == [["r1c1", "r1c2"], ["r2c1", "r2c2"]]
 
     def test_unicode_and_emoji(self):
         s = '["Česká"; "Republika"; "📈"]'
-        assert _parse_formula_or_values_string(s) == ["Česká", "Republika", "📈"]
+        assert _parse_json_array_string(s) == ["Česká", "Republika", "📈"]
 
     def test_quoted_semicolon_in_formula_json(self):
         s = '["=IF(A1=\\";\\"; 1; 0)"]'
-        assert _parse_formula_or_values_string(s) == ['=IF(A1=";"; 1; 0)']
+        assert _parse_json_array_string(s) == ['=IF(A1=";"; 1; 0)']
 
     def test_trailing_spaces_in_json(self):
         s = '  [  "A"  ;  "B"  ]  '
-        assert _parse_formula_or_values_string(s) == ["A", "B"]
+        assert _parse_json_array_string(s) == ["A", "B"]
 
-    def test_raw_string_with_quotes_and_semis(self):
-        s = 'Normal; "Quoted;Semi"; "Formula;=A1"'
-        assert _parse_formula_or_values_string(s) == ["Normal", "Quoted;Semi", "Formula;=A1"]
 
-    def test_empty_fields_detection(self):
-        assert _parse_formula_or_values_string("a;;b") == ["a", "", "b"]
+@pytest.mark.parametrize(
+    ("s", "single_cell", "refused"),
+    [
+        ("Name,Age\nAnn,30", True, True),
+        ("Alice\nBob", False, True),
+        ("Name;Age;Salary", False, True),
+        ("Hello, world", False, True),
+        ("Hello, world", True, False),
+        ('=PY("a = 1\nresult = a"; A1:B3)', True, False),
+        ("=SUM(A1;B1)", False, False),
+        (" =B2+1", False, False),
+        ("Batch", False, False),
+        ("a\tb", False, False),
+        ("", False, False),
+    ],
+)
+def test_delimited_text_message_refuses_ambiguous_text(s: str, single_cell: bool, refused: bool):
+    msg = _delimited_text_message("A1", s, single_cell=single_cell)
+    assert (msg is not None) is refused
 
-    def test_single_cell_range_comma_prose_is_literal(self):
-        s = "Hello ケイス, this is a test."
-        assert _parse_formula_or_values_string(s, single_cell_range=True) is None
-        assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Hello ケイス", "this is a test."]
 
-    def test_single_cell_range_comment_with_comma(self):
-        s = "Note: see section 3, paragraph 2."
-        assert _parse_formula_or_values_string(s, single_cell_range=True) is None
+@pytest.mark.parametrize(
+    ("range_str", "values"),
+    [
+        ("A1:C1", "Name;Age;Salary"),
+        ("E1", "Name,Age\nAlice,30"),
+        ("A1:A3", "Alice\nBob\nCarol"),
+    ],
+)
+def test_plan_write_refuses_delimited_text(range_str: str, values: str):
+    bridge = MagicMock()
+    cell_range = MagicMock()
+    sheet = MagicMock()
+    end_col = 2 if range_str == "A1:C1" else 0
+    end_row = 2 if range_str == "A1:A3" else 0
+    cell_range.getRangeAddress.return_value = SimpleNamespace(
+        StartColumn=0, EndColumn=end_col, StartRow=0, EndRow=end_row, Sheet=0
+    )
+    cell_range.getSpreadsheet.return_value = sheet
+    bridge.resolve_range_or_address.return_value = cell_range
+    manipulator = CellManipulator(bridge)
 
-    def test_single_cell_range_semicolon_prose_is_literal(self):
-        s = "Left; right"
-        assert _parse_formula_or_values_string(s, single_cell_range=True) is None
-        assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Left", "right"]
+    with pytest.raises(CalcError) as exc:
+        manipulator.plan_write(range_str, values)
+    assert exc.value.code == "INVALID_PARAM"
+    sheet.getCellByPosition.assert_not_called()
+    cell_range.setDataArray.assert_not_called()
 
 
 @pytest.mark.parametrize(
