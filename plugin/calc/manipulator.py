@@ -65,6 +65,7 @@ from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.python.cell_discovery import py_formula_or_none
 from plugin.calc.python.diagnostics import diagnostics_workbook_key, get_diagnostics_store
+from plugin.calc.python.formula_edit import repair_py_code_newlines
 from plugin.calc.python.geometric_recalc_core import arg_covers_cell
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
@@ -1053,7 +1054,8 @@ class CellManipulator:
             return _CellWrite(value, "", "forced_text", None, None)
 
         if value.startswith("="):
-            return _CellWrite("", value, "formula", None, None)
+            # Repair literal \n in model-written =PY() code before writing to Calc.
+            return _CellWrite("", repair_py_code_newlines(value), "formula", None, None)
 
         # Leading apostrophe forces literal text and leaves @ — the @ text format is what we want; restoring the snapshot would undo it.
         if value.startswith("'"):
@@ -1459,6 +1461,8 @@ class CellManipulator:
             # setArrayFormula over its result size instead of being filled down;
             # =SUM(FILTER()) stays a scalar formula.
             if not literal_text and not data_text and _requests_array_formula(values, array):
+                # Repair literal \n in model-written =PY() code before probing or planning.
+                values = repair_py_code_newlines(values)
                 return WritePlan(
                     "array",
                     range_str,

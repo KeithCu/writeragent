@@ -2,14 +2,16 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Parse and rebuild ``=PY()`` / ``=PYTHON()`` formula strings for the Monaco cell editor.
+"""Parse, repair, and rebuild ``=PY()`` / ``=PYTHON()`` formula strings.
 
 Calc registers both English tokens (programmatic names ``py`` / ``python``). New formulas
 use the shorter ``PY``; existing ``PYTHON`` cells keep their prefix when edited in place.
+Also repairs literal ``\\n`` escapes in model-written ``=PY()`` code at write time.
 """
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -514,3 +516,94 @@ def build_editor_formula_save(
     if parsed_parts is not None:
         return parsed_parts.render(new_code)
     return PyFormula.compose(new_code, [])
+
+
+def _python_parses(code: str) -> bool:
+    # crosshair: off
+    """Return True when *code* is valid Python syntax."""
+    try:
+        ast.parse(code)
+    except (SyntaxError, ValueError, RecursionError):
+        return False
+    return True
+
+
+def _newline_escapes_to_breaks(code: str) -> str:
+    # crosshair: off
+    """Convert literal ``\\n`` outside Python string literals into real newlines.
+
+    Scans three states:
+    - Outside strings/comments: a literal ``\\n`` becomes a real newline.
+    - Comments (``#``): copied verbatim until a real newline or the next ``\\n``.
+    - String literals (single or triple quoted): copied verbatim so Python escapes
+      such as ``"a\\nb"`` stay intact.
+    """
+    out: list[str] = []
+    i, n = 0, len(code)
+    while i < n:
+        ch = code[i]
+        if ch == "\\" and code.startswith("n", i + 1):
+            # Outside a string a backslash-n is the line break the model meant.
+            out.append("\n")
+            i += 2
+            continue
+        if ch == "#":
+            # A comment ends at a real newline or at the next backslash-n.
+            j = i
+            while j < n and code[j] != "\n" and not code.startswith("\\n", j):
+                j += 1
+            out.append(code[i:j])
+            i = j
+            continue
+        if ch in "'\"":
+            # Copy a string literal unchanged; its backslash-n is a Python escape.
+            quote = ch * 3 if code.startswith(ch * 3, i) else ch
+            j = i + len(quote)
+            while j < n:
+                if code[j] == "\\":
+                    j += 2
+                    continue
+                if code.startswith(quote, j):
+                    j += len(quote)
+                    break
+                if len(quote) == 1 and code[j] == "\n":
+                    break
+                j += 1
+            out.append(code[i:j])
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def repair_py_code_newlines(formula: str) -> str:
+    # crosshair: off
+    """Repair literal ``\\n`` line breaks in model-written ``=PY()`` / ``=PYTHON()`` formulas.
+
+    Tool-call JSON often carries ``\\\\n`` (a literal backslash followed by ``n``).
+    Because Calc string literals have no backslash escapes (only ``""`` escapes a
+    quote; see ``sc/source/core/tool/compiler.cxx`` ``ScCompiler::NextSymbol``,
+    ``ssGetString``), Calc stores those two characters verbatim. Python then sees
+    a single line and either fails with ``Err:519`` or, when the first line is a
+    ``#`` comment, silently produces an empty cell.
+
+    String literals are skipped so Python escapes such as ``"a\\nb"`` are not
+    turned into unterminated multiline strings. The rewrite is applied only when
+    the resulting code parses with ``ast.parse`` and the original either fails
+    to parse or has no real newlines.
+    """
+    if "\\n" not in formula or "PY" not in formula.upper():
+        return formula
+    parts = PyFormula.parse(formula)
+    if parts is None or parts.code_is_ref:
+        return formula
+    if not normalize_formula_string(formula)[len(parts.prefix) :].lstrip().startswith('"'):
+        return formula
+    code = parts.code
+    fixed = _newline_escapes_to_breaks(code)
+    if fixed == code or not _python_parses(fixed):
+        return formula
+    if "\n" in code and _python_parses(code):
+        return formula
+    return parts.render(fixed)
