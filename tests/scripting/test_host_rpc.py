@@ -550,6 +550,7 @@ def test_singularize_domain_leaves_non_map_names_unchanged():
         ("indexes", "index"),
         ("pivot_tables", "pivot_table"),
         ("ranges", "range"),
+        ("sections", "section"),
         ("shapes", "shape"),
         ("sheets", "sheet"),
         ("slide_layouts", "slide_layout"),

@@ -137,6 +137,15 @@ class ToolWriterTextFramesBase(ToolWriterSpecialBase):
     )
 
 
+class ToolWriterSectionBase(ToolWriterSpecialBase):
+    specialized_domain: ClassVar[str | None] = "sections"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Create and delete text sections (named blocks of whole paragraphs) and set their columns or protection."
+    )
+    # Section names come from section_list (structural domain); the reads stay there.
+    required_core_tools: ClassVar[frozenset[str] | None] = _writer_core_tools("section_list")
+
+
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "embedded"
     specialized_domain_description: ClassVar[str | None] = (

@@ -155,6 +155,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'named_range_list',
                  'range_sort'],
     'search': ['search_cells', 'search_replace'],
+    'section': ['section_create', 'section_delete', 'section_set_columns', 'section_set_protection'],
     'shape': [   'shape_align',
                  'shape_connect',
                  'shape_delete',
@@ -346,8 +347,12 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'search_in_document': ('writer', 'search_in_document'),
     'search_replace': ('search', 'replace'),
     'search_slides': ('draw', 'search_slides'),
+    'section_create': ('section', 'create'),
+    'section_delete': ('section', 'delete'),
     'section_list': ('structural', 'section_list'),
     'section_read': ('structural', 'section_read'),
+    'section_set_columns': ('section', 'set_columns'),
+    'section_set_protection': ('section', 'set_protection'),
     'set_active_page': ('draw', 'set_active_page'),
     'set_placeholder_text': ('draw', 'set_placeholder_text'),
     'set_selection': ('writer', 'set_selection'),
@@ -433,6 +438,7 @@ __all__ = [   'DOMAIN_TOOLS',
     'python',
     'python_sql',
     'search',
+    'section',
     'shape',
     'sheet',
     'slide_layout',
@@ -1929,6 +1935,49 @@ class _SearchProxy:
         return call_host_tool("search_replace", search=search, replace=replace, regex=regex, case_sensitive=case_sensitive, sheet=sheet, all_sheets=all_sheets)
 
 search = _SearchProxy()
+
+
+class _SectionProxy:
+    """Proxy for section tools."""
+
+    def create(self, name: str, locator: str, *, end_locator: str | None = None) -> dict[str, Any]:
+        """Create a named text section wrapping whole paragraphs.
+
+        Args:
+            name (required): Unique name for the new section.
+            locator (required): First paragraph, e.g. paragraph:12, heading_text:Methods, bookmark:NAME, or the literal selection for the current selection.
+            end_locator (optional): Last paragraph, inclusive; defaults to locator; not allowed with selection.
+        """
+        return call_host_tool("section_create", name=name, locator=locator, end_locator=end_locator)
+
+    def delete(self, name: str) -> dict[str, Any]:
+        """Remove the section but keep its text; sections nested inside it stay.
+
+        Args:
+            name (required): Name of the section to delete.
+        """
+        return call_host_tool("section_delete", name=name)
+
+    def set_columns(self, name: str, column_count: int, *, spacing_mm: float | None = None) -> dict[str, Any]:
+        """Set the number of columns and column spacing (in mm) for a text section.
+
+        Args:
+            name (required): Name of the section.
+            column_count (required): Number of columns (1-99).
+            spacing_mm (optional): Spacing between columns in mm. Defaults to 0.
+        """
+        return call_host_tool("section_set_columns", name=name, column_count=column_count, spacing_mm=spacing_mm)
+
+    def set_protection(self, name: str, protected: bool) -> dict[str, Any]:
+        """Set whether a text section is protected from editing (protection stops editing in the Writer UI only).
+
+        Args:
+            name (required): Name of the section.
+            protected (required): True to protect the section, False to unprotect.
+        """
+        return call_host_tool("section_set_protection", name=name, protected=protected)
+
+section = _SectionProxy()
 
 
 class _ShapeProxy:
