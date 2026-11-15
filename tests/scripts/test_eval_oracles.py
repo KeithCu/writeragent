@@ -984,7 +984,7 @@ def test_bulk_cleanup_gold_is_fixture_cleaned_except_cmd_line() -> None:
     Fixture/gold/oracle consistency guard: the gpt-oss eval runs kept
     "Quoted  text", so this pins that the reference collapses it.
     """
-    from dataset import BULK_CLEANUP  # noqa: E402
+    from dataset import BULK_CLEANUP
 
     def clean(line: str) -> str:
         if line.lstrip().startswith("CMD:"):
