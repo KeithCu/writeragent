@@ -860,6 +860,7 @@ def test_catalog_and_help_show_collection_forms():
     _format_script_api_catalog_cached.cache_clear()
     catalog = format_script_api_catalog(["sheets"])
     assert "for item in wa.sheet" in catalog
+    assert "wa.sheet[sheet]" in catalog
     assert "del wa.sheet[sheet]" in catalog
     assert "wa.sheet.rename(" in catalog
     assert "wa.sheet.list(" not in catalog
@@ -868,6 +869,4 @@ def test_catalog_and_help_show_collection_forms():
     full_help = api.help()
     assert "wa.bookmark[name] (bookmark_get)" in full_help
     assert "__getitem__" not in full_help
-
-
 

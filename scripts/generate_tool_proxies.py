@@ -482,14 +482,26 @@ _PREAMBLE_LINES: tuple[str, ...] = (
     '    """Extract the single list of entry dicts from a *_list tool response.',
     '',
     '    Ignores status and warnings; raises RuntimeError if the tool failed or',
-    '    returned a shape without a single list payload.',
+    '    returned a shape without a single list payload of dicts.',
     '    """',
     '    if not isinstance(res, dict) or res.get("status") == "error":',
     '        raise _tool_failure(res)',
     '    list_vals = [val for key, val in res.items() if key != "warnings" and isinstance(val, list)]',
     '    if len(list_vals) != 1:',
     '        raise RuntimeError(f"Expected one list in tool result, got keys {sorted(res)}")',
-    '    return [_Item(entry) if isinstance(entry, dict) else entry for entry in list_vals[0]]',
+    '    items: list[_Item] = []',
+    '    for entry in list_vals[0]:',
+    '        if not isinstance(entry, dict):',
+    '            raise RuntimeError(f"Expected dict entries in list result, got {type(entry).__name__}")',
+    '        items.append(_Item(entry))',
+    '    return items',
+    '',
+    '',
+    'def _require_str_key(key: object) -> str:',
+    '    """Raise KeyError for non-string keys before sending a keyed host RPC."""',
+    '    if not isinstance(key, str):',
+    '        raise KeyError(key)',
+    '    return key',
     '',
     '',
     'def _find_item(res: Any, name: object) -> _Item | None:',
@@ -785,13 +797,18 @@ def _collection_doc(
         "delitem": f"del wa.{ns}[{key_name}]",
     }[kind]
     if kind == "iter":
+        read_form = f"wa.{ns}[{key_name}]" if has_get else f"wa.{ns}[{key_name}] (read from this list)"
         detail = (
-            f"Collection form: ``{form}`` (also ``len(wa.{ns})`` and ``{key_name} in wa.{ns}``). "
+            f"Collection form: ``{form}`` (also ``len(wa.{ns})``, ``{key_name} in wa.{ns}``, and ``{read_form}``). "
             "Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys "
             "also read as attributes. Tool errors raise RuntimeError with .code."
         )
     elif kind == "getitem":
-        source = "one host RPC" if has_get else f"one ``{list_tool_name}`` RPC"
+        source = (
+            "one host RPC (plus one list call on error to tell a missing name from other failures)"
+            if has_get
+            else f"one ``{list_tool_name}`` RPC"
+        )
         detail = (
             f"Collection form: ``{form}``. Fetches a fresh dict snapshot whose keys also read as "
             f"attributes ({source}). Missing names raise KeyError; other tool errors raise "
@@ -799,8 +816,9 @@ def _collection_doc(
         )
     else:
         detail = (
-            f"Collection form: ``{form}``. Deletes in one host RPC; missing names raise KeyError "
-            "and other tool errors raise RuntimeError with .code."
+            f"Collection form: ``{form}``. Deletes in one host RPC (plus one list call on error "
+            "to tell a missing name from other failures); missing names raise KeyError and other "
+            "tool errors raise RuntimeError with .code."
         )
     if dropped_optionals:
         joined = ", ".join(dropped_optionals)
@@ -856,8 +874,7 @@ def _collection_lines(ns: str, plan: CollectionPlan) -> list[str]:
             _collection_doc("getitem", ns, key_name, list_name, dropped_get, True),
         )
         _append_docstring(lines, get_doc)
-        lines.append(f"        if not isinstance({key_name}, str):")
-        lines.append(f"            raise KeyError({key_name})")
+        lines.append(f"        {key_name} = _require_str_key({key_name})")
         lines.append(
             f'        return _get_item(call_host_tool("{get_name}"{key_rpc}), {key_name}, '
             f'lambda: call_host_tool("{list_name}"))'
@@ -868,7 +885,7 @@ def _collection_lines(ns: str, plan: CollectionPlan) -> list[str]:
             _collection_doc("getitem", ns, key_name, list_name, dropped_list, False),
         )
         _append_docstring(lines, get_doc)
-        lines.append(f'        item = _find_item(call_host_tool("{list_name}"), {key_name})')
+        lines.append(f'        item = _find_item(call_host_tool("{list_name}"), _require_str_key({key_name}))')
         lines.append("        if item is None:")
         lines.append(f"            raise KeyError({key_name})")
         lines.append("        return item")
@@ -881,8 +898,7 @@ def _collection_lines(ns: str, plan: CollectionPlan) -> list[str]:
         _collection_doc("delitem", ns, key_name, list_name, dropped_del, plan.get_tool is not None),
     )
     _append_docstring(lines, del_doc)
-    lines.append(f"        if not isinstance({key_name}, str):")
-    lines.append(f"            raise KeyError({key_name})")
+    lines.append(f"        {key_name} = _require_str_key({key_name})")
     lines.append(
         f'        _check_keyed(call_host_tool("{del_name}"{key_rpc}), {key_name}, '
         f'lambda: call_host_tool("{list_name}"))'

@@ -69,7 +69,7 @@ def test_calc_collections_uno(ctx, doc):
         assert getattr(exc_info.value, "code", None) == "INVALID_PARAM"
 
         api.calc.write_range(
-            range="A1:B6",
+            ["A1:B6"],
             values=[
                 ["Month", "Sales"],
                 ["Jan", "100"],

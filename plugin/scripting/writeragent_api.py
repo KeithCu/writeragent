@@ -60,14 +60,26 @@ def _list_items(res: Any) -> list[_Item]:
     """Extract the single list of entry dicts from a *_list tool response.
 
     Ignores status and warnings; raises RuntimeError if the tool failed or
-    returned a shape without a single list payload.
+    returned a shape without a single list payload of dicts.
     """
     if not isinstance(res, dict) or res.get("status") == "error":
         raise _tool_failure(res)
     list_vals = [val for key, val in res.items() if key != "warnings" and isinstance(val, list)]
     if len(list_vals) != 1:
         raise RuntimeError(f"Expected one list in tool result, got keys {sorted(res)}")
-    return [_Item(entry) if isinstance(entry, dict) else entry for entry in list_vals[0]]
+    items: list[_Item] = []
+    for entry in list_vals[0]:
+        if not isinstance(entry, dict):
+            raise RuntimeError(f"Expected dict entries in list result, got {type(entry).__name__}")
+        items.append(_Item(entry))
+    return items
+
+
+def _require_str_key(key: object) -> str:
+    """Raise KeyError for non-string keys before sending a keyed host RPC."""
+    if not isinstance(key, str):
+        raise KeyError(key)
+    return key
 
 
 def _find_item(res: Any, name: object) -> _Item | None:
@@ -590,7 +602,7 @@ class _BookmarkProxy:
     def __iter__(self) -> Iterator[_Item]:
         """List all bookmarks in the document with their anchor text preview. Includes both user bookmarks and _mcp_ heading bookmarks.
 
-        Collection form: ``for item in wa.bookmark`` (also ``len(wa.bookmark)`` and ``name in wa.bookmark``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
+        Collection form: ``for item in wa.bookmark`` (also ``len(wa.bookmark)``, ``name in wa.bookmark``, and ``wa.bookmark[name]``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
         return iter(_list_items(call_host_tool("bookmark_list")))
 
@@ -608,10 +620,9 @@ class _BookmarkProxy:
         Args:
             name (required): The name of the bookmark to delete.
 
-        Collection form: ``wa.bookmark[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one host RPC). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
+        Collection form: ``wa.bookmark[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one host RPC (plus one list call on error to tell a missing name from other failures)). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
         """
-        if not isinstance(name, str):
-            raise KeyError(name)
+        name = _require_str_key(name)
         return _get_item(call_host_tool("bookmark_get", name=name), name, lambda: call_host_tool("bookmark_list"))
 
     def __delitem__(self, name: str) -> None:
@@ -620,10 +631,9 @@ class _BookmarkProxy:
         Args:
             name (required): The name of the bookmark to delete.
 
-        Collection form: ``del wa.bookmark[name]``. Deletes in one host RPC; missing names raise KeyError and other tool errors raise RuntimeError with .code.
+        Collection form: ``del wa.bookmark[name]``. Deletes in one host RPC (plus one list call on error to tell a missing name from other failures); missing names raise KeyError and other tool errors raise RuntimeError with .code.
         """
-        if not isinstance(name, str):
-            raise KeyError(name)
+        name = _require_str_key(name)
         _check_keyed(call_host_tool("bookmark_delete", name=name), name, lambda: call_host_tool("bookmark_list"))
 
 bookmark = _BookmarkProxy()
@@ -1305,7 +1315,7 @@ class _FrameProxy:
     def __iter__(self) -> Iterator[_Item]:
         """List all text frames in the document.
 
-        Collection form: ``for item in wa.frame`` (also ``len(wa.frame)`` and ``name in wa.frame``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
+        Collection form: ``for item in wa.frame`` (also ``len(wa.frame)``, ``name in wa.frame``, and ``wa.frame[name]``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
         return iter(_list_items(call_host_tool("frame_list")))
 
@@ -1323,10 +1333,9 @@ class _FrameProxy:
         Args:
             name (required): Name of the text frame (from frame_list).
 
-        Collection form: ``wa.frame[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one host RPC). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
+        Collection form: ``wa.frame[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one host RPC (plus one list call on error to tell a missing name from other failures)). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
         """
-        if not isinstance(name, str):
-            raise KeyError(name)
+        name = _require_str_key(name)
         return _get_item(call_host_tool("frame_get_info", name=name), name, lambda: call_host_tool("frame_list"))
 
     def __delitem__(self, name: str) -> None:
@@ -1335,10 +1344,9 @@ class _FrameProxy:
         Args:
             name (required): Name of the text frame (from frame_list).
 
-        Collection form: ``del wa.frame[name]``. Deletes in one host RPC; missing names raise KeyError and other tool errors raise RuntimeError with .code.
+        Collection form: ``del wa.frame[name]``. Deletes in one host RPC (plus one list call on error to tell a missing name from other failures); missing names raise KeyError and other tool errors raise RuntimeError with .code.
         """
-        if not isinstance(name, str):
-            raise KeyError(name)
+        name = _require_str_key(name)
         _check_keyed(call_host_tool("frame_delete", name=name), name, lambda: call_host_tool("frame_list"))
 
 frame = _FrameProxy()
@@ -2026,7 +2034,7 @@ class _PivotTableProxy:
     def __iter__(self) -> Iterator[_Item]:
         """List pivot tables in the spreadsheet, optionally limited to one sheet.
 
-        Collection form: ``for item in wa.pivot_table`` (also ``len(wa.pivot_table)`` and ``name in wa.pivot_table``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code. The collection form passes no optional arguments (sheet); filter the items in Python.
+        Collection form: ``for item in wa.pivot_table`` (also ``len(wa.pivot_table)``, ``name in wa.pivot_table``, and ``wa.pivot_table[name] (read from this list)``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code. The collection form passes no optional arguments (sheet); filter the items in Python.
         """
         return iter(_list_items(call_host_tool("pivot_table_list")))
 
@@ -2043,7 +2051,7 @@ class _PivotTableProxy:
 
         Collection form: ``wa.pivot_table[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one ``pivot_table_list`` RPC). Missing names raise KeyError; other tool errors raise RuntimeError with .code. The collection form passes no optional arguments (sheet); filter the items in Python.
         """
-        item = _find_item(call_host_tool("pivot_table_list"), name)
+        item = _find_item(call_host_tool("pivot_table_list"), _require_str_key(name))
         if item is None:
             raise KeyError(name)
         return item
@@ -2054,10 +2062,9 @@ class _PivotTableProxy:
         Args:
             name (required): Name of the pivot table to delete.
 
-        Collection form: ``del wa.pivot_table[name]``. Deletes in one host RPC; missing names raise KeyError and other tool errors raise RuntimeError with .code. The collection form passes no optional arguments (sheet); filter the items in Python.
+        Collection form: ``del wa.pivot_table[name]``. Deletes in one host RPC (plus one list call on error to tell a missing name from other failures); missing names raise KeyError and other tool errors raise RuntimeError with .code. The collection form passes no optional arguments (sheet); filter the items in Python.
         """
-        if not isinstance(name, str):
-            raise KeyError(name)
+        name = _require_str_key(name)
         _check_keyed(call_host_tool("pivot_table_delete", name=name), name, lambda: call_host_tool("pivot_table_list"))
 
 pivot_table = _PivotTableProxy()
@@ -2141,7 +2148,7 @@ class _SectionProxy:
     def __iter__(self) -> Iterator[_Item]:
         """List all named sections in the document.
 
-        Collection form: ``for item in wa.section`` (also ``len(wa.section)`` and ``name in wa.section``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
+        Collection form: ``for item in wa.section`` (also ``len(wa.section)``, ``name in wa.section``, and ``wa.section[name] (read from this list)``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
         return iter(_list_items(call_host_tool("section_list")))
 
@@ -2158,7 +2165,7 @@ class _SectionProxy:
 
         Collection form: ``wa.section[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one ``section_list`` RPC). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
         """
-        item = _find_item(call_host_tool("section_list"), name)
+        item = _find_item(call_host_tool("section_list"), _require_str_key(name))
         if item is None:
             raise KeyError(name)
         return item
@@ -2169,10 +2176,9 @@ class _SectionProxy:
         Args:
             name (required): Name of the section to delete.
 
-        Collection form: ``del wa.section[name]``. Deletes in one host RPC; missing names raise KeyError and other tool errors raise RuntimeError with .code.
+        Collection form: ``del wa.section[name]``. Deletes in one host RPC (plus one list call on error to tell a missing name from other failures); missing names raise KeyError and other tool errors raise RuntimeError with .code.
         """
-        if not isinstance(name, str):
-            raise KeyError(name)
+        name = _require_str_key(name)
         _check_keyed(call_host_tool("section_delete", name=name), name, lambda: call_host_tool("section_list"))
 
 section = _SectionProxy()
@@ -2392,7 +2398,7 @@ class _SheetProxy:
     def __iter__(self) -> Iterator[_Item]:
         """Lists user-visible sheets (omits leading-`_` internal tabs). Each entry is {name, protected, visible}.
 
-        Collection form: ``for item in wa.sheet`` (also ``len(wa.sheet)`` and ``sheet in wa.sheet``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
+        Collection form: ``for item in wa.sheet`` (also ``len(wa.sheet)``, ``sheet in wa.sheet``, and ``wa.sheet[sheet] (read from this list)``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
         return iter(_list_items(call_host_tool("sheet_list")))
 
@@ -2409,7 +2415,7 @@ class _SheetProxy:
 
         Collection form: ``wa.sheet[sheet]``. Fetches a fresh dict snapshot whose keys also read as attributes (one ``sheet_list`` RPC). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
         """
-        item = _find_item(call_host_tool("sheet_list"), sheet)
+        item = _find_item(call_host_tool("sheet_list"), _require_str_key(sheet))
         if item is None:
             raise KeyError(sheet)
         return item
@@ -2420,10 +2426,9 @@ class _SheetProxy:
         Args:
             sheet (required): Name of the sheet to delete.
 
-        Collection form: ``del wa.sheet[sheet]``. Deletes in one host RPC; missing names raise KeyError and other tool errors raise RuntimeError with .code.
+        Collection form: ``del wa.sheet[sheet]``. Deletes in one host RPC (plus one list call on error to tell a missing name from other failures); missing names raise KeyError and other tool errors raise RuntimeError with .code.
         """
-        if not isinstance(sheet, str):
-            raise KeyError(sheet)
+        sheet = _require_str_key(sheet)
         _check_keyed(call_host_tool("sheet_delete", sheet=sheet), sheet, lambda: call_host_tool("sheet_list"))
 
 sheet = _SheetProxy()

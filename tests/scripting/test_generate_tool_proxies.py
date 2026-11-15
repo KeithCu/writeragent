@@ -959,4 +959,14 @@ def test_collection_namespace_shape_errors(bad_tools):
         generate_module([_as_tool(t) for t in bad_tools])
 
 
+def test_collection_rejects_non_dict_list_entries():
+    ns, _calls = _exec_generated_proxy(
+        _bookmark_tools(),
+        lambda tool, kwargs: {"status": "ok", "bookmarks": ["A"], "count": 1},
+    )
+    bm = ns["bookmark"]
+    with pytest.raises(RuntimeError, match="Expected dict entries"):
+        _ = "A" in bm
+    with pytest.raises(RuntimeError, match="Expected dict entries"):
+        list(bm)
 
