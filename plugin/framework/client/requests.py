@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""One-shot HTTP for catalog, speech, image URL download, and update checks.
+"""One-shot HTTP for catalog, speech, image URL download, update checks, and web search.
 
 The stop / timeout / retry / redaction / strict-JSON behavior is
 ``LlmHttpTransport``. This module only adapts a URL into that transport so
@@ -27,6 +27,7 @@ def sync_request(
     parse_json: bool = True,
     *,
     timeout: float,
+    connect_timeout: float | None = None,
     cancel: SendCancellation | None = None,
     status_callback: Any = None,
     include_meta: bool = False,
@@ -37,8 +38,10 @@ def sync_request(
     ``timeout`` is the read budget (Settings ``request_timeout`` for LLM and
     image work, or an explicit probe value). Connect uses
     ``LLM_CONNECT_TIMEOUT_SEC`` inside the transport so a dead host does not
-    wait the full read stall. ``parse_json`` is strict ``json.loads`` — a
-    truncated body is ``BAD_RESPONSE``, not a repaired object.
+    wait the full read stall; ``connect_timeout`` replaces
+    ``LLM_CONNECT_TIMEOUT_SEC`` for callers whose host should answer quickly.
+    ``parse_json`` is strict ``json.loads`` — a truncated body is
+    ``BAD_RESPONSE``, not a repaired object.
 
     Returns decoded JSON, or raw bytes when ``parse_json`` is false. With
     ``include_meta``, returns ``http_transport.HttpResult`` (status, body, content type).
@@ -51,7 +54,7 @@ def sync_request(
     method = "POST" if data is not None else "GET"
 
     origin, path = origin_and_path(url)
-    transport = LlmHttpTransport(lambda: origin, lambda: timeout)
+    transport = LlmHttpTransport(lambda: origin, lambda: timeout, connect_timeout=connect_timeout)
     try:
         result = transport.exchange(
             method,

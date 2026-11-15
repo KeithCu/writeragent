@@ -300,3 +300,18 @@ def test_sync_request_truncated_json_is_not_repaired():
             sync_request("https://api.example/v1/models", timeout=1)
     assert raised.value.code == "BAD_RESPONSE"
     assert "gpt-secret-model" not in str(raised.value)
+
+
+def test_sync_request_connect_timeout_reaches_connection():
+    seen = []
+
+    def _factory(*_args, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        conn = MagicMock()
+        conn.getresponse.return_value = _response(200, b"{}", "OK")
+        return conn
+
+    with patch("http.client.HTTPSConnection", side_effect=_factory):
+        sync_request("https://api.example/v1/models", timeout=1, connect_timeout=3)
+
+    assert seen == [3.0]
