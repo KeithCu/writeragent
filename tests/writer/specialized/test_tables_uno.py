@@ -13,7 +13,9 @@ from plugin.writer.specialized.tables import (
     TableGetCells,
     TableInsert,
     TableList,
+    TableMergeCells,
     TableSetCell,
+    TableSplitCell,
 )
 
 
@@ -296,3 +298,100 @@ def test_delete_row_refuses_nested_table_in_merged_d2_uno(ctx, doc):
     assert del_row.get("status") == "error" and "MergedChild" in del_row.get("message", ""), del_row
     assert outer.getRows().getCount() == 5
     assert doc.getTextTables().hasByName("MergedChild")
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_merge_cells_joins_text_renumbers_and_undoes_uno(ctx, doc):
+    """Merge B2:A1 (lower case, reversed) joins text, renumbers C1 -> B1, and undoes in one step."""
+    text = doc.getText()
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(3, 3)
+    text.insertTextContent(text.getEnd(), table, False)
+    table.setName("MergeGrid")
+    for cell_name in table.getCellNames():
+        table.getCellByName(cell_name).setString("v" + cell_name)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    merged = TableMergeCells().execute(tool_ctx, name="MergeGrid", cell_range="b2:a1")
+    assert merged.get("status") == "ok", merged
+    assert merged["merged_cell"] == "A1"
+
+    cells = TableGetCells().execute(tool_ctx, name="MergeGrid")
+    assert cells.get("status") == "ok", cells
+    assert cells["cells"]["A1"] == "vA1\nvB1\nvA2\nvB2"
+    assert cells["cells"]["B1"] == "vC1"
+    expected_names = ["A1", "B1", "B2", "A3", "B3", "C3"]
+    assert cells["cell_names"] == expected_names
+    assert merged["cell_names"] == expected_names
+
+    doc.getUndoManager().undo()
+    restored = TableGetCells().execute(tool_ctx, name="MergeGrid")
+    assert restored.get("status") == "ok", restored
+    assert len(restored["cell_names"]) == 9
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_merge_cells_keeps_nested_table_uno(ctx, doc):
+    """Merging across a host cell preserves the nested table; splitting keeps it in the first cell."""
+    text = doc.getText()
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer.setName("Outer")
+    host = outer.getCellByName("B2")
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    host.insertTextContent(host.getStart(), inner, False)
+    inner.setName("Inner")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    merged = TableMergeCells().execute(tool_ctx, name="Outer", cell_range="A1:B2")
+    assert merged.get("status") == "ok", merged
+    listed = TableList().execute(tool_ctx)
+    assert any(t["name"] == "Inner" for t in listed["tables"])
+    after_merge = TableGetCells().execute(tool_ctx, name="Outer")
+    assert after_merge["nested_in_cells"] == {"A1": ["Inner"]}
+
+    split_res = TableSplitCell().execute(tool_ctx, name="Outer", cell="A1", direction="columns", parts=2)
+    assert split_res.get("status") == "ok", split_res
+    after_split = TableGetCells().execute(tool_ctx, name="Outer")
+    assert after_split["nested_in_cells"] == {"A1": ["Inner"]}
+    assert after_split["cells"]["B1"] == ""
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_split_cell_rows_and_unmerge_uno(ctx, doc):
+    """Split into rows stacks empty cells; splitting a merged cell restores the split names."""
+    text = doc.getText()
+    t1 = doc.createInstance("com.sun.star.text.TextTable")
+    t1.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), t1, False)
+    t1.setName("SplitRows")
+    for cell_name in t1.getCellNames():
+        t1.getCellByName(cell_name).setString("v" + cell_name)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    split_res = TableSplitCell().execute(tool_ctx, name="SplitRows", cell="A1", direction="rows", parts=3)
+    assert split_res.get("status") == "ok", split_res
+    assert split_res["rows"] == 4
+    assert split_res["cell_names"] == ["A1", "B1", "A2", "A3", "A4", "B4"]
+    cells = TableGetCells().execute(tool_ctx, name="SplitRows")
+    assert cells["cells"]["A1"] == "vA1"
+    assert cells["cells"]["A2"] == ""
+    assert cells["cells"]["A4"] == "vA2"
+
+    t2 = doc.createInstance("com.sun.star.text.TextTable")
+    t2.initialize(3, 2)
+    text.insertTextContent(text.getEnd(), t2, False)
+    t2.setName("Unmerge")
+    merged = TableMergeCells().execute(tool_ctx, name="Unmerge", cell_range="A2:A3")
+    assert merged.get("status") == "ok", merged
+    assert merged["merged_cell"] == "A2"
+    unmerged = TableSplitCell().execute(tool_ctx, name="Unmerge", cell="A2", direction="rows", parts=2)
+    assert unmerged.get("status") == "ok", unmerged
+    assert len(unmerged["cell_names"]) == 6
+    cells2 = TableGetCells().execute(tool_ctx, name="Unmerge")
+    assert cells2["cells"]["A3"] == ""

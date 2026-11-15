@@ -72,7 +72,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 | `shape_distribute` | `shapes` | `draw/shapes.py` | Evenly space shapes along an axis (Writer/Calc/Draw/Impress) | same four document services |
 | `shape_diagram` | `shapes` | `draw/shapes.py` | Batch nodes + connectors (Writer/Calc/Draw/Impress) | same four document services |
 | `image_crop_and_highlight`, `image_delete`, `image_download`, `image_generate`, `image_get_info`, `image_insert`, `image_list`, `image_list_nearby_files`, `image_replace`, `image_set_properties` | `images` | `writer/images/images.py` | Same registered names as Writer/Calc; Draw/Impress placement uses millimetres (`page`, `x_mm`, `y_mm`) | same four document services |
-| `table_insert` / `table_delete` / `table_list` / `table_get_cells` / `table_set_cell` / `table_manage_structure` | `tables` | `writer/specialized/tables.py` + `draw/tables.py` | Same names as Writer; Draw uses TableShape | Drawing+Presentation |
+| `table_insert` / `table_delete` / `table_list` / `table_get_cells` / `table_set_cell` / `table_manage_structure` | `tables` | `writer/specialized/tables.py` + `draw/tables.py` | Same names as Writer; Draw uses TableShape (Writer-only `table_merge_cells` and `table_split_cell` are not offered on Draw/Impress) | Drawing+Presentation |
 | `slide_transition_get` | `slide_transitions` | `draw/transitions.py` | Get transition effect/speed/duration | Presentation |
 | `slide_transition_set` | `slide_transitions` | `draw/transitions.py` | Set transition effect/speed/duration | Presentation |
 | `slide_layout_get` | `slide_layouts` | `draw/transitions.py` | Get current slide layout | Presentation |

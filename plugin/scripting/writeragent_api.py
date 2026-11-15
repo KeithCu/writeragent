@@ -192,7 +192,9 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'table_insert',
                  'table_list',
                  'table_manage_structure',
-                 'table_set_cell'],
+                 'table_merge_cells',
+                 'table_set_cell',
+                 'table_split_cell'],
     'textframe': ['frame_delete', 'frame_get_info', 'frame_insert', 'frame_list', 'frame_set_properties'],
     'tracking': ['tracking_list', 'tracking_manage', 'tracking_show', 'tracking_start', 'tracking_stop'],
     'vision': ['extract_structure_from_image'],
@@ -394,7 +396,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'table_insert': ('table', 'insert'),
     'table_list': ('table', 'list'),
     'table_manage_structure': ('table', 'manage_structure'),
+    'table_merge_cells': ('table', 'merge_cells'),
     'table_set_cell': ('table', 'set_cell'),
+    'table_split_cell': ('table', 'split_cell'),
     'tracking_list': ('tracking', 'list'),
     'tracking_manage': ('tracking', 'manage'),
     'tracking_show': ('tracking', 'show'),
@@ -2434,6 +2438,15 @@ class _TableProxy:
         """
         return call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index)
 
+    def merge_cells(self, name: str, cell_range: str) -> dict[str, Any]:
+        """Merge a rectangular block of Writer table cells into one cell. Each merged cell's text becomes its own paragraph, empty cells add nothing, and nested tables are kept. If the block cuts through an already-merged cell, LibreOffice grows the block to cover it. Cell names are renumbered per row afterwards (after merging A1:B2 in a 3×3 table the old C1 is B1), so use the returned cell_names or table_get_cells before the next edit. Ctrl+Z undoes it in one step. Not a tracked change even when review mode is on.
+
+        Args:
+            name (required): Table name from table_list.
+            cell_range (required): Two corner addresses joined by ':', e.g. 'A1:B2' (either order).
+        """
+        return call_host_tool("table_merge_cells", name=name, cell_range=cell_range)
+
     def set_cell(self, cell: str, text: str, *, name: str | None = None, page: int | None = None, index: int | None = None) -> dict[str, Any]:
         """Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). A normal cell is replaced with setString (clears in-cell formatting). A cell that hosts a nested table keeps that table and rewrites only the host paragraphs. Edit the nested table by its own name. Not a tracked change even when review mode is on.
 
@@ -2445,6 +2458,17 @@ class _TableProxy:
             index (optional): Draw/Impress: shape index on the page.
         """
         return call_host_tool("table_set_cell", name=name, cell=cell, text=text, page=page, index=index)
+
+    def split_cell(self, name: str, cell: str, direction: str, parts: int) -> dict[str, Any]:
+        """Split one Writer table cell into 2-20 parts, as rows or as columns. The cell's text and any nested table stay in the first part; the new parts are empty. Splitting a merged cell into as many parts as it spans undoes the merge. Cell names are renumbered afterwards, so use the returned cell_names. Ctrl+Z undoes it in one step. Not a tracked change even when review mode is on.
+
+        Args:
+            name (required): Table name from table_list.
+            cell (required): A1-style cell address from cell_names.
+            direction (required): rows stacks the parts top to bottom; columns puts them side by side. One of: rows, columns.
+            parts (required): Number of cells the cell becomes (2-20).
+        """
+        return call_host_tool("table_split_cell", name=name, cell=cell, direction=direction, parts=parts)
 
 table = _TableProxy()
 
