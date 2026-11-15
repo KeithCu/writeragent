@@ -382,7 +382,9 @@ def test_s29_restore_groups_by_prior_key_uno(ctx, doc):
             sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
             expected[(col, row)] = key
 
-    values = [["08/05/2026", "1,234"], ["50%", "$5"], ["12:30", "08/06/2026"], ["2,345", "75%"]]
+    # Every value must miss the ISO gate (no 2026-08-08 or 12:30 shapes) so all eight commit as
+    # text and go through the S29 restore rather than the temporal format pass.
+    values = [["08/05/2026", "1,234"], ["50%", "$5"], ["$12", "08/06/2026"], ["2,345", "75%"]]
     res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A1:B4"], "values": values})
     assert res.get("status") == "ok", res
     after = {(col, row): _cell_key(sheet, col, row) for (col, row) in expected}
