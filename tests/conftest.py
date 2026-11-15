@@ -591,6 +591,7 @@ class MockXJobExecutor: pass
 class MockXJob: pass
 class MockXDispatch: pass
 class MockXDispatchProvider: pass
+class MockXStatusListener: pass
 
 task = _create_mock_module("com.sun.star.task")
 setattr(task, "XJobExecutor", MockXJobExecutor)
@@ -600,6 +601,7 @@ frame = _create_mock_module("com.sun.star.frame")
 setattr(frame, "DispatchDescriptor", MockBase)
 setattr(frame, "XDispatch", MockXDispatch)
 setattr(frame, "XDispatchProvider", MockXDispatchProvider)
+setattr(frame, "XStatusListener", MockXStatusListener)
 setattr(frame, "XTerminateListener", MockBase)
 
 # Shared UNO mock modules loaded once for the session. Module-level

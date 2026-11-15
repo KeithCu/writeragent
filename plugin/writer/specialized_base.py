@@ -123,7 +123,7 @@ class ToolWriterStyleBase(ToolWriterSpecialBase):
 
 class ToolWriterPageBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "page"
-    specialized_domain_description: ClassVar[str | None] = "Page layout, margins, columns, headers, footers, and page breaks."
+    specialized_domain_description: ClassVar[str | None] = "Page layout, margins, columns, headers, footers, page breaks, and text watermarks."
     # style_list(family=PageStyles) is how this sub-agent learns real page-style
     # names (a converted .docx rarely uses "Standard"). style_clone copies one
     # of those styles, including headers and footers, without a domain switch.
