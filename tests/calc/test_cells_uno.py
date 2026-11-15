@@ -833,6 +833,7 @@ def test_delete_structure_on_prefixed_sheet(ctx, doc):
     sheet2.getCellByPosition(0, 5).setString("row6")
     res = _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": "Sheet2.5"})
     assert res.get("status") == "ok", res
+    assert res["sheet"] == "Sheet2"
     assert sheet2.getCellByPosition(0, 4).getString() == "row6"
 
 
@@ -1013,3 +1014,84 @@ def test_set_style_column_width_and_autofit(ctx, doc):
     res_height = _execute_calc_tool(doc, ctx, "set_style", {"range": ["B1:C1"], "row_height_mm": 10})
     assert res_height.get("status") == "ok", res_height
     assert int(rows.getByIndex(0).getPropertyValue("Height")) == 1000
+
+
+@native_test
+@with_native_doc("calc")
+def test_delete_structure_refuses_when_formulas_would_break(ctx, doc):
+    sheets = doc.getSheets()
+    sheet1 = sheets.getByIndex(0)
+    sheets.insertNewByName("Other", sheets.getCount())
+    other = sheets.getByName("Other")
+
+    for r in range(10):
+        sheet1.getCellByPosition(0, r).setValue(r + 1)
+    sheet1.getCellByPosition(2, 0).setFormula("=A5")
+    other.getCellByPosition(0, 0).setFormula("=$Sheet1.A5")
+
+    res_refused = _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": 5})
+    assert res_refused.get("status") == "error", res_refused
+    assert res_refused.get("code") == "REFS_WOULD_BREAK"
+    assert res_refused["details"]["refs_broken"] == 2
+    assert sheet1.getCellByPosition(0, 4).getValue() == 5.0
+    assert sheet1.getCellByPosition(2, 0).getFormula() == "=A5"
+    assert tuple(doc.getUndoManager().getAllRedoActionTitles() or ()) == ()
+
+    res_ok = _execute_calc_tool(
+        doc, ctx, "delete_structure", {"structure_type": "rows", "start": 5, "confirm": True}
+    )
+    assert res_ok.get("status") == "ok", res_ok
+    assert res_ok["refs_broken"] == 2
+    assert "#REF!" in sheet1.getCellByPosition(2, 0).getFormula()
+    assert sheet1.getCellByPosition(0, 4).getValue() == 6.0
+
+    doc.getUndoManager().undo()
+    assert sheet1.getCellByPosition(2, 0).getFormula() == "=A5"
+
+
+@native_test
+@with_native_doc("calc")
+def test_delete_structure_without_broken_refs_needs_no_confirm(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    for r in range(10):
+        sheet.getCellByPosition(0, r).setValue(r + 1)
+    sheet.getCellByPosition(2, 0).setFormula("=SUM(A4:A6)")
+    sheet.getCellByPosition(3, 8).setFormula("=#REF!")
+
+    res = _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": 5})
+    assert res.get("status") == "ok", res
+    assert "refs_broken" not in res
+    assert sheet.getCellByPosition(2, 0).getFormula() == "=SUM(A4:A5)"
+
+
+@native_test
+@with_native_doc("calc")
+def test_merge_cells_reports_hidden_content_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    sheet.getCellByPosition(0, 0).setString("TL")
+    sheet.getCellByPosition(1, 0).setString("x")
+
+    res = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["A1:C1"]})
+    assert res.get("status") == "ok", res
+    assert res["hidden_count"] == 1
+    assert res["hidden_cells"] == ["Sheet1.B1"]
+    assert sheet.getCellByPosition(1, 0).getString() == "x"
+    assert sheet.getCellRangeByName("A1:C1").getIsMerged() is True
+
+
+@native_test
+@with_native_doc("calc")
+def test_merge_cells_refuses_overlap_uno(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    res1 = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["A1:C1"]})
+    assert res1.get("status") == "ok", res1
+
+    res2 = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["B1:D1"]})
+    assert res2.get("status") == "error", res2
+    assert res2.get("code") == "INVALID_PARAM"
+
+    cur = sheet.createCursorByRange(sheet.getCellRangeByPosition(0, 0, 0, 0))
+    cur.collapseToMergedArea()
+    ra = cur.getRangeAddress()
+    assert (int(ra.StartColumn), int(ra.StartRow), int(ra.EndColumn), int(ra.EndRow)) == (0, 0, 2, 0)
+    assert sheet.getCellRangeByName("C1:D1").getIsMerged() is False

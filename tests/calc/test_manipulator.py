@@ -1040,3 +1040,61 @@ def test_number_format_key_general_preset_skips_conversion():
     assert key == 0
     formats.getStandardFormat.assert_called_once_with(16, locale)
     formats.addNewConverted.assert_not_called()
+
+
+def test_surviving_ref_cells_rows_and_columns():
+    from plugin.calc.manipulator import _surviving_ref_cells
+
+    cells = {
+        ("Sheet1", 0, 1),   # above deleted rows 3..4 (0-based 2..3)
+        ("Sheet1", 1, 2),   # inside deleted rows
+        ("Sheet1", 2, 3),   # inside deleted rows
+        ("Sheet1", 0, 5),   # below deleted rows -> row 3
+        ("Other", 1, 2),    # other sheet: untouched
+    }
+    assert _surviving_ref_cells(cells, "Sheet1", True, 2, 2) == {
+        ("Sheet1", 0, 1),
+        ("Sheet1", 0, 3),
+        ("Other", 1, 2),
+    }
+
+    col_cells = {
+        ("Sheet1", 0, 0),   # left of deleted cols B..C (0-based 1..2)
+        ("Sheet1", 1, 4),   # inside deleted cols
+        ("Sheet1", 2, 5),   # inside deleted cols
+        ("Sheet1", 4, 2),   # right of deleted cols -> col 2
+        ("Other", 1, 4),    # other sheet: untouched
+    }
+    assert _surviving_ref_cells(col_cells, "Sheet1", False, 1, 2) == {
+        ("Sheet1", 0, 0),
+        ("Sheet1", 2, 2),
+        ("Other", 1, 4),
+    }
+
+
+def test_delete_structure_confirm_without_undo_does_not_promise_ctrl_z():
+    doc = MagicMock()
+    doc.getUndoManager.return_value = None
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    sheets = doc.getSheets.return_value
+    sheets.getCount.return_value = 1
+    sheets.getByIndex.return_value = sheet
+
+    empty_ranges = MagicMock()
+    empty_ranges.getRangeAddresses.return_value = []
+    ra = SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=0, EndRow=0)
+    after_ranges = MagicMock()
+    after_ranges.getRangeAddresses.return_value = [ra]
+    sheet.queryContentCells.side_effect = [empty_ranges, after_ranges]
+    sheet.getCellRangeByPosition.return_value.getFormulaArray.return_value = (("=#REF!",),)
+
+    bridge = SimpleNamespace(doc=doc, get_active_sheet=lambda: sheet)
+    manipulator = CellManipulator(bridge)
+    res = manipulator.delete_structure("rows", 5, confirm=True)
+
+    assert res["refs_broken"] == 1
+    assert len(res["warnings"]) == 1
+    msg = res["warnings"][0]["message"]
+    assert "Ctrl+Z" not in msg
+    assert "Undo was unavailable" in msg
