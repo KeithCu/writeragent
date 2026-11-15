@@ -116,6 +116,33 @@ def is_calc_error_display(value: object) -> str | None:
     return None
 
 
+def formula_error_cells(sheet: Any, cell_range: Any, limit: int | None = None) -> tuple[list[dict[str, Any]], int]:
+    """Formula cells in *cell_range* whose result is an error.
+
+    Returns ``(errors, total)`` where *errors* has at most *limit* entries
+    (all when ``None``) as ``{"address": qualified A1, "formula": str, "error": dict}``,
+    and *total* is summed from the query's range addresses so a capped scan
+    still reports how many error cells exist.
+    """
+    # queryFormulaCells calls ScFormulaCell::GetErrCode -> MaybeInterpret()
+    # (sc/source/ui/unoobj/cellsuno.cxx, sc/source/core/data/formulacell.cxx),
+    # so dirty formula cells are evaluated without an explicit recalc.
+    # Summing getRangeAddresses() keeps a capped scan cheap on large ranges.
+    found = cell_range.queryFormulaCells(RESULT_ERROR)
+    total = sum((a.EndColumn - a.StartColumn + 1) * (a.EndRow - a.StartRow + 1) for a in found.getRangeAddresses())
+    sheet_name = str(sheet.getName())
+    errors: list[dict[str, Any]] = []
+    enum = found.getCells().createEnumeration()
+    while enum_has_more(enum) and (limit is None or len(errors) < limit):
+        cell = enum.nextElement()
+        error_info = ErrorDetector.get_error_type(cell)
+        if error_info:
+            addr = cell.getCellAddress()
+            address = qualify_a1(sheet_name, format_address(addr.Column, addr.Row))
+            errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
+    return errors, total
+
+
 class ErrorDetector:
     """Detects and explains formula errors in the worksheet."""
 
@@ -178,18 +205,8 @@ class ErrorDetector:
             end_col = addr.EndColumn
             end_row = addr.EndRow
 
-        errors = []
         cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
-        formula_cells = cell_range.queryFormulaCells(RESULT_ERROR)
-
-        enum = formula_cells.getCells().createEnumeration()
-        while enum_has_more(enum):
-            cell = enum.nextElement()
-            error_info = self.get_error_type(cell)
-            if error_info:
-                addr = cell.getCellAddress()
-                address = qualify_a1(str(sheet.getName()), format_address(addr.Column, addr.Row))
-                errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
+        errors = formula_error_cells(sheet, cell_range)[0]
 
         log.debug("%d errors detected (range: %s).", len(errors), range_str or "full sheet")
         return errors

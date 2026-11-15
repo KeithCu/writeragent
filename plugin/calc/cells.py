@@ -37,7 +37,7 @@ from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
-from plugin.calc.manipulator import CellManipulator
+from plugin.calc.manipulator import WRITE_REPORT_KEYS, CellManipulator
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
@@ -560,11 +560,18 @@ class WriteCellRange(ToolBase):
             return plan
 
         def _format_write(results: list[Any]) -> dict[str, Any]:
+            # Merge per-range write reports so multi-range writes do not
+            # drop error_cells, numeric-text, apostrophe, or warning details.
+            merged: dict[str, list[Any]] = {}
+            for res in results:
+                for key in WRITE_REPORT_KEYS:
+                    if key in res:
+                        merged.setdefault(key, []).extend(res.pop(key))
             message = f"Wrote to {len(rn)} ranges"
             if any("array_range" in res for res in results):
                 ranges_payload = [{"range": r, **res} for r, res in zip(rn, results)]
-                return make_tool_ok(message=message, ranges=ranges_payload)
-            return make_tool_ok(message=message)
+                return make_tool_ok(message=message, ranges=ranges_payload, **merged)
+            return make_tool_ok(message=message, **merged)
 
         return _mutate_ranges(
             self,

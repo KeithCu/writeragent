@@ -10,7 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.errors import CalcError, UnoObjectError
-from plugin.calc.manipulator import CellManipulator, WritePlan, _parse_formula_or_values_string
+from plugin.calc.manipulator import (
+    CellManipulator,
+    WritePlan,
+    _parse_formula_or_values_string,
+    _text_write_notes,
+    looks_numeric_text,
+)
 
 
 def _used(start_row: int, end_row: int, end_col: int) -> SimpleNamespace:
@@ -734,3 +740,86 @@ class TestFormulaParsingLogic:
         s = "Left; right"
         assert _parse_formula_or_values_string(s, single_cell_range=True) is None
         assert _parse_formula_or_values_string(s, single_cell_range=False) == ["Left", "right"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("1,5", True),
+        ("1.234,56", True),
+        ("$1,200", True),
+        ("12%", True),
+        ("08/05/2026", True),
+        ("5.8.2026", True),
+        ("2026/08/05", True),
+        ("2026-02-30", True),
+        ("2026-08-08T10:00Z", True),
+        ("8:30 PM", True),
+        ("1.2.3", False),
+        ("10.0.0.1", False),
+        ("1,2,3", False),
+        ("Q1", False),
+        ("90s", False),
+        ("TRUE", False),
+        ("555-1234", False),
+        ("v1.2", False),
+        ("8/5", False),
+    ],
+)
+def test_looks_numeric_text(text: str, expected: bool) -> None:
+    assert looks_numeric_text(text) is expected
+
+
+def test_text_write_notes_flags_numeric_text_and_needless_apostrophe() -> None:
+    vals = ["1,5", "'tis", "'2026-08-08", "''x", "08/05/2026", "hello", "=A1", "'"]
+    metas = CellManipulator(MagicMock()).plan_writes(vals, None, 0)
+    numeric_idx, apostrophe_idx = _text_write_notes(vals, metas)
+    assert numeric_idx == [0, 4]
+    assert apostrophe_idx == [1, 7]
+
+
+def test_write_reports_error_cells_with_address_and_count() -> None:
+    addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=11, Sheet=0)
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = addr
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    cell_range.getSpreadsheet.return_value = sheet
+    sheet.getCellRangeByPosition.return_value = cell_range
+
+    err_cell = MagicMock()
+    err_cell.getError.return_value = 509
+    err_cell.getFormula.return_value = "=py header"
+    err_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = err_cell
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=11)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+    cell_range.queryFormulaCells.return_value = found
+
+    cells: dict[tuple[int, int], MagicMock] = {}
+
+    def get_cell(col, row):
+        cells.setdefault((col, row), MagicMock())
+        return cells[(col, row)]
+
+    sheet.getCellByPosition.side_effect = get_cell
+    formats = MagicMock()
+    formats.getStandardIndex.return_value = 0
+    doc = MagicMock()
+    doc.getNumberFormats.return_value = formats
+    doc.getPropertyValue.return_value = SimpleNamespace(Language="en", Country="US", Variant="")
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = cell_range
+    bridge.doc = doc
+
+    res = CellManipulator(bridge).write_formula_range("A1:A12", "=PY header")
+    assert res["error_cells"] == [{"address": "Sheet1.A1", "error": "Err:509", "formula": "=py header"}]
+    assert res["warnings"][0]["code"] == "FORMULA_ERROR"
+    assert "12 formula cell(s)" in res["warnings"][0]["message"]
+    assert "formula gives" not in res["message"]
+

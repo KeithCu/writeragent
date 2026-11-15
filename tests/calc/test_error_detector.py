@@ -17,6 +17,7 @@ import pytest
 
 from plugin.calc.error_detector import (
     ErrorDetector,
+    formula_error_cells,
     is_calc_error_display,
     truncation_hint,
 )
@@ -206,5 +207,35 @@ def test_detect_and_explain_truncation_cap(total, expected_count, expected_trunc
     assert res["error_count"] == expected_count
     assert res["truncated"] is expected_truncated
     assert len(res["errors"]) == expected_count
+
+
+def test_formula_error_cells_stops_at_limit_and_counts_all():
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    cells = []
+    for row in range(5):
+        cell = MagicMock()
+        cell.getError.return_value = 509
+        cell.getFormula.return_value = f"=bad{row}"
+        cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=row)
+        cells.append(cell)
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, True, True, True, False]
+    enum.nextElement.side_effect = cells
+
+    found = MagicMock()
+    found.getRangeAddresses.return_value = [SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=4)]
+    found.getCells.return_value.createEnumeration.return_value = enum
+
+    cell_range = MagicMock()
+    cell_range.queryFormulaCells.return_value = found
+
+    errors, total = formula_error_cells(sheet, cell_range, limit=2)
+    assert len(errors) == 2
+    assert total == 5
+    assert [e["address"] for e in errors] == ["Sheet1.A1", "Sheet1.A2"]
+
 
 

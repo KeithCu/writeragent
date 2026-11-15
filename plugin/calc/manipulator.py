@@ -28,6 +28,7 @@ import csv
 import io
 from itertools import chain
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Callable, Generator, Literal, NamedTuple, Sequence, TypeGuard
 
 if TYPE_CHECKING:
@@ -45,9 +46,10 @@ else:
         pass
 
 
-from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_address, format_range
+from plugin.calc.address_utils import MAX_COL, MAX_ROW, column_to_index, format_address, format_range, qualify_a1
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target, returns_array
 from plugin.calc.calc_utils import NumberFormatCategories, elapsed_format_key, resolve_document_locale
+from plugin.calc.error_detector import formula_error_cells
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
@@ -57,7 +59,7 @@ from plugin.calc.datetime_wire import (
     match_iso_temporal,
     should_preserve_temporal_format,
 )
-from plugin.framework.errors import CalcError, WriterAgentException, best_effort, is_disposal, uno_read
+from plugin.framework.errors import CalcError, Diagnostic, WriterAgentException, best_effort, is_disposal, uno_read
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_ctx
@@ -68,6 +70,9 @@ log = logging.getLogger("writeragent.calc")
 MAX_WRITE_CELLS = 250_000
 _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
+_MAX_REPORTED_CELLS = 10
+# Per-range write-report keys merged by multi-range callers.
+WRITE_REPORT_KEYS: tuple[str, ...] = ("error_cells", "text_that_looks_numeric", "apostrophe_removed", "warnings")
 
 # Calc declares VertJustify as a long (sc/source/ui/unoobj/cellsuno.cxx,
 # SC_UNONAME_CELLVJUS). SvxVerJustifyItem::PutValue
@@ -77,7 +82,6 @@ _VERT_JUSTIFY: dict[str, int] = {"standard": 0, "top": 1, "center": 2, "bottom":
 
 
 class _CommitResult(NamedTuple):
-    formula_warning: str
     data_array: list[list[Any]]
     dest_categories: dict[tuple[int, int], str | None]
     categories: NumberFormatCategories
@@ -189,6 +193,59 @@ def _write_summary(
 _WRITE_VALUES_CELL_ERR = (
     "Each cell in values must be string, number, boolean, or null; got {kind}."
 )
+
+_NUMBER_LIKE_RE = re.compile(
+    r"[+-]?[$€£¥]?\s?(?:\d{1,3}(?:[,.' \u00a0\u202f]\d{3})+(?:[.,]\d+)?|\d+[.,]\d+|\d+)\s?[%€$£¥]?"
+)
+_DATE_LIKE_RE = re.compile(
+    r"(?:\d{1,2}|\d{4})([./-])\d{1,2}\1(?:\d{2}|\d{4})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?(?:\s?[AaPp][Mm])?(?:Z|[+-]\d{2}:?\d{2})?)?"
+    r"|\d{1,2}:\d{2}(?::\d{2})?\s?[AaPp][Mm]"
+)
+
+
+def looks_numeric_text(text: str) -> bool:
+    """Return True if *text* matches a number-like or date/time-like shape.
+
+    These are shapes only, the same for every locale, and only emit warnings,
+    never convert values. Only plain numbers and ISO 8601 become values
+    (see ``_classify_write_cell``).
+    """
+    s = text.strip()
+    return bool(_NUMBER_LIKE_RE.fullmatch(s) or _DATE_LIKE_RE.fullmatch(s))
+
+
+def _apostrophe_only_dropped(rest: str) -> bool:
+    """Return True when a leading apostrophe protected nothing and was only stripped.
+
+    Calc strips one leading apostrophe on input (``ScColumn::ParseString`` in
+    ``sc/source/core/data/column3.cxx``), so the write does too. This reports
+    the cells where the apostrophe was not protecting a formula, doubled
+    apostrophe, ISO temporal/duration, numeric-looking text, or float.
+    """
+    if rest.startswith(("=", "'")):
+        return False
+    s = rest.strip()
+    if match_iso_temporal(s) or match_iso_duration(s) or looks_numeric_text(s):
+        return False
+    try:
+        float(rest)
+        return False
+    except ValueError:
+        return True
+
+
+def _text_write_notes(values: Sequence[Any], cell_metas: Sequence[_CellWrite]) -> tuple[list[int], list[int]]:
+    """Return flat indexes of text cells that look numeric and cells whose leading apostrophe was only dropped."""
+    numeric_idx: list[int] = []
+    apostrophe_idx: list[int] = []
+    for idx, (value, meta) in enumerate(zip(values, cell_metas)):
+        if not isinstance(value, str):
+            continue
+        if meta.kind == "text" and looks_numeric_text(value):
+            numeric_idx.append(idx)
+        elif meta.kind == "forced_text" and value.startswith("'") and _apostrophe_only_dropped(value[1:]):
+            apostrophe_idx.append(idx)
+    return numeric_idx, apostrophe_idx
 
 
 def _write_values_cell_ok(cell: Any) -> bool:
@@ -911,20 +968,13 @@ class CellManipulator:
         for col, row, key in s29_snapshots:
             sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
 
-        formula_warning = ""
         for col, row, formula in formula_cells:
-            cell = sheet.getCellByPosition(col, row)
-            cell.setFormula(formula)
-            if not formula_warning:
-                err = int(cell.Error)
-                if err != 0:
-                    hint = " (hint: Calc uses ';' as the argument separator)" if err in (508, 525, 501) else ""
-                    formula_warning = f"; warning: formula gives Err:{err}{hint}"
+            sheet.getCellByPosition(col, row).setFormula(formula)
 
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
 
-        return _CommitResult(formula_warning, data_array, dest_categories, categories, cols_needing)
+        return _CommitResult(data_array, dest_categories, categories, cols_needing)
 
     def apply_temporal_formats(
         self,
@@ -1190,12 +1240,73 @@ class CellManipulator:
             msg = _write_summary(
                 range_str,
                 cell_metas,
-                format_warning + committed.formula_warning,
+                format_warning,
                 expand_overwrite_warning,
             )
 
+            report: dict[str, Any] = {}
+            warnings: list[Diagnostic] = []
+            num_cols = end[0] - start[0] + 1
+            sheet_name: str | None = None
+
+            def _addr(i: int) -> str:
+                nonlocal sheet_name
+                if sheet_name is None:
+                    sheet_name = str(sheet.getName())
+                return qualify_a1(sheet_name, format_address(start[0] + i % num_cols, start[1] + i // num_cols))
+
+            if any(m.kind == "formula" for m in cell_metas):
+                errors, total = formula_error_cells(
+                    sheet,
+                    sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1]),
+                    limit=_MAX_REPORTED_CELLS,
+                )
+                if errors:
+                    report["error_cells"] = [
+                        {"address": e["address"], "error": e["error"]["code"], "formula": e["formula"]}
+                        for e in errors
+                    ]
+                    warn_msg = (
+                        f"{total} formula cell(s) show an error after the write "
+                        f"(error_cells lists {'the first ' + str(len(errors)) if total > len(errors) else 'them'}). "
+                        "A text label that starts with '=' must be written with a leading apostrophe ('=label). "
+                        "Use error_detect on a cell for the cause."
+                    )
+                    if any(e["error"]["error_code"] in (501, 508, 525) and "," in e["formula"] for e in errors):
+                        warn_msg += " Calc separates function arguments with ';', not ','."
+                    warnings.append({"code": "FORMULA_ERROR", "message": warn_msg})
+
+            if not literal_text and not data_text:
+                numeric_idx, apostrophe_idx = _text_write_notes(values, cell_metas)
+                if numeric_idx:
+                    report["text_that_looks_numeric"] = [
+                        {"address": _addr(i), "value": values[i].strip()}
+                        for i in numeric_idx[:_MAX_REPORTED_CELLS]
+                    ]
+                    warnings.append({
+                        "code": "TEXT_LOOKS_NUMERIC",
+                        "message": (
+                            f"{len(numeric_idx)} cell(s) look like a number or date but were stored as text "
+                            "(text_that_looks_numeric). Only plain numbers (1.5) and ISO dates (2026-08-05) "
+                            "become values; resend them that way if they must calculate, or leave them if they are labels."
+                        ),
+                    })
+                if apostrophe_idx:
+                    report["apostrophe_removed"] = [
+                        {"address": _addr(i), "value": cell_metas[i].data}
+                        for i in apostrophe_idx[:_MAX_REPORTED_CELLS]
+                    ]
+                    warnings.append({
+                        "code": "APOSTROPHE_REMOVED",
+                        "message": (
+                            f"{len(apostrophe_idx)} cell(s) started with an apostrophe, which was removed as the "
+                            "force-text marker (apostrophe_removed). To keep a leading apostrophe in the text, "
+                            "double it (''90s)."
+                        ),
+                    })
+
             log.info("%s", msg)
-            return {"message": msg}
+            return {"message": msg, **report, **({"warnings": warnings} if warnings else {})}
 
     def write_formula_range(
         self,
@@ -1229,7 +1340,10 @@ class CellManipulator:
                 ``setString``; everything else is classified as usual.
 
         Returns:
-            A dict with ``message``; an array formula adds ``array_range`` / ``rows`` / ``cols`` / ``preview``.
+            A dict with ``message``, plus optional ``error_cells``,
+            ``text_that_looks_numeric``, ``apostrophe_removed``, and
+            ``warnings`` when applicable; an array formula adds
+            ``array_range`` / ``rows`` / ``cols`` / ``preview``.
         """
         return self.commit_write(
             self.plan_write(

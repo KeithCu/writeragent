@@ -2099,3 +2099,26 @@ def test_cells_registry_refuses_bad_args_as_invalid_param():
     assert res_write["code"] == "INVALID_PARAM"
     mock_manip.return_value.plan_write.assert_not_called()
 
+
+def test_write_cell_range_multi_range_merges_write_reports():
+    ctx = SimpleNamespace(doc=MagicMock())
+    res1 = {
+        "message": "Range J1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.J1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    res2 = {
+        "message": "Range K1 filled with 1 value (1 formula).",
+        "error_cells": [{"address": "Sheet1.K1", "error": "#NAME?", "formula": "=SUMM(1)"}],
+        "warnings": [{"code": "FORMULA_ERROR", "message": "1 formula cell(s)"}],
+    }
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.commit_write.side_effect = [res1, res2]
+        res = _tool("write_formula_range").execute_safe(ctx, range=["J1", "K1"], values="=SUMM(1)")
+
+    assert res["status"] == "ok"
+    assert len(res["error_cells"]) == 2
+    assert len(res["warnings"]) == 2
+    assert "ranges" not in res
+
+
