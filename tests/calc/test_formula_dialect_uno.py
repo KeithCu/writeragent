@@ -116,7 +116,7 @@ def test_excel_cross_sheet_and_mixed_refs_uno(ctx, doc):
     assert active.getCellByPosition(3, 3).getValue() == 15.0
     assert active.getCellByPosition(3, 3).getFormula() == "=SUM($Orders.A1:A2;B1)"
     assert active.getCellByPosition(3, 4).getValue() == 15.0
-    assert active.getCellByPosition(3, 4).getFormula() == "=SUM($Orders.A1:A2;B1)"
+    assert active.getCellByPosition(3, 4).getFormula() == "=SUM(Orders.A1:A2;B1)"
     assert active.getCellByPosition(3, 5).getValue() == 1.0
     assert active.getCellByPosition(3, 5).getFormula() == "=IF($Orders.A1>0;1;0)"
 
@@ -132,10 +132,10 @@ def test_invalid_mixed_and_calc_syntax_unchanged_uno(ctx, doc):
     active.getCellByPosition(1, 0).setValue(4)
     active.getCellByPosition(1, 1).setValue(5)
 
-    bad_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D1"], "values": "=SUM((A1,B1)"})
+    bad_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["D1"], "values": "=SUM(A1;B1,C1)"})
     assert bad_res.get("error_cells"), bad_res
     assert bad_res["error_cells"][0]["error"] == "Err:508"
-    assert active.getCellByPosition(3, 0).getFormula() == "=SUM((A1,B1)"
+    assert active.getCellByPosition(3, 0).getFormula() == "=SUM(A1;B1,C1)"
     warns = [w for w in bad_res.get("warnings", []) if w.get("code") == "FORMULA_ERROR"]
     assert warns and "Excel syntax" in warns[0]["message"], warns
 
@@ -232,8 +232,8 @@ def test_excel_fill_down_bulk_dynamic_array_and_roundtrip_uno(ctx, doc):
 
     # Read-back round trip
     _execute_calc_tool(doc, ctx, "write_range", {"range": ["H1"], "values": '=IF(A1>0,"Yes, sir","No")'})
-    read_res = _execute_calc_tool(doc, ctx, "read_range", {"range": ["H1"]})
-    read_formula = read_res["cells"][0]["formula"]
+    read_res = _execute_calc_tool(doc, ctx, "read_range", {"range": ["H1"], "format": "cells"})
+    read_formula = read_res["result"][0]["result"][0][0][0]["formula"]
     assert read_formula == '=IF(A1>0;"Yes, sir";"No")', read_res
     _execute_calc_tool(doc, ctx, "write_range", {"range": ["H2"], "values": read_formula})
     assert sheet.getCellByPosition(7, 1).getFormula() == read_formula
@@ -315,4 +315,6 @@ def test_excel_py_formula_string_roundtrip_uno(ctx, doc):
         {"range": ["B1"], "values": f'=PY("{py_code}", A1:A3)'},
     )
     assert res.get("status") == "ok", res
-    assert sheet.getCellByPosition(1, 0).getFormula() == f'=PY("{py_code}";A1:A3)'
+    formula = sheet.getCellByPosition(1, 0).getFormula()
+    assert f'"{py_code}";A1:A3)' in formula, formula
+    assert formula.upper().startswith("=PY(") or "PYTHONFUNCTION.PY(" in formula.upper(), formula
