@@ -393,7 +393,7 @@ def test_get_draw_tree(ctx, doc):
         "fill_color": "#FF0000"
     })
 
-    result = _exec_tool(doc, ctx, "get_tree", {"page": _active_draw_page_index(doc)})
+    result = _exec_tool(doc, ctx, "shape_get_tree", {"page": _active_draw_page_index(doc)})
     data = json.loads(result)
     _progress("get_tree: execute done status=%s" % data.get("status"))
     assert data.get("status") == "ok", f"get_tree failed: {result}"
@@ -431,7 +431,7 @@ def test_get_draw_tree_marks_blank_and_label_hint(ctx, doc):
         "page": page_idx,
     })
 
-    result = _exec_tool(doc, ctx, "get_tree", {"page": page_idx})
+    result = _exec_tool(doc, ctx, "shape_get_tree", {"page": page_idx})
     data = json.loads(result)
     assert data.get("status") == "ok", f"get_tree failed: {result}"
     blanks = [n for n in data.get("tree", []) if n.get("fillable")]
