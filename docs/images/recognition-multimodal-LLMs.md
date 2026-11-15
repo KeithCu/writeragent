@@ -102,7 +102,6 @@ MCP vision clients receive the picture itself, not base64 pasted as text.
 |------|------|
 | `has_native_vision` tiered logic | [`tests/framework/client/test_model_fetcher.py`](../../tests/framework/client/test_model_fetcher.py) |
 | `normalize_multimodal_messages` per provider | [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py), [`tests/framework/client/test_response_normalizers.py`](../../tests/framework/client/test_response_normalizers.py) |
-| `filter_get_image_for_text_only_model` | [`tests/vision/test_vision_availability.py`](../../tests/vision/test_vision_availability.py) |
 | `call_tool_result_image` | [`tests/mcp/test_wire_types.py`](../../tests/mcp/test_wire_types.py) |
 | `_render_page_png` error/control-flow | [`tests/writer/test_get_image_render.py`](../../tests/writer/test_get_image_render.py) (Writer + Draw/Impress) |
 | Draw/Impress `page=N` PNG (live) | [`tests/writer/test_get_image_uno.py`](../../tests/writer/test_get_image_uno.py) |
@@ -176,7 +175,6 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 
 ### 8. Minor code-quality (low)
 
-- **`filter_get_image_for_text_only_model`** lives in [`vision_availability.py`](../../plugin/vision/vision_availability.py) (OCR/venv gating) but gates a core Writer tool on chat model capability. Consider `model_fetcher.py` or a small `multimodal_availability.py` — cosmetic only.
 - **`has_native_vision` metadata:** Uncatalogued ids (for example `google/gemini-3.8-flash`) are vision-capable when OpenRouter/Together `architecture.input_modalities` includes `image`. The sidebar still skips that GET so the combobox stays LRU + defaults; the capability check fetches once per process and stores the result in the in-process `CatalogMemo` (never `vision_support_map`). Do not add a `DEFAULT_MODELS` row per model id.
 
 ---
@@ -294,4 +292,4 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - Reuse `get_selected_image_base64` and graphic export machinery from the vision stack.
 - Session/DB may store list-style user `content` when an image was attached; UI must tolerate placeholders.
 - MCP image wire shape: `_mcp_image` dict in tool result → `call_tool_result_image` in protocol handler only (do not duplicate serializer elsewhere).
-- Fail-open when vision capability cannot be determined (`filter_get_image_for_text_only_model`).
+- Fail-open when vision capability cannot be determined (`get_image` is hidden in [`tool.py`](../../plugin/framework/tool.py) `get_schemas` only when `has_native_vision(...) is False`).

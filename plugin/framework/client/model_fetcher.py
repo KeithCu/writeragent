@@ -180,7 +180,9 @@ def _row_vision_flag(row: dict[str, Any]) -> bool | None:
 
     ``input_modalities`` (top level, else ``architecture.input_modalities``)
     wins; a non-list top-level ``input_modalities`` blocks the nested fallback.
-    Otherwise ``capabilities.vision`` is used when it is a ``bool``.
+    An empty list is a statement (False); a missing field is not (None).
+    A non-dict architecture is treated as field absent. Otherwise
+    ``capabilities.vision`` is used when it is a ``bool``.
     """
     arch = row.get("architecture")
     nested = None
@@ -1104,10 +1106,11 @@ _VISION_FROM_V1_MODELS: frozenset[str] = frozenset({"openrouter", "together", "m
 
 
 def _vision_list_url(provider: str | None, endpoint: str) -> str:
-    """Model list that states image input when it is not GET /v1/models; "" otherwise.
+    """Alternate model-list URL for providers whose ``/v1/models`` carries only ids.
 
-    xai -> _v1_url(endpoint, "/language-models"); lmstudio -> f"{_key_slot_base(endpoint)}/api/v1/models"
-    (only when endpoint_url_suitable_for_v1_models_fetch(base)).
+    xAI publishes ``input_modalities`` on ``/language-models``, and LM Studio
+    publishes ``capabilities.vision`` on ``/api/v1/models`` (gated on a
+    suitable endpoint URL). Returns ``""`` for all other providers.
     """
     if provider == "xai":
         return _v1_url(endpoint, "/language-models")
