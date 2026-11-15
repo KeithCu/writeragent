@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import itertools
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -62,12 +61,19 @@ def _ensure_shape_name(page: Any, shape: Any) -> str:
     Writer's ``SwXDrawPage::add`` (``sw/source/core/unocore/unodraw.cxx:SwXDrawPage::add``)
     already assigns a unique Name, whereas Draw, Impress, and Calc leave Name
     empty and prompts tell the model to address shapes by Name.
+    Uses one more than the highest existing ``Shape<n>`` number on the page so
+    deleting a shape never hands its old name to a newly created shape.
     """
     current = str(getattr(shape, "Name", "") or "").strip()
     if current:
         return current
-    used = set(_page_shape_names(page))
-    candidate = next(f"Shape{n}" for n in itertools.count(1) if f"Shape{n}" not in used)
+    highest = 0
+    for name in _page_shape_names(page):
+        if name.startswith("Shape"):
+            suffix = name[5:]
+            if suffix.isascii() and suffix.isdigit():
+                highest = max(highest, int(suffix))
+    candidate = f"Shape{highest + 1}"
     shape.Name = candidate
     return candidate
 

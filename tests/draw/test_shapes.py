@@ -719,6 +719,24 @@ def test_shape_upsert_create_assigns_unused_name():
     assert created.Name == "Shape2"
 
 
+@pytest.mark.parametrize(
+    ("existing_names", "expected_name"),
+    [
+        (["Shape2", "Shape3"], "Shape4"),
+        (["Title", "Shape1a", "Shape\u00b2", "Shape2"], "Shape3"),
+        (["Title"], "Shape1"),
+    ],
+)
+def test_shape_upsert_create_uses_max_plus_one_not_deleted_gap(existing_names, expected_name):
+    ctx, _doc, page, _shapes, created = _make_name_test_env(existing_names, created_name="")
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=100, width=200, height=200)
+    assert out["status"] == "ok"
+    assert out["name"] == expected_name
+    assert created.Name == expected_name
+
+
 def test_shape_upsert_create_keeps_existing_name():
     ctx, _doc, page, _shapes, created = _make_name_test_env(["Shape1"], created_name="Shape7")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:

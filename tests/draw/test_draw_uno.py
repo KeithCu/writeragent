@@ -525,9 +525,9 @@ def test_list_pages_reports_lo_default_names(ctx, doc):
     out = ListPages().execute(tctx)
     assert out.get("status") == "ok", out
     assert out["pages"] == [
-        {"index": 0, "name": "page1"},
-        {"index": 1, "name": "page2"},
-        {"index": 2, "name": "page3"},
+        {"index": 0, "name": "page1", "default_name": True},
+        {"index": 1, "name": "page2", "default_name": True},
+        {"index": 2, "name": "page3", "default_name": True},
     ]
 
 

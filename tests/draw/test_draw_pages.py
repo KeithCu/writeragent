@@ -304,6 +304,20 @@ def test_move_slide_unknown_or_duplicate_slide_name():
         bridge.move_slide.assert_not_called()
 
 
+def test_move_slide_rejects_default_slide_name():
+    ctx = _ctx()
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = _FakePages(["Intro", "page2", "End"])
+
+        out = MoveSlide().execute(ctx, from_page=0, before="page2")
+        assert out["status"] == "error"
+        assert out["code"] == "INVALID_PARAM"
+        assert "default name" in out["message"]
+        assert out["details"]["available"] == ["Intro", "End"]
+        bridge.move_slide.assert_not_called()
+
+
 def test_rename_slide_ok():
     ctx = _ctx()
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
@@ -470,9 +484,11 @@ def test_list_pages_returns_index_and_name():
     p1.Name = ""
     p2 = MagicMock()
     p2.Name = "   "
+    p3 = MagicMock()
+    p3.Name = "page4"
     pages_mock = MagicMock()
-    pages_mock.getCount.return_value = 3
-    pages_mock.getByIndex.side_effect = [p0, p1, p2]
+    pages_mock.getCount.return_value = 4
+    pages_mock.getByIndex.side_effect = [p0, p1, p2, p3]
 
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
@@ -480,11 +496,12 @@ def test_list_pages_returns_index_and_name():
         bridge.get_active_page_index.return_value = 0
         out = ListPages().execute(ctx)
     assert out["status"] == "ok"
-    assert out["count"] == 3
+    assert out["count"] == 4
     assert out["pages"] == [
         {"index": 0, "name": "Agenda"},
-        {"index": 1, "name": ""},
-        {"index": 2, "name": ""},
+        {"index": 1, "name": "", "default_name": True},
+        {"index": 2, "name": "", "default_name": True},
+        {"index": 3, "name": "page4", "default_name": True},
     ]
 
 

@@ -937,7 +937,7 @@ class _DrawProxy:
         return call_host_tool("list_designs")
 
     def list_pages(self) -> dict[str, Any]:
-        """Lists pages (slides) in deck order as {index, name}; index is 0-based. A slide without its own name shows LibreOffice's default 'pageN' (N = 1-based position, so index 0 is 'page1'); that default changes when slides move. rename_slide gives a fixed name."""
+        """Lists pages (slides) in deck order as {index, name}; index is 0-based. Unnamed slides have LibreOffice's positional default 'pageN' (N = 1-based position) and include default_name: true; they cannot be targeted by move_slide before/after (use to_page or rename_slide)."""
         return call_host_tool("list_pages")
 
     def list_placeholders(self, *, page: int | None = None) -> dict[str, Any]:
@@ -949,13 +949,13 @@ class _DrawProxy:
         return call_host_tool("list_placeholders", page=page)
 
     def move_slide(self, from_page: int, *, to_page: int | None = None, before: str | None = None, after: str | None = None) -> dict[str, Any]:
-        """Moves the slide at from_page (0-based). Give exactly one destination: to_page = the 0-based index the slide ends at, or before/after = the name of another slide from list_pages. Returns the final slide order.
+        """Moves the slide at from_page (0-based). Give exactly one destination: to_page = the 0-based index the slide ends at, or before/after = the user-set name of another slide from list_pages (slides with default_name: true must use to_page). Returns the final slide order.
 
         Args:
             from_page (required): 0-based source slide index.
             to_page (optional): 0-based destination slide index.
-            before (optional): Name of the slide to place this slide before (from list_pages).
-            after (optional): Name of the slide to place this slide after (from list_pages).
+            before (optional): User-set name of the slide to place this slide before (from list_pages).
+            after (optional): User-set name of the slide to place this slide after (from list_pages).
         """
         return call_host_tool("move_slide", from_page=from_page, to_page=to_page, before=before, after=after)
 
