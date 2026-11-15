@@ -230,3 +230,130 @@ def test_cell_link_click_navigates_with_doc_and_address():
     finally:
         listener.disposing(MagicMock())
 
+
+
+def _font_state(style_name: str) -> tuple[SimpleNamespace, ...]:
+    """A ``.uno:CharFontNameCJK`` status State as ORichTextPeer reports it."""
+    return (
+        SimpleNamespace(Name="CharFontNameCJK.StyleName", Value=style_name),
+        SimpleNamespace(Name="CharFontNameCJK.FamilyName", Value="Liberation Sans"),
+    )
+
+
+def test_cell_address_from_font_state_reads_tagged_style_name():
+    from plugin.calc.navigation import CELL_LINK_FONT_PREFIX, cell_address_from_font_state
+
+    assert cell_address_from_font_state(_font_state(CELL_LINK_FONT_PREFIX + "Q1 Data.C5")) == "Q1 Data.C5"
+    assert cell_address_from_font_state(_font_state(CELL_LINK_FONT_PREFIX + "Sheet2.A1")) == "Sheet2.A1"
+    assert cell_address_from_font_state(_font_state("")) is None
+    assert cell_address_from_font_state(_font_state("Bold")) is None
+    assert cell_address_from_font_state(_font_state(CELL_LINK_FONT_PREFIX + "not a cell")) is None
+    assert cell_address_from_font_state(None) is None
+
+
+def test_mark_cell_link_range_sets_and_clears_tag():
+    from plugin.calc.navigation import CELL_LINK_FONT_PREFIX, CELL_LINK_FONT_PROPERTY, mark_cell_link_range
+
+    rng = MagicMock()
+    mark_cell_link_range(rng, "Sheet2.B3")
+    rng.setPropertyValue.assert_called_once_with(CELL_LINK_FONT_PROPERTY, CELL_LINK_FONT_PREFIX + "Sheet2.B3")
+    rng.reset_mock()
+    mark_cell_link_range(rng, None)
+    rng.setPropertyValue.assert_called_once_with(CELL_LINK_FONT_PROPERTY, "")
+
+
+def _attached_status_listener(doc):
+    """Attach to a mock control with no caret index; return (listener, status_dispatch)."""
+    try:
+        import uno  # noqa: F401
+        from com.sun.star.awt import XMouseListener  # noqa: F401
+    except ImportError:
+        pytest.skip("PyUNO XMouseListener unavailable")
+
+    from plugin.calc.navigation import attach_calc_cell_link_listener
+
+    ctrl = MagicMock()
+    ctrl.getModel.return_value = SimpleNamespace()
+    ctrl.getAccessibleContext.return_value = None
+    listeners = []
+    ctrl.addMouseListener.side_effect = listeners.append
+    dispatch = ctrl.getPeer.return_value.queryDispatch.return_value
+    attach_calc_cell_link_listener(ctrl, lambda: doc)
+    listener = listeners[0]
+    dispatch.addStatusListener.assert_called_once()
+    assert dispatch.addStatusListener.call_args[0][0] is listener
+    assert dispatch.addStatusListener.call_args[0][1].Complete == ".uno:CharFontNameCJK"
+    return listener, dispatch
+
+
+def _click(listener, x=10, y=20, *, release_x=None, release_y=None, modifiers=0):
+    listener.mousePressed(SimpleNamespace(Buttons=1, ClickCount=1, X=x, Y=y, Modifiers=modifiers))
+    listener.mouseReleased(
+        SimpleNamespace(
+            Buttons=1,
+            ClickCount=1,
+            X=x if release_x is None else release_x,
+            Y=y if release_y is None else release_y,
+            Modifiers=modifiers,
+        )
+    )
+
+
+def test_cell_link_click_uses_caret_font_status():
+    from plugin.calc.navigation import CELL_LINK_FONT_PREFIX
+
+    doc = MagicMock()
+    listener, _dispatch = _attached_status_listener(doc)
+    try:
+        listener.statusChanged(SimpleNamespace(State=_font_state(CELL_LINK_FONT_PREFIX + "Q1 Data.C5")))
+        with patch("plugin.calc.navigation.navigate_to_cell", return_value=True) as nav:
+            _click(listener)
+        nav.assert_called_once_with(doc, "Q1 Data.C5")
+    finally:
+        listener.disposing(MagicMock())
+
+
+def test_cell_link_click_ignores_drag_modifiers_and_plain_text():
+    from plugin.calc.navigation import CELL_LINK_FONT_PREFIX
+
+    doc = MagicMock()
+    listener, _dispatch = _attached_status_listener(doc)
+    try:
+        listener.statusChanged(SimpleNamespace(State=_font_state(CELL_LINK_FONT_PREFIX + "Sheet2.B3")))
+        with patch("plugin.calc.navigation.navigate_to_cell", return_value=True) as nav:
+            _click(listener, release_x=60)  # drag-select across the link
+            _click(listener, modifiers=1)  # shift+click extends a selection
+            listener.statusChanged(SimpleNamespace(State=_font_state("")))
+            _click(listener)  # caret in plain text
+        nav.assert_not_called()
+    finally:
+        listener.disposing(MagicMock())
+
+
+def test_cell_link_click_waits_for_late_caret_status():
+    from plugin.calc.navigation import CELL_LINK_FONT_PREFIX
+
+    doc = MagicMock()
+    listener, _dispatch = _attached_status_listener(doc)
+    try:
+        with patch("plugin.calc.navigation.navigate_to_cell", return_value=True) as nav:
+            _click(listener)
+            nav.assert_not_called()
+            listener.statusChanged(SimpleNamespace(State=_font_state(CELL_LINK_FONT_PREFIX + "A1")))
+            # A later caret move (keyboard) is not a click.
+            listener.statusChanged(SimpleNamespace(State=_font_state(CELL_LINK_FONT_PREFIX + "B2")))
+        nav.assert_called_once_with(doc, "A1")
+    finally:
+        listener.disposing(MagicMock())
+
+
+def test_status_dispatch_disposing_keeps_mouse_listener():
+    from plugin.calc.navigation import _CELL_LINK_LISTENERS, CELL_LINK_FONT_PREFIX
+
+    listener, dispatch = _attached_status_listener(MagicMock())
+    listener.statusChanged(SimpleNamespace(State=_font_state(CELL_LINK_FONT_PREFIX + "A1")))
+    listener.disposing(dispatch)
+    assert listener.caret_addr is None
+    assert listener in _CELL_LINK_LISTENERS.values()
+    listener.disposing(MagicMock())
+    assert listener not in _CELL_LINK_LISTENERS.values()

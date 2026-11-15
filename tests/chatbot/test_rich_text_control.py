@@ -1106,3 +1106,31 @@ class TestCollapseStaleSelection:
             rtc.collapse_rich_selection_keep_view(control)
         sel.assert_called_once_with(control)
         assert id(control) not in rtc._IN_SCROLL_TO_TAIL
+
+
+def test_insert_after_tagged_cell_link_clears_the_tag():
+    """EditEngine stretches the link tag over text inserted right after it; the insert clears it."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.calc.navigation import CELL_LINK_FONT_PREFIX
+    from plugin.chatbot.rich_text_control import _follows_cell_link, _insert_string_at_rich_cursor
+
+    model = MagicMock()
+    probe = model.createTextCursor.return_value
+    probe.goLeft.return_value = True
+    probe.getPropertyValue.return_value = CELL_LINK_FONT_PREFIX + "Sheet2.B3"
+    assert _follows_cell_link(model, MagicMock()) is True
+
+    cursor = MagicMock()
+    with patch("plugin.chatbot.rich_text_control.mark_cell_link_range") as mark:
+        _insert_string_at_rich_cursor(model, cursor, " after", None)
+    mark.assert_called_once_with(probe, None)
+
+    probe.getPropertyValue.return_value = ""
+    assert _follows_cell_link(model, MagicMock()) is False
+    with patch("plugin.chatbot.rich_text_control.mark_cell_link_range") as mark:
+        _insert_string_at_rich_cursor(model, cursor, " plain", None)
+    mark.assert_not_called()
+
+    probe.goLeft.return_value = False  # insert at the very start of the control
+    assert _follows_cell_link(model, MagicMock()) is False

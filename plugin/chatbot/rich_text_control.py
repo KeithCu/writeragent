@@ -24,7 +24,13 @@ from typing import TYPE_CHECKING, Any, cast, final
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseWindowListener
 from plugin.doc.text_helpers import go_right
-from plugin.calc.navigation import cell_link_registry  # rich_text already loads navigation at import.
+# rich_text already loads navigation at import.
+from plugin.calc.navigation import (
+    CELL_LINK_FONT_PREFIX,
+    CELL_LINK_FONT_PROPERTY,
+    cell_link_registry,
+    mark_cell_link_range,
+)
 from plugin.chatbot.dialogs import set_prop
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
@@ -1009,6 +1015,20 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
         return None
 
 
+def _follows_cell_link(model: Any, pos: Any) -> bool:
+    """True when the character just before *pos* is a tagged cell link."""
+
+    def _check() -> bool:
+        sel = model.createTextCursor()
+        sel.gotoRange(pos, False)
+        if not sel.goLeft(1, True):
+            return False
+        value = sel.getPropertyValue(CELL_LINK_FONT_PROPERTY)
+        return isinstance(value, str) and value.startswith(CELL_LINK_FONT_PREFIX)
+
+    return best_effort(_check, "_follows_cell_link", False)
+
+
 def _insert_string_at_rich_cursor(
     model: Any, cursor: Any, text: str, char_color: Any = None, *, bold: bool | None = None, underline: bool | None = None
 ) -> None:
@@ -1024,6 +1044,7 @@ def _insert_string_at_rich_cursor(
     if not text:
         return
     start = cursor.getStart()
+    follows_link = start is not None and _follows_cell_link(model, start)
     if not _is_automatic_char_color(char_color):
         cursor.CharColor = char_color
 
@@ -1070,6 +1091,18 @@ def _insert_string_at_rich_cursor(
                     sel.CharUnderline = 0
 
         best_effort(_apply, "_insert_string_at_rich_cursor")
+    if start is not None and follows_link:
+        # EditEngine stretches a character attribute that ends at the insert
+        # point over the new text, so a cell link tag would spread past the link.
+        end_pos = cursor.getStart()
+
+        def _untag() -> None:
+            sel = model.createTextCursor()
+            sel.gotoRange(start, False)
+            sel.gotoRange(end_pos, True)
+            mark_cell_link_range(sel, None)
+
+        best_effort(_untag, "_insert_string_at_rich_cursor: clear cell link tag")
     if bold is not None or underline is not None:
         cursor.CharWeight = CHAT_FONT_WEIGHT
         cursor.CharUnderline = 0

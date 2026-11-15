@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import weakref
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -16,7 +17,7 @@ from urllib.parse import unquote
 from plugin.calc.address_utils import MAX_COL, MAX_ROW, format_address, parse_address, qualify_a1, split_sheet_prefix
 from plugin.calc.calc_utils import query_interface, resolve_sheet_and_cell
 from plugin.framework.errors import best_effort
-from plugin.framework.uno_listeners import BaseMouseListener
+from plugin.framework.uno_listeners import BaseMouseListener, BaseStatusListener
 
 log = logging.getLogger(__name__)
 
@@ -224,8 +225,63 @@ def _click_text_index(control: Any, x: int, y: int) -> int | None:
     return _char_index_at_point(control, x, y)
 
 
+# The sidebar RichTextControl (forms ORichTextPeer over an EditView) exposes no
+# caret offset to UNO and no XAccessibleText, so a click cannot be mapped to a
+# character index. Its attribute dispatchers do report the character attributes at
+# the caret: RichTextViewPort::MouseButtonDown places the caret and the peer's
+# status listeners get the new state. Each link span is tagged with its address in
+# the Asian font style name, which never changes how the ASCII link text renders.
+CELL_LINK_FONT_PROPERTY = "CharFontStyleNameAsian"
+CELL_LINK_FONT_PREFIX = "WriterAgentCell:"
+_CELL_LINK_STATUS_URL = ".uno:CharFontNameCJK"
+# A press and release further apart than this is a drag-select, not a click.
+_CLICK_SLOP_PX = 4
+# How long a click waits for a caret status that arrives after the release.
+_PENDING_CLICK_SEC = 0.5
+
+
+def mark_cell_link_range(text_range: Any, address: str | None) -> None:
+    """Tag *text_range* in the sidebar control so a click on it resolves to *address*.
+
+    ``None`` clears the tag (used on the insert cursor right after a link).
+    """
+    if text_range is None:
+        return
+    value = CELL_LINK_FONT_PREFIX + address if address else ""
+    best_effort(lambda: text_range.setPropertyValue(CELL_LINK_FONT_PROPERTY, value), "cell link: tag range")
+
+
+def cell_address_from_font_state(state: Any) -> str | None:
+    """Read the tagged address from a ``.uno:CharFontNameCJK`` status ``State``."""
+    values = state if isinstance(state, (tuple, list)) else (state,)
+    for prop in values:
+        if not str(getattr(prop, "Name", "")).endswith(".StyleName"):
+            continue
+        value = getattr(prop, "Value", None)
+        if isinstance(value, str) and value.startswith(CELL_LINK_FONT_PREFIX):
+            return normalize_cell_address(value[len(CELL_LINK_FONT_PREFIX) :])
+    return None
+
+
+def _add_caret_font_status_listener(control: Any, listener: Any) -> Any | None:
+    """Register *listener* for the caret's Asian font on the rich peer; return the dispatch."""
+    peer = control.getPeer() if hasattr(control, "getPeer") else None
+    if peer is None or not hasattr(peer, "queryDispatch"):
+        return None
+    import uno
+
+    # ORichTextPeer::queryDispatch matches on URL.Complete only.
+    url = uno.createUnoStruct("com.sun.star.util.URL")
+    setattr(url, "Complete", _CELL_LINK_STATUS_URL)
+    dispatch = peer.queryDispatch(url, "", 0)
+    if dispatch is None:
+        return None
+    dispatch.addStatusListener(listener, url)
+    return dispatch
+
+
 def attach_calc_cell_link_listener(control: Any, get_calc_doc: Callable[[], Any | None]) -> None:
-    """Attach a mouse listener on *control* for ``cell://`` navigation."""
+    """Attach mouse and caret-status listeners on *control* for cell link navigation."""
     if control is None:
         return
     ctrl_id = id(control)
@@ -233,31 +289,73 @@ def attach_calc_cell_link_listener(control: Any, get_calc_doc: Callable[[], Any 
         return
     _MB_LEFT = 1  # com.sun.star.awt.MouseButton.LEFT
 
-    class _CalcCellLinkMouseListener(BaseMouseListener):
+    def _navigate(addr: str) -> None:
+        doc = get_calc_doc()
+        if doc is None:
+            log.debug("cell link click: no Calc document for %r", addr)
+            return
+        if navigate_to_cell(doc, addr):
+            log.debug("cell link navigated to %r", addr)
+
+    class _CalcCellLinkMouseListener(BaseMouseListener, BaseStatusListener):
+        def __init__(self) -> None:
+            super().__init__()
+            self.caret_addr: str | None = None
+            self.press: tuple[int, int] | None = None
+            self.pending_until: float = 0.0
+            self.status_dispatch: Any = None
+
         def disposing(self, Source: Any) -> None:
+            if self.status_dispatch is not None and Source == self.status_dispatch:
+                self.status_dispatch = None
+                self.caret_addr = None
+                return
             _CELL_LINK_LISTENERS.pop(ctrl_id, None)
             cell_link_registry.clear(control)
+
+        def statusChanged(self, ev: Any) -> None:
+            try:
+                self.caret_addr = cell_address_from_font_state(getattr(ev, "State", None))
+                if self.pending_until and time.monotonic() <= self.pending_until:
+                    self.pending_until = 0.0
+                    if self.caret_addr:
+                        _navigate(self.caret_addr)
+            except Exception:
+                log.exception("cell link status handler failed")
+
+        def mousePressed(self, e: Any) -> None:
+            self.press = (int(getattr(e, "X", 0)), int(getattr(e, "Y", 0)))
+            self.pending_until = 0.0
 
         def mouseReleased(self, e: Any) -> None:
             try:
                 if getattr(e, "Buttons", 0) != _MB_LEFT or getattr(e, "ClickCount", 0) != 1:
                     return
-                idx = _click_text_index(control, int(e.X), int(e.Y))
-                if idx is None:
+                if getattr(e, "Modifiers", 0):
                     return
-                addr = lookup_cell_ref_at_index(control, idx)
+                x, y = int(e.X), int(e.Y)
+                press, self.press = self.press, None
+                if press is not None and (abs(press[0] - x) > _CLICK_SLOP_PX or abs(press[1] - y) > _CLICK_SLOP_PX):
+                    return
+                addr = self.caret_addr
                 if not addr:
+                    idx = _click_text_index(control, x, y)
+                    if idx is not None:
+                        addr = lookup_cell_ref_at_index(control, idx)
+                if not addr:
+                    # The button-up attribute refresh may still report the link.
+                    self.pending_until = time.monotonic() + _PENDING_CLICK_SEC
                     return
-                doc = get_calc_doc()
-                if doc is None:
-                    log.debug("cell link click: no Calc document for %r", addr)
-                    return
-                if navigate_to_cell(doc, addr):
-                    log.debug("cell link navigated to %r", addr)
+                _navigate(addr)
             except Exception:
                 log.exception("cell link click handler failed")
 
     listener = _CalcCellLinkMouseListener()
     control.addMouseListener(listener)
+    listener.status_dispatch = best_effort(
+        lambda: _add_caret_font_status_listener(control, listener), "cell link: caret status listener"
+    )
     _CELL_LINK_LISTENERS[ctrl_id] = listener
-    log.debug("attached calc cell link mouse listener control=%s", ctrl_id)
+    log.debug(
+        "attached calc cell link mouse listener control=%s caret_status=%s", ctrl_id, listener.status_dispatch is not None
+    )
