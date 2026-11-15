@@ -9,13 +9,15 @@ Conditional formatting tools live in the **specialized** tier (`conditional_form
 
 | Tool | Role |
 |------|------|
-| `conditional_formatting_add` | Append a **classic** rule: operator + optional formulas + **cell style name** when the rule matches. |
+| `conditional_formatting_add` | Append a **classic** rule: operator + optional formulas + **cell style name** or **inline formatting** (`bg_color`, `font_color`, `bold`) when the rule matches. |
 | `conditional_formatting_list` | List rules on a range (or the used area if `range` is omitted). |
 | `conditional_formatting_remove` | Remove one rule by **0-based** index, or **clear all** rules on the range if `rule_index` is omitted. |
 
 Implementation: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py). The conditional sub-agent also receives core **`style_list`** (`family=CellStyles`) to discover valid cell style names.
 
 An unknown style returns `INVALID_STYLE` with `details.hint` (calls `style_list` with `family='CellStyles'`) and an optional `details.similar`. `range` must name one block (`INVALID_PARAM`, `"Pass exactly one range."`), and an out-of-range `rule_index` on remove also returns `INVALID_PARAM`; for `conditional_formatting_list`, an omitted or empty `range` scans the used area. There is no catch-all code for conditional formatting errors; unexpected UNO failures reach `execute_safe`.
+
+**Inline formatting:** Instead of passing an existing `style`, callers can pass `bg_color`, `font_color`, and/or `bold` (never both `style` and inline formatting). Calc creates (or reuses) a deterministic hidden `CellStyle` named `WA CF` plus the active components (e.g. `WA CF bg #FF0000 bold`, `Hidden=True`). The result includes `style` and `style_created` (`True` when newly inserted, `False` when reused). Hidden keeps the Styles deck clean while Calc's Conditional Formatting dialog still lists the style (`SfxStyleSearchBits::All`); `CellStyle` insertion is not undoable in LibreOffice (`styleuno.cxx`), so undoing the rule leaves the unused hidden style.
 
 ---
 

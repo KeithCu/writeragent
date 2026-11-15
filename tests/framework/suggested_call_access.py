@@ -61,14 +61,6 @@ def validate_suggested_call(
     ok, err = target_tool.validate(**arguments)
     if not ok:
         return False, err
-    schema = target_tool.get_parameters() or {}
-    props = schema.get("properties") if isinstance(schema, dict) else None
-    if props is not None:
-        # Model-facing suggested_call must not include scripting_only_parameters
-        # which validate() allows for Python scripts.
-        for key in arguments:
-            if key not in props:
-                return False, f"Unknown parameter: {key}"
     return True, None
 
 

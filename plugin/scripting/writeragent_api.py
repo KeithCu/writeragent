@@ -525,7 +525,7 @@ class _CalcProxy:
         return call_host_tool("get_sheet_summary", sheet=sheet)
 
     def insert_cell_html(self, cell: str, html: str) -> dict[str, Any]:
-        """Parses HTML with the same filter as Writer and pastes rich text into one cell (e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) selects that sheet; otherwise the active sheet. Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders.
+        """Parses HTML with the same filter as Writer and pastes rich text into one cell (e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) selects that sheet; otherwise the active sheet. Does not support images or embedded objects. Clears existing cell text. Use set_style (border_color, border_mode) for borders.
 
         Args:
             cell (required): Single cell (e.g. "A1" or "Sheet2.A1").
@@ -570,7 +570,7 @@ class _CalcProxy:
         """
         return call_host_tool("read_cell_range", range=range_name, format=format)
 
-    def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | None = None, font_color: str | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | None = None, number_format: str | None = None) -> dict[str, Any]:
+    def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | None = None, font_color: str | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | None = None, border_mode: str | None = None, number_format: str | None = None, column_width_mm: float | None = None, row_height_mm: float | None = None, autofit: str | None = None) -> dict[str, Any]:
         """Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas.
 
         Args:
@@ -583,10 +583,14 @@ class _CalcProxy:
             h_align (optional): Horizontal alignment. One of: left, center, right, justify.
             v_align (optional): Vertical alignment. One of: top, center, bottom.
             wrap_text (optional): Wrap text.
-            border_color (optional): Border color (hex or name). Draws a frame around the cell/range.
-            number_format (optional): Scripting-only parameter.
+            border_color (optional): Border line color (hex or name). Used by border_mode; black when border_mode is given without a color.
+            border_mode (optional): all = every cell boxed (default when border_color is given); outline = frame around each range only; inner = only lines between cells; none = remove all borders. Replaces the range's existing borders. One of: all, outline, inner, none.
+            number_format (optional): Preset "currency" (the document currency), "percent", or "general" (clear), or an Excel-style en-US format code such as "#,##0.00", "0.0%" or "YYYY-MM-DD" (converted to the document locale). Date/time writes already get a format; set one only when the user asks for a different look.
+            column_width_mm (optional): Width of every column the range touches, in millimetres (> 0).
+            row_height_mm (optional): Height of every row the range touches, in millimetres (> 0).
+            autofit (optional): Fit whole-column widths and/or row heights to content. Cannot be combined with column_width_mm (columns) or row_height_mm (rows). One of: columns, rows, both.
         """
-        return call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, number_format=number_format)
+        return call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, border_mode=border_mode, number_format=number_format, column_width_mm=column_width_mm, row_height_mm=row_height_mm, autofit=autofit)
 
     def write_formula_range(self, range_name: list[str], *, values: str | list[Any] | None = None, array: bool | None = None, source: str | None = None) -> dict[str, Any]:
         """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; a 2-D array (one inner array per row) must match the range; or multiline CSV from a start cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas. A single ordinary Calc formula into a 1-column or 1-row range fill-down/across adjusts relative A1 refs ($ stays absolute). Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
@@ -769,17 +773,20 @@ comment = _CommentProxy()
 class _ConditionalFormattingProxy:
     """Proxy for conditional_formatting tools."""
 
-    def add(self, range_name: builtins.list[str], operator: str, style: str, *, formula1: str | None = None, formula2: str | None = None) -> dict[str, Any]:
-        """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
+    def add(self, range_name: builtins.list[str], operator: str, *, formula1: str | None = None, formula2: str | None = None, style: str | None = None, bg_color: str | None = None, font_color: str | None = None, bold: bool | None = None) -> dict[str, Any]:
+        """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
             range_name (required): Cell range to apply the rule to (e.g. ["A1:D10"]).
             operator (required): Condition operator. One of: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE.
-            style (required): Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.
             formula1 (optional): First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
             formula2 (optional): Second value (required for BETWEEN and NOT_BETWEEN).
+            style (optional): Cell style to apply when condition is true. Use style_list with family='CellStyles' to see available styles.
+            bg_color (optional): Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting.
+            font_color (optional): Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting.
+            bold (optional): Inline formatting instead of style: creates (or reuses) a hidden cell style named from the formatting.
         """
-        return call_host_tool("conditional_formatting_add", range=range_name, operator=operator, formula1=formula1, formula2=formula2, style=style)
+        return call_host_tool("conditional_formatting_add", range=range_name, operator=operator, formula1=formula1, formula2=formula2, style=style, bg_color=bg_color, font_color=font_color, bold=bold)
 
     def list(self, *, range_name: builtins.list[str] | None = None) -> dict[str, Any]:
         """List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present.

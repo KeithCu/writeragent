@@ -924,3 +924,92 @@ def test_multi_range_write_reports_error_cells(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     assert sheet.getCellByPosition(7, 0).getString() == "#NAME?"
     assert sheet.getCellByPosition(8, 0).getString() == "#NAME?"
+
+
+@native_test
+@with_native_doc("calc")
+def test_set_style_border_modes(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+
+    def _widths(col: int, row: int) -> dict[str, int]:
+        cell = sheet.getCellByPosition(col, row)
+        return {
+            side: int(cell.getPropertyValue(f"{side}Border2").OuterLineWidth)
+            for side in ("Top", "Bottom", "Left", "Right")
+        }
+
+    # Default with only border_color boxes every cell.
+    res_all = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1:C3"], "border_color": "black"})
+    assert res_all.get("status") == "ok", res_all
+    assert all(w > 0 for w in _widths(1, 1).values())
+
+    # outline: outer frame only, interior B2 has none, A1 has top & left but not bottom.
+    res_out = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1:C3"], "border_mode": "outline", "border_color": "blue"})
+    assert res_out.get("status") == "ok", res_out
+    assert all(w == 0 for w in _widths(1, 1).values())
+    w_a1 = _widths(0, 0)
+    assert w_a1["Top"] > 0 and w_a1["Left"] > 0 and w_a1["Bottom"] == 0 and w_a1["Right"] == 0
+
+    # inner: A1 has bottom & right but not top or left.
+    res_in = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1:C3"], "border_mode": "inner"})
+    assert res_in.get("status") == "ok", res_in
+    w_a1_in = _widths(0, 0)
+    assert w_a1_in["Bottom"] > 0 and w_a1_in["Right"] > 0 and w_a1_in["Top"] == 0 and w_a1_in["Left"] == 0
+
+    # none: clears all borders.
+    res_none = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1:C3"], "border_mode": "none"})
+    assert res_none.get("status") == "ok", res_none
+    for col in range(3):
+        for row in range(3):
+            assert all(w == 0 for w in _widths(col, row).values())
+
+
+@native_test
+@with_native_doc("calc")
+def test_set_style_number_format_presets_and_locale(ctx, doc):
+    import uno
+
+    sheet = doc.getSheets().getByIndex(0)
+    a1 = sheet.getCellByPosition(0, 0)
+    a1.setValue(1234.5)
+
+    res_cur = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1"], "number_format": "currency"})
+    assert res_cur.get("status") == "ok", res_cur
+    assert a1.getString() == "$1,234.50"
+
+    res_pct = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1"], "number_format": "percent"})
+    assert res_pct.get("status") == "ok", res_pct
+    assert a1.getString() == "123450.00%"
+
+    doc.setPropertyValue("CharLocale", uno.createUnoStruct("com.sun.star.lang.Locale", Language="de", Country="DE", Variant=""))
+    res_de = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1"], "number_format": "#,##0.00"})
+    assert res_de.get("status") == "ok", res_de
+    assert a1.getString() == "1.234,50"
+
+    res_bad = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A1"], "number_format": "bogus[[["})
+    assert res_bad.get("status") == "error", res_bad
+    assert res_bad.get("code") == "INVALID_PARAM"
+    assert a1.getString() == "1.234,50"
+
+
+@native_test
+@with_native_doc("calc")
+def test_set_style_column_width_and_autofit(ctx, doc):
+    sheet = doc.getSheets().getByIndex(0)
+    cols = sheet.getColumns()
+    rows = sheet.getRows()
+    before_width = int(cols.getByIndex(0).getPropertyValue("Width"))
+
+    sheet.getCellByPosition(0, 9).setString("This is a much wider string for autofit measurement")
+    res_fit = _execute_calc_tool(doc, ctx, "set_style", {"range": ["A10"], "autofit": "columns"})
+    assert res_fit.get("status") == "ok", res_fit
+    assert int(cols.getByIndex(0).getPropertyValue("Width")) > before_width
+
+    res_width = _execute_calc_tool(doc, ctx, "set_style", {"range": ["B1:C1"], "column_width_mm": 30})
+    assert res_width.get("status") == "ok", res_width
+    assert int(cols.getByIndex(1).getPropertyValue("Width")) == 3000
+    assert int(cols.getByIndex(2).getPropertyValue("Width")) == 3000
+
+    res_height = _execute_calc_tool(doc, ctx, "set_style", {"range": ["B1:C1"], "row_height_mm": 10})
+    assert res_height.get("status") == "ok", res_height
+    assert int(rows.getByIndex(0).getPropertyValue("Height")) == 1000

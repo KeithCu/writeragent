@@ -38,3 +38,5 @@ Topic docs: [docs/calc/prompt-function.md](../../docs/calc/prompt-function.md),
 - Calc writes that take several UNO calls (`_mutate_ranges`, `named_range_edit`, `pivot_table_create`, `insert_cell_html_rich`, and the tabular/vision egress writers) run inside `compound_undo.UndoStepOrRollback`. Refuse with error dicts before the bracket opens; inside it, raise.
 - `write_formula_range` quotes the `=PY` cell's newest diagnostics entry from this write for `Err:` and `#SPILL!`, and a blocked spill records its needed range there.
 - Calc tool success results come from `make_tool_ok` (`plugin/framework/errors.py`), not `{"status": "ok"}` dict literals. Exempt paths: the parked `analysis.py`, `python/function.py`'s worker cache, the import dialog's `spreadsheet_import/`, and `excel_py_convert/`.
+- Range borders go through `TableBorder2` in `manipulator._apply_borders`; per-side `TopBorder2` on a range boxes every cell.
+- `set_style` number-format codes are en-US converted with `addNewConverted`; never `queryKey` an English code in the document locale.
