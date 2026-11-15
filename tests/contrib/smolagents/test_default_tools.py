@@ -1,5 +1,7 @@
 """Tests for DuckDuckGoSearchTool in plugin.contrib.smolagents.default_tools."""
 
+import http.client
+import socket
 import urllib.parse
 from unittest.mock import MagicMock, patch
 
@@ -12,14 +14,17 @@ from plugin.framework.client.request_controls import (
     reset_host_pacing_for_tests,
     reset_local_unverified_hosts_for_tests,
 )
+from plugin.framework.client.requests import close_sync_transports
 from plugin.framework.send_cancellation import SendCancellation
 
 
 @pytest.fixture(autouse=True)
 def _reset_host_pacing():
+    close_sync_transports()
     reset_host_pacing_for_tests()
     reset_local_unverified_hosts_for_tests()
     yield
+    close_sync_transports()
     reset_host_pacing_for_tests()
     reset_local_unverified_hosts_for_tests()
 
@@ -241,3 +246,65 @@ def test_web_search_stop_returns_without_connecting():
 
     assert result == default_tools._SEARCH_STOPPED
     https_conn.assert_not_called()
+
+
+def _ddg_html(title: str, url: str = "http://one.example/a", snippet: str = "snippet") -> bytes:
+    return (
+        "<table>"
+        "<tr><td valign='top'>1.&nbsp;</td>"
+        f"<td><a rel='nofollow' href='{url}' class='result-link'>{title}</a></td></tr>"
+        f"<tr><td>&nbsp;</td><td class='result-snippet'>{snippet}</td></tr>"
+        "<tr><td>&nbsp;</td><td><span class='link-text'>one.example/a</span></td></tr>"
+        "</table>"
+    ).encode("utf-8")
+
+
+def _keepalive_conn(responses):
+    conn = MagicMock()
+    conn.sock = None
+
+    def _connect():
+        conn.sock = MagicMock(spec=socket.socket)
+
+    conn.connect.side_effect = _connect
+    conn.getresponse.side_effect = list(responses)
+    return conn
+
+
+def test_web_search_reuses_connection_across_searches():
+    conn = _keepalive_conn([_response(200, _ddg_html("First Result")), _response(200, _ddg_html("Second Result"))])
+    patcher, created = _patch_https([conn])
+
+    tool = DuckDuckGoSearchTool(cache_max_age_days=30)
+    with patcher:
+        first = tool.forward("first query")
+        second = tool.forward("second query")
+
+    assert "First Result" in first
+    assert "Second Result" in second
+    assert len(created) == 1
+    assert conn.connect.call_count == 1
+    assert conn.request.call_count == 2
+
+
+def test_web_search_stale_connection_reconnects_and_returns_results():
+    stale = _keepalive_conn([_response(200, _ddg_html("First Result")), http.client.RemoteDisconnected("closed")])
+    fresh = _keepalive_conn([_response(200, _ddg_html("Recovered Result"))])
+    patcher, created = _patch_https([stale, fresh])
+
+    tool = DuckDuckGoSearchTool(cache_max_age_days=30)
+    with (
+        patcher,
+        patch("plugin.framework.client.http_transport.remember_host_gap") as remember_gap,
+        patch("plugin.framework.client.http_transport.wait_abortable") as wait_abort,
+    ):
+        first = tool.forward("first query")
+        second = tool.forward("second query")
+
+    assert "First Result" in first
+    assert "Recovered Result" in second
+    assert len(created) == 2
+    assert stale.connect.call_count == 1
+    assert fresh.connect.call_count == 1
+    remember_gap.assert_not_called()
+    wait_abort.assert_not_called()
