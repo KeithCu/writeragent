@@ -12,7 +12,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-from plugin.calc.address_utils import A1_CELL_RE, format_address, format_range
+from plugin.calc.address_utils import A1_CELL_RE, format_address, format_range, split_sheet_prefix
 from plugin.calc.bridge import used_range_address
 from plugin.calc.error_detector import is_calc_error_display
 from plugin.calc.python.cell_discovery import is_py_formula_text
@@ -21,6 +21,22 @@ from plugin.calc.spreadsheet_import.graph import attach_graph_to_model
 from plugin.calc.spreadsheet_import.models import CellRecord, CellType, SheetModel
 
 _PROMPT_HEAD_RE = re.compile(r"^=\s*PROMPT\s*\(", re.IGNORECASE)
+_NON_LOCAL_RE = re.compile(
+    r"\"(?:[^\"]|\"\")*\"|(?P<sheet>\$?'(?:[^']|'')+'|\$?[^\W\d]\w*)[.!](?P<ref>\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?)"
+)
+
+
+def _local_refs(formula_upper: str, sheet_upper: str) -> list[str]:
+    # Refs to other sheets and text like "B2" name no cell on this sheet;
+    # counting them would create false precedents and circular groups.
+    def _mask(match: re.Match[str]) -> str:
+        ref = match.group("ref")
+        if ref is None:
+            return " "
+        return ref if split_sheet_prefix(match.group(0))[0] == sheet_upper else " "
+
+    masked = _NON_LOCAL_RE.sub(_mask, formula_upper)
+    return [f"{col}{row}" for col, row in A1_CELL_RE.findall(masked)]
 
 
 def classify_cell(raw_val: Any, raw_formula: str) -> tuple[CellType, Any, str | None]:
@@ -67,7 +83,7 @@ def ingest_from_arrays(*, sheet_name: str, start_col: int, start_row: int, data_
 
     for cell in cells.values():
         if cell.formula:
-            found = [f"{col}{row}" for col, row in A1_CELL_RE.findall(cell.formula.upper())]
+            found = _local_refs(cell.formula.upper(), sheet_name.upper())
             # Self-refs (the cell's own address) and out-of-range refs are not precedents.
             cell.precedents = list(dict.fromkeys(ref for ref in found if ref in cells and ref != cell.address))
 

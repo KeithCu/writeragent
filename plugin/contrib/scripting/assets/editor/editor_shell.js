@@ -24,6 +24,8 @@
   var editor = null;
   var backend = null;
   var pendingCode = "";
+  var lastSaveCode = null;
+  var lastSaveDataBinding = null;
   var pendingMarkers = [];
   var ui = {};
   var defaultStatusOkText = "Saved.";
@@ -289,6 +291,18 @@
                   saveBtn.click();
                 }
               } else if (msg.type === "saved") {
+                // Only replace text the user has not changed since clicking Save.
+                if (editor && typeof msg.code === "string" && getEditorCode() === lastSaveCode) {
+                  suppressDirty = true;
+                  editor.setValue(msg.code);
+                  suppressDirty = false;
+                }
+                if (typeof msg.data_binding === "string") {
+                  var dataInput = getDataBindingInput();
+                  if (dataInput && dataInput.value === lastSaveDataBinding) {
+                    dataInput.value = msg.data_binding;
+                  }
+                }
                 markDirty(false);
                 var okText = msg.status_ok_text || defaultStatusOkText;
                 setStatus(okText, "ok");
@@ -361,6 +375,8 @@
       // treat the ranges as cleared and rewrite =PY($A$1; C1:C10) to
       // =PY($A$1). Same rule as cell_editor_ui._save.
       var dataBinding = (followCodeRef || !saveAsPlain) ? (input ? input.value.trim() : "") : "";
+      lastSaveCode = code;
+      lastSaveDataBinding = input ? input.value : "";
       window.pywebview.api.notify_save(code, saveAsPlain, dataBinding, "cell_save", sessionId, currentMode, sessionTarget);
       setStatus(pendingStatusText, "");
     }

@@ -15,6 +15,7 @@ from plugin.calc.manipulator import (
     WritePlan,
     _delimited_text_message,
     _parse_json_array_string,
+    _ref_named_ranges,
     _write_report,
     looks_numeric_text,
     parse_then_by,
@@ -1035,6 +1036,14 @@ def test_plan_write_refuses_py_inside_its_data_range():
     assert len(long_text) > 8192
     assert manipulator.plan_write("A1", long_text).kind == "cells"
 
+    # Non-ASCII sheet names must still trigger PY_CIRCULAR.
+    sheet.getName.return_value = "Données"
+    unicode_formula = '=PY("result = np.sum(data)"; \'Données\'.A1:A2)'
+    with pytest.raises(CalcError) as exc_uni:
+        manipulator.plan_write("A1", unicode_formula)
+    assert exc_uni.value.code == "PY_CIRCULAR"
+    assert (exc_uni.value.details or {})["data_range"] == "'Données'.A1:A2"
+
 
 def test_commit_quotes_the_py_run_error():
     from plugin.calc.python.diagnostics import get_diagnostics_store
@@ -1196,6 +1205,37 @@ def test_delete_structure_confirm_without_undo_does_not_promise_ctrl_z():
     msg = res["warnings"][0]["message"]
     assert "Ctrl+Z" not in msg
     assert "Undo was unavailable" in msg
+
+
+def test_ref_named_ranges_scans_global_and_visible_sheet_scopes():
+    class _FakeNamedRanges:
+        def __init__(self, entries: dict[str, str]) -> None:
+            self._entries = entries
+
+        def getElementNames(self) -> tuple[str, ...]:
+            return tuple(self._entries.keys())
+
+        def getByName(self, name: str) -> SimpleNamespace:
+            content = self._entries[name]
+            return SimpleNamespace(getContent=lambda: content)
+
+    def _sheet(name: str, entries: dict[str, str]) -> SimpleNamespace:
+        return SimpleNamespace(getName=lambda: name, NamedRanges=_FakeNamedRanges(entries))
+
+    sheets_list = [
+        _sheet("Sheet1", {"L_BAD": "$Sheet1.$A$#REF!*2"}),
+        _sheet("_Hidden", {"H_BAD": "#REF!"}),
+    ]
+    sheets = SimpleNamespace(
+        getCount=lambda: len(sheets_list),
+        getByIndex=lambda idx: sheets_list[idx],
+    )
+    doc = SimpleNamespace(
+        NamedRanges=_FakeNamedRanges({"G_OK": "$Sheet1.$A$1", "G_BAD": "$Sheet1.$A$#REF!"}),
+        getSheets=lambda: sheets,
+    )
+
+    assert _ref_named_ranges(doc) == {("global", "G_BAD"), ("Sheet1", "L_BAD")}
 
 
 class _FakeDialects:

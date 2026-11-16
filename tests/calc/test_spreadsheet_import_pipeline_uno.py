@@ -48,3 +48,43 @@ def test_convert_spreadsheet_to_python_basic(ctx, doc):
     from plugin.calc.python.cell_discovery import is_py_formula_text
     assert is_py_formula_text(target_sheet.getCellByPosition(1, 0).getFormula())
     assert is_py_formula_text(target_sheet.getCellByPosition(1, 1).getFormula())
+
+
+@native_test
+@with_native_doc("calc")
+def test_convert_vectorized_columns_verify(ctx, doc):
+    sheet = doc.getCurrentController().getActiveSheet()
+
+    for row in range(3):
+        val = row + 1
+        sheet.getCellByPosition(0, row).setValue(val)  # A1:A3 = 1, 2, 3
+        sheet.getCellByPosition(1, row).setValue(val * 10)  # B1:B3 = 10, 20, 30
+        sheet.getCellByPosition(7, row).setString(f"txt{val}")  # H1:H3 = txt1..3
+        r1 = row + 1
+        sheet.getCellByPosition(2, row).setFormula(f"=ABS(A{r1})*2")  # C
+        sheet.getCellByPosition(3, row).setFormula(f"=ABS(A{r1})+ABS(B{r1})")  # D
+        sheet.getCellByPosition(4, row).setFormula(f"=LEFT(H{r1};3)")  # E
+        sheet.getCellByPosition(5, row).setFormula(f'=LEFT(H{r1};2)&"A{r1}"')  # F
+        sheet.getCellByPosition(6, row).setFormula(f"=LEN(H{r1})")  # G
+
+    res = _run_conversion(
+        doc,
+        ctx,
+        scope="sheet",
+        output_mode="new_sheet",
+        vectorize=True,
+        verify=True,
+    )
+    target_sheet = doc.getSheets().getByName("PythonImport")
+    c1_formula = target_sheet.getCellByPosition(2, 0).getFormula()
+    assert "A1:A3" in c1_formula, f"Expected vectorized A1:A3 in C1, got {c1_formula}"
+
+    if res["failed_verifications"]:
+        probe = sheet.getCellByPosition(9, 0)
+        probe.setFormula('=PY("import numpy; result = 1")')
+        doc.calculateAll()
+        if probe.getValue() != 1.0:
+            import unittest
+
+            raise unittest.SkipTest("numpy unavailable in headless =PY() worker")
+        assert res["failed_verifications"] == [], f"Verification mismatches: {res['failed_verifications']}"

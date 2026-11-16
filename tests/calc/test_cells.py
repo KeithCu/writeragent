@@ -1475,10 +1475,10 @@ def test_sheet_prefix_for_clip_quotes_like_quote_sheet_name():
     from plugin.calc.cells import _sheet_prefix_for_clip
 
     cases = [
-        ("2024.A1:H500", "2024.", "2024"),
-        ("Q1-Sales.A1:H500", "Q1-Sales.", "Q1-Sales"),
+        ("2024.A1:H500", "'2024'.", "2024"),
+        ("Q1-Sales.A1:H500", "'Q1-Sales'.", "Q1-Sales"),
         ("'Sheet1'.A1:H500", "Sheet1.", "Sheet1"),
-        ("A+B.A1", "A+B.", "A+B"),
+        ("A+B.A1", "'A+B'.", "A+B"),
         ("'$Prices'.$A$1", "'$Prices'.", "$Prices"),
         ("'Foo!Bar'.A1:H10", "'Foo!Bar'.", "Foo!Bar"),
         ("'O''Brien'!A1:Z9", "'O''Brien'.", "O'Brien"),
@@ -1488,11 +1488,11 @@ def test_sheet_prefix_for_clip_quotes_like_quote_sheet_name():
         assert prefix == expected_prefix
         assert split_sheet_prefix(prefix + "A1")[0] == expected_sheet
 
-    # Unqualified case: 'Sales' resolved to sheet 2024 uses quote_sheet_name -> 2024.
+    # Unqualified case: 'Sales' resolved to sheet 2024 uses quote_sheet_name -> '2024'.
     resolved = MagicMock()
     resolved.getSpreadsheet.return_value.getName.return_value = "2024"
     prefix = _sheet_prefix_for_clip("Sales", resolved)
-    assert prefix == "2024."
+    assert prefix == "'2024'."
     assert split_sheet_prefix(prefix + "A1")[0] == "2024"
 
 

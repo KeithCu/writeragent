@@ -134,8 +134,11 @@ def strip_legacy_ai_label(text: str) -> str:
     return _LEGACY_AI_LABEL_RE.sub("", text, count=1)
 
 
-# HTML: <a href="cell://B2">B2</a> (Calc chat uses HTML, not markdown)
-_CELL_LINK_HTML_RE = re.compile(r'(href\s*=\s*)(["\'])cell://([^"\']+)\2', re.IGNORECASE)
+# HTML: <a href="cell://B2">B2</a> (Calc chat uses HTML, not markdown).
+# Tool addresses quote sheet names such as 'Q1-2026'.B2, so a double-quoted
+# href may hold '. The rewrite then normalizes the address to Q1-2026.B2 for
+# the sidebar regexes further on.
+_CELL_LINK_HTML_RE = re.compile(r'(href\s*=\s*)(["\'])cell://((?:(?!\2).)+)\2', re.IGNORECASE)
 
 
 def render_calc_cell_refs(text: str) -> str:
@@ -208,9 +211,8 @@ def link_plain_cell_refs(html: str, sheet_names: Collection[str]) -> str:
             end = None
         span = f"{first}:{end}" if end is not None else first
         target = normalize_cell_address(f"{sheet}.{span}" if sheet is not None else span)
-        # Skip quote-bearing targets: _CELL_LINK_HTML_RE (rich_text.py),
-        # _CELL_LINK_ANCHOR_RE (rich_text_paste.py), and _CELL_HREF_RE (navigation.py)
-        # all stop at ' or ".
+        # Skip quote-bearing targets: _CELL_LINK_ANCHOR_RE (rich_text_paste.py)
+        # and _CELL_HREF_RE (navigation.py) both stop at ' or ".
         if not target or "'" in target or '"' in target:
             return match.group(0)
         return f'<a href="cell://{target}">{match.group(0)}</a>'

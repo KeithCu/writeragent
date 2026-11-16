@@ -253,11 +253,16 @@ def apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_
     # ranges on the =PY($A$1; …) formula cell, where follow ignores the plain box).
     # Monaco, CodeMirror and the built-in dialog all save through here. A plain
     # "Save without =PY()" has no formula to carry the ranges, so it keeps the text.
+    refreshed: dict[str, Any] = {}
     if is_follow(code_ref, code_cell, cell) or not save_as_plain:
+        typed_code = new_code
         rewritten = _maybe_apply_xl_static_rewrite(new_code, data_binding_text, parsed_parts=parsed_parts)
         if isinstance(rewritten, dict):
             return rewritten
         new_code, data_binding_text = rewritten
+        if new_code != typed_code:
+            # Every editor replaces its buffer and Data field with these so the next save starts from what is in the cell.
+            refreshed = {"code": new_code, "data_binding": data_binding_text or ""}
     # Follow saves touch code and formula cells plus geometric recalc; compound undo groups one undo step.
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
         if is_follow(code_ref, code_cell, cell):
@@ -268,6 +273,7 @@ def apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_
         else:
             result = _apply_formula_save(cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
         if result.get("type") == "saved":
+            result.update(refreshed)
             # Plain-text downgrades must run after_py_cell_save to prune stale geometric registry rows.
             after_py_cell_save(doc, cell)
             best_effort(doc.calculateAll, "calculateAll after editor save")

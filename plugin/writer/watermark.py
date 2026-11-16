@@ -44,6 +44,7 @@ log = logging.getLogger("writeragent.writer")
 
 WATERMARK_COMMAND = ".uno:Watermark"
 PICTURE_WATERMARK_PREFIX = "WordPictureWatermark"  # oox/source/export/vmlexport.cxx IsWaterMarkShape
+TEXT_WATERMARK_PREFIX = "PowerPlusWaterMarkObject"  # sw/source/core/edit/edfcol.cxx WATERMARK_NAME
 
 
 class _WatermarkStateListener(unohelper.Base, XStatusListener):  # type: ignore[misc]
@@ -123,17 +124,31 @@ def read_watermark(uno_ctx: Any, doc: Any) -> dict[str, Any] | None:
     }
 
 
-def _picture_watermarks(doc: Any) -> list[Any]:
-    """Return draw-page shapes whose name starts with ``WordPictureWatermark``."""
+def _watermark_shapes(doc: Any, prefix: str) -> list[Any]:
+    """Return draw-page shapes whose name starts with ``prefix``."""
     draw_page = uno_read(doc.getDrawPage, None)
     if draw_page is None:
         return []
     result: list[Any] = []
     for shape in iter_draw_shapes(draw_page):
         name = uno_read(shape.getName, "")
-        if isinstance(name, str) and name.startswith(PICTURE_WATERMARK_PREFIX):
+        if isinstance(name, str) and name.startswith(prefix):
             result.append(shape)
     return result
+
+
+def _dispose_shapes(shapes: list[Any]) -> int:
+    """Dispose draw-page shapes, re-raising document disposal and logging other errors."""
+    removed = 0
+    for shape in shapes:
+        try:
+            shape.dispose()
+            removed += 1
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            log.exception("Failed to dispose watermark shape")
+    return removed
 
 
 def _public_watermark(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -186,7 +201,7 @@ class PageGetWatermark(ToolWriterPageBase):
         return {
             "status": "ok",
             "watermark": _public_watermark(state),
-            "picture_watermark": bool(_picture_watermarks(ctx.doc)),
+            "picture_watermark": bool(_watermark_shapes(ctx.doc, PICTURE_WATERMARK_PREFIX)),
         }
 
 
@@ -301,23 +316,27 @@ class PageSetWatermark(ToolWriterPageBase):
         elif after != expected:
             return self._tool_error("LibreOffice did not apply the watermark.")
 
+        if text == "":
+            # Word files can carry first-page and even-page headers that are switched off.
+            # LibreOffice keeps them as stashed formats that HeaderTextFirst and HeaderTextLeft
+            # do not return while shared (sw/source/core/unocore/unostyle.cxx
+            # SwXPageStyle::GetPropertyValues_Impl), so SwEditShell::SetWatermark cannot reach them.
+            # Without this step their watermark shapes stay on the draw page: DOCX export writes
+            # them (sw/source/filter/ww8/wrtw8sty.cxx MSWordExportBase::SectionProperties), and
+            # they come back when the user turns on a different first or even page
+            # (sw/source/core/doc/docdesc.cxx SwDoc::ChgPageDesc). After a verified removal, any
+            # shape with this prefix that is still present is one of those copies.
+            _dispose_shapes(_watermark_shapes(ctx.doc, TEXT_WATERMARK_PREFIX))
+
         # Word has one watermark per document, and DOCX export would write the picture next to
         # the new text, so Word would show both. Dispose any WordPictureWatermark* shapes.
-        removed_pictures = 0
-        for shape in _picture_watermarks(ctx.doc):
-            try:
-                shape.dispose()
-                removed_pictures += 1
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                log.exception("Failed to dispose Word picture watermark shape")
+        removed_pictures = _dispose_shapes(_watermark_shapes(ctx.doc, PICTURE_WATERMARK_PREFIX))
 
         result: dict[str, Any] = {
             "status": "ok",
             "watermark": _public_watermark(after),
             "picture_watermarks_removed": removed_pictures,
-            "picture_watermark": bool(_picture_watermarks(ctx.doc)),
+            "picture_watermark": bool(_watermark_shapes(ctx.doc, PICTURE_WATERMARK_PREFIX)),
         }
         flag_style_unreviewed(result)
         return result

@@ -22,7 +22,6 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
     ascii_bounded,
     deal,
     inverse_ensure,
@@ -30,16 +29,16 @@ from plugin.framework.deal_shim import (
 )
 from plugin.calc.address_utils import is_cell_token, parse_address, split_sheet_prefix
 
-# Sheet/A1 range tokens. Space and ``"`` are product (``My Sheet.A1``, quoted sheets).
-_RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
-
 # Under pytest this is str_bounded (Unicode); under CrossHair it is ascii_bounded.
 _DEAL_ASCII_STR = str_bounded
 
 
 def _deal_range_addr_ok(s: object) -> bool:
-    """Closed A1 / sheet-range domain for formatters and ``_deal_data_args_ok``."""
-    return isinstance(s, str) and len(s) <= DEAL_MAX_TOKEN and all(c in _RANGE_ADDR_CHARS for c in s)
+    """Data-arg range strings; LibreOffice sheet names allow Unicode except :\\/?*[] (ScDocument::ValidTabName).
+
+    The CrossHair runner swaps in a closed ASCII alphabet.
+    """
+    return str_bounded(s, DEAL_MAX_CELL_REF)
 
 
 def _deal_data_args_ok(data_args: object) -> bool:
@@ -254,9 +253,10 @@ def assemble_python_formula(prefix: str, token: str, suffix: str, *, quoted: boo
     return f"{prefix}{token}{suffix}"
 
 
-# A1 / range display: closed alphabet (``\\x1c`` control whitespace is ASCII).
-# Unicode strip+lstrip fixed-point under str_bounded read 1.36M CrossHair lines.
-@deal.pre(lambda data_suffix: ascii_bounded(data_suffix, DEAL_MAX_SOURCE))
+# CrossHair keeps ASCII here (runner sets ``_DEAL_ASCII_STR = ascii_bounded``)
+# because Unicode strip/split blows up its search; pytest accepts Unicode sheet names.
+# See formal-verification.md (format_data_binding_display bullet).
+@deal.pre(lambda data_suffix: _DEAL_ASCII_STR(data_suffix, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda data_suffix, result: not result or (not result.startswith(";") and not result.startswith(",") and not result.endswith(")")))
 def format_data_binding_display(data_suffix: str) -> str:
@@ -271,8 +271,10 @@ def format_data_binding_display(data_suffix: str) -> str:
     return s
 
 
-# Editor textbox of A1 / range tokens; re.split on unbounded Unicode hung deep check.
-@deal.pre(lambda text: ascii_bounded(text, DEAL_MAX_SOURCE))
+# CrossHair keeps ASCII here (runner sets ``_DEAL_ASCII_STR = ascii_bounded``)
+# because Unicode re.split/parsing blows up its search; pytest accepts Unicode sheet names.
+# See formal-verification.md (format_data_binding_display bullet).
+@deal.pre(lambda text: _DEAL_ASCII_STR(text, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 def parse_data_binding_text(text: str) -> list[str]:
     """Parse editor textbox content into formula data arguments."""
@@ -294,12 +296,12 @@ def format_data_binding_text(data_args: list[str]) -> str:
     return ", ".join(cleaned)
 
 
-@deal.pre(lambda c: isinstance(c, str) and len(c) == 1 and c.isascii())
+@deal.pre(lambda c: isinstance(c, str) and len(c) == 1)
 def _is_ascii_letter(c: str) -> bool:
     return "A" <= c <= "Z" or "a" <= c <= "z"
 
 
-@deal.pre(lambda s: _DEAL_ASCII_STR(s, DEAL_MAX_TOKEN))
+@deal.pre(lambda s: _deal_range_addr_ok(s))
 def _is_sheet_identifier(s: str) -> bool:
     """``[A-Za-z_][A-Za-z0-9_]*`` without regex."""
     if not s:
@@ -327,13 +329,12 @@ def _format_qualified_range(range_addr: str, *, separator: str) -> str:
             sheet, rest = cand_sheet.strip("'\""), cand_rest
     if sheet is None or is_cell_token(sheet.replace("$", "")):
         return addr
-    clean_sheet = sheet.replace("$", "")
-    needs_quotes = not _is_sheet_identifier(clean_sheet) if separator == "." else (bool(clean_sheet) and not _is_sheet_identifier(clean_sheet))
+    needs_quotes = not _is_sheet_identifier(sheet) if separator == "." else (bool(sheet) and not _is_sheet_identifier(sheet))
     dollar = "$" if addr.startswith("$") else ""
     if needs_quotes:
-        s = clean_sheet.replace("''", "'").replace("'", "''")
+        s = sheet.replace("''", "'").replace("'", "''")
         return f"{dollar}'{s}'{separator}{rest}"
-    return f"{dollar}{clean_sheet}{separator}{rest}"
+    return f"{dollar}{sheet}{separator}{rest}"
 
 
 @deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))

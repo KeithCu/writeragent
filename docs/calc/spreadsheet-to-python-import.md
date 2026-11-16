@@ -223,7 +223,7 @@ flowchart LR
 | `range_clip.py` | Clip whole-column/row PY data refs to a workbook sheet's used area |
 | `graph.py` | Dependency graph and circular-reference groups |
 | `translate.py` | Translate P1 Calc formulas to `=PY()` Python source via vendored AST; `TranslationResult.has_function` tells emit which formulas stay native |
-| `vectorize.py` | Column vectorization logic for Calc Spreadsheet → Python Import |
+| `vectorize.py` | Finds filled-down columns one shared `=PY()` can compute |
 | `emit.py` | Emit `=PY()` formulas and build converted output models |
 | `verify.py` | Verify converted cells against ingest snapshot oracles |
 | `pipeline.py` | Run the sheet → `=PY()` import stages in order |
@@ -270,7 +270,7 @@ There is **no separate file importer** in v1: LibreOffice is the loader. Convers
 | Constant (number/text/bool) | Value | **Same value** (copy) |
 | Constant date | Serial or formatted | Same (document `#` formats copied) |
 | Calc formula | `=SUM(A1:A10)` | `=PY("result = np.sum(data)"; A1:A10)` |
-| Homogeneous column | `=A2*2` filled down | Single matrix `=PY` with vectorized `data` (Phase 4) |
+| Homogeneous column | `=ABS(A2)*2` filled down | one column `=PY(…; A2:A9; row)` per cell, only for single same-sheet numeric cell refs and element-wise numpy code; everything else converts per cell |
 | Existing `=PY()` / `=PYTHON()` | As-is | Normalize via `PyFormula.parse` / `PyFormula.compose` |
 | Array formula | `{=…}` | **TODO** — keep Calc formula |
 | Reference to other sheet | `=Sheet2.A1` | `=PY(…; Sheet2.A1)` if UNO range resolves; else TODO |

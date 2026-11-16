@@ -681,13 +681,13 @@ class _CalcProxy:
     """Proxy for calc tools."""
 
     def delete_structure(self, structure_type: str, start: int | str, *, count: int | None = None, confirm: bool | None = None) -> _Item:
-        """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas would turn into #REF! unless confirm=true.
+        """Deletes rows or columns. Use for structural changes; prefer ranges for data operations. Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true.
 
         Args:
             structure_type (required): Type of structure to delete. One of: rows, columns.
             start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5); otherwise the active sheet.
             count (optional): Number to delete (default 1).
-            confirm (optional): Set true to delete even when formulas would turn into #REF!. Default false: such a delete is refused and nothing changes.
+            confirm (optional): Set true to delete even when formulas or named ranges would turn into #REF!. Default false: such a delete is refused and nothing changes.
         """
         return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm))
 

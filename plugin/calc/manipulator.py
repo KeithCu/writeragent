@@ -152,6 +152,48 @@ def _ref_formula_cells(doc: Any) -> set[tuple[str, int, int]]:
     return refs
 
 
+def _ref_named_ranges(doc: Any) -> set[tuple[str, str]]:
+    """Return ``(scope, name)`` for every named range whose definition contains ``#REF!``.
+
+    *scope* is ``"global"`` for workbook names, or the sheet name for sheet-local names on
+    agent-visible sheets. These are the same scope values ``named_range_list`` reports and
+    ``named_range_edit`` accepts. A row or column delete that removes every cell a name
+    points at leaves ``$Sheet1.$A$#REF!`` in its definition. Formulas that use the name
+    (``=MYNAME``) then show #REF! even though their own text has no ``#REF!``, so the
+    formula-cell scan alone would let such a delete through silently.
+    ``XNamedRange.getContent`` formats with the English API grammar
+    (sc/source/ui/unoobj/nameuno.cxx, ScNamedRangeObj::getContent, GRAM_API), so the
+    check does not depend on the UI language.
+    """
+    containers: list[tuple[str, Any]] = [("global", doc.NamedRanges)]
+    sheets = doc.getSheets()
+    for sheet_idx in range(sheets.getCount()):
+        sheet = sheets.getByIndex(sheet_idx)
+        sheet_name = str(sheet.getName())
+        if is_agent_visible_sheet(sheet_name):
+            containers.append((sheet_name, sheet.NamedRanges))
+    return {
+        (scope, str(n))
+        for scope, nrs in containers
+        for n in nrs.getElementNames()
+        if "#REF!" in str(nrs.getByName(n).getContent())
+    }
+
+
+def _broken_refs_summary(cell_count: int, cell_sample: list[str], names: list[tuple[str, str]]) -> str:
+    """Describe broken formula cells and named ranges for the refusal and warning messages."""
+    parts: list[str] = []
+    if cell_count:
+        parts.append(f"{cell_count} formula cell(s) ({', '.join(cell_sample)})")
+    if names:
+        labels = ", ".join(
+            nm if sc == "global" else f"{nm} (sheet {sc})"
+            for sc, nm in names[:_MAX_REPORTED_CELLS]
+        )
+        parts.append(f"{len(names)} named range(s) ({labels})")
+    return " and ".join(parts)
+
+
 def _surviving_ref_cells(
     cells: set[tuple[str, int, int]],
     sheet_name: str,
@@ -1531,10 +1573,7 @@ class CellManipulator:
             if not isinstance(value, str) or not value.startswith("="):
                 continue
             parts = py_formula_or_none(value)
-            # formula_edit.parse_data_binding_text has an ASCII CrossHair contract
-            # (deal.PreContractError on non-ASCII sheet names); Calc still reports
-            # the circular reference itself in that case.
-            if parts is None or not parts.data_suffix.isascii():
+            if parts is None:
                 continue
             args = parts.data_args()
             col = start[0] + (idx % width)
@@ -2058,7 +2097,7 @@ class CellManipulator:
         sheet: Any | None = None,
         confirm: bool = False,
     ) -> dict[str, Any]:
-        """Delete rows or columns, refusing when formulas would turn into ``#REF!`` unless *confirm* is true."""
+        """Delete rows or columns, refusing when formulas or named ranges would turn into ``#REF!`` unless *confirm* is true."""
         target = sheet if sheet is not None else self.bridge.get_active_sheet()
         assert target is not None
         name = str(target.getName())
@@ -2066,6 +2105,7 @@ class CellManipulator:
         rows = structure_type == "rows"
         doc = self.bridge.doc
         before = _ref_formula_cells(doc)
+        names_before = _ref_named_ranges(doc)
         title = _("WriterAgent: Delete rows or columns")
         # UNO has no dry run for row/column removal (sc/source/ui/unoobj/cellsuno.cxx),
         # and predicting breaks across relative refs, names, 3-D refs, and INDIRECT
@@ -2073,6 +2113,7 @@ class CellManipulator:
         group = UndoStepOrRollback(doc, title)
         result: dict[str, Any] = {}
         broken: list[tuple[str, int, int]] = []
+        broken_names: list[tuple[str, str]] = []
         try:
             with group:
                 result = self._structure_mutate(structure_type, start, count, insert=False, sheet=target)
@@ -2082,14 +2123,21 @@ class CellManipulator:
                     after - _surviving_ref_cells(before, name, rows, index, count),
                     key=lambda t: (t[0], t[2], t[1]),
                 )
-                if broken and not confirm:
+                broken_names = sorted(_ref_named_ranges(doc) - names_before)
+                if (broken or broken_names) and not confirm:
                     raise _DeleteHeldBack()
         except _DeleteHeldBack:
             pass
 
-        if broken:
-            n = len(broken)
+        if broken or broken_names:
+            n = len(broken) + len(broken_names)
             sample = [qualify_a1(s, format_address(c, r)) for s, c, r in broken[:_MAX_REPORTED_CELLS]]
+            details: dict[str, Any] = {"sheet": name, "refs_broken": n, "broken_cells": sample}
+            if broken_names:
+                details["broken_names"] = [
+                    {"name": nm, "scope": sc} for sc, nm in broken_names[:_MAX_REPORTED_CELLS]
+                ]
+            what = _broken_refs_summary(len(broken), sample, broken_names)
             if not confirm:
                 if group.rolled_back:
                     um = doc.getUndoManager()
@@ -2098,22 +2146,20 @@ class CellManipulator:
                     if um is not None and tuple(um.getAllRedoActionTitles() or ())[:1] == (title,):
                         best_effort(um.clearRedo, "clearRedo after held-back delete failed")
                     raise CalcError(
-                        f"Deleting {count} {structure_type} on sheet {name} would turn {n} formula cell(s) "
-                        f"into #REF! (broken_cells lists {', '.join(sample)}). Nothing was deleted. "
-                        "Tell the user which formulas would break; call delete_structure again with confirm=true "
-                        "only if they still want it.",
+                        f"Deleting {count} {structure_type} on sheet {name} would turn {what} into #REF!. "
+                        "Nothing was deleted. Tell the user which formulas or named ranges would break; "
+                        "call delete_structure again with confirm=true only if they still want it.",
                         code="REFS_WOULD_BREAK",
-                        details={"sheet": name, "refs_broken": n, "broken_cells": sample},
+                        details=details,
                     )
                 if group.rollback_error is not None:
                     raise CalcError(
                         f"Rollback failed after refusing to delete {count} {structure_type} on sheet {name}; "
                         f"the deletion may remain in the document ({group.rollback_error}).",
                         code="ROLLBACK_FAILED",
-                        details={"sheet": name, "refs_broken": n, "broken_cells": sample},
+                        details=details,
                     )
-            result["refs_broken"] = n
-            result["broken_cells"] = sample
+            result.update(details)
             undo_note = (
                 "One Ctrl+Z undoes the deletion."
                 if group.entered
@@ -2122,7 +2168,7 @@ class CellManipulator:
             result["warnings"] = [
                 Diagnostic(
                     code="REFS_BROKEN",
-                    message=f"{n} formula cell(s) now show #REF! ({', '.join(sample)}). {undo_note}",
+                    message=f"{what} now show #REF!. {undo_note}",
                 )
             ]
         return result

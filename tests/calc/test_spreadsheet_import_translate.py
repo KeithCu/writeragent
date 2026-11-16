@@ -572,6 +572,7 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=NORMSINV(0.5)", [], pytest.approx(0.0, abs=1e-6), id="normsinv"),
         pytest.param("=PERMUT(5; 2)", [], 20.0, id="permut"),
         pytest.param("=POISSON(2; 2; 0)", [], pytest.approx(0.2706706, abs=1e-6), id="poisson"),
+        pytest.param("=POISSON(2; 3)", [], pytest.approx(0.4231901, abs=1e-6), id="poisson_two_args_cumulative"),
         pytest.param("=STANDARDIZE(42; 40; 1.5)", [], pytest.approx(1.3333333, abs=1e-6), id="standardize"),
         pytest.param("=TDIST(1.96; 60; 2)", [], pytest.approx(0.0546449, abs=1e-6), id="tdist"),
         pytest.param("=TINV(0.05; 60)", [], pytest.approx(2.0002978, abs=1e-6), id="tinv"),
@@ -1019,6 +1020,36 @@ def test_translate_functions_only_skips_function_free_codegen():
     assert with_fn.ok is True
     assert with_fn.code == "np.abs(data)"
     assert with_fn.has_function is True
+
+
+def test_translate_now_keeps_time_of_day():
+    res = translate_formula("=NOW()", "A1")
+    assert res.ok and res.code is not None
+    expected = (dt.datetime.now() - dt.datetime(1899, 12, 30)) / dt.timedelta(days=1)
+    ns: dict[str, object] = {"np": np, "dt": dt}
+    exec(f"result = {res.code}", ns)
+    actual = float(ns["result"])  # type: ignore[arg-type]
+    assert abs(actual - expected) < 2.0 / 86400.0
+    if expected % 1 != 0:
+        assert actual % 1 != 0
+
+
+def test_translate_match_types():
+    def _eval(formula: str, data: object) -> float:
+        res = translate_formula(formula, "C1")
+        assert res.ok and res.code is not None
+        ns: dict[str, object] = {"data": data, "np": np, "calc": calc}
+        exec(f"result = {res.code}", ns)
+        return float(ns["result"])  # type: ignore[arg-type]
+
+    assert _eval("=MATCH(2.5;A1:A3)", [[1], [2], [3]]) == 2.0
+    assert math.isnan(_eval("=MATCH(5;A1:A3;0)", [[1], [2], [3]]))
+    assert _eval("=MATCH(2.5;A1:A3;-1)", [[3], [2], [1]]) == 1.0
+    assert _eval("=MATCH(A1;B1:B3;0)", [20, [[10], [20], [30]]]) == 2.0
+
+    non_lit = translate_formula("=MATCH(1;A1:A3;B1)", "C1")
+    assert non_lit.ok is False
+    assert non_lit.reason == "UNSUPPORTED_FUNCTION"
 
 
 
