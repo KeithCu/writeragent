@@ -845,7 +845,12 @@ def build_tool_execute_fn(
                 )
                 return json.dumps(format_error_payload(err), default=str)
 
-        if prompt_for_web:
+        # external_mcp decides from mcp_client.confirm_calls whether to ask, and
+        # refuses to run when it must ask but has no callback (plugin/mcp/client.py).
+        if name == "external_mcp":
+            chat_append_cb = lambda text: put_for_turn(captured_turn, (StreamQueueKind.CHUNK, text))  # noqa: E731
+
+        if prompt_for_web or name == "external_mcp":
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
                 event = threading.Event()
