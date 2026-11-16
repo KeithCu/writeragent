@@ -1471,10 +1471,7 @@ class CellManipulator:
             if not isinstance(value, str) or not value.startswith("="):
                 continue
             parts = py_formula_or_none(value)
-            # formula_edit.parse_data_binding_text has an ASCII CrossHair contract
-            # (deal.PreContractError on non-ASCII sheet names); Calc still reports
-            # the circular reference itself in that case.
-            if parts is None or not parts.data_suffix.isascii():
+            if parts is None:
                 continue
             args = parts.data_args()
             col = start[0] + (idx % width)

@@ -977,6 +977,14 @@ def test_plan_write_refuses_py_inside_its_data_range():
     assert len(long_text) > 8192
     assert manipulator.plan_write("A1", long_text).kind == "cells"
 
+    # Non-ASCII sheet names must still trigger PY_CIRCULAR.
+    sheet.getName.return_value = "Données"
+    unicode_formula = '=PY("result = np.sum(data)"; \'Données\'.A1:A2)'
+    with pytest.raises(CalcError) as exc_uni:
+        manipulator.plan_write("A1", unicode_formula)
+    assert exc_uni.value.code == "PY_CIRCULAR"
+    assert (exc_uni.value.details or {})["data_range"] == "'Données'.A1:A2"
+
 
 def test_commit_quotes_the_py_run_error():
     from plugin.calc.python.diagnostics import get_diagnostics_store

@@ -538,3 +538,23 @@ def test_native_data_help_text_follows_enablement():
     enabled_help = dlg.controls["DataEdit"]._model.HelpText
     assert enabled_help
     assert enabled_help != disabled_help
+
+
+def test_native_save_shows_rewritten_code_and_binding():
+    dlg, inst = _open_native(initial_code='result = xl("C1")', parsed_parts=None)
+    assert inst is not None
+    dlg.controls["ChkPlainText"].setState(0)
+    inst._sync_data_enabled()
+    with patch(
+        "plugin.calc.python.editor.apply_cell_save",
+        return_value={
+            "type": "saved",
+            "ok": True,
+            "code": "result = data",
+            "data_binding": "C1",
+        },
+    ):
+        inst._save()
+    assert dlg.controls["CodeEdit"].getText() == "result = data"
+    assert dlg.controls["DataEdit"].getText() == "C1"
+    assert inst._dirty is False

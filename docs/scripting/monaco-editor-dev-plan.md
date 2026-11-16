@@ -45,7 +45,7 @@ Same framing as [`worker_harness.py`](../../plugin/scripting/venv/worker_harness
 | `ready` | child → LO | GUI up (`window.events.loaded` or `shown`); safe to send `load`. **Process-level only** — no session envelope. |
 | `load` | LO → child | Buffer contents: stripped Python (never `=PY()`), optional `title`, `data_binding`, `plain_text_label`, `save_as_plain`, **`ui`** (see [Localization](#localization)), plus the session envelope below. |
 | `save` | child → LO | User saved/ran: `code`, optional `save_as_plain`, optional `data_binding`, optional `action`. Echoes the envelope. |
-| `saved` / `error` | LO → child | Apply result in UI; `saved` may include `status_ok_text` (e.g. **Saved without =PY().**). Same envelope as the `save` they answer. |
+| `saved` / `error` | LO → child | Apply result in UI; `saved` may include `status_ok_text` (e.g. **Saved without =PY().**) and, after an `xl()` rewrite, `code` and `data_binding`. Monaco/CM6 replace the buffer only if it is unchanged since Save; the built-in dialog always replaces it. Same envelope as the `save` they answer. |
 | `request_save` | LO → child | Ask the focused buffer to click Save before a different load (any dirty mode). Addressed to that `session_id`. |
 | `dirty` | child → LO | Unsaved-edit flag for that session. |
 | `ask_unsaved` | child → LO | Picker asks Save / Don't save / Cancel for the named script; the host answers `unsaved_choice`. |

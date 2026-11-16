@@ -403,6 +403,11 @@ def _patch_formula_edit(module: Any) -> None:
     from plugin.framework.deal_shim import ascii_bounded
 
     module._DEAL_ASCII_STR = ascii_bounded
+    # _deal_data_args_ok picks this up through its global lookup.
+    range_chars = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
+    module._deal_range_addr_ok = (
+        lambda s: isinstance(s, str) and len(s) <= module.DEAL_MAX_TOKEN and all(c in range_chars for c in s)
+    )
 
 
 def _patch_preprocess(module: Any) -> None:
