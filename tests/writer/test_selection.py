@@ -127,31 +127,37 @@ def _selection_ctx():
 
 
 def test_set_selection_by_search_text_selects_and_reports():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
     found = MagicMock()
     found.getString.return_value = "clause 3.2"
-    with patch("plugin.writer.search.find_occurrence_range", return_value=found):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(found, MatchMode(True, False))):
         res = SetSelection().execute(ctx, search_text="clause 3.2")
     assert res["status"] == "ok" and res["selected_text"] == "clause 3.2"
-    assert res["matched_case_sensitive"] is False
+    assert res["matched_case_sensitive"] is True
     controller.select.assert_called_once_with(found)
 
 
 def test_set_selection_occurrence_walks_findNext():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
     second = MagicMock()
     second.getString.return_value = "hit2"
-    with patch("plugin.writer.search.find_occurrence_range", return_value=second) as mock_find:
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(second, MatchMode(True, False))) as mock_find:
         res = SetSelection().execute(ctx, search_text="hit", occurrence=1)
     assert res["status"] == "ok" and res["selected_text"] == "hit2"
-    assert res["matched_case_sensitive"] is False
+    assert res["matched_case_sensitive"] is True
     controller.select.assert_called_once_with(second)
-    mock_find.assert_called_once_with(doc, "hit", occurrence=1, case_sensitive=False)
+    mock_find.assert_called_once_with(doc, "hit", occurrence=1, case_sensitive=None)
 
 
 def test_set_selection_no_match_errors():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_containing", return_value=None):
         res = SetSelection().execute(ctx, search_text="nope")
     assert res["status"] == "error"
@@ -163,9 +169,11 @@ def test_set_selection_no_match_errors():
 
 
 def test_set_selection_shape_match_returns_shape_message():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
     mock_shape = MagicMock(return_value="Box 1")
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_containing", mock_shape):
         res = SetSelection().execute(ctx, search_text="in_shape")
     mock_shape.assert_called_once_with(doc, "in_shape", use_regex=False, case_sensitive=False)
@@ -343,13 +351,15 @@ def test_set_selection_disposal_is_document_disposed():
 
 
 def test_set_selection_markup_search_miss_shows_stripped_string():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None) as mock_find, \
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))) as mock_find, \
          patch("plugin.writer.search.drawing_shape_containing", return_value=None):
         res = SetSelection().execute(ctx, search_text="<b>missing_word</b>")
     assert res["status"] == "error"
     assert res["code"] == "OLD_CONTENT_NOT_FOUND"
-    mock_find.assert_called_once_with(doc, "missing_word", occurrence=0, case_sensitive=False)
+    mock_find.assert_called_once_with(doc, "missing_word", occurrence=0, case_sensitive=None)
 
 
 def test_set_selection_non_int_occurrence_does_not_select():
@@ -362,13 +372,15 @@ def test_set_selection_non_int_occurrence_does_not_select():
 
 
 def test_set_selection_miss_reports_closest_match():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
     closest = {
         "closest_match": "helpo...",
         "diff_at": 3,
         "message": "closest match differs at 3",
     }
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_containing", return_value=None), \
          patch("plugin.writer.search.search_closest_mismatch", return_value=closest):
         res = SetSelection().execute(ctx, search_text="hello")
@@ -379,8 +391,10 @@ def test_set_selection_miss_reports_closest_match():
 
 
 def test_set_selection_oversized_search_does_not_refuse():
+    from plugin.writer.search import MatchMode
+
     ctx, doc, controller = _selection_ctx()
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None), \
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_containing", return_value=None), \
          patch("plugin.writer.search.search_closest_mismatch", return_value=None), \
          patch("plugin.writer.search.old_content_covers_most", return_value=True):
@@ -428,6 +442,7 @@ def test_set_selection_missing_controller_returns_tool_execution_error():
 
 def test_set_selection_search_updates_pin():
     from plugin.framework.tool import SelectionPin
+    from plugin.writer.search import MatchMode
 
     ctx, _doc, controller = _selection_ctx()
     ctx.selection_pin = SelectionPin(MagicMock())
@@ -436,7 +451,7 @@ def test_set_selection_search_updates_pin():
     cloned = MagicMock()
     found.getText.return_value.createTextCursorByRange.return_value = cloned
 
-    with patch("plugin.writer.search.find_occurrence_range", return_value=found):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(found, MatchMode(True, False))):
         res = SetSelection().execute(ctx, search_text="clause 3.2")
 
     assert res["status"] == "ok"
@@ -463,14 +478,29 @@ def test_set_selection_char_range_updates_pin():
 
 
 def test_set_selection_without_pin_is_live_only():
+    from plugin.writer.search import MatchMode
+
     ctx, _doc, controller = _selection_ctx()
     found = MagicMock()
     found.getString.return_value = "clause 3.2"
-    with patch("plugin.writer.search.find_occurrence_range", return_value=found):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(found, MatchMode(True, False))):
         res = SetSelection().execute(ctx, search_text="clause 3.2")
     assert res["status"] == "ok"
     controller.select.assert_called_once_with(found)
     assert ctx.selection_pin is None
+
+
+def test_set_selection_oor_reports_winning_mode():
+    from tests.writer.test_search import _SampleFakeDoc
+
+    doc = _SampleFakeDoc("Apple pie. apple tart.")
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={}, selection_pin=None)
+    res = SetSelection().execute(ctx, search_text="Apple", occurrence=1)
+    assert res["status"] == "error"
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
+    assert "found 1 match(es)" in res["message"]
+    assert res["matched_case_sensitive"] is True
+    assert res["matched_folded"] is False
 
 
 

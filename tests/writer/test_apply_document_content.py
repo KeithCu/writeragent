@@ -11,6 +11,7 @@ import pytest
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer import html_import_styles
 from plugin.writer.apply_document_content import ApplyDocumentContent
+from plugin.writer.search import MatchMode
 
 def _edit_ctx():
     ctx = MagicMock()
@@ -38,7 +39,7 @@ def test_dry_run_reports_matches_without_mutating():
     r1.getString.return_value = "clause 3.2 text"
     r2.getString.return_value = "clause 3.2 again"
     ctx = _edit_ctx()
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
@@ -77,7 +78,7 @@ def test_dry_run_marshals_to_main_thread(monkeypatch):
         return fn()
 
     with patch("plugin.framework.queue_executor.main.call", fake_execute), \
-         patch("plugin.writer.search.find_all_ranges", return_value=[r1]), \
+         patch("plugin.writer.search.find_literal_ranges", return_value=([r1], MatchMode(True, False))), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
@@ -97,7 +98,7 @@ def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
     r.getString.return_value = "bravo charlie"
     ctx = _edit_ctx()
     with patch("plugin.writer.search.find_ranges_regex_case", return_value=[r]) as frc, \
-         patch("plugin.writer.search.find_all_ranges") as far, \
+         patch("plugin.writer.search.find_literal_ranges") as far, \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(
@@ -168,7 +169,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
 
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
@@ -193,7 +194,7 @@ def test_position_before_inserts_at_match_start():
     found.getText.return_value.createTextCursorByRange.return_value.getPropertyValue.return_value = None
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
@@ -227,7 +228,7 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     ctx = _edit_ctx()
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
@@ -251,7 +252,7 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor"):
@@ -272,7 +273,7 @@ def test_position_after_table_preserves_table():
     ctx = _edit_ctx()
     # Mock table count to increase from 0 to 1 so honesty check passes.
     ctx.doc.getTextTables.return_value.getCount.side_effect = [0, 1, 1]
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor"):
@@ -296,7 +297,7 @@ def test_table_insert_reports_failure_when_no_table_produced(position):
     ctx = _edit_ctx()
     # Table count remains 0 before and after.
     ctx.doc.getTextTables.return_value.getCount.return_value = 0
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor"):
@@ -314,7 +315,7 @@ def test_position_before_block_goes_to_paragraph_start_without_a_break():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
@@ -332,7 +333,7 @@ def test_position_before_inline_stays_at_the_exact_match_edge():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
@@ -353,7 +354,7 @@ def test_position_after_plain_text_with_line_breaks_is_block(content):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=True)
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
@@ -503,7 +504,7 @@ def test_all_matches_replaces_every_range():
     r1.getString.return_value = "old"
     r2.getString.return_value = "old"
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(html_import, "plain_text_if_markup", return_value="hi"), \
@@ -531,7 +532,7 @@ def test_search_replace_attaches_style_note_warning():
     found.getString.return_value = "old"
     post_range = MagicMock()
 
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
@@ -565,7 +566,7 @@ def test_search_replace_attaches_style_note_warning():
     assert_valid_suggested_call(diag["suggested_call"])
 
     # When replace_single_range_with_content returns WriteReport(), warning is absent
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport()):
@@ -600,12 +601,12 @@ def test_all_matches_reports_skip_count_in_warning():
     ]
     post1, post2 = MagicMock(), MagicMock()
 
-    with patch("plugin.writer.search.find_all_ranges") as mock_find, \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
+         patch("plugin.writer.search.find_all_ranges", return_value=[post1, post2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(html_import, "plain_text_if_markup", return_value="new"), \
          patch.object(html_import, "replace_single_range_with_content", side_effect=side_effects):
-        mock_find.side_effect = [[r1, r2], [post1, post2]]
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -645,7 +646,7 @@ def test_suggested_call_omitted_when_recording_changes():
     found = MagicMock()
     found.getString.return_value = "old"
 
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
@@ -674,7 +675,7 @@ def test_suggested_call_omitted_when_style_unresolvable():
     found = MagicMock()
     found.getString.return_value = "old"
 
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(html_import, "replace_single_range_with_content", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["UnknownStyle"])):
@@ -704,7 +705,7 @@ def test_suggested_call_omitted_when_text_has_newlines():
     post_range = MagicMock()
 
     content = '<p data-lo-style="Heading2">a</p><p data-lo-style="Heading2">b</p>'
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.search.find_all_ranges", return_value=[post_range]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
@@ -757,7 +758,7 @@ def test_suggested_call_omitted_when_post_match_count_mismatches():
 
     # Post-write search finds 2 matches instead of expected 1
     m1, m2 = MagicMock(), MagicMock()
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.search.find_all_ranges", return_value=[m1, m2]), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
@@ -808,7 +809,7 @@ def test_partial_match_style_suggestion_happy_path_single():
     doc = _mock_doc_with_styles()
     params = _make_edit_params()
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
-         patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]):
+         patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))):
         suggestion = _partial_match_style_suggestion(doc, params, "Heading2", 1)
 
     assert suggestion == {
@@ -916,7 +917,7 @@ def test_partial_match_style_suggestion_gate_match_count_mismatch(find_mock: Any
     return_value = None if side_effect is not None else find_mock
 
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
-         patch("plugin.writer.search.find_all_ranges", return_value=return_value, side_effect=side_effect):
+         patch("plugin.writer.search.find_literal_ranges", return_value=(return_value, MatchMode(True, False)) if side_effect is None else None, side_effect=side_effect):
         assert _partial_match_style_suggestion(doc, params, "Heading2", 1) is None
 
 
@@ -927,7 +928,7 @@ def test_edge_spaces_with_use_preserve():
     found = MagicMock()
     found.getString.return_value = "paragrafo"
 
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch("plugin.writer.apply_document_content.record_preserve_replace") as mock_preserve:
@@ -951,7 +952,7 @@ def test_position_after_string_with_backslash_is_not_block():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_inline_at_cursor") as inline, \
@@ -992,7 +993,7 @@ def test_shape_edit_leave_undo_context_failure_does_not_fail_edit():
     undo.leaveUndoContext.side_effect = RuntimeError("leave undo failed")
     ctx.doc.getUndoManager.return_value = undo
 
-    with patch("plugin.writer.search.find_first_range", return_value=None), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True):
@@ -1278,7 +1279,7 @@ def test_shape_edit_refuses_without_undo_context():
     ctx.doc.getUndoManager.return_value.isLocked.return_value = True
     shape = MagicMock()
     shape.Name = "Box"
-    with patch("plugin.writer.search.find_first_range", return_value=None), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.replace_text_in_shape") as replace:
@@ -1290,7 +1291,7 @@ def test_shape_edit_refuses_without_undo_context():
 
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.doc.getUndoManager.return_value.enterUndoContext.side_effect = RuntimeError("no undo")
-    with patch("plugin.writer.search.find_first_range", return_value=None), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.replace_text_in_shape") as replace:
@@ -1308,7 +1309,7 @@ def test_shape_edit_enter_disposed_reraises():
     ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
     shape = MagicMock()
     shape.Name = "Box"
-    with patch("plugin.writer.search.find_first_range", return_value=None), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.replace_text_in_shape") as replace:
@@ -1327,7 +1328,7 @@ def test_shape_edit_rolls_back_when_replace_returns_false():
     mgr.getAllUndoActionTitles.side_effect = [(), ("WriterAgent edit#1",)]
     shape = MagicMock()
     shape.Name = "Box"
-    with patch("plugin.writer.search.find_first_range", return_value=None), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
@@ -1379,7 +1380,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
             return []
         raise RuntimeError("boom")
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_found):
@@ -1398,7 +1399,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
             return []
         raise ToolExecutionError("coded", code="HYPERLINK_UPDATE_FAILED")
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_coded):
@@ -1418,7 +1419,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
             code="INVALID_PARAM",
         )
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_link):
@@ -1430,7 +1431,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
     def replace_disposed(*_args, **_kwargs):
         raise type("DisposedException", (Exception,), {})("gone")
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_disposed):
@@ -1455,7 +1456,7 @@ def test_all_matches_outline_update_failure_reports_hyperlink_code():
         single_paragraph=True,
     )
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot), \
@@ -1479,7 +1480,7 @@ def test_position_after_cell_probe_reraises_disposed():
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
     cursor.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch.object(html_import, "html_fragment_contains_mixed_math", return_value=False), \
          patch.object(html_import, "insert_html_at_cursor") as ins:
@@ -1495,7 +1496,7 @@ def test_emptied_table_delete_reraises_disposed():
 
     ctx = _edit_ctx()
     found = MagicMock()
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[(MagicMock(), "T1")]), \
          patch("plugin.writer.apply_document_content.record_table_deletions",
@@ -1510,7 +1511,7 @@ def test_emptied_table_delete_reraises_disposed():
 def test_dry_run_outline_capture_failure_is_not_a_missing_link():
     ctx = _edit_ctx()
     found = MagicMock()
-    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
@@ -1530,7 +1531,7 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
         assert "Could not read the outline hyperlink" in res_override["message"]
 
     disposed_exc = type("DisposedException", (Exception,), {})("gone")
-    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
@@ -1558,7 +1559,7 @@ def test_dry_run_empty_replacement_omits_outline_rewrite_fields(empty_content):
         matched="clause",
         single_paragraph=True,
     )
-    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
@@ -1585,7 +1586,7 @@ def test_edit_outline_capture_failure_does_not_change_text():
     ctx = _edit_ctx()
     found = MagicMock()
     found.getString.return_value = "clause"
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=RuntimeError("boom")), \
          patch("plugin.writer.apply_document_content.record_preserve_replace") as preserve:
@@ -1605,7 +1606,7 @@ def test_edit_outline_capture_failure_does_not_change_text():
         preserve.assert_not_called()
 
     disposed_exc = type("DisposedException", (Exception,), {})("gone")
-    with patch("plugin.writer.search.find_first_range", return_value=found), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=disposed_exc), \
          patch("plugin.writer.apply_document_content.record_preserve_replace") as preserve:
@@ -1621,7 +1622,7 @@ def test_edit_outline_capture_failure_does_not_change_text():
         preserve.assert_not_called()
 
     # all_matches: patch find_all_ranges to [found]
-    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=RuntimeError("boom")), \
          patch("plugin.writer.apply_document_content.record_preserve_replace") as preserve:
@@ -1648,7 +1649,7 @@ def test_outline_undo_disposed_undo_manager_reraises():
 def test_all_matches_disposed_undo_manager_reraises():
     ctx = _edit_ctx()
     ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
-    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))), \
          patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[]):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(ctx, content="x", target="search", old_content="old", all_matches=True)
@@ -1670,7 +1671,7 @@ def test_all_matches_disposed_undo_manager_reraises():
             "search",
             {"old_content": "old"},
             [
-                ("plugin.writer.search.find_first_range", {"return_value": MagicMock()}),
+                ("plugin.writer.search.find_literal_ranges", {"return_value": ([MagicMock()], MatchMode(True, False))}),
                 ("plugin.writer.apply_document_content.collapsed_anchor", {"return_value": None}),
                 ("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", {"return_value": []}),
             ],
@@ -1707,15 +1708,13 @@ def test_table_count_read_reraises_disposed():
 def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
     ctx = _icu_rejects(_edit_ctx())
     with patch("plugin.writer.html_import.content_has_markup", return_value=False), \
-         patch("plugin.writer.search.find_first_range") as find_first, \
-         patch("plugin.writer.search.find_all_ranges") as find_all:
+         patch("plugin.writer.search.find_literal_ranges") as find_lit:
         res = ApplyDocumentContent().execute(
             ctx, content="x", target="search", old_content="([a-", regex=True, **extra)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
     assert res.get("count", res.get("details", {}).get("count")) == 0
-    find_first.assert_not_called()
-    find_all.assert_not_called()
+    find_lit.assert_not_called()
 
 
 def test_apply_document_content_selection_failure_not_silent():

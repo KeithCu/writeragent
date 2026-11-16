@@ -25,9 +25,9 @@ from plugin.writer.specialized_base import (
 from plugin.framework.errors import ToolExecutionError, make_tool_error, uno_read
 from plugin.writer.record_changes import is_recording_changes
 from plugin.writer.search import (
-    CASE_SENSITIVE_DESCRIPTION,
+    EDIT_CASE_SENSITIVE_DESCRIPTION,
+    explicit_case_sensitive,
     occurrence_range_or_error,
-    resolve_case_sensitive,
 )
 
 
@@ -85,7 +85,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                 ),
             },
             "occurrence": {"type": "integer", "description": ("0-based index when insert_after matches multiple times (default 0 = first match).")},
-            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
+            "case_sensitive": {"type": "boolean", "description": EDIT_CASE_SENSITIVE_DESCRIPTION},
         },
         "required": ["note", "text"],
     }
@@ -98,15 +98,16 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
         insert_after = str(kwargs.get("insert_after") or "")
         has_search = bool(insert_after.strip())
-        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+        case_sensitive = explicit_case_sensitive(kwargs.get("case_sensitive"))
         doc = ctx.doc
 
+        mode = None
         if has_search:
-            rng, err = occurrence_range_or_error(
+            rng, err, mode = occurrence_range_or_error(
                 doc, insert_after, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="insert_after"
             )
             if err is not None:
-                err["matched_case_sensitive"] = case_sensitive
+                err.update(mode.result_fields())
                 return err
             if rng is None:
                 return self._tool_error("Failed to find insertion point.")
@@ -141,8 +142,8 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         note.setString(text)
 
         res: dict[str, Any] = {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
-        if has_search:
-            res["matched_case_sensitive"] = case_sensitive
+        if mode is not None:
+            res.update(mode.result_fields())
         return res
 
 

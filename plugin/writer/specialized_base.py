@@ -31,7 +31,7 @@ from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableB
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_catalog import FINISH_TOOL_NAME
-from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
+from plugin.writer.search import CURSOR_CASE_SENSITIVE_DESCRIPTION
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 
@@ -49,7 +49,7 @@ def target_params(what: str, *, old_content_description: str | None = None, **ex
             "type": "string",
             "description": old_content_description or "Text to find and replace if target = 'search'.",
         },
-        "case_sensitive": {"type": "boolean", "description": f"For target='search': {CASE_SENSITIVE_DESCRIPTION}"},
+        "case_sensitive": {"type": "boolean", "description": f"For target='search': {CURSOR_CASE_SENSITIVE_DESCRIPTION}"},
     }
 
 

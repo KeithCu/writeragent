@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import logging
 import re as re_mod
+from dataclasses import dataclass
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, cast
 
 from plugin.doc.text_helpers import (
     FAILED,
@@ -90,6 +91,10 @@ _SPACE_CODEPOINTS = (
 SPACE_NORMALIZE_MAP = {cp: " " for cp in _SPACE_CODEPOINTS}
 HORIZONTAL_SPACE_CLASS = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEPOINTS) + "]"
 
+def _char_class(cps: tuple[int, ...]) -> str:
+    return "[" + "".join(f"\\u{cp:04x}" for cp in cps) + "]"
+
+
 # Quotes and dashes folding for lenient search. Straight or curly quotes and
 # hyphen/dash variants match across styles so subtle punctuation differences
 # between user prompts and document text do not break find-and-replace.
@@ -97,24 +102,98 @@ _SINGLE_QUOTE_CODEPOINTS = (0x0027, 0x2018, 0x2019, 0x201A, 0x201B)
 _DOUBLE_QUOTE_CODEPOINTS = (0x0022, 0x201C, 0x201D, 0x201E, 0x201F)
 _DASH_CODEPOINTS = (0x002D, 0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)
 
-SINGLE_QUOTE_CLASS = r"[" + "".join("\\u%04x" % cp for cp in _SINGLE_QUOTE_CODEPOINTS) + "]"
-DOUBLE_QUOTE_CLASS = r"[" + "".join("\\u%04x" % cp for cp in _DOUBLE_QUOTE_CODEPOINTS) + "]"
-DASH_CLASS = r"[" + "".join("\\u%04x" % cp for cp in _DASH_CODEPOINTS) + "]"
+SINGLE_QUOTE_CLASS = _char_class(_SINGLE_QUOTE_CODEPOINTS)
+DOUBLE_QUOTE_CLASS = _char_class(_DOUBLE_QUOTE_CODEPOINTS)
+DASH_CLASS = _char_class(_DASH_CODEPOINTS)
 
-_SINGLE_QUOTE_RE = re_mod.compile("[" + "'\u2018\u2019\u201a\u201b" + "]")
-_DOUBLE_QUOTE_RE = re_mod.compile("[" + '"\u201c\u201d\u201e\u201f' + "]")
-_DASH_RE = re_mod.compile("[" + "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212" + "]")
+_SINGLE_QUOTE_RE = re_mod.compile(SINGLE_QUOTE_CLASS)
+_DOUBLE_QUOTE_RE = re_mod.compile(DOUBLE_QUOTE_CLASS)
+_DASH_RE = re_mod.compile(DASH_CLASS)
+_FOLDABLE_RE = re_mod.compile(
+    _char_class(_SINGLE_QUOTE_CODEPOINTS + _DOUBLE_QUOTE_CODEPOINTS + _DASH_CODEPOINTS)
+)
 
 _QUOTE_FOLD_MAP = {
     **{cp: "'" for cp in _SINGLE_QUOTE_CODEPOINTS if cp != 0x0027},
     **{cp: '"' for cp in _DOUBLE_QUOTE_CODEPOINTS if cp != 0x0022},
 }
+_PUNCT_FOLD_MAP = {
+    **_QUOTE_FOLD_MAP,
+    **{cp: "-" for cp in _DASH_CODEPOINTS if cp != 0x002D},
+}
 
 _FOLD_NORMALIZE_MAP = {
     **SPACE_NORMALIZE_MAP,
-    **_QUOTE_FOLD_MAP,
-    **{cp: "-" for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)},
+    **_PUNCT_FOLD_MAP,
 }
+
+
+@dataclass(frozen=True)
+class MatchMode:
+    """One literal-search pass for an edit or anchor tool.
+
+    case_sensitive means letters must match the needle's case.
+    folded means straight/curly quotes and hyphen/dash variants match each other.
+    Spaces always fold because normalize_search_string_for_find already collapsed
+    the needle's whitespace.
+    """
+
+    case_sensitive: bool
+    folded: bool
+
+    def result_fields(self) -> dict[str, bool]:
+        return {
+            "matched_case_sensitive": self.case_sensitive,
+            "matched_folded": self.folded,
+        }
+
+
+_LADDER_CASE_SENSITIVE_BODY = (
+    "Omit to match exact case first and ignore case only when nothing matches; true or false "
+    "forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/"
+    "curly quote or dash variant matches (never for a needle of punctuation alone)."
+)
+EDIT_CASE_SENSITIVE_DESCRIPTION = (
+    _LADDER_CASE_SENSITIVE_BODY
+    + " matched_case_sensitive and matched_folded in the result name the pass that matched."
+)
+CURSOR_CASE_SENSITIVE_DESCRIPTION = _LADDER_CASE_SENSITIVE_BODY
+
+
+class OccurrenceOutOfRange(IndexError):
+    """Raised by find_occurrence_range when matches exist in *mode* but occurrence is past the end."""
+
+    mode: MatchMode
+
+    def __init__(self, message: str, mode: MatchMode) -> None:
+        super().__init__(message)
+        self.mode = mode
+
+
+def explicit_case_sensitive(raw: Any) -> bool | None:
+    """Return None when omitted or JSON null (use the case ladder), else bool(raw)."""
+    if raw is None:
+        return None
+    return bool(raw)
+
+
+def case_ladder(case_sensitive: bool | None) -> tuple[bool, ...]:
+    """Return case-sensitivity passes: (True, False) when omitted, else (case_sensitive,)."""
+    return (True, False) if case_sensitive is None else (case_sensitive,)
+
+
+def match_modes(search_string: str, case_sensitive: bool | None) -> list[MatchMode]:
+    """Ordered literal-search passes for *search_string*.
+
+    Each case level tries exact quotes/dashes first, then folded quotes/dashes
+    when the needle has both a foldable character and at least one letter or digit.
+    """
+    folds: tuple[bool, ...] = (
+        (False, True)
+        if _FOLDABLE_RE.search(search_string) and any(ch.isalnum() for ch in search_string)
+        else (False,)
+    )
+    return [MatchMode(cs, f) for cs in case_ladder(case_sensitive) for f in folds]
 
 # Literal shape and comment search folds typographic quotes; dashes and spaces
 # stay literal here.
@@ -271,7 +350,7 @@ def build_search_not_found_response(
     doc: Any,
     needle: str,
     *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    case_sensitive: bool | None = None,
     use_regex: bool = False,
     all_matches: bool = False,
     lenient: bool = True,
@@ -296,7 +375,12 @@ def build_search_not_found_response(
             "replaced_count": 0,
         }
 
-    shape_name = drawing_shape_containing(doc, needle, use_regex=use_regex, case_sensitive=case_sensitive)
+    shape_name = drawing_shape_containing(
+        doc,
+        needle,
+        use_regex=use_regex,
+        case_sensitive=resolve_case_sensitive(case_sensitive),
+    )
     if shape_name:
         return shape_only_search_response(subject, shape_name, review=review)
 
@@ -399,35 +483,35 @@ def find_text_ranges(
     return matches
 
 
-def _search_try_strings(search_string: str) -> Iterator[str]:
-    """Literal search string, then newline-collapsed variant (HTML wrap artifact)."""
-    s = search_string
-    collapsed = re_mod.sub(r" +", " ", s.replace("\n", " ")).strip()
-    for candidate in (s, collapsed):
-        if candidate:
-            yield candidate
+def escape_for_lo_regex(s: str, *, fold: bool) -> str:
+    """Escape regex characters and expand spaces; fold quotes and dashes when *fold* is True.
 
-
-def escape_for_lo_regex(s: str) -> str:
-    """Escape regex characters and fold spaces, quotes, and dashes into pattern classes.
-
-    Typographic single and double quotes (from autocorrect or word processors) match
-    straight ASCII quotes in search needles, and various hyphen/dash codepoints
-    match interchangeably while keeping match length 1:1 with the needle.
+    Spaces always expand to HORIZONTAL_SPACE_CLASS+ because normalize_search_string_for_find
+    collapsed horizontal whitespace in the needle. When *fold* is True, straight and curly
+    quotes and hyphen/dash variants match interchangeably while keeping match length 1:1.
     """
     s = s.translate(SPACE_NORMALIZE_MAP)
     escaped = re_mod.sub(r'([\\^$.|?*+()\[\]{}])', r'\\\1', s)
-    escaped = _SINGLE_QUOTE_RE.sub(lambda match: SINGLE_QUOTE_CLASS, escaped)
-    escaped = _DOUBLE_QUOTE_RE.sub(lambda match: DOUBLE_QUOTE_CLASS, escaped)
-    escaped = _DASH_RE.sub(lambda match: DASH_CLASS, escaped)
+    if fold:
+        escaped = _SINGLE_QUOTE_RE.sub(lambda match: SINGLE_QUOTE_CLASS, escaped)
+        escaped = _DOUBLE_QUOTE_RE.sub(lambda match: DOUBLE_QUOTE_CLASS, escaped)
+        escaped = _DASH_RE.sub(lambda match: DASH_CLASS, escaped)
     return re_mod.sub(r' +', lambda match: HORIZONTAL_SPACE_CLASS + '+', escaped)
 
 
-def _compare_normalize(s: str) -> str:
-    return normalize_linebreaks(s).translate(_FOLD_NORMALIZE_MAP).strip().lower()
+def _compare_normalize(s: str, mode: MatchMode) -> str:
+    norm = normalize_linebreaks(s).translate(_FOLD_NORMALIZE_MAP if mode.folded else SPACE_NORMALIZE_MAP).strip()
+    return norm if mode.case_sensitive else norm.lower()
 
 
-def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, tail: bool = False) -> tuple[bool, int | None]:
+def _paragraph_matches_part(
+    para_text: str,
+    part: str,
+    mode: MatchMode,
+    *,
+    head: bool = False,
+    tail: bool = False,
+) -> tuple[bool, int | None]:
     """Compare a paragraph to a search part; return (ok, offset_len).
 
     *head*: part must match the start of the paragraph; offset_len is goRight length.
@@ -436,8 +520,8 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     """
     para_text = normalize_linebreaks(para_text)
     part = normalize_linebreaks(part)
-    expected_norm = _compare_normalize(part)
-    actual_norm = _compare_normalize(para_text)
+    expected_norm = _compare_normalize(part, mode)
+    actual_norm = _compare_normalize(para_text, mode)
     if head:
         if not actual_norm.startswith(expected_norm):
             return False, None
@@ -462,25 +546,25 @@ def _collect_capped(doc: Any, sd: Any, limit: int = MAX_SEARCH_REPLACEMENTS) -> 
     return list(islice(_iter_descriptor_hits(doc, sd), limit))
 
 
-def _lo_regex_descriptor(doc: Any, text: str) -> Any:
+def _lo_regex_descriptor(doc: Any, text: str, *, fold: bool) -> Any:
     sd = doc.createSearchDescriptor()
     sd.SearchRegularExpression = True
-    sd.SearchString = escape_for_lo_regex(text)
+    sd.SearchString = escape_for_lo_regex(text, fold=fold)
     return sd
 
 
 def _iter_lo_matches(
     doc: Any,
     candidate: str,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    mode: MatchMode,
     after: Any = None,
 ) -> Iterator[Any]:
-    sd = _lo_regex_descriptor(doc, candidate)
-    sd.SearchCaseSensitive = case_sensitive
+    sd = _lo_regex_descriptor(doc, candidate, fold=mode.folded)
+    sd.SearchCaseSensitive = mode.case_sensitive
     yield from _iter_descriptor_hits(doc, sd, after=after)
 
 
-def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | None:
+def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int, mode: MatchMode) -> Any | None:
     text = found.getText()
 
     anchor_cursor = text.createTextCursorByRange(found)
@@ -494,6 +578,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
     ok, anchor_offset_len = _paragraph_matches_part(
         anchor_para_text,
         parts[anchor_idx],
+        mode,
         head=is_anchor_last,
         tail=is_anchor_first
     )
@@ -529,7 +614,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
         para_text = get_string_without_tracked_deletions(check_cursor)
 
         is_last = i == len(parts) - 1
-        ok, offset_len = _paragraph_matches_part(para_text, parts[i], head=is_last)
+        ok, offset_len = _paragraph_matches_part(para_text, parts[i], mode, head=is_last)
         if not ok:
             return None
         if is_last:
@@ -547,7 +632,7 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
         para_text = get_string_without_tracked_deletions(check_cursor)
 
         is_first = i == 0
-        ok, offset_len = _paragraph_matches_part(para_text, parts[i], tail=is_first)
+        ok, offset_len = _paragraph_matches_part(para_text, parts[i], mode, tail=is_first)
         if not ok:
             return None
         if is_first:
@@ -573,14 +658,14 @@ def _iter_chain_matches(
     doc: Any,
     parts: list[str],
     anchor_idx: int,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    mode: MatchMode,
     after: Any = None,
 ) -> Iterator[Any]:
     """Iterate matches across paragraph breaks via anchor search and chaining."""
-    sd = _lo_regex_descriptor(doc, parts[anchor_idx])
-    sd.SearchCaseSensitive = case_sensitive
+    sd = _lo_regex_descriptor(doc, parts[anchor_idx], fold=mode.folded)
+    sd.SearchCaseSensitive = mode.case_sensitive
     for found in _iter_descriptor_hits(doc, sd, after=after):
-        match_range = _chain_hit_range(found, parts, anchor_idx)
+        match_range = _chain_hit_range(found, parts, anchor_idx, mode)
         if match_range is not None:
             yield match_range
 
@@ -592,19 +677,42 @@ def _anchor_index(parts: list[str]) -> int:
     return -1
 
 
+def _literal_sources(
+    doc: Any,
+    search_string: str,
+    mode: MatchMode,
+    after: Any,
+) -> Iterator[Iterator[Any]]:
+    """Yield lazy match iterators in priority order: typed literal, paragraph chain, collapsed."""
+    yield _iter_lo_matches(doc, search_string, mode, after=after)
+
+    parts = search_string.split("\n")
+    if len(parts) > 1:
+        anchor_idx = _anchor_index(parts)
+        if anchor_idx != -1:
+            yield _iter_chain_matches(doc, parts, anchor_idx, mode, after=after)
+
+    collapsed = re_mod.sub(r" +", " ", search_string.replace("\n", " ")).strip()
+    if collapsed and collapsed != search_string:
+        yield _iter_lo_matches(doc, collapsed, mode, after=after)
+
+
 def iter_literal_ranges(
     doc: Any,
     search_string: str,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    mode: MatchMode,
     after: Any = None,
     all_candidates: bool = False,
 ) -> Iterator[Any]:
-    """Iterate matches in document order using native search with newline chaining fallback.
+    """Iterate matches in document order for one MatchMode pass.
 
-    Iterates through each candidate from _search_try_strings. If any candidate yields
-    matches, those hits are emitted and search stops. When all_candidates is True (e.g. for
-    anchor end searches), yields hits across all candidates followed by chain matches so
-    downstream filtering can find matches in the target text container or boundary.
+    Sources run in order: typed needle, cross-paragraph chain (for multi-line
+    needles), then newline-collapsed needle (HTML wrap artifact). The chain goes
+    before the collapsed form because otherwise a heading-plus-paragraph needle
+    lands on a one-paragraph phrase earlier in the document. When all_candidates
+    is False, stops after the first source that yields a match. When True (e.g.
+    for anchor end searches), yields hits across all sources so downstream
+    filtering can find matches in the target text container or boundary.
 
     Not for whole-document replace: use apply_content(target='full_document') instead
     of passing the entire body as old_content.
@@ -615,45 +723,61 @@ def iter_literal_ranges(
     # candidate generation and "\n" paragraph splitting never leave trailing "\r".
     search_string = normalize_linebreaks(search_string)
 
-    if not all_candidates:
-        for candidate in _search_try_strings(search_string):
-            matched = False
-            for hit in _iter_lo_matches(doc, candidate, case_sensitive, after=after):
-                matched = True
-                yield hit
-            if matched:
-                return
-    else:
-        for candidate in _search_try_strings(search_string):
-            yield from _iter_lo_matches(doc, candidate, case_sensitive, after=after)
+    for source in _literal_sources(doc, search_string, mode, after):
+        matched = False
+        for hit in source:
+            matched = True
+            yield hit
+        if matched and not all_candidates:
+            return
 
-    parts = search_string.split("\n")
-    if len(parts) > 1:
-        anchor_idx = _anchor_index(parts)
-        if anchor_idx != -1:
-            yield from _iter_chain_matches(
-                doc, parts, anchor_idx, case_sensitive, after=after
-            )
+
+def find_literal_ranges(
+    doc: Any,
+    search_string: str,
+    *,
+    case_sensitive: bool | None = None,
+    limit: int = MAX_SEARCH_REPLACEMENTS,
+    keep: Callable[[Any], bool] | None = None,
+) -> tuple[list[Any], MatchMode]:
+    """Run the MatchMode ladder for *search_string* and return (hits, winning_mode).
+
+    Tries each mode in match_modes(search_string, case_sensitive) until one yields
+    at least one hit (after optional *keep* filtering), capped at *limit*.
+    On a total miss, returns ([], modes[-1]) — the last (most lenient) pass tried.
+    """
+    modes = match_modes(search_string, case_sensitive)
+    if not search_string:
+        return [], modes[-1]
+    for mode in modes:
+        hits_iter = iter_literal_ranges(doc, search_string, mode)
+        if keep is not None:
+            hits_iter = filter(keep, hits_iter)
+        hits = list(islice(hits_iter, limit))
+        if hits:
+            return hits, mode
+    return [], modes[-1]
 
 
 def find_first_range(
     doc: Any,
     search_string: str,
     *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    case_sensitive: bool | None = None,
 ) -> Any:
     """First match in document order; native search with newline chaining."""
-    return next(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive), None)
+    hits = find_literal_ranges(doc, search_string, case_sensitive=case_sensitive, limit=1)[0]
+    return hits[0] if hits else None
 
 
 def find_all_ranges(
     doc: Any,
     search_string: str,
     *,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+    case_sensitive: bool | None = None,
 ) -> list[Any]:
     """All occurrences, capped at MAX_SEARCH_REPLACEMENTS."""
-    return list(islice(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive), MAX_SEARCH_REPLACEMENTS))
+    return find_literal_ranges(doc, search_string, case_sensitive=case_sensitive)[0]
 
 
 def find_occurrence_range(
@@ -661,33 +785,31 @@ def find_occurrence_range(
     text: str,
     *,
     occurrence: int = 0,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> Any | None:
-    """Find the occurrence-th match using native LO search with chaining fallback.
+    case_sensitive: bool | None = None,
+) -> tuple[Any | None, MatchMode]:
+    """Find the occurrence-th match using the literal MatchMode ladder.
 
-    Walks matches until occurrence and stops. Raises IndexError if occurrence is out of range.
-    Returns None if no matches are found.
+    Raises IndexError if matches exist in the winning pass but occurrence is out of range.
+    Returns (None, last_mode) if no matches are found.
     """
     search_string = normalize_search_string_for_find(text)
     if not search_string:
-        return None
+        return None, match_modes("", case_sensitive)[-1]
 
-    def _out_of_range(count: int) -> IndexError:
-        return IndexError(
-            f"occurrence {occurrence} out of range (found {count} match(es), use 0..{count - 1})."
+    hits, mode = find_literal_ranges(
+        doc,
+        search_string,
+        case_sensitive=case_sensitive,
+        limit=occurrence + 1,
+    )
+    if not hits:
+        return None, mode
+    if occurrence >= len(hits):
+        raise OccurrenceOutOfRange(
+            f"occurrence {occurrence} out of range (found {len(hits)} match(es), use 0..{len(hits) - 1}).",
+            mode,
         )
-
-    def _nth(matches: Iterator[Any]) -> Any | None:
-        count = 0
-        for match in matches:
-            if count == occurrence:
-                return match
-            count += 1
-        if count > 0:
-            raise _out_of_range(count)
-        return None
-
-    return _nth(iter_literal_ranges(doc, search_string, case_sensitive=case_sensitive))
+    return hits[occurrence], mode
 
 
 def occurrence_range_or_error(
@@ -695,27 +817,30 @@ def occurrence_range_or_error(
     text: str,
     raw_occurrence: Any,
     *,
-    case_sensitive: bool,
+    case_sensitive: bool | None = None,
     subject: str,
-) -> tuple[Any | None, dict[str, Any] | None]:
+) -> tuple[Any | None, dict[str, Any] | None, MatchMode]:
     """Resolve the occurrence-th body match of *text* for a tool.
 
-    Returns (range, None) on a hit, else (None, payload): INVALID_PARAM for a bad
-    occurrence, OCCURRENCE_OUT_OF_RANGE when there are fewer matches, or the
+    Returns (range, None, mode) on a hit, else (None, payload, mode): INVALID_PARAM for
+    a bad occurrence, OCCURRENCE_OUT_OF_RANGE when there are fewer matches, or the
     search-miss payload from build_search_not_found_response (subject names the
     tool parameter in the sentence). Callers add their own top-level fields.
     """
+    last_mode = match_modes(text, case_sensitive)[-1]
     occurrence, occ_err = parse_non_negative_int(raw_occurrence)
     if occ_err:
-        return None, make_tool_error(occ_err, code="INVALID_PARAM")
+        return None, make_tool_error(occ_err, code="INVALID_PARAM"), last_mode
     occurrence = 0 if occurrence is None else occurrence
     try:
-        found = find_occurrence_range(doc, text, occurrence=occurrence, case_sensitive=case_sensitive)
+        found, mode = find_occurrence_range(doc, text, occurrence=occurrence, case_sensitive=case_sensitive)
+    except OccurrenceOutOfRange as exc:
+        return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE"), exc.mode
     except IndexError as exc:
-        return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE")
+        return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE"), last_mode
     if found is None:
-        return None, build_search_not_found_response(doc, text, case_sensitive=case_sensitive, subject=subject)
-    return found, None
+        return None, build_search_not_found_response(doc, text, case_sensitive=case_sensitive, subject=subject), mode
+    return found, None, mode
 
 
 def _is_same_text(candidate: Any, boundary_end: Any) -> bool:
@@ -759,32 +884,50 @@ def find_anchor_span(
     end_string: str,
     *,
     occurrence: int = 0,
-    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-) -> tuple[Any | None, AnchorMissKind | None]:
+    case_sensitive: bool | None = None,
+) -> tuple[Any | None, AnchorMissKind | None, MatchMode]:
     """Find a range spanning from start_anchor through end_anchor.
 
     The end search starts at the start match's end so a repeated heading reaches the next
     occurrence, and the cursor includes both anchors. If occurrence is out of range,
-    IndexError propagates from find_occurrence_range. Returns (cursor, None) or
-    (None, 'start' | 'end' | 'different_text').
+    IndexError propagates from find_occurrence_range. Returns (cursor, None, mode) or
+    (None, 'start' | 'end' | 'different_text', mode).
     """
-    start = find_occurrence_range(
+    start, start_mode = find_occurrence_range(
         doc,
         start_string,
         occurrence=occurrence,
         case_sensitive=case_sensitive,
     )
     if start is None:
-        return None, "start"
+        return None, "start", start_mode
 
-    ends = iter_literal_ranges(
-        doc,
-        end_string,
-        case_sensitive=case_sensitive,
-        after=start.getEnd(),
-        all_candidates=True,
+    end_modes = match_modes(end_string, case_sensitive)
+    saw_different_text = False
+    for mode in end_modes:
+        ends = iter_literal_ranges(
+            doc,
+            end_string,
+            mode,
+            after=start.getEnd(),
+            all_candidates=True,
+        )
+        cursor, kind = pick_end_after_start(start, ends)
+        if cursor is not None:
+            combined = MatchMode(
+                start_mode.case_sensitive and mode.case_sensitive,
+                start_mode.folded or mode.folded,
+            )
+            return cursor, None, combined
+        if kind == "different_text":
+            saw_different_text = True
+
+    last_end = end_modes[-1]
+    combined_miss = MatchMode(
+        start_mode.case_sensitive and last_end.case_sensitive,
+        start_mode.folded or last_end.folded,
     )
-    return pick_end_after_start(start, ends)
+    return None, ("different_text" if saw_different_text else "end"), combined_miss
 
 
 def _safe_name(obj: Any) -> str:

@@ -98,15 +98,13 @@ def resolve_target_cursor(
     if not search_string:
         raise ValueError("old_content is empty after normalization.")
 
-    find_kw: dict[str, Any] = {}
-    if case_sensitive is not None:
-        find_kw["case_sensitive"] = search_mod.resolve_case_sensitive(case_sensitive)
-
-    found = search_mod.find_first_range(doc, search_string, **find_kw)
+    found = search_mod.find_first_range(doc, search_string, case_sensitive=case_sensitive)
 
     if found is None:
         raise ValueError(
-            search_mod.build_search_not_found_response(doc, search_string, refuse_oversized=True, **find_kw)["message"]
+            search_mod.build_search_not_found_response(
+                doc, search_string, refuse_oversized=True, case_sensitive=case_sensitive
+            )["message"]
         )
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell

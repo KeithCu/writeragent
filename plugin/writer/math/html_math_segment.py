@@ -11,6 +11,7 @@ plus currency guards, so ``R$ 12.798,82`` stays prose.
 Unclosed ``<math`` tails are surfaced as a final HTML chunk (nothing silently
 dropped). Incomplete TeX delimiters are left as HTML by advancing the scan.
 HTML tags, comments, and ``<script>``, ``<style>``, ``<code>``, and ``<pre>`` bodies are ignored while scanning, so a ``$`` in markup is prose.
+Spreadsheet cell and column references (``$A$1``, ``$A:$B``) are masked before the TeX scan so their ``$`` signs stay prose.
 """
 
 from __future__ import annotations
@@ -41,6 +42,11 @@ _HTML_NONTEXT_RE = re.compile(
 )
 
 
+_CELL_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_$])(?:\$?[A-Z]{1,3}\$?[0-9]+(?::\$?[A-Z]{1,3}\$?[0-9]+)?|\$[A-Z]{1,3}:\$[A-Z]{1,3})(?![A-Za-z0-9_$])"
+)
+
+
 def _mask_html_nontext(s: str) -> str:
     """Blank HTML markup so a delimiter in it is prose, not math.
 
@@ -59,6 +65,20 @@ def _mask_html_nontext(s: str) -> str:
         return _MASK_CHAR * (m.end() - m.start())
 
     return _HTML_NONTEXT_RE.sub(mask, s)
+
+
+def _mask_for_tex_scan(s: str) -> str:
+    """Blank HTML markup and Calc cell/column references before scanning for TeX delimiters.
+
+    Calc absolute references (``$A$1:$B$2``, ``$A:$B``) are not TeX delimiters; without this
+    mask, ``Select $A:$B`` pairs the two dollar signs and inserts ``A:`` as a Math object.
+    Uppercase only; a reference directly followed by ``$`` (``$H2$``) is left as TeX.
+    """
+    masked = _mask_html_nontext(s)
+    return _CELL_REF_RE.sub(
+        lambda m: _MASK_CHAR * (m.end() - m.start()) if "$" in m.group(0) else m.group(0),
+        masked,
+    )
 
 
 @dataclass(frozen=True)
@@ -133,7 +153,7 @@ def html_fragment_contains_tex_math(fragment: str) -> bool:
     there is complete or not). A ``<math>`` span can swallow a complete TeX
     region, so ``True`` here does not guarantee a ``tex`` segment.
     """
-    return _next_complete_tex_region(_mask_html_nontext(fragment), 0, set()) is not None
+    return _next_complete_tex_region(_mask_for_tex_scan(fragment), 0, set()) is not None
 
 
 def html_fragment_contains_mixed_math(fragment: str) -> bool:
@@ -235,7 +255,7 @@ def _next_complete_tex_region(
 
 def segment_html_with_mixed_math(fragment: str) -> list[MathSegment]:
     """Split *fragment* into ``html``, ``math``, and ``tex`` segments in order."""
-    masked = _mask_html_nontext(fragment)
+    masked = _mask_for_tex_scan(fragment)
     out: list[MathSegment] = []
     no_close: set[TexDelim] = set()
     pos = 0

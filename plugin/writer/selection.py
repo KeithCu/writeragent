@@ -18,10 +18,10 @@ from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.html_import import plain_text_if_markup
 from plugin.writer.search import (
-    CASE_SENSITIVE_DESCRIPTION,
+    EDIT_CASE_SENSITIVE_DESCRIPTION,
     describe_match_location,
+    explicit_case_sensitive,
     occurrence_range_or_error,
-    resolve_case_sensitive,
 )
 from plugin.writer.target_resolver import update_selection_pin
 
@@ -57,7 +57,7 @@ class SetSelection(ToolBase):
         "properties": {
             "search_text": {"type": "string", "description": "Text to select (first match unless occurrence is set)."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match to select when search_text repeats (default 0)."},
-            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
+            "case_sensitive": {"type": "boolean", "description": EDIT_CASE_SENSITIVE_DESCRIPTION},
             "char_start": {"type": "integer", "minimum": 0, "description": "Alternative to search_text: 0-based start character offset (body text)."},
             "char_end": {"type": "integer", "minimum": 0, "description": "End character offset (exclusive), required with char_start."},
         },
@@ -94,16 +94,14 @@ class SetSelection(ToolBase):
 
         # --- resolve the range to select ---
         if has_search:
-            case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+            case_sensitive = explicit_case_sensitive(kwargs.get("case_sensitive"))
             search_str = plain_text_if_markup(str(search_text))
             if not search_str.strip():
                 return self._tool_error("search_text is empty after normalization.", code="INVALID_PARAM")
 
-            res = self._select_by_search(
+            return self._select_by_search(
                 ctx, controller, search_str, kwargs.get("occurrence", 0), case_sensitive
             )
-            res["matched_case_sensitive"] = case_sensitive
-            return res
 
         target_range, fully_reached = get_text_cursor_at_range_reached(
             doc, char_start, char_end
@@ -134,20 +132,22 @@ class SetSelection(ToolBase):
         controller: Any,
         search_str: str,
         raw_occurrence: Any,
-        case_sensitive: bool,
+        case_sensitive: bool | None,
     ) -> dict[str, Any]:
         doc = ctx.doc
-        found, err = occurrence_range_or_error(
+        found, err, mode = occurrence_range_or_error(
             doc, search_str, raw_occurrence, case_sensitive=case_sensitive, subject="search_text"
         )
         if found is None:
-            return err or self._tool_error("search_text not found")
-
-        controller.select(found)
-        update_selection_pin(ctx, found)
-        fields = _read_selection_fields(found)
-        return {
-            "status": "ok",
-            **fields,
-            "location": describe_match_location(found, doc),
-        }
+            res = err or self._tool_error("search_text not found")
+        else:
+            controller.select(found)
+            update_selection_pin(ctx, found)
+            fields = _read_selection_fields(found)
+            res = {
+                "status": "ok",
+                **fields,
+                "location": describe_match_location(found, doc),
+            }
+        res.update(mode.result_fields())
+        return res

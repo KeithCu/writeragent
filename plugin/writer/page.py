@@ -41,7 +41,10 @@ from .html_import import replace_xtext_with_html
 from .html_import_styles import attach_write_report
 from .range_copy import ANCHORED_GRAPHIC_PROPS, copy_flow_into_xtext
 from .search import (
-    CASE_SENSITIVE_DESCRIPTION,
+    EDIT_CASE_SENSITIVE_DESCRIPTION,
+    MatchMode,
+    case_ladder,
+    explicit_case_sensitive,
     occurrence_range_or_error,
     parse_non_negative_int,
     prepare_old_content,
@@ -1240,7 +1243,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             },
             "case_sensitive": {
                 "type": "boolean",
-                "description": CASE_SENSITIVE_DESCRIPTION,
+                "description": EDIT_CASE_SENSITIVE_DESCRIPTION,
             },
             "occurrence": {
                 "type": "integer",
@@ -1269,7 +1272,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             return self._tool_error("old_content must be a non-empty string.")
         if _FIELD_CURSOR_STEP in old_content:
             return self._tool_error("old_content cannot include a field.")
-        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+        explicit = explicit_case_sensitive(kwargs.get("case_sensitive"))
         all_matches = kwargs.get("all_matches", False)
         raw_occurrence = kwargs.get("occurrence", None)
         if all_matches and raw_occurrence is not None:
@@ -1301,11 +1304,17 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 "Could not retrieve text object for %s on style '%s'." % (region, style_name)
             )
 
-        hits, notes = _find_region_matches(text_obj, old_content, case_sensitive)
+        cs = False
+        hits: list[tuple[Any, int]] = []
+        notes: list[str] = []
+        for cs in case_ladder(explicit):
+            hits, notes = _find_region_matches(text_obj, old_content, cs)
+            if hits:
+                break
         res = self._replace_in_region_text(
-            ctx.doc, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, case_sensitive, hits, notes
+            ctx.doc, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, cs, hits, notes
         )
-        res["matched_case_sensitive"] = case_sensitive
+        res.update(MatchMode(cs, False).result_fields())
         return res
 
     def _replace_in_region_text(
@@ -1546,7 +1555,7 @@ class PageInsertBreak(ToolWriterPageBase):
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
-        "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
+        "case_sensitive": {"type": "boolean", "description": EDIT_CASE_SENSITIVE_DESCRIPTION},
         "page_style": {
             "type": "string",
             "description": (
@@ -1579,47 +1588,30 @@ class PageInsertBreak(ToolWriterPageBase):
             return self._tool_error(str(e))
 
         has_anchor = bool(before_text or after_text)
-        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+        raw_cs = kwargs.get("case_sensitive")
+        case_sensitive = explicit_case_sensitive(raw_cs)
 
         if has_anchor:
             res = self._insert_anchored_break(
                 doc, before_text, after_text, page_style, restart, case_sensitive, kwargs.get("occurrence", 0)
             )
-            res["matched_case_sensitive"] = case_sensitive
+            res.setdefault("matched_case_sensitive", resolve_case_sensitive(raw_cs))
             return res
 
         return self._insert_view_cursor_break(doc, page_style, restart)
 
-    def _insert_anchored_break(
+    def _break_at_match(
         self,
-        doc: Any,
+        found: Any,
         before_text: Any,
-        after_text: Any,
         page_style: str | None,
         restart: int | None,
-        case_sensitive: bool,
-        raw_occurrence: Any,
     ) -> dict[str, Any]:
-        anchor = prepare_old_content(before_text or after_text)
-        if not anchor:
-            return self._tool_error(
-                "before_text / after_text is empty after normalization.",
-                code="INVALID_PARAM",
-            )
-        found, err = occurrence_range_or_error(
-            doc,
-            anchor,
-            raw_occurrence,
-            case_sensitive=case_sensitive,
-            subject="before_text" if before_text else "after_text",
-        )
-        if found is None:
-            return err or self._tool_error("Anchor not found")
         text = found.getText()
         # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
         # after_text -> the paragraph that FOLLOWS the match.
         cursor = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
-        if after_text and not cursor.gotoNextParagraph(False):
+        if not before_text and not cursor.gotoNextParagraph(False):
             # At the LAST paragraph there is nothing after the anchor; silently breaking
             # on the anchor's own paragraph would push the anchor itself to a new page
             # (the opposite of what was asked) while reporting ok.
@@ -1632,6 +1624,37 @@ class PageInsertBreak(ToolWriterPageBase):
         _apply_page_break(cursor, page_style, restart)
         success_text = "Page break inserted %s the anchor." % ("before" if before_text else "after")
         return _page_break_ok(success_text, page_style, restart)
+
+    def _insert_anchored_break(
+        self,
+        doc: Any,
+        before_text: Any,
+        after_text: Any,
+        page_style: str | None,
+        restart: int | None,
+        case_sensitive: bool | None,
+        raw_occurrence: Any,
+    ) -> dict[str, Any]:
+        anchor = prepare_old_content(before_text or after_text)
+        if not anchor:
+            return self._tool_error(
+                "before_text / after_text is empty after normalization.",
+                code="INVALID_PARAM",
+            )
+        found, err, mode = occurrence_range_or_error(
+            doc,
+            anchor,
+            raw_occurrence,
+            case_sensitive=case_sensitive,
+            subject="before_text" if before_text else "after_text",
+        )
+        res = (
+            (err or self._tool_error("Anchor not found"))
+            if found is None
+            else self._break_at_match(found, before_text, page_style, restart)
+        )
+        res.update(mode.result_fields())
+        return res
 
     def _insert_view_cursor_break(
         self,
