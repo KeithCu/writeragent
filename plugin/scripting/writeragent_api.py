@@ -810,16 +810,17 @@ class _CalcProxy:
         """
         return _result(call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, border_mode=border_mode, number_format=number_format, column_width_mm=column_width_mm, row_height_mm=row_height_mm, autofit=autofit))
 
-    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None) -> _Item:
-        """Stable one-column sort of the specified range(s) by values in one column. Multi-key sorts are multiple calls (two stable one-column passes). Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas. The result says 'no rows moved' when the key column was already in that order.
+    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None, then_by: list[Any] | None = None) -> _Item:
+        """Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas. The result says 'no rows moved' when the key columns were already in that order.
 
         Args:
             range_name (required): Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).
             has_header (required): true when row 1 is labels; false only for a headerless block (default: true).
             sort_column (optional): 0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.
             ascending (optional): true = smallest first (default); false = largest/highest first.
+            then_by (optional): Optional tie-break keys, applied in order when the keys before them are equal (sort_column/ascending is always the first key). Each item: {"column": 0-based index inside the range, "ascending": true|false}. Omit for a one-key sort.
         """
-        return _result(call_host_tool("sort_range", range=range_name, sort_column=sort_column, ascending=ascending, has_header=has_header))
+        return _result(call_host_tool("sort_range", range=range_name, sort_column=sort_column, ascending=ascending, then_by=then_by, has_header=has_header))
 
     def write_range(self, range_name: list[str], *, values: str | list[Any] | None = None, array: bool | None = None, source: str | None = None) -> _Item:
         """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; to write many cells at once, send a 2-D array (one inner array per row) that matches the range, or give only the top-left cell and the array sets the size. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
@@ -2581,7 +2582,7 @@ class _SlideProxy:
         return _result(call_host_tool("slide_read_text", page=page))
 
     def rename(self, page: int, name: str) -> _Item:
-        """Sets the Name property of a slide (0-based page index).
+        """Sets the Name of a slide (0-based page index). The name must not already be used by another slide; LibreOffice refuses names that start with its default slide label (e.g. 'Slide 3').
 
         Args:
             page (required): 0-based slide index.

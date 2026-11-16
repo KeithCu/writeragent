@@ -660,6 +660,7 @@ def test_full_read_keeps_outline_link_targets_uno(ctx: Any, doc: Any) -> None:
     """Full-document XHTML read restores stored |outline hrefs over #a_... anchors."""
     from plugin.app import get_services
     from plugin.framework.tool import ToolContext
+    from plugin.framework.uno_context import enum_has_more
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
 
@@ -680,7 +681,7 @@ def test_full_read_keeps_outline_link_targets_uno(ctx: Any, doc: Any) -> None:
     assert apply_res.get("status") == "ok", apply_res
 
     enum = doc.getText().createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         if para.supportsService("com.sun.star.text.Paragraph") and para.getString() == "Intro text":
             fn = doc.createInstance("com.sun.star.text.Footnote")
@@ -702,4 +703,78 @@ def test_full_read_keeps_outline_link_targets_uno(ctx: Any, doc: Any) -> None:
         "#Getting Started|outline",
         "#Intro &amp; More|outline",
     ], non_ftn
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_and_selection_reads_report_paragraph_font_like_full_read_uno(ctx: Any, doc: Any) -> None:
+    """Id 306: range and selection reads report paragraph font/colour in data-lo-para like full."""
+    import re
+    from com.sun.star.awt.FontSlant import ITALIC
+
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer import html_export
+    from plugin.writer.range_copy import PARAGRAPH_BREAK
+
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "Beta has italic run", False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    text.insertString(cur, "Gamma bold with plain word", False)
+    text.insertControlCharacter(cur, PARAGRAPH_BREAK, False)
+    text.insertString(cur, "Eps plain", False)
+
+    paras = []
+    enum = text.createEnumeration()
+    while enum_has_more(enum):
+        paras.append(enum.nextElement())
+
+    p0 = text.createTextCursorByRange(paras[0].getStart())
+    p0.gotoEndOfParagraph(True)
+    p0.setPropertyValue("CharFontName", "Liberation Mono")
+    r0 = text.createTextCursorByRange(paras[0].getStart())
+    r0.goRight(9, False)
+    r0.goRight(6, True)
+    r0.setPropertyValue("CharPosture", ITALIC)
+
+    p1 = text.createTextCursorByRange(paras[1].getStart())
+    p1.gotoEndOfParagraph(True)
+    p1.setPropertyValue("CharWeight", 150.0)
+    r1 = text.createTextCursorByRange(paras[1].getStart())
+    r1.goRight(16, False)
+    r1.goRight(5, True)
+    r1.setPropertyValue("CharWeight", 100.0)
+
+    total = len(text.getString())
+    full = html_export.document_to_content(doc, ctx, scope="full")
+    rng = html_export.document_to_content(doc, ctx, scope="range", range_start=0, range_end=total)
+
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoStart(False)
+    vc.gotoEnd(True)
+    sel = html_export.document_to_content(doc, ctx, scope="selection")
+
+    partial = html_export.document_to_content(doc, ctx, scope="range", range_start=9, range_end=35)
+
+    def blocks(html: str) -> list[str]:
+        return re.findall(r"<p\b.*?</p>", re.sub(r"\s+", " ", html))
+
+    full_blocks = blocks(full)
+    rng_blocks = blocks(rng)
+    sel_blocks = blocks(sel)
+    assert rng_blocks == full_blocks, (rng_blocks, full_blocks)
+    assert sel_blocks == full_blocks, (sel_blocks, full_blocks)
+
+    open0, body0 = rng_blocks[0].split(">", 1)
+    assert "data-lo-para=" in open0 and "font-family:" in open0, rng_blocks[0]
+    assert "font-family" not in body0, rng_blocks[0]
+
+    open1, body1 = rng_blocks[1].split(">", 1)
+    assert "data-lo-para=" in open1 and "font-weight:bold" in open1, rng_blocks[1]
+    assert "font-weight:normal" in body1, rng_blocks[1]
+
+    partial_blocks = blocks(partial)
+    partial_open0 = partial_blocks[0].split(">", 1)[0]
+    assert "data-lo-para=" in partial_open0 and "font-family:" in partial_open0, partial_blocks[0]
 

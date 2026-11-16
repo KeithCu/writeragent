@@ -874,3 +874,36 @@ def test_resolve_heading_links_miss_lists_closest_heading():
     )
     assert len(diags) == 1
     assert 'Closest headings: "Getting Started"' in diags[0]["message"]
+
+
+def test_resolve_heading_links_compiles_each_heading_once_across_many_links(monkeypatch):
+    from plugin.writer import html_import_styles
+
+    headings = [f"Section {idx}" for idx in range(600)]
+    compile_calls = 0
+    orig_compile = html_import_styles._compile_heading_id_pattern
+
+    def counting_compile(heading: str):
+        nonlocal compile_calls
+        compile_calls += 1
+        return orig_compile(heading)
+
+    monkeypatch.setattr(html_import_styles, "_compile_heading_id_pattern", counting_compile)
+
+    links = (
+        ['<a href="#a__Section_599">last</a>'] * 10
+        + ['<a href="#a__Section_0">first</a>'] * 10
+        + ['<a href="#a__No_Such_Section">miss</a>'] * 10
+    )
+    out, diags = html_import_styles.resolve_heading_links(
+        "<p>" + " ".join(links) + "</p>",
+        headings,
+        is_bookmark=lambda _name: False,
+    )
+    assert compile_calls == 600
+    assert out.count('href="#Section 599|outline"') == 10
+    assert out.count('href="#Section 0|outline"') == 10
+    assert out.count('href="#a__No_Such_Section"') == 10
+    assert len(diags) == 1
+    assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+    assert diags[0]["link_target"] == "#a__No_Such_Section"

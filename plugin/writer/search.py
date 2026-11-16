@@ -839,19 +839,19 @@ def _iter_header_footer_texts(doc: Any) -> Iterator[tuple[Any, str, Any]]:
                     continue
             except Exception as exc:
                 reraise_if_disposed(exc)
-                log.debug("header/footer label: isInUse failed", exc_info=True)
+                log.debug("_iter_header_footer_texts: isInUse failed", exc_info=True)
             for attr, region in _HEADER_FOOTER_TEXT_PROPS:
                 try:
                     xtext = getattr(st, attr, None)
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    log.debug("header/footer label: %s unreadable: %s", attr, exc)
+                    log.debug("_iter_header_footer_texts: %s unreadable: %s", attr, exc)
                     continue
                 if xtext is not None:
                     yield st, region, xtext
     except Exception as exc:
         reraise_if_disposed(exc)
-        log.debug("header/footer label: page-style walk failed", exc_info=True)
+        log.debug("_iter_header_footer_texts: page-style walk failed", exc_info=True)
 
 
 def _find_page_style_label(doc: Any, text_obj: Any) -> str | None:

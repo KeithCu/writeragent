@@ -292,9 +292,14 @@ def _restore_outline_hrefs(model: Any, content: str) -> str:
 
     Walks only body and table paragraphs; outline links in frames, footnotes, or
     headers make the counts differ, and the guard in ``_put_outline_urls`` then
-    leaves the HTML unchanged. A walk failure returns *content* rather than raising
-    so a cosmetic restore failure cannot push the whole read onto the StarWriter
-    fallback (which would drop every style token).
+    leaves the HTML unchanged. Note that ``iter_xtext_paragraphs`` walks tables
+    via ``getCellNames()`` (``lcl_InspectLines`` in
+    ``sw/source/core/unocore/unotbl.cxx:567``), which visits sub-cells of an
+    old-style split cell before later columns in the same visual row, so
+    outline links in such a table can be paired in ``getCellNames()`` order
+    rather than export order. A walk failure returns *content* rather than
+    raising so a cosmetic restore failure cannot push the whole read onto the
+    StarWriter fallback (which would drop every style token).
     """
     if 'href="#a_' not in content:
         return content

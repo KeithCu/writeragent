@@ -14,6 +14,7 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from eval_worlds import CalcWorld, DrawWorld, WriterWorld, parse_a1_range
+from plugin.calc.manipulator import _sort_unchanged_message
 
 
 def test_html_apply_round_trip_heading_and_table() -> None:
@@ -221,11 +222,57 @@ def test_range_sort_reports_no_rows_moved() -> None:
     calc = CalcWorld("Item\tVal\nA\t10\nB\t20\nC\t30")
     res = calc.sort_range(range=["A1:B4"], sort_column=1, ascending=True, has_header=True)
     assert res["status"] == "ok"
-    assert res["message"] == "Range A1:B4: key column 1 unchanged by the sort; no rows moved."
+    assert res["message"] == _sort_unchanged_message("A1:B4", [(1, True)])
 
     res_moved = calc.sort_range(range=["A1:B4"], sort_column=1, ascending=False, has_header=True)
     assert res_moved["status"] == "ok"
     assert res_moved["message"] == "Range A1:B4 sorted descending by column 1."
+
+
+def test_range_sort_then_by_one_call() -> None:
+    calc = CalcWorld(
+        "Product\tRevenue\n"
+        "Widget\t1200\n"
+        "Gadget\t850\n"
+        "Tool\t2100\n"
+        "Device\t1200\n"
+        "Aardvark\tn/a"
+    )
+    res = calc.sort_range(
+        range=["A1:B6"],
+        sort_column=1,
+        ascending=False,
+        then_by=[{"column": 0, "ascending": True}],
+        has_header=True,
+    )
+    assert res["status"] == "ok"
+    assert [row[0] for row in calc._grid[1:]] == ["Aardvark", "Tool", "Device", "Widget", "Gadget"]
+
+
+def test_range_sort_then_by_invalid_leaves_grid() -> None:
+    calc = CalcWorld("Product\tRevenue\nWidget\t1200\nDevice\t1200")
+    before = [list(r) for r in calc._grid]
+
+    bad_item = calc.sort_range(
+        range=["A1:B3"],
+        sort_column=1,
+        ascending=False,
+        then_by=[{"column": 0}],
+        has_header=True,
+    )
+    assert bad_item["status"] == "error"
+    assert calc._grid == before
+
+    out_of_width = calc.sort_range(
+        range=["A1:B3"],
+        sort_column=1,
+        ascending=False,
+        then_by=[{"column": 2, "ascending": True}],
+        has_header=True,
+    )
+    assert out_of_width["status"] == "error"
+    assert "then_by column" in out_of_width["message"]
+    assert calc._grid == before
 
 
 def test_write_formula_range_flattens_2d_array_and_rejects_mismatch() -> None:

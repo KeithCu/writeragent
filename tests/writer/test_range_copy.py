@@ -603,6 +603,36 @@ def test_paint_direct_formatting_still_paints_char_when_para_copy_raises():
     run.setPropertyValue.assert_any_call("CharWeight", 150.0)
 
 
+def test_paint_direct_formatting_puts_paragraph_font_on_the_paragraph_not_each_run():
+    """Paragraph-level font/colour is painted on the paragraph; runs only get what differs."""
+    from unittest.mock import MagicMock
+    from plugin.writer import range_copy as rc
+
+    para = MagicMock()
+    para.getPropertyValue.side_effect = lambda name: 150.0 if name == "CharWeight" else None
+    style = MagicMock()
+    style.getPropertyValue.side_effect = lambda name: 100.0 if name == "CharWeight" else None
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = (
+        lambda name: 150.0 if name == "CharWeight" else (2 if name == "CharPosture" else None)
+    )
+
+    para_start = MagicMock(name="para_start")
+    para_cursor = MagicMock()
+    para_cursor.getStart.return_value = para_start
+    run = MagicMock()
+    temp_text = MagicMock()
+    temp_text.createTextCursor.return_value = para_cursor
+    temp_text.createTextCursorByRange.return_value = run
+
+    rc.paint_direct_formatting(para, [(portion, "bold")], temp_text, 0, 4, style)
+
+    para_cursor.setPropertyValue.assert_any_call("CharWeight", 150.0)
+    run_props = [c.args[0] for c in run.setPropertyValue.call_args_list]
+    assert "CharWeight" not in run_props
+    run.setPropertyValue.assert_any_call("CharPosture", 2)
+
+
 def test_source_style_is_cached_and_tolerates_a_missing_style():
     from unittest.mock import MagicMock
     from plugin.writer import range_copy as rc

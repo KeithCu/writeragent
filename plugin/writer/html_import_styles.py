@@ -820,41 +820,16 @@ def _heading_id_pattern(heading: str) -> str:
     )
 
 
-def _is_export_anchor_for(fragment: str, heading: str) -> bool:
-    if not heading:
-        return False
-    return (
-        re.fullmatch(
-            r"a_(?:[0-9]+(?:_[0-9]+)*_?)?_" + _heading_id_pattern(heading),
-            fragment,
-        )
-        is not None
+def _compile_heading_id_pattern(heading: str) -> re.Pattern[str]:
+    return re.compile(
+        r"a_(?:[0-9]+(?:_[0-9]+)*_?)?_" + _heading_id_pattern(heading)
     )
 
 
-def _match_heading(name: str, headings: set[str]) -> tuple[str | None, list[str]]:
-    """Resolve *name* against *headings* in three tiers: exact, unique case-insensitive,
-    and unique XHTML export anchor id (``a__Heading_Text``).
-
-    Writer's own ``SwDoc::GotoOutline`` requires the exact heading text, so the
-    rewrite uses the matched heading's real text. When a tier matches more than
-    one heading, ``(None, sorted_candidates)`` is returned so the caller can
-    leave the link untouched and report the colliding headings.
-    """
-    if name in headings:
-        return name, []
-
-    folded = name.casefold()
-    case_matches = sorted(h for h in headings if h.casefold() == folded)
-    if case_matches:
-        return (case_matches[0], []) if len(case_matches) == 1 else (None, case_matches)
-
-    if name.startswith("a_"):
-        id_matches = sorted(h for h in headings if _is_export_anchor_for(name, h))
-        if id_matches:
-            return (id_matches[0], []) if len(id_matches) == 1 else (None, id_matches)
-
-    return None, []
+_LINK_TARGET_ADVICE = (
+    'Use the exact heading text, href="#Heading text|outline", or give the target element '
+    "an id and link to that."
+)
 
 
 def resolve_heading_links(
@@ -866,7 +841,8 @@ def resolve_heading_links(
     """Rewrite bare href="#Heading" anchors to href="#Heading|outline" when the fragment
     matches a heading (exact, unique case-insensitive, or unique export anchor id ``a__…``);
     return the rewritten HTML and one LINK_TARGET_NOT_FOUND warning per distinct fragment
-    that matches no heading, no id/name in *content*, and no existing bookmark.
+    that matches no heading, no id/name in *content*, and no existing bookmark, or matches
+    several headings.
     """
     if not has_bare_fragment_links(content):
         return content, []
@@ -891,6 +867,56 @@ def resolve_heading_links(
 
     diagnostics: list[Diagnostic] = []
     seen_missing: set[str] = set()
+    match_cache: dict[str, tuple[str | None, list[str]]] = {}
+    sorted_headings: list[str] | None = None
+    heading_patterns: list[tuple[str, re.Pattern[str]]] | None = None
+
+    def _get_sorted_headings() -> list[str]:
+        nonlocal sorted_headings
+        if sorted_headings is None:
+            sorted_headings = sorted(heading_set)
+        return sorted_headings
+
+    def _match_heading(name: str) -> tuple[str | None, list[str]]:
+        """Resolve *name* in three tiers: exact, unique case-insensitive, and unique a__ id.
+
+        Writer's own ``SwDoc::GotoOutline`` requires the exact heading text, so the
+        rewrite uses the matched heading's real text. Results are cached per distinct
+        *name* and each heading's export-anchor regex is compiled at most once per call
+        so large documents with many links do not thrash Python's regex cache.
+        """
+        nonlocal heading_patterns
+        cached = match_cache.get(name)
+        if cached is not None:
+            return cached
+
+        if name in heading_set:
+            result: tuple[str | None, list[str]] = (name, [])
+            match_cache[name] = result
+            return result
+
+        folded = name.casefold()
+        case_matches = sorted(h for h in heading_set if h.casefold() == folded)
+        if case_matches:
+            result = (case_matches[0], []) if len(case_matches) == 1 else (None, case_matches)
+            match_cache[name] = result
+            return result
+
+        if name.startswith("a_"):
+            if heading_patterns is None:
+                heading_patterns = [
+                    (h, _compile_heading_id_pattern(h))
+                    for h in _get_sorted_headings()
+                ]
+            id_matches = [h for h, pat in heading_patterns if pat.fullmatch(name) is not None]
+            if id_matches:
+                result = (id_matches[0], []) if len(id_matches) == 1 else (None, id_matches)
+                match_cache[name] = result
+                return result
+
+        result = (None, [])
+        match_cache[name] = result
+        return result
 
     # Writer resolves hyperlinks in SwView::JumpToSwMark (sw/source/uibase/uiview/view2.cxx).
     # Without a '|suffix', it only checks bookmarks and anchor names; bare '#Heading' links fail
@@ -908,7 +934,7 @@ def resolve_heading_links(
         if not name or name in id_names or is_bookmark(name):
             return m.group(0)
 
-        target, ambiguous = _match_heading(name, heading_set)
+        target, ambiguous = _match_heading(name)
         if target is not None:
             escaped = html_mod.escape(target, quote=True)
             return f"{prefix}{quote}#{escaped}|outline{quote}"
@@ -919,11 +945,10 @@ def resolve_heading_links(
                 candidates = ", ".join(f'"{h}"' for h in ambiguous)
                 msg = (
                     f'Link target "#{name}" matches several headings: {candidates}. '
-                    'Use the exact heading text, href="#Heading text|outline", or give the target element '
-                    'an id and link to that.'
+                    f"{_LINK_TARGET_ADVICE}"
                 )
             else:
-                closest = similar_names(name, sorted(heading_set))
+                closest = similar_names(name, _get_sorted_headings())
                 closest_suffix = (
                     " Closest headings: " + ", ".join(f'"{h}"' for h in closest) + "."
                     if closest
@@ -931,8 +956,7 @@ def resolve_heading_links(
                 )
                 msg = (
                     f'Link target "#{name}" matches no heading or bookmark and will not jump anywhere. '
-                    'Use the exact heading text, href="#Heading text|outline", or give the target element '
-                    f'an id and link to that.{closest_suffix}'
+                    f"{_LINK_TARGET_ADVICE}{closest_suffix}"
                 )
             diagnostics.append({
                 "code": LINK_TARGET_NOT_FOUND,

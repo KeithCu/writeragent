@@ -89,7 +89,7 @@ Code constants remain string literals across call sites. Two warning codes in `h
 | `PARA_IGNORED_PARTIAL_MATCH` | warning | Partial match `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
 | `PARA_IGNORED_RECORDING` | warning | Tracked changes recording `data-lo-para` skip (`html_import_styles.attach_write_report`) | None |
 | `MATH_IMPORT_FAILED` | warning | Formula conversion failed during HTML/math import (`html_import_styles.attach_write_report`) | None |
-| `LINK_TARGET_NOT_FOUND` | warning | Bare `href="#…"` fragment that matches no heading, element id/name or bookmark (`html_import_styles.resolve_heading_links`); carries `link_target`; message lists close heading names | None |
+| `LINK_TARGET_NOT_FOUND` | warning | Bare `href="#…"` fragment that matches no heading, element id/name or bookmark, or matches several headings (`html_import_styles.resolve_heading_links`); carries `link_target`; message lists close or colliding heading names | None |
 
 *Naming invariant:* A code names the underlying condition, not the tool. Once shipped, a code is never renamed.
 

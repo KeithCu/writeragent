@@ -1984,7 +1984,25 @@ def test_sort_range_validation():
         manipulator.range_sort.return_value = "Sorted"
         res_ok = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True)
         assert res_ok["status"] == "ok"
-        manipulator.range_sort.assert_called_once_with("A1:B2", sort_column=0, ascending=True, has_header=True)
+        manipulator.range_sort.assert_called_once_with("A1:B2", [(0, True)], has_header=True)
+
+        manipulator.range_sort.reset_mock()
+        res_bad_then_by = _tool("sort_range").execute_safe(ctx, range=["A1:B2"], has_header=True, then_by=[{"column": 0}])
+        assert res_bad_then_by["status"] == "error"
+        assert res_bad_then_by["code"] == "INVALID_PARAM"
+        manipulator.range_sort.assert_not_called()
+
+        manipulator.range_sort.reset_mock()
+        res_then_by = _tool("sort_range").execute_safe(
+            ctx,
+            range=["A1:B2"],
+            sort_column=1,
+            ascending=False,
+            then_by=[{"column": 0, "ascending": True}],
+            has_header=True,
+        )
+        assert res_then_by["status"] == "ok"
+        manipulator.range_sort.assert_called_once_with("A1:B2", [(1, False), (0, True)], has_header=True)
 
         manipulator.range_sort.reset_mock()
         manipulator.range_sort.side_effect = ["A done.", "B done."]
@@ -2185,6 +2203,7 @@ def test_insert_cell_html_non_string_assertion():
         ("sort_range", {"range": ["A1:B2"], "has_header": True, "ascending": "false"}),
         ("sort_range", {"range": ["A1:B2"], "has_header": True, "sort_column": True}),
         ("sort_range", {"range": ["A1:B2"], "has_header": "true"}),
+        ("sort_range", {"range": ["A1:B2"], "has_header": True, "then_by": {"column": 0, "ascending": True}}),
         ("sort_range", {"range": ["A1:B2"]}),
         ("delete_structure", {"structure_type": "rows", "start": 5, "count": True}),
         ("delete_structure", {"structure_type": "rows", "start": 5, "count": "2"}),
