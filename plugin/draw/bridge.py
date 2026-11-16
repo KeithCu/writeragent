@@ -53,6 +53,16 @@ class _SingleDrawPageContainer:
         return self._page
 
 
+def _own_page_name(page: Any) -> str:
+    """Name the user gave *page*, or "" when the slide is unnamed."""
+    # An unnamed slide reports "page<Number>" (sd/source/ui/unoidl/unopage.cxx:getPageApiName).
+    # Writing that string onto a page at another position stores it as a real name
+    # (SdDrawPage::setName), and the slide pane then shows "page3" instead of the default label.
+    name = str(page.Name or "")
+    number = uno_read(lambda: int(page.Number), 0)
+    return "" if name == "page%d" % number else name
+
+
 def _draw_page_container(doc: Any) -> Any | None:
     """Return an ``XDrawPages``-like object, or None if *doc* has no draw page."""
     if hasattr(doc, "getDrawPages"):
@@ -334,7 +344,9 @@ class DrawBridge:
         source. Removing the source leaves the clone in the source
         slot. Neighboring slots then swap by moving those cloned shapes
         (not by constructing new ones) plus page name, layout, master,
-        notes, and transition. A failed swap puts the shapes back, so
+        notes, and transition. An unnamed slide stays unnamed, and
+        LibreOffice keeps numbering it by position. A failed swap puts
+        the shapes back, so
         the clone is still in the original slot and the other slides
         are unchanged. If a reverse neighbor swap fails with an ordinary
         error, this raises PageExchangeRollbackError instead of returning
@@ -555,16 +567,15 @@ class DrawBridge:
             log.exception("move_slide restore page names failed")
 
     def _swap_page_names(self, first: Any, second: Any) -> None:
-        names = uno_read(lambda: (str(first.Name or ""), str(second.Name or "")), None)
+        names = uno_read(lambda: (_own_page_name(first), _own_page_name(second)), None)
         if names is None or names[0] == names[1]:
             return
         name_first, name_second = names
-        # Two pages cannot share a name. Park both, then assign.
-        parked_first = name_first + "\u200b"
-        parked_second = name_second + "\u200b\u200b"
+        # Clear both slides first so no two pages hold the same real name during
+        # the swap; "" leaves a slide unnamed (SdDrawPage::setName).
         try:
-            first.Name = parked_first
-            second.Name = parked_second
+            first.Name = ""
+            second.Name = ""
             first.Name = name_second
             second.Name = name_first
         except Exception as exc:
@@ -720,23 +731,24 @@ class DrawBridge:
 
     def _take_page_name(self, source: Any, dest: Any) -> bool:
         try:
-            name = str(source.Name or "")
+            name = _own_page_name(source)
         except Exception as exc:
             if is_disposal(exc):
                 raise
             log.warning("move_slide: failed to read source page name: %s", exc)
             return False
         if not name:
+            # The duplicate starts unnamed (InsertSdPage(nPos, true) calls SetName(OUString())
+            # in sd/source/ui/unoidl/unomodel.cxx), so there is nothing to copy.
             return True
-        # Two pages cannot share a name. Park the source name, then give it
-        # to the copy. Put it back if the destination rejects it.
-        parked = name + "\u200b"
+        # Two pages cannot share a real name. Clear the source slide's name first,
+        # then give it to the copy. Restore it if the destination rejects it.
         try:
-            source.Name = parked
+            source.Name = ""
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            log.warning("move_slide: failed to park source page name: %s", exc)
+            log.warning("move_slide: failed to clear source page name: %s", exc)
             return False
         try:
             dest.Name = name
