@@ -63,6 +63,7 @@ For `apply_content`, search edits in-use header/footer text; body insert targets
 
 - Web research returns plain text (`WEB_RESEARCH_PLAIN_TEXT_FORMAT` in [`web_research.py`](../../plugin/chatbot/web_research.py)); the **main** agent formats HTML for `apply_content`.
 - Librarian uses `reply_to_user` with `CHAT_SIDEBAR_HTML_EXAMPLES` (single HTML string).
+- Sub-agent mode texts (`brainstorming.py`, `writing.py`, `deep_research_session.py`) do not restate `HTML_FRAGMENT_RULES`, because `get_sub_agent_instructions` appends `SUB_AGENT_HTML_CONTENT_RULES` whenever the tool set includes `apply_content`, `writing_plan_write_section`, or `brainstorming_save_design_spec`.
 - Do not tell sub-agents to wrap answers in `apply_content` JSON arrays — that shape is for the main agent's document tool only.
 
 #### Removing the array wrapper?

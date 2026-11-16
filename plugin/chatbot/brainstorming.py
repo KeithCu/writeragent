@@ -63,8 +63,6 @@ KEY PRINCIPLES:
 
 HTML RULES (CRITICAL):
 - All reply_to_user answer text must be HTML (see CHAT RESPONSE FORMAT below).
-- brainstorming_save_design_spec content is HTML — no Markdown (#, **, ```).
-- Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
 - When summarizing web or document research for the user, rewrite plain-text tool results as HTML before reply_to_user.
 
 COMPLETION TOOLS:
@@ -88,10 +86,7 @@ class SaveDesignSpec(HtmlContentToolBase):
     specialized_domain: ClassVar[str | None] = "brainstorming"
     required_core_tools: ClassVar[frozenset[str] | None] = SUB_AGENT_DOC_CORE_TOOLS
     name: str | None = "brainstorming_save_design_spec"
-    description: str = (
-        "Save the approved design spec to the active Writer document. "
-        "HTML, one fragment per block. No Markdown."
-    )
+    description: str = "Save the approved design spec to the active Writer document."
 
 
 class BrainstormingSessionTool(SubAgentSessionToolBase):

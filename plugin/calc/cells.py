@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 from plugin.calc.address_utils import format_range, index_to_column, parse_address, quote_sheet_name, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
-from plugin.calc.base import ToolCalcRangeBase
+from plugin.calc.base import CALC_RANGE_LIST_NOTE, ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
 from plugin.calc.manipulator import WRITE_REPORT_KEYS, CellManipulator, SortKey, parse_then_by
@@ -317,7 +317,7 @@ class ReadCellRange(ToolBase):
         "`PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and "
         "`types` maps only where needed. Use `format=cells` for one object per cell "
         "(address, value, formula, type, format_category, format_code). "
-        "Supports lists for non-contiguous areas. `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`."
+        "`result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -325,10 +325,7 @@ class ReadCellRange(ToolBase):
             "range": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    'Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["\'Data Sheet\'!B2"]). '
-                    "Sheet prefixes target that sheet without switching the active sheet."
-                ),
+                "description": f"Cell range(s) to read. {CALC_RANGE_LIST_NOTE}",
             },
             "format": {
                 "type": "string",
@@ -426,8 +423,7 @@ class WriteCellRange(ToolBase):
         "to write many cells at once, send a 2-D array (one inner array per row) that matches the "
         "range, or give only the top-left cell and the array sets the size. A JSON string of an array "
         "is still accepted. Use an empty string or empty array to clear contents. "
-        "Supports lists for non-contiguous "
-        "areas. Prefer plain values/ISO "
+        "Prefer plain values/ISO "
         "dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), "
         "computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or "
         "YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: "
@@ -451,7 +447,7 @@ class WriteCellRange(ToolBase):
             "range": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": ('Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"] or ["Sheet1!B2:D2"]). A sheet prefix targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).'),
+                "description": f"Target range(s). {CALC_RANGE_LIST_NOTE} With source, this is the paste top-left (source extent is copied).",
             },
             # The fill-down mechanics (shifted refs, $ absolute, a copied-formula array pins the
             # first ref) live only here; read_range's description and hint just point here.
@@ -640,11 +636,11 @@ class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
     name: str | None = "set_style"
-    description: str = "Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas."
+    description: str = "Applies style and formatting to the specified cell(s) or range(s)."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": ('Target cell(s) or range(s) (e.g. ["A1:D10"] or ["A1", "B2"]).')},
+            "range": {"type": "array", "items": {"type": "string"}, "description": f"Target cell(s) or range(s). {CALC_RANGE_LIST_NOTE}"},
             "bold": {"type": "boolean", "description": "Bold font"},
             "italic": {"type": "boolean", "description": "Italic font"},
             "font_size": {"type": "number", "description": "Font size (points)"},
@@ -749,13 +745,12 @@ class MergeCells(ToolBase):
         "The merged area shows the top-left cell's content; other cells keep their content "
         "(hidden, still counted by formulas) and are listed in hidden_cells. "
         "Write text with write_range (before or after merging) into the top-left cell, "
-        "and style with set_style. Refuses ranges overlapping an existing merge. "
-        "Supports lists for non-contiguous areas."
+        "and style with set_style. Refuses ranges overlapping an existing merge."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')},
+            "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to merge. {CALC_RANGE_LIST_NOTE}"},
             "center": {"type": "boolean", "description": "Center content (default: true)"},
             "unmerge": {"type": "boolean", "description": "Split merged cells instead of merging (default: false)"},
         },
@@ -840,13 +835,12 @@ class SortRange(ToolCalcRangeBase):
         'sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. '
         "Do pass has_header=true when row 1 is labels because otherwise labels "
         "sort as values. "
-        "Supports lists for non-contiguous areas. "
         "The result says 'no rows moved' when the key columns were already in that order."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).')},
+            "range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to sort. {CALC_RANGE_LIST_NOTE}"},
             "sort_column": {"type": "integer", "description": ("0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.")},
             "ascending": {"type": "boolean", "description": ("true = smallest first (default); false = largest/highest first.")},
             "then_by": {

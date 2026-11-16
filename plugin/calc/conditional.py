@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.framework.errors import make_tool_ok, name_miss_details
 from plugin.framework.uno_context import create_property_value
 from plugin.calc.address_utils import format_range
-from plugin.calc.base import ToolCalcConditionalBase
+from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.cells import opt_color
@@ -99,7 +99,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
 
     name: str | None = "conditional_formatting_list"
     description: str = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]). If omitted, scans used area.'}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": f"Cell range (A1:D10 or a named range); omit to scan the used area. {CALC_SHEET_PREFIX_NOTE}"}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -152,7 +152,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range to apply the rule to (e.g. ["A1:D10"]).'},
+            "range": {"type": "array", "items": {"type": "string"}, "description": f"Cell range to apply the rule to (A1:D10 or a named range). {CALC_SHEET_PREFIX_NOTE}"},
             "operator": {"type": "string", "enum": _OPS[1:], "description": "Condition operator."},
             "formula1": {"type": "string", "description": ("First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.")},
             "formula2": {"type": "string", "description": "Second value (required for BETWEEN and NOT_BETWEEN)."},
@@ -268,7 +268,7 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
     description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use conditional_formatting_list to see current rules and their indices."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]).'}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}},
+        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": f"Cell range (A1:D10 or a named range). {CALC_SHEET_PREFIX_NOTE}"}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}},
         "required": ["range"],
     }
     is_mutation: bool | None = True

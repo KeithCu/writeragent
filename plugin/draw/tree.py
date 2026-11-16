@@ -37,6 +37,7 @@ import re
 from typing import Any, Iterator
 
 from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.draw.base import DRAW_PAGE_PROPERTY
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -515,7 +516,7 @@ class GetDrawTree(ToolBase):
         "label_hint (nearest text to the left or above). ControlShapes include type, name, and current "
         "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
