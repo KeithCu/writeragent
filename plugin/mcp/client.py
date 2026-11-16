@@ -717,10 +717,14 @@ def probe_server(server: dict[str, Any], cancel: SendCancellation | None = None)
 def drop_connections(adopt: Sequence[McpServerConnection] = ()) -> None:
     """Drop cached server connections so the next delegation re-lists tools.
 
-    A connection the Settings dialog just checked, with an unchanged entry, is
-    kept via *adopt* because the check was itself a fresh list. In-flight work
-    finishes on the old connection objects, and nothing reads their cache
-    afterwards.
+    Settings OK calls this even when nothing changed, because config emits no
+    ``config:changed`` for an unchanged save and ``tools/list_changed`` on the
+    GET stream never reaches us, so OK is the user's only way to pick up new
+    tools; it also resets the circuit breaker and session because pressing OK
+    is an explicit retry. A connection the Settings dialog just checked, with
+    an unchanged entry, is kept via *adopt* because that check was itself a
+    fresh list. In-flight work finishes on the old connection objects, and
+    nothing reads their cache afterwards.
     """
     saved = {s["name"]: s for s in configured_servers()} if adopt else {}
     with _connections_lock:

@@ -121,9 +121,14 @@ def test_add_fill_save_writes_servers_and_routes_token_to_keystore(
 
     editor, dlg = _attach_editor(monkeypatch, {})
     editor.add()
+    assert dlg.controls["mcp_client__server"].getText() == ""
     dlg.controls["mcp_client__name"].setText("home")
     dlg.controls["mcp_client__url"].setText("http://127.0.0.1:8000/mcp")
     dlg.controls["mcp_client__token"].setText("tok-secret-1")
+
+    monkeypatch.setattr(settings_ui, "run_in_background", lambda *_a, **_kw: None)
+    editor.probe_if_changed()
+    assert "home" in dlg.controls["mcp_client__server"].items
 
     editor.save()
 
@@ -197,18 +202,36 @@ def test_unreadable_ref_keeps_ref_and_blocks_rename(
     assert "keyring" in dlg.controls["mcp_client__status"].getText().lower()
 
     # Attempt rename while unreadable: refused.
+    save_mock = MagicMock()
+    monkeypatch.setattr(settings_ui.config, "save", save_mock)
     dlg.controls["mcp_client__name"].setText("claw2")
-    editor.add()
-    assert "Unlock the keyring" in editor._status["claw"]
-    assert "claw" in editor._servers
-    assert "claw2" not in editor._servers
+    editor.save()
+    assert "Unlock the keyring" in dlg.controls["mcp_client__status"].getText()
+    save_mock.assert_not_called()
 
-    # Save keeps the raw ref intact.
+    # A later valid URL edit still preserves the raw ref in the saved patch.
+    dlg.controls["mcp_client__name"].setText("claw")
+    dlg.controls["mcp_client__url"].setText("http://claw/mcp2")
+    editor.save()
+    save_mock.assert_called_once()
+    saved = save_mock.call_args[0][0]["mcp_client.servers"]
+    assert set(saved) == {"claw"}
+    assert saved["claw"]["token"] == "keystore:deadbeef"
+
+
+def test_add_with_existing_name_saves_no_new_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    initial = {"home": {"url": "http://localhost:8000/mcp"}}
+    editor, dlg = _attach_editor(monkeypatch, initial)
+    editor.add()
+    assert dlg.controls["mcp_client__server"].getText() == ""
+    dlg.controls["mcp_client__name"].setText("home")
+    dlg.controls["mcp_client__url"].setText("http://localhost:9000/mcp")
+
     save_mock = MagicMock()
     monkeypatch.setattr(settings_ui.config, "save", save_mock)
     editor.save()
+    assert "already exists" in dlg.controls["mcp_client__status"].getText()
     save_mock.assert_not_called()
-    assert editor._servers["claw"]["token"] == "keystore:deadbeef"
 
 
 def test_probe_starts_once_per_change_and_empty_url_clears_status(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -638,7 +638,7 @@ def _resolve_secret(name: str, raw: Any) -> str:
 
 
 def _entry_secret_name(key: str, entry_name: str, field: str) -> str:
-    return f"{key}:{entry_name}.{field}"
+    return f"{key}:{str(entry_name).strip()}.{field}"
 
 
 def resolve_entry_secret(key: str, entry_name: str, field: str, raw: Any) -> str:

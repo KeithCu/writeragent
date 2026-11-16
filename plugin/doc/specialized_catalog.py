@@ -79,9 +79,10 @@ def catalog_entries_from_base(
     support those services are omitted.
 
     ``for_discovery`` (MCP ``tool_find``) skips the exclusions that only shape a chat prompt
-    (``CALC_HIDDEN_SPECIALIZED_DOMAINS``), while hiding ``tier == "chat"`` domains just like
-    ``for_mcp`` does. Sidebar-only domains stay excluded either way: the flat tool list drops
-    them too, so both modes agree without help.
+    (``CALC_HIDDEN_SPECIALIZED_DOMAINS`` — the MCP tool list exposes those tools regardless,
+    so hiding them in ``tool_find`` made them callable but undiscoverable), while hiding
+    ``tier == "chat"`` domains just like ``for_mcp`` does. Sidebar-only domains stay
+    excluded either way: the flat tool list drops them too, so both modes agree without help.
     """
     base_cls = _special_base(agent_label)
     entries: list[dict[str, str]] = []
@@ -90,7 +91,7 @@ def catalog_entries_from_base(
         desc = getattr(cls, "specialized_domain_description", None)
         if not domain:
             continue
-        if (for_mcp or for_discovery) and getattr(cls, "tier", None) == "chat":
+        if (for_mcp or for_discovery) and _is_chat_tier(cls):
             continue
         if agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS and not for_discovery:
             continue
@@ -150,13 +151,17 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
+def _is_chat_tier(cls: Any) -> bool:
+    return getattr(cls, "tier", None) == "chat"
+
+
 def chat_tier_domains() -> frozenset[str]:
     """Return specialized domains whose base class is marked ``tier == 'chat'``."""
     found: set[str] = set()
     for label in ("Writer", "Calc", "Draw"):
         for cls in _special_base(label).__subclasses__():
             domain = getattr(cls, "specialized_domain", None)
-            if domain and getattr(cls, "tier", None) == "chat":
+            if domain and _is_chat_tier(cls):
                 found.add(str(domain))
     return frozenset(found)
 

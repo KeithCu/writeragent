@@ -170,6 +170,8 @@ class McpServersEditor:
         set_checkbox_state(self._controls["trusted"], trusted)
         set_control_text(self._controls["status"], status_text)
         set_combo_items(self._controls["server"], self._dict_names(), selected=self._current or "")
+        # set_combo_items keeps the previous text when the list is non-empty and selected is "".
+        set_control_text(self._controls["server"], self._current or "")
         if self._current is not None:
             self._snapshot[self._current] = (
                 get_control_text(self._controls["url"]).strip(),
@@ -187,9 +189,16 @@ class McpServersEditor:
         if self._current is None:
             if not raw_name and not url:
                 return
-            created = self._unique_name(raw_name or "server")
+            if raw_name and raw_name in self._servers:
+                msg = _("A server named {name} already exists.").format(name=raw_name)
+                set_control_text(self._controls["status"], msg)
+                return
+            created = raw_name or self._unique_name("server")
+            if not raw_name:
+                set_control_text(self._controls["name"], created)
             self._servers[created] = {}
             self._current = created
+            set_combo_items(self._controls["server"], self._dict_names(), selected=created)
 
         old = self._current
         entry = dict(self._servers.get(old, {}))
@@ -197,11 +206,13 @@ class McpServersEditor:
             entry["url"] = url
         else:
             entry.pop("url", None)
+        # Write enabled/trust only when they differ from the effective value so hand-written entries stay byte-identical on OK.
         if enabled != server_enabled(entry):
             entry["enabled"] = enabled
         current_trusted = normalize_server_trust(entry.get("trust")) == TRUST_FULL
         if trusted != current_trusted:
             entry["trust"] = TRUST_FULL if trusted else TRUST_UNTRUSTED
+        # A keyring that opened locked leaves the token field blank; never wipe the stored ref on OK.
         if not token and old in self._unreadable:
             pass
         elif token:
