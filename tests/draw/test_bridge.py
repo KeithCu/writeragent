@@ -1404,3 +1404,16 @@ def test_get_active_page_index_follows_calc_active_sheet():
 
     bridge = DrawBridge(doc)
     assert bridge.get_active_page_index() == 1
+
+
+def test_get_draw_context_for_chat_lists_shape_names():
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    shape.Name = "Box"
+    shape.getPosition.return_value = MagicMock(X=10, Y=20)
+    shape.getSize.return_value = MagicMock(Width=100, Height=50)
+    shape.getString.return_value = ""
+
+    out = _chat_ctx([("0", shape)])
+    assert '"Box"' in out
+

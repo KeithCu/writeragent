@@ -47,7 +47,7 @@ from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import (
     ToolExecutionError,
     DocumentDisposedError, UnoObjectError,
-    uno_call,
+    uno_call, uno_read,
 )
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.service import ServiceBase
@@ -111,6 +111,59 @@ def _writer_has_math_ole(model: Any) -> bool:
     except Exception:
         log.debug("Failed checking Math OLE objects in Writer document", exc_info=True)
     return False
+
+
+# Cap the Writer object list because the snapshot is rebuilt on every send; a
+# document with hundreds of images should not add hundreds of lines.
+# page_get_objects reaches any objects past this cap.
+_WRITER_SNAPSHOT_MAX_OBJECTS = 20
+
+
+def _writer_anchor_note(shape: Any) -> str:
+    """Short anchor description for a Writer draw-page object.
+
+    Uses a paragraph excerpt rather than a paragraph index because computing
+    a paragraph index requires walking the entire document body on every send.
+    """
+    anchor_type = uno_read(lambda: shape.getPropertyValue("AnchorType"), None)
+    if anchor_type is None:
+        return ""
+    kind = str(getattr(anchor_type, "value", anchor_type))
+    if kind == "AT_PAGE":
+        page_no = uno_read(lambda: int(shape.getPropertyValue("AnchorPageNo")), 0)
+        return " anchor: AT_PAGE page %d" % page_no if page_no > 0 else " anchor: AT_PAGE"
+
+    def read_excerpt() -> str:
+        anchor = shape.getAnchor()
+        cur = anchor.getText().createTextCursorByRange(anchor.getStart())
+        cur.gotoStartOfParagraph(False)
+        cur.gotoEndOfParagraph(True)
+        return _text_helpers.normalize_linebreaks(cur.getString()).strip()
+
+    excerpt = uno_read(read_excerpt, "")
+    if excerpt:
+        return ' anchor: %s in "%s"' % (kind, excerpt[:60])
+    return " anchor: %s" % kind
+
+
+def _writer_objects_section(model: Any) -> str:
+    """List Writer draw-page objects (index, kind, name, anchor) for the chat snapshot."""
+    def build() -> str:
+        from itertools import islice
+        from plugin.draw.tree import iter_shape_addresses, shape_summary_line
+
+        rows = list(islice(iter_shape_addresses(model.getDrawPage()), _WRITER_SNAPSHOT_MAX_OBJECTS + 1))
+        if not rows:
+            return ""
+        lines = [
+            shape_summary_line(a, s) + _writer_anchor_note(s)
+            for a, s, _p in rows[:_WRITER_SNAPSHOT_MAX_OBJECTS]
+        ]
+        if len(rows) > _WRITER_SNAPSHOT_MAX_OBJECTS:
+            lines.append("[... more objects not listed; page_get_objects lists the objects on one page]")
+        return "\n\nObjects (index, kind, name, anchor):\n" + "\n".join(lines)
+
+    return uno_read(build, "")
 
 
 def _with_math_ole_chat_hint(model: Any, body: str) -> str:
@@ -178,8 +231,10 @@ def get_document_context_for_chat(
     try:
         doc_type = _doc_type.get_document_type(model)
 
-        # Cross-app imports stay inside their branch so a Writer chat context does not
-        # load the calc or draw packages.
+        # Cross-app imports stay inside their branch so Calc does not pull Draw
+        # and Draw does not pull SheetAnalyzer. The Writer branch lazily loads
+        # plugin.draw.tree (and plugin.calc.charts when an embedded object needs
+        # the chart CLSID check); both are already loaded by tool registration.
         if doc_type == _doc_type.DocumentType.CALC:
             from plugin.calc.analyzer import get_calc_context_for_chat
 
@@ -252,7 +307,8 @@ def get_document_context_for_chat(
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,
-                    "Document length: %d characters.\n\n%s%s%s" % (shown_len, start_excerpt, middle_note, end_excerpt),
+                    ("Document length: %d characters.\n\n%s%s%s" % (shown_len, start_excerpt, middle_note, end_excerpt))
+                    + _writer_objects_section(model),
                 )
 
             take = min(doc_len, max_context)
@@ -263,7 +319,8 @@ def get_document_context_for_chat(
             excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "")
             return _with_math_ole_chat_hint(
                 model,
-                "Document length: %d characters.\n\n%s" % (shown_len, excerpt),
+                ("Document length: %d characters.\n\n%s" % (shown_len, excerpt))
+                + _writer_objects_section(model),
             )
 
         return ""

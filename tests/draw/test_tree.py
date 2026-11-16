@@ -21,7 +21,9 @@ from plugin.draw.tree import (
     is_text_capable_shape_type,
     iter_shape_addresses,
     nearest_label_hint,
+    shape_kind,
     shape_path,
+    shape_summary_line,
 )
 from plugin.framework.errors import DocumentDisposedError
 
@@ -59,6 +61,8 @@ class _Shape:
         props: dict[str, Any] | None = None,
         control: Any = None,
         children: list[Any] | None = None,
+        services: set[str] | None = None,
+        clsid: str | None = None,
     ) -> None:
         self._type = shape_type
         self.Name = name
@@ -69,6 +73,12 @@ class _Shape:
         self.Control = control
         self._children = children
         self._shapes = _Shapes(children) if children is not None else None
+        self._services = services or set()
+        if clsid is not None:
+            self.CLSID = clsid
+
+    def supportsService(self, service: str) -> bool:
+        return service in self._services
 
     def getShapeType(self) -> str:
         return self._type
@@ -514,4 +524,41 @@ def test_iter_shape_addresses():
     assert yielded[2] == ("1.0", child, outer_group)
     assert yielded[3] == ("1.1", inner_group, outer_group)
     assert yielded[4] == ("1.1.0", grandchild, inner_group)
+
+
+@pytest.mark.parametrize(
+    ("shape_type", "services", "clsid", "expected"),
+    [
+        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "12DCAE26-281F-416F-a234-c3086127382e", "Chart"),
+        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "078B7ABA-54FC-457F-8551-6147e776a997", "Formula"),
+        ("FrameShape", {"com.sun.star.text.TextEmbeddedObject"}, "00000000-0000-0000-0000-000000000000", "EmbeddedObject"),
+        ("FrameShape", {"com.sun.star.text.TextGraphicObject"}, None, "Image"),
+        ("FrameShape", {"com.sun.star.text.TextFrame"}, None, "TextFrame"),
+        ("com.sun.star.drawing.OLE2Shape", set(), "12DCAE26-281F-416F-a234-c3086127382e", "Chart"),
+        ("com.sun.star.drawing.RectangleShape", set(), None, "RectangleShape"),
+        ("com.sun.star.presentation.TitleTextShape", set(), None, "TitleTextShape"),
+    ],
+)
+def test_shape_kind_tells_writer_frames_and_embeds_apart(shape_type, services, clsid, expected):
+    shape = _Shape(shape_type, services=services, clsid=clsid)
+    assert shape_kind(shape) == expected
+
+
+def test_shape_summary_line_carries_name_geometry_and_text():
+    named = _Shape(
+        "com.sun.star.drawing.RectangleShape",
+        name="Box",
+        position=_Pos(100, 200),
+        size=_Size(300, 400),
+        text="Hello\nWorld",
+    )
+    line = shape_summary_line("3", named)
+    assert "[3]" in line
+    assert '"Box"' in line
+    assert "pos(100, 200) size(300x400)" in line
+    assert 'text: "Hello\nWorld"' in line
+
+    unnamed = _Shape("com.sun.star.drawing.RectangleShape", name="")
+    assert '""' not in shape_summary_line("0", unnamed)
+
 
