@@ -1576,22 +1576,25 @@ def test_set_columns_spacing_zero_clears_inner_margins():
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("kwargs", "expected_param"),
     [
-        {"column_count": 0},
-        {"column_count": 100},
-        {"column_count": 2, "spacing_mm": -1},
-        {"column_count": 2, "spacing_mm": float("nan")},
-        {"column_count": 2, "spacing_mm": float("inf")},
+        ({"column_count": 0}, "column_count"),
+        ({"column_count": 100}, "column_count"),
+        ({"column_count": 2, "spacing_mm": -1}, "spacing_mm"),
+        ({"column_count": 2, "spacing_mm": float("nan")}, "spacing_mm"),
+        ({"column_count": 2, "spacing_mm": float("inf")}, "spacing_mm"),
     ],
 )
-def test_page_set_columns_rejects_bad_values_before_touching_doc(kwargs: dict[str, object]) -> None:
+def test_page_set_columns_rejects_bad_values_before_touching_doc(
+    kwargs: dict[str, object], expected_param: str
+) -> None:
     doc = MagicMock()
     ctx = SimpleNamespace(doc=doc)
 
     res = PageSetColumns().execute(ctx, **kwargs)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_PARAM"
+    assert res["details"]["parameter"] == expected_param
     doc.getStyleFamilies.assert_not_called()
 
 

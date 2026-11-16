@@ -983,4 +983,3 @@ def test_page_set_columns_over_cap_leaves_style_uno(ctx, doc):
     assert len(cols) == 2
     assert cols[0]["right_margin_mm"] == 2.5
     assert cols[1]["left_margin_mm"] == 2.5
-
