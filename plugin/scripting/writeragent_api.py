@@ -2582,7 +2582,7 @@ class _SlideProxy:
         return _result(call_host_tool("slide_read_text", page=page))
 
     def rename(self, page: int, name: str) -> _Item:
-        """Sets the Name property of a slide (0-based page index).
+        """Sets the Name of a slide (0-based page index). The name must not already be used by another slide; LibreOffice refuses names that start with its default slide label (e.g. 'Slide 3').
 
         Args:
             page (required): 0-based slide index.

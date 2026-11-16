@@ -294,6 +294,9 @@ def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
             shape = ctx.doc.createInstance("com.sun.star.drawing.TableShape")
             page.add(shape)
             added = True
+            from plugin.draw.shapes import _ensure_shape_name
+
+            shape_name = _ensure_shape_name(page, shape)
             shape.setSize(Size(width, height))
             shape.setPosition(Point(x, y))
 
@@ -305,6 +308,7 @@ def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
                         "message": "Table inserted but cell model was unavailable; data not filled",
                         "page": actual_idx,
                         "index": page.getCount() - 1,
+                        "name": shape_name,
                         "warning": "table_model_unavailable",
                     }
             else:
@@ -332,6 +336,7 @@ def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         "message": "Table inserted",
         "page": actual_idx,
         "index": page.getCount() - 1,
+        "name": shape_name,
         "rows": rows,
         "columns": columns,
         "cells_written": written,
