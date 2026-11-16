@@ -176,6 +176,16 @@ Since this list was written, four rows were picked up and are no longer deferred
 
 Review row 35 is keep-as-is, with no work: undo only right after the model’s own mistake; don’t paste document data into a delegate task; color and polish remain judgment calls. Those are behaviour and user-experience rules, not API mechanics.
 
+### 3.5 Deferred ideas (follow-up triage, Nov 2026)
+
+These came out of the November 2026 follow-up triage (`217-followups-triage.md`). They are worth doing at some point but are not scheduled.
+
+- **Merge cells keeping hidden content (item 19).** The merge tool drops the content of every cell except the top-left one. The LibreOffice UI can instead move the hidden content into the top-left cell (`bContents=true`). The idea is an optional `move_contents` mode on the merge tool. Deferred until a real task or eval needs it.
+
+- **Undo step for `=PY()` plots (item 107).** `plugin/calc/python/image_egress.py` places `=PY()` plot images without an undo bracket, so the user can't undo a plot placement as one step. The idea is to wrap placement in `UndoStepOrRollback`. Deferred because it needs care to stay safe on Collabora Online.
+
+- **Rewrite typed `xl()` formulas (item 364).** `=PY("...xl('A1')...")` written by the model is rewritten into the dependency-tracked form, but the same formula typed straight into a cell is not. The idea is a cell-input hook that rewrites typed formulas too. Deferred because a live sheet-input hook adds complexity to a path that is simple today.
+
 ---
 
 ## 4. Summary
