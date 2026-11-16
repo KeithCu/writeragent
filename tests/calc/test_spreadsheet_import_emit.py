@@ -154,3 +154,69 @@ def test_emit_vector_pass_keeps_text_format_per_cell():
     assert output.cells["C2"].formula == '=PY("(np.abs(np.asarray(data)) * 2)";A1:A3;1)'
     assert output.cells["C3"].formula == '=PY("(np.abs(np.asarray(data)) * 2)";A1:A3;2)'
     assert report.skipped == []
+
+
+def test_emit_vector_pass_values_match_each_row():
+    import numpy as np
+
+    cells = {
+        "A1": CellRecord(address="A1", type="constant", value=-1, formula=None, number_format=None),
+        "A2": CellRecord(address="A2", type="constant", value=2, formula=None, number_format=None),
+        "A3": CellRecord(address="A3", type="constant", value=-3, formula=None, number_format=None),
+        "B1": CellRecord(address="B1", type="formula", value=1, formula="=ABS(A1)*2-1", number_format=None),
+        "B2": CellRecord(address="B2", type="formula", value=3, formula="=ABS(A2)*2-1", number_format=None),
+        "B3": CellRecord(address="B3", type="formula", value=5, formula="=ABS(A3)*2-1", number_format=None),
+    }
+    model = SheetModel(sheet_name="Sheet1", used_range="A1:B3", cells=cells)
+    output, _unused_report = build_converted_output_model(model, vectorize=True)
+
+    col_data = np.asarray([[-1], [2], [-3]])
+    for idx, addr in enumerate(("B1", "B2", "B3")):
+        parsed = PyFormula.parse(output.cells[addr].formula or "")
+        assert parsed is not None
+        assert parsed.data_args() == ["A1:A3", str(idx)]
+        ns: dict[str, object] = {"data": col_data, "np": np}
+        exec(f"result = {parsed.code}", ns)
+        assert float(np.asarray(ns["result"]).ravel()[idx]) == cells[addr].value
+
+
+def test_emit_vector_pass_keeps_unsafe_columns_per_cell():
+    cells = {
+        "A1": CellRecord(address="A1", type="constant", value=1, formula=None, number_format=None),
+        "A2": CellRecord(address="A2", type="constant", value=2, formula=None, number_format=None),
+        "B1": CellRecord(address="B1", type="constant", value=10, formula=None, number_format=None),
+        "B2": CellRecord(address="B2", type="constant", value=20, formula=None, number_format=None),
+        "H1": CellRecord(address="H1", type="constant", value="txt1", formula=None, number_format=None),
+        "H2": CellRecord(address="H2", type="constant", value="txt2", formula=None, number_format=None),
+        "D1": CellRecord(address="D1", type="formula", value=11, formula="=ABS(A1)+ABS(B1)", number_format=None),
+        "D2": CellRecord(address="D2", type="formula", value=22, formula="=ABS(A2)+ABS(B2)", number_format=None),
+        "E1": CellRecord(address="E1", type="formula", value="txt", formula="=LEFT(H1;3)", number_format=None),
+        "E2": CellRecord(address="E2", type="formula", value="txt", formula="=LEFT(H2;3)", number_format=None),
+        "F1": CellRecord(address="F1", type="formula", value="1A1", formula='=ABS(A1)&"A1"', number_format=None),
+        "F2": CellRecord(address="F2", type="formula", value="2A2", formula='=ABS(A2)&"A2"', number_format=None),
+    }
+    model = SheetModel(sheet_name="Sheet1", used_range="A1:H2", cells=cells)
+    vec_out, _unused_r1 = build_converted_output_model(model, vectorize=True)
+    cell_out, _unused_r2 = build_converted_output_model(model, vectorize=False)
+
+    for addr in ("D1", "D2", "E1", "E2", "F1", "F2"):
+        assert vec_out.cells[addr].formula == cell_out.cells[addr].formula
+    assert "'A2'" in (vec_out.cells["F2"].formula or "")
+
+
+def test_emit_vector_pass_survives_sheet_and_digit_names():
+    cells = {
+        "A1": CellRecord(address="A1", type="constant", value=45000, formula=None, number_format=None),
+        "A2": CellRecord(address="A2", type="constant", value=45001, formula=None, number_format=None),
+        "B1": CellRecord(address="B1", type="constant", value=45030, formula=None, number_format=None),
+        "B2": CellRecord(address="B2", type="constant", value=45031, formula=None, number_format=None),
+        "C1": CellRecord(address="C1", type="formula", value=1, formula="=ABS(Sheet2.A1)", number_format=None),
+        "C2": CellRecord(address="C2", type="formula", value=2, formula="=ABS(Sheet2.A2)", number_format=None),
+        "D1": CellRecord(address="D1", type="formula", value=30, formula="=DAYS360(A1;B1)", number_format=None),
+        "D2": CellRecord(address="D2", type="formula", value=30, formula="=DAYS360(A2;B2)", number_format=None),
+    }
+    model = SheetModel(sheet_name="Sheet1", used_range="A1:D2", cells=cells)
+    _unused_out, report = build_converted_output_model(model, vectorize=True)
+
+    for addr in ("C1", "C2", "D1", "D2"):
+        assert addr in report.converted

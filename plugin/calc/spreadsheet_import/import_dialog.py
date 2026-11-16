@@ -18,6 +18,7 @@ from plugin.chatbot.dialogs import (
     msgbox,
     run_dialog_with_listeners,
 )
+from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.uno_listeners import BaseActionListener
 
@@ -30,10 +31,15 @@ def result_message(outcome: dict[str, Any]) -> tuple[str, str]:
     if failed:
         first = failed[0]
         return (
-            "Conversion finished with mismatches",
-            f"{len(failed)} cell(s) did not verify.\nFirst: {first.get('address')}: {first.get('message')}\n\n{outcome['summary']}",
+            _("Conversion finished with mismatches"),
+            _("{0} cell(s) did not verify.\nFirst: {1}: {2}\n\n{3}").format(
+                len(failed),
+                first.get("address"),
+                first.get("message"),
+                outcome["summary"],
+            ),
         )
-    return "Success", f"Conversion completed successfully!\n\n{outcome['summary']}"
+    return _("Success"), _("Conversion completed successfully!\n\n{0}").format(outcome["summary"])
 
 
 def show_import_dialog(ctx: Any) -> None:
@@ -46,7 +52,7 @@ def show_import_dialog(ctx: Any) -> None:
         desktop = get_desktop(ctx)
         doc = desktop.getCurrentComponent()
         if doc is None or not hasattr(doc, "getSheets"):
-            msgbox(ctx, "Error", "Active document is not a spreadsheet.")
+            msgbox(ctx, _("Error"), _("Active document is not a spreadsheet."))
             return
 
         source_sheet = CalcBridge(doc).get_active_sheet()
@@ -79,7 +85,7 @@ def show_import_dialog(ctx: Any) -> None:
                     dlg.endDialog(1)
                 except Exception as e:
                     log.exception("Sheet conversion failed inside dialog")
-                    msgbox(ctx, "Error", f"Conversion failed: {e}")
+                    msgbox(ctx, _("Error"), _("Conversion failed: {0}").format(e))
                     dlg.endDialog(0)
 
         run_dialog_with_listeners(dlg, _OkListener(), DismissDialogListener(dlg, 0))
@@ -90,4 +96,4 @@ def show_import_dialog(ctx: Any) -> None:
 
     except Exception as e:
         log.exception("show_import_dialog failed")
-        msgbox(ctx, "Error", f"Failed to open import dialog: {e}")
+        msgbox(ctx, _("Error"), _("Failed to open import dialog: {0}").format(e))

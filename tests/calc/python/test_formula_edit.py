@@ -362,6 +362,9 @@ def test_build_data_suffix():
 def test_format_py_and_excel_data_range_real_sheets():
     """Product ranges format sheet-qualified cell and range references correctly."""
     assert format_py_data_range("Sheet.A1") == "Sheet.A1"
+    assert format_py_data_range("'$Prices'.F:F") == "'$Prices'.F:F"
+    assert format_excel_data_range("'$Prices'.F:F") == "'$Prices'!F:F"
+    assert format_py_data_range("$Sheet1.$A$1") == "$Sheet1.$A$1"
     assert format_py_data_range("'My Sheet'.A1") == "'My Sheet'.A1"
     assert format_py_data_range("My Sheet.A1") == "'My Sheet'.A1"
     assert format_py_data_range("Sheet!A1") == "Sheet.A1"

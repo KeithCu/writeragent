@@ -1021,4 +1021,34 @@ def test_translate_functions_only_skips_function_free_codegen():
     assert with_fn.has_function is True
 
 
+def test_translate_now_keeps_time_of_day():
+    res = translate_formula("=NOW()", "A1")
+    assert res.ok and res.code is not None
+    expected = (dt.datetime.now() - dt.datetime(1899, 12, 30)) / dt.timedelta(days=1)
+    ns: dict[str, object] = {"np": np, "dt": dt}
+    exec(f"result = {res.code}", ns)
+    actual = float(ns["result"])  # type: ignore[arg-type]
+    assert abs(actual - expected) < 2.0 / 86400.0
+    if expected % 1 != 0:
+        assert actual % 1 != 0
+
+
+def test_translate_match_types():
+    def _eval(formula: str, data: object) -> float:
+        res = translate_formula(formula, "C1")
+        assert res.ok and res.code is not None
+        ns: dict[str, object] = {"data": data, "np": np, "calc": calc}
+        exec(f"result = {res.code}", ns)
+        return float(ns["result"])  # type: ignore[arg-type]
+
+    assert _eval("=MATCH(2.5;A1:A3)", [[1], [2], [3]]) == 2.0
+    assert math.isnan(_eval("=MATCH(5;A1:A3;0)", [[1], [2], [3]]))
+    assert _eval("=MATCH(2.5;A1:A3;-1)", [[3], [2], [1]]) == 1.0
+    assert _eval("=MATCH(A1;B1:B3;0)", [20, [[10], [20], [30]]]) == 2.0
+
+    non_lit = translate_formula("=MATCH(1;A1:A3;B1)", "C1")
+    assert non_lit.ok is False
+    assert non_lit.reason == "UNSUPPORTED_FUNCTION"
+
+
 

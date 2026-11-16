@@ -327,7 +327,7 @@ def _format_qualified_range(range_addr: str, *, separator: str) -> str:
             sheet, rest = cand_sheet.strip("'\""), cand_rest
     if sheet is None or is_cell_token(sheet.replace("$", "")):
         return addr
-    clean_sheet = sheet.replace("$", "")
+    clean_sheet = sheet
     needs_quotes = not _is_sheet_identifier(clean_sheet) if separator == "." else (bool(clean_sheet) and not _is_sheet_identifier(clean_sheet))
     dollar = "$" if addr.startswith("$") else ""
     if needs_quotes:
