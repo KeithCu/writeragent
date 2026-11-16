@@ -272,3 +272,20 @@ def test_get_document_content_redline_read_reraises_disposed():
     with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         with pytest.raises(DocumentDisposedError):
             GetDocumentContent().execute(ctx)
+
+
+def test_get_document_content_selection_scope_uses_pinned_range():
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    pinned = MagicMock()
+    ctx = MagicMock()
+    ctx.selection_pin = SelectionPin(pinned)
+    ctx.services.document.get_document_length.return_value = 20
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>pinned</p>") as mock_export:
+        res = GetDocumentContent().execute(ctx, scope="selection")
+
+    assert res["status"] == "ok"
+    assert mock_export.call_args.kwargs["selection"] is pinned
+    ctx.doc.getCurrentController.assert_not_called()
+

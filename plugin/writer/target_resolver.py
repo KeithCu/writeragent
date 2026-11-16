@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import live_selection_range
+from plugin.doc.text_helpers import clone_text_range, live_selection_range
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
@@ -29,11 +29,17 @@ def _span_cursor(rng: Any, fail: str) -> Any:
 
 def request_selection_range(ctx: ToolContext) -> Any | None:
     """Range a Writer tool acts on for target='selection': ctx.selection_pin.range when set, else live_selection_range(doc controller)."""
-    pin = getattr(ctx, "selection_pin", None)
+    pin = ctx.selection_pin
     if pin is not None and pin.range is not None:
         return pin.range
     controller = uno_read(lambda: ctx.doc.getCurrentController(), None)
     return live_selection_range(controller)
+
+
+def update_selection_pin(ctx: ToolContext, text_range: Any) -> None:
+    """Move the turn's pinned Writer selection to *text_range* when a pin exists."""
+    if ctx.selection_pin is not None and text_range is not None:
+        ctx.selection_pin.range = clone_text_range(text_range)
 
 
 def resolve_target_cursor(

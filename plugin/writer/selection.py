@@ -13,7 +13,7 @@ view, so set_selection updates that pin when present; MCP contexts carry no pin.
 from typing import Any
 import logging
 
-from plugin.doc.text_helpers import clone_text_range, get_text_cursor_at_range_reached
+from plugin.doc.text_helpers import get_text_cursor_at_range_reached
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.html_import import plain_text_if_markup
@@ -23,6 +23,7 @@ from plugin.writer.search import (
     occurrence_range_or_error,
     resolve_case_sensitive,
 )
+from plugin.writer.target_resolver import update_selection_pin
 
 log = logging.getLogger("writeragent.writer")
 
@@ -91,8 +92,6 @@ class SetSelection(ToolBase):
         if controller is None:
             return self._tool_error("No document view is available to hold a selection.", code="TOOL_EXECUTION_ERROR")
 
-        selection_pin = getattr(ctx, "selection_pin", None)
-
         # --- resolve the range to select ---
         if has_search:
             case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
@@ -101,7 +100,7 @@ class SetSelection(ToolBase):
                 return self._tool_error("search_text is empty after normalization.", code="INVALID_PARAM")
 
             res = self._select_by_search(
-                doc, controller, search_str, kwargs.get("occurrence", 0), case_sensitive, selection_pin
+                ctx, controller, search_str, kwargs.get("occurrence", 0), case_sensitive
             )
             res["matched_case_sensitive"] = case_sensitive
             return res
@@ -117,8 +116,7 @@ class SetSelection(ToolBase):
             return self._tool_error("Could not reach character range in document.", code="TOOL_EXECUTION_ERROR")
 
         controller.select(target_range)
-        if selection_pin is not None:
-            selection_pin.range = clone_text_range(target_range)
+        update_selection_pin(ctx, target_range)
 
         result: dict[str, Any] = {"status": "ok", **fields}
         result["char_start"] = char_start
@@ -132,13 +130,13 @@ class SetSelection(ToolBase):
 
     def _select_by_search(
         self,
-        doc: Any,
+        ctx: Any,
         controller: Any,
         search_str: str,
         raw_occurrence: Any,
         case_sensitive: bool,
-        selection_pin: Any = None,
     ) -> dict[str, Any]:
+        doc = ctx.doc
         found, err = occurrence_range_or_error(
             doc, search_str, raw_occurrence, case_sensitive=case_sensitive, subject="search_text"
         )
@@ -146,8 +144,7 @@ class SetSelection(ToolBase):
             return err or self._tool_error("search_text not found")
 
         controller.select(found)
-        if selection_pin is not None:
-            selection_pin.range = clone_text_range(found)
+        update_selection_pin(ctx, found)
         fields = _read_selection_fields(found)
         return {
             "status": "ok",

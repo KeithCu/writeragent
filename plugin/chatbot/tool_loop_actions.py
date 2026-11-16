@@ -811,7 +811,7 @@ def build_tool_execute_fn(
         status_callback: Callable[[str], None] | None = None,
         append_thinking_callback: Callable[[str], None] | None = None,
         *,
-        captured_turn: Any = None,
+        captured_turn: TurnController | None = None,
         # Caller passes the spawn-time scope; never read host._send_cancellation here (drain clears it).
         send_cancellation: SendCancellation | None = None,
     ) -> str:
@@ -892,7 +892,7 @@ def build_tool_execute_fn(
             python_tool_domain=python_tool_domain,
             send_cancellation=send_cancellation,
             uno_services_supported=getattr(host, "cached_uno_services", None),
-            selection_pin=captured_turn.selection_pin if isinstance(captured_turn, TurnController) else None,
+            selection_pin=captured_turn.selection_pin if captured_turn is not None else None,
         )
         # ToolRegistry.execute binds keyword-only bypass_thread_guard (and
         # ctx/tool_name) from **safe_args, so a model argument can skip

@@ -23,6 +23,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBase
+from plugin.writer.target_resolver import request_selection_range
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -143,6 +144,7 @@ class GetDocumentContent(ToolBase):
 
         include_images = bool(kwargs.get("include_images", False))
         walk_warnings: list[str] = []
+        sel_range = request_selection_range(ctx) if scope == "selection" else None
         content = html_export.document_to_content(
             ctx.doc,
             ctx.ctx,
@@ -152,6 +154,7 @@ class GetDocumentContent(ToolBase):
             range_end=range_end,
             include_images=include_images,
             walk_warnings=walk_warnings,
+            selection=sel_range,
         )
         doc_len = ctx.services.document.get_document_length(ctx.doc)
         result = {"status": "ok", "content": content, "length": len(content), "document_length": doc_len}
