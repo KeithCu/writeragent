@@ -142,3 +142,91 @@ def test_insert_after_caret_still_moves_caret_uno(ctx, doc):
     para_cur = doc.getText().createTextCursorByRange(view_cursor.getStart())
     para_cur.gotoStartOfParagraph(True)
     assert para_cur.getString() == "Alpha one. Beta two. INS"
+
+
+def _body_paras(doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = doc.getText().createEnumeration()
+    out = []
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            out.append(el)
+    return out
+
+
+def _seed_three_simple_paras(doc):
+    text = doc.getText()
+    doc.setPropertyValue("RecordChanges", False)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_position_before_after_apply_block_styles_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    content = '<p data-lo-style="Heading2">H</p><p data-lo-para="text-align:center">P</p>'
+
+    for pos in ("before", "after"):
+        _seed_three_simple_paras(doc)
+        res = ApplyDocumentContent().execute(
+            tctx,
+            target="search",
+            old_content="Replace me",
+            position=pos,
+            content=content,
+        )
+        assert res.get("status") == "ok", res
+        assert "warnings" not in res, res
+
+        paras = {p.getString(): p for p in _body_paras(doc)}
+        assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
+        assert paras["P"].getPropertyValue("ParaAdjust") == 3
+        assert paras["P"].getPropertyState("ParaAdjust").value == "DIRECT_VALUE"
+        for untouched in ("Keep before", "Replace me", "Keep after"):
+            assert paras[untouched].getPropertyValue("ParaStyleName") == "Standard"
+            assert paras[untouched].getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
+
+
+@native_test
+@with_native_doc("writer")
+def test_position_after_styles_while_recording_stay_insert_only_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    tctx = native_writer_tool_context(doc, ctx)
+    _seed_three_simple_paras(doc)
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            tctx,
+            target="search",
+            old_content="Replace me",
+            position="after",
+            content='<p data-lo-style="Heading2">H</p>',
+        )
+        assert res.get("status") == "ok", res
+        paras = {p.getString(): p for p in _body_paras(doc)}
+        assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
+
+        rl_types = []
+        enum = doc.getRedlines().createEnumeration()
+        while enum_has_more(enum):
+            rl = enum.nextElement()
+            rl_types.append(str(rl.getPropertyValue("RedlineType")))
+        assert set(rl_types) == {"Insert"}, rl_types
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+

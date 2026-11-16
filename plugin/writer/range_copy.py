@@ -414,10 +414,6 @@ def iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
             yield el
 
 
-def _goto_doc_end(doc: Any) -> None:
-    best_effort(lambda: doc.getCurrentController().getViewCursor().gotoEnd(False), "_goto_doc_end: view cursor unavailable")
-
-
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
     services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], FAILED)
@@ -618,7 +614,6 @@ def _copy_table(
                     log.debug("_copy_table: cell (%s,%s) unreadable: %s", col, row, exc)
                     continue
                 _copy_cell_xtext(src_cell, dest_doc, dest_cell, math_records=math_records)
-    _goto_doc_end(dest_doc)
 
 
 def _begin_next_paragraph(dest_text: Any, cursor: Any) -> None:

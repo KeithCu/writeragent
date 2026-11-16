@@ -788,14 +788,9 @@ def test_copy_table_copies_merged_d2_by_name():
             raise AssertionError("position walk must not run when names exist")
 
     dest_table = DestTable()
-
-    def no_controller():
-        raise RuntimeError("no controller")
-
     dest_doc = SimpleNamespace(
         createInstance=lambda unused_service: dest_table,
         getText=lambda: FakeBodyText(),
-        getCurrentController=no_controller,
     )
     _copy_table(src, dest_doc)
     assert dest_table.rows == 5 and dest_table.cols == 4
