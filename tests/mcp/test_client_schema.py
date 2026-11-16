@@ -408,3 +408,44 @@ def test_mcp_prefixed_tool_name_patterns():
     assert name.isidentifier()
     assert re.match(r"^[a-zA-Z0-9_-]{1,64}$", name)
     assert re.match(r"^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$", name)
+
+
+@pytest.mark.parametrize(
+    "bad_prop",
+    [
+        pytest.param({"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}, id="str_or_list"),
+        pytest.param(
+            {"anyOf": [{"type": "object", "properties": {"a": {"type": "string"}}}, {"type": "object", "properties": {"b": {"type": "integer"}}}]},
+            id="union_of_models",
+        ),
+        pytest.param({"oneOf": [{"type": "string"}, {"type": "integer"}]}, id="oneOf"),
+        pytest.param({"allOf": [{"type": "object", "properties": {"a": {"type": "string"}}}]}, id="allOf"),
+        pytest.param({"description": "anything"}, id="typeless"),
+        pytest.param({"type": "array"}, id="array_without_items"),
+        pytest.param({"type": "object", "properties": {"nested": {"type": "array"}}}, id="nested_array_without_items"),
+    ],
+)
+def test_convert_mcp_schema_rejects_unconvertible_shapes(bad_prop):
+    spec = {
+        "name": "bad_tool",
+        "inputSchema": {"type": "object", "properties": {"arg": bad_prop}},
+    }
+    with pytest.raises(ValueError):
+        convert_mcp_schema("srv", spec)
+
+
+def test_convert_mcp_schema_accepts_scalar_anyof_and_array_with_items():
+    spec = {
+        "name": "good_tool",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "val": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["tags"],
+        },
+    }
+    out = convert_mcp_schema("srv", spec)
+    assert out["parameters"]["properties"]["tags"] == {"type": "array", "items": {"type": "string"}}
+    assert out["parameters"]["properties"]["val"] == {"anyOf": [{"type": "string"}, {"type": "integer"}]}

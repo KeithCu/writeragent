@@ -169,7 +169,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | --- | --- | --- | --- | --- |
 | `enabled` | `boolean` | `false` |  | Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or to scripts. |
 | `trusted` | `boolean` | `false` |  | Tools the server marks readOnlyHint run without Accept / Change / Reject; every other call still asks |
-| `name` | `string` | `""` |  | Short label the model uses for this server, e.g. home. |
+| `name` | `string` | `""` |  | Prefixes this server's tool names (e.g. home -> mcp__home__tool). |
 | `url` | `string` | `""` |  | Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp |
 | `token_keychain` | `string` | `""` |  | macOS Keychain item holding the bearer token. Preferred over the token field. |
 | `token` | `string` | `""` |  | Bearer token saved in plain text in writeragent.json. Used only when Keychain item is empty. |

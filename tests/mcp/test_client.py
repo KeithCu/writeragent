@@ -1002,6 +1002,112 @@ def test_delegate_to_subagent_runs_the_mcp_domain(fake):
     assert res["status"] == "ok"
     assert "Files: /Docs" in str(res.get("answer") or res.get("result"))
     assert res["note"] == UNTRUSTED_NOTE
-    assert NO_EDIT_TOOL_NOTE not in str(res.get("notes", ""))
+    assert NO_EDIT_TOOL_NOTE not in str(res.get("note", ""))
     assert any(req_body.get("method") == "tools/call" and req_body["params"]["arguments"] == {"path": "/Docs"} for _h, req_body in fake.requests)
     assert MCP_SUB_AGENT_HINT in captured_instructions[0]
+
+
+def test_wire_schemas_seen_by_model_and_arrays_have_items(fake):
+    from plugin.chatbot.smol_agent import SmolToolAdapter
+    from plugin.contrib.smolagents.models import get_tool_json_schema
+
+    fake.custom_tools = [
+        {
+            "name": "str_or_list",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"q": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}},
+            },
+        },
+        {
+            "name": "two_models",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"m": {"anyOf": [{"type": "object", "properties": {"a": {"type": "string"}}}, {"type": "object", "properties": {"b": {"type": "integer"}}}]}},
+            },
+        },
+        {
+            "name": "one_of_prop",
+            "inputSchema": {"type": "object", "properties": {"x": {"oneOf": [{"type": "string"}, {"type": "integer"}]}}},
+        },
+        {
+            "name": "all_of_prop",
+            "inputSchema": {"type": "object", "properties": {"x": {"allOf": [{"type": "object", "properties": {"a": {"type": "string"}}}]}}},
+        },
+        {
+            "name": "typeless_prop",
+            "inputSchema": {"type": "object", "properties": {"x": {"description": "any"}}},
+        },
+        {
+            "name": "bare_array",
+            "inputSchema": {"type": "object", "properties": {"arr": {"type": "array"}}},
+        },
+        {
+            "name": "good_tool",
+            "description": "Search items",
+            "inputSchema": {
+                "type": "object",
+                "$defs": {"Item": {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}},
+                "properties": {
+                    "items_list": {"type": "array", "items": {"$ref": "#/$defs/Item"}, "description": "Items"},
+                    "limit": {"anyOf": [{"type": "string"}, {"type": "integer"}], "description": "Limit"},
+                },
+                "required": ["items_list"],
+            },
+        },
+    ]
+    ctx = _chat_ctx()
+    with _with_servers({"claw": _server(fake)}):
+        tools, _hint = mcp_domain_tools(ctx)
+
+    assert [t.name for t in tools] == ["mcp__claw__good_tool"]
+    wire = get_tool_json_schema(SmolToolAdapter(tools[0], ctx, inputs_style="specialized"))
+    assert wire == {
+        "type": "function",
+        "function": {
+            "name": "mcp__claw__good_tool",
+            "description": "Search items",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "items_list": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"id": {"type": "integer"}},
+                            "required": ["id"],
+                        },
+                        "description": "Items",
+                    },
+                    "limit": {
+                        "type": ["string", "integer", "null"],
+                        "description": "Limit",
+                    },
+                },
+                "required": ["items_list"],
+            },
+        },
+    }
+
+
+def test_down_server_error_is_capped_in_hint(fake):
+    fake.error_body = (500, "x" * 600)
+    ctx = _chat_ctx()
+    second = FakeMcpServer()
+    try:
+        with _with_servers({"down": _server(fake, name="down"), "ok": _server(second, name="ok")}):
+            _tools, hint = mcp_domain_tools(ctx)
+        assert "Server 'down' is unavailable:" in hint
+        assert "ERROR TRUNCATED" in hint
+    finally:
+        second.close()
+
+
+def test_calc_mcp_delegation_skips_spreadsheet_context():
+    from plugin.doc.specialized_base import _sub_agent_hints
+
+    ctx = SimpleNamespace(doc=object(), ctx=object())
+    with patch("plugin.calc.analyzer.get_calc_context_for_chat") as mock_calc_ctx:
+        hints = _sub_agent_hints(ctx, "mcp", "Calc", "")
+    mock_calc_ctx.assert_not_called()
+    assert "[SPREADSHEET CONTEXT]" not in hints

@@ -825,7 +825,12 @@ class RemoteMcpTool(ToolBase):
 
 def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
     """Build native per-tool schemas for every configured external MCP server."""
-    if ctx is None or getattr(ctx, "caller", None) != "chat":
+    # Sidebar chat only: WriterAgent's own MCP server (caller="mcp") has no authentication, so
+    # exposing external MCP tools there would let any local program use the user's tokens, and
+    # Python scripts (caller="script") can come from a document someone else wrote (=PY()).
+    # RemoteMcpTool never enters ToolRegistry and ToolMcpDomainBase owns no tools, so this check
+    # is the boundary keeping both surfaces out.
+    if ctx is None or ctx.caller != "chat":
         raise McpClientError("The mcp domain runs only in the sidebar chat.", code="MCP_DOMAIN_CHAT_ONLY")
     servers = configured_servers()
     if not servers:
@@ -842,7 +847,7 @@ def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
             if e.code == "USER_STOPPED":
                 raise
             log.warning("MCP server '%s' is unavailable: %s", server["name"], e)
-            notes.append(f" Server '{server['name']}' is unavailable: {e}.")
+            notes.append(f" Server '{server['name']}' is unavailable: {truncate_head_tail(str(e), 300, label='ERROR')}.")
             continue
         for spec in specs:
             spec_name = str(spec.get("name") or "")

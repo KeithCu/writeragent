@@ -56,12 +56,17 @@ _MCP_TOOL_NAME_HASH_LENGTH = 8
 MAX_INLINED_NODES = 5000
 
 # Mapping-valued JSON Schema keywords: the value maps entry names to schemas and is never a schema node itself.
-_SCHEMA_MAP_KEYS = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
+_SCHEMA_NAME_MAP_KEYS = frozenset({"properties", "patternProperties", "dependentSchemas"})
+_DEF_CONTAINER_KEYS = frozenset({"$defs", "definitions"})
+_SCHEMA_MAP_KEYS = _SCHEMA_NAME_MAP_KEYS | _DEF_CONTAINER_KEYS
 # Strings the server matches calls against stay byte-exact.
 _SCHEMA_CONTRACT_KEYS = frozenset({"enum", "const", "required", "$ref", "pattern", "dependentRequired", "discriminator"})
 # Literal instance data, not schema: a keyword-named key inside it is plain data.
 _SCHEMA_DATA_KEYS = frozenset({"default", "examples"})
+_LITERAL_VALUE_KEYS = _SCHEMA_DATA_KEYS | frozenset({"enum", "const"})
 
+# Anthropic (and Bedrock/Vertex/Azure fronting it) reject property keys not matching this; one bad
+# key anywhere in the tools array 400s the request.
 _PROP_KEY_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,64}$")
 _PROP_KEY_BAD_CHARS = re.compile(r"[^a-zA-Z0-9_.-]")
 _UNION_KEYS = ("anyOf", "oneOf")
@@ -127,7 +132,11 @@ def sanitize_mcp_name_component(value: str) -> str:
 
 
 def mcp_prefixed_tool_name(server_name: str, tool_name: str) -> str:
-    """Wire name ``mcp__<server>__<tool>``, clamped to 64 chars with a stable hash suffix when longer."""
+    """Wire name ``mcp__<server>__<tool>``, clamped to 64 chars with a stable hash suffix when longer.
+
+    OpenAI-compatible providers validate function names against ``^[a-zA-Z0-9_-]{1,64}$`` and 400
+    the whole request when any generated name exceeds 64 characters.
+    """
     full_name = f"{MCP_TOOL_NAME_PREFIX}{sanitize_mcp_name_component(server_name)}__{sanitize_mcp_name_component(tool_name)}"
     if len(full_name) <= _MCP_TOOL_NAME_MAX_LENGTH:
         return full_name
@@ -146,7 +155,10 @@ def _is_null_branch(item: Any) -> bool:
 
 
 def _carry_union_meta(outer: dict[str, Any], replacement: dict[str, Any], *, skip_default_on_ref: bool) -> None:
-    """Copy outer-union metadata onto *replacement* where absent (``default`` is skipped beside ``$ref``)."""
+    """Copy outer-union metadata onto *replacement* where absent.
+
+    Fireworks rejects ``default`` beside ``$ref``, hence ``skip_default_on_ref``.
+    """
     for meta_key in _UNION_META_KEYS:
         if meta_key in outer and meta_key not in replacement and not (
             skip_default_on_ref and meta_key == "default" and "$ref" in replacement
@@ -155,7 +167,11 @@ def _carry_union_meta(outer: dict[str, Any], replacement: dict[str, Any], *, ski
 
 
 def strip_nullable_unions(schema: Any, *, keep_nullable_hint: bool = True) -> Any:
-    """Collapse ``anyOf``/``oneOf`` nullable unions to the single non-null branch."""
+    """Collapse ``anyOf``/``oneOf`` nullable unions to the single non-null branch.
+
+    Anthropic rejects ``{"type": "null"}`` branches; optionality already lives in the parent's
+    ``required``, and ``nullable: true`` is kept as a hint.
+    """
 
     def collapse(stripped: dict[str, Any]) -> Any:
         for key in _UNION_KEYS:
@@ -214,8 +230,11 @@ def collapse_const_unions(schema: Any) -> Any:
 def _repair_object_shape(node: Any, *, _object_root: bool = False) -> Any:
     """Fill missing object ``type``/``properties`` and prune dangling ``required`` entries.
 
-    Constraint fragments (``required`` without ``properties`` or ``type``) are left alone outside
-    the root so ``oneOf``/``anyOf`` presence rules are not destroyed.
+    Gemini 400s when ``required`` names a property missing from ``properties``, and strict
+    OpenAI-compatible proxies read a missing or non-list ``required`` as ``null`` instead of
+    ``[]``. Constraint fragments (``required`` without ``properties`` or ``type``) are left
+    alone outside the root so ``oneOf``/``anyOf`` presence rules are not collapsed into
+    always-true schemas.
     """
     if isinstance(node, list):
         return [_repair_object_shape(item) for item in node]
@@ -429,11 +448,11 @@ def inline_local_refs(schema: dict[str, Any], *, max_nodes: int = MAX_INLINED_NO
             return _inline(resolved, seen | {ref})
         out: dict[str, Any] = {}
         for key, value in node.items():
-            if key in ("$defs", "definitions"):
+            if key in _DEF_CONTAINER_KEYS:
                 continue
-            if key in ("properties", "patternProperties", "dependentSchemas") and isinstance(value, dict):
+            if key in _SCHEMA_NAME_MAP_KEYS and isinstance(value, dict):
                 out[key] = {prop_name: _inline(prop_schema, seen) for prop_name, prop_schema in value.items()}
-            elif key in ("default", "examples", "enum", "const"):
+            elif key in _LITERAL_VALUE_KEYS:
                 out[key] = copy.deepcopy(value)
             else:
                 out[key] = _inline(value, seen)
@@ -446,8 +465,10 @@ def inline_local_refs(schema: dict[str, Any], *, max_nodes: int = MAX_INLINED_NO
 def _sanitize_node(node: Any, path: str) -> Any:
     """Recursively sanitize a JSON-Schema fragment for strict providers.
 
-    WriterAgent sends ``type`` arrays as they are (``tool_schema._normalize_schema_for_strict_providers``),
-    so ``type`` lists are copied literally.
+    llama.cpp's grammar converter fails on ``{"type": "object"}`` without ``properties`` and on
+    bare-string schemas. WriterAgent sends ``type`` arrays as they are
+    (``tool_schema._normalize_schema_for_strict_providers``), so ``type`` lists are copied
+    literally.
     """
     if isinstance(node, str):
         if node in _BARE_TYPE_NAMES:
@@ -536,6 +557,59 @@ def resolve_name_collisions(candidates: list[ToolCandidate]) -> list[ToolCandida
     return [c for c in unique if c.registry_name not in ambiguous]
 
 
+_SCALAR_JSON_TYPES = frozenset({"string", "number", "integer", "boolean", "null"})
+
+
+def _check_arrays_have_items(node: Any, path: str) -> None:
+    if isinstance(node, list):
+        for i, item in enumerate(node):
+            _check_arrays_have_items(item, f"{path}[{i}]")
+        return
+    if not isinstance(node, dict):
+        return
+    node_type = node.get("type")
+    has_array = node_type == "array" or (isinstance(node_type, list) and "array" in node_type)
+    if has_array and not isinstance(node.get("items"), dict):
+        raise ValueError(f"MCP tool schema array at {path} is missing an 'items' schema")
+    for key, value in node.items():
+        if key in _LITERAL_VALUE_KEYS:
+            continue
+        if key in _SCHEMA_NAME_MAP_KEYS and isinstance(value, dict):
+            for prop_name, prop_schema in value.items():
+                _check_arrays_have_items(prop_schema, f"{path}.{key}.{prop_name}")
+        else:
+            _check_arrays_have_items(value, f"{path}.{key}")
+
+
+def _validate_wire_schema(parameters: dict[str, Any], tool_name: str) -> None:
+    """Reject parameter shapes that ``to_smol_inputs`` / ``get_tool_json_schema`` would mangle or providers 400.
+
+    ``to_smol_inputs`` defaults missing ``type`` to ``"any"`` and ``get_tool_json_schema`` maps
+    ``"any"`` to ``"string"``, while stripping ``anyOf`` down to ``t["type"]`` (dropping ``items``
+    and ``properties``).
+    """
+    _check_arrays_have_items(parameters, tool_name or "<tool>")
+    props = parameters.get("properties")
+    if not isinstance(props, dict):
+        return
+    for prop_name, prop_schema in props.items():
+        if not isinstance(prop_schema, dict):
+            raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} has non-object schema")
+        if "oneOf" in prop_schema or "allOf" in prop_schema:
+            raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} uses unsupported top-level combinator")
+        if "anyOf" in prop_schema:
+            variants = prop_schema["anyOf"]
+            if not isinstance(variants, list) or not variants:
+                raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} has invalid anyOf")
+            for branch in variants:
+                if not isinstance(branch, dict) or branch.get("type") not in _SCALAR_JSON_TYPES:
+                    raise ValueError(
+                        f"MCP tool '{tool_name}': parameter {prop_name!r} has non-scalar anyOf branch"
+                    )
+        elif "type" not in prop_schema:
+            raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} has no 'type'")
+
+
 def convert_mcp_schema(server_name: str, spec: dict[str, Any]) -> dict[str, Any]:
     """Convert one remote MCP tool spec into a native tool schema plus its ``dispatch_schema``."""
     tool_name = str(spec.get("name") or "")
@@ -545,6 +619,7 @@ def convert_mcp_schema(server_name: str, spec: dict[str, Any]) -> dict[str, Any]
         tool_name,
     )
     parameters = _sanitize_node(inline_local_refs(dispatch_schema), tool_name)
+    _validate_wire_schema(parameters, tool_name)
     raw_desc = str(spec.get("description") or "").strip()
     description = strip_tool_metadata_text(raw_desc or f"MCP tool {tool_name} from {server_name}")
     return {

@@ -230,7 +230,7 @@ def _sub_agent_hints(ctx: ToolContext, domain: str, agent_label: str, document_r
 
     # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
     # worker. The spreadsheet read stays inside the lambda, on the main thread.
-    if agent_label == "Calc" and ctx.doc is not None:
+    if agent_label == "Calc" and ctx.doc is not None and domain != "mcp":
         # Cross-app import: only a Calc delegate loads the calc package.
         from plugin.calc.analyzer import get_calc_context_for_chat
 

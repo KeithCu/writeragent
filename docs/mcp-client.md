@@ -84,6 +84,6 @@ Config is read on every call and connections are made lazily, so edits take effe
 
 - Stdio servers (`command`), OAuth, resources, prompts, sampling, and server-initiated requests are not supported.
 - Literal `${VAR}` references in `url` or `headers` are not expanded from the environment and are refused.
-- Recursive `$ref` schemas are skipped rather than unrolled; configured servers are not passed to ACP agent backends (`plugin/acp/acp_backend.py`).
+- Recursive `$ref` schemas, top-level `oneOf`/`allOf`/typeless parameters, `anyOf` with `object`/`array` branches, and arrays without `items` are skipped; tools with open-ended `object` schemas (no declared `properties`) cannot accept arbitrary undeclared arguments; configured servers are not passed to ACP agent backends (`plugin/acp/acp_backend.py`).
 - WriterAgent's own MCP server may still list the `mcp` domain when servers are configured; calls there are refused.
 - The Change dialog is shared with web research, so its title still reads "Edit search query".

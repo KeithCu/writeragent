@@ -27,7 +27,7 @@ config:
     default: ""
     widget: text
     label: Name
-    helper: Short label the model uses for this server, e.g. home.
+    helper: Prefixes this server's tool names (e.g. home -> mcp__home__tool).
     inline: true
     width: 100
   url:
