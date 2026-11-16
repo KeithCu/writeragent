@@ -1703,3 +1703,25 @@ def test_unreadable_ref_reads_empty_and_survives_empty_save(fake_keystore):
     assert get_api_key_for_endpoint(url) == ""
     save({"api_keys_by_endpoint": {url: ""}})
     assert api_key_slot_value(url) == ref
+
+
+def test_migrate_keeps_orphan_when_config_write_fails(fake_keystore):
+    from unittest.mock import patch
+
+    from plugin.framework import keystore
+    from plugin.framework.config import migrate_secrets_to_keystore
+    from plugin.framework.errors import ConfigError
+
+    legacy_url = "https://openrouter.ai/api/v1"
+    legacy_name = f"api_key:{legacy_url}"
+    fake_keystore.store[legacy_name] = "sk-old"
+    save({"api_keys_by_endpoint": {legacy_url: "keystore:legacy01"}})
+    keystore.reset_for_tests(fake_keystore)
+
+    with (
+        patch("plugin.framework.config._write_config_file", side_effect=OSError("disk full")),
+        pytest.raises(ConfigError),
+    ):
+        migrate_secrets_to_keystore()
+
+    assert fake_keystore.store[legacy_name] == "sk-old"

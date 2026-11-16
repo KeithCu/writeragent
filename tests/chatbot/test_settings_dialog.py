@@ -769,3 +769,47 @@ def test_ok_migrates_plaintext_keys_and_typed_key_never_hits_disk():
         assert get_api_key_for_endpoint(url2) == "sk-old-plain"
     finally:
         keystore.reset_for_tests()
+
+
+def test_ok_after_unlock_keeps_key_the_locked_field_could_not_show(fake_keystore, monkeypatch):
+    from plugin.chatbot.settings_dialog import _get_core_field_specs, apply_settings_result
+    from plugin.framework import keystore
+    from plugin.framework.config import get_api_key_for_endpoint, save, set_api_key_for_endpoint
+
+    url = "https://openrouter.ai/api"
+    save({"endpoint": url})
+    set_api_key_for_endpoint(url, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    specs = _get_core_field_specs(url)
+    api_spec = next(s for s in specs if s["name"] == "api_key")
+    assert api_spec["value"] == ""
+    assert api_spec.get("keyring_locked") is True
+
+    fake_keystore.locked = False
+    monkeypatch.setattr(keystore, "LOCKED_RETRY_S", 0.0)
+    apply_settings_result(MagicMock(), {"api_key": ""}, specs)
+
+    keystore.reset_for_tests(fake_keystore)
+    assert get_api_key_for_endpoint(url) == "sk-1"
+
+
+def test_locked_blank_password_field_is_not_saved():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    specs = [
+        {
+            "name": "mcp__tunnel_provider_token",
+            "config_key": "mcp.tunnel_provider_token",
+            "value": "",
+            "keyring_locked": True,
+        }
+    ]
+    with (
+        patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://api.test"),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value="keystore:deadbeef"),
+        patch("plugin.chatbot.settings_dialog.save") as mock_save,
+    ):
+        apply_settings_result(MagicMock(), {"mcp__tunnel_provider_token": ""}, specs)
+        mock_save.assert_not_called()

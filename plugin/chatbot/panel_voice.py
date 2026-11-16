@@ -15,7 +15,7 @@ from plugin.chatbot.record_gesture import (
 )
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.blocking_wait import run_blocking_in_thread
-from plugin.framework.config import get_api_config
+from plugin.framework.config import get_api_config, get_api_key_for_endpoint
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.send_cancellation import is_cancelled
 from plugin.chatbot.send_state import spawn_scope
@@ -388,8 +388,9 @@ class PanelVoiceController:
             if uses_local_stt():
                 client = None
             else:
-                # Always create a fresh client to avoid reusing previous STT endpoint/key
-                api_config = get_api_config()
+                # Always create a fresh client to avoid reusing previous STT endpoint/key;
+                # omit the key here so a locked keyring does not block the UI thread.
+                api_config = get_api_config(with_api_key=False)
                 client = LlmClient(
                     api_config,
                     self._panel.ctx,
@@ -416,6 +417,11 @@ class PanelVoiceController:
                 self._panel._stt_kill = _kill
 
             def _call() -> str:
+                if client is not None:
+                    # Read the key on this transcription worker so a locked keyring
+                    # prompt does not block the UI thread; a locked key surfaces as
+                    # a transcription error.
+                    client.config["api_key"] = get_api_key_for_endpoint(client.config.get("endpoint"))
                 return transcribe(
                     wav_path,
                     client=client,

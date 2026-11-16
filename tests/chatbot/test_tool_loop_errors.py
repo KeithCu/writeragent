@@ -94,7 +94,7 @@ def test_instance():
          patch("plugin.chatbot.tool_loop.validate_api_config") as mock_validate_api_config:
 
         mock_get_config.side_effect = lambda key: 10 if "tokens" in key or "context" in key else "test"
-        mock_get_api_config.return_value = {"chat_max_tool_rounds": 1}
+        mock_get_api_config.return_value = {"endpoint": "http://localhost:11434", "chat_max_tool_rounds": 1}
         mock_validate_api_config.return_value = (True, "")
 
         from plugin.chatbot.tool_loop_actions import begin_send_turn
@@ -1470,4 +1470,138 @@ def test_do_send_calc_has_no_pin(test_instance, mock_get_tools):
     turn = current_turn(test_instance)
     assert turn.selection_pin is None
     assert test_instance.session.refresh_calls[-1][2] is None
+
+
+def _send_with_keystore(test_instance, mock_get_tools, fake_keystore, *, locked: bool, on_get=None):
+    import threading
+    from plugin.chatbot.tool_loop_actions import current_turn
+    from plugin.framework import config as fw_config, keystore
+    from plugin.framework.client import model_fetcher
+    from plugin.framework.queue_executor import main
+
+    url = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": url, "text_model": "vendor/cold-vision-model"})
+    fw_config.set_api_key_for_endpoint(url, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = locked
+
+    reads: list[bool] = []
+
+    def record_get(name: str) -> None:
+        reads.append(main.is_current())
+        if on_get is not None:
+            on_get(name)
+
+    fake_keystore.on_get = record_get
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    test_instance.client._endpoint.return_value = url
+
+    real_get_config = fw_config.get_config
+
+    def get_config_wrapper(key: str) -> Any:
+        if key == "chatbot.max_tool_rounds":
+            return 8
+        return real_get_config(key)
+
+    with (
+        patch("plugin.chatbot.tool_loop.get_api_config", side_effect=fw_config.get_api_config),
+        patch("plugin.framework.config.get_config", side_effect=get_config_wrapper),
+        patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch.object(model_fetcher, "run_in_background") as bg_lookup,
+    ):
+        test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
+
+    assert bg_lookup.call_count == 0
+    assert reads == []
+
+    q: queue.Queue[Any] = queue.Queue()
+    batched = BatchingStreamQueue(q, 0.05)
+    with _worker_env(auto_compact=False) as (captured, client, _mock_compact):
+        client.config = test_instance.client.config
+        current_turn(test_instance).queue = q
+        test_instance._spawn_llm_worker(batched, client, 128, [], 0)
+        worker_fn = captured["fn"]
+        t = threading.Thread(target=worker_fn)
+        t.start()
+        t.join(timeout=10)
+        assert not t.is_alive()
+
+    items: list[Any] = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    return reads, items, client
+
+
+def test_send_reads_locked_keyring_once_off_main_thread(test_instance, mock_get_tools, fake_keystore):
+    reads, items, client = _send_with_keystore(test_instance, mock_get_tools, fake_keystore, locked=True)
+    assert reads == [False]
+    assert client.stream_request_with_tools.call_count == 0
+    errors = [item for item in items if item and item[0] == StreamQueueKind.ERROR]
+    assert len(errors) == 1
+    assert errors[0][1]["code"] == "keyring_locked"
+
+
+def test_send_reads_unlocked_keyring_once_off_main_thread(test_instance, mock_get_tools, fake_keystore):
+    reads, items, client = _send_with_keystore(test_instance, mock_get_tools, fake_keystore, locked=False)
+    assert reads == [False]
+    assert client.stream_request_with_tools.call_count == 1
+    assert client.config["api_key"] == "sk-1"
+
+
+def test_stop_during_unlock_prompt_ends_turn_stopped(test_instance, mock_get_tools, fake_keystore):
+    import threading
+    from plugin.chatbot.tool_loop_actions import current_turn
+    from plugin.framework import config as fw_config, keystore
+
+    url = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": url, "text_model": "vendor/cold-vision-model"})
+    fw_config.set_api_key_for_endpoint(url, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    stop_flag = {"stopped": False}
+
+    def stop_during_prompt(_name: str) -> None:
+        stop_flag["stopped"] = True
+
+    fake_keystore.on_get = stop_during_prompt
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    test_instance.client._endpoint.return_value = url
+
+    real_get_config = fw_config.get_config
+
+    def get_config_wrapper(key: str) -> Any:
+        if key == "chatbot.max_tool_rounds":
+            return 8
+        return real_get_config(key)
+
+    with (
+        patch("plugin.chatbot.tool_loop.get_api_config", side_effect=fw_config.get_api_config),
+        patch("plugin.framework.config.get_config", side_effect=get_config_wrapper),
+        patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+    ):
+        test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
+
+    q: queue.Queue[Any] = queue.Queue()
+    batched = BatchingStreamQueue(q, 0.05)
+    with _worker_env(auto_compact=False) as (captured, client, _mock_compact):
+        client.config = test_instance.client.config
+        client.stopped.side_effect = lambda: stop_flag["stopped"]
+        current_turn(test_instance).queue = q
+        test_instance._spawn_llm_worker(batched, client, 128, [], 0)
+        t = threading.Thread(target=captured["fn"])
+        t.start()
+        t.join(timeout=10)
+        assert not t.is_alive()
+
+    items: list[Any] = []
+    while not q.empty():
+        items.append(q.get_nowait())
+    assert items == [(StreamQueueKind.STOPPED,)]
+    assert client.stream_request_with_tools.call_count == 0
+
 

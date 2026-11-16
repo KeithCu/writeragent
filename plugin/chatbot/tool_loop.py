@@ -36,9 +36,11 @@ from plugin.framework.client.errors import (
 )
 from plugin.framework.config import (
     get_api_config,
+    get_api_key_for_endpoint,
     get_config,
     validate_api_config,
 )
+from plugin.framework.client.auth import resolve_auth_for_config
 from plugin.framework.client import model_fetcher
 from plugin.framework.client.model_fetcher import (
     resolve_context_window,
@@ -522,7 +524,9 @@ class ToolCallingMixin:
         max_tokens = get_config("chat_max_tokens")
         log.debug("_do_send: config loaded: max_tokens=%d, max_context=%d" % (max_tokens, CHAT_DOCUMENT_CONTEXT_MAX_CHARS))
 
-        api_config = get_api_config()
+        # Omit the key on the UI thread so a locked keyring never blocks
+        # LibreOffice on an unlock prompt; the LLM worker fills it once.
+        api_config = get_api_config(with_api_key=False)
         ok, err_msg = validate_api_config(api_config)
         if not ok:
             self._panel._append_response("\n[%s]\n" % err_msg)
@@ -593,13 +597,13 @@ class ToolCallingMixin:
             # get_api_config stores the chat model as "model". Reading
             # "text_model" was always empty, so has_native_vision returned
             # False and a selected image was never attached.
-            # _do_send runs on the UI thread: a cold model answers None here
-            # without blocking. Capture unless it is a known no; round 0 of
+            # _do_send runs on the UI thread and the config has no key yet.
+            # On the UI thread has_native_vision answers from memory and never
+            # reads the keyring. Capture unless it is a known no; round 0 of
             # the LLM worker resolves it and drops the image unless True.
             b64_image = None
             text_model_id = str(api_config.get("model") or "")
-            typed_key = str(api_config.get("api_key") or "").strip()
-            vision = model_fetcher.has_native_vision(text_model_id, client._endpoint(), api_key_override=typed_key or None)
+            vision = model_fetcher.has_native_vision(text_model_id, client._endpoint())
             if vision is not False:
                 doc = self._panel._get_document_model()
                 if doc:
@@ -706,6 +710,20 @@ class ToolCallingMixin:
             if stopped_for_this_send():
                 emit((StreamQueueKind.STOPPED,))
                 return
+            config = client.config
+            if "api_key" not in config:
+                # _do_send left the key out so a locked keyring's unlock prompt
+                # waits on this worker instead of freezing LibreOffice on the UI
+                # thread. Later rounds and the STT-fallback respawn find it filled.
+                config["api_key"] = get_api_key_for_endpoint(config.get("endpoint"))
+                if stopped_for_this_send():
+                    # Stop clicked while the prompt was open ends the turn as
+                    # stopped, not as a keyring error.
+                    emit((StreamQueueKind.STOPPED,))
+                    return
+                # Raise keyring_locked / missing_api_key before vision lookup and
+                # compaction re-read the key; except Exception emits ERROR.
+                resolve_auth_for_config(config)
             status_cb, content_cb, thinking_cb = _chunk_callbacks(turn, batched, emit, resume_status)
 
             # The send attached the selection unless the UI-thread answer

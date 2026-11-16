@@ -18,7 +18,7 @@ from plugin.chatbot.dialogs import (
     set_control_text,
 )
 from plugin.framework import keystore
-from plugin.framework.config import get_config, get_secret_config, save
+from plugin.framework.config import get_config, get_secret_config, save, secret_config_locked
 from plugin.framework.config_schema import as_bool, validate
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
@@ -145,6 +145,8 @@ def build_module_field_specs(
             field["help"] = _("Stored in: {where}").format(
                 where=secret_location_label(get_config(config_key))
             )
+            if not str(val) and secret_config_locked(config_key):
+                field["keyring_locked"] = True
         if resolved_opts:
             field["options"] = resolved_opts
 

@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from plugin.framework.config import (
+    api_key_locked_for_endpoint,
     save,
     get_config,
     get_current_endpoint,
@@ -89,11 +90,15 @@ def get_settings_field_specs(ctx: Any) -> list[dict[str, Any]]:
 
 
 def _get_core_field_specs(current_endpoint: str) -> list[dict[str, Any]]:
+    api_key = str(get_api_key_for_endpoint(current_endpoint))
+    api_key_spec: dict[str, Any] = {"name": "api_key", "value": api_key}
+    if not api_key and api_key_locked_for_endpoint(current_endpoint):
+        api_key_spec["keyring_locked"] = True
     return [
         {"name": "endpoint", "value": get_config("endpoint")},
         {"name": "request_timeout", "value": str(get_config("request_timeout")), "type": "int"},
         {"name": "text_model", "value": str(get_text_model())},
-        {"name": "api_key", "value": str(get_api_key_for_endpoint(current_endpoint))},
+        api_key_spec,
         {"name": "temperature", "value": str(get_config("temperature")), "type": "float"},
         {"name": "chat_max_tokens", "value": str(get_config("chat_max_tokens")), "type": "int"},
         {"name": "additional_instructions", "value": get_config("additional_instructions")},
@@ -208,6 +213,16 @@ _LRU_FOR_KEY: dict[str, tuple[str, bool]] = {
 }
 
 
+def _left_blank_while_locked(spec: dict[str, Any] | None, value: Any) -> bool:
+    """True when a secret field opened blank under a locked keyring and stayed blank.
+
+    The field opened blank because the keyring was locked; leaving it blank is
+    not a request to delete the key. Without this check, pressing OK after
+    unlocking compares ``""`` to the real key and deletes it.
+    """
+    return bool(spec and spec.get("keyring_locked")) and not str(value or "")
+
+
 def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]] | None = None) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc.
 
@@ -247,6 +262,8 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             continue
 
         spec = field_specs_by_name[key]
+        if _left_blank_while_locked(spec, val):
+            continue
         save_key = spec_save_key(spec, key)
 
         opts = spec.get("options")
@@ -329,7 +346,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             if save_key not in ("text_model", "image_model") or val != str(get_config(save_key) or "").strip():
                 lru_rows.append((save_key, val, lru_name, current_endpoint if scoped else ""))
 
-    if "api_key" in result:
+    if "api_key" in result and not _left_blank_while_locked(field_specs_by_name.get("api_key"), result["api_key"]):
         # One slot, not a copy of the whole map. save merges that slot
         # into the map it reads under the config lock. Copying the map here
         # and replacing it in the batch dropped a key another writer stored
