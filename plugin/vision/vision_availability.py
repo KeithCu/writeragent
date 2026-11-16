@@ -33,9 +33,11 @@ def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
     if domain == "vision":
         return vision_venv_configured(ctx)
     if domain == "mcp":
-        # Lazy: LibrePy ships plugin/vision/ without plugin/mcp/, and only module-level imports are
-        # checked by the LibrePy import graph test.
-        from plugin.mcp.client import configured_servers
+        # Lazy: LibrePy ships plugin/vision/ without plugin/mcp/.
+        try:
+            from plugin.mcp.client import configured_servers
+        except ImportError:
+            return False
 
         return bool(configured_servers())
     return True

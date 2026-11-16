@@ -587,7 +587,7 @@ _CALC_DELEGATE_DESCRIPTION = (
     f"in this spreadsheet and returns a summary. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
     f"web_research {DELEGATION_PUBLIC_WEB_HINT}; vision runs OCR on the currently selected image and inserts the "
     f"recognized text below it (when configured). Also: images, sheets, ranges, search, charts, shapes, "
-    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
+    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms, mcp."
 )
 
 _DRAW_DELEGATE_LEAD = (
@@ -598,7 +598,7 @@ _DRAW_DELEGATE_LEAD = (
 
 _DRAW_DELEGATE_DESCRIPTION = (
     f"{_DRAW_DELEGATE_LEAD}"
-    "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
+    "Available domains: charts, document_research, forms, images, mcp, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
     "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
 )
 
