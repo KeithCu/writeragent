@@ -682,7 +682,8 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     x_val = float(x)
     lam = float(lambda_)
     # ScExpDist reads the flag with GetDouble (interpr3.cxx), so a blank cell is
-    # 0, the density. An omitted flag keeps the default 1 (cumulative).
+    # 0, the density. Calc requires the flag; the Python default 1 (cumulative)
+    # is a convenience.
     cum = as_nonzero(c)
     # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
     # Excel EXPONDIST is #NUM! for both.

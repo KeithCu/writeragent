@@ -474,7 +474,8 @@ def test_flag_strings_follow_getdouble():
     assert calc.textjoin(",", "yes", ["a", ""]) == "#VALUE!"
     assert calc.textjoin(",", False, ["a", "", "b"]) == "a,,b"
     assert calc.unique([[1, 2], [3, 4]], "0") == [[1, 2], [3, 4]]
-    assert calc.unique([[1, 2]], "FALSE") == [[1, 2]]
+    assert calc.unique([[1, 1], [2, 2]], "FALSE") == [[1, 1], [2, 2]]
+    assert calc.unique([[1, 1], [2, 2]], "TRUE") == [[1], [2]]
     assert calc.unique([[1, 2]], "yes") == "#VALUE!"
     assert math.isclose(calc.weibull(1, 1, 1, "0"), calc.weibull(1, 1, 1, False))
     assert math.isclose(calc.weibull(1, 2, 1, "False"), 0.7357588823428847)
@@ -482,7 +483,8 @@ def test_flag_strings_follow_getdouble():
     with pytest.raises(ValueError):
         calc.weibull(1, 1, 1, "yes")
     assert calc.textsplit("a,,b", ",", ignore_empty="0") == [["a", "", "b"]]
-    assert calc.textsplit("a-b", "-", ignore_empty="FALSE") == [["a", "b"]]
+    assert calc.textsplit("a--b", "-", ignore_empty="FALSE") == [["a", "", "b"]]
+    assert calc.textsplit("a--b", "-", ignore_empty="TRUE") == [["a", "b"]]
     assert math.isnan(calc.textsplit("a-b", "-", ignore_empty="yes"))
 
 

@@ -373,7 +373,8 @@ def clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray]
 def orient_columns(arr: np.ndarray, size: int, axis: int) -> np.ndarray:
     """A regression range with one variable per column.
 
-    A scalar (0-d, which GetMatrix in interpr5.cxx stores as a 1×1 matrix) or a 1-D range is one column. A 2-D block whose ``axis`` length is not ``size``
+    A scalar (0-d, which GetMatrix in interpr5.cxx stores as a 1×1 matrix) or a
+    1-D range is one column. A 2-D block whose ``axis`` length is not ``size``
     while its other axis is ``size`` is transposed: known_x uses axis 0 and the
     number of known_y values, new_x uses axis 1 and the number of x variables.
     Any other shape is returned unchanged for the caller's shape check

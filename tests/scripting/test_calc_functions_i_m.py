@@ -628,4 +628,3 @@ def test_linest_scalar_through_origin():
     assert np.allclose(calc.linest(5, 3, False), [5 / 3, 0.0])
     assert np.allclose(calc.logest(5, 3, 0), [1.7099759466766968, 1.0])
 
-
