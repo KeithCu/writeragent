@@ -70,7 +70,6 @@ ENDPOINT_PRESETS = [
     ("Groq", "https://api.groq.com/openai"),
     ("DeepSeek", "https://api.deepseek.com"),
     ("Cerebras", "https://api.cerebras.ai/v1"),
-    ("Perplexity", "https://api.perplexity.ai"),
     ("X.ai (Grok)", "https://api.x.ai/v1"),
     ("Anthropic", "https://api.anthropic.com/v1"),
     ("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),

@@ -211,7 +211,8 @@ Priority order for `has_native_vision(model_id, endpoint)`:
 | LM Studio (`lmstudio`) | `capabilities.vision` (id: `key`) | `GET /api/v1/models` | Live lookup |
 | Ollama (`ollama`) | `capabilities` | `POST /api/show` | Live lookup |
 | Groq / Z.ai | — | — | Catalog rows (`qwen/qwen3.8-27b`, `glm-5.3-flash`, `glm-5.3-flashx`) |
-| Cerebras / Perplexity / NVIDIA | — | — | `None` (unknown) |
+| Cerebras | — | — | Catalog row (`gpt-oss-120b` → `False`) |
+| NVIDIA | — | — | `None` (unknown) |
 
 ---
 
