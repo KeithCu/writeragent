@@ -52,19 +52,22 @@ def _setup_peer(ctx):
 
     _require_user_profile()
     init_config(ctx)
-    # Point JSON at the mock before showing either deck (and before writing test flags).
-    _session = start_mock_sidebar_session(delay_ms=20, offline=True)
-    from plugin.chatbot.chat_sidebar_mode import mark_librarian_invoked
+    # Point JSON at the mock before showing either deck; fold test flags into the
+    # same start save so the single 2s OXT settle covers them too.
+    _session = start_mock_sidebar_session(
+        delay_ms=20,
+        offline=True,
+        extra_config={
+            "chatbot.librarian_invoked": True,
+            "chatbot.prompt_for_web_research": False,
+        },
+    )
     from plugin.chatbot.memory import MemoryStore
-    from plugin.framework.config import get_config, save
 
-    mark_librarian_invoked()
     try:
         MemoryStore().write("# Test User Profile\n")
     except Exception:
         pass
-    if get_config("chatbot.prompt_for_web_research"):
-        save({"chatbot.prompt_for_web_research": False})
 
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
 

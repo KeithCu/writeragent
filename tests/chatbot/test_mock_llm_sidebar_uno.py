@@ -53,22 +53,23 @@ def _setup_mock(ctx):
 
     init_config(ctx)
     # Point writeragent.json at the mock *before* showing the deck so the live
-    # OXT send path is not still using the user's real endpoint (and so the
-    # backup captures the pre-test flags written below).
-    _session = start_mock_sidebar_session(delay_ms=20, offline=True)
-    from plugin.chatbot.chat_sidebar_mode import mark_librarian_invoked
+    # OXT send path is not still using the user's real endpoint; fold test flags
+    # into the same start save so the single 2s OXT settle covers them too.
+    # Packet E1–E8 must not block on HITL Accept; R8 turns prompt_for_web_research on locally.
+    _session = start_mock_sidebar_session(
+        delay_ms=20,
+        offline=True,
+        extra_config={
+            "chatbot.librarian_invoked": True,
+            "chatbot.prompt_for_web_research": False,
+        },
+    )
     from plugin.chatbot.memory import MemoryStore
-    from plugin.framework.config import save
 
-    # Ensure clean CI profile starts directly in Chat mode (creates USER.md and sets flag).
-    mark_librarian_invoked()
     try:
         MemoryStore().write("# Test User Profile\n")
     except Exception:
         pass
-
-    # Packet E1–E8 must not block on HITL Accept. R8 turns this on locally.
-    save({"chatbot.prompt_for_web_research": False})
     # Import hooks before later panel creates; factory WeakSet also sees panels
     # that were wired before this module loaded (debug-only).
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
@@ -626,6 +627,7 @@ def _rebind_mock(**flags: Any) -> None:
         setattr(_session.config, key, value)
     try:
         _session.httpd.shutdown()
+        _session.httpd.server_close()
         _session.thread.join(timeout=2)
     except Exception:
         pass

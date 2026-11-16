@@ -48,7 +48,7 @@ def _config_backup_path() -> str:
 
 def _read_text(path: str) -> str | None:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, "r", encoding="utf-8", newline="") as handle:
             return handle.read()
     except FileNotFoundError:
         return None
@@ -106,7 +106,23 @@ def _restore_config_backup(*, only_if_still_mock: bool) -> bool:
     backup_text = _read_text(backup_path)
     if backup_text is None:
         return False
-    saved_text = json.loads(backup_text)["config"]
+    try:
+        payload = json.loads(backup_text)
+        if not isinstance(payload, dict) or "config" not in payload:
+            raise ValueError("missing config key")
+        saved_text = payload["config"]
+        if saved_text is not None and not isinstance(saved_text, str):
+            raise ValueError("invalid config value")
+    except (ValueError, KeyError) as exc:
+        print(
+            f"mock_llm_harness: dropping malformed backup {backup_path} ({exc})",
+            file=sys.stderr,
+        )
+        try:
+            os.remove(backup_path)
+        except FileNotFoundError:
+            pass
+        return False
     config_path = get_config_file_path()
     restored = False
     if not only_if_still_mock or _still_pointed_at_mock(_read_text(config_path)):
@@ -149,7 +165,13 @@ class MockSidebarSession:
         self.config = config
 
 
-def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **flags: Any) -> MockSidebarSession:
+def start_mock_sidebar_session(
+    *,
+    delay_ms: int = 20,
+    offline: bool = True,
+    extra_config: dict[str, Any] | None = None,
+    **flags: Any,
+) -> MockSidebarSession:
     """Bind an ephemeral mock and point config at ``writeragent-mock``."""
     from plugin.framework.client.model_fetcher import set_text_model
     from plugin.framework.config import save
@@ -157,6 +179,7 @@ def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **fl
     if make_handler_class is None or MockLLMConfig is Any:
         raise RuntimeError("scripts.mock_llm_server is not available in stripped release builds")
 
+    # Finish a killed run's cleanup before snapshotting, or we would snapshot mock state.
     _restore_config_backup(only_if_still_mock=True)
     _save_config_backup()
 
@@ -171,8 +194,14 @@ def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **fl
         host, port = httpd.server_address[:2]
         base_url = "http://%s:%s" % (host, port)
 
-        save({"endpoint": base_url, "audio.stt_provider": "endpoint"})
+        updates: dict[str, Any] = {"endpoint": base_url, "audio.stt_provider": "endpoint"}
+        if extra_config:
+            updates.update(extra_config)
+        save(updates)
         set_text_model(MOCK_MODEL_ID, update_lru=False)
+        # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
+        if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
+            time.sleep(2.1)
     except BaseException:
         if httpd is not None:
             try:
@@ -191,9 +220,6 @@ def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **fl
         _restore_config_backup(only_if_still_mock=False)
         raise
 
-    # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
-    if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
-        time.sleep(2.1)
     return MockSidebarSession(httpd, thread, base_url, config)
 
 

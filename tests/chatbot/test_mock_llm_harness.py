@@ -13,6 +13,7 @@ import pytest
 from plugin.framework.client.model_fetcher import set_native_audio_support, set_native_vision_support
 from plugin.framework.config import (
     api_key_slot_value,
+    get_config,
     get_config_dict,
     get_config_file_path,
     get_current_endpoint,
@@ -52,10 +53,19 @@ def test_stop_restores_config_bytes_and_keystore(fake_keystore) -> None:
     keys_before = set(fake_keystore.store.keys())
     set_calls_before = fake_keystore.set_calls
 
-    session = start_mock_sidebar_session(delay_ms=0, offline=True)
+    session = start_mock_sidebar_session(
+        delay_ms=0,
+        offline=True,
+        extra_config={
+            "chatbot.librarian_invoked": True,
+            "chatbot.prompt_for_web_research": False,
+        },
+    )
     try:
         assert get_current_endpoint() == session.base_url
         assert api_key_slot_value(session.base_url) == ""
+        assert get_config("chatbot.librarian_invoked") is True
+        assert get_config("chatbot.prompt_for_web_research") is False
         _simulate_sidebar_writes(session.base_url)
     finally:
         stop_mock_sidebar_session(session)
@@ -120,6 +130,20 @@ def test_failed_start_restores_config(fake_keystore, monkeypatch: pytest.MonkeyP
 
     with pytest.raises(RuntimeError, match="boom"):
         start_mock_sidebar_session(delay_ms=0, offline=True)
+
+    assert Path(get_config_file_path()).read_bytes() == seed_bytes
+    assert not Path(_config_backup_path()).exists()
+
+
+def test_start_drops_malformed_backup(fake_keystore) -> None:
+    seed_bytes = _seed_user_config()
+    Path(_config_backup_path()).write_text("{not json", encoding="utf-8")
+
+    session = start_mock_sidebar_session(delay_ms=0, offline=True)
+    try:
+        assert get_current_endpoint() == session.base_url
+    finally:
+        stop_mock_sidebar_session(session)
 
     assert Path(get_config_file_path()).read_bytes() == seed_bytes
     assert not Path(_config_backup_path()).exists()
