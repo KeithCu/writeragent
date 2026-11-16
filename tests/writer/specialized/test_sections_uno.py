@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import os
 import tempfile
 import xml.etree.ElementTree as ET
@@ -10,8 +12,13 @@ from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.writer.specialized.sections import (
     SectionCreate,
     SectionDelete,
+    SectionGetInfo,
+    SectionRename,
     SectionSetColumns,
+    SectionSetMargins,
+    SectionSetPassword,
     SectionSetProtection,
+    SectionSetVisibility,
 )
 
 
@@ -199,3 +206,180 @@ def test_section_guards_uno(ctx, doc):
     assert toc_create["status"] == "error"
     assert toc_create["code"] == "INDEX_SECTION"
     assert not doc.getTextSections().hasByName("InsideTOC")
+
+
+@native_test
+@with_native_doc("writer")
+def test_section_visibility_changes_layout_uno(ctx, doc):
+    _fill_paragraphs(doc, count=160)
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    assert SectionCreate().execute(tctx, name="Big", locator="paragraph:2", end_locator="paragraph:150")["status"] == "ok"
+
+    controller = doc.getCurrentController()
+    start_pages = controller.PageCount
+    assert start_pages > 1
+
+    hide_res = SectionSetVisibility().execute(tctx, name="Big", visible=False)
+    assert hide_res["status"] == "ok"
+    assert hide_res["is_visible"] is False
+    assert hide_res["is_shown"] is False
+    assert controller.PageCount < start_pages
+
+    doc.getUndoManager().undo()
+    assert controller.PageCount == start_pages
+
+    cond_show = SectionSetVisibility().execute(tctx, name="Big", visible=False, condition="1==0")
+    assert cond_show["status"] == "ok"
+    assert cond_show["is_shown"] is True
+    assert controller.PageCount == start_pages
+
+    cond_hide = SectionSetVisibility().execute(tctx, name="Big", visible=False, condition="1==1")
+    assert cond_hide["status"] == "ok"
+    assert cond_hide["is_shown"] is False
+    assert controller.PageCount < start_pages
+
+    info = SectionGetInfo().execute(tctx, name="Big")
+    assert info["status"] == "ok"
+    assert info["condition"] == "1==1"
+    assert info["is_visible"] is False
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    prop = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    prop.Name = "Hidden"
+    prop.Value = True
+    doc2 = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (prop,))
+    try:
+        _fill_paragraphs(doc2, count=3)
+        tctx2 = TestingFactory.create_context(doc=doc2, ctx=ctx, env="native")
+        assert SectionCreate().execute(tctx2, name="All", locator="paragraph:0", end_locator="paragraph:2")["status"] == "ok"
+        fail_res = SectionSetVisibility().execute(tctx2, name="All", visible=False)
+        assert fail_res["status"] == "error"
+        assert fail_res["code"] == "SET_SECTION_VISIBILITY_FAILED"
+        assert doc2.getTextSections().getByName("All").getPropertyValue("IsVisible") is True
+    finally:
+        doc2.close(True)
+
+
+@native_test
+@with_native_doc("writer")
+def test_section_password_round_trip_uno(ctx, doc):
+    _fill_paragraphs(doc, count=4)
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    assert SectionCreate().execute(tctx, name="Secret", locator="paragraph:0", end_locator="paragraph:1")["status"] == "ok"
+
+    pw = "Gehe1m-ü"
+    set_res = SectionSetPassword().execute(tctx, name="Secret", password=pw)
+    assert set_res["status"] == "ok"
+    assert set_res["has_password"] is True
+    assert set_res["is_protected"] is True
+
+    sec = doc.getTextSections().getByName("Secret")
+    assert sec.getPropertyValue("IsProtected") is True
+
+    expected_b64 = base64.b64encode(hashlib.sha1(pw.encode("utf-16-le"), usedforsecurity=False).digest()).decode("ascii")
+    xml = _save_odt_content_xml(doc)
+    root = ET.fromstring(xml)
+    text_ns = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+    sec_elem = next(el for el in root.iter(f"{{{text_ns}}}section") if el.attrib.get(f"{{{text_ns}}}name") == "Secret")
+    assert sec_elem.attrib.get(f"{{{text_ns}}}protected") == "true"
+    assert sec_elem.attrib.get(f"{{{text_ns}}}protection-key") == expected_b64
+
+    prot_res = SectionSetProtection().execute(tctx, name="Secret", protected=False)
+    assert prot_res["status"] == "error"
+    assert prot_res["code"] == "SECTION_PASSWORD_PROTECTED"
+
+    bad_pw = SectionSetPassword().execute(tctx, name="Secret", password="", current_password="nope")
+    assert bad_pw["status"] == "error"
+    assert bad_pw["code"] == "INVALID_PARAM"
+
+    clear_res = SectionSetPassword().execute(tctx, name="Secret", password="", current_password=pw)
+    assert clear_res["status"] == "ok"
+    assert clear_res["has_password"] is False
+    assert clear_res["is_protected"] is True
+
+    xml_after = _save_odt_content_xml(doc)
+    root_after = ET.fromstring(xml_after)
+    sec_elem_after = next(
+        el for el in root_after.iter(f"{{{text_ns}}}section") if el.attrib.get(f"{{{text_ns}}}name") == "Secret"
+    )
+    assert f"{{{text_ns}}}protection-key" not in sec_elem_after.attrib
+
+
+@native_test
+@with_native_doc("writer")
+def test_section_rename_and_margins_uno(ctx, doc):
+    _fill_paragraphs(doc, count=5)
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    assert SectionCreate().execute(tctx, name="M", locator="paragraph:1", end_locator="paragraph:2")["status"] == "ok"
+    assert SectionCreate().execute(tctx, name="Other", locator="paragraph:4")["status"] == "ok"
+
+    ren_res = SectionRename().execute(tctx, name="M", new_name="Renamed")
+    assert ren_res["status"] == "ok"
+    assert ren_res["section_name"] == "Renamed"
+    assert ren_res["old_name"] == "M"
+    assert not doc.getTextSections().hasByName("M")
+    assert doc.getTextSections().hasByName("Renamed")
+
+    dup_res = SectionRename().execute(tctx, name="Renamed", new_name="Other")
+    assert dup_res["status"] == "error"
+    assert dup_res["code"] == "INVALID_PARAM"
+    assert doc.getTextSections().hasByName("Renamed")
+
+    doc.getUndoManager().undo()
+    assert doc.getTextSections().hasByName("M")
+    assert not doc.getTextSections().hasByName("Renamed")
+
+    margin_res = SectionSetMargins().execute(tctx, name="M", left_mm=15, right_mm=5)
+    assert margin_res["status"] == "ok"
+    info = SectionGetInfo().execute(tctx, name="M")
+    assert info["status"] == "ok"
+    assert abs(info["left_margin_mm"] - 15) <= 0.02
+    assert abs(info["right_margin_mm"] - 5) <= 0.02
+
+    paras = _paragraph_elements(doc)
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(paras[0].getStart(), False)
+    outside_x = vc.getPosition().X
+    vc.gotoRange(paras[1].getStart(), False)
+    inside_x = vc.getPosition().X
+    expected_hmm = round(info["left_margin_mm"] * 100)
+    assert abs((inside_x - outside_x) - expected_hmm) <= 2
+
+    right_only = SectionSetMargins().execute(tctx, name="M", right_mm=7)
+    assert right_only["status"] == "ok"
+    assert abs(right_only["left_margin_mm"] - info["left_margin_mm"]) <= 0.02
+    assert abs(right_only["right_margin_mm"] - 7) <= 0.02
+
+    doc.getUndoManager().undo()
+    restored = SectionGetInfo().execute(tctx, name="M")
+    assert restored["left_margin_mm"] == info["left_margin_mm"]
+    assert restored["right_margin_mm"] == info["right_margin_mm"]
+
+
+@native_test
+@with_native_doc("writer")
+def test_section_get_info_nesting_and_index_uno(ctx, doc):
+    _fill_paragraphs(doc, count=6)
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    assert SectionCreate().execute(tctx, name="Outer", locator="paragraph:1", end_locator="paragraph:4")["status"] == "ok"
+    assert SectionCreate().execute(tctx, name="Inner", locator="paragraph:2", end_locator="paragraph:3")["status"] == "ok"
+
+    outer_info = SectionGetInfo().execute(tctx, name="Outer")
+    assert outer_info["status"] == "ok"
+    assert outer_info["parent_section"] is None
+    assert outer_info["child_sections"] == ["Inner"]
+
+    inner_info = SectionGetInfo().execute(tctx, name="Inner")
+    assert inner_info["status"] == "ok"
+    assert inner_info["parent_section"] == "Outer"
+    assert inner_info["child_sections"] == []
+
+    toc = doc.createInstance("com.sun.star.text.ContentIndex")
+    end_cur = doc.getText().createTextCursor()
+    end_cur.gotoEnd(False)
+    doc.getText().insertTextContent(end_cur, toc, False)
+    toc.update()
+
+    toc_info = SectionGetInfo().execute(tctx, name="Table of Contents1")
+    assert toc_info["status"] == "ok"
+    assert toc_info["is_index"] is True

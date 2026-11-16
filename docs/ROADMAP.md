@@ -22,7 +22,7 @@ Primary product focus: features the agent still cannot drive. Shipped domains (s
 **Writer** — [`writer/specialized-toolsets.md`](writer/specialized-toolsets.md)
 
 - Text watermarks (done via `page_get_watermark` / `page_set_watermark`; image watermarks remain out of scope)
-- Sections lifecycle (create, multi-column, conditional visibility, password); read-only inspection exists
+- Sections lifecycle (create, multi-column, margins, rename, conditional visibility, password, and read-only inspection are shipped; external file links, DDE, footnote scoping, and backgrounds remain)
 - Style preview (deferred 2026-11-05)
 - Batch section rewriting (heading-based whole-document processing)
 
