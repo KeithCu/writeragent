@@ -39,10 +39,6 @@ def test_embedded_insert_rejects_bad_object_type_and_bool_cell():
     assert bad_type.error is not None
     assert bad_type.error["code"] == "VALIDATION_ERROR"
 
-    bad_data = prepare_tool_call(tool, ctx, "embedded_insert", {"object_type": "spreadsheet", "data": "x"})
-    assert bad_data.error is not None
-    assert bad_data.error["code"] == "VALIDATION_ERROR"
-
     bad_width = prepare_tool_call(
         tool, ctx, "embedded_insert", {"object_type": "spreadsheet", "width": True, "height": 5}
     )

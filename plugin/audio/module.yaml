@@ -133,7 +133,7 @@ config:
     default: "1.0x"
     widget: combo
     label: Speech Speed
-    helper: "Playback speed multiplier (1.0x, 1.1x, 1.25x, 1.5x, 1.75x, 2.0x, or custom down to 0.25x)."
+    helper: "Speech speed (1.0x–2.0x, or custom down to 0.25x). Kokoro (local or OpenRouter) and local Piper speak at this speed; other online voices are sped up during playback (0.5x–2.0x; on Linux this needs ffplay or mpv)."
     options:
       - value: "1.0x"
         label: "1.0x"

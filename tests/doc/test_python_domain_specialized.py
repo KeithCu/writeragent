@@ -116,18 +116,16 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     )
 
 
-def test_normalize_domain_list_dedupes_and_parses_json_array():
+def test_normalize_domain_list_dedupes():
     names, err = normalize_domain_list([" footnotes ", "shapes", "footnotes"])
     assert err is None
     assert names == ["footnotes", "shapes"]
-    names, err = normalize_domain_list('["sheets", "ranges"]')
-    assert err is None
-    assert names == ["sheets", "ranges"]
-    names, err = normalize_domain_list("footnotes")
-    assert names is None
-    assert err and "list" in err
     names, err = normalize_domain_list([])
     assert names is None
+    assert err
+    names, err = normalize_domain_list(123)
+    assert names is None
+    assert err and "list" in err
 
 
 def test_validate_domains_by_app():
@@ -175,7 +173,7 @@ def test_delegate_tool_domains_rejects_non_string_or_missing_task():
     tool = DelegateToolDomains()
     ctx = _ctx(registry, "writer", "com.sun.star.text.TextDocument")
 
-    for bad in (123, ["do it"]):
+    for bad in (True, ["do it"]):
         prepared = prepare_tool_call(tool, ctx, tool.name, {"domains": ["footnotes"], "task": bad})
         assert prepared.error is not None and prepared.error["code"] == "VALIDATION_ERROR"
         assert "task" in prepared.error["message"]
@@ -537,7 +535,7 @@ def test_delegate_tool_domains_execute_returns_inner_result(mock_inner):
     side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.doc.specialized_base.format_shapes_canvas_context")

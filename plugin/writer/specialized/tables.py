@@ -746,7 +746,7 @@ class TableInsert(ToolWriterTableBase):
     description: str = (
         "Insert a table. Writer: text table at the view cursor (or document end); "
         "pass parent + cell to nest inside an existing table cell (inserts at the cell end). "
-        "Draw/Impress: TableShape; position/size in 1/100 mm. parent/cell are Writer-only. "
+        "Draw/Impress: TableShape. parent/cell are Writer-only. "
         "Optional data is a 2D array of cell strings."
     )
     parameters: dict[str, Any] | None = {
@@ -768,10 +768,10 @@ class TableInsert(ToolWriterTableBase):
                 "description": "Writer: A1-style host cell (requires parent).",
             },
             "page": {"type": "integer", "description": "Draw/Impress: 0-based page index (active if omitted)"},
-            "x": {"type": "integer", "description": "Draw/Impress: X in 1/100 mm (default: 3000)"},
-            "y": {"type": "integer", "description": "Draw/Impress: Y in 1/100 mm (default: 4000)"},
-            "width": {"type": "integer", "description": "Draw/Impress: width in 1/100 mm (default: 20000)"},
-            "height": {"type": "integer", "description": "Draw/Impress: height in 1/100 mm (default: 10000)"},
+            "x": {"type": "integer", "description": "Draw/Impress: X position, 1/100 mm (default: 3000)"},
+            "y": {"type": "integer", "description": "Draw/Impress: Y position, 1/100 mm (default: 4000)"},
+            "width": {"type": "integer", "description": "Draw/Impress: width, 1/100 mm (default: 20000)"},
+            "height": {"type": "integer", "description": "Draw/Impress: height, 1/100 mm (default: 10000)"},
         },
         "required": ["rows", "columns"],
     }

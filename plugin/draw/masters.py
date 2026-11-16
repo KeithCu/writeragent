@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.draw.base import ToolDrawSlideMastersBase
+from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawSlideMastersBase
 from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import is_disposal
 from plugin.framework.errors import name_miss_details
@@ -72,7 +72,7 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
     """List all master slides in a Draw/Impress document."""
 
     name: str | None = "slide_list_masters"
-    description: str = "List all master slides (master pages) in the document with name and dimensions."
+    description: str = "List all master slides (master pages) in the document with name and size (1/100 mm)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -81,8 +81,8 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
             result.append({
                 "index": i,
                 "name": name,
-                "width_mm": m.Width // 100,
-                "height_mm": m.Height // 100,
+                "width": m.Width,
+                "height": m.Height,
             })
         return {"status": "ok", "master_slides": result, "count": len(result)}
 
@@ -92,7 +92,7 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
 
     name: str | None = "slide_get_master"
     description: str = "Get the master slide assigned to a specific slide. Returns the master slide name."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
@@ -104,7 +104,7 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
 
     name: str | None = "slide_set_master"
     description: str = "Assign a master slide to a specific slide by master name. Use slide_list_masters to see available masters."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "master": {"type": "string", "description": "Name of the master slide to assign."}}, "required": ["master"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY, "master": {"type": "string", "description": "Name of the master slide to assign."}}, "required": ["master"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

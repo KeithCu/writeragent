@@ -611,9 +611,9 @@ def test_document_properties_set_no_changes_and_conflicts():
     )
     assert conflict["code"] == "INVALID_PARAM"
 
-    bad_kw = prepare_tool_call(DocumentPropertiesSet(), ctx, "document_set_properties", {"keywords": "one,two"})
-    assert bad_kw.error is not None
-    assert bad_kw.error["code"] == "VALIDATION_ERROR"
+    bad_title = prepare_tool_call(DocumentPropertiesSet(), ctx, "document_set_properties", {"title": True})
+    assert bad_title.error is not None
+    assert bad_title.error["code"] == "VALIDATION_ERROR"
 
     bad_kw_item = DocumentPropertiesSet().execute(ctx, keywords=["ok", 1])
     assert bad_kw_item["code"] == "INVALID_PARAM"

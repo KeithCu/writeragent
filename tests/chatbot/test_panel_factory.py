@@ -485,16 +485,20 @@ def test_get_real_interface_skips_hop_when_panel_exists():
     assert result is existing
 
 
-def test_sidebar_model_selectors_skip_remote_fetch():
-    """Sidebar create and config:changed must not fetch the catalog on the UI thread."""
+def test_sidebar_text_combo_lists_warm_catalog_after_lru():
+    """Warm catalog populates OpenRouter text combo after LRU entries without UI-thread HTTP."""
     from unittest.mock import MagicMock, patch
 
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+
+    endpoint = "https://openrouter.ai/api"
     el = _thin_panel_element()
     el.ctx = MagicMock()
     el._in_refresh_controls = False
     el.m_panelRootWindow = MagicMock()
     el._update_backend_indicator = MagicMock()
     model_selector = MagicMock()
+    model_selector.getItemCount.return_value = 0
     image_selector = MagicMock()
 
     def get_optional(_root, name):
@@ -504,12 +508,22 @@ def test_sidebar_model_selectors_skip_remote_fetch():
             return image_selector
         return None
 
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", return_value="m") as pop, \
+    def get_cfg(key):
+        if key == f"model_lru@{endpoint}":
+            return ["x/lru"]
+        return ""
+
+    with patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=["vendor/a", "vendor/b"]), \
+         patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", wraps=populate_combobox_with_lru) as pop, \
          patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector", return_value="img") as image_pop, \
-         patch("plugin.chatbot.panel_factory.get_text_model", return_value="m"), \
+         patch("plugin.chatbot.config_ui_helpers.get_config", side_effect=get_cfg), \
+         patch("plugin.chatbot.config_ui_helpers.has_api_key_for_endpoint", return_value=True), \
+         patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={}), \
+         patch("plugin.chatbot.config_ui_helpers.merge_provider_default_models"), \
+         patch("plugin.chatbot.panel_factory.get_text_model", return_value="x/lru"), \
          patch("plugin.chatbot.panel_factory.get_image_model", return_value="img"), \
          patch("plugin.chatbot.panel_factory.get_config", return_value=""), \
-         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value="http://127.0.0.1:9"), \
+         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint), \
          patch("plugin.chatbot.panel_factory.get_optional_control", side_effect=get_optional):
         el._wire_model_selectors({"model_selector": model_selector, "image_model_selector": image_selector})
         el._refresh_controls_from_config()
@@ -521,6 +535,88 @@ def test_sidebar_model_selectors_skip_remote_fetch():
         assert "model_lru" in call.args
     for call in image_pop.call_args_list:
         assert call.kwargs.get("skip_remote_fetch") is True
+
+    items = list(model_selector.addItems.call_args.args[0])
+    assert items.index("x/lru") < items.index("vendor/a")
+    assert items.index("x/lru") < items.index("vendor/b")
+
+
+def test_cold_catalog_repaints_after_background_fetch_and_keeps_typed_text():
+    """Cold background fetch repaints the text combo while preserving uncommitted typed text."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+
+    endpoint = "http://localhost:11434"
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el._in_refresh_controls = False
+    el._released = False
+    el.m_panelRootWindow = MagicMock()
+    el._update_backend_indicator = MagicMock()
+    model_selector = MagicMock()
+    combo_state = {"text": "", "items": []}
+
+    def get_text():
+        return combo_state["text"]
+
+    def set_text(val):
+        combo_state["text"] = val
+
+    def remove_items(start, count):
+        if count:
+            combo_state["items"][start : start + count] = []
+
+    def add_items(items, pos):
+        combo_state["items"][pos:pos] = list(items)
+
+    model_selector.getText.side_effect = get_text
+    model_selector.setText.side_effect = set_text
+    model_selector.getItemCount.side_effect = lambda: len(combo_state["items"])
+    model_selector.removeItems.side_effect = remove_items
+    model_selector.addItems.side_effect = add_items
+
+    captured_callbacks = []
+
+    def fake_memo(_ep, on_fetched, *, task_name):
+        captured_callbacks.append(on_fetched)
+        return None
+
+    with patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", side_effect=fake_memo), \
+         patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", wraps=populate_combobox_with_lru), \
+         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]), \
+         patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={}), \
+         patch("plugin.chatbot.config_ui_helpers.merge_provider_default_models"), \
+         patch("plugin.chatbot.config_ui_helpers.save") as mock_save, \
+         patch("plugin.chatbot.panel_factory.get_text_model", return_value="llama3"), \
+         patch("plugin.chatbot.panel_factory.set_text_model") as mock_set_text_model, \
+         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=endpoint) as mock_ep, \
+         patch("plugin.chatbot.panel_factory.get_optional_control", return_value=model_selector):
+        el._populate_model_combos(model_selector, None)
+        assert "vendor/a" not in combo_state["items"]
+        assert len(captured_callbacks) == 1
+
+        combo_state["text"] = "half-typ"
+        mock_set_text_model.reset_mock()
+        captured_callbacks[0](["vendor/a"])
+
+        assert "vendor/a" in combo_state["items"]
+        assert combo_state["text"] == "half-typ"
+        assert "half-typ" not in combo_state["items"]
+        mock_save.assert_not_called()
+        mock_set_text_model.assert_not_called()
+
+        # Endpoint changed before callback -> no-op.
+        combo_state["items"] = ["only-before"]
+        mock_ep.return_value = "http://localhost:1234"
+        captured_callbacks[0](["vendor/other"])
+        assert combo_state["items"] == ["only-before"]
+
+        # Panel released before callback -> no-op.
+        mock_ep.return_value = endpoint
+        el._released = True
+        captured_callbacks[0](["vendor/released"])
+        assert combo_state["items"] == ["only-before"]
 
 
 def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
@@ -1354,6 +1450,7 @@ def test_refresh_controls_populates_model_combos_without_readding_listeners() ->
         patch("plugin.chatbot.config_ui_helpers.populate_image_model_selector") as mock_pop_img,
         patch("plugin.chatbot.panel_factory.set_text_model"),
         patch("plugin.chatbot.panel_factory.set_image_model"),
+        patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=None),
     ):
         mock_pop_text.return_value = "gpt-4o"
         mock_pop_img.return_value = "dall-e-3"

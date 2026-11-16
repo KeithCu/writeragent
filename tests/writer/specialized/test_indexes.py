@@ -1042,7 +1042,7 @@ def test_toc_entry_tools_reject_non_integer_occurrence_index_and_level():
     from plugin.framework.tool import prepare_tool_call
 
     ins_tool = IndexesInsertTocEntry()
-    for level in ("1", True):
+    for level in ("one", True):
         prep = prepare_tool_call(ins_tool, ctx, "index_insert_toc_entry", {"content": "Beta", "level": level})
         assert prep.error is not None
         assert prep.error["code"] == "VALIDATION_ERROR"

@@ -39,9 +39,7 @@ After step 2, convert the plain-text report to HTML and insert it with apply_con
 Then reply_to_user with a brief HTML summary of what you researched and where it was inserted.
 
 HTML RULES (CRITICAL):
-- apply_content content must be a JSON array of HTML strings — no Markdown (#, **, ```).
 - reply_to_user must be HTML and brief (status/summary only).
-- Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
 - Rewrite plain-text deep_research_search_web results as structured HTML (headings, paragraphs, lists) before apply_content.
 
 - apply_content: the ONLY way to write research into the document."""

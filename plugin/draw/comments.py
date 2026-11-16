@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.draw.base import ToolDrawCommentBase
+from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawCommentBase
 from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import enum_has_more, uno_same
@@ -246,7 +246,7 @@ class AddPageComment(ToolDrawCommentBase):
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Comment text."},
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)."},
+            "page": DRAW_PAGE_PROPERTY,
             "author": {"type": "string", "description": "Author name (optional)."},
         },
         "required": ["text"],
@@ -318,7 +318,7 @@ class DeletePageComment(ToolDrawCommentBase):
         "type": "object",
         "properties": {
             "index": {"type": "integer", "description": "0-based index on the page."},
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)."},
+            "page": DRAW_PAGE_PROPERTY,
         },
         "required": ["index"],
     }

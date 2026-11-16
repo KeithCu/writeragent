@@ -181,7 +181,7 @@ Uses Hermes Agent's rough token estimator adapted with standard library `re` and
 `resolve_context_window` (defined in `plugin/framework/client/model_fetcher.py`) is called by `tool_loop` and passed into `compact_session`:
 
 1. **Ollama live `num_ctx`:** When provider is `"ollama"`, queries `/api/show` for runtime `num_ctx` via `query_ollama_runtime_num_ctx`. Missing `num_ctx` returns `None` immediately — no `/v1/models` cache and no catalog (issue #570).
-2. **Cached `/v1/models` length:** For every other provider, `cached_v1_context_tokens` reads the process memo filled when Settings/sidebar already fetched the list (`context_length` or Groq `context_window`). Harvest only — compact does **not** GET `/v1/models`. OpenRouter uses `:nitro` / dynamic-suffix equivalence. Sidebar skips OpenRouter/Together fetches (`massive_providers`); those live lengths appear only after Settings has fetched.
+2. **Cached `/v1/models` length:** For every other provider, `cached_v1_context_tokens` reads the process memo filled when Settings or the sidebar (`memo_text_models_or_fetch`, including OpenRouter and Together) already fetched the list (`context_length` or Groq `context_window`). Harvest only — compact does **not** GET `/v1/models`. OpenRouter uses `:nitro` / dynamic-suffix equivalence.
 3. **Catalog lookup:** `DEFAULT_MODELS` as before, including the custom any-id pass (`writeragent-mock` → 32768).
 4. **Unknown (`None`):** If the window cannot be resolved, returns `None`. Compaction safely skips execution (`reason="no_window"`), preventing erroneous truncation.
 

@@ -807,7 +807,7 @@ Optional per-folder cache beside embeddings ([`../embeddings.md`](../embeddings.
 | LLM `python_run_script` | AST blocklist/extras — optional later |
 | Subprocess | Always the real isolation boundary |
 
-Add `plugin.vision.venv.vision`, `plugin.vision.venv.vision_docling`, and `plugin.vision.venv.vision_paddle` to public alias list for stub import; **do not** add `docling` or `paddleocr` to LLM sandbox extras — they stay inside trusted modules only.
+`writeragent.vision` is on `PUBLIC_PLUGIN_IMPORTS` and `plugin.vision.venv.*` stays blocked; **do not** add `docling` or `paddleocr` to LLM sandbox extras — they stay inside trusted modules only.
 
 ---
 
