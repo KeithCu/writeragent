@@ -692,6 +692,7 @@ def memo_text_models_or_fetch(
     computing the memo key hashes the saved key and would trigger a keyring
     prompt on the UI thread. At most one fetch per endpoint+key runs in flight;
     concurrent callers share the waiter list and receive one ``main.post``.
+    A failed fetch is not memoized; the next populate retries.
     """
     from plugin.framework.client.auth import provider_requires_api_key
 

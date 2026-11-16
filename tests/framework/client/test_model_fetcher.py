@@ -1702,6 +1702,7 @@ def test_memo_text_models_or_fetch_cold_one_job_posts_all_waiters():
             assert len(jobs) == 2
     finally:
         cfg._catalog_memos.clear()
+        # Reset in case an assertion fails before the job runs.
         cfg._text_fetch_waiters.clear()
 
 
@@ -1730,6 +1731,7 @@ def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
             assert len(jobs) == 2
     finally:
         cfg._catalog_memos.clear()
+        # Reset in case an assertion fails before the job runs.
         cfg._text_fetch_waiters.clear()
 
 

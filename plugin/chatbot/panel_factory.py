@@ -371,11 +371,16 @@ class _SelectorItemSyncListener(BaseItemListener):
         self._sync_fn = sync_fn
 
     def on_item_state_changed(self, rEvent: Any) -> None:
-        if not self.panel._in_refresh_controls:
+        if not self.panel._released and not self.panel._in_refresh_controls:
             self._sync_fn()
 
 
 class _SelectorFocusCommitListener(BaseFocusListener):
+    # Commit on focus lost rather than text change: per-keystroke saves write
+    # partial LRU entries and emit config:changed, repainting the combo mid-typing.
+    # Opening the dropdown is not focus lost (VCL AllowGrabFocus is only set when
+    # there is no float window), so half-typed text stays uncommitted while picking;
+    # /formula returns before Send sync (panel.py:1405-1412) and relies on this.
     panel: Any
     _sync_fn: Any
 
@@ -754,6 +759,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         if model_selector:
             # Warm memo now; cold memo via background worker (never HTTP on UI thread).
+            # An unreachable endpoint would block the UI thread for the 10 s fetch timeout
+            # on every config:changed, and failures are not memoized, so skip_remote_fetch stays set.
             def _on_fetched(ids: list[str]) -> None:
                 self._paint_fetched_text_models(current_endpoint, ids)
 
@@ -784,7 +791,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 set_image_model(set_image_val, update_lru=False)
 
     def _paint_fetched_text_models(self, endpoint: str, ids: list[str]) -> None:
-        """Repaint the sidebar text model combo after an off-thread catalog fetch."""
+        """Repaint the sidebar text model combo after an off-thread catalog fetch.
+
+        Runs between commit points, so it keeps uncommitted typed text in the
+        field and writes nothing.
+        """
         if self._released or endpoint != get_current_endpoint():
             return
         sel = get_optional_control(self.m_panelRootWindow, "model_selector")
@@ -797,7 +808,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self._in_refresh_controls = True
         try:
             with suppress_disposed("paint fetched sidebar models", logger=log):
-                typed = sanitize_model_combobox_value(str(sel.getText() or "")) if hasattr(sel, "getText") else ""
+                typed = sanitize_model_combobox_value(str(sel.getText() or ""))
                 shown = populate_combobox_with_lru(
                     sel,
                     get_text_model(),
