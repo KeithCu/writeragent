@@ -163,7 +163,7 @@ class Calendar:
             step = pd.tseries.frequencies.to_offset(freq)
             label = str(freq)
             irregular = False
-            candidate = _SEASON_BY_FREQ_BASE.get(_freq_base(freq))
+            candidate = _SEASON_BY_FREQ_BASE.get(_freq_base(label))
         else:
             deltas = series.index.to_series().diff().dropna()
             pos_deltas = deltas[deltas > pd.Timedelta(0)]
