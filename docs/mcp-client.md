@@ -66,7 +66,8 @@ security add-generic-password -a "$USER" -s writeragent-mcp -w
 Each server's tool list is cached in memory only, filled on first use (`tools/list`), and shared across concurrent turns so two delegations asking at once make one fetch. It is cleared or refreshed when:
 
 - **The server config changes:** the connection is keyed by the full server entry, so editing it makes a new connection and re-lists.
-- **Settings OK is pressed:** drops all cached connections even when no setting changed, so the next delegation re-initializes and re-lists every server.
+- **Settings OK is pressed:** drops all cached connections even when no setting changed, so the next delegation re-initializes and re-lists every server; this also resets the server's pause (circuit breaker) and session, since pressing OK is an explicit user retry.
+- **A new session is initialized (for example after HTTP 404):** clears that server's cached list so the next delegation re-lists.
 - **`notifications/tools/list_changed` arrives in a POST SSE reply:** clears that server's cached list so the next delegation re-lists.
 - **An unknown-tool reply arrives (`tools/call`):** re-lists once and retries the already-approved call once if the tool is still offered.
 - **A transport failure occurs on `tools/call`:** drops the cached list so the next delegation re-lists (and notes the server unavailable if it is still down).
