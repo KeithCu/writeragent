@@ -243,7 +243,7 @@ On Writer edit tasks (such as rewriting a paragraph or converting text to an HTM
   - a query that opens with a read-only word or question word (e.g. `quote`, `explain`, `list`, `what`, `how`), or says `in chat` / `in the chat`, never nudges;
   - otherwise the trigger is an edit verb or table phrase in the query, or a pasted `"apply_content"` JSON call in the assistant text (an HTML table in the reply is not a signal).
   When triggered, the loop commits the assistant message, appends `EDIT_NUDGE_MESSAGE` as a `user` turn, sets `edit_nudge_sent = True`, and spawns one follow-up LLM round (`round_num + 1 < max_rounds`).
-- Read-only queries (including negated or question-form mentions of edit words, or `in chat` requests) and turns where a mutating tool already ran (`has_mutated=True` set on `TOOL_RESULT`) exit normally without nudging.
+- Queries that open with a read-only or question word (even if an edit word appears later), or that say `in chat`, and turns where a mutating tool already ran (`has_mutated=True` set on `TOOL_RESULT`) exit normally without nudging.
 
 **Interleaving notes (`ToolLoopState`)**:
 - **Stop before `STREAM_DONE`**: `next_state` checks `not state.is_stopped` before emitting `SpawnLLMWorkerEffect`, preserving the `@deal.ensure(_transition_invariants)` / `stopped_effects_exclude_tool_spawns` guarantee.

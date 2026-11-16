@@ -420,6 +420,7 @@ def test_truncate_delegate_task_accepts_long_ascii_and_unicode():
 def test_next_tool_delegate_keeps_full_task_on_spawn():
     """Sidebar line is a 120-char preview; SpawnToolWorkerEffect keeps the full task."""
     import json
+
     from plugin.chatbot.tool_loop_actions import DELEGATE_TASK_CHAT_MAX
 
     task = "Réécrire les styles — " + ("x" * 2200)
@@ -996,6 +997,47 @@ def test_stream_done_stopped_or_non_writer_does_not_nudge() -> None:
     assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_calc.effects)
 
 
+def _writer_stream_done(query_text: str, reply_content: str):
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text=query_text,
+        has_apply_tool=True,
+    )
+    return next_state(
+        state,
+        create_event(
+            EventKind.STREAM_DONE,
+            response={"content": reply_content, "tool_calls": None},
+        ),
+    )
+
+
+def _assert_nudged(tr) -> None:
+    assert tr.state.edit_nudge_sent is True
+    assert tr.state.round_num == 1
+    assert any(isinstance(e, SpawnLLMWorkerEffect) and e.round_num == 1 for e in tr.effects)
+    assert not any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    user_msgs = [
+        e for e in tr.effects if isinstance(e, AddMessageEffect) and e.role == MessageRole.USER
+    ]
+    assert len(user_msgs) == 1
+    assert user_msgs[0].content == EDIT_NUDGE_MESSAGE
+
+
+def _assert_not_nudged(tr) -> None:
+    assert tr.state.status == "Ready"
+    assert tr.state.edit_nudge_sent is False
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr.effects)
+    assert not any(
+        isinstance(e, AddMessageEffect) and e.role == MessageRole.USER for e in tr.effects
+    )
+
+
 @pytest.mark.parametrize(
     ("query_text", "reply_content"),
     [
@@ -1024,29 +1066,7 @@ def test_stream_done_stopped_or_non_writer_does_not_nudge() -> None:
 def test_stream_done_read_only_quote_turn_does_not_nudge(
     query_text: str, reply_content: str
 ) -> None:
-    state = ToolLoopState(
-        round_num=0,
-        pending_tools=[],
-        max_rounds=5,
-        status="Thinking...",
-        doc_type="writer",
-        query_text=query_text,
-        has_apply_tool=True,
-    )
-    tr = next_state(
-        state,
-        create_event(
-            EventKind.STREAM_DONE,
-            response={"content": reply_content, "tool_calls": None},
-        ),
-    )
-    assert tr.state.status == "Ready"
-    assert tr.state.edit_nudge_sent is False
-    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
-    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr.effects)
-    assert not any(
-        isinstance(e, AddMessageEffect) and e.role == MessageRole.USER for e in tr.effects
-    )
+    _assert_not_nudged(_writer_stream_done(query_text, reply_content))
 
 
 @pytest.mark.parametrize(
@@ -1069,31 +1089,7 @@ def test_stream_done_read_only_quote_turn_does_not_nudge(
 def test_stream_done_edit_request_answered_in_chat_still_nudges(
     query_text: str, reply_content: str
 ) -> None:
-    state = ToolLoopState(
-        round_num=0,
-        pending_tools=[],
-        max_rounds=5,
-        status="Thinking...",
-        doc_type="writer",
-        query_text=query_text,
-        has_apply_tool=True,
-    )
-    tr = next_state(
-        state,
-        create_event(
-            EventKind.STREAM_DONE,
-            response={"content": reply_content, "tool_calls": None},
-        ),
-    )
-    assert tr.state.edit_nudge_sent is True
-    assert tr.state.round_num == 1
-    assert any(isinstance(e, SpawnLLMWorkerEffect) and e.round_num == 1 for e in tr.effects)
-    assert not any(isinstance(e, ExitLoopEffect) for e in tr.effects)
-    user_msgs = [
-        e for e in tr.effects if isinstance(e, AddMessageEffect) and e.role == MessageRole.USER
-    ]
-    assert len(user_msgs) == 1
-    assert user_msgs[0].content == EDIT_NUDGE_MESSAGE
+    _assert_nudged(_writer_stream_done(query_text, reply_content))
 
 
 @pytest.mark.parametrize(
@@ -1107,38 +1103,8 @@ def test_stream_done_pasted_apply_call_nudges_unless_read_only(
     query_text: str, expect_nudge: bool
 ) -> None:
     pasted_call = '{"name": "apply_content", "arguments": {"html": "<p>Summary</p>"}}'
-    state = ToolLoopState(
-        round_num=0,
-        pending_tools=[],
-        max_rounds=5,
-        status="Thinking...",
-        doc_type="writer",
-        query_text=query_text,
-        has_apply_tool=True,
-    )
-    tr = next_state(
-        state,
-        create_event(
-            EventKind.STREAM_DONE,
-            response={"content": pasted_call, "tool_calls": None},
-        ),
-    )
+    tr = _writer_stream_done(query_text, pasted_call)
     if expect_nudge:
-        assert tr.state.edit_nudge_sent is True
-        assert tr.state.round_num == 1
-        assert any(isinstance(e, SpawnLLMWorkerEffect) and e.round_num == 1 for e in tr.effects)
-        user_msgs = [
-            e
-            for e in tr.effects
-            if isinstance(e, AddMessageEffect) and e.role == MessageRole.USER
-        ]
-        assert len(user_msgs) == 1
-        assert user_msgs[0].content == EDIT_NUDGE_MESSAGE
+        _assert_nudged(tr)
     else:
-        assert tr.state.status == "Ready"
-        assert tr.state.edit_nudge_sent is False
-        assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
-        assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr.effects)
-        assert not any(
-            isinstance(e, AddMessageEffect) and e.role == MessageRole.USER for e in tr.effects
-        )
+        _assert_not_nudged(tr)
