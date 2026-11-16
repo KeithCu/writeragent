@@ -20,7 +20,7 @@
 | 8 | Strip HTML and normalize quotes in `old_content` | 2.4 | ✅ Tags stripped, quotes normalized, space runs collapsed | #3261 |
 | 9 | Oversized `old_content` → suggest `full_document` | 2.4 | ✅ Needles ≥100 chars, checked on the miss path. Near-miss takes priority | #3261 |
 | 10 | Anchor-based range replace (`start_anchor` / `end_anchor`) | 2.4 | ✅ Includes both anchors. Refuses spans containing a table and `hyperlink_url`. In the prompt | #3268, #3278 |
-| 11 | One case-sensitivity default across search tools | 2.3 | ✅ Writer, Calc, Draw, page, comments, footnotes, indexes, TOC. Result carries `matched_case_sensitive` | #3265 |
+| 11 | One case-sensitivity default across search tools | 2.3 | ✅ Writer, Calc, Draw, page, comments, footnotes, indexes, TOC. Result carries `matched_case_sensitive`; edit/anchor tools exact first (WRITER-SEARCH-EXACT) | #3265 |
 | 12 | Split `dry_run` into `replaceable` / `not_replaceable` | 2.3 | ✅ Occurrence preview cap documented. Outline-rewrite fields omitted when the replacement is empty | #3264, #3269 |
 | 13 | Header/footer contradiction removed | 2.5 | ✅ Prompt now says `target='search'` edits headers and footers. Page-domain delegation dropped. UNO test added | #3256 |
 | 14 | No table deletion as a side effect | 2.5 | 🟡 Deletion is now reported (`table_deleted`, tracked-change aware). An empty replacement that removes a table's last text still deletes it. No `allow_table_delete` opt-in found | pre-existing |

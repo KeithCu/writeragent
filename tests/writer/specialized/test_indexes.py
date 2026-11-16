@@ -1339,34 +1339,27 @@ def test_single_toc_position_single_toc_returns_index():
     assert res["index"] == 1
 
 
-def test_toc_match_case_sensitive():
-    """toc_match threads case_sensitive to find_all_ranges."""
+def test_toc_match_filters_each_pass():
+    """toc_match filters each MatchMode pass so a body hit on the exact-case pass
+    does not hide a differently-cased entry inside the TOC."""
     from plugin.writer.specialized.indexes import toc_match
 
     doc = MagicMock()
     anchor = MagicMock()
     anchor.getText.return_value = MagicMock()
 
-    calls = []
-    r_insensitive = MagicMock()
-    r_exact = MagicMock()
+    outside = MagicMock()
+    inside = MagicMock()
 
-    def fake_find_all(d, s, *, case_sensitive=False):
-        calls.append((s, case_sensitive))
-        return [r_exact] if case_sensitive else [r_insensitive]
+    def fake_iter(d, s, mode, after=None, all_candidates=False):
+        yield outside if mode.case_sensitive else inside
 
-    with patch("plugin.writer.specialized.indexes.find_all_ranges", side_effect=fake_find_all), \
-         patch("plugin.writer.specialized.indexes._contained", return_value=True), \
+    with patch("plugin.writer.search.iter_literal_ranges", side_effect=fake_iter), \
+         patch("plugin.writer.specialized.indexes._contained", side_effect=lambda t, a, f: f is inside), \
          patch("plugin.writer.specialized.indexes._para_style_name", return_value="Contents 1"):
-        # Omitted / None
-        hit_default, _ = toc_match(doc, anchor, "board", 0)
-        assert calls[-1] == ("board", False)
-        assert hit_default is r_insensitive
-
-        # Explicit True
-        hit_exact, _ = toc_match(doc, anchor, "board", 0, case_sensitive=True)
-        assert calls[-1] == ("board", True)
-        assert hit_exact is r_exact
+        hit, err = toc_match(doc, anchor, "board", 0)
+        assert err is None
+        assert hit is inside
 
 
 def test_char_props_clones_direct_formatting_and_link_styles():

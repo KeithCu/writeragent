@@ -1574,11 +1574,11 @@ def test_apply_style_case_sensitive_forwarded_to_search(occurrence, expected_fin
     r2 = MagicMock()
     calls = []
 
-    def fake_find_first(doc, s, *, case_sensitive=False):
+    def fake_find_first(doc, s, *, case_sensitive=None):
         calls.append(("first", s, case_sensitive))
         return r1
 
-    def fake_find_all(doc, s, *, case_sensitive=False):
+    def fake_find_all(doc, s, *, case_sensitive=None):
         calls.append(("all", s, case_sensitive))
         return [r1, r2]
 
@@ -1589,7 +1589,7 @@ def test_apply_style_case_sensitive_forwarded_to_search(occurrence, expected_fin
          patch.object(ApplyStyle, "_apply_one", return_value=None):
         res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", **extra)
         assert res_default["status"] == "ok"
-        assert calls[-1] == (expected_finder, "apple", False)
+        assert calls[-1] == (expected_finder, "apple", None)
 
         res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True, **extra)
         assert res_cs["status"] == "ok"

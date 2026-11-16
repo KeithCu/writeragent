@@ -300,6 +300,7 @@ is allowed to open a region:
 | `R$ 12.798,82`, `US$ 1,00` | currency | opener preceded by an alphanumeric (currency code) |
 | `$100`, `$ 12.798,82`, `$.50` | currency | opener followed by whitespace, a digit, `.` or `,` |
 | `100$` | currency | opener preceded by an alphanumeric |
+| `$A$1`, `$A1:$B5`, `$A:$B` | spreadsheet reference | masked before the scan |
 | `$x^2$` | TeX | opener preceded by a non-alphanumeric, followed by a non-space non-digit |
 
 The closing `$` must additionally have a non-space character to its left and no

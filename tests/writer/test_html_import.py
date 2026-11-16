@@ -483,6 +483,7 @@ def test_content_has_markup_cases():
     assert content_needs_html_import("The identity $x^2$ holds.") is True
     assert content_needs_html_import("costs $5 and $7") is False
     assert content_needs_html_import("R$ 5,00 e R$ 9,00") is False
+    assert content_needs_html_import("Select $A:$B in Calc") is False
 
 
 

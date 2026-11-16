@@ -1238,7 +1238,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family. Default: ParagraphStyles.")),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
-            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.EDIT_CASE_SENSITIVE_DESCRIPTION}"},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
@@ -1347,7 +1347,7 @@ class ApplyStyle(FrameworkToolBase):
                 code="INVALID_PARAM",
                 top_level={"applied": False, "matched": False},
             )
-        cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+        cs = search_mod.explicit_case_sensitive(kwargs.get("case_sensitive"))
         occ = kwargs.get("occurrence")
         many = bool(kwargs.get("all_matches")) or occ is not None
         if many:

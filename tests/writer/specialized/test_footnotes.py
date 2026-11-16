@@ -72,11 +72,11 @@ def test_footnotes_insert_with_insert_after_text():
     )
 
     assert res["status"] == "ok"
-    assert res["matched_case_sensitive"] is False
+    assert res["matched_case_sensitive"] is True
     doc.createSearchDescriptor.assert_called_once()
     assert sd.SearchRegularExpression is True
-    assert sd.SearchString == escape_for_lo_regex("This is a test.")
-    assert sd.SearchCaseSensitive is False
+    assert sd.SearchString == escape_for_lo_regex("This is a test.", fold=True)
+    assert sd.SearchCaseSensitive is True
     doc.findFirst.assert_called_once_with(sd)
     text_mock.createTextCursorByRange.assert_called_once_with(found_range)
     t_cursor.collapseToEnd.assert_called_once()
@@ -100,7 +100,7 @@ def test_footnotes_insert_after_wrapped_text_uses_the_chained_fallback():
     text_mock.createTextCursorByRange.return_value = t_cursor
     t_cursor.getText.return_value = insert_surface
 
-    doc.findFirst.side_effect = [None, found_range]
+    doc.findFirst.side_effect = [None, None, found_range]
 
     note = MagicMock()
     note.getLabel.return_value = ""
@@ -117,7 +117,7 @@ def test_footnotes_insert_after_wrapped_text_uses_the_chained_fallback():
     )
 
     assert res["status"] == "ok"
-    assert sd.SearchString == escape_for_lo_regex("alpha beta")
+    assert sd.SearchString == escape_for_lo_regex("alpha beta", fold=True)
 
 
 def test_footnotes_insert_failed_create_is_a_tool_error():

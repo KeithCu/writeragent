@@ -950,7 +950,7 @@ class _CommentProxy:
         Args:
             content (required): The comment text.
             search (optional): Anchor a new root comment to text matching this string. Not required when parent_name is set.
-            case_sensitive (optional): For search: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For search: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
             occurrence (optional): 0-based match to comment on when search repeats (default 0). Ignored when parent_name is set.
             author (optional): Comment author (default 'WriterAgent').
             parent_name (optional): Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped.
@@ -1153,7 +1153,7 @@ class _EmbeddedProxy:
             height (optional): Frame height in 1/100 mm (requires width).
             target (optional): Where to insert the embedded spreadsheet. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("embedded_insert", object_type=object_type, data=data, name=name, width=width, height=height, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1180,7 +1180,7 @@ class _FieldProxy:
             properties (optional): Optional dictionary of UNO properties to apply to the field. Example: {'NumberingType': 4} for Arabic numbering, or {'IsDate': true} to force a date display on a DateTime field.
             target (optional): Where to insert the field. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("field_insert", field=field, properties=properties, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1235,7 +1235,7 @@ class _FootnoteProxy:
             label (optional): Optional custom mark (e.g., '*'). If omitted or empty, it uses auto-numbering.
             insert_after (optional): If non-empty, find this substring in the document and insert the footnote/endnote anchor immediately after that match instead of using the view cursor. Use the exact text from the document (or from the delegating task). Required when position matters and the tool is run outside normal user cursor control.
             occurrence (optional): 0-based index when insert_after matches multiple times (default 0 = first match).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("footnote_insert", note=note, text=text, label=label, insert_after=insert_after, occurrence=occurrence, case_sensitive=case_sensitive))
 
@@ -1345,7 +1345,7 @@ class _FrameProxy:
         Args:
             target (optional): Where to insert the text frame. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
             name (optional): Optional frame name (from frame_list when set).
             text (optional): Initial text placed inside the frame.
             width_mm (optional): Frame width in millimetres (default 80).
@@ -1570,7 +1570,7 @@ class _IndexProxy:
             fields (optional): Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.
             target (optional): Where to insert the mark or cite. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("index_add_mark", text=text, kind=kind, primary_key=primary_key, secondary_key=secondary_key, identifier=identifier, author=author, title=title, year=year, pages=pages, bibliographic_type=bibliographic_type, fields=fields, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1583,7 +1583,7 @@ class _IndexProxy:
             create_from_outline (optional): Whether to create the index from the document outline (mainly for toc). Default true.
             target (optional): Where to insert the index. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("index_create", kind=kind, title=title, create_from_outline=create_from_outline, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1595,7 +1595,7 @@ class _IndexProxy:
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match.
             dry_run (optional): Do not edit. Report text (the entry that would be removed) and an empty text_after.
-            case_sensitive (optional): For old_content: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("index_delete_toc_entry", old_content=old_content, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive))
 
@@ -1612,7 +1612,7 @@ class _IndexProxy:
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only, when position is before or after. Omit for the first.
             dry_run (optional): Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted).
-            case_sensitive (optional): For old_content: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("index_insert_toc_entry", content=content, page=page, hyperlink_url=hyperlink_url, position=position, old_content=old_content, level=level, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive))
 
@@ -1643,7 +1643,7 @@ class _IndexProxy:
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match.
             dry_run (optional): Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link.
-            case_sensitive (optional): For old_content: Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("index_refresh_toc_entry", old_content=old_content, content=content, hyperlink_url=hyperlink_url, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive))
 
@@ -1667,7 +1667,7 @@ class _MailMergeProxy:
             command_type (optional): Data command type: 'table' (0), 'query' (1), or 'command' (2). One of: table, query, command.
             target (optional): Where to insert the field. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
         """
         return _result(call_host_tool("mail_merge_insert_field", column_name=column_name, data_source_name=data_source_name, table_name=table_name, command_type=command_type, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1935,7 +1935,7 @@ class _PageProxy:
             before_text (optional): Break so this passage starts a new page (page break on the match's paragraph).
             after_text (optional): Break the page right after this passage's paragraph.
             occurrence (optional): 0-based match to use when the anchor text repeats (default 0).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
             page_style (optional): Name of an existing page style to apply from this break onward (paragraph property PageDescName). Often a style_clone of the current page. Unknown names error and change nothing. Omit to keep the current page style.
             restart_page_number (optional): Page number to start at on the new page (integer >= 1, paragraph property PageNumberOffset). Requires page_style. Omit to continue the current sequence. 0 is not a restart.
         """
@@ -1949,7 +1949,7 @@ class _PageProxy:
             old_content (required): Exact substring to find in the region's text. Does not match inside a field.
             content (required): Text to write in place of old_content. Empty deletes the match.
             style (optional): Page style name. Defaults to 'Standard'.
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
             occurrence (optional): 0-based match to replace (default 0). Cannot be combined with all_matches=true.
             all_matches (optional): Replace every match (default false). Cannot be combined with occurrence.
         """
@@ -2993,7 +2993,7 @@ class _WriterProxy:
             position (optional): For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
             dry_run (optional): For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor.
             regex (optional): For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
             hyperlink_url (optional): For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.
         """
         return _result(call_host_tool("apply_content", content=content, target=target, old_content=old_content, start_anchor=start_anchor, end_anchor=end_anchor, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url))
@@ -3006,7 +3006,7 @@ class _WriterProxy:
             family (optional): Style family. Default: ParagraphStyles. One of: ParagraphStyles, CharacterStyles.
             target (optional): Where to apply the style. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and apply style to if target = 'search'.
-            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
             all_matches (optional): For target='search': apply to EVERY occurrence of old_content (default false = first only).
             occurrence (optional): For target='search': apply to this single 0-based occurrence instead of the first.
             clear_direct (optional): What to do with direct (hand-set) formatting on the target, ParagraphStyles only. 'style_props' (default) drops the font name/size override and the paragraph indents/alignment so the style's own values show, keeping bold/italic/colour. The name means 'let the style's properties win' for the font/size/indent the style governs — not 'clear only what this style defines'. 'none' keeps a hand-set font (historical; the style can look unchanged). 'all' drops every direct override (Ctrl+M). 'all' is not allowed with target='full_document' — that would flatten emphasis across the whole document; style each range instead. One of: none, style_props, all.
@@ -3052,7 +3052,7 @@ class _WriterProxy:
         Args:
             search_text (optional): Text to select (first match unless occurrence is set).
             occurrence (optional): 0-based match to select when search_text repeats (default 0).
-            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
+            case_sensitive (optional): Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
             char_start (optional): Alternative to search_text: 0-based start character offset (body text).
             char_end (optional): End character offset (exclusive), required with char_start.
         """

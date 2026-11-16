@@ -52,11 +52,10 @@ from plugin.writer.specialized_base import (
     target_params,
 )
 from ..search import (
-    CASE_SENSITIVE_DESCRIPTION,
+    EDIT_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
-    find_all_ranges,
+    find_literal_ranges,
     parse_non_negative_int,
-    resolve_case_sensitive,
 )
 from ..target_resolver import insert_at_target
 
@@ -385,14 +384,14 @@ def toc_match(
     case_sensitive: bool | None = None,
 ) -> tuple[Any | None, str | None]:
     """The *occurrence* search hit that lies inside the TOC anchor."""
-    cs = resolve_case_sensitive(case_sensitive)
-    ranges = find_all_ranges(doc, old_content, case_sensitive=cs) or []
     text = anchor.getText()
-    inside = [
-        found for found in ranges
-        if _contained(text, anchor, found)
-        and _para_style_name(_paragraph_element(found)) != "Contents Heading"
-    ]
+    inside = find_literal_ranges(
+        doc,
+        old_content,
+        case_sensitive=case_sensitive,
+        keep=lambda found: _contained(text, anchor, found)
+        and _para_style_name(_paragraph_element(found)) != "Contents Heading",
+    )[0]
     pick = 0 if occurrence is None else occurrence
     if not inside or pick >= len(inside):
         if occurrence not in (None, 0):
@@ -824,7 +823,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link."},
-            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {EDIT_CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["old_content", "content"],
     }
@@ -950,7 +949,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry that would be removed) and an empty text_after."},
-            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {EDIT_CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["old_content"],
     }
@@ -1054,7 +1053,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from index_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only, when position is before or after. Omit for the first."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted)."},
-            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {EDIT_CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["content"],
     }

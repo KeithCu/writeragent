@@ -304,11 +304,16 @@ def build_search_replace_response(
 
 
 def _find_ranges(
-    doc: Any, pattern: str, regex: bool, cs: bool, use_opts: bool, *, all_matches: bool
-) -> Any:
-    if use_opts:
-        return search_mod.find_ranges_regex_case(doc, pattern, regex, cs, all_matches=all_matches)
-    return (search_mod.find_all_ranges if all_matches else search_mod.find_first_range)(doc, pattern)
+    doc: Any, pattern: str, regex: bool, cs: bool | None, *, limit: int
+) -> tuple[list[Any], search_mod.MatchMode]:
+    if regex:
+        resolved_cs = search_mod.resolve_case_sensitive(cs)
+        raw_hits = search_mod.find_ranges_regex_case(
+            doc, pattern, True, resolved_cs, all_matches=limit > 1
+        )
+        hits = raw_hits if isinstance(raw_hits, list) else ([] if raw_hits is None else [raw_hits])
+        return hits, search_mod.MatchMode(resolved_cs, False)
+    return search_mod.find_literal_ranges(doc, pattern, case_sensitive=cs, limit=limit)
 
 
 # ------------------------------------------------------------------
@@ -394,22 +399,19 @@ def _search_options(
     kwargs: Any,
     old_stripped: str,
     search_string: str,
-) -> tuple[bool, bool, bool, str, str | None]:
+) -> tuple[bool, bool | None, str, str | None]:
     regex = bool(kwargs.get("regex"))
-    raw = kwargs.get("case_sensitive")
-    explicit = raw is not None
-    use_opts = regex or explicit
-    cs = search_mod.resolve_case_sensitive(raw)
+    cs = search_mod.explicit_case_sensitive(kwargs.get("case_sensitive"))
     pattern = old_stripped if regex else search_string
     rex_err = search_mod.validate_icu_regex(ctx.ctx, old_stripped) if regex else None
-    return regex, use_opts, cs, pattern, rex_err
+    return regex, cs, pattern, rex_err
 
 
 @dataclass(frozen=True)
 class AnchorSpec:
     start: str
     end: str
-    case_sensitive: bool = search_mod.SEARCH_CASE_SENSITIVE_DEFAULT
+    case_sensitive: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -426,8 +428,7 @@ class EditParams:
     search_string: str = ""
     pattern: str = ""
     regex: bool = False
-    use_opts: bool = False
-    case_sensitive: bool = False
+    case_sensitive: bool | None = None
     separator: int = 0
     override: str | None = None
     anchor: AnchorSpec | None = None
@@ -496,7 +497,7 @@ class ApplyDocumentContent(ToolBase):
     - **Search** (``target='search'`` only): ``old_content`` must be a **substring** to find —
       a phrase, sentence, or multi-paragraph **block**, not the entire document. To replace
       **all** document content, you **must** use ``target='full_document'`` with ``content`` only;
-      **never** pass the full body as ``old_content``. Search uses ``search.iter_literal_ranges`` (LO
+      **never** pass the full body as ``old_content``. Search uses ``search.find_literal_ranges`` (LO
       regex search, then paragraph chaining). See ``tests/writer/test_content_search_uno.py``.
       A match that sits in an outline hyperlink (``#…|outline``) also updates that
       target when the matched text occurs once in the URL outside that suffix, or
@@ -542,7 +543,7 @@ class ApplyDocumentContent(ToolBase):
             ),
             "dry_run": {"type": "boolean", "description": "For target='search' with old_content: do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing. Does not apply to start_anchor and end_anchor."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining). Does not apply to start_anchor and end_anchor. Patterns use ICU regex syntax (LibreOffice's engine): (?<name>...) for named groups, not (?P<name>...); \\p{Lu} classes are allowed. Floating drawing shapes are matched with Python re instead, so ICU-only syntax does not match inside shapes."},
-            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.EDIT_CASE_SENSITIVE_DESCRIPTION}"},
             "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
         },
         "required": ["content"],
@@ -697,9 +698,10 @@ class ApplyDocumentContent(ToolBase):
         return reports_holder[0] if reports_holder else []
 
     def _finish_search_miss(self, doc: Any, params: EditParams) -> dict[str, Any]:
+        shape_cs = search_mod.resolve_case_sensitive(params.case_sensitive)
         shape = search_mod.drawing_shape_object_containing(
             doc, params.pattern,
-            use_regex=params.regex, case_sensitive=params.case_sensitive)
+            use_regex=params.regex, case_sensitive=shape_cs)
         # Review mode cannot track a shape edit, and a failed shape replace is rolled back.
         # Both fall through to build_search_not_found_response, whose sweep finds the same
         # shape and returns the delegation (review wording via review=).
@@ -709,7 +711,7 @@ class ApplyDocumentContent(ToolBase):
             # rolls back instead of leaving a partial setString in the document.
             def mutate() -> dict[str, Any] | None:
                 edited = replace_text_in_shape(
-                    shape, params.pattern, params.plain, case_sensitive=params.case_sensitive, use_regex=params.regex
+                    shape, params.pattern, params.plain, case_sensitive=shape_cs, use_regex=params.regex
                 )
                 if not edited:
                     return {"status": "error", "code": "SHAPE_REPLACE_FAILED"}
@@ -752,10 +754,10 @@ class ApplyDocumentContent(ToolBase):
         return search_mod.build_search_not_found_response(
             doc,
             params.pattern,
-            case_sensitive=params.case_sensitive,
+            case_sensitive=shape_cs,
             use_regex=params.regex,
             all_matches=bool(params.all_matches),
-            lenient=not params.use_opts,
+            lenient=not params.regex and params.case_sensitive is None,
             refuse_oversized=True,
             review=params.track_reviewable,
         )
@@ -928,11 +930,13 @@ class ApplyDocumentContent(ToolBase):
         s = search_mod.prepare_old_content(old_content)
         if not s:
             return self._tool_error("old_content is empty after normalization.", code="INVALID_PARAM")
-        regex, use_opts, cs, pattern, rex_err = _search_options(ctx, kwargs, old_stripped, s)
+        regex, cs, pattern, rex_err = _search_options(ctx, kwargs, old_stripped, s)
         if rex_err:
             return self._invalid_regex(rex_err)
         try:
-            ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, all_matches=True)
+            ranges, mode = _find_ranges(
+                ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_REPLACEMENTS
+            )
         except Exception as e:
             log.exception("apply_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
@@ -971,8 +975,12 @@ class ApplyDocumentContent(ToolBase):
             shape_hits = []
             comment_hits = []
         else:
-            shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
-            comment_hits = search_mod.sweep_comment_preview_matches(ctx.doc, pattern, regex, cs, limit=search_mod.MAX_SEARCH_HITS)
+            shape_hits = search_mod.sweep_draw_shape_preview_matches(
+                ctx.doc, pattern, regex, mode.case_sensitive, limit=search_mod.MAX_SEARCH_HITS
+            )
+            comment_hits = search_mod.sweep_comment_preview_matches(
+                ctx.doc, pattern, regex, mode.case_sensitive, limit=search_mod.MAX_SEARCH_HITS
+            )
         not_replaceable: list[dict[str, Any]] = []
         for item in shape_hits + comment_hits:
             if len(replaceable) + len(not_replaceable) >= search_mod.DEFAULT_SEARCH_RESULTS:
@@ -980,12 +988,14 @@ class ApplyDocumentContent(ToolBase):
             not_replaceable.append({"location": item["location"], "text": item["text"][:160]})
         total = len(ranges) + len(shape_hits) + len(comment_hits)
         if occurrence is not None and ranges and occurrence >= len(ranges):
-            return self._occurrence_oor(
+            oor = self._occurrence_oor(
                 occurrence, len(ranges),
                 replaceable_count=len(ranges),
                 replaceable=replaceable,
                 not_replaceable=not_replaceable,
             )
+            oor.update(mode.result_fields())
+            return oor
         result: dict[str, object] = {
             "status": "ok",
             "dry_run": True,
@@ -1000,11 +1010,17 @@ class ApplyDocumentContent(ToolBase):
                 "editable in review-off mode or via the shapes toolset."
             ),
         }
+        result.update(mode.result_fields())
         if shape_comment_warning is not None:
             result["warning"] = shape_comment_warning
         if not ranges:
             res = search_mod.build_search_not_found_response(
-                ctx.doc, pattern, case_sensitive=cs, use_regex=regex, lenient=not use_opts, refuse_oversized=True
+                ctx.doc,
+                pattern,
+                case_sensitive=mode.case_sensitive,
+                use_regex=regex,
+                lenient=not regex and cs is None,
+                refuse_oversized=True,
             )
             result.update({k: res[k] for k in ("message", "closest_match", "diff_at") if k in res})
         result["normalized_old_content"] = s
@@ -1052,8 +1068,8 @@ class ApplyDocumentContent(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         result = self._execute(ctx, **kwargs)
-        if self._effective_target(kwargs.get("target"), kwargs.get("old_content")) == "search":
-            result["matched_case_sensitive"] = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+        if self._effective_target(kwargs.get("target"), kwargs.get("old_content"), kwargs.get("start_anchor"), kwargs.get("end_anchor")) == "search":
+            result.setdefault("matched_case_sensitive", search_mod.resolve_case_sensitive(kwargs.get("case_sensitive")))
         if kwargs.get("target") == "search" and "normalized_old_content" not in result:
             result["normalized_old_content"] = search_mod.prepare_old_content(kwargs.get("old_content"))
         return result
@@ -1180,7 +1196,7 @@ class ApplyDocumentContent(ToolBase):
         norm_end = search_mod.normalize_search_string_for_find(html_import.plain_text_if_markup(end_anchor))
         if not norm_end:
             return self._tool_error("end_anchor is empty after normalization.", code="INVALID_PARAM")
-        cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+        cs = search_mod.explicit_case_sensitive(kwargs.get("case_sensitive"))
         return AnchorSpec(start=norm_start, end=norm_end, case_sensitive=cs)
 
     def _parse_edit_params(self, ctx: ToolContext, kwargs: Any) -> EditParams | dict[str, Any]:
@@ -1286,8 +1302,7 @@ class ApplyDocumentContent(ToolBase):
         search_string = ""
         pattern = ""
         regex = False
-        use_opts = False
-        cs = anchor.case_sensitive if anchor is not None else False
+        cs = anchor.case_sensitive if anchor is not None else None
         separator = 0
         override: str | None = None
 
@@ -1316,7 +1331,7 @@ class ApplyDocumentContent(ToolBase):
                 content, separator = _match_stripped_edges(str(old_content), content)
                 plain = content
 
-            regex, use_opts, cs, pattern, rex_err = _search_options(ctx, kwargs, old_stripped, search_string)
+            regex, cs, pattern, rex_err = _search_options(ctx, kwargs, old_stripped, search_string)
             if rex_err:
                 return self._invalid_regex(rex_err)
 
@@ -1340,7 +1355,6 @@ class ApplyDocumentContent(ToolBase):
             search_string=search_string,
             pattern=pattern,
             regex=regex,
-            use_opts=use_opts,
             case_sensitive=cs,
             separator=separator,
             override=override,
@@ -1451,18 +1465,12 @@ class ApplyDocumentContent(ToolBase):
 
 
     def _edit_replace_all(
-        self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams, ranges: list[Any],
     ) -> dict[str, Any]:
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
-        # An explicit regex or case_sensitive uses the literal descriptor so that call matches
-        # search; an omitted flag stays on the chained matcher.
-        ranges = _find_ranges(
-            doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
-        if not ranges:
-            return self._finish_search_miss(doc, params)
         max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
         # Decide before any replace. An empty replacement that is the last text
         # in a table deletes the table instead of leaving an empty shell; those
@@ -1577,7 +1585,7 @@ class ApplyDocumentContent(ToolBase):
         if miss_kind in ("start", "end"):
             anchor_text = anchor.start if miss_kind == "start" else anchor.end
             subject = "start_anchor" if miss_kind == "start" else "end_anchor"
-            cs = anchor.case_sensitive
+            cs = search_mod.resolve_case_sensitive(anchor.case_sensitive)
             shape_name = search_mod.drawing_shape_containing(doc, anchor_text, case_sensitive=cs)
             if shape_name:
                 return search_mod.shape_only_search_response(subject, shape_name)
@@ -1593,10 +1601,10 @@ class ApplyDocumentContent(ToolBase):
     def _edit_search(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
+        doc = ctx.doc
         if params.anchor is not None:
-            doc = ctx.doc
             try:
-                found, miss_kind = search_mod.find_anchor_span(
+                found, miss_kind, mode = search_mod.find_anchor_span(
                     doc,
                     params.anchor.start,
                     params.anchor.end,
@@ -1607,35 +1615,38 @@ class ApplyDocumentContent(ToolBase):
                 return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
             if found is None:
                 assert miss_kind is not None
-                return self._anchor_miss(doc, params.anchor, miss_kind)
-            if _range_contains_table(found):
-                return self._tool_error(
+                res = self._anchor_miss(doc, params.anchor, miss_kind)
+            elif _range_contains_table(found):
+                res = self._tool_error(
                     "The range from start_anchor through end_anchor contains a table; delete the table first with table_delete.",
                     code="TABLE_IN_ANCHOR_RANGE",
                 )
-            return self._edit_replace_one(ctx, session, params, found)
-        if params.all_matches:
-            res = self._edit_replace_all(ctx, session, params)
-        else:
-            doc = ctx.doc
-            if params.occurrence is not None:
-                # Index the same replaceable list the edit path uses. Empty ranges fall
-                # through to the existing miss / drawing-shape path (models often send 0).
-                ranges = _find_ranges(
-                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
-                if ranges and params.occurrence >= len(ranges):
-                    return self._occurrence_oor(params.occurrence, len(ranges))
-                found = ranges[params.occurrence] if ranges else None
             else:
-                found = _find_ranges(
-                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
-            if found is None:
-                return self._finish_search_miss(doc, params)
+                res = self._edit_replace_one(ctx, session, params, found)
+            res.update(mode.result_fields())
+            return res
+
+        many = bool(params.all_matches) or params.occurrence is not None
+        ranges, mode = _find_ranges(
+            doc,
+            params.pattern,
+            params.regex,
+            params.case_sensitive,
+            limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
+        )
+        if not ranges:
+            res = self._finish_search_miss(doc, params)
+        elif params.all_matches:
+            res = self._edit_replace_all(ctx, session, params, ranges)
+        elif params.occurrence is not None and params.occurrence >= len(ranges):
+            res = self._occurrence_oor(params.occurrence, len(ranges))
+        else:
+            found = ranges[params.occurrence or 0]
             if params.position in ("before", "after"):
                 res = self._edit_insert_next_to_match(ctx, session, params, found)
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
-
+        res.update(mode.result_fields())
         return res
 
     def _edit_insert_next_to_match(
