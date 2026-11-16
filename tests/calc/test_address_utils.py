@@ -10,6 +10,9 @@
 
 
 
+import pytest
+
+
 def test_address_utils():
     from plugin.calc.address_utils import (
         column_to_index,
@@ -115,42 +118,71 @@ def test_quote_sheet_name_and_qualify_a1():
     from plugin.calc.address_utils import qualify_a1, quote_sheet_name, split_sheet_prefix
 
     assert quote_sheet_name("Sheet1") == "Sheet1"
-    assert quote_sheet_name("2024") == "2024"
-    assert quote_sheet_name("Q1-Sales") == "Q1-Sales"
+    assert quote_sheet_name("2024") == "'2024'"
+    assert quote_sheet_name("Q1-Sales") == "'Q1-Sales'"
     assert quote_sheet_name("O'Brien") == "'O''Brien'"
     assert quote_sheet_name("Q1.Sales") == "'Q1.Sales'"
     assert quote_sheet_name("Foo!Bar") == "'Foo!Bar'"
     assert quote_sheet_name("Data Sheet") == "'Data Sheet'"
 
     assert qualify_a1("Sheet1", "A1") == "Sheet1.A1"
-    assert qualify_a1("2024", "B2") == "2024.B2"
-    assert qualify_a1("Q1-Sales", "C3") == "Q1-Sales.C3"
+    assert qualify_a1("2024", "B2") == "'2024'.B2"
+    assert qualify_a1("Q1-Sales", "C3") == "'Q1-Sales'.C3"
     assert qualify_a1("O'Brien", "D4") == "'O''Brien'.D4"
     assert qualify_a1("Q1.Sales", "E5") == "'Q1.Sales'.E5"
     assert qualify_a1("Foo!Bar", "F6") == "'Foo!Bar'.F6"
 
     assert quote_sheet_name("$Prices") == "'$Prices'"
     assert qualify_a1("$Prices", "A1") == "'$Prices'.A1"
-    for name in ("Prices", "$Prices", "2024", "Data Sheet", "O'Brien", "Q1.Sales", "Foo!Bar", "Plan_B", "Ünïcode"):
+    for name in (
+        "Prices",
+        "$Prices",
+        "2024",
+        "Q1-2026",
+        "Data Sheet",
+        "O'Brien",
+        "Q1.Sales",
+        "Foo!Bar",
+        "Plan_B",
+        "Ünïcode",
+        "Cafe\u0301",
+    ):
         assert split_sheet_prefix(qualify_a1(name, "A1")) == (name, "A1")
 
 
-def test_quote_sheet_name_only_when_libreoffice_needs_it():
-    """Sheet names with digits or hyphens stay bare; spaces, dots, apostrophes, bangs, and leading $ are quoted."""
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("", ""),
+        ("Sheet1", "Sheet1"),
+        ("Plan_B", "Plan_B"),
+        ("_x", "_x"),
+        ("x_1", "x_1"),
+        ("Ünïcode", "Ünïcode"),
+        ("Cafe\u0301", "Cafe\u0301"),
+        ("日本", "日本"),
+        ("हिन्दी", "हिन्दी"),
+        ("XⅫ", "XⅫ"),
+        ("x²", "x²"),
+        ("2024", "'2024'"),
+        ("Q1-2026", "'Q1-2026'"),
+        ("Q1-Sales", "'Q1-Sales'"),
+        ("A+B", "'A+B'"),
+        ("a(b)", "'a(b)'"),
+        ("x‿y", "'x‿y'"),
+        ("ⅫX", "'ⅫX'"),
+        ("2024 Budget", "'2024 Budget'"),
+        ("v1.2", "'v1.2'"),
+        ("User's Data", "'User''s Data'"),
+        ("Important!", "'Important!'"),
+        ("$Prices", "'$Prices'"),
+    ],
+)
+def test_quote_sheet_name_matches_calc_formula_quoting(name: str, expected: str):
+    """Bare only when Calc's formula parser treats the name as an identifier."""
     from plugin.calc.address_utils import quote_sheet_name
 
-    # Bare names in LibreOffice Calc
-    assert quote_sheet_name("2024") == "2024"
-    assert quote_sheet_name("Q1-Sales") == "Q1-Sales"
-    assert quote_sheet_name("Plan_B") == "Plan_B"
-    assert quote_sheet_name("Summary") == "Summary"
-
-    # Names requiring quotes in LibreOffice Calc
-    assert quote_sheet_name("2024 Budget") == "'2024 Budget'"
-    assert quote_sheet_name("v1.2") == "'v1.2'"
-    assert quote_sheet_name("User's Data") == "'User''s Data'"
-    assert quote_sheet_name("Important!") == "'Important!'"
-    assert quote_sheet_name("$Prices") == "'$Prices'"
+    assert quote_sheet_name(name) == expected
 
 
 def test_format_range_and_format_range_address():

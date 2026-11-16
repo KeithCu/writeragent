@@ -137,10 +137,12 @@ def normalize_cell_address(raw: str) -> str | None:
             addr = f"{format_address(*top_left)}:{format_address(*bottom_right)}"
     if sheet is None:
         return addr
-    # Keep a plain name plain: the sidebar HTML link regexes in
-    # plugin/chatbot/rich_text.py and rich_text_paste.py accept
-    # `Sheet Name.B2` but not a quote inside the address. Quote only names
-    # that would otherwise split (dot/bang/apostrophe) or lose a leading $.
+    # Keep a plain name plain: link addresses are navigation keys, not formula
+    # text, and the sidebar HTML link regexes in plugin/chatbot/rich_text_paste.py
+    # and _CELL_HREF_RE accept `Sheet Name.B2` but not a quote inside the
+    # address. qualify_a1 quotes many more names (hyphens, a leading digit) for
+    # formulas, and those names must stay unquoted here; quote only names that
+    # would otherwise split (dot/bang/apostrophe) or lose a leading $.
     if sheet.startswith("$") or any(ch in sheet for ch in ".!'"):
         return qualify_a1(sheet, addr)
     return f"{sheet}.{addr}"

@@ -691,6 +691,20 @@ def test_render_calc_cell_refs_html():
     assert "href='cell://" not in out.lower()
 
 
+def test_render_calc_cell_refs_quoted_sheet():
+    from plugin.calc.navigation import WRITERAGENT_CELL_URL_PREFIX
+    from plugin.chatbot.rich_text import render_calc_cell_refs
+
+    out = render_calc_cell_refs('<p><a href="cell://\'Q1-2026\'.B2">x</a></p>')
+    assert f'href="{WRITERAGENT_CELL_URL_PREFIX}Q1-2026.B2"' in out
+
+    out_space = render_calc_cell_refs('<p><a href="cell://\'Data Sheet\'.A1">y</a></p>')
+    assert f'href="{WRITERAGENT_CELL_URL_PREFIX}Data Sheet.A1"' in out_space
+
+    out_single = render_calc_cell_refs("<p><a href='cell://B2'>z</a></p>")
+    assert f"href='{WRITERAGENT_CELL_URL_PREFIX}B2'" in out_single
+
+
 def test_render_calc_cell_refs_passthrough():
     from plugin.chatbot.rich_text import render_calc_cell_refs
 

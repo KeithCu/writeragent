@@ -23,6 +23,7 @@ Pure utility functions with no UNO dependency.
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DEAL_MAX_COL_LETTERS, DEAL_MAX_ROW_INDEX, ascii_bounded, deal, inverse_ensure
@@ -135,12 +136,29 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     return name.strip(), match.group("rest").strip()
 
 
+def _is_bare_sheet_name(name: str) -> bool:
+    first = name[0]
+    return (first == "_" or first.isalpha()) and all(
+        ch == "_" or ch.isalnum() or unicodedata.category(ch) in ("Mn", "Mc") for ch in name[1:]
+    )
+
+
 def quote_sheet_name(name: str) -> str:
-    """Bare unless Calc needs quotes (spaces, dots, apostrophes, bangs, or a leading $)."""
-    # A leading $ is Calc's absolute-sheet marker, so a literal name must be quoted.
-    if name.startswith("$") or any(ch in name for ch in " .!'"):
-        return "'" + name.replace("'", "''") + "'"
-    return name
+    """Quote *name* with Calc's formula rule so bare names are always valid identifiers.
+
+    Calc leaves a sheet name bare only when it parses as a single identifier
+    (``sc/source/core/tool/compiler.cxx:ScCompiler::CheckTabQuotes`` and
+    ``i18npool/source/characterclassification/cclass_unicode_parser.cxx:cclass_Unicode::getFlagsExtended``).
+    Otherwise a bare reference like ``Q1-2026.B2`` is read as ``Q1 - 2026.B2``
+    and yields ``#NAME?``. Leading ``$``, spaces, ``.``, ``!``, and ``'`` are
+    all non-identifier characters and remain quoted. This rule also quotes a
+    few rare punctuation characters Calc allows (``·``, ``’``, CJK brackets)
+    and leaves cell-shaped/boolean names (``Q1``, ``FY24``, ``TRUE``) bare;
+    newer LibreOffice quotes those, though Calc still parses them bare.
+    """
+    if not name or _is_bare_sheet_name(name):
+        return name
+    return "'" + name.replace("'", "''") + "'"
 
 
 def qualify_a1(sheet_name: str, a1: str) -> str:
