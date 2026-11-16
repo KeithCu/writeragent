@@ -18,9 +18,8 @@
 
 WriterAgent's own MCP server (``server.py``) lets outside agents drive
 LibreOffice. This module is the other direction: the built-in chat calls tools
-on servers set under Settings > Integrations (``mcp_client.*``, module
-``plugin/mcp_client``) and in the ``mcp_client.servers`` JSON object (see
-``docs/mcp-client.md``).
+on servers configured under Settings > Integrations (``mcp_client.servers``;
+see ``docs/mcp-client.md``).
 
 Remote tools are exposed through the ``mcp`` sub-agent domain
 (``delegate_to_subagent(domain="mcp")``). Each server's tool list is fetched on
@@ -44,13 +43,13 @@ import re
 import subprocess
 import threading
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from plugin.framework.client.errors import NetworkError
-from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target
+from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target, redact_secrets, secrets_from_target
 from plugin.framework.client.http_transport import LlmHttpTransport
 from plugin.framework.config import get_config
-from plugin.framework.config_schema import as_bool
+from plugin.framework.logging import is_secret_key, redact_sensitive_payload_for_log
 from plugin.framework.send_cancellation import (
     SendCancellation,
     acquire_unless_cancelled,
@@ -71,7 +70,6 @@ from plugin.mcp.client_helpers import (
     SSE_BOUNDARY_CARRY,
     SSE_BOUNDARY_RE,
     TRUST_FULL,
-    TRUST_UNTRUSTED,
     annotation_read_only_hint,
     content_dual_emits_structured,
     escape_invisible,
@@ -138,20 +136,9 @@ _last_warned_servers_key: str | None = None
 
 
 def configured_servers() -> list[dict[str, Any]]:
-    """Enabled servers with a name and URL: the Settings form server first, then ``mcp_client.servers``."""
+    """Enabled servers with a name and URL from ``mcp_client.servers``."""
     global _last_warned_servers_key
     servers: list[dict[str, Any]] = []
-    url = str(get_config("mcp_client.url") or "").strip()
-    if as_bool(get_config("mcp_client.enabled")) and url:
-        servers.append(
-            {
-                "name": str(get_config("mcp_client.name") or "").strip() or "external",
-                "url": url,
-                "token_keychain": str(get_config("mcp_client.token_keychain") or "").strip(),
-                "token": str(get_config("mcp_client.token") or "").strip(),
-                "trust": TRUST_FULL if as_bool(get_config("mcp_client.trusted")) else TRUST_UNTRUSTED,
-            }
-        )
     raw = get_config("mcp_client.servers")
     raw_key = json.dumps(raw, sort_keys=True, default=str) if raw is not None else None
     emit_warn = log.warning if raw_key != _last_warned_servers_key else log.debug
@@ -309,6 +296,32 @@ class McpServerConnection:
             headers["MCP-Protocol-Version"] = self._protocol_version
         return headers
 
+    def _secret_values(self) -> list[str]:
+        """Collect configured token, secret header values, and URL credentials for error redaction."""
+        secrets: list[str] = []
+        if self._token:
+            secrets.append(self._token)
+        raw_token = str(self._server.get("token") or "").strip()
+        if raw_token:
+            stripped = strip_bearer_prefix(raw_token)
+            if stripped:
+                secrets.append(stripped)
+        raw_headers = self._server.get("headers")
+        if isinstance(raw_headers, dict):
+            for k, v in raw_headers.items():
+                if is_secret_key(str(k)) and isinstance(v, str) and v.strip():
+                    val = v.strip()
+                    secrets.append(val)
+                    parts = val.split(None, 1)
+                    if len(parts) == 2 and parts[1].strip():
+                        secrets.append(parts[1].strip())
+        secrets.extend(secrets_from_target(self.url))
+        return secrets
+
+    def redact(self, text: str) -> str:
+        """Scrub exact server credentials and common secret patterns from *text*."""
+        return sanitize_error(redact_secrets(text, self._secret_values()))
+
     def _transport_error(
         self,
         exc: Exception,
@@ -325,7 +338,7 @@ class McpServerConnection:
             return McpClientError("Stopped by user.", code="USER_STOPPED")
         if sent and method == "tools/call":
             return McpClientError(OUTCOME_UNCERTAIN_MSG.format(s=self.name), code="MCP_OUTCOME_UNCERTAIN")
-        return McpClientError(f"Cannot reach MCP server '{self.name}': {sanitize_error(str(exc))}")
+        return McpClientError(f"Cannot reach MCP server '{self.name}': {self.redact(str(exc))}")
 
     def _parse_sse_event(self, event_bytes: bytes, request_id: int) -> dict[str, Any] | None:
         text = event_bytes.decode("utf-8", errors="replace")
@@ -419,7 +432,7 @@ class McpServerConnection:
         if resp.status != 200:
             raw_err = resp.read(1200)
             err_text = " ".join(raw_err.decode("utf-8", errors="replace").split())
-            err_head = sanitize_error(err_text)[:HTTP_ERROR_BODY_CHARS]
+            err_head = self.redact(err_text)[:HTTP_ERROR_BODY_CHARS]
             detail = f": {err_head}" if err_head else ""
             raise McpClientError(
                 f"MCP server '{self.name}' returned HTTP {resp.status} for {method}{detail}",
@@ -525,7 +538,7 @@ class McpServerConnection:
         if message.get("error"):
             err = message["error"]
             err_msg = err.get("message") if isinstance(err, dict) else err
-            raise McpClientError(f"MCP server '{self.name}' error: {sanitize_error(str(err_msg))}", application=True)
+            raise McpClientError(f"MCP server '{self.name}' error: {self.redact(str(err_msg))}", application=True)
         result = message.get("result")
         return result if isinstance(result, dict) else {}
 
@@ -730,19 +743,20 @@ def get_connection(server: dict[str, Any]) -> McpServerConnection:
         return conn
 
 
-def drop_connections() -> None:
-    """Drop all cached server connections so the next delegation re-lists tools.
+def drop_connections(keep: Sequence[dict[str, Any]] = ()) -> None:
+    """Drop cached server connections so the next delegation re-lists tools.
 
-    Settings OK calls this even when nothing changed, because config emits no
-    ``config:changed`` for an unchanged save. Pressing OK is the user's way to
-    pick up tools added on a server whose ``tools/list_changed`` never reaches
-    us, since we read notifications only inside POST replies and not the GET
-    stream; this also resets the server's pause (circuit breaker) and session,
-    since pressing OK is an explicit user retry. In-flight work finishes on the
-    old connection objects, and nothing reads their cache afterwards.
+    Settings OK passes ``keep`` for connections that a Settings probe just
+    listed and whose saved entry is unchanged, dropping all others. Passing
+    nothing clears every connection. In-flight work finishes on the old
+    connection objects, and nothing reads their cache afterwards.
     """
     with _connections_lock:
-        _connections.clear()
+        if not keep:
+            _connections.clear()
+            return
+        for name in [n for n, conn in _connections.items() if conn._server not in keep]:
+            _connections.pop(name, None)
 
 
 def render_call_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -852,15 +866,16 @@ class RemoteMcpTool(ToolBase):
                 "This call needs the user's approval, which cannot be shown here, so it was not run.",
                 code="MCP_CLIENT_APPROVAL_UNAVAILABLE",
             )
-        card = format_approval_arguments(arguments)
+        shown = format_approval_arguments(redact_sensitive_payload_for_log(arguments))
+        editable = format_approval_arguments(arguments)
         if ctx is not None and ctx.chat_append_callback:
             ctx.chat_append_callback(
-                f"\n[Run {escape_invisible(conn.name)}: {escape_invisible(tool)}?]\n{card}\n"
+                f"\n[Run {escape_invisible(conn.name)}: {escape_invisible(tool)}?]\n{shown}\n"
             )
-        proceed, edited = unpack_approval(callback(card, self.name or tool, arguments))
+        proceed, edited = unpack_approval(callback(editable, self.name or tool, arguments))
         if not proceed:
             return arguments, self._tool_error("The user rejected this call. It was not run.", code="MCP_CLIENT_CALL_REJECTED")
-        if edited is None or edited.strip() == card.strip():
+        if edited is None or edited.strip() == editable.strip():
             return arguments, None
         try:
             changed = json.loads(edited)
@@ -872,7 +887,8 @@ class RemoteMcpTool(ToolBase):
                 code="MCP_CLIENT_CALL_CHANGED",
             )
         if ctx is not None and ctx.chat_append_callback:
-            ctx.chat_append_callback(f"[Changed to: {format_approval_arguments(changed)}]\n")
+            masked_changed = format_approval_arguments(redact_sensitive_payload_for_log(changed))
+            ctx.chat_append_callback(f"[Changed to: {masked_changed}]\n")
         return changed, None
 
     def _call(
@@ -887,7 +903,7 @@ class RemoteMcpTool(ToolBase):
         rendered = render_call_result(result)
         if result.get("isError"):
             return self._tool_error(
-                f"Remote tool '{tool}' failed: {sanitize_error(rendered['result'])}",
+                f"Remote tool '{tool}' failed: {conn.redact(rendered['result'])}",
                 code="MCP_REMOTE_TOOL_ERROR",
                 note=UNTRUSTED_NOTE,
             )
@@ -895,7 +911,7 @@ class RemoteMcpTool(ToolBase):
             "status": "ok",
             "server": conn.name,
             "tool": tool,
-            "arguments": arguments,
+            "arguments": redact_sensitive_payload_for_log(arguments),
             "note": UNTRUSTED_NOTE,
             **rendered,
         }

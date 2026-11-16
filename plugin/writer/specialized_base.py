@@ -244,6 +244,8 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
 class ToolMcpDomainBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpecialBase):
     """Owns no tools; the delegate gateway builds them per call (``mcp_domain_tools``); ``specialized_domain_available`` hides the row without a server."""
 
+    # Sidebar chat only; WriterAgent's own MCP server never offers this domain (see tool.py tier docs).
+    tier: str = "chat"
     specialized_domain: ClassVar[str | None] = "mcp"
     specialized_domain_description: ClassVar[str | None] = DELEGATION_MCP_HINT
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()

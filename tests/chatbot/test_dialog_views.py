@@ -2151,6 +2151,7 @@ def test_settings_ok_makes_mcp_servers_list_tools_again():
             patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.test"),
             patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
             patch("plugin.chatbot.settings_dialog.apply_settings_result"),
+            patch("plugin.mcp_client.settings_ui.McpServersEditor.attach", return_value=None),
         ):
             assert view.show() == extracted
         assert mcp_client._connections == {}

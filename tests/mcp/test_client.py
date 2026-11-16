@@ -277,9 +277,9 @@ def _fresh_connections():
     mcp_client._connections.clear()
 
 
-def _with_servers(servers: dict[str, Any] | Any, **settings: Any):
-    """Patch config: *servers* is the mcp_client.servers object, *settings* the Settings > Integrations fields."""
-    values = {"mcp_client.servers": servers, **{f"mcp_client.{k}": v for k, v in settings.items()}}
+def _with_servers(servers: dict[str, Any] | Any):
+    """Patch config: *servers* is the ``mcp_client.servers`` object."""
+    values = {"mcp_client.servers": servers}
     return patch.object(mcp_client, "get_config", lambda key: values.get(key))
 
 
@@ -423,24 +423,6 @@ def test_keychain_stop_kills_child():
     assert killed.is_set()
 
 
-def test_settings_server_comes_first_and_wins_on_name():
-    listed = {"claw": {"url": "http://list"}, "other": {"url": "http://other"}}
-    with _with_servers(listed, enabled=True, name="claw", url="http://settings/mcp", token_keychain="item", trusted=True):
-        servers = mcp_client.configured_servers()
-    assert [(s["name"], s["url"]) for s in servers] == [("claw", "http://settings/mcp"), ("other", "http://other")]
-    assert servers[0]["token_keychain"] == "item"
-    assert servers[0]["trust"] == "full"
-
-
-def test_settings_server_needs_enabled_and_url():
-    with _with_servers({}, enabled=False, url="http://settings/mcp"):
-        assert mcp_client.configured_servers() == []
-    with _with_servers({}, enabled=True, url=""):
-        assert mcp_client.configured_servers() == []
-    with _with_servers({}, enabled=True, name="", url="http://settings/mcp"):
-        assert mcp_client.configured_servers()[0]["name"] == "external"
-
-
 def test_configured_servers_skips_disabled_and_malformed():
     servers = {
         "a": {"url": "http://x"},
@@ -526,14 +508,10 @@ def test_config_change_makes_a_new_connection(fake):
 
 
 def test_servers_object_is_kept_as_written():
-    """The real config layer knows every key and keeps the servers object as written."""
+    """The real config layer knows ``mcp_client.servers`` and keeps the object as written."""
     from plugin.framework import config_schema
 
     assert config_schema.resolve_default("mcp_client.servers") == {}
-    assert config_schema.resolve_default("mcp_client.enabled") is False
-    assert config_schema.resolve_default("mcp_client.trusted") is False
-    for key in ("name", "url", "token_keychain", "token"):
-        assert config_schema.resolve_default(f"mcp_client.{key}") == ""
     servers = {"a": {"url": "http://x", "token_keychain": "k"}}
     assert config_schema.validate({"mcp_client.servers": servers})["mcp_client.servers"] == servers
 
@@ -1263,3 +1241,82 @@ def test_failed_listing_keeps_no_entry(fake):
     fake.error_body = None
     tools = conn.list_tools()
     assert [t["name"] for t in tools] == [t["name"] for t in TOOLS]
+
+
+def test_approval_card_masks_secret_arguments(fake):
+    fake.custom_tools = [
+        {
+            "name": "echo",
+            "description": "Echo args.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"password": {"type": "string"}, "user": {"type": "string"}},
+                "required": ["password", "user"],
+            },
+        }
+    ]
+    ctx, seen = _approval_ctx((True, None))
+    with _with_servers({"claw": _server(fake, trust="untrusted")}):
+        tool = _remote_tool(ctx, "mcp__claw__echo")
+        out = tool.execute(ctx, password="my-secret-password", user="alice")
+
+    assert out["status"] == "ok"
+    chat_card = seen[0]
+    callback_text, _tool_name, callback_args = seen[1]
+    assert "<redacted>" in chat_card
+    assert "my-secret-password" not in chat_card
+    assert "my-secret-password" in callback_text
+    assert callback_args == {"password": "my-secret-password", "user": "alice"}
+    call_req = [body for _hdrs, body in fake.requests if body.get("method") == "tools/call"][0]
+    assert call_req["params"]["arguments"] == {"password": "my-secret-password", "user": "alice"}
+    assert out["arguments"] == {"password": "<redacted>", "user": "alice"}
+
+
+def test_changed_to_line_is_masked(fake):
+    fake.custom_tools = [
+        {
+            "name": "echo",
+            "description": "Echo args.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"password": {"type": "string"}, "user": {"type": "string"}},
+            },
+        }
+    ]
+    edited_json = json.dumps({"password": "new-secret-password", "user": "bob"})
+    ctx, seen = _approval_ctx((True, edited_json))
+    with _with_servers({"claw": _server(fake, trust="untrusted")}):
+        tool = _remote_tool(ctx, "mcp__claw__echo")
+        out = tool.execute(ctx, password="old-secret-password", user="alice")
+
+    assert out["status"] == "ok"
+    changed_line = [s for s in seen if isinstance(s, str) and s.startswith("[Changed to:")][0]
+    assert "<redacted>" in changed_line
+    assert "new-secret-password" not in changed_line
+
+
+def test_error_body_echoing_the_bare_token_is_redacted(fake):
+    fake.error_body = (500, f"bad credential {TOKEN}")
+    conn = McpServerConnection(_server(fake))
+    with pytest.raises(McpClientError) as info:
+        conn.list_tools()
+    assert TOKEN not in str(info.value)
+
+
+def test_secret_header_values_are_redacted(fake):
+    header_secret = "hdr-secret-xyz-999"
+    fake.error_body = (500, f"rejected {header_secret}")
+    conn = McpServerConnection(_server(fake, headers={"X-Auth-Token": header_secret}))
+    with pytest.raises(McpClientError) as info:
+        conn.list_tools()
+    assert header_secret not in str(info.value)
+
+
+def test_drop_connections_keeps_only_listed_entries(fake):
+    entry_a = _server(fake, name="a")
+    entry_b = _server(fake, name="b")
+    conn_a = mcp_client.get_connection(entry_a)
+    conn_b = mcp_client.get_connection(entry_b)
+    mcp_client.drop_connections(keep=[entry_a])
+    assert mcp_client.get_connection(entry_a) is conn_a
+    assert mcp_client.get_connection(entry_b) is not conn_b

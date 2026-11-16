@@ -49,6 +49,7 @@ from plugin.doc.specialized_catalog import (
     READ_ONLY_DOMAINS,
     apply_inner_outcome,
     catalog_entries_from_base,
+    chat_only_domains,
     expects_edits,
     format_specialized_domains_description,
     loop_hint,
@@ -575,6 +576,29 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
     return out
 
 
+def hide_chat_only_domains(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop ``tier == 'chat'`` domains from MCP ``inputSchema.properties.domain.enum`` lists."""
+    hidden = chat_only_domains()
+    if not hidden:
+        return schemas
+    out: list[dict[str, Any]] = []
+    for schema in schemas:
+        params = schema.get("inputSchema") if isinstance(schema, dict) else None
+        props = params.get("properties") if isinstance(params, dict) else None
+        domain_prop = props.get("domain") if isinstance(props, dict) else None
+        enum = domain_prop.get("enum") if isinstance(domain_prop, dict) else None
+        if not isinstance(params, dict) or not isinstance(props, dict) or not isinstance(domain_prop, dict) or not isinstance(enum, list):
+            out.append(schema)
+            continue
+        kept = [d for d in enum if str(d) not in hidden]
+        if len(kept) == len(enum):
+            out.append(schema)
+            continue
+        new_domain = {**domain_prop, "enum": kept}
+        out.append({**schema, "inputSchema": {**params, "properties": {**props, "domain": new_domain}}})
+    return out
+
+
 _WRITER_DELEGATE_DESCRIPTION = (
     "Starts a Writer sub-agent that has the chosen domain's tools. It carries out task, written in plain language, in this document and returns a summary. "
     "For document_research and web_research, describe what to research in task (topics, sections, depth). "
@@ -587,7 +611,7 @@ _CALC_DELEGATE_DESCRIPTION = (
     f"in this spreadsheet and returns a summary. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
     f"web_research {DELEGATION_PUBLIC_WEB_HINT}; vision runs OCR on the currently selected image and inserts the "
     f"recognized text below it (when configured). Also: images, sheets, ranges, search, charts, shapes, "
-    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms, mcp."
+    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
 )
 
 _DRAW_DELEGATE_LEAD = (
@@ -598,7 +622,7 @@ _DRAW_DELEGATE_LEAD = (
 
 _DRAW_DELEGATE_DESCRIPTION = (
     f"{_DRAW_DELEGATE_LEAD}"
-    "Available domains: charts, document_research, forms, images, mcp, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
+    "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
     "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
 )
 
@@ -698,5 +722,8 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION
         if label == "Draw":
-            return _format_draw_delegate_description(self.domains_for_services(uno_services))
+            hidden = chat_only_domains()
+            return _format_draw_delegate_description(
+                [d for d in self.domains_for_services(uno_services) if d not in hidden]
+            )
         return _WRITER_DELEGATE_DESCRIPTION

@@ -2,7 +2,7 @@
 
 WriterAgent already runs an MCP **server** ([mcp-protocol.md](mcp-protocol.md)) so outside agents can drive LibreOffice. This feature is the other direction: the built-in sidebar chat can call tools on **other** MCP servers, for example a home server that exposes Nextcloud, email, calendar or notes.
 
-Code: [`plugin/mcp/client.py`](../plugin/mcp/client.py), [`plugin/mcp/client_schema.py`](../plugin/mcp/client_schema.py), [`plugin/mcp/client_helpers.py`](../plugin/mcp/client_helpers.py). Tests: [`tests/mcp/test_client.py`](../tests/mcp/test_client.py), [`tests/mcp/test_client_schema.py`](../tests/mcp/test_client_schema.py), [`tests/mcp/test_client_helpers.py`](../tests/mcp/test_client_helpers.py).
+Code: [`plugin/mcp/client.py`](../plugin/mcp/client.py), [`plugin/mcp/client_schema.py`](../plugin/mcp/client_schema.py), [`plugin/mcp/client_helpers.py`](../plugin/mcp/client_helpers.py), [`plugin/mcp_client/settings_ui.py`](../plugin/mcp_client/settings_ui.py). Tests: [`tests/mcp/test_client.py`](../tests/mcp/test_client.py), [`tests/mcp/test_client_schema.py`](../tests/mcp/test_client_schema.py), [`tests/mcp/test_client_helpers.py`](../tests/mcp/test_client_helpers.py), [`tests/mcp_client/test_settings_ui.py`](../tests/mcp_client/test_settings_ui.py).
 
 ## How the model sees it
 
@@ -20,21 +20,24 @@ Result text is head/tail truncated at 20,000 characters (40% head, 60% tail) and
 
 ## Configuration
 
-Open **Settings → Integrations**. The **MCP servers for the sidebar chat** section sets up one server, plus a JSON box for additional servers:
+Open **Settings → Integrations**. The **MCP servers for the sidebar chat** section edits `mcp_client.servers` in place:
 
-| Field | Config key | Meaning |
-|-------|------------|---------|
-| Use this MCP server in chat | `mcp_client.enabled` | Off by default. |
-| Trust its read-only tools (no prompt) | `mcp_client.trusted` | Off by default. When on, tools marked `readOnlyHint: true` run without prompting; all other tools still ask. |
-| Name | `mcp_client.name` | Prefixes this server's tool names (`mcp__<name>__<tool>`). Blank becomes `external`. |
-| Server URL | `mcp_client.url` | Streamable-HTTP MCP endpoint (`http` or `https`). Required. |
-| Keychain item (macOS) | `mcp_client.token_keychain` | macOS only: name (service) of a Keychain generic password holding the bearer token. Preferred. |
-| Token | `mcp_client.token` | Bearer token saved in plain text in `writeragent.json`. Used only when Keychain item is empty. |
-| More servers | `mcp_client.servers` | JSON object keyed by server name (empty by default). |
+| Control | Meaning |
+|---------|---------|
+| Server / **Add** / **Remove** | Pick a server to edit, add a new enabled entry, or remove the selected entry. |
+| Use this MCP server in chat | Per-entry `enabled` flag (`true` for newly added entries). |
+| Trust its read-only tools (no prompt) | Per-entry `trust` (`"full"` vs `"untrusted"`). Tools marked `readOnlyHint: true` run without prompting when trusted. |
+| Name | Key under `mcp_client.servers`; prefixes this server's tool names (`mcp__<name>__<tool>`). |
+| Server URL | Streamable-HTTP MCP endpoint (`http` or `https`). Required. |
+| Keychain item (macOS) | macOS only: name (service) of a Keychain generic password holding the bearer token. Preferred. |
+| Token | Bearer token saved in plain text in `writeragent.json`. Used only when Keychain item is empty. |
+| Status | Read-only probe result (`Checking…`, `Connected: N tools`, or `Failed: <error>`). |
 
-### More than one server
+**Live probe:** Leaving **Server URL**, **Keychain item**, or **Token** after changing any of those three fields probes the server off the main thread via `get_connection(entry).list_tools(...)` and updates **Status**.
 
-Additional servers go in the **More servers** JSON box on **Settings → Integrations** (or `mcp_client.servers` in `writeragent.json`). The Settings form server is listed first; an entry with the same name is ignored.
+### Advanced per-server keys in `writeragent.json`
+
+All servers live in `mcp_client.servers` in `writeragent.json` (keyed by server name). Editing a server in Settings preserves advanced keys already present on that entry (such as `headers`, `timeout`, or `tools`):
 
 ```json
 {
@@ -66,7 +69,7 @@ security add-generic-password -a "$USER" -s writeragent-mcp -w
 Each server's tool list is cached in memory only, filled on first use (`tools/list`), and shared across concurrent turns so two delegations asking at once make one fetch. It is cleared or refreshed when:
 
 - **The server config changes:** the connection is keyed by the full server entry, so editing it makes a new connection and re-lists.
-- **Settings OK is pressed:** drops all cached connections even when no setting changed, so the next delegation re-initializes and re-lists every server; this also resets the server's pause (circuit breaker) and session, since pressing OK is an explicit user retry.
+- **Settings OK is pressed:** keeps connections that a Settings probe just listed if their saved entry is unchanged, and drops all others so the next delegation re-initializes and re-lists them; this also resets dropped servers' pause (circuit breaker) and session, since pressing OK is an explicit user retry.
 - **A new session is initialized (for example after HTTP 404):** clears that server's cached list so the next delegation re-lists.
 - **`notifications/tools/list_changed` arrives in a POST SSE reply:** clears that server's cached list so the next delegation re-lists.
 - **An unknown-tool reply arrives (`tools/call`):** re-lists once and retries the already-approved call once if the tool is still offered.
@@ -85,10 +88,10 @@ Config is read on every delegation and connections are made lazily, so edits tak
 
 ## Security model
 
-- **Sidebar chat only.** `mcp_domain_tools` refuses callers other than `caller == "chat"` (`MCP_DOMAIN_CHAT_ONLY`), so WriterAgent's own MCP server and Python scripts cannot invoke it. Remote tools never enter `ToolRegistry`, and `filter_unavailable_delegate_domains` hides `mcp` from the chat tool enum and prompt when no servers are configured.
+- **Sidebar chat only.** `ToolMcpDomainBase` sets `tier = "chat"`, so WriterAgent's own MCP server never lists `mcp` in `delegate_to_subagent` or `tool_find`. `mcp_domain_tools` also refuses callers other than `caller == "chat"` (`MCP_DOMAIN_CHAT_ONLY`), so WriterAgent's own MCP server and Python scripts cannot invoke it. Remote tools never enter `ToolRegistry`, and `filter_unavailable_delegate_domains` hides `mcp` from the chat tool enum and prompt when no servers are configured.
 - **Approval.** Every remote call asks unless the server is trusted and the tool has `readOnlyHint: true`. If approval is required but unavailable, the call is refused.
 - **Prompt injection & taint.** Email bodies, notes and files can contain text written to steer the model. Once an `mcp` delegation runs in a chat turn, `web_research` in that same turn always asks for user approval even when `chatbot.prompt_for_web_research` is off.
-- **Tokens are never logged.** Errors redact credential patterns (`Bearer`, `ghp_`, `sk-`, `token=`, etc.).
+- **Tokens and secret arguments are masked.** Errors redact credential patterns (`Bearer`, `ghp_`, `sk-`, `token=`, etc.) as well as the server's exact configured token and secret-named header values (`is_secret_key`). Approval cards, `[Changed to: …]`, tool result `arguments` echoes, sub-agent thinking lines, and debug/agent logs mask secret-named argument values as `<redacted>`, while the Change dialog shows real values for editing and the server still receives the real values.
 - `mcp` is in `READ_ONLY_DOMAINS` and `RemoteMcpTool` sets `is_mutation = False`: it never changes the open document, so it takes no document lock, does not trigger a document refresh, and works in read-only files.
 
 ## Limitations
@@ -97,5 +100,4 @@ Config is read on every delegation and connections are made lazily, so edits tak
 - `notifications/tools/list_changed` sent on the standalone streamable-HTTP GET stream is not received (WriterAgent only reads SSE events inside POST replies), so press OK in Settings to pick up newly added server tools.
 - Literal `${VAR}` references in `url` or `headers` are not expanded from the environment and are refused.
 - Recursive `$ref` schemas, top-level `oneOf`/`allOf`/typeless parameters, `anyOf` with `object`/`array` branches, and arrays without `items` are skipped; tools with open-ended `object` schemas (no declared `properties`) cannot accept arbitrary undeclared arguments; configured servers are not passed to ACP agent backends (`plugin/acp/acp_backend.py`).
-- WriterAgent's own MCP server may still list the `mcp` domain when servers are configured; calls there are refused.
 - The Change dialog is shared with web research, so its title still reads "Edit search query".

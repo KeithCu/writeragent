@@ -69,6 +69,7 @@ def catalog_entries_from_base(
     agent_label: str | None = None,
     ctx: Any = None,
     for_discovery: bool = False,
+    for_mcp: bool = False,
     uno_services: frozenset[str] = frozenset(),
 ) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
@@ -77,11 +78,10 @@ def catalog_entries_from_base(
     delegate enum; when ``uno_services`` is non-empty, domains whose base class does not
     support those services are omitted.
 
-    ``for_discovery`` skips the exclusions that only shape a chat prompt. CALC_HIDDEN_SPECIALIZED_
-    DOMAINS keeps Python delegation out of the Calc sidebar's suggestions, but the MCP tool list
-    exposes those tools regardless — so applying it to tool_find made them callable and
-    undiscoverable at once. The sidebar-only domains stay excluded either way: the flat tool list
-    drops them too, so both modes agree without help.
+    ``for_discovery`` (MCP ``tool_find``) skips the exclusions that only shape a chat prompt
+    (``CALC_HIDDEN_SPECIALIZED_DOMAINS``), while hiding ``tier == "chat"`` domains just like
+    ``for_mcp`` does. Sidebar-only domains stay excluded either way: the flat tool list drops
+    them too, so both modes agree without help.
     """
     base_cls = _special_base(agent_label)
     entries: list[dict[str, str]] = []
@@ -89,6 +89,8 @@ def catalog_entries_from_base(
         domain = getattr(cls, "specialized_domain", None)
         desc = getattr(cls, "specialized_domain_description", None)
         if not domain:
+            continue
+        if (for_mcp or for_discovery) and getattr(cls, "tier", None) == "chat":
             continue
         if agent_label == "Calc" and domain in CALC_HIDDEN_SPECIALIZED_DOMAINS and not for_discovery:
             continue
@@ -148,16 +150,28 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
+def chat_only_domains() -> frozenset[str]:
+    """Return specialized domains whose base class is marked ``tier == 'chat'``."""
+    found: set[str] = set()
+    for label in ("Writer", "Calc", "Draw"):
+        for cls in _special_base(label).__subclasses__():
+            domain = getattr(cls, "specialized_domain", None)
+            if domain and getattr(cls, "tier", None) == "chat":
+                found.add(str(domain))
+    return frozenset(found)
+
+
 def _get_specialized_domains_str(
     *,
     agent_label: str | None = None,
     ctx: Any = None,
+    for_mcp: bool = False,
     uno_services: frozenset[str] = frozenset(),
 ) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
     for entry in sorted(
-        catalog_entries_from_base(agent_label=agent_label, ctx=ctx, uno_services=uno_services),
+        catalog_entries_from_base(agent_label=agent_label, ctx=ctx, for_mcp=for_mcp, uno_services=uno_services),
         key=lambda e: e["domain"],
     ):
         if entry["description"]:
@@ -174,7 +188,7 @@ def format_specialized_domains_description(
     uno_services: frozenset[str] = frozenset(),
 ) -> str:
     """Domain enum help for MCP/OpenAPI (more compact than the full delegation hint)."""
-    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, uno_services=uno_services)
+    domains = _get_specialized_domains_str(agent_label=agent_label, ctx=ctx, for_mcp=True, uno_services=uno_services)
     if not domains:
         return "The specialized domain to activate."
     # Compact form for the enum property description to reduce bloat in MCP schema

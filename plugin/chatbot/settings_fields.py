@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Literal, cast
 
@@ -137,38 +136,13 @@ def build_module_field_specs(
         schema_type = schema.get("type", "string")
         if schema_type == "boolean":
             schema_type = "bool"
-        if schema_type == "dict" and schema.get("widget") == "textarea":
-            field["type"] = "json"
-            field["value"] = json.dumps(val, indent=2, ensure_ascii=False) if isinstance(val, dict) and val else ""
-        elif schema_type in ("bool", "int", "float"):
+        if schema_type in ("bool", "int", "float"):
             field["type"] = str(schema_type)
             if schema_type == "bool":
                 field["value"] = str(as_bool(val)).lower()
 
         field_specs.append(field)
     return field_specs
-
-
-def parse_json_setting(config_key: str, text: Any) -> dict[str, Any]:
-    """Parse a JSON-object textarea setting, raising ``ConfigValidationError`` on invalid input."""
-    raw = str(text or "").strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except ValueError as exc:
-        raise ConfigValidationError(
-            _("{key}: invalid JSON ({err}).").format(key=config_key, err=exc),
-            code="CONFIG_INVALID_VALUE",
-            details={"key": config_key},
-        ) from exc
-    if not isinstance(parsed, dict):
-        raise ConfigValidationError(
-            _("{key}: expected a JSON object ({{...}}).").format(key=config_key),
-            code="CONFIG_INVALID_VALUE",
-            details={"key": config_key},
-        )
-    return parsed
 
 
 def _settings_option_labels(field: dict[str, Any]) -> tuple[str, ...]:

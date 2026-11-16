@@ -6,67 +6,82 @@ config:
   _sep_mcp_servers:
     widget: separator
     label: MCP servers for the sidebar chat
+  server:
+    widget: combo
+    label: Server
+    settings_persist: false
+    inline: true
+    width: 150
+  add_server:
+    widget: button
+    button_text: Add
+    settings_persist: false
+    inline: true
+    inline_no_label: true
+    x: 270
+    width: 55
+  remove_server:
+    widget: button
+    button_text: Remove
+    settings_persist: false
+    inline_no_label: true
+    x: 332
+    width: 65
   enabled:
-    type: boolean
-    default: false
     widget: checkbox
     label: Use this MCP server in chat
     helper: Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or to scripts.
+    settings_persist: false
     inline: true
     width: 168
   trusted:
-    type: boolean
-    default: false
     widget: checkbox
     label: Trust its read-only tools (no prompt)
     helper: Tools the server marks readOnlyHint run without Accept / Change / Reject; every other call still asks
+    settings_persist: false
     x: 195
     width: 235
   name:
-    type: string
-    default: ""
     widget: text
     label: Name
     helper: Prefixes this server's tool names (e.g. home -> mcp__home__tool).
+    settings_persist: false
     inline: true
     width: 100
   url:
-    type: string
-    default: ""
     widget: text
     label: Server URL
     helper: Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp
+    settings_persist: false
     label_x: 215
     label_width: 42
     x: 260
     width: 170
   token_keychain:
-    type: string
-    default: ""
     widget: text
     label: Keychain item (macOS)
     helper: macOS Keychain item holding the bearer token. Preferred over the token field.
+    settings_persist: false
     inline: true
     width: 100
   token:
-    type: string
-    default: ""
     widget: password
     label: Token
     helper: Bearer token saved in plain text in writeragent.json. Used only when Keychain item is empty.
+    settings_persist: false
     label_x: 215
     label_width: 85
     x: 302
     width: 128
+  status:
+    widget: textarea
+    label: Status
+    readonly: true
+    settings_persist: false
+    width: 320
+    height: 28
   servers:
     type: dict
     default: {}
-    widget: textarea
-    label: "More servers (JSON object keyed by server name):"
+    internal: true
     helper: "Accepted keys per entry: url, headers, enabled, timeout, connect_timeout, tools.include, tools.exclude, trust (full/untrusted), token, token_keychain."
-    label_above: true
-    label_x: 8
-    label_width: 422
-    x: 8
-    width: 422
-    height: 90

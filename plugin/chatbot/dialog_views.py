@@ -208,6 +208,7 @@ class SettingsDialog:
         self._ctx = ctx
         self._dlg = None
         self._endpoint_listener = None
+        self._mcp_servers: Any = None
         self._attached = []
 
     def _attach(self, ctrl: Any, kind: str, listener: Any) -> None:
@@ -237,6 +238,9 @@ class SettingsDialog:
 
             self._setup_tabs()
             self._populate_fields(field_specs, current_endpoint)
+            from plugin.mcp_client.settings_ui import McpServersEditor
+
+            self._mcp_servers = McpServersEditor.attach(self._dlg, self._attach)
             test_conn_btn = get_optional(self._dlg, "btn_test_conn")
             if test_conn_btn:
                 test_conn_btn.addActionListener(
@@ -257,10 +261,11 @@ class SettingsDialog:
                     apply_settings_result(self._ctx, result, field_specs)
                     # init_logging runs on save so log level changes apply without restart.
                     init_logging(self._ctx)
-                    # OK drops external MCP server connections so the next mcp delegation lists their tools again.
+                    # Save external MCP servers and keep connections a Settings probe just listed unchanged.
                     from plugin.mcp.client import drop_connections
 
-                    drop_connections()
+                    keep = self._mcp_servers.save() if self._mcp_servers else []
+                    drop_connections(keep=keep)
                     return result
                 except ConfigValidationError as ve:
                     msgbox(self._ctx, _("Invalid Setting"), str(ve))
@@ -459,6 +464,9 @@ class SettingsDialog:
         if self._endpoint_listener:
             with suppress_disposed("close endpoint listener", logger=log, suppress_all=False):
                 self._endpoint_listener.close()
+        if self._mcp_servers:
+            with suppress_disposed("close mcp servers editor", logger=log, suppress_all=False):
+                self._mcp_servers.close()
         if self._dlg is not None:
             for ctrl, method, listener in self._attached:
                 with suppress_disposed("detach settings listener", logger=log, suppress_all=False):
