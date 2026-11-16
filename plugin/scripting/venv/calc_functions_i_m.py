@@ -21,7 +21,6 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
-    as_bool_flag,
     as_nonzero,
     clean_paired_arrays,
     collect_a_values,
@@ -563,7 +562,13 @@ def _regression_inputs(
     if data_x.shape[0] != len(data_y):
         raise ValueError
     raw_const = kwargs.get("const", args[2] if len(args) > 2 else True)
-    return data_y, data_x, as_bool_flag(raw_const)
+    const = as_nonzero(raw_const)
+    # CalculateRGPRKP (interpr5.cxx) needs at least one sample per coefficient:
+    # K slopes plus the intercept when const is on. Fewer samples have no unique
+    # fit, so Calc shows an error (LINEST(5;3) is Err:504) and so does this.
+    if data_x.shape[0] < data_x.shape[1] + int(const):
+        raise ValueError
+    return data_y, data_x, const
 
 
 def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float]:

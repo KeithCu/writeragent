@@ -181,8 +181,9 @@ def test_days360_method_is_numeric():
     assert calc.days360(d1, d2, "0") == 1.0
     assert calc.days360(d1, d2, True) == 3.0
     assert calc.days360(d1, d2, 1) == 3.0
-    assert math.isnan(calc.days360(d1, d2, "FALSE"))
-    assert math.isnan(calc.days360(d1, d2, "TRUE"))
+    assert calc.days360(d1, d2, "FALSE") == 1.0
+    assert calc.days360(d1, d2, "TRUE") == 3.0
+    assert math.isnan(calc.days360(d1, d2, "abc"))
     assert calc.days360(d1, d2, "") == 1.0
     assert calc.days360(d1, d2, None) == 1.0
 
@@ -303,6 +304,8 @@ _D_H_BAD_INPUTS = [
     ("expondist-text", "expondist", ("x", 1), ValueError),
     ("expondist-blank", "expondist", ("", 1), ValueError),
     ("expondist-text-flag", "expondist", (1, 1, "abc"), ValueError),
+    ("expondist-blank-flag", "expondist", (1, 1, None), 0.36787944117144233),
+    ("expondist-omitted-flag", "expondist", (1, 1), 0.6321205588285577),
     ("expondist-zero", "expondist", (1, 0), _NAN),
     ("expondist-oor", "expondist", (-1, 1), _NAN),
     ("fact-text", "fact", ("x",), ValueError),
@@ -345,6 +348,8 @@ _D_H_BAD_INPUTS = [
     ("gammadist-text", "gammadist", ("x", 2, 1), ValueError),
     ("gammadist-blank", "gammadist", ("", 2, 1), ValueError),
     ("gammadist-text-flag", "gammadist", (1, 2, 1, "abc"), ValueError),
+    ("gammadist-blank-flag", "gammadist", (1, 2, 1, None), 0.36787944117144233),
+    ("gammadist-omitted-flag", "gammadist", (1, 2, 1), 0.2642411176571153),
     ("gammadist-zero", "gammadist", (1, 0, 1), _NAN),
     ("gammadist-oor", "gammadist", (-1, 2, 1), _NAN),
     ("gammainv-text", "gammainv", ("x", 2, 1), ValueError),

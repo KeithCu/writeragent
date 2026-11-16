@@ -466,17 +466,26 @@ def test_trimmean_huge_percent_is_nan():
 
 
 def test_flag_strings_follow_getdouble():
-    # "0" is false. "FALSE" is not a boolean on these functions.
+    # Calc GetBool reads "0" as false and TRUE/FALSE (any case) as booleans,
+    # matching the TEXTJOIN and WEIBULL probe lines; other text is an error.
     assert calc.textjoin(",", "0", ["a", "", "b"]) == "a,,b"
-    assert calc.textjoin(",", "FALSE", ["a", ""]) == "#VALUE!"
+    assert calc.textjoin(",", "FALSE", ["a", ""]) == "a,"
+    assert calc.textjoin(",", "TRUE", ["a", "", "b"]) == "a,b"
+    assert calc.textjoin(",", "yes", ["a", ""]) == "#VALUE!"
     assert calc.textjoin(",", False, ["a", "", "b"]) == "a,,b"
     assert calc.unique([[1, 2], [3, 4]], "0") == [[1, 2], [3, 4]]
-    assert calc.unique([[1, 2]], "FALSE") == "#VALUE!"
+    assert calc.unique([[1, 1], [2, 2]], "FALSE") == [[1, 1], [2, 2]]
+    assert calc.unique([[1, 1], [2, 2]], "TRUE") == [[1], [2]]
+    assert calc.unique([[1, 2]], "yes") == "#VALUE!"
     assert math.isclose(calc.weibull(1, 1, 1, "0"), calc.weibull(1, 1, 1, False))
+    assert math.isclose(calc.weibull(1, 2, 1, "False"), 0.7357588823428847)
+    assert math.isclose(calc.weibull(1, 2, 1, "TRUE"), 0.6321205588285577)
     with pytest.raises(ValueError):
-        calc.weibull(1, 1, 1, "FALSE")
+        calc.weibull(1, 1, 1, "yes")
     assert calc.textsplit("a,,b", ",", ignore_empty="0") == [["a", "", "b"]]
-    assert math.isnan(calc.textsplit("a-b", "-", ignore_empty="FALSE"))
+    assert calc.textsplit("a--b", "-", ignore_empty="FALSE") == [["a", "", "b"]]
+    assert calc.textsplit("a--b", "-", ignore_empty="TRUE") == [["a", "b"]]
+    assert math.isnan(calc.textsplit("a-b", "-", ignore_empty="yes"))
 
 
 def test_trend_scalar_is_one_by_one():
@@ -491,10 +500,11 @@ def test_trend_scalar_is_one_by_one():
 
 
 def test_match_end_zero_string_is_false():
-    # GetBool of "0" is false. "FALSE" is not a number.
+    # GetBool of "0" and of the text FALSE is false; "TRUE" is true.
     assert math.isnan(calc.textbefore("a-b-c", "-", 3, match_end="0"))
     assert calc.textbefore("a-b-c", "-", 3, match_end="1") == "a-b-c"
     assert math.isnan(calc.textbefore("a-b-c", "-", 3, match_end="FALSE"))
+    assert calc.textbefore("a-b-c", "-", 3, match_end="TRUE") == "a-b-c"
     assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="0"))
     assert calc.textafter("a-b-c", "-", -3, match_end="1") == "a-b-c"
     assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="FALSE"))
