@@ -180,6 +180,15 @@ class NativePythonCellEditorDialog:
                 self._set_status(str(outcome.get("message") or _("Error")))
                 return
             self._dirty = False
+            if isinstance(outcome.get("code"), str) or isinstance(outcome.get("data_binding"), str):
+                self._loading = True
+                try:
+                    if isinstance(outcome.get("code"), str):
+                        set_control_text(self._ctrl("CodeEdit"), outcome["code"])
+                    if isinstance(outcome.get("data_binding"), str):
+                        set_control_text(self._ctrl("DataEdit"), outcome["data_binding"])
+                finally:
+                    self._loading = False
             self._set_status(str(outcome.get("status_ok_text") or _("Saved.")))
         except Exception as exc:
             # Catch save errors directly in _save so retargeting and button clicks

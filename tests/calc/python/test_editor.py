@@ -308,7 +308,8 @@ def test_follow_save_lifts_xl_into_formula_cell_args(save_as_plain):
             code_ref=parts.code,
         )
     assert result["ok"] is True
-    assert code_cell.getString() == "result = data"
+    assert result["code"] == code_cell.getString() == "result = data"
+    assert result["data_binding"] == "C1"
     after = formula_cell.getFormula()
     reparsed = PyFormula.parse(after)
     assert reparsed is not None
@@ -388,3 +389,43 @@ def test_plain_save_keeps_xl_text_when_flag_on():
         )
     assert result["ok"] is True
     assert cell.getString() == 'x = xl("C1")'
+
+
+def test_formula_save_xl_rewrite_returns_saved_code_and_binding():
+    doc = CalcDocStub()
+    cell = doc.getSheets().getByIndex(0).getCellByPosition(0, 0)
+    with patch("plugin.calc.python.editor.get_config", return_value=True):
+        result = apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=None,
+            new_code='result = xl("B1:B3")',
+            save_as_plain=False,
+            data_binding_text="",
+        )
+    assert result["type"] == "saved"
+    assert result["ok"] is True
+    assert result["code"] == "result = data"
+    assert result["data_binding"] == "B1:B3"
+    parsed = PyFormula.parse(cell.getFormula())
+    assert parsed is not None
+    assert parsed.code == result["code"]
+    assert parsed.data_args() == [result["data_binding"]]
+
+
+def test_save_without_rewrite_omits_code_and_binding():
+    doc = CalcDocStub()
+    cell = doc.getSheets().getByIndex(0).getCellByPosition(0, 0)
+    with patch("plugin.calc.python.editor.get_config", return_value=True):
+        result = apply_cell_save(
+            doc,
+            cell,
+            parsed_parts=None,
+            new_code="result = 42",
+            save_as_plain=False,
+            data_binding_text="",
+        )
+    assert result["type"] == "saved"
+    assert result["ok"] is True
+    assert "code" not in result
+    assert "data_binding" not in result

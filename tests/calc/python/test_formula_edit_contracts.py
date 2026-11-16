@@ -13,22 +13,24 @@ from plugin.calc.python.formula_edit import (
     _parts_result_ok,
     _quoted_parse_result_ok,
 )
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
+from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_SHAPE_DIM
 
 
 def test_deal_range_addr_ok() -> None:
     assert _deal_range_addr_ok("A1:B2") is True
     assert _deal_range_addr_ok("'My Sheet'.A1") is True
-    assert _deal_range_addr_ok("A" * (DEAL_MAX_TOKEN + 1)) is False
-    assert _deal_range_addr_ok("A1\x00") is False
+    assert _deal_range_addr_ok("'Données'.A1") is True
+    assert _deal_range_addr_ok("'Q1-2026'.A1") is True
+    assert _deal_range_addr_ok("A" * (DEAL_MAX_CELL_REF + 1)) is False
     assert _deal_range_addr_ok(None) is False
 
 
 def test_deal_data_args_ok() -> None:
     assert _deal_data_args_ok(["A1:B2", "'My Sheet'.A1"]) is True
+    assert _deal_data_args_ok(["'Données'.A1"]) is True
     assert _deal_data_args_ok(("A1",)) is False
     assert _deal_data_args_ok(["A1"] * (DEAL_MAX_SHAPE_DIM + 1)) is False
-    assert _deal_data_args_ok(["A1\x00"]) is False
+    assert _deal_data_args_ok(["A" * (DEAL_MAX_CELL_REF + 1)]) is False
 
 
 def test_quoted_parse_result_ok() -> None:
