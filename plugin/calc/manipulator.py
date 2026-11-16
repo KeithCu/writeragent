@@ -545,6 +545,25 @@ def _range_has_blank_cell(sheet: Any, start: tuple[int, int], end: tuple[int, in
     return False
 
 
+def _number_format_keys(sheet: Any, start: tuple[int, int], end: tuple[int, int]) -> dict[tuple[int, int], int]:
+    """Prior NumberFormat key of every cell in the inclusive box, one read per format group.
+
+    getUniqueCellFormatRanges walks the box natively and returns one SheetCellRanges per
+    distinct cell pattern, so a uniform column costs three UNO calls instead of two per cell.
+    Cells in a group share one pattern, so the group's NumberFormat is each cell's key.
+    """
+    keys: dict[tuple[int, int], int] = {}
+    groups = sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1]).getUniqueCellFormatRanges()
+    for idx in range(groups.getCount()):
+        group = groups.getByIndex(idx)
+        key = int(group.getPropertyValue("NumberFormat"))
+        for addr in group.getRangeAddresses():
+            for row in range(addr.StartRow, addr.EndRow + 1):
+                for col in range(addr.StartColumn, addr.EndColumn + 1):
+                    keys[(col, row)] = key
+    return keys
+
+
 def _occupied_cells(
     sheet: Any,
     left: int,
@@ -1155,6 +1174,35 @@ class CellManipulator:
             target = sheet.getCellRangeByPosition(start_col + c0, start_row + r0, start_col + c1, start_row + r1)
             target.setPropertyValue("NumberFormat", int(key))
 
+    def _restore_number_formats(self, sheet: Any, cells: list[tuple[int, int, int]]) -> None:
+        """Put snapshot keys back after a text commit (S29), one NumberFormat write per distinct key.
+
+        Writing a string that Calc could parse as a number or date under the cell's format
+        (08/05/2026, 1,234, 50%) rewrites that cell to the @ text format; a date column would
+        keep a Text hole otherwise. Cells are grouped by key into one SheetCellRanges each so a
+        3000-cell write is a few UNO calls, not two per cell.
+        """
+        if not cells:
+            return
+        import uno
+
+        sheet_index = sheet.getRangeAddress().Sheet
+        by_key: dict[int, list[Any]] = {}
+        for col, row, key in cells:
+            addr = uno.createUnoStruct(
+                "com.sun.star.table.CellRangeAddress",
+                Sheet=sheet_index,
+                StartColumn=col,
+                EndColumn=col,
+                StartRow=row,
+                EndRow=row,
+            )
+            by_key.setdefault(key, []).append(addr)
+        for key, addrs in by_key.items():
+            ranges = self.bridge.doc.createInstance("com.sun.star.sheet.SheetCellRanges")
+            ranges.addRangeAddresses(tuple(addrs), False)
+            ranges.setPropertyValue("NumberFormat", key)
+
     def _probe_array_formula(
         self,
         sheet: Any,
@@ -1236,7 +1284,11 @@ class CellManipulator:
         literal_text: bool = False,
         data_text: bool = False,
     ) -> _CommitResult:
-        """Commit data, formulas, and text writes to the sheet and restore number format snapshots."""
+        """Commit data, formulas, and text writes to the sheet and restore number format snapshots.
+
+        The snapshot is one native format-group read of the box, taken only when the write has
+        text or temporal cells; the restore is one NumberFormat write per distinct prior key.
+        """
         data_array: list[list[Any]] = []
         formula_cells: list[tuple[int, int, str]] = []  # (col, row, formula)
         literal_text_cells: list[tuple[int, int, str]] = []
@@ -1248,6 +1300,9 @@ class CellManipulator:
         num_cols = end[0] - start[0] + 1
         num_rows = end[1] - start[1] + 1
         total_cells = num_rows * num_cols
+
+        needs_keys = any(m.kind in ("text", "temporal") for m in cell_metas)
+        prior_keys: dict[tuple[int, int], int] = uno_read(lambda: _number_format_keys(sheet, start, end), {}) if needs_keys else {}
 
         cell_idx = 0
         for row in range(start[1], end[1] + 1):
@@ -1265,12 +1320,14 @@ class CellManipulator:
                     formula_cells.append((col, row, formula))
                 data_row.append(data_val)
                 if cell_write.kind == "text" or cell_write.kind == "temporal":
-                    cell = sheet.getCellByPosition(col, row)
-                    key = uno_read(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
-                    if cell_write.kind == "text":
+                    # A failed group read leaves prior_keys empty. Text cells with no known key
+                    # are then not restored at all: writing General over a date column would be
+                    # worse than the stray @ Calc leaves on a few parseable strings.
+                    key = prior_keys.get((col, row))
+                    if cell_write.kind == "text" and key is not None:
                         s29_snapshots.append((col, row, key))
                     if cell_write.kind == "temporal":
-                        dest_cat = uno_read(lambda: categories.category(key), None)
+                        dest_cat = uno_read(lambda: categories.category(key if key is not None else 0), None)
                         dest_categories[(col, row)] = dest_cat
                         if dest_cat is None and col not in cols_needing:
                             cols_needing[col] = cell_write.input_category or ""
@@ -1293,8 +1350,7 @@ class CellManipulator:
                     else:
                         cell.setString(str(val))
 
-        for col, row, key in s29_snapshots:
-            sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
+        self._restore_number_formats(sheet, s29_snapshots)
 
         # Non-=PY formula errors are scanned post-write in _write_report so forward references evaluate first.
         # =PY() errors and #SPILL! still compare diagnostics before and after setFormula here.

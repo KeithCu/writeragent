@@ -125,7 +125,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 | `number_format` exposed on `set_style` (presets + en-US converted codes) | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py), [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) |
 | Write-tool ISO guidance | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py) `WriteCellRange.description` |
 | Unit / UNO tests (core path) | Done | [`tests/calc/test_datetime_wire.py`](../../tests/calc/test_datetime_wire.py), [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) |
-| Extra edge-case UNO coverage | Done | [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) (S15, S25, S29 invalid day, NullDate, P1 inherit); S30 message in [`tests/calc/test_cells.py`](../../tests/calc/test_cells.py) |
+| Extra edge-case UNO coverage | Done | [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) (S15, S25, S29 invalid day, NullDate, P1 inherit); S29 batched restore, S18, and the 3000-cell timing print in [`tests/calc/test_manipulator_uno.py`](../../tests/calc/test_manipulator_uno.py); S30 message and the S29 one-write-per-key restore in [`tests/calc/test_cells.py`](../../tests/calc/test_cells.py). The `2026-02-30` case keeps its key because Calc never applies `@` to a string it cannot parse (see the M3 subsection "Why (LibreOffice source)"), so only the near-miss texts (`08/05/2026`) exercise the restore. |
 | Product expansions (§5.7 deferred) | Not started | locale display forms, offsets, `=PY`, etc. |
 
 ---
@@ -245,7 +245,7 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 | S26 | Share the document-locale resolver and integer-key application primitives with `CellManipulator` number-format setters. `number_format` is omitted from the LLM/MCP `set_style` schema and accepted only via `scripting_only_parameters` when `ctx.caller == "script"` (chat/MCP strip it). Scripting API applies `number_format` through `CellManipulator`, not tool-schema validation. Do **not** route arbitrary user-supplied format strings through the ISO value-detection helper. **Why:** models called `set_style` while matching a row and rewrote date/number formats; schema visibility is the affordance surface, so description-only hiding is insufficient. **2026-11 (CALC-OPUS-STYLE): superseded** — `number_format` is model-visible; codes are en-US converted with `addNewConverted`; presets via `getStandardFormat`; no date preset. **Why:** currency/percent requests had no tool path, and doc-locale parsing garbled English codes in non-English documents. |
 | S27 | Use the key returned by `detectNumberFormat` as-is (including locale-preferred times such as `en-US` AM/PM). |
 | S28 | Derive the standard format key from an explicit Locale rather than an ambient formatter default. For v1 use the document `CharLocale`, as adopted in [M2](#m2-decision--locale-for-getstandardindex--detectnumberformat). |
-| S29 | On **ordinary** text fallback, restore the prior `NumberFormat` key after `setDataArray`. Apostrophe-forced literals (S18) keep `@` — do not restore. Floats never need snapshot (see [M3](#m3-decision--setdataarray-floats-vs-numberformat)). |
+| S29 | On **ordinary** text fallback, restore the prior `NumberFormat` key after `setDataArray`. Keys are read once per write via `getUniqueCellFormatRanges` and restored with one `NumberFormat` write per distinct key on a `SheetCellRanges` container. Apostrophe-forced literals (S18) keep `@` — do not restore. Floats never need snapshot (see [M3](#m3-decision--setdataarray-floats-vs-numberformat)). |
 | S30 | The post-commit format pass is best-effort because the values may already be committed. Log failures and return success with an explicit warning naming the range and the count of cells that needed **apply** (not preserve-only temporals); do not report unformatted serials as fully successful date writes. |
 
 #### Reviewed mechanism decisions
@@ -570,9 +570,9 @@ M3 answers the scary follow-up: **do float cells also need that save/restore?** 
 ##### Adopted rule
 
 1. Convert successful ISO candidates to **floats** before `setDataArray`. Those cells keep their existing `NumberFormat` through the commit. M1 runs afterward to preserve or apply.
-2. **Snapshot / restore** format keys only for cells committed as **ordinary text fallback** (gate miss, `NotNumericException`, other non-ISO leftovers) — S29.
+2. **Snapshot / restore** format keys only for cells committed as **ordinary text fallback** (gate miss, `NotNumericException`, other non-ISO leftovers) — S29. The keys are read once per write via `getUniqueCellFormatRanges` (`CellManipulator.commit` → `_number_format_keys`) and restored with one `NumberFormat` write per distinct prior key on a `SheetCellRanges` container (`_restore_number_formats`).
 3. **Do not restore** after apostrophe-forced literals (S18). Leading `'` means “force this to text”; finishing with `@` is the desired end state. Restoring the previous date format would undo S18.
-4. Do **not** snapshot the whole range “just in case” before a bulk float commit.
+4. The key map is one native format-group read, taken only when the write has text or temporal cells; float cells are never restored. A pure float, formula, or apostrophe write reads no formats at all.
 
 ##### Measured (LibreOffice 26.2.5.2)
 
@@ -602,7 +602,7 @@ All seven probe checks passed; `M3 float-preserve conclusion: YES`.
 | apostrophe-forced literal (S18) | forced `@` | **No** — leave `@` |
 | empty `""` | EMPTY; format kept | **No** |
 
-**Rejected:** snapshot-before-every-commit. The measurement removes the need; it would only add UNO cost.
+**Rejected:** snapshot-before-every-commit, and the per-cell snapshot/restore loop (`getCellByPosition` + `getPropertyValue` / `setPropertyValue` for every text cell). The measurement removes the need for the first; the second made a 3000-cell text write take about 7 s in-process, almost all of it in those per-cell calls.
 
 ##### Worked examples
 
@@ -619,7 +619,7 @@ All seven probe checks passed; `M3 float-preserve conclusion: YES`.
 
 1. Clears the range with `DeleteAreaTab(..., InsertDeleteFlags::CONTENTS)` (~line 1077). `CONTENTS` excludes `ATTRIB` (`HARDATTR|STYLES`) — see `sc/inc/global.hxx` and the `static_assert` that CONTENTS ∩ ATTRIB is empty — so number formats are not cleared by the wipe.
 2. Numeric `Any` (integer types and `DOUBLE`) → `rDoc.SetValue(aPos, fVal)` (~lines 1101–1111) — value only; no format rewrite.
-3. Non-empty string → `ScSetStringParam::setTextInput()` then `SetString` (~lines 1130–1132) — unconditionally text input, which applies `@`.
+3. Non-empty string → `ScSetStringParam::setTextInput()` then `SetString` (~lines 1130–1132). `setTextInput()` sets `meSetTextNumFormat = Always` (`sc/source/core/tool/stringutil.cxx` `ScSetStringParam::setTextInput`), but `ScColumn::ParseString` (`sc/source/core/data/column3.cxx`) calls `applyTextNumFormat` only after `IsNumberFormat(rString, nIndex, nVal)` succeeds for the cell's current format, so `@` is applied only when the string **would have parsed** as a number or date. Probe into a `YYYY-MM-DD` cell (en-US): `08/05/2026`, `1,234`, `50%`, `$5`, `12:30`, `2026-08-08` → key becomes `@`; `2026-02-30` and `note 1` keep the date key. `setString` behaves the same (`ScDocFunc::SetStringCell` also uses `setTextInput()`). S29 still restores every ordinary-text cell: restoring an unchanged key is a no-op, and deciding per string would cost the per-cell calls the batched restore removes.
 4. Empty string → skip `SetString` after the CONTENTS clear (~lines 1119–1134) — cell stays empty; format kept.
 
 ##### Edge cases the implementation must not invent
