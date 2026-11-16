@@ -7,12 +7,18 @@
 
 Runs one ``run_eval_multi.py`` invocation at a time in the foreground with safe
 memory settings (``-j 1 --lo-workers 2 --backend auto``), storing resumable
-per-repeat JSON results under ``/tmp/wa-eval-ab/<suite>/``.
+per-repeat JSON results under ``/tmp/wa-eval-ab/<suite>/<side>-<source>-<config>-rN.json``.
+``<source>`` is the Side A commit SHA or Side B ``HEAD`` plus a hash of
+uncommitted ``plugin/`` and ``scripts/`` changes; ``<config>`` hashes the model
+and task lists. Any change to code, models, or tasks writes fresh files and
+ignores older ones.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -70,15 +76,19 @@ def resolve_suite_tasks(suite: str, tasks_override: str | None = None) -> list[s
     )
 
 
-def result_paths(suite_dir: Path, side: str, repeat_idx: int) -> tuple[Path, Path]:
-    """Return ``(summary_json, details_json)`` paths for one side and repeat."""
-    summary_path = suite_dir / f"{side}-r{repeat_idx}.json"
+def result_paths(
+    suite_dir: Path, side: str, cache_key: str, repeat_idx: int
+) -> tuple[Path, Path]:
+    """Return ``(summary_json, details_json)`` paths for one side, key, and repeat."""
+    summary_path = suite_dir / f"{side}-{cache_key}-r{repeat_idx}.json"
     return summary_path, details_path_for(summary_path)
 
 
-def is_repeat_done(suite_dir: Path, side: str, repeat_idx: int) -> bool:
+def is_repeat_done(
+    suite_dir: Path, side: str, cache_key: str, repeat_idx: int
+) -> bool:
     """Return True if both summary and details JSON exist and parse cleanly."""
-    summary_path, details_path = result_paths(suite_dir, side, repeat_idx)
+    summary_path, details_path = result_paths(suite_dir, side, cache_key, repeat_idx)
     if not summary_path.is_file() or not details_path.is_file():
         return False
     if summary_path.stat().st_size == 0 or details_path.stat().st_size == 0:
@@ -89,6 +99,77 @@ def is_repeat_done(suite_dir: Path, side: str, repeat_idx: int) -> bool:
     except (OSError, ValueError):
         return False
     return isinstance(summary_data, list) and isinstance(details_data, list)
+
+
+# Eval loads code only from these repo directories; scoping Side B's cache key
+# to them keeps untracked notes or media elsewhere in the checkout from
+# invalidating cached runs.
+SOURCE_PATHS = ("plugin", "scripts")
+
+
+def _git_stdout(repo_root: Path, *args: str) -> bytes:
+    """Run git in ``repo_root`` and return raw stdout bytes."""
+    return subprocess.run(
+        ["git", "-C", str(repo_root), *args],
+        capture_output=True,
+        check=True,
+    ).stdout
+
+
+def resolve_commit(repo_root: Path, ref: str) -> str:
+    """Resolve ``ref`` to its full 40-character commit SHA.
+
+    Side A's cache key and worktree checkout both use this resolved SHA so a
+    concurrent ``git fetch`` cannot make the checked-out code disagree with
+    the key.
+    """
+    return (
+        _git_stdout(repo_root, "rev-parse", "--verify", f"{ref}^{{commit}}")
+        .decode("utf-8")
+        .strip()
+    )
+
+
+def working_tree_id(repo_root: Path) -> str:
+    """Return a short fingerprint for Side B's ``HEAD`` and source changes.
+
+    Combines ``HEAD`` with a SHA-256 of tracked diffs and untracked, non-ignored
+    files under ``SOURCE_PATHS`` so editing prompts or eval scripts invalidates
+    Side B without requiring a commit.
+    """
+    head = resolve_commit(repo_root, "HEAD")
+    diff = _git_stdout(repo_root, "diff", "--binary", "HEAD", "--", *SOURCE_PATHS)
+    untracked_raw = _git_stdout(
+        repo_root,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+        *SOURCE_PATHS,
+    )
+    untracked = sorted(p for p in untracked_raw.split(b"\0") if p)
+    if not diff and not untracked:
+        return head[:12]
+
+    digest = hashlib.sha256(diff)
+    for rel_bytes in untracked:
+        path = repo_root / os.fsdecode(rel_bytes)
+        data = path.read_bytes() if path.is_file() else b""
+        digest.update(rel_bytes + b"\0" + data + b"\0")
+    return f"{head[:12]}+{digest.hexdigest()[:12]}"
+
+
+def run_config_id(models: list[str], tasks: list[str]) -> str:
+    """Return a short hash of the sorted model and task lists.
+
+    Including the run configuration prevents a run with different ``MODELS`` or
+    ``TASKS`` from reusing stale detail rows and mixing them into ``overall``.
+    """
+    payload = json.dumps({"models": sorted(models), "tasks": sorted(tasks)}).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(payload).hexdigest()[:12]
 
 
 def _git_common_dir(path: Path) -> Path | None:
@@ -175,11 +256,13 @@ def run_one_eval(
     subprocess.run(cmd, cwd=str(root), check=True)
 
 
-def load_side_details(suite_dir: Path, side: str, repeats: int) -> list[dict[str, Any]]:
+def load_side_details(
+    suite_dir: Path, side: str, cache_key: str, repeats: int
+) -> list[dict[str, Any]]:
     """Load and concatenate ``_details.json`` rows for repeats ``1..repeats``."""
     rows: list[dict[str, Any]] = []
     for rep in range(1, repeats + 1):
-        unused, details_path = result_paths(suite_dir, side, rep)
+        unused, details_path = result_paths(suite_dir, side, cache_key, rep)
         if not details_path.is_file():
             continue
         data = json.loads(details_path.read_text(encoding="utf-8"))
@@ -386,18 +469,33 @@ def main(argv: list[str] | None = None) -> int:
 
     run_generate_manifest(REPO_ROOT)
 
+    try:
+        a_commit = resolve_commit(REPO_ROOT, args.ref)
+        b_source = working_tree_id(REPO_ROOT)
+    except subprocess.CalledProcessError as exc:
+        err = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
+        print(f"ERROR: git failed: {err}", file=sys.stderr)
+        return 2
+
+    config_id = run_config_id(models, tasks)
+    keys = {
+        "A": f"{a_commit[:12]}-{config_id}",
+        "B": f"{b_source}-{config_id}",
+    }
+
     need_a = any(
-        not is_repeat_done(suite_dir, "A", rep) for rep in range(1, args.repeats + 1)
+        not is_repeat_done(suite_dir, "A", keys["A"], rep)
+        for rep in range(1, args.repeats + 1)
     )
     worktree_a: Path | None = None
     if need_a:
-        worktree_a = ensure_side_a_worktree(REPO_ROOT, args.worktree_dir, ref=args.ref)
+        worktree_a = ensure_side_a_worktree(REPO_ROOT, args.worktree_dir, ref=a_commit)
         run_generate_manifest(worktree_a)
 
     for rep in range(1, args.repeats + 1):
         for side, root in (("A", worktree_a), ("B", REPO_ROOT)):
-            out_path, unused_details = result_paths(suite_dir, side, rep)
-            if is_repeat_done(suite_dir, side, rep):
+            out_path, unused_details = result_paths(suite_dir, side, keys[side], rep)
+            if is_repeat_done(suite_dir, side, keys[side], rep):
                 print(f"[skip] {side}-r{rep} already exists: {out_path}")
                 continue
             assert root is not None
@@ -412,8 +510,8 @@ def main(argv: list[str] | None = None) -> int:
                 backend="auto",
             )
 
-    a_details = load_side_details(suite_dir, "A", args.repeats)
-    b_details = load_side_details(suite_dir, "B", args.repeats)
+    a_details = load_side_details(suite_dir, "A", keys["A"], args.repeats)
+    b_details = load_side_details(suite_dir, "B", keys["B"], args.repeats)
     tally = tally_ab_results(a_details, b_details, models, tasks)
     print()
     print(format_ab_report(tally, suite=suite_name, repeats=args.repeats))

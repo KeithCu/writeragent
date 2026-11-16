@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,14 +19,37 @@ if str(_PO) not in sys.path:
 import eval_ab  # noqa: E402
 
 
+def _git(cwd: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _init_repo(root: Path) -> Path:
+    (root / "plugin").mkdir(parents=True, exist_ok=True)
+    (root / "plugin" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (root / ".gitignore").write_text("*.pyc\n", encoding="utf-8")
+    _git(root, "init", "-b", "master")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "base")
+    return root
+
+
 def _write_repeat_files(
     suite_dir: Path,
     side: str,
+    cache_key: str,
     rep: int,
     details: list[dict],
 ) -> None:
     suite_dir.mkdir(parents=True, exist_ok=True)
-    summary_path, details_path = eval_ab.result_paths(suite_dir, side, rep)
+    summary_path, details_path = eval_ab.result_paths(suite_dir, side, cache_key, rep)
     summary_path.write_text(json.dumps([{"openrouter_id": "m1"}]), encoding="utf-8")
     details_path.write_text(json.dumps(details), encoding="utf-8")
 
@@ -109,64 +133,159 @@ def test_tally_and_format_ab_report_verdicts() -> None:
     assert eval_ab.tally_ab_results(a_details, a_details, models, tasks)["verdict"] == "B same"
 
 
+def test_working_tree_id_tracks_eval_sources(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    head = eval_ab.resolve_commit(repo, "HEAD")
+    assert len(head) == 40
+    clean_id = eval_ab.working_tree_id(repo)
+    assert clean_id == head[:12]
+
+    # Editing a tracked file under plugin/ changes the id while keeping HEAD prefix.
+    (repo / "plugin" / "a.py").write_text("x = 2\n", encoding="utf-8")
+    dirty_id = eval_ab.working_tree_id(repo)
+    assert dirty_id != clean_id
+    assert dirty_id.startswith(f"{head[:12]}+")
+
+    # Reverting restores the clean id.
+    (repo / "plugin" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    assert eval_ab.working_tree_id(repo) == clean_id
+
+    # Untracked files outside SOURCE_PATHS and gitignored files do not affect the id.
+    (repo / "notes.md").write_text("scratch\n", encoding="utf-8")
+    (repo / "plugin" / "x.pyc").write_bytes(b"\x00\x01")
+    assert eval_ab.working_tree_id(repo) == clean_id
+
+    # Untracked files under plugin/ change the id, and content edits change it again.
+    new_file = repo / "plugin" / "new.py"
+    new_file.write_text("y = 1\n", encoding="utf-8")
+    untracked_id_1 = eval_ab.working_tree_id(repo)
+    assert untracked_id_1 != clean_id
+    assert untracked_id_1.startswith(f"{head[:12]}+")
+
+    new_file.write_text("y = 2\n", encoding="utf-8")
+    untracked_id_2 = eval_ab.working_tree_id(repo)
+    assert untracked_id_2 != untracked_id_1
+
+
+def test_run_config_id_order_insensitive() -> None:
+    base = eval_ab.run_config_id(["m1", "m2"], ["t1", "t2"])
+    reordered = eval_ab.run_config_id(["m2", "m1"], ["t2", "t1"])
+    assert base == reordered
+    assert base != eval_ab.run_config_id(["m1", "m3"], ["t1", "t2"])
+    assert base != eval_ab.run_config_id(["m1", "m2"], ["t1", "t3"])
+
+
 def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys) -> None:
     suite_dir = tmp_path / "calc"
-    assert not eval_ab.is_repeat_done(suite_dir, "A", 1)
+    assert not eval_ab.is_repeat_done(suite_dir, "A", "k", 1)
 
     # Summary alone without details is not done.
     suite_dir.mkdir(parents=True, exist_ok=True)
-    summary_only, details_missing = eval_ab.result_paths(suite_dir, "A", 1)
+    summary_only, details_missing = eval_ab.result_paths(suite_dir, "A", "k", 1)
     summary_only.write_text("[]", encoding="utf-8")
-    assert not eval_ab.is_repeat_done(suite_dir, "A", 1)
+    assert not eval_ab.is_repeat_done(suite_dir, "A", "k", 1)
 
     # Corrupt details JSON is not done.
     details_missing.write_text("{bad json", encoding="utf-8")
-    assert not eval_ab.is_repeat_done(suite_dir, "A", 1)
+    assert not eval_ab.is_repeat_done(suite_dir, "A", "k", 1)
 
-    # Pre-populate A-r1 and B-r1 cleanly.
+    # Pre-populate A and B cleanly.
     r1_rows = [
         {"model_id": "m1", "task_id": "data_sorting", "hard_pass": True, "judge_score": None}
     ]
-    _write_repeat_files(suite_dir, "A", 1, r1_rows)
-    _write_repeat_files(suite_dir, "B", 1, r1_rows)
-    assert eval_ab.is_repeat_done(suite_dir, "A", 1)
-    assert eval_ab.is_repeat_done(suite_dir, "B", 1)
+    _write_repeat_files(suite_dir, "A", "k", 1, r1_rows)
+    _write_repeat_files(suite_dir, "B", "k", 1, r1_rows)
+    assert eval_ab.is_repeat_done(suite_dir, "A", "k", 1)
+    assert eval_ab.is_repeat_done(suite_dir, "B", "k", 1)
 
-    calls: list[tuple[Path, Path]] = []
+    repo = _init_repo(tmp_path / "repo")
+    out_dir = tmp_path / "out"
+    worktree_refs: list[str] = []
+    run_sides: list[str] = []
 
+    monkeypatch.setattr(eval_ab, "REPO_ROOT", repo)
     monkeypatch.setattr(eval_ab, "run_generate_manifest", lambda root: None)
-    monkeypatch.setattr(
-        eval_ab,
-        "ensure_side_a_worktree",
-        lambda repo_root, worktree_dir, ref="origin/master": tmp_path / "wt-a",
-    )
 
-    def fake_run_one_eval(root: Path, *, models, tasks, out_path: Path, jobs=1, lo_workers=2, backend="auto"):
+    def fake_ensure_worktree(repo_root: Path, worktree_dir: Path, ref: str = "origin/master") -> Path:
+        worktree_refs.append(ref)
+        return tmp_path / "wt-a"
+
+    def fake_run_one_eval(
+        root: Path, *, models, tasks, out_path: Path, jobs=1, lo_workers=2, backend="auto"
+    ) -> None:
         assert jobs == 1
         assert lo_workers == 2
         assert backend == "auto"
-        calls.append((root, out_path))
         side = "A" if out_path.name.startswith("A-") else "B"
-        _write_repeat_files(
-            out_path.parent,
-            side,
-            2,
-            [{"model_id": models[0], "task_id": tasks[0], "hard_pass": side == "B", "judge_score": None}],
+        run_sides.append(side)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps([{"openrouter_id": models[0]}]), encoding="utf-8")
+        eval_ab.details_path_for(out_path).write_text(
+            json.dumps([
+                {
+                    "model_id": models[0],
+                    "task_id": tasks[0],
+                    "hard_pass": side == "B",
+                    "judge_score": None,
+                }
+            ]),
+            encoding="utf-8",
         )
 
+    monkeypatch.setattr(eval_ab, "ensure_side_a_worktree", fake_ensure_worktree)
     monkeypatch.setattr(eval_ab, "run_one_eval", fake_run_one_eval)
 
-    rc = eval_ab.main([
+    base_args = [
         "--suite", "calc",
-        "--tasks", "data_sorting",
         "--models", "m1",
-        "--repeats", "2",
-        "--out-dir", str(tmp_path),
-    ])
-    assert rc == 0
-    assert [out.name for unused, out in calls] == ["A-r2.json", "B-r2.json"]
+        "--repeats", "1",
+        "--ref", "master",
+        "--out-dir", str(out_dir),
+    ]
 
+    # (a) First run executes both A and B, checking out the resolved 40-char SHA.
+    assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
+    assert run_sides == ["A", "B"]
+    assert len(worktree_refs) == 1
+    assert len(worktree_refs[0]) == 40
+    assert worktree_refs[0] == eval_ab.resolve_commit(repo, "master")
+    assert "B better" in capsys.readouterr().out
+
+    # (b) Identical rerun skips both A and B.
+    run_sides.clear()
+    assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
+    assert run_sides == []
     out = capsys.readouterr().out
     assert "[skip] A-r1" in out
     assert "[skip] B-r1" in out
-    assert "B better" in out
+
+    # (c) Editing plugin/a.py invalidates only B.
+    (repo / "plugin" / "a.py").write_text("x = 2\n", encoding="utf-8")
+    run_sides.clear()
+    assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
+    assert run_sides == ["B"]
+    capsys.readouterr()
+
+    # (d) Changing --tasks invalidates both A and B.
+    run_sides.clear()
+    assert eval_ab.main([*base_args, "--tasks", "tax_column"]) == 0
+    assert run_sides == ["A", "B"]
+    capsys.readouterr()
+
+    # (e) Committing the edit moves master, so rerunning original tasks runs A.
+    _git(repo, "add", "plugin/a.py")
+    _git(repo, "commit", "-m", "second")
+    run_sides.clear()
+    assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
+    assert "A" in run_sides
+    capsys.readouterr()
+
+    # Bad --ref exits with code 2 and a clear git error.
+    assert eval_ab.main([
+        "--suite", "calc",
+        "--models", "m1",
+        "--repeats", "1",
+        "--ref", "nonexistent-ref-xyz",
+        "--out-dir", str(out_dir),
+    ]) == 2
+    assert "ERROR: git failed:" in capsys.readouterr().err
