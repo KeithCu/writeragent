@@ -123,17 +123,33 @@ _COPIED_PARA_PROPERTIES = (
     "ParaLeftMargin", "ParaRightMargin", "ParaTopMargin", "ParaBottomMargin",
     "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaLineSpacing",
 )
+# UNO names behind the five paragraph-font and colour names that
+# xhtml_style_postprocess._FODT_OVERRIDE_ATTRS reports in data-lo-para. Range and
+# selection reads paint them on the scratch paragraph before any run exists so
+# the export reports them on the paragraph like the full read does:
+# sw/source/core/txtnode/thints.cxx SwTextNode::SetAttr stores character
+# attributes on the paragraph when the range covers the whole paragraph text and
+# there are no CharFormat hints. Other Char* stay per run because the full read
+# does not report them on the paragraph.
+_PARA_LEVEL_CHAR_PROPERTIES: tuple[str, ...] = (
+    "CharFontName", "CharHeight", "CharWeight", "CharPosture", "CharColor",
+)
+_RUN_ONLY_CHAR_PROPERTIES: tuple[str, ...] = tuple(
+    n for n in _COPIED_CHAR_PROPERTIES if n not in _PARA_LEVEL_CHAR_PROPERTIES
+)
 
 
 
 def _copy_properties(src: Any, dst: Any, names: tuple[str, ...], style: Any = None) -> None:
     """Copy *names* from one range to another, but only where they differ from *style*.
 
-    Copying a value equal to the style's turns an inherited value into a hand-set one on the copy,
-    and the read would then report it as a direct override — margin-right:0cm and text-align:left
-    on every paragraph, drowning the one indent that was actually set. Detection is by VALUE for
-    the same reason as apply_paragraph_style_preserving_direct_char: getPropertyState is not
-    dependable at the text-portion level.
+    *style* is what the copy already inherits: the paragraph style, or the source paragraph for
+    paragraph-level character properties. Copying a value equal to what is inherited turns an
+    inherited value into a hand-set one on the copy, and the read would then report it as a
+    direct override — margin-right:0cm and text-align:left on every paragraph, drowning the one
+    indent that was actually set. Detection is by VALUE for the same reason as
+    apply_paragraph_style_preserving_direct_char: getPropertyState is not dependable at the
+    text-portion level.
 
     Per-property rather than all-or-nothing: the temp document is a plain Writer doc and does not
     necessarily offer every property the source paragraph carries.
@@ -343,8 +359,9 @@ def paint_direct_formatting(
 ) -> None:
     """Re-apply the source paragraph's direct formatting to the copy just written.
 
-    setString copies plain text only; this second pass repaints direct Para*/Char* formatting
-    over character offsets so block quotes and body text stay distinguishable. Offset painting
+    setString copies plain text only; this second pass repaints direct Para* and paragraph-level
+    font/colour on the paragraph, then paints each run only where it differs from its paragraph
+    (for those five names) or from *style* (for all other Char* properties). Offset painting
     avoids run-by-run insertion bookkeeping, and failures here leave plain text intact instead
     of corrupting the scratch copy.
     """
@@ -360,13 +377,22 @@ def paint_direct_formatting(
         return
     para_cursor, para_start = got
 
-    def paint_paragraph() -> None:
+    def paint_paragraph() -> bool:
         para_cursor.gotoEndOfParagraph(True)
-        _copy_properties(para, para_cursor, _COPIED_PARA_PROPERTIES, style)
+        _copy_properties(
+            para, para_cursor, _COPIED_PARA_PROPERTIES + _PARA_LEVEL_CHAR_PROPERTIES, style
+        )
+        return True
 
-    # Para* refusal is logged and the Char* loop still runs so direct character formatting
-    # is not dropped for the entire copied range.
-    best_effort(paint_paragraph, "paint_direct_formatting: paragraph properties skipped")
+    # Must run before any run hint exists, otherwise SwTextNode::SetAttr sees CharFormat hints
+    # and stores paragraph-level Char* as run hints instead of paragraph attributes. Para*
+    # refusal is logged and the Char* loop still runs against *style* so direct character
+    # formatting is not dropped for the entire copied range.
+    char_base = (
+        para
+        if best_effort(paint_paragraph, "paint_direct_formatting: paragraph properties skipped")
+        else style
+    )
 
     offset = 0  # position within the visible (tracked-deletions removed) paragraph text
     for portion, chunk in portions:
@@ -379,7 +405,8 @@ def paint_direct_formatting(
             run = temp_text.createTextCursorByRange(para_start)
             run.goRight(lo - trim_start, False)
             run.goRight(hi - lo, True)
-            _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES, style)
+            _copy_properties(portion, run, _RUN_ONLY_CHAR_PROPERTIES, style)
+            _copy_properties(portion, run, _PARA_LEVEL_CHAR_PROPERTIES, char_base)
         except Exception:
             log.debug("paint_direct_formatting: portion skipped", exc_info=True)
             continue
