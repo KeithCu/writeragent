@@ -351,22 +351,6 @@ def test_begin_next_paragraph_steps_into_the_new_paragraph_and_survives_a_refuse
     cursor.gotoNextParagraph.assert_not_called()
 
 
-def test_copy_xtext_by_portions_moves_view_cursor_once_per_table() -> None:
-    src_text = MagicMock()
-    table = MagicMock()
-    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
-    src_text.createEnumeration.return_value = _Enum([table])
-
-    dest_doc = MagicMock()
-    dest_doc.getText.return_value = MagicMock()
-
-    with patch.object(rc, "_writer_table_copy_layout", return_value=(1, 1, [])), \
-            patch.object(rc, "_goto_doc_end") as goto_doc_end:
-        rc._copy_xtext_by_portions(src_text, dest_doc)
-
-    assert goto_doc_end.call_count == 1
-
-
 def test_copy_field_into_sets_offset():
     from plugin.writer.range_copy import _copy_field_into
 

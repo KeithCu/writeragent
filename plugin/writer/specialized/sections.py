@@ -30,16 +30,13 @@ from plugin.doc.visual_helpers import mm_to_unit
 from plugin.framework.errors import ToolExecutionError, name_miss_details
 
 from ..edit_review import flag_style_unreviewed
-from ..page import apply_column_layout
+from ..page import apply_column_layout, column_layout_error
 from ..specialized_base import ToolWriterSectionBase, index_error
 from ..target_resolver import resolve_target_cursor
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from plugin.framework.tool import ToolContext
-
-# Matches LibreOffice Writer's UI limit (sw/source/uibase/inc/column.hxx: nMaxCols = 99).
-_MAX_COLUMNS = 99
 
 
 def _find_section(tool: ToolWriterSectionBase, ctx: ToolContext, name: str | None) -> Any:
@@ -484,20 +481,11 @@ class SectionSetColumns(ToolWriterSectionBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         column_count: int = kwargs["column_count"]
-        if not (1 <= column_count <= _MAX_COLUMNS):
-            return self._tool_error(
-                f"column_count must be between 1 and {_MAX_COLUMNS}.",
-                code="INVALID_PARAM",
-                parameter="column_count",
-            )
-
         spacing_mm = kwargs.get("spacing_mm", 0)
-        if not (math.isfinite(spacing_mm) and spacing_mm >= 0):
-            return self._tool_error(
-                "spacing_mm must be a finite number >= 0.",
-                code="INVALID_PARAM",
-                parameter="spacing_mm",
-            )
+
+        err = column_layout_error(column_count, spacing_mm)
+        if err is not None:
+            return err
 
         name: str = kwargs["name"]
         section = _section_or_error(self, ctx, name)

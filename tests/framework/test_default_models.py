@@ -75,7 +75,7 @@ class TestGetProviderDefaults:
 
         caps = get_model_capability("openai/gpt-oss-120b:nitro", "https://openrouter.ai/api")
         assert isinstance(caps, int) and (caps & ModelCapability.TOOLS)
-        assert get_model_capability("deepseek-chat", "https://api.deepseek.com") & ModelCapability.CHAT
+        assert get_model_capability("deepseek-flash", "https://api.deepseek.com") & ModelCapability.CHAT
         assert get_model_capability("nonexistent-model", "https://openrouter.ai/api") == ModelCapability.NONE
 
 
