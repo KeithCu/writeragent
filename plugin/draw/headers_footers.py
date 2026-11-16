@@ -32,20 +32,6 @@ from plugin.draw.bridge import DrawBridge
 log = logging.getLogger("writeragent.draw.headers_footers")
 
 
-def _coerce_bool_arg(kwargs: dict[str, Any], key: str, default: bool = False) -> bool:
-    """Tool args may be real bools or JSON strings (e.g. ``\"true\"``); ``bool(\"false\")`` is wrong."""
-    if key not in kwargs:
-        return default
-    v = kwargs[key]
-    if isinstance(v, bool):
-        return v
-    if isinstance(v, str):
-        return v.strip().lower() in ("1", "true", "yes", "on")
-    if isinstance(v, (int, float)):
-        return v != 0
-    return default
-
-
 def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
     """Resolve the draw page to read/write header-footer properties.
 
@@ -210,7 +196,7 @@ def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[
         if schema_key not in kwargs or not svc:
             continue
         shape = shapes.get(svc)
-        ok = _set_text(shape, str(kwargs[schema_key])) if kind == "text" else _set_visible(shape, _coerce_bool_arg(kwargs, schema_key, False))
+        ok = _set_text(shape, str(kwargs[schema_key])) if kind == "text" else _set_visible(shape, bool(kwargs[schema_key]))
         if ok:
             updated += 1
         else:
@@ -220,7 +206,7 @@ def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[
 
 def _resolve_hf_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[int, bool, Any]:
     page_index = int(kwargs["page"])
-    is_master_page = _coerce_bool_arg(kwargs, "is_master_page", False)
+    is_master_page = bool(kwargs.get("is_master_page", False))
     return page_index, is_master_page, _get_page(ctx, page_index, is_master_page)
 
 
@@ -310,7 +296,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
             for schema_key, prop_name, _, kind in _FIELDS:
                 if schema_key not in kwargs:
                     continue
-                val = kwargs[schema_key] if kind == "text" else _coerce_bool_arg(kwargs, schema_key, False)
+                val = kwargs[schema_key] if kind == "text" else bool(kwargs[schema_key])
                 try:
                     page.setPropertyValue(prop_name, val)
                     updated_count += 1

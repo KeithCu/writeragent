@@ -32,7 +32,7 @@ def test_search_in_spreadsheet_invalid_max_results(bad_max):
         mock_search.assert_not_called()
 
 
-@pytest.mark.parametrize("bad_max", ["5", True])
+@pytest.mark.parametrize("bad_max", ["five", True])
 def test_search_cells_schema_rejects_non_int_max_results(bad_max):
     tool = _tool("search_cells")
     prep = prepare_tool_call(

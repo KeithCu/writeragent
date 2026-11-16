@@ -329,7 +329,9 @@ _CONTROL_PROPERTIES: dict[str, Any] = {
     "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
     "name": {"type": "string", "description": "Internal name/key for the control."},
     "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
-    "items": {"type": "array", "items": {"type": "string"}, "description": "List of options for a combobox or list box."},
+    # A string is split on commas by _coerce_items; the union keeps coerce_call_args
+    # from wrapping "a,b" into a single option.
+    "items": {"type": ["array", "string"], "items": {"type": "string"}, "description": "List of options for a combobox or list box."},
     "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
     "default_value": {"type": "string", "description": "Initial value for text or date fields."},
     "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
@@ -795,7 +797,9 @@ class FormEditControl(ToolWriterFormBase):
             "label": {"type": "string", "description": "New label text."},
             "text": {"type": "string", "description": "New text value (for text fields)."},
             "state": {"type": "integer", "description": "Checkbox/radio State: 0 unchecked, 1 checked, 2 indeterminate (yes/no/checked strings also accepted)."},
-            "items": {"type": "array", "items": {"type": "string"}, "description": "New item list (for comboboxes or list boxes)."},
+            # A string is split on commas by _coerce_items; the union keeps coerce_call_args
+            # from wrapping "a,b" into a single option.
+            "items": {"type": ["array", "string"], "items": {"type": "string"}, "description": "New item list (for comboboxes or list boxes)."},
             "x": {"type": "integer"},
             "y": {"type": "integer"},
             "width": {"type": "integer"},

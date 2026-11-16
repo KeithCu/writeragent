@@ -18,7 +18,8 @@
 """OpenAI and MCP JSON Schema conversion for ToolBase instances.
 
 Registry lookup and ``ToolRegistry.execute`` stay in ``tool``. ``coerce_call_args``
-aligns MCP-widened arguments with the source schema. ``call_properties`` /
+converts each top-level argument to its declared schema type and folds enum
+spellings; rules are listed on the function. ``call_properties`` /
 ``without_unknown_kwargs`` are the one allow-list for a call: an empty
 ``properties`` object is a no-arg schema. ``normalize_outbound_tool_calls``
 applies that allow-list once, before any provider shim builds a request.
@@ -28,6 +29,8 @@ from __future__ import annotations
 
 import copy
 import json
+import math
+import re
 from collections.abc import Sequence
 from typing import Any, TypeVar
 
@@ -36,6 +39,37 @@ from plugin.framework.deal_shim import deal
 
 _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
 _OutboundMessages = TypeVar("_OutboundMessages", bound=Sequence[Any])
+_INT_RE = re.compile(r"[+-]?[0-9]+", re.ASCII)
+_NUMBER_RE = re.compile(r"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?", re.ASCII)
+_TRUE_WORDS = frozenset({"true", "yes", "1"})
+_FALSE_WORDS = frozenset({"false", "no", "0"})
+
+
+def value_matches_type(value: Any, schema_type: Any) -> bool:
+    """True when *value* fits a JSON Schema ``type`` (string or union list).
+
+    A missing type is accepted. An unknown name such as ``"str"`` matches
+    nothing. Unions accept any listed JSON Schema member.
+    """
+    if schema_type is None:
+        return True
+    types = schema_type if isinstance(schema_type, list) else [schema_type]
+    for one in types:
+        if one == "string" and isinstance(value, str):
+            return True
+        if one == "integer" and type(value) is int:
+            return True
+        if one == "number" and type(value) in (int, float):
+            return True
+        if one == "boolean" and type(value) is bool:
+            return True
+        if one == "array" and isinstance(value, list):
+            return True
+        if one == "object" and isinstance(value, dict):
+            return True
+        if one == "null" and value is None:
+            return True
+    return False
 
 
 def _type_includes(type_value: Any, name: str) -> bool:
@@ -186,38 +220,156 @@ def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _O
     return messages
 
 
-def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Align a call with the source schema before ``validate``.
+def _from_string(schema_type: Any, s: str) -> Any:
+    """Convert a string argument to a non-string JSON Schema type when unambiguous."""
+    if _type_includes(schema_type, "integer") or _type_includes(schema_type, "number"):
+        stripped = s.strip()
+        parsed: int | float | None = None
+        if _INT_RE.fullmatch(stripped):
+            try:
+                parsed = int(stripped)
+            except ValueError:
+                parsed = None
+        elif _NUMBER_RE.fullmatch(stripped):
+            f = float(stripped)
+            if math.isfinite(f):
+                parsed = f
+        if parsed is not None:
+            if _type_includes(schema_type, "number"):
+                if _type_includes(schema_type, "integer") and isinstance(parsed, float) and parsed.is_integer():
+                    return int(parsed)
+                return parsed
+            if isinstance(parsed, int):
+                return parsed
+            if isinstance(parsed, float) and parsed.is_integer():
+                return int(parsed)
 
-    MCP widens array ``range`` to string|array. Several Calc tools index
-    ``[0]``, so a bare string would become its first character. Wrap only
-    when this property's type includes array. Nested ``range`` fields are
-    not walked.
+    if _type_includes(schema_type, "boolean"):
+        lowered = s.strip().casefold()
+        if lowered in _TRUE_WORDS:
+            return True
+        if lowered in _FALSE_WORDS:
+            return False
 
-    ``write_range`` values accept string or native array on the source
-    schema; only a bare number is coerced to string for single-cell fill.
+    if _type_includes(schema_type, "array") or _type_includes(schema_type, "object"):
+        stripped = s.strip()
+        if stripped.startswith(("[", "{")):
+            try:
+                parsed_json = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed_json = None
+            if isinstance(parsed_json, list) and _type_includes(schema_type, "array"):
+                return parsed_json
+            if isinstance(parsed_json, dict):
+                if _type_includes(schema_type, "object"):
+                    return parsed_json
+                if _type_includes(schema_type, "array"):
+                    return [parsed_json]
+        if _type_includes(schema_type, "array"):
+            return [s]
+
+    return s
+
+
+def _to_declared_type(schema_type: Any, value: Any) -> Any:
+    """Convert *value* toward *schema_type* when it does not already match."""
+    if isinstance(value, str):
+        return _from_string(schema_type, value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, float) and value.is_integer() and _type_includes(schema_type, "integer"):
+            return int(value)
+        if type(value) is int and value in (0, 1) and _type_includes(schema_type, "boolean"):
+            return bool(value)
+        if _type_includes(schema_type, "string"):
+            return str(value)
+    if value is not None and not isinstance(value, list) and _type_includes(schema_type, "array"):
+        return [value]
+    return value
+
+
+def _fold(text: str) -> str:
+    """Normalize enum text: strip, casefold, and collapse spaces/hyphens to '_'."""
+    return re.sub(r"[\s-]+", "_", text.strip().casefold())
+
+
+def _one_edit_apart(a: str, b: str) -> bool:
+    """True when *a* and *b* differ by one insert, delete, substitute, or adjacent swap."""
+    la, lb = len(a), len(b)
+    if la == lb:
+        for i in range(la):
+            if a[i] != b[i]:
+                if a[i + 1 :] == b[i + 1 :]:
+                    return True
+                return i + 1 < la and a[i] == b[i + 1] and a[i + 1] == b[i] and a[i + 2 :] == b[i + 2 :]
+        return False
+    if la + 1 == lb:
+        for i in range(la):
+            if a[i] != b[i]:
+                return a[i:] == b[i + 1 :]
+        return True
+    if la == lb + 1:
+        return _one_edit_apart(b, a)
+    return False
+
+
+def _match_enum(value: str, enum: list[Any]) -> str:
+    """Return the unique enum member matching *value* under fold, plural, or one-edit rules."""
+    members = [m for m in enum if isinstance(m, str)]
+    if not members:
+        return value
+    fv = _fold(value)
+    folded = [(m, _fold(m)) for m in members]
+
+    exact = [m for m, fm in folded if fm == fv]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        return value
+
+    plural = [m for m, fm in folded if fv + "s" == fm or fm + "s" == fv]
+    if len(plural) == 1:
+        return plural[0]
+    if len(plural) > 1:
+        return value
+
+    if len(fv) >= 5:
+        near = [m for m, fm in folded if _one_edit_apart(fv, fm)]
+        if len(near) == 1:
+            return near[0]
+
+    return value
+
+
+def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Coerce top-level tool arguments toward their declared JSON Schema types and enums.
+
+    Returns a new dict without mutating *kwargs*. Nested ``items`` and
+    ``properties`` are not walked. Rules applied per property in order:
+    - Skip type coercion when ``type`` is missing or ``value_matches_type`` already holds.
+    - Numeric strings (ASCII digits only, finite) convert to ``int`` or ``float``; ``integer`` accepts whole values only.
+    - Boolean words (``true``/``yes``/``1`` and ``false``/``no``/``0``, case-insensitive) convert to ``bool``.
+    - JSON strings starting with ``[`` or ``{`` parse for ``array`` or ``object``; dicts wrap into ``[dict]`` for array-only.
+    - Any other non-list string (or non-None scalar/dict) wraps into ``[value]`` when ``type`` includes ``array``.
+    - Whole floats convert to ``int`` for ``integer``; ints ``0``/``1`` convert to ``bool`` for ``boolean``.
+    - Non-bool numbers (``int``/``float``) convert to ``str(value)`` when ``type`` includes ``string``.
+    - String enum misses map to a unique string member by fold, plural ``s``, or one-edit match (5+ chars).
     """
     if not isinstance(kwargs, dict):
         return kwargs
+    if not isinstance(props, dict):
+        return dict(kwargs)
     out = dict(kwargs)
-    range_schema = props.get("range")
-    range_type = range_schema.get("type") if isinstance(range_schema, dict) else None
-    if isinstance(out.get("range"), str) and _type_includes(range_type, "array"):
-        out["range"] = [out["range"]]
     for k, v in out.items():
-        if isinstance(v, float) and v.is_integer():
-            prop = props.get(k)
-            if isinstance(prop, dict):
-                t = prop.get("type")
-                # _tool_arg_matches_type rejects 3.0 for "integer", so models sending
-                # whole floats get VALIDATION_ERROR. 3.5 must still fail.
-                if _type_includes(t, "integer"):
-                    out[k] = int(v)
-
-    if tool_name == "write_range":
-        fov = out.get("values")
-        if isinstance(fov, (int, float)) and not isinstance(fov, bool):
-            out["values"] = str(fov)
+        prop = props.get(k)
+        if not isinstance(prop, dict):
+            continue
+        schema_type = prop.get("type")
+        if schema_type is not None and not value_matches_type(v, schema_type):
+            v = _to_declared_type(schema_type, v)
+        enum = prop.get("enum")
+        if isinstance(v, str) and isinstance(enum, list) and enum and v not in enum:
+            v = _match_enum(v, enum)
+        out[k] = v
     return out
 
 
@@ -376,8 +528,8 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
 
     input_schema = _normalize_schema_for_strict_providers(input_schema, for_mcp=True)
     props = input_schema["properties"]
-    # Execute already coerces a bare range string to [str]. Source schemas stay
-    # array-only; widen MCP so a host may send the string execute already wraps.
+    # coerce_call_args wraps a bare string for any array property, so widen
+    # MCP range to string|array to match what execute already accepts.
     rn = props.get("range")
     if isinstance(rn, dict) and rn.get("type") == "array":
         rn["type"] = ["string", "array"]

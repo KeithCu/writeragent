@@ -18,11 +18,9 @@ from plugin.chatbot.sub_agent_tools import (
 from plugin.framework.tool import ToolContext, ToolRegistry
 
 
-def test_normalize_html_content_array_accepts_list_and_string():
+def test_normalize_html_content_array_accepts_list():
     assert normalize_html_content_array(["<p>A</p>", "<p>B</p>"]) == ["<p>A</p>", "<p>B</p>"]
-    assert normalize_html_content_array("<p>One</p>") == ["<p>One</p>"]
     assert normalize_html_content_array([]) is None
-    assert normalize_html_content_array("   ") is None
 
 
 def test_save_design_spec_passes_html_array_to_apply_document_content(apply_document_content_stub):

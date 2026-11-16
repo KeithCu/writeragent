@@ -52,24 +52,19 @@ HTML_CONTENT_PARAMETERS: dict[str, Any] = {
 
 
 def normalize_html_content_array(content: Any) -> list[str] | None:
-    """Accept list of HTML strings or a single string (coerce to one-element list). Reject non-strings."""
-    if content is None:
+    """List of HTML strings → stripped non-empty list; None for anything else. prepare_tool_call has already wrapped a bare string."""
+    if not isinstance(content, list):
         return None
-    if isinstance(content, str):
-        text = content.strip()
-        return [text] if text else None
-    if isinstance(content, list):
-        out: list[str] = []
-        for item in content:
-            if item is None:
-                continue
-            if not isinstance(item, str):
-                return None
-            s = item.strip()
-            if s:
-                out.append(s)
-        return out if out else None
-    return None
+    out: list[str] = []
+    for item in content:
+        if item is None:
+            continue
+        if not isinstance(item, str):
+            return None
+        s = item.strip()
+        if s:
+            out.append(s)
+    return out if out else None
 
 
 SUB_AGENT_DOC_CORE_TOOLS = frozenset(["get_content", "get_tree", "search"])

@@ -25,6 +25,7 @@ from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
 from plugin.contrib.smolagents.models import ChatMessage, Model, TokenUsage, remove_content_after_stop_sequences
 from plugin.contrib.smolagents.tools import Tool as SmolTool
+from plugin.contrib.smolagents.utils import AgentToolExecutionError
 from plugin.chatbot import smol_examples
 from plugin.framework.errors import ToolExecutionError, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
@@ -135,8 +136,9 @@ class SmolToolAdapter(SmolTool):
         tool = self._inner_tool
         ctx = self._inner_tctx
 
-        # Same schema filter, coercion, validate() and VALIDATION_ERROR payload as
-        # forward mirrors ToolRegistry.execute validation so bad enum values return VALIDATION_ERROR.
+        # prepare_tool_call is the only argument check for this tool (WriterAgentToolCallingAgent
+        # skips smolagents' validator): schema filter, coercion, validate(), and the same
+        # VALIDATION_ERROR payload as ToolRegistry.execute.
         prepared = prepare_tool_call(tool, ctx, self.name, kwargs)
         if prepared.error is not None:
             result = prepared.error
@@ -418,11 +420,37 @@ def create_smol_model(
     )
 
 
-def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str) -> ToolCallingAgent:
+class WriterAgentToolCallingAgent(ToolCallingAgent):
+    """ToolCallingAgent that skips smolagents' pre-validation for ``SmolToolAdapter`` tools.
+
+    Smolagents validates argument types and unknown keys before the tool runs,
+    which would reject coerced values (such as ``"1"`` or ``"true"``) and extra
+    keys before WriterAgent's ``prepare_tool_call`` can coerce or drop them.
+    """
+
+    def execute_tool_call(self, tool_name: str, arguments: dict[str, str] | str) -> Any:
+        tool = self.tools.get(tool_name)
+        if not isinstance(tool, SmolToolAdapter):
+            return super().execute_tool_call(tool_name, arguments)
+
+        arguments = self._substitute_state_variables(arguments)
+        try:
+            if isinstance(arguments, dict):
+                return tool(**arguments, sanitize_inputs_outputs=True)
+            return tool(arguments, sanitize_inputs_outputs=True)
+        except Exception as e:
+            error_msg = (
+                f"Error executing tool '{tool_name}' with arguments {str(arguments)}: {type(e).__name__}: {e}\n"
+                "Please try again or use another tool"
+            )
+            raise AgentToolExecutionError(error_msg, self.logger) from e
+
+
+def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str) -> WriterAgentToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
     max_steps = get_config("chatbot.max_tool_rounds")
     smol_model = create_smol_model(ctx)
-    return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
+    return WriterAgentToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
 
 
 def run_inner_tool_agent(
