@@ -10,7 +10,7 @@ Remote tools are exposed through the `mcp` sub-agent domain (`delegate_to_subage
 
 On each `mcp` delegation:
 
-1. WriterAgent re-lists every configured server (`tools/list` with `refresh=True`). A server that is down becomes a note in the sub-agent's instructions while the remaining servers still run; if no usable tools remain, the delegation returns `MCP_CLIENT_NO_TOOLS`.
+1. WriterAgent lists each configured server once, then reuses that list from memory. A server that is down becomes a note in the sub-agent's instructions while the remaining servers still run; if no usable tools remain, the delegation returns `MCP_CLIENT_NO_TOOLS`.
 2. Each remote tool becomes a native function tool named `mcp__<server>__<tool>` (non-alphanumeric/underscore characters become `_`, clamped to 64 characters with an 8-hex hash suffix). Any names that collide across or within servers after normalization are all skipped.
 3. Each tool's `inputSchema` is normalized (`$defs`/`definitions` inlined, nullable unions and const unions collapsed, object shapes repaired) and converted to a native schema. Top-level parameter unions (`anyOf`/`oneOf`) of differently typed branches are merged into a type list when lossless, otherwise the first sendable branch is used; nested unions pass unchanged. Property names outside `[a-zA-Z0-9_.-]{1,64}` are renamed for the model and mapped back to the server's original names before dispatch. Tools whose schemas cannot be converted (recursive, remote, or dangling `$ref`s, oversized expansions over 5,000 nodes, unions with no sendable branch, `allOf`, typeless parameters, or itemless arrays) are skipped and logged.
 
@@ -61,7 +61,17 @@ security add-generic-password -a "$USER" -s writeragent-mcp -w
 
 `-w` with no value prompts for the token so it does not land in shell history. The first time WriterAgent reads it, macOS asks whether LibreOffice may use the item. Choose **Always Allow**. If access is denied, the tool returns an error and does not call the server without auth. A pasted `Bearer ` prefix is stripped automatically.
 
-Config is read on every call and connections are made lazily, so edits take effect on the next tool call and startup never touches the network.
+### Tool list cache
+
+Each server's tool list is cached in memory only, filled on first use (`tools/list`), and shared across concurrent turns so two delegations asking at once make one fetch. It is cleared or refreshed when:
+
+- **The server config changes:** the connection is keyed by the full server entry, so editing it makes a new connection and re-lists.
+- **Settings OK is pressed:** drops all cached connections even when no setting changed, so the next delegation re-initializes and re-lists every server.
+- **`notifications/tools/list_changed` arrives in a POST SSE reply:** clears that server's cached list so the next delegation re-lists.
+- **An unknown-tool reply arrives (`tools/call`):** re-lists once and retries the already-approved call once if the tool is still offered.
+- **A transport failure occurs on `tools/call`:** drops the cached list so the next delegation re-lists (and notes the server unavailable if it is still down).
+
+Config is read on every delegation and connections are made lazily, so edits take effect on the next delegation and startup never touches the network.
 
 ## Protocol, resilience, and Stop
 
@@ -83,6 +93,7 @@ Config is read on every call and connections are made lazily, so edits take effe
 ## Limitations
 
 - Stdio servers (`command`), OAuth, resources, prompts, sampling, and server-initiated requests are not supported.
+- `notifications/tools/list_changed` sent on the standalone streamable-HTTP GET stream is not received (WriterAgent only reads SSE events inside POST replies), so press OK in Settings to pick up newly added server tools.
 - Literal `${VAR}` references in `url` or `headers` are not expanded from the environment and are refused.
 - Recursive `$ref` schemas, top-level `allOf`/typeless parameters, unions with no sendable branch, and arrays without `items` are skipped; a lossy union (e.g. two object shapes) offers the model only its first branch; tools with open-ended `object` schemas (no declared `properties`) cannot accept arbitrary undeclared arguments; configured servers are not passed to ACP agent backends (`plugin/acp/acp_backend.py`).
 - WriterAgent's own MCP server may still list the `mcp` domain when servers are configured; calls there are refused.

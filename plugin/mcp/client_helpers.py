@@ -353,3 +353,17 @@ def format_approval_arguments(args: dict[str, Any]) -> str:
         keep = _APPROVAL_ARGUMENTS_MAX_CHARS - len(_APPROVAL_ARGUMENTS_TRUNCATION_MARKER)
         rendered = rendered[:keep].rstrip() + _APPROVAL_ARGUMENTS_TRUNCATION_MARKER
     return rendered
+
+
+def names_unknown_tool(tool: str, text: str) -> bool:
+    """True when *text* is a server saying it has no tool called *tool*.
+
+    The MCP spec answers an unknown name with JSON-RPC -32602 "Unknown tool: <name>".
+    The Python SDK returns the same words as an isError result
+    (mcp/server/mcpserver/tools/tool_manager.py ToolManager.call_tool), and the TypeScript
+    SDK returns "Tool <name> not found" (sdk/dist/esm/server/mcp.js tools/call handler).
+    The tool's own name must appear, so a tool's own "file not found" error never matches.
+    """
+    name = re.escape(tool)
+    pattern = rf"unknown tool:?\s*['\"`]?{name}(?![\w.-])|\btool\s+['\"`]?{name}['\"`]?\s+not found"
+    return re.search(pattern, text, re.IGNORECASE) is not None
