@@ -239,8 +239,9 @@ def close_session_duckdb(session_id: str) -> None:
     """Host only: close the cached DuckDB connection for *session_id*.
 
     The caller has already chosen the session (Reset Python Session, init
-    change, LRU eviction, or ``reset_session_duckdb`` after resolving). Not
-    exported to scripts.
+    change, LRU eviction, or ``reset_session_duckdb`` after resolving).
+    Registered tables must not outlive the Python namespace they were built in,
+    so every kernel drop closes the catalog too. Not exported to scripts.
     """
     keys = {session_id}
     normalized = persistable_duckdb_session_id(session_id)
