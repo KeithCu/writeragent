@@ -666,11 +666,11 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         ep = "https://api.deepseek.com"
-        with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["deepseek-chat", "deepseek-reasoner"]):
+        with patch("plugin.chatbot.config_ui_helpers.fetch_available_models", return_value=["deepseek-flash", "deepseek-v4-pro"]):
             populate_combobox_with_lru(ctrl, "", "model_lru", ep, api_key_override="ds-key")
         items = list(ctrl.addItems.call_args[0][0])
-        assert ("deepseek-chat") in (items)
-        assert ("deepseek-reasoner") in (items)
+        assert ("deepseek-flash") in (items)
+        assert ("deepseek-v4-pro") in (items)
 
     def test_together_bare_model_filtered(self):
         ctrl = MagicMock()
@@ -694,12 +694,12 @@ class TestPopulateComboboxWithLruFetchOptions:
         ctrl.getItemCount.return_value = 0
         populate_combobox_with_lru(
             ctrl,
-            "deepseek-chat",
+            "deepseek-flash",
             "model_lru",
             "http://localhost:1234",
             skip_remote_fetch=True,
         )
-        ctrl.setText.assert_called_with("deepseek-chat")
+        ctrl.setText.assert_called_with("deepseek-flash")
 
 
 def test_paint_combo_clears_stale_items_on_empty_list():

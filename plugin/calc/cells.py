@@ -37,7 +37,7 @@ from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
 from plugin.calc.inspector import CellInspector, grid_to_rows
-from plugin.calc.manipulator import WRITE_REPORT_KEYS, CellManipulator
+from plugin.calc.manipulator import WRITE_REPORT_KEYS, CellManipulator, SortKey, parse_then_by
 from plugin.doc.compound_undo import UndoStepOrRollback
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
@@ -824,23 +824,24 @@ class MergeCells(ToolBase):
 
 
 class SortRange(ToolCalcRangeBase):
-    """Sort a range by a column."""
+    """Sort a range by a key column, with optional tie-break columns."""
 
     name: str | None = "sort_range"
     # Action-time key/direction and "use this tool, don't rewrite the
     # block" live here. Do not restack another SORT Don't/Do into
     # CALC_CORE (flash merges adjacent identical shapes).
     description: str = (
-        "Stable one-column sort of the specified range(s) by values in one column. "
-        "Multi-key sorts are multiple calls (two stable one-column passes). "
+        "Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. "
         "Do call sort_range to reorder rows (not rewrite the block with "
         "write_range) because hand-written order often leaves labels mid-table. "
         "Pick sort_column for the metric to order by (0-based within the range); "
         "set ascending=false when largest values should come first. "
+        "For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: "
+        'sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. '
         "Do pass has_header=true when row 1 is labels because otherwise labels "
         "sort as values. "
         "Supports lists for non-contiguous areas. "
-        "The result says 'no rows moved' when the key column was already in that order."
+        "The result says 'no rows moved' when the key columns were already in that order."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -848,6 +849,20 @@ class SortRange(ToolCalcRangeBase):
             "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).')},
             "sort_column": {"type": "integer", "description": ("0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.")},
             "ascending": {"type": "boolean", "description": ("true = smallest first (default); false = largest/highest first.")},
+            "then_by": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"column": {"type": "integer"}, "ascending": {"type": "boolean"}},
+                    "required": ["column", "ascending"],
+                },
+                "description": (
+                    "Optional tie-break keys, applied in order when the keys before them are equal "
+                    "(sort_column/ascending is always the first key). Each item: "
+                    '{"column": 0-based index inside the range, "ascending": true|false}. '
+                    "Omit for a one-key sort."
+                ),
+            },
             "has_header": {"type": "boolean", "description": ("true when row 1 is labels; false only for a headerless block (default: true).")},
         },
         "required": ["range", "has_header"],
@@ -859,11 +874,16 @@ class SortRange(ToolCalcRangeBase):
         manipulator, rn = _manipulator_context(ctx, kwargs["range"])
 
         sort_column: int = kwargs.get("sort_column", 0)
-        # The schema makes sort_column an integer but does not read minimum; refuse negatives here as INVALID_PARAM before any undo group. The width bound lives in range_sort.
+        # The schema makes sort_column an integer but does not read minimum; refuse negatives here as INVALID_PARAM before any undo group. The width bound for every key lives in range_sort.
         if sort_column < 0:
             return self._tool_error(f"sort_column must be an integer >= 0, got {sort_column}", code="INVALID_PARAM")
 
         ascending: bool = kwargs.get("ascending", True)
+
+        then_by = parse_then_by(kwargs.get("then_by", []))
+        if then_by is None:
+            return self._tool_error('then_by must be a list of {"column": <integer >= 0>, "ascending": true|false} objects', code="INVALID_PARAM")
+        keys: list[SortKey] = [(sort_column, ascending), *then_by]
 
         has_header: bool = kwargs["has_header"]
         assert isinstance(has_header, bool)
@@ -873,7 +893,7 @@ class SortRange(ToolCalcRangeBase):
             ctx.doc,
             rn,
             "WriterAgent: Sort range",
-            lambda r: manipulator.range_sort(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
+            lambda r: manipulator.range_sort(r, keys, has_header=has_header),
             format_result=(lambda results: make_tool_ok(message=" ".join(results))) if len(rn) > 1 else None,
         )
 
@@ -934,7 +954,7 @@ class DeleteStructure(_StructureTool):
     name: str | None = "delete_structure"
     description: str = (
         "Deletes rows or columns. Use for structural changes; prefer ranges for data operations. "
-        "Refused (nothing deleted) when formulas would turn into #REF! unless confirm=true."
+        "Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -944,7 +964,10 @@ class DeleteStructure(_StructureTool):
             "count": {"type": "integer", "description": "Number to delete (default 1)."},
             "confirm": {
                 "type": "boolean",
-                "description": "Set true to delete even when formulas would turn into #REF!. Default false: such a delete is refused and nothing changes.",
+                "description": (
+                    "Set true to delete even when formulas or named ranges would turn into #REF!. "
+                    "Default false: such a delete is refused and nothing changes."
+                ),
             },
         },
         "required": ["structure_type", "start"],

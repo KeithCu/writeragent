@@ -161,8 +161,8 @@ strings stays exact per-cell (pin). 2-D + one formula, or an import
 failure, falls back to the honest pin. Snapshot `formulas` stores the
 **per-cell** text, not the original pin source on every address.
 
-`range_sort` is production-shaped: one 0-based column, stable,
-non-numeric last (tie-break = two calls). `get_sheet_summary` returns
+`sort_range` is production-shaped: one call; `sort_column` plus optional `then_by` tie-break keys,
+stable, matching Calc's `ScTable::CompareCell` ordering. `get_sheet_summary` returns
 the full grid. Snapshot JSON grows `formulas` / `writes` without
 breaking `grid` / `rows` that `oracle_data_sorting` and
 `oracle_tax_column` already use.

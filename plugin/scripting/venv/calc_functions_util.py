@@ -265,32 +265,23 @@ def format_quantized(q: Decimal, decimals: int, *, commas: bool) -> str:
     return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
 
 
-def as_bool_flag(val: Any) -> bool:
-    """LINEST / LOGEST / TREND / GROWTH ``const``.
+def as_nonzero(val: Any) -> bool:
+    """Calc ``GetBool`` (``GetDouble() != 0``) for a scalar flag argument.
 
-    A blank cell is false (GetBool of an empty cell). The text ``"TRUE"`` and
-    ``"FALSE"`` are those booleans and ``"0"`` is false, as in Calc. Any other
-    text goes to ``as_nonzero``.
+    A blank cell (``None`` or ``""``) is false. The text ``TRUE`` and ``FALSE``
+    (any case, surrounding spaces ignored) are those booleans, because Calc's
+    number scanner reads them (ScGlobal::ConvertStringToValue, LOCALE branch,
+    sc/source/core/data/global2.cxx). Numeric text such as ``"0"`` is its
+    number. Any other text raises ValueError, which the cell shows as #VALUE!.
     """
+    if val is None or val == "":
+        return False
     if isinstance(val, str):
         token = val.strip().upper()
         if token == "TRUE":
             return True
         if token == "FALSE":
             return False
-    return as_nonzero(val)
-
-
-def as_nonzero(val: Any) -> bool:
-    """Calc ``GetDouble() != 0`` for a flag.
-
-    ``bool("0")`` and ``bool("FALSE")`` are true. GetDouble of ``"0"`` is
-    0, and a non-numeric string is ``#VALUE!``. The words TRUE and FALSE
-    are not booleans here; that map is LINEST's ``as_bool_flag``. A blank
-    cell is 0.
-    """
-    if val is None or val == "":
-        return False
     return bool(float(val))
 
 
@@ -382,14 +373,15 @@ def clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray]
 def orient_columns(arr: np.ndarray, size: int, axis: int) -> np.ndarray:
     """A regression range with one variable per column.
 
-    A 1-D range is one column. A 2-D block whose ``axis`` length is not ``size``
+    A scalar (0-d, which GetMatrix in interpr5.cxx stores as a 1×1 matrix) or a
+    1-D range is one column. A 2-D block whose ``axis`` length is not ``size``
     while its other axis is ``size`` is transposed: known_x uses axis 0 and the
     number of known_y values, new_x uses axis 1 and the number of x variables.
     Any other shape is returned unchanged for the caller's shape check
     (CheckMatrix in sc/source/core/tool/interpr5.cxx accepts both orientations).
     """
-    if arr.ndim == 1:
-        return arr[:, np.newaxis]
+    if arr.ndim <= 1:
+        return arr.reshape(-1, 1)
     if arr.ndim == 2 and arr.shape[axis] != size and arr.shape[1 - axis] == size:
         return arr.T
     return arr

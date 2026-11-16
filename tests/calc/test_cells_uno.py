@@ -1051,6 +1051,56 @@ def test_delete_structure_refuses_when_formulas_would_break(ctx, doc):
 
 @native_test
 @with_native_doc("calc")
+def test_delete_structure_refuses_when_named_range_would_break(ctx, doc):
+    from com.sun.star.table import CellAddress
+
+    sheet = doc.getSheets().getByIndex(0)
+    for r in range(10):
+        sheet.getCellByPosition(0, r).setValue(r + 1)
+
+    origin = CellAddress(Sheet=0, Column=0, Row=0)
+    doc.NamedRanges.addNewByName("NR_GONE", "$Sheet1.$A$5", origin, 0)
+    doc.NamedRanges.addNewByName("NR_OLD", "#REF!", origin, 0)
+    doc.NamedRanges.addNewByName("NR_PART", "$Sheet1.$A$4:$A$6", origin, 0)
+    sheet.NamedRanges.addNewByName("LOC_GONE", "$Sheet1.$A$5", origin, 0)
+    sheet.getCellByPosition(1, 0).setFormula("=NR_GONE")
+
+    res_refused = _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": 5})
+    assert res_refused.get("status") == "error", res_refused
+    assert res_refused.get("code") == "REFS_WOULD_BREAK"
+    details = res_refused["details"]
+    assert details["refs_broken"] == 2
+    assert details["broken_cells"] == []
+    assert details["broken_names"] == [
+        {"name": "LOC_GONE", "scope": "Sheet1"},
+        {"name": "NR_GONE", "scope": "global"},
+    ]
+    b1 = sheet.getCellByPosition(1, 0)
+    assert b1.getError() == 0
+    assert b1.getValue() == 5.0
+    assert sheet.getCellByPosition(0, 4).getValue() == 5.0
+    assert doc.NamedRanges.getByName("NR_GONE").getContent() == "$Sheet1.$A$5"
+    assert tuple(doc.getUndoManager().getAllRedoActionTitles() or ()) == ()
+
+    res_ok = _execute_calc_tool(
+        doc, ctx, "delete_structure", {"structure_type": "rows", "start": 5, "confirm": True}
+    )
+    assert res_ok.get("status") == "ok", res_ok
+    assert res_ok["refs_broken"] == 2
+    assert res_ok["broken_names"] == [
+        {"name": "LOC_GONE", "scope": "Sheet1"},
+        {"name": "NR_GONE", "scope": "global"},
+    ]
+    assert b1.getError() == 524
+
+    doc.getUndoManager().undo()
+    assert b1.getError() == 0
+    assert b1.getValue() == 5.0
+    assert doc.NamedRanges.getByName("NR_GONE").getContent() == "$Sheet1.$A$5"
+
+
+@native_test
+@with_native_doc("calc")
 def test_delete_structure_without_broken_refs_needs_no_confirm(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     for r in range(10):

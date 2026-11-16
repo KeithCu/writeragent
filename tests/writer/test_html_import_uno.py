@@ -995,3 +995,181 @@ def test_selection_caret_table_leaves_no_empty_paragraphs_uno(ctx: Any, doc: Any
         actual = _body_structure_via_enum(doc.getText())
         assert actual == expected, f"offset={offset}: actual={actual!r} expected={expected!r}"
 
+
+
+def _seed_three_paras(doc: Any, *, third_style: str | None = None) -> None:
+    text = doc.getText()
+    doc.setPropertyValue("RecordChanges", False)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", third_style or "Standard")
+    text.insertString(cur, "Keep after", False)
+
+
+def _body_style_and_text(doc: Any) -> list[tuple[str, str]]:
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = doc.getText().createEnumeration()
+    out: list[tuple[str, str]] = []
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable"):
+            out.append(("TextTable", ""))
+        elif hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            out.append((str(el.getPropertyValue("ParaStyleName")), el.getString() or ""))
+    return out
+
+
+def _find_first(doc: Any, needle: str) -> Any:
+    desc = doc.createSearchDescriptor()
+    desc.SearchString = needle
+    found = doc.findFirst(desc)
+    assert found is not None, f"could not find {needle!r}"
+    return found
+
+
+@native_test
+@with_native_doc("writer")
+def test_whole_paragraph_block_replace_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) -> None:
+    from plugin.doc.compound_undo import WriterCompoundUndo
+    from plugin.writer.html_import import replace_single_range_with_content
+
+    # Multi-paragraph block replace + undo
+    _seed_three_paras(doc)
+    with WriterCompoundUndo(doc, "test-replace"):
+        replace_single_range_with_content(doc, _find_first(doc, "Replace me"), "<p>A</p><p>B</p>", ctx)
+    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+        "Keep before",
+        "A",
+        "B",
+        "Keep after",
+    ]
+    doc.getUndoManager().undo()
+    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+        "Keep before",
+        "Replace me",
+        "Keep after",
+    ]
+
+    # Bullet list replace
+    _seed_three_paras(doc)
+    replace_single_range_with_content(doc, _find_first(doc, "Replace me"), "<ul><li>Item 1</li></ul>", ctx)
+    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+        "Keep before",
+        "Item 1",
+        "Keep after",
+    ]
+
+    # Content ending with a table preserves following paragraph's Heading 1 style
+    _seed_three_paras(doc, third_style="Heading 1")
+    replace_single_range_with_content(
+        doc,
+        _find_first(doc, "Replace me"),
+        "<p>A</p><table><tr><td>C</td></tr></table>",
+        ctx,
+    )
+    structure = _body_style_and_text(doc)
+    assert structure[0][1] == "Keep before"
+    assert structure[1][1] == "A"
+    assert structure[2] == ("TextTable", "")
+    assert structure[3] == ("Heading 1", "Keep after")
+    assert len(structure) == 4, structure
+
+    # Replaced paragraph last in the text
+    _seed_three_paras(doc)
+    replace_single_range_with_content(doc, _find_first(doc, "Keep after"), "<p>End para</p>", ctx)
+    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+        "Keep before",
+        "Replace me",
+        "End para",
+    ]
+
+    # Empty <p></p> keeps exactly one empty paragraph
+    _seed_three_paras(doc)
+    replace_single_range_with_content(doc, _find_first(doc, "Replace me"), "<p></p>", ctx)
+    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+        "Keep before",
+        "",
+        "Keep after",
+    ]
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_whole_paragraph_replace_leaves_no_empty_paragraph_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    _seed_three_paras(doc)
+    doc.getCurrentController().select(_find_first(doc, "Replace me"))
+    insert_content_at_position(doc, ctx, "plain words", "selection")
+    assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
+        "Keep before",
+        "plain words",
+        "Keep after",
+    ]
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_ending_at_next_paragraph_start_applies_style_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    _seed_three_paras(doc, third_style="Heading 1")
+    found = _find_first(doc, "Replace me")
+    sel = doc.getText().createTextCursorByRange(found.getStart())
+    sel.gotoNextParagraph(True)
+    doc.getCurrentController().select(sel)
+
+    report = insert_content_at_position(
+        doc, ctx, '<p data-lo-style="Heading2">New heading</p>', "selection"
+    )
+    assert report.style_skips == []
+    assert _body_style_and_text(doc) == [
+        ("Standard", "Keep before"),
+        ("Heading 2", "New heading"),
+        ("Heading 1", "Keep after"),
+    ]
+
+
+@native_test
+@with_native_doc("writer")
+def test_without_trailing_break_leaves_range_ending_after_table_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import _without_trailing_break
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    cur.gotoStart(False)
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(1, 1)
+    text.insertTextContent(cur, tbl, False)
+    cur.gotoEnd(False)
+    text.insertString(cur, "Keep after", False)
+    assert _body_structure_via_enum(text) == ["Paragraph:Keep before", "TextTable", "Paragraph:Keep after"]
+
+    keep_after = _find_first(doc, "Keep after")
+    rng = text.createTextCursorByRange(text.getStart())
+    rng.gotoRange(keep_after.getStart(), True)
+    assert _without_trailing_break(rng) is rng
+
+    # Plain "Replace me\n" range trims the trailing break
+    _seed_three_paras(doc)
+    found = _find_first(doc, "Replace me")
+    plain_rng = text.createTextCursorByRange(found.getStart())
+    plain_rng.gotoNextParagraph(True)
+    trimmed = _without_trailing_break(plain_rng)
+    assert trimmed is not plain_rng
+    assert trimmed.getString() == "Replace me"

@@ -1668,16 +1668,24 @@ class ApplyDocumentContent(ToolBase):
             insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
 
         tables_before = _doc_table_count(doc) if has_table else None
+        report = html_import_styles.WriteReport()
 
         def _insert_next_to_match() -> None:
             if not is_block:
                 html_import.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
+                report.unapplied_para.extend(html_import_styles.unapplied_para_names_for_content(str(content)))
             elif position != "after":
-                html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
+                # A block import at the start of the match's paragraph adds paragraphs before it
+                # without merging, the same as target='beginning'.
+                report.extend(html_import.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content))
             else:
                 # Importing at a paragraph end merges into it; insert_html_after_paragraph
                 # opens a fresh paragraph after it and cleans up the leftover break.
-                html_import.insert_html_after_paragraph(doc, ctx.ctx, text_obj, insert_cursor, content)
+                report.extend(
+                    html_import.insert_html_after_paragraph(
+                        doc, ctx.ctx, text_obj, insert_cursor, content, apply_styles=True
+                    )
+                )
             if self._table_insert_error(doc, has_table, tables_before):
                 raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
@@ -1700,12 +1708,7 @@ class ApplyDocumentContent(ToolBase):
             insert_resp["snapped_to_paragraph"] = True
         if occurrence is not None:
             insert_resp["occurrence"] = occurrence
-        html_import_styles.attach_write_report(
-            insert_resp,
-            html_import_styles.WriteReport(
-                unapplied_para=html_import_styles.unapplied_para_names_for_content(str(content))
-            ),
-        )
+        html_import_styles.attach_write_report(insert_resp, report)
         return attach_edited_context(insert_resp, anchor)
 
 

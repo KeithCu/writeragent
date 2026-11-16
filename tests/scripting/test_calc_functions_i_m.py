@@ -236,8 +236,11 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("linest-blank", "linest", ([None, None],), "#VALUE!"),
     ("linest-zero", "linest", ([0, 0],), [0.0, 0.0]),
     ("linest-inf", "linest", ([_INF, 1],), [_NAN, _NAN]),
+    ("linest-scalar-x", "linest", (5, 3), "#VALUE!"),
+    ("linest-one-sample", "linest", ([5], [3]), "#VALUE!"),
     ("logest-blank", "logest", ([None, None],), "#VALUE!"),
     ("logest-inf", "logest", ([_INF, 1],), [_NAN, _NAN]),
+    ("logest-scalar-x", "logest", (5, 3), "#VALUE!"),
     ("loginv-zero", "loginv", (0, 0, 1), _NAN),
     ("loginv-inf", "loginv", (_INF, 0, 1), _NAN),
     ("loginv-sd-zero", "loginv", (0.5, 0, 0), _NAN),
@@ -620,4 +623,8 @@ def test_isoweeknum_date_matches_serial():
     day = dt.date(2023, 1, 1)
     assert calc.isoweeknum(day) == calc.isoweeknum(day.toordinal() - 693594)
 
+
+def test_linest_scalar_through_origin():
+    assert np.allclose(calc.linest(5, 3, False), [5 / 3, 0.0])
+    assert np.allclose(calc.logest(5, 3, 0), [1.7099759466766968, 1.0])
 

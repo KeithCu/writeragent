@@ -219,6 +219,12 @@ GENERIC_EDIT_CONFIRMATION_RULES = """EDITING THE DOCUMENT:
 - VERIFY every edit by the tool result's structured fields: status='error' (or a zero count, where the tool reports counts) means nothing changed — do not assume success from friendly message wording.
 - Any document content shown to you earlier may be a partial/truncated snapshot — before a targeted edit that depends on the exact current content, re-read through the tools."""
 
+ACT_DIRECTLY_USING_TOOLS_LINE = (
+    "Act directly using tools (perform as many steps as needed in one turn). "
+    "Keep chat replies short (one short paragraph, no filler); "
+    "go longer when the user asks for detail, opinions, or ideas, or to explain a failure."
+)
+
 
 MEMORY_GUIDANCE = """MEMORY:
 You have a persistent file-backed memory tool.
@@ -439,7 +445,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Named styles: get_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  A data-lo-style or data-lo-para that is not applied is listed in warnings (run warnings[].suggested_call when present); position='before'/'after' applies neither.
+  A data-lo-style or data-lo-para that is not applied is listed in warnings (run warnings[].suggested_call when present).
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm"`) reports what a paragraph has set directly — how you tell a hand-formatted block quote from body text.
 
@@ -544,7 +550,7 @@ CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_H
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").
 Python on sheet data: write_range of =PY (that tool's description).
 SORT:
-Do {DELEGATE_SUBAGENT_TOOL}(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
+Do {DELEGATE_SUBAGENT_TOOL}(domain="ranges") then sort_range to reorder rows because rewriting values by hand loses the header row.
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
@@ -586,7 +592,7 @@ CALC_FORMULA_SYNTAX_TEMPLATE = (
 )
 
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
-Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
+{ACT_DIRECTLY_USING_TOOLS_LINE}
 
 {CHAT_RESPONSE_FORMAT}
 
@@ -664,7 +670,7 @@ IMPRESS_ONLY_DRAW_PROMPT_PARTS = (
 )
 
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
-Act directly using tools (perform as many steps as needed in one turn). Keep chat replies short (one short paragraph, no filler); go longer when the user asks for detail, opinions, or ideas, or to explain a failure.
+{ACT_DIRECTLY_USING_TOOLS_LINE}
 
 {CHAT_RESPONSE_FORMAT}
 

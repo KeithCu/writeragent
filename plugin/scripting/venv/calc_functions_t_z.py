@@ -19,7 +19,6 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
-    as_bool_flag,
     as_nonzero,
     build_holiday_set,
     clean_paired_arrays,
@@ -403,8 +402,7 @@ def trend(*args: Any) -> Any:
         if data_y.size == 0 or np.any(np.isnan(data_y)):
             return "#VALUE!"
         if len(args) > 1 and args[1] is not None:
-            # A scalar is 0-d; GetMatrix (interpr5.cxx) stores it as a 1×1 matrix.
-            data_x = orient_columns(np.atleast_1d(np.asarray(args[1], dtype=float)), len(data_y), axis=0)
+            data_x = orient_columns(np.asarray(args[1], dtype=float), len(data_y), axis=0)
         else:
             data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
 
@@ -412,8 +410,7 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         if len(args) > 2 and args[2] is not None:
-            # A scalar is 0-d; GetMatrix (interpr5.cxx) stores it as a 1×1 matrix.
-            new_data_x = orient_columns(np.atleast_1d(np.asarray(args[2], dtype=float)), data_x.shape[1], axis=1)
+            new_data_x = orient_columns(np.asarray(args[2], dtype=float), data_x.shape[1], axis=1)
         else:
             new_data_x = data_x
 
@@ -421,8 +418,8 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         # bool("FALSE") is True, so a const string kept the intercept.
-        # as_bool_flag maps "FALSE" / "TRUE" / 0.
-        const = as_bool_flag(args[3]) if len(args) > 3 else True
+        # as_nonzero maps "FALSE" / "TRUE" / 0.
+        const = as_nonzero(args[3]) if len(args) > 3 else True
 
         if const:
             data_x = np.c_[data_x, np.ones(data_x.shape[0])]
@@ -433,7 +430,7 @@ def trend(*args: Any) -> Any:
         return pred.tolist()
     except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
         # A broad Exception hid programming errors as #VALUE!. A bad const
-        # string still raises ValueError inside as_bool_flag and stays #VALUE!.
+        # string still raises ValueError inside as_nonzero and stays #VALUE!.
         return "#VALUE!"
 
 

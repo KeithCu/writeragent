@@ -414,3 +414,103 @@ def test_s29_batched_restore_large_column_uno(ctx, doc):
     assert not lost, f"near-miss rows lost their date key: {lost[:5]} ({len(lost)} of 300)"
     assert _cell_key(sheet, 0, 2999) == date_key, "A3000 (note row) lost its date key"
     assert sheet.getCellByPosition(0, 2990).getString() == "08/05/2026"
+
+
+@native_test
+@with_native_doc("calc")
+def test_range_sort_then_by_breaks_ties(ctx, doc):
+    """Multi-key sort_range breaks ties, records one undo step, and leaves no leftover keys."""
+    sheet = doc.getCurrentController().getActiveSheet()
+    rows = [
+        ["Product", "Revenue"],
+        ["Widget", 1200],
+        ["Gadget", 850],
+        ["Tool", 2100],
+        ["Device", 1200],
+        ["Bolt", 1200],
+    ]
+    w_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A1:B6"], "values": rows})
+    assert w_res.get("status") == "ok", w_res
+
+    def col_a() -> list[str]:
+        return [sheet.getCellByPosition(0, r).getString() for r in range(6)]
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "sort_range",
+        {
+            "range": ["A1:B6"],
+            "sort_column": 1,
+            "ascending": False,
+            "then_by": [{"column": 0, "ascending": True}],
+            "has_header": True,
+        },
+    )
+    assert res.get("status") == "ok", res
+    assert col_a() == ["Product", "Tool", "Bolt", "Device", "Widget", "Gadget"]
+
+    undo_mgr = doc.getUndoManager()
+    assert undo_mgr.getCurrentUndoActionTitle() == "WriterAgent: Sort range"
+    undo_mgr.undo()
+    assert col_a() == ["Product", "Widget", "Gadget", "Tool", "Device", "Bolt"]
+
+    undo_mgr.redo()
+    assert col_a() == ["Product", "Tool", "Bolt", "Device", "Widget", "Gadget"]
+
+    res_again = _execute_calc_tool(
+        doc,
+        ctx,
+        "sort_range",
+        {
+            "range": ["A1:B6"],
+            "sort_column": 1,
+            "ascending": False,
+            "then_by": [{"column": 0, "ascending": True}],
+            "has_header": True,
+        },
+    )
+    assert res_again.get("status") == "ok", res_again
+    assert "no rows moved" in res_again.get("message", "")
+
+    res_one = _execute_calc_tool(
+        doc,
+        ctx,
+        "sort_range",
+        {"range": ["A1:B6"], "sort_column": 0, "ascending": True, "has_header": True},
+    )
+    assert res_one.get("status") == "ok", res_one
+    assert col_a() == ["Product", "Bolt", "Device", "Gadget", "Tool", "Widget"]
+
+
+@native_test
+@with_native_doc("calc")
+def test_range_sort_then_by_reports_tie_only_move(ctx, doc):
+    """Reordering only tied rows must not report 'no rows moved'."""
+    sheet = doc.getCurrentController().getActiveSheet()
+    rows = [
+        ["Product", "Revenue"],
+        ["Tool", 2100],
+        ["Widget", 1200],
+        ["Device", 1200],
+        ["Gadget", 850],
+    ]
+    w_res = _execute_calc_tool(doc, ctx, "write_range", {"range": ["A1:B5"], "values": rows})
+    assert w_res.get("status") == "ok", w_res
+
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "sort_range",
+        {
+            "range": ["A1:B5"],
+            "sort_column": 1,
+            "ascending": False,
+            "then_by": [{"column": 0, "ascending": True}],
+            "has_header": True,
+        },
+    )
+    assert res.get("status") == "ok", res
+    assert "no rows moved" not in res.get("message", "")
+    col_a = [sheet.getCellByPosition(0, r).getString() for r in range(5)]
+    assert col_a == ["Product", "Tool", "Device", "Widget", "Gadget"]

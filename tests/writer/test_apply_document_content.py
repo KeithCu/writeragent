@@ -153,8 +153,8 @@ def test_position_param_validation():
 
 
 def test_position_after_inserts_at_match_edge_without_replacing():
-    """The Q8 happy path: collapsed cursor at the found range's edge, HTML import WITHOUT
-    styles, result carries inserted=true/position and NO replaced_count."""
+    """The Q8 happy path: collapsed cursor at the found range's edge, HTML import,
+    result carries inserted=true/position and NO replaced_count."""
     from unittest.mock import patch
 
     from plugin.writer import html_import
@@ -178,7 +178,6 @@ def test_position_after_inserts_at_match_edge_without_replacing():
     assert res["status"] == "ok" and res["inserted"] is True and res["position"] == "after"
     assert "replaced_count" not in res
     ins.assert_called_once()
-    assert ins.call_args.kwargs.get("apply_styles") is False
     # The match edge used must be getEnd() for 'after'.
     found.getStart.assert_called()
 

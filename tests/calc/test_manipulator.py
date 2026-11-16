@@ -15,8 +15,10 @@ from plugin.calc.manipulator import (
     WritePlan,
     _delimited_text_message,
     _parse_json_array_string,
+    _ref_named_ranges,
     _write_report,
     looks_numeric_text,
+    parse_then_by,
 )
 
 
@@ -465,7 +467,7 @@ def test_sort_range_bounds_and_valid_types():
         patch("plugin.calc.manipulator.TableSortField", create=True) as tsf_cls,
     ):
         with pytest.raises(CalcError, match=r"0 to 1"):
-            manipulator.range_sort("A1:B10", sort_column=2)
+            manipulator.range_sort("A1:B10", [(2, True)], has_header=True)
         mock_range.createSortDescriptor.assert_not_called()
 
         p_sort_fields = SimpleNamespace(Name="SortFields", Value=())
@@ -475,7 +477,7 @@ def test_sort_range_bounds_and_valid_types():
         with patch("uno.Any") as any_mock:
             mock_key_range = mock_range.getCellRangeByPosition.return_value
             mock_key_range.getDataArray.return_value = (("a",), ("b",))
-            res = manipulator.range_sort("A1:B10", sort_column=0, ascending=True, has_header=True)
+            res = manipulator.range_sort("A1:B10", [(0, True)], has_header=True)
             mock_range.sort.assert_called_once()
             any_mock.assert_called_once_with("[]com.sun.star.table.TableSortField", (tsf_cls.return_value,))
             assert p_sort_fields.Value == any_mock.return_value
@@ -484,7 +486,7 @@ def test_sort_range_bounds_and_valid_types():
             assert "no rows moved" in res
 
             mock_key_range.getDataArray.side_effect = [(("b",), ("a",)), (("a",), ("b",))]
-            res_moved = manipulator.range_sort("A1:B10", sort_column=0, ascending=True, has_header=True)
+            res_moved = manipulator.range_sort("A1:B10", [(0, True)], has_header=True)
             assert "sorted ascending by column 0" in res_moved
             assert "no rows moved" not in res_moved
 
@@ -502,10 +504,67 @@ def test_sort_range_skips_key_read_for_single_data_row():
         patch("plugin.calc.manipulator.TableSortField", create=True),
         patch("uno.Any"),
     ):
-        res = manipulator.range_sort("A1:B2", sort_column=0, ascending=True, has_header=True)
+        res = manipulator.range_sort("A1:B2", [(0, True)], has_header=True)
         mock_range.getCellRangeByPosition.assert_not_called()
         mock_range.sort.assert_called_once()
         assert "no rows moved" in res
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ([], []),
+        ([{"column": 0, "ascending": True}], [(0, True)]),
+        ([{"column": 1.0, "ascending": False}], [(1, False)]),
+        ({"column": 0, "ascending": True}, None),
+        ([{"column": 0}], None),
+        ([{"column": 0, "ascending": True, "sort_column": 1}], None),
+        ([{"column": True, "ascending": True}], None),
+        ([{"column": -1, "ascending": True}], None),
+        ([{"column": 1.5, "ascending": True}], None),
+        ([{"column": "A", "ascending": True}], None),
+        ([{"column": 0, "ascending": "false"}], None),
+    ],
+)
+def test_parse_then_by(raw, expected):
+    assert parse_then_by(raw) == expected
+
+
+def test_range_sort_then_by_out_of_width_refused():
+    bridge = MagicMock()
+    mock_range = MagicMock()
+    mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=10)
+    bridge.resolve_range_or_address.return_value = mock_range
+
+    manipulator = CellManipulator(bridge)
+    with patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr):
+        with pytest.raises(CalcError, match=r"then_by column"):
+            manipulator.range_sort("A1:B10", [(0, True), (5, False)], has_header=True)
+    mock_range.sort.assert_not_called()
+
+
+def test_range_sort_tie_reorder_is_not_no_rows_moved():
+    bridge = MagicMock()
+    mock_range = MagicMock()
+    mock_addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=2)
+    bridge.resolve_range_or_address.return_value = mock_range
+    mock_range.createSortDescriptor.return_value = []
+
+    col1_range = MagicMock()
+    col1_range.getDataArray.side_effect = [(("10",), ("10",)), (("10",), ("10",))]
+    col0_range = MagicMock()
+    col0_range.getDataArray.side_effect = [(("b",), ("a",)), (("a",), ("b",))]
+    mock_range.getCellRangeByPosition.side_effect = [col1_range, col0_range, col1_range, col0_range]
+
+    manipulator = CellManipulator(bridge)
+    with (
+        patch("plugin.calc.manipulator._uno_range_address", return_value=mock_addr),
+        patch("plugin.calc.manipulator.TableSortField", create=True),
+        patch("uno.Any"),
+    ):
+        res = manipulator.range_sort("A1:B3", [(1, False), (0, True)], has_header=True)
+    assert "no rows moved" not in res
+    assert "column 1 descending, then column 0 ascending" in res
 
 
 def test_quiet_probe_cleanup():
@@ -977,6 +1036,14 @@ def test_plan_write_refuses_py_inside_its_data_range():
     assert len(long_text) > 8192
     assert manipulator.plan_write("A1", long_text).kind == "cells"
 
+    # Non-ASCII sheet names must still trigger PY_CIRCULAR.
+    sheet.getName.return_value = "Données"
+    unicode_formula = '=PY("result = np.sum(data)"; \'Données\'.A1:A2)'
+    with pytest.raises(CalcError) as exc_uni:
+        manipulator.plan_write("A1", unicode_formula)
+    assert exc_uni.value.code == "PY_CIRCULAR"
+    assert (exc_uni.value.details or {})["data_range"] == "'Données'.A1:A2"
+
 
 def test_commit_quotes_the_py_run_error():
     from plugin.calc.python.diagnostics import get_diagnostics_store
@@ -1138,6 +1205,37 @@ def test_delete_structure_confirm_without_undo_does_not_promise_ctrl_z():
     msg = res["warnings"][0]["message"]
     assert "Ctrl+Z" not in msg
     assert "Undo was unavailable" in msg
+
+
+def test_ref_named_ranges_scans_global_and_visible_sheet_scopes():
+    class _FakeNamedRanges:
+        def __init__(self, entries: dict[str, str]) -> None:
+            self._entries = entries
+
+        def getElementNames(self) -> tuple[str, ...]:
+            return tuple(self._entries.keys())
+
+        def getByName(self, name: str) -> SimpleNamespace:
+            content = self._entries[name]
+            return SimpleNamespace(getContent=lambda: content)
+
+    def _sheet(name: str, entries: dict[str, str]) -> SimpleNamespace:
+        return SimpleNamespace(getName=lambda: name, NamedRanges=_FakeNamedRanges(entries))
+
+    sheets_list = [
+        _sheet("Sheet1", {"L_BAD": "$Sheet1.$A$#REF!*2"}),
+        _sheet("_Hidden", {"H_BAD": "#REF!"}),
+    ]
+    sheets = SimpleNamespace(
+        getCount=lambda: len(sheets_list),
+        getByIndex=lambda idx: sheets_list[idx],
+    )
+    doc = SimpleNamespace(
+        NamedRanges=_FakeNamedRanges({"G_OK": "$Sheet1.$A$1", "G_BAD": "$Sheet1.$A$#REF!"}),
+        getSheets=lambda: sheets,
+    )
+
+    assert _ref_named_ranges(doc) == {("global", "G_BAD"), ("Sheet1", "L_BAD")}
 
 
 class _FakeDialects:

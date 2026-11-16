@@ -7,9 +7,7 @@
 from __future__ import annotations
 
 import logging
-import re
 
-from plugin.calc.address_utils import parse_address
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.spreadsheet_import.models import (
     CellRecord,
@@ -19,16 +17,12 @@ from plugin.calc.spreadsheet_import.models import (
     ReportCode,
     SheetModel,
     TodoCell,
+    TranslationResult,
 )
 from plugin.calc.spreadsheet_import.preserve import formula_output_cell, output_cell_from_record
 from plugin.calc.spreadsheet_import.range_clip import clip_workbook_data_ranges
 from plugin.calc.spreadsheet_import.translate import translate_formula
-from plugin.calc.spreadsheet_import.vectorize import (
-    detect_vectorized_columns,
-    translation_has_cross_sheet_ranges,
-    vectorize_range,
-)
-
+from plugin.calc.spreadsheet_import.vectorize import detect_vectorized_columns
 
 log = logging.getLogger(__name__)
 
@@ -39,38 +33,15 @@ def emit_py_formula(code: str, data_ranges: list[str], *, sheet_bounds: dict[str
     return PyFormula.compose(code, clipped)
 
 
-def _vector_group_formulas(model: SheetModel, group: list[str], sheet_bounds: dict[str, tuple[int, int]] | None) -> dict[str, str]:
-    """Return one ``=PY()`` per cell of a filled-down column group, or ``{}`` to leave the group
-    to the per-cell pass.
-
-    The first cell's formula is translated once; every cell then gets the same code over the whole
-    column range, plus its own index in the group as the last data argument. The group stays per-cell
-    when the formula calls no function, does not translate, reads another sheet's range, or uses
-    ``calc.fmt`` (TEXT with a format), which formats one value and turns a column array into its
-    printed text.
-    """
-    first_addr = group[0]
-    formula = model.cells[first_addr].formula
-    if not formula:
-        return {}
-    translation = translate_formula(formula, cell_addr=first_addr, functions_only=True)
-    if not (translation.ok and translation.code and translation.data_ranges is not None):
-        return {}
-    if translation_has_cross_sheet_ranges(translation.data_ranges) or "calc.fmt(" in translation.code:
-        return {}
-    row_delta = parse_address(group[-1])[1] - parse_address(first_addr)[1]
-    vectorized_data_ranges = [vectorize_range(a1_range, row_delta) for a1_range in translation.data_ranges]
-    # Convert bare data references to np.asarray(data) to support element-wise operations
-    code = translation.code
-    if len(translation.data_ranges) == 1:
-        code = re.sub(r"(?<!np\.asarray\()\bdata\b", "np.asarray(data)", code)
-    else:
-        for idx in range(len(translation.data_ranges)):
-            code = re.sub(rf"(?<!np\.asarray\()\bdata\[{idx}\]\b", f"np.asarray(data[{idx}])", code)
-    return {
-        addr: emit_py_formula(code, vectorized_data_ranges + [str(idx)], sheet_bounds=sheet_bounds, current_sheet=model.sheet_name)
-        for idx, addr in enumerate(group)
-    }
+def _translate_or_none(addr: str, formula: str) -> TranslationResult | None:
+    try:
+        return translate_formula(formula, cell_addr=addr, functions_only=True)
+    except Exception:
+        # parse/_emit recurse the AST; RecursionError escapes translate_formula
+        # (it catches only ValueError/TypeError/IndexError/TranslationError).
+        # Per-cell failure must not abort the whole sheet—keep the formula and report this cell.
+        log.exception("build_converted_output_model: cell %s failed", addr)
+        return None
 
 
 def build_converted_output_model(model: SheetModel, *, vectorize: bool, sheet_bounds: dict[str, tuple[int, int]] | None = None) -> tuple[OutputSheetModel, ConversionReport]:
@@ -78,14 +49,21 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool, sheet_bo
     report = ConversionReport()
     circular = {addr for group in model.circular_groups for addr in group}
 
-    vector_groups = detect_vectorized_columns(model) if vectorize else {}
+    translations = {
+        addr: _translate_or_none(addr, rec.formula)
+        for addr, rec in sorted(model.cells.items())
+        if rec.type in ("formula", "error") and rec.formula and addr not in circular
+    }
     cells: dict[str, OutputCell] = {}
 
-    for first_addr, group in vector_groups.items():
+    for run in (detect_vectorized_columns(model, translations) if vectorize else []):
         try:
-            group_formulas = _vector_group_formulas(model, group, sheet_bounds)
+            group_formulas = {
+                addr: emit_py_formula(run.code, [run.column, str(idx)], sheet_bounds=sheet_bounds, current_sheet=model.sheet_name)
+                for idx, addr in enumerate(run.cells)
+            }
         except Exception:
-            log.exception("build_converted_output_model: vector group at %s failed", first_addr)
+            log.exception("build_converted_output_model: vector group at %s failed", run.cells[0])
             continue
         for addr, formula in group_formulas.items():
             cells[addr] = formula_output_cell(addr, formula)
@@ -115,8 +93,11 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool, sheet_bo
             _pass_through(addr, record, "CIRCULAR_REF")
             continue
 
+        translation = translations[addr]
+        if translation is None:
+            _pass_through(addr, record, "EMIT_ERROR")
+            continue
         try:
-            translation = translate_formula(record.formula, cell_addr=addr, functions_only=True)
             if translation.has_function is False:
                 # A formula with no function call (=A1*2, =B3) stays native Calc; it is not a skip.
                 _pass_through(addr, record, None)
@@ -126,9 +107,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool, sheet_bo
             else:
                 _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")
         except Exception:
-            # parse/_emit recurse the AST; RecursionError escapes translate_formula
-            # (it catches only ValueError/TypeError/IndexError/TranslationError).
-            # Per-cell failure must not abort the whole sheet—keep the formula and report this cell.
+            # Per-cell emit failure (e.g. range_clip / PyFormula) must not abort the sheet.
             log.exception("build_converted_output_model: cell %s failed", addr)
             _pass_through(addr, record, "EMIT_ERROR")
 

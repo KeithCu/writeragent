@@ -421,7 +421,7 @@ def test_resolve_qualified_ref_quotes_apostrophe_sheet():
 
     bridge.reset_mock()
     _resolve_qualified_ref(bridge, "A1:B3", "Q1-2026", "source_range", "source_sheet")
-    bridge.resolve_range_or_address.assert_called_with("Q1-2026.A1:B3")
+    bridge.resolve_range_or_address.assert_called_with("'Q1-2026'.A1:B3")
 
 
 @pytest.mark.parametrize("tool_name", ["pivot_table_refresh", "pivot_table_delete"])

@@ -429,7 +429,7 @@ All section tools (`section_list`, `section_read`, `section_create`, `section_de
   - Refuses index sections (`DocumentIndex` is not `None`, including `_Head` child sections) and password-protected sections (non-empty `ProtectionKey`).
 
 - **`section_set_columns(name, column_count, spacing_mm?)`**
-  - Sets `column_count` (1–99, matching Writer's UI cap) and `spacing_mm` (finite `>= 0`, default `0`) on the section's `TextColumns` using the shared `apply_column_layout` helper from `page.py`.
+  - Sets `column_count` (1–99, matching Writer's UI cap) and `spacing_mm` (finite `>= 0`, default `0`) on the section's `TextColumns` using the shared `column_layout_error` and `apply_column_layout` helpers from `page.py`.
   - Refuses index sections and password-protected sections.
 
 - **`section_set_protection(name, protected)`**
@@ -644,6 +644,20 @@ Kyber generates LibreOffice Basic from analysis JSON (`headings`, `body_paragrap
 - `kyber_backend_v5` / `kyber_nano` (kiosk, team DB, OPC-UA, MQTT)
 - Duplicate Ollama/LM Studio preset list
 - Shallow LO Python macros in `install/kyber_linux_setup.sh` (subset of extend/edit selection)
+
+### 8.4 Deferred ideas (follow-up triage, Nov 2026)
+
+These came out of the November 2026 follow-up triage (`217-followups-triage.md`). They are worth doing at some point but are not scheduled.
+
+- **Chat answers that never edit the document (item 139).** Sometimes the model answers a Writer request with JSON or HTML in the chat and leaves the document unchanged. Options: a prompt-only fix checked with `make eval-ab`, one automatic follow-up round in `next_state`, or parsing fenced tool JSON in `llm_client`. The prompt fix with an eval comes first.
+
+- **Right-to-left paragraph alignment (item 165).** `plugin/writer/styles.py` reads `ParaAdjust` values 5 and 6 (`START`/`END`) back as `left`/`right`, which is wrong for right-to-left text. The idea is to add `start` and `end` to the alignment enum and the read and write maps.
+
+- **`get_image` when vision support is unknown (item 252).** When `has_native_vision` settles to unknown for a custom host, `get_image` stays visible. The open question is whether to hide it in that case or keep it, since many unknown hosts do support vision.
+
+- **`structural` domain in the eval harness (item 272).** `scripts/prompt_optimization/llm_chat_eval.py` treats the `structural` domain as read-only, while production treats it as mutating. The idea is to have the eval call `tool.detects_mutation(raw_args)` so it matches production.
+
+- **Image orientation values (item 344).** In `plugin/writer/images/images.py`, the `hori_orient`/`vert_orient` description mentions raw UNO integers but the schema only allows strings. Either widen the schema to strings and integers, or drop the integer path and its description text. String values such as `left`, `center` and `right` are easier for models.
 
 ---
 

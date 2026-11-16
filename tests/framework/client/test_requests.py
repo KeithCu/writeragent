@@ -386,3 +386,42 @@ def test_sync_request_stop_aborts_waiting_for_shared_lock():
 
     assert raised.value.code == "STOPPED"
     assert errors == []
+
+
+def test_sync_request_stop_aborts_blocked_getresponse():
+    import socket
+    import threading
+    import time
+    from plugin.framework.send_cancellation import SendCancellation
+
+    srv = socket.create_server(("127.0.0.1", 0))
+    port = srv.getsockname()[1]
+    held: list[socket.socket] = []
+
+    def _accept() -> None:
+        try:
+            conn, _addr = srv.accept()
+            held.append(conn)
+        except OSError:
+            pass
+
+    accept_thread = threading.Thread(target=_accept, daemon=True)
+    accept_thread.start()
+
+    cancel = SendCancellation()
+    timer = threading.Timer(0.3, cancel.cancel)
+    timer.start()
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(NetworkError) as raised:
+            sync_request(f"http://127.0.0.1:{port}/x", parse_json=False, timeout=30, cancel=cancel)
+        elapsed = time.monotonic() - t0
+    finally:
+        timer.cancel()
+        srv.close()
+        accept_thread.join(timeout=1)
+        for conn in held:
+            conn.close()
+
+    assert raised.value.code == "STOPPED"
+    assert elapsed < 5.0

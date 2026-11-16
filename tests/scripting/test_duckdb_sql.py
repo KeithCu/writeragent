@@ -21,11 +21,11 @@ from plugin.scripting.venv.duckdb_sql import (
     MAX_TABLE_ROWS,
     GuardedDuckDBConnection,
     SqlError,
+    close_session_duckdb,
     invalidate_session_tables,
     persistable_duckdb_session_id,
     query_folder_df,
     query_folder_sql,
-    reset_session_duckdb,
     run_sql,
     session_duckdb,
     _looks_like_write_or_escape,
@@ -587,11 +587,11 @@ def test_query_folder_sql_reregister_refreshes_stale_snapshot(fresh_sandbox_sess
     assert refreshed["rows"][0][0] == 42
 
 
-def test_reset_session_duckdb_clears_connection_and_tables(fresh_sandbox_sessions):
+def test_close_session_duckdb_clears_connection_and_tables(fresh_sandbox_sessions):
     sid = "calc:duckdb-reset"
     before = session_duckdb(session_id=sid)
     query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(5)}, session_id=sid)
-    reset_session_duckdb(sid)
+    close_session_duckdb(sid)
     after = session_duckdb(session_id=sid)
     assert after is not before
     missing = query_folder_sql(None, "SELECT x FROM sales", session_id=sid)
@@ -744,6 +744,58 @@ def test_sandboxed_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions)
     # Host callers outside the sandbox still name a workbook.
     host = session_duckdb(session_id=other)
     assert host.execute("SELECT x FROM secret").fetchone()[0] == 7
+
+
+def test_sandboxed_reset_session_duckdb_keeps_other_workbook(fresh_sandbox_sessions):
+    """A cell calling reset_session_duckdb must not close another workbook's catalog."""
+    from tests.scripting.sandbox_support import sandbox_run
+
+    other = "calc:file:///other-workbook"
+    this = "calc:file:///this-workbook"
+    seed_other = sandbox_run(
+        "import pandas as pd\n"
+        "session_duckdb().register('secret', pd.DataFrame({'x': [7]}))\n"
+        "result = 1",
+        None,
+        session_id=other,
+    )
+    assert seed_other["status"] == "ok", seed_other
+    seed_this = sandbox_run(
+        "import pandas as pd\n"
+        "session_duckdb().register('mine', pd.DataFrame({'x': [3]}))\n"
+        "result = 1",
+        None,
+        session_id=this,
+    )
+    assert seed_this["status"] == "ok", seed_this
+
+    # Passing another workbook's id redirects to this cell's own catalog.
+    attempt = sandbox_run(
+        "from writeragent.scripting.duckdb_sql import reset_session_duckdb\n"
+        "reset_session_duckdb('calc:file:///other-workbook')\n"
+        "result = 1",
+        None,
+        session_id=this,
+    )
+    assert attempt["status"] == "ok", attempt
+    assert session_duckdb(session_id=other).execute("SELECT x FROM secret").fetchone()[0] == 7
+    own_gone = sandbox_run(
+        "result = session_duckdb().execute('SELECT x FROM mine').fetchone()[0]",
+        None,
+        session_id=this,
+    )
+    assert own_gone["status"] == "error", own_gone
+
+    # Calling with no argument raises TypeError and leaves other untouched.
+    no_arg = sandbox_run(
+        "from writeragent.scripting.duckdb_sql import reset_session_duckdb\n"
+        "reset_session_duckdb()\n"
+        "result = 1",
+        None,
+        session_id=this,
+    )
+    assert no_arg["status"] == "error", no_arg
+    assert session_duckdb(session_id=other).execute("SELECT x FROM secret").fetchone()[0] == 7
 
 
 def test_timeout_fallback_session_duckdb_ignores_other_workbook(fresh_sandbox_sessions, monkeypatch):

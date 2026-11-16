@@ -941,11 +941,15 @@ def fresh_sandbox_sessions(monkeypatch):
     after the test. Otherwise a table one test creates would still exist for the
     next test that uses the same session id.
     """
-    from plugin.scripting.venv import venv_sandbox
-    from plugin.scripting.venv.duckdb_sql import reset_session_duckdb
+    from plugin.scripting.venv import duckdb_sql, venv_sandbox
 
     store = venv_sandbox.SessionStore()
     monkeypatch.setattr(venv_sandbox, "SESSIONS", store)
-    reset_session_duckdb()
+
+    def _close_all_duckdb() -> None:
+        for sid in list(duckdb_sql._SESSION_CONNECTIONS):
+            duckdb_sql.close_session_duckdb(sid)
+
+    _close_all_duckdb()
     yield store
-    reset_session_duckdb()
+    _close_all_duckdb()

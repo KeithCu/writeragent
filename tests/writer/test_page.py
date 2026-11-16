@@ -1574,11 +1574,42 @@ def test_set_columns_spacing_zero_clears_inner_margins():
     assert col2.LeftMargin == 0
     text_columns.setColumns.assert_called_once()
 
-    text_columns.setColumnCount.reset_mock()
-    res_err = PageSetColumns().execute(ctx, column_count=0)
-    assert res_err["status"] == "error"
-    assert "at least 1" in res_err["message"]
-    text_columns.setColumnCount.assert_not_called()
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_param"),
+    [
+        ({"column_count": 0}, "column_count"),
+        ({"column_count": 100}, "column_count"),
+        ({"column_count": 2, "spacing_mm": -1}, "spacing_mm"),
+        ({"column_count": 2, "spacing_mm": float("nan")}, "spacing_mm"),
+        ({"column_count": 2, "spacing_mm": float("inf")}, "spacing_mm"),
+    ],
+)
+def test_page_set_columns_rejects_bad_values_before_touching_doc(
+    kwargs: dict[str, object], expected_param: str
+) -> None:
+    doc = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+
+    res = PageSetColumns().execute(ctx, **kwargs)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert res["details"]["parameter"] == expected_param
+    doc.getStyleFamilies.assert_not_called()
+
+
+def test_page_set_columns_accepts_cap() -> None:
+    doc = MagicMock()
+    style = MagicMock()
+    text_columns = MagicMock()
+    text_columns.getColumns.return_value = [MagicMock(RightMargin=0, LeftMargin=0) for _ in range(99)]
+    style.getPropertyValue.return_value = text_columns
+    doc.getStyleFamilies().getByName().getByName.return_value = style
+    ctx = SimpleNamespace(doc=doc)
+
+    res = PageSetColumns().execute(ctx, column_count=99)
+    assert res["status"] == "ok"
+    text_columns.setColumnCount.assert_called_once_with(99)
 
 
 def test_get_columns_marks_relative_width():

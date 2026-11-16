@@ -19,9 +19,14 @@ from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
+    SortKey,
     _delimited_text_message,
     _parse_json_array_string,
+    _sort_done_message,
+    _sort_keys_width_error,
+    _sort_unchanged_message,
     _values_length_mismatch_message,
+    parse_then_by,
 )
 from plugin.framework.json_utils import safe_json_loads
 
@@ -775,6 +780,22 @@ class DrawWorld:
         }
 
 
+def _calc_sort_key(raw: Any, ascending: bool) -> tuple[int, Any]:
+    """Order one Calc cell value to match ScTable::CompareCell (numbers before text ascending, negated descending, empties last)."""
+    if raw is None or (isinstance(raw, str) and raw.strip() == ""):
+        return (2, "")
+    try:
+        num = float(str(raw).replace(",", "").replace("$", ""))
+        if math.isnan(num):
+            raise ValueError
+        return (0 if ascending else 1, num if ascending else -num)
+    except (TypeError, ValueError):
+        text = str(raw).lower()
+        if ascending:
+            return (1, text)
+        return (0, tuple(-ord(ch) for ch in text) + (1,))
+
+
 class CalcWorld:
     """Calc grid plus formula text, write dests, and read ranges."""
 
@@ -886,7 +907,7 @@ class CalcWorld:
         }
 
     def sort_range(self, **kwargs: Any) -> dict[str, Any]:
-        """One-column stable sort over the given range(s) (sort_column is 0-based within range)."""
+        """Stable sort over the given range(s) (sort_column and then_by columns are 0-based within range)."""
         col = kwargs.get("sort_column", 0)
         ascending = kwargs.get("ascending", True)
         has_header = kwargs.get("has_header", True)
@@ -894,6 +915,14 @@ class CalcWorld:
             ascending = ascending.strip().lower() not in {"false", "0", "no"}
         if isinstance(has_header, str):
             has_header = has_header.strip().lower() not in {"false", "0", "no"}
+
+        raw_then_by = kwargs.get("then_by")
+        then_by = parse_then_by([] if raw_then_by is None else raw_then_by)
+        if then_by is None:
+            return {
+                "status": "error",
+                "message": 'then_by must be a list of {"column": <integer >= 0>, "ascending": true|false} objects',
+            }
 
         ranges = kwargs.get("range")
         if isinstance(ranges, str):
@@ -907,7 +936,7 @@ class CalcWorld:
             ranges = [f"A1:{col_row_to_a1(max_c, len(self._grid) - 1)}"]
 
         # Resolve and validate all ranges before mutating any cells.
-        parsed_ranges: list[tuple[str, int, int, int, int, int]] = []
+        parsed_ranges: list[tuple[str, int, int, int, int, list[SortKey]]] = []
         for rng_raw in ranges:
             range_str = str(rng_raw)
             c0, r0, c1, r1 = parse_a1_range(range_str)
@@ -930,28 +959,21 @@ class CalcWorld:
                     col_idx = int(col)
                 except (TypeError, ValueError):
                     col_idx = 0
-            if not 0 <= col_idx < width:
-                return {
-                    "status": "error",
-                    "message": (
-                        f"sort_column must be an integer from 0 to {width - 1} "
-                        f"for this range ({width} columns)."
-                    ),
-                }
-            parsed_ranges.append((range_str, c0, r0, c1, r1, col_idx))
+            keys: list[SortKey] = [(col_idx, ascending), *then_by]
+            width_error = _sort_keys_width_error(keys, width)
+            if width_error is not None:
+                return {"status": "error", "message": width_error}
+            parsed_ranges.append((range_str, c0, r0, c1, r1, keys))
 
-        direction = "ascending" if ascending else "descending"
         results: list[str] = []
         total_sorted_rows = 0
 
-        for range_str, c0, r0, c1, r1, col_idx in parsed_ranges:
+        for range_str, c0, r0, c1, r1, keys in parsed_ranges:
             first_data_row = 1 if has_header else 0
             data_r0 = r0 + first_data_row
             data_r1 = min(r1, len(self._grid) - 1)
             if data_r1 - data_r0 < 1:
-                results.append(
-                    f"Range {range_str}: key column {col_idx} unchanged by the sort; no rows moved."
-                )
+                results.append(_sort_unchanged_message(range_str, keys))
                 continue
 
             slices = [
@@ -961,27 +983,15 @@ class CalcWorld:
                 ]
                 for r in range(data_r0, data_r1 + 1)
             ]
-            before = [s[col_idx] for s in slices]
+            key_cols = list(dict.fromkeys(c for c, _unused in keys))
+            before = [[s[c] for s in slices] for c in key_cols]
 
-            def _key(row_slice: list[Any], _col: int = col_idx) -> tuple[int, Any]:
-                raw = row_slice[_col] if len(row_slice) > _col else ""
-                if raw is None or (isinstance(raw, str) and raw.strip() == ""):
-                    return (2, "")
-                try:
-                    num = float(str(raw).replace(",", "").replace("$", ""))
-                    if math.isnan(num):
-                        raise ValueError
-                    # Match ScTable::CompareCell: numbers before strings ascending,
-                    # negated (strings before numbers) descending, empties always last.
-                    return (0 if ascending else 1, num if ascending else -num)
-                except (TypeError, ValueError):
-                    text = str(raw).lower()
-                    if ascending:
-                        return (1, text)
-                    return (0, tuple(-ord(ch) for ch in text) + (1,))
-
-            slices.sort(key=_key)
-            after = [s[col_idx] for s in slices]
+            slices.sort(
+                key=lambda row: tuple(
+                    _calc_sort_key(row[c] if len(row) > c else "", a) for c, a in keys
+                )
+            )
+            after = [[s[c] for s in slices] for c in key_cols]
             for offset, row_slice in enumerate(slices):
                 grid_row = self._grid[data_r0 + offset]
                 while len(grid_row) <= c1:
@@ -990,11 +1000,9 @@ class CalcWorld:
             total_sorted_rows += len(slices)
 
             if after == before:
-                results.append(
-                    f"Range {range_str}: key column {col_idx} unchanged by the sort; no rows moved."
-                )
+                results.append(_sort_unchanged_message(range_str, keys))
             else:
-                results.append(f"Range {range_str} sorted {direction} by column {col_idx}.")
+                results.append(_sort_done_message(range_str, keys))
 
         if self._grid:
             self._headers = [str(c) if c is not None else "" for c in self._grid[0]]

@@ -98,7 +98,7 @@ Each column configuration is represented by a `TextColumn` struct:
 - **`LeftMargin`** (`int`): Spacing to the left of the column (1/100th mm; reported in mm).
 - **`RightMargin`** (`int`): Spacing to the right of the column (1/100th mm; reported in mm).
 
-Setting `spacing_mm=0` in `page_set_columns` explicitly writes the inner margins to `0`, clearing any previous gap.
+Setting `spacing_mm=0` in `page_set_columns` explicitly writes the inner margins to `0`, clearing any previous gap. `page_set_columns` accepts `column_count` 1–99 (matching the Columns dialog's 99-slot arrays) and `spacing_mm` as a finite number ≥ 0, and rejects anything else with `INVALID_PARAM` before touching the style.
 
 ### Python Example: Setting 2 Columns on a Page Style
 ```python
@@ -197,7 +197,7 @@ Properties defining how footnotes are displayed at the bottom of the page.
 Text watermarks are driven through LibreOffice's own `.uno:Watermark` command (`plugin/writer/watermark.py`, `page` domain):
 
 * **`page_get_watermark`**: Queries `.uno:Watermark` status (`SwDocShell::StateStyleSheet` → `SwEditShell::GetWatermark`) via `URLTransformer.parseStrict` (`SfxBaseController::queryDispatch` requires `.uno:` protocol) and a synchronous `XStatusListener` (`SfxDispatchController_Impl::addStatusListener` in `sfx2/source/control/unoctitm.cxx`). Returns `watermark` (`{"text", "font", "angle", "transparency", "color"}` with `angle` normalized via `% 360` because `edfcol.cxx` `lcl_GetAngle` returns `360` for `0°`, or `null` when `Text` is empty) and `picture_watermark` (whether any draw-page shape's name starts with `WordPictureWatermark`, `oox/source/export/vmlexport.cxx` `IsWaterMarkShape`).
-* **`page_set_watermark`**: Validates inputs (`text`, `font`, `angle` `0..359`, `transparency` `0..100`, `color`), reads the current state so omitted fields preserve existing values (or LibreOffice defaults: `Liberation Sans`, `45`, `50`, `#c0c0c0` from `SfxWatermarkItem` in `sfx2/source/doc/watermarkitem.cxx`), dispatches `.uno:Watermark` (`SwDocShell::Execute` case `SID_WATERMARK` → `SwWrtShell::SetWatermark`), verifies the state changed, and disposes any `WordPictureWatermark*` shapes so DOCX export does not show both text and picture watermarks. Returns `style_unreviewed: true`.
+* **`page_set_watermark`**: Validates inputs (`text`, `font`, `angle` `0..359`, `transparency` `0..100`, `color`), reads the current state so omitted fields preserve existing values (or LibreOffice defaults: `Liberation Sans`, `45`, `50`, `#c0c0c0` from `SfxWatermarkItem` in `sfx2/source/doc/watermarkitem.cxx`), dispatches `.uno:Watermark` (`SwDocShell::Execute` case `SID_WATERMARK` → `SwWrtShell::SetWatermark`), verifies the state changed, and disposes any `WordPictureWatermark*` shapes so DOCX export does not show both text and picture watermarks; on a verified removal (`text == ""`), it also disposes any `PowerPlusWaterMarkObject*` shapes still on the draw page. Returns `style_unreviewed: true`.
 
 ### LibreOffice behaviour and quirks
 
@@ -205,4 +205,4 @@ Text watermarks are driven through LibreOffice's own `.uno:Watermark` command (`
 * **Headers forced on**: `SwEditShell::SetWatermark` turns on `HeaderIsOn` for every page style and leaves headers on after removal (`text=""`).
 * **Undo stack cleared**: `SwXPageStyle::SetPropertyValues_Impl` (`sw/source/core/unocore/unostyle.cxx`) calls `DelAllUndoObj()` on every page-style property write (`i64460`), so setting or removing a watermark clears the undo history and cannot be wrapped in `WriterCompoundUndo`.
 * **Read-only documents**: `SID_WATERMARK` has `ReadOnlyDoc = FALSE`. Both tools check `IsEnabled` and return `UNSUPPORTED` when disabled or when no controller/frame exists.
-* **Inactive Word headers**: Stale `PowerPlusWaterMarkObject…` shapes in inactive first/even Word headers are not touched by `SetWatermark` and survive set/remove.
+* **Inactive Word headers**: Word files can carry first-page and even-page headers that are switched off; LibreOffice keeps them as stashed formats (`SwPageDesc::StashFrameFormat`) that `SwXPageStyle::GetPropertyValues_Impl` (`unostyle.cxx`) falls back to the master header for while shared, so `SwEditShell::SetWatermark` cannot reach them. Stashed headers are written on DOCX export (`MSWordExportBase::SectionProperties` in `wrtw8sty.cxx`) and restored on unshare (`SwDoc::ChgPageDesc` in `docdesc.cxx`). `page_set_watermark(text="")` clears them by disposing remaining `PowerPlusWaterMarkObject*` shapes on the draw page; setting a new non-empty text does not update them.

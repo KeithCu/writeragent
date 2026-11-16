@@ -22,6 +22,7 @@ Page styles, margins, headers/footers, columns, and page breaks.
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
@@ -600,6 +601,32 @@ def _resolve_text_columns(tool: ToolWriterPageBase, doc: Any, style_name: str) -
     if not text_columns:
         return tool._tool_error(f"TextColumns property not found on style '{style_name}'.")
     return style, text_columns
+
+
+# LibreOffice's Columns dialog keeps per-column widths and gaps in fixed 99-slot
+# arrays (sw/source/uibase/inc/column.hxx nMaxCols; SwColumnPage::Init in
+# sw/source/ui/frmdlg/column.cxx fills one slot per column of the style). UNO
+# accepts far more columns (SwFormatCol::PutValue caps at 0x3fff), so the column
+# tools stop at 99 to keep a style the user can still open in that dialog.
+MAX_TEXT_COLUMNS = 99
+
+
+def column_layout_error(column_count: int, spacing_mm: float) -> dict[str, Any] | None:
+    """INVALID_PARAM tool error when column_count is outside 1..MAX_TEXT_COLUMNS or
+    spacing_mm is not a finite number >= 0; None when both are usable."""
+    if not (1 <= column_count <= MAX_TEXT_COLUMNS):
+        return make_tool_error(
+            f"column_count must be between 1 and {MAX_TEXT_COLUMNS}.",
+            code="INVALID_PARAM",
+            parameter="column_count",
+        )
+    if not (math.isfinite(spacing_mm) and spacing_mm >= 0):
+        return make_tool_error(
+            "spacing_mm must be a finite number >= 0.",
+            code="INVALID_PARAM",
+            parameter="spacing_mm",
+        )
+    return None
 
 
 def apply_column_layout(text_columns: Any, column_count: int, spacing_hmm: int) -> None:
@@ -1403,7 +1430,7 @@ class PageSetColumns(ToolWriterPageBase):
         "type": "object",
         "properties": {
             "style": _COLUMNS_STYLE_PROPERTY,
-            "column_count": {"type": "integer", "description": "Number of columns (e.g., 2)."},
+            "column_count": {"type": "integer", "description": "Number of columns (1-99)."},
             "spacing_mm": {"type": "number", "description": "Spacing between columns in mm. Defaults to 0."},
         },
         "required": ["column_count"],
@@ -1415,9 +1442,9 @@ class PageSetColumns(ToolWriterPageBase):
         column_count: int = kwargs["column_count"]
         spacing_raw = kwargs.get("spacing_mm", 0)
 
-        # type/enum checks are done by the tool schema in ToolRegistry
-        if column_count < 1:
-            return self._tool_error("column_count must be at least 1.")
+        err = column_layout_error(column_count, spacing_raw)
+        if err is not None:
+            return err
 
         spacing_hmm = _mm_to_hmm(spacing_raw)
 

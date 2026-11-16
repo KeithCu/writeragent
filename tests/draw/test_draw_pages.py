@@ -1,6 +1,7 @@
 # WriterAgent — unit tests for core slide lifecycle tools
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -246,22 +247,93 @@ def test_move_slide_ok():
     bridge.move_slide.assert_called_once_with(0, 1)
 
 
+class _RenameFakePages:
+    def __init__(self, pages):
+        self._pages = pages
+
+    def getCount(self):
+        return len(self._pages)
+
+    def getByIndex(self, idx):
+        return self._pages[idx]
+
+
+def _make_rename_deck(names):
+    pages = [SimpleNamespace(Name=n) for n in names]
+    fake_pages = _RenameFakePages(pages)
+
+    def _set_name(idx, value):
+        pages[idx].Name = f"page{idx + 1}" if value.startswith("Slide ") else value
+        return True
+
+    return pages, fake_pages, _set_name
+
+
 def test_rename_slide_ok():
     ctx = _ctx()
+    pages, fake_pages, set_name = _make_rename_deck(["page1", "page2", "page3"])
     with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_pages.return_value.getCount.return_value = 3
-        bridge.rename_slide.return_value = True
+        bridge.get_pages.return_value = fake_pages
+        bridge.resolve_page.side_effect = lambda idx: (pages[idx], idx)
+        bridge.rename_slide.side_effect = set_name
         bridge.get_active_page_index.return_value = 0
         out = RenameSlide().execute(ctx, page=2, name="Agenda")
     assert out["status"] == "ok"
     assert out["name"] == "Agenda"
-    bridge.rename_slide.assert_called_once_with(2, "Agenda")
+    assert pages[2].Name == "Agenda"
 
 
-def test_rename_slide_missing_name():
-    out = RenameSlide().execute(_ctx(), page=0, name="")
+@pytest.mark.parametrize("bad_name", ["", "   "])
+def test_rename_slide_missing_name(bad_name):
+    out = RenameSlide().execute(_ctx(), page=0, name=bad_name)
     assert out["status"] == "error"
+
+
+@pytest.mark.parametrize("dup_name", ["Intro", " Intro ", "page3"])
+def test_rename_slide_rejects_name_used_by_other_slide(dup_name):
+    ctx = _ctx()
+    pages, fake_pages, set_name = _make_rename_deck(["Intro", "page2", "page3"])
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = fake_pages
+        bridge.resolve_page.side_effect = lambda idx: (pages[idx], idx)
+        bridge.rename_slide.side_effect = set_name
+        out = RenameSlide().execute(ctx, page=1, name=dup_name)
+    assert out["status"] == "error"
+    assert out["code"] == "INVALID_PARAM"
+    assert [p.Name for p in pages] == ["Intro", "page2", "page3"]
+    bridge.rename_slide.assert_not_called()
+
+
+def test_rename_slide_reserved_label_keeps_previous_name():
+    ctx = _ctx()
+    pages, fake_pages, set_name = _make_rename_deck(["page1", "Intro", "page3"])
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = fake_pages
+        bridge.resolve_page.side_effect = lambda idx: (pages[idx], idx)
+        bridge.rename_slide.side_effect = set_name
+        out = RenameSlide().execute(ctx, page=1, name="Slide 9")
+    assert out["status"] == "error"
+    assert out["code"] == "INVALID_PARAM"
+    assert pages[1].Name == "Intro"
+    assert "Intro" in out["message"]
+
+
+def test_rename_slide_same_name_ok():
+    ctx = _ctx()
+    pages, fake_pages, set_name = _make_rename_deck(["page1", "Intro", "page3"])
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = fake_pages
+        bridge.resolve_page.side_effect = lambda idx: (pages[idx], idx)
+        bridge.rename_slide.side_effect = set_name
+        bridge.get_active_page_index.return_value = 1
+        out = RenameSlide().execute(ctx, page=1, name="Intro")
+    assert out["status"] == "ok"
+    assert out["name"] == "Intro"
+    assert pages[1].Name == "Intro"
 
 
 def test_move_slide_reports_rollback_message():

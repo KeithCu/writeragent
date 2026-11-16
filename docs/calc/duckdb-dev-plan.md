@@ -382,7 +382,8 @@ Cached connections are `GuardedDuckDBConnection` wrappers: `.execute` / `.sql` u
 | `query_folder_sql(..., session_id=)` | Reuses that connection when `session_id` is persistable **or** the current sandbox session is. Re-registers any `preloaded` / `flat_files` on this call (refresh). Tables omitted from this call stay as last registered. |
 | `run_sql(sql, con=None)` | Same honesty dict; `con` is used when passed; `files` or `preloaded` returns an uncapped DataFrame on the session connection and raises `SqlError`. |
 | `invalidate_session_tables(names=None)` | drops each given name (registered relation, view, or base table), or closes the whole catalog when names is omitted. A flat-file stem view is removed with the file table when the view reads that table. Another object that only shares the stem is left. |
-| `reset_session_duckdb(session_id)` | Close the cached connection. **Reset Python Session** calls this with the workbook id. |
+| `close_session_duckdb(session_id)` | Host only: close the cached connection for `session_id`. **Reset Python Session** calls this with the workbook id. |
+| `reset_session_duckdb(session_id)` | Script-facing: closes only the calling cell's own workbook catalog (another workbook's id resolves to the cell's own; isolated cells do nothing); same effect as `invalidate_session_tables()`. |
 
 `run_folder_sql` / chat still pass the routing id `writeragent:sql`. That prefix is **not** persistable, so analysis-tool SQL cannot leak one catalog across documents.
 

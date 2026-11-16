@@ -209,6 +209,19 @@ def _emit_aggregate(args: list[str]) -> str:
     return f"calc.aggregate({', '.join(args)})"
 
 
+_MATCH_MODES = {"1": "-1", "0": "0", "(-1)": "1"}
+
+
+def _emit_match(args: list[str]) -> str:
+    # Calc MATCH (sc/source/core/tool/interpr1.cxx:ScInterpreter::ScMatch) defaults
+    # match_type to 1 (largest <=), 0 is exact, -1 is smallest >=, and a miss is #N/A.
+    # A non-literal type stays native Calc.
+    mode = "-1" if len(args) == 2 else _MATCH_MODES.get(args[2])
+    if mode is None:
+        raise TranslationError("UNSUPPORTED_FUNCTION", "MATCH type must be a literal 1, 0 or -1")
+    return f"calc.xmatch({args[0]}, {args[1]}, {mode})"
+
+
 def _arity(name: str, lo: int, hi: int | None, build: Callable[[list[str]], str]) -> Callable[[list[str]], str]:
     def emitter(args: list[str]) -> str:
         if len(args) < lo or (hi is not None and len(args) > hi):
@@ -314,7 +327,8 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "VALUE": _exact("VALUE", 1, "np.asarray({0}, dtype=np.float64)"),
     # Date & Time (P2) — use auto-imported ``dt`` (datetime as dt)
     "TODAY": lambda _a: "np.float64(dt.date.today().toordinal() - 693594)",
-    "NOW": lambda _a: "np.float64(dt.datetime.now().toordinal() - 693594)",
+    # Day 0 is 1899-12-30 and the fraction is the time of day, matching ScGetActTime.
+    "NOW": lambda _a: "np.float64((dt.datetime.now() - dt.datetime(1899, 12, 30)) / dt.timedelta(days=1))",
     "YEAR": _exact("YEAR", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).year)"),
     "MONTH": _exact("MONTH", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).month)"),
     "DAY": _exact("DAY", 1, "np.float64(dt.date.fromordinal(np.int64({0}) + 693594).day)"),
@@ -328,7 +342,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "VLOOKUP": _arity("VLOOKUP", 3, 4, lambda a: f"next((r[np.int64({a[2]})-1] for r in np.asarray({a[1]}) if r[0] == {a[0]}), None)"),
     "HLOOKUP": _arity("HLOOKUP", 3, 4, lambda a: f"next((np.asarray({a[1]})[np.int64({a[2]})-1, i] for i, val in enumerate(np.asarray({a[1]})[0]) if val == {a[0]}), None)"),
     "INDEX": _arity("INDEX", 2, 4, lambda a: f"np.asarray({a[0]})[np.int64({a[1]})-1, np.int64({a[2]})-1]" if len(a) > 2 else f"np.asarray({a[0]})[np.int64({a[1]})-1]"),
-    "MATCH": _arity("MATCH", 2, 3, lambda a: f"np.float64(next((i+1 for i, val in enumerate(np.asarray({a[1]}).ravel()) if val == {a[0]}), -1))"),
+    "MATCH": _arity("MATCH", 2, 3, _emit_match),
     # Logical (P2)
     "IFERROR": _exact("IFERROR", 2, "calc.iferror(lambda: {0}, {1})"),
     "IFNA": _exact("IFNA", 2, "calc.ifna(lambda: {0}, {1})"),
@@ -603,7 +617,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "PEARSON": _calc("pearson", 2, 2),
     "PERCENTRANK": _calc("percentrank", 2, 3),
     "PERMUT": _calc("permut", 2, 2),
-    "POISSON": _arity("POISSON", 2, 3, lambda a: f"calc.poisson({a[0]}, {a[1]}, {a[2] if len(a) > 2 else 'False'})"),
+    "POISSON": _calc("poisson", 2, 3),
     "PROB": _calc("prob", 3, 4),
     "STANDARDIZE": _calc("standardize", 3, 3),
     "TDIST": _calc("tdist", 3, 3),

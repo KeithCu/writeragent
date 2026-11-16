@@ -323,3 +323,62 @@ def test_set_reports_remaining_picture_watermark_when_dispose_fails() -> None:
     assert res["picture_watermark"] is True
     assert ok_pic.disposed is True
     assert bad_pic.disposed is False
+
+
+def test_remove_disposes_leftover_text_watermark_shapes() -> None:
+    shapes: list[_FakeShape] = []
+    stale = _FakeShape("PowerPlusWaterMarkObject 1", container=shapes)
+    logo = _FakeShape("Logo", container=shapes)
+    shapes.extend([stale, logo])
+    tool_ctx, _, _, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "Liberation Sans",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        },
+        shapes=shapes,
+    )
+
+    res = PageSetWatermark().execute(tool_ctx, text="")
+    assert res["status"] == "ok", res
+    assert res["watermark"] is None
+    assert stale.disposed is True
+    assert stale not in shapes
+    assert logo.disposed is False
+    assert logo in shapes
+
+
+def test_set_text_keeps_text_watermark_shapes() -> None:
+    shapes: list[_FakeShape] = []
+    active = _FakeShape("PowerPlusWaterMarkObject", container=shapes)
+    shapes.append(active)
+    tool_ctx, _, _, _, _ = _make_env(shapes=shapes)
+
+    res = PageSetWatermark().execute(tool_ctx, text="FINAL")
+    assert res["status"] == "ok", res
+    assert active.disposed is False
+    assert active in shapes
+
+
+def test_remove_fails_closed_without_disposing_text_watermarks() -> None:
+    shapes: list[_FakeShape] = []
+    stale = _FakeShape("PowerPlusWaterMarkObject 1", container=shapes)
+    shapes.append(stale)
+    tool_ctx, _, _, _, _ = _make_env(
+        {
+            "Text": "DRAFT",
+            "Font": "Liberation Sans",
+            "Angle": 45,
+            "Transparency": 50,
+            "Color": 0xC0C0C0,
+        },
+        apply_changes=False,
+        shapes=shapes,
+    )
+
+    res = PageSetWatermark().execute(tool_ctx, text="")
+    assert res["status"] == "error"
+    assert stale.disposed is False
+    assert stale in shapes

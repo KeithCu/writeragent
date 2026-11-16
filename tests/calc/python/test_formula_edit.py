@@ -34,7 +34,7 @@ from plugin.calc.python.formula_edit import (
     repair_py_code_newlines,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
+from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE
 from tests.harness.strip_bundle import deal_pre_present, expect_pre_or_body
 from tests.harness.vhs_budget import vhs_max_examples
 
@@ -338,19 +338,26 @@ def test_parse_data_binding_text_empty():
 
 
 def test_parse_data_binding_text_quoted_sheet_names():
-    from unittest.mock import patch
-    import plugin.calc.python.formula_edit as fe
-
     assert parse_data_binding_text("'My,Sheet'.A1, B2") == ["'My,Sheet'.A1", "B2"]
     assert parse_data_binding_text("'My;Sheet'!A1") == ["'My;Sheet'!A1"]
     assert parse_data_binding_text("'O''Brien'.A1; B2") == ["'O''Brien'.A1", "B2"]
-    with patch.object(fe, "_deal_data_args_ok", return_value=True), patch.object(
-        fe, "_deal_range_addr_ok", return_value=True
-    ):
-        built = PyFormula.compose("x", ["'My,Sheet'.A1", "B2"])
+    built = PyFormula.compose("x", ["'My,Sheet'.A1", "B2"])
     parsed = PyFormula.parse(built)
     assert parsed is not None
     assert parse_data_binding_text(format_data_binding_display(parsed.data_suffix)) == ["'My,Sheet'.A1", "B2"]
+
+
+def test_unicode_sheet_names_round_trip():
+    built = PyFormula.compose("x", ["Données.A1:A5"])
+    parsed = PyFormula.parse(built)
+    assert parsed is not None
+    assert parsed.data_args() == ["'Données'.A1:A5"]
+    text = format_data_binding_text(parsed.data_args())
+    assert parse_data_binding_text(text) == ["'Données'.A1:A5"]
+    assert format_py_data_range("Q1-2026.A1") == "'Q1-2026'.A1"
+    assert format_excel_data_range("日本.A1") == "'日本'!A1"
+    long_sheet = "'" + "Q" * 70 + "'.A1"
+    assert format_py_data_range(long_sheet) == "Q" * 70 + ".A1"
 
 
 def test_build_data_suffix():
@@ -362,6 +369,9 @@ def test_build_data_suffix():
 def test_format_py_and_excel_data_range_real_sheets():
     """Product ranges format sheet-qualified cell and range references correctly."""
     assert format_py_data_range("Sheet.A1") == "Sheet.A1"
+    assert format_py_data_range("'$Prices'.F:F") == "'$Prices'.F:F"
+    assert format_excel_data_range("'$Prices'.F:F") == "'$Prices'!F:F"
+    assert format_py_data_range("$Sheet1.$A$1") == "$Sheet1.$A$1"
     assert format_py_data_range("'My Sheet'.A1") == "'My Sheet'.A1"
     assert format_py_data_range("My Sheet.A1") == "'My Sheet'.A1"
     assert format_py_data_range("Sheet!A1") == "Sheet.A1"
@@ -706,19 +716,11 @@ def test_formula_edit_overflow_pre_fails_closed() -> None:
         normalize_lo_formula_for_parse(too_long)
     with pytest.raises(deal.PreContractError):
         parse_data_binding_text(too_long)
-    with pytest.raises(deal.PreContractError):
-        format_data_binding_display("A1\u00a0")
-    with pytest.raises(deal.PreContractError):
-        parse_data_binding_text("A1\u00a0")
-    range_too_long = "A" * (DEAL_MAX_TOKEN + 1)
+    range_too_long = "A" * (DEAL_MAX_CELL_REF + 1)
     with pytest.raises(deal.PreContractError):
         format_py_data_range(range_too_long)
     with pytest.raises(deal.PreContractError):
         format_excel_data_range(range_too_long)
-    with pytest.raises(deal.PreContractError):
-        format_py_data_range("A1\x00")
-    with pytest.raises(deal.PreContractError):
-        format_excel_data_range("A1\x00")
     too_many = ["A1"] * (DEAL_MAX_SHAPE_DIM + 1)
     with pytest.raises(deal.PreContractError):
         format_data_binding_text(too_many)

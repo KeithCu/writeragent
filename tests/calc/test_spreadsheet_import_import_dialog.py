@@ -23,3 +23,23 @@ def test_result_message():
     assert "1" in mismatch_msg
     assert "B2" in mismatch_msg
     assert "expected 10 got 20" in mismatch_msg
+
+
+def test_result_message_is_translated(monkeypatch):
+    import plugin.calc.spreadsheet_import.import_dialog as dlg_mod
+
+    monkeypatch.setattr(dlg_mod, "_", lambda s: "«" + s)
+
+    s_title, s_msg = result_message({"summary": "SUMMARY-7", "failed_verifications": []})
+    assert s_title.startswith("«")
+    assert s_msg.startswith("«")
+    assert "SUMMARY-7" in s_msg
+
+    m_title, m_msg = result_message({
+        "summary": "SUMMARY-7",
+        "failed_verifications": [{"address": "B2", "message": "expected 10 got 20"}],
+    })
+    assert m_title.startswith("«")
+    assert m_msg.startswith("«")
+    assert "SUMMARY-7" in m_msg
+    assert "B2" in m_msg

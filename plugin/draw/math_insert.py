@@ -181,6 +181,9 @@ class InsertMathDraw(ToolDrawSpecialBase):
             w = max(_MIN_W_HMM, min(_MAX_W_HMM, w))
             h = max(_MIN_H_HMM, min(_MAX_H_HMM, h))
             shape.setSize(Size(w, h))
+            from plugin.draw.shapes import _ensure_shape_name
+
+            shape_name = _ensure_shape_name(page, shape)
         except Exception as exc:
             if added:
                 best_effort(lambda: page.remove(shape), "remove partial math shape")
@@ -188,4 +191,4 @@ class InsertMathDraw(ToolDrawSpecialBase):
                 raise
             return self._tool_error(f"Failed to insert math shape: {exc}")
 
-        return {"status": "ok", "message": "Math formula inserted successfully", "index": page.getCount() - 1, "page": actual_idx}
+        return {"status": "ok", "message": "Math formula inserted successfully", "index": page.getCount() - 1, "page": actual_idx, "name": shape_name}

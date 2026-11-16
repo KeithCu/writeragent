@@ -659,18 +659,20 @@ def save_selected_script(
 
     Returns None on success or when *display_name* is a built-in template and
     *allow_builtin_skip* is True. Returns an error message string otherwise.
-    A read-only document returns its READONLY error; nothing is written to My Scripts.
+    A built-in template name never reads the document, so running one still
+    works after the document is closed. A read-only document returns its
+    READONLY error; nothing is written to My Scripts.
     """
     if not display_name:
         return None
     user_scripts = get_user_scripts()
     if display_name in user_scripts:
         return save_user_script(display_name, code)
-    stored, load_err = _load_document_script_map(doc)
     if is_picker_template_name(display_name):
         if allow_builtin_skip:
             return None
         return read_only_helper_message()
+    stored, load_err = _load_document_script_map(doc)
     if load_err is not None:
         return str(load_err)
     real_doc_name = parse_document_script_display_name(display_name) or display_name

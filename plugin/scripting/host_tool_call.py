@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 ROLE_HOST = "host"
@@ -36,15 +37,41 @@ def get_process_role() -> str:
     return ROLE_HOST
 
 
+def _plain_tool_arg(value: Any) -> Any:
+    """Turn NumPy arrays and scalars inside a tool argument into plain Python.
+
+    The host decodes tool_call frames with an allowlisted unpickler. Without
+    numpy in LibreOffice's Python (Windows/macOS bundles) a numpy global fails
+    to decode and the worker turn is killed; with numpy the tool still gets an
+    ndarray where it expects lists. Object arrays keep numpy scalars after
+    tolist(), so the walk recurses. numpy is never imported here.
+    """
+    np = sys.modules.get("numpy")
+    if np is None:
+        return value
+    if isinstance(value, np.ndarray):
+        return _plain_tool_arg(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, list):
+        return [_plain_tool_arg(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_plain_tool_arg(v) for v in value)
+    if isinstance(value, dict):
+        return {k: _plain_tool_arg(v) for k, v in value.items()}
+    return value
+
+
 def call_host_tool(tool_name: str, **kwargs: Any) -> Any:
     """Call a host tool either in-process or over the IPC pipe to LibreOffice.
 
-    Strips None kwargs so tool defaults apply.
+    Strips None kwargs so tool defaults apply; NumPy values become plain lists and scalars.
     """
     kwargs = {k: v for k, v in kwargs.items() if v is not None}
     role = get_process_role()
     if role == ROLE_COMPUTE:
         raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
+    kwargs = {k: _plain_tool_arg(v) for k, v in kwargs.items()}
     if role == ROLE_WORKER:
         from plugin.framework.ipc import exchange_tool_call
 

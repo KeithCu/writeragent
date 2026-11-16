@@ -130,3 +130,12 @@ class OutputSheetModel:
     sheet_name: str
     used_range: str
     cells: dict[str, OutputCell]
+
+
+@dataclass(frozen=True, slots=True)
+class VectorRun:
+    """Filled-down cells that share one column =PY(): ``code`` reads the whole ``column`` and each cell picks its own row."""
+
+    cells: list[str]
+    code: str
+    column: str
