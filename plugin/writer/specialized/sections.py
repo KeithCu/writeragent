@@ -137,14 +137,26 @@ def _section_summary(name: str, section: Any) -> dict[str, Any]:
     }
 
 
-def _visibility_fields(section: Any) -> dict[str, Any]:
+def _section_own_shown(section: Any) -> bool:
     visible = bool(section.getPropertyValue("IsVisible"))
     # IsCurrentlyVisible is !IsCondHidden, which starts False on fresh sections without a
-    # condition (section.cxx constructor), so only the OR reflects what the user sees.
+    # condition (section.cxx constructor), so only the OR reflects this section's own state.
+    return visible or bool(section.getPropertyValue("IsCurrentlyVisible"))
+
+
+def _visibility_fields(section: Any) -> dict[str, Any]:
+    visible = bool(section.getPropertyValue("IsVisible"))
+    # SwSection::CalcHiddenFlag (sw/source/core/docnode/section.cxx) hides a section when it
+    # or any ancestor section is hidden.
+    shown = _section_own_shown(section)
+    parent = section.getParentSection()
+    while shown and parent is not None:
+        shown = _section_own_shown(parent)
+        parent = parent.getParentSection()
     return {
         "is_visible": visible,
         "condition": section.getPropertyValue("Condition"),
-        "is_shown": visible or bool(section.getPropertyValue("IsCurrentlyVisible")),
+        "is_shown": shown,
     }
 
 
@@ -276,6 +288,7 @@ class SectionGetInfo(ToolWriterSectionBase):
         return {
             "status": "ok",
             **_section_summary(name, section),
+            # Overrides summary's is_visible with the typed getPropertyValue read.
             **_visibility_fields(section),
             **_margin_fields(section),
             "parent_section": parent.getName() if parent is not None else None,

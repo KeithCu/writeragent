@@ -439,7 +439,7 @@ All section tools live in `sections.py` (`sections` domain); `ToolWriterStructur
 #### Implemented tools (Phase 2)
 
 - **`section_get_info(name)`**
-  - Reads summary fields plus `condition`, `is_shown` (`IsVisible or IsCurrentlyVisible`, because `IsCurrentlyVisible` is `!IsCondHidden` and starts `False` on fresh sections without a condition), `left_margin_mm`, `right_margin_mm`, `parent_section`, and `child_sections`. Works on index and password-protected sections too. Also backs `wa.section[name]` in scripting.
+  - Reads summary fields plus `condition`, `is_shown` (`IsVisible or IsCurrentlyVisible` ANDed across the `getParentSection()` chain, matching `SwSection::CalcHiddenFlag`, because `IsCurrentlyVisible` is `!IsCondHidden` and starts `False` on fresh sections without a condition), `left_margin_mm`, `right_margin_mm`, `parent_section`, and `child_sections`. Works on index and password-protected sections too. Also backs `wa.section[name]` in scripting.
 
 - **`section_set_visibility(name, visible, condition?)`**
   - Sets `IsVisible` and optionally `Condition` (omit `condition` to keep the existing condition; pass `""` to clear it).

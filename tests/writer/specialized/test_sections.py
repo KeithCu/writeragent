@@ -155,9 +155,22 @@ def test_section_tools_refuse_index_and_password_sections(
     section.setPropertyValues.assert_not_called()
 
 
+class _ByteSequence:
+    """Stand-in for pyuno.ByteSequence in pytest where `uno` is mocked as MagicMock."""
+
+    def __init__(self, value: bytes) -> None:
+        self._value = value
+
+    def __len__(self) -> int:
+        return len(self._value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, bytes) and self._value == other
+
+
 def test_section_set_password_wrong_current_password_is_refused() -> None:
     section = MagicMock()
-    right_key = hashlib.sha1("right".encode("utf-16-le"), usedforsecurity=False).digest()
+    right_key = _ByteSequence(hashlib.sha1("right".encode("utf-16-le"), usedforsecurity=False).digest())
 
     def _get_prop(prop_name: str) -> object:
         if prop_name == "DocumentIndex":
@@ -191,11 +204,11 @@ def test_section_set_password_wrong_current_password_is_refused() -> None:
 )
 def test_password_matches_libreoffice_hash_variants(algo: str, encoding: str) -> None:
     pw = "Gehe1m-ü"
-    key = getattr(hashlib, algo)(pw.encode(encoding, "surrogatepass")).digest()
+    key = _ByteSequence(getattr(hashlib, algo)(pw.encode(encoding, "surrogatepass")).digest())
     assert _password_matches(key, pw) is True
     assert _password_matches(key, "wrong") is False
-    assert _password_matches(b"", pw) is False
-    assert _password_matches(b"\x01" * 16, pw) is False
+    assert _password_matches(_ByteSequence(b""), pw) is False
+    assert _password_matches(_ByteSequence(b"\x01" * 16), pw) is False
     assert _hash_password("pw") == hashlib.sha1("pw".encode("utf-16-le"), usedforsecurity=False).digest()
 
 
@@ -222,6 +235,7 @@ def test_section_rename_rejects_empty_and_taken_names() -> None:
     res_empty = SectionRename().execute(_mock_ctx(doc=doc), name="S", new_name="")
     assert res_empty["status"] == "error"
     assert res_empty["code"] == "INVALID_PARAM"
+    assert res_empty["details"]["parameter"] == "new_name"
     doc.getTextSections.assert_not_called()
 
     section = MagicMock()
@@ -233,6 +247,7 @@ def test_section_rename_rejects_empty_and_taken_names() -> None:
     res_taken = SectionRename().execute(_mock_ctx(doc=doc), name="S", new_name="Other")
     assert res_taken["status"] == "error"
     assert res_taken["code"] == "INVALID_PARAM"
+    assert res_taken["details"]["parameter"] == "new_name"
     section.setName.assert_not_called()
 
 

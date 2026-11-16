@@ -292,6 +292,10 @@ def test_section_password_round_trip_uno(ctx, doc):
     assert bad_pw["status"] == "error"
     assert bad_pw["code"] == "INVALID_PARAM"
 
+    locked_info = SectionGetInfo().execute(tctx, name="Secret")
+    assert locked_info["status"] == "ok"
+    assert locked_info["has_password"] is True
+
     clear_res = SectionSetPassword().execute(tctx, name="Secret", password="", current_password=pw)
     assert clear_res["status"] == "ok"
     assert clear_res["has_password"] is False
@@ -373,6 +377,13 @@ def test_section_get_info_nesting_and_index_uno(ctx, doc):
     assert inner_info["status"] == "ok"
     assert inner_info["parent_section"] == "Outer"
     assert inner_info["child_sections"] == []
+    assert inner_info["is_shown"] is True
+
+    assert SectionSetVisibility().execute(tctx, name="Outer", visible=False)["status"] == "ok"
+    inner_hidden = SectionGetInfo().execute(tctx, name="Inner")
+    assert inner_hidden["status"] == "ok"
+    assert inner_hidden["is_visible"] is True
+    assert inner_hidden["is_shown"] is False
 
     toc = doc.createInstance("com.sun.star.text.ContentIndex")
     end_cur = doc.getText().createTextCursor()
