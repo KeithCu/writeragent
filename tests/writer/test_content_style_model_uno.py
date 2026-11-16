@@ -468,7 +468,7 @@ def test_write_search_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
     ]
 
-    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "", "Keep after"]
+    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "Keep after"]
 
     p1 = _para_by_text(doc, "Keep before")
     p2 = _para_by_text(doc, "New para")
@@ -523,7 +523,7 @@ def test_write_selection_whole_paragraph_applies_data_lo_para_uno(ctx, doc):
         {"code": "PARA_PROPERTY_UNSUPPORTED", "message": "data-lo-para property 'font-size' was not applied"}
     ]
 
-    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "", "Keep after"]
+    assert [t for _, t in _para_pairs(doc)] == ["Keep before", "New para", "Keep after"]
 
     p1 = _para_by_text(doc, "Keep before")
     p2 = _para_by_text(doc, "New para")

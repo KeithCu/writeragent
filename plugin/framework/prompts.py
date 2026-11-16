@@ -445,7 +445,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Named styles: get_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  A data-lo-style or data-lo-para that is not applied is listed in warnings (run warnings[].suggested_call when present); position='before'/'after' applies neither.
+  A data-lo-style or data-lo-para that is not applied is listed in warnings (run warnings[].suggested_call when present).
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm"`) reports what a paragraph has set directly — how you tell a hand-formatted block quote from body text.
 
