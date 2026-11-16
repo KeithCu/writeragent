@@ -98,7 +98,10 @@ def catalog_entries_from_base(
             continue
         if uno_services and not tool_supports_document(cast("ToolBase", cls), doc_type=None, uno_services_supported=uno_services):
             continue
-        if ctx is not None:
+        if ctx is not None or uno_services:
+            # A live list, where the UNO context or the document's services are known, hides domains that cannot run.
+            # Only the bootstrap enum, built with neither, keeps every domain. That way a venv or MCP server added
+            # later in Settings still passes validation without a restart.
             # Lazy: vision_availability loads the vision venv and scripting sandbox modules.
             from plugin.vision.vision_availability import specialized_domain_available
 
@@ -204,13 +207,13 @@ class InnerToolCall(NamedTuple):
 
 FINISH_TOOL_NAME = "workflow_finished"
 NO_EDIT_TOOL_NOTE = "No document-editing tool ran during this delegation; the document is unchanged by it."
-READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "web_research"})
+READ_ONLY_DOMAINS: frozenset[str] = frozenset({"document_research", "mcp", "web_research"})
 
 
 def expects_edits(domains: str | Sequence[str] | frozenset[str]) -> bool:
     """Whether any of the given domain(s) expect document-mutating edits.
 
-    Read-only domains (document_research, web_research) do not expect edits.
+    Read-only domains (document_research, mcp, web_research) do not expect edits.
     """
     if isinstance(domains, str):
         return domains not in READ_ONLY_DOMAINS

@@ -27,9 +27,9 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 from plugin.calc.base import ToolCalcSpecialBase
-from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableBase
+from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawSpecialBase, ToolDrawTableBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
-from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+from plugin.framework.prompts import DELEGATION_MCP_HINT, DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_catalog import FINISH_TOOL_NAME
 from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
 
@@ -238,6 +238,15 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
     # One registration per tool name serves Writer, Calc, and Draw/Impress, and the
     # delegate catalog checks only this class.
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+
+
+class ToolMcpDomainBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpecialBase):
+    """Owns no tools; the delegate gateway builds them per call (``mcp_domain_tools``); ``specialized_domain_available`` hides the row without a server."""
+
+    specialized_domain: ClassVar[str | None] = "mcp"
+    specialized_domain_description: ClassVar[str | None] = DELEGATION_MCP_HINT
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset()
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
 
 

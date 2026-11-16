@@ -11,7 +11,7 @@ config:
     default: false
     widget: checkbox
     label: Use this MCP server in chat
-    helper: Sidebar chat only (external_mcp tool); never exposed to WriterAgent's MCP server or to scripts.
+    helper: Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or to scripts.
     inline: true
     width: 168
   trusted:

@@ -43,10 +43,7 @@ log = logging.getLogger(__name__)
 
 # ``python_run_script`` would re-enter the same warm worker while the
 # warm-child pipe lock is held and deadlock the pipe.
-# ``external_mcp`` reaches the user's email, files and other services through
-# their configured MCP servers (plugin/mcp/client.py). Script code can come from
-# a document someone else wrote, so it must not be able to call it.
-_BLOCKED_FROM_VENV = frozenset({"python_run_script", "external_mcp"})
+_BLOCKED_FROM_VENV = frozenset({"python_run_script"})
 
 # Host sentinel: disable venv → LO tool RPC (Calc ``=PY()`` recalc).
 TOOL_RPC_DISABLED = ""

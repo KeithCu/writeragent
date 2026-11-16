@@ -14,28 +14,22 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""External MCP servers: owns the mcp_client.* settings and registers the external_mcp chat tool.
+"""External MCP servers: owns the ``mcp_client.*`` settings on the Integrations tab.
 
-The client itself lives in ``plugin/mcp/client.py`` next to WriterAgent's own
-MCP server. This module owns the settings on the Settings dialog's Integrations
-tab and hides ``external_mcp`` from the chat tool list unless at least one
-server is configured.
+The client and ``mcp`` sub-agent domain live in ``plugin/mcp/client.py`` next
+to WriterAgent's own MCP server. This module owns only the configuration schema
+for Settings > Integrations.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from plugin.framework.module_base import ModuleBase
 
 
 class McpClientModule(ModuleBase):
-    """Registers the external_mcp tool. It reads mcp_client.* on each call and
-    connects lazily, so startup makes no network requests and a server that is
-    down cannot delay or break LibreOffice."""
+    """Module manifest anchor for ``mcp_client.*`` settings.
 
-    def initialize(self, services: Any) -> None:
-        from plugin.mcp import client as mcp_client
-
-        services.tools.auto_discover(mcp_client)
-        services.tools.tool_filters.append(mcp_client.filter_external_mcp)
+    Remote servers are listed lazily on each ``mcp`` domain delegation, so
+    startup makes no network requests and a down server cannot delay or break
+    LibreOffice.
+    """

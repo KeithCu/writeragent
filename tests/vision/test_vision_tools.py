@@ -13,7 +13,7 @@ import pytest
 from plugin.framework.service import ServiceRegistry
 from plugin.framework.tool import ToolRegistry
 from plugin.vision.vision_availability import (
-    filter_vision_delegate_schemas,
+    filter_unavailable_delegate_domains,
     filter_vision_specialized_tools,
     vision_venv_configured,
 )
@@ -108,7 +108,7 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
             },
         },
     }
-    filtered = filter_vision_delegate_schemas([schema], MagicMock())
+    filtered = filter_unavailable_delegate_domains([schema], MagicMock())
     enum = filtered[0]["function"]["parameters"]["properties"]["domain"]["enum"]
     assert "vision" not in enum
     assert "images" in enum

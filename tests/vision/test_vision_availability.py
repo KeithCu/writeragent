@@ -9,7 +9,7 @@ import pytest
 
 from plugin.framework.errors import ConfigError
 from plugin.vision.vision_availability import (
-    filter_vision_delegate_schemas,
+    filter_unavailable_delegate_domains,
     filter_vision_specialized_tools,
     specialized_domain_available,
     vision_venv_configured,
@@ -67,18 +67,27 @@ def _delegate_schemas() -> list[dict]:
 
 # ctx=None must filter the same as a live ctx (same policy for delegate schemas and specialized tools).
 @pytest.mark.parametrize(
-    ("available", "use_ctx", "expected_enum"),
+    ("vision_available", "mcp_servers", "use_ctx", "expected_enum"),
     [
-        pytest.param(False, False, ["writing", "formatting"], id="unavailable_ctx_none"),
-        pytest.param(False, True, ["writing", "formatting"], id="unavailable_with_ctx"),
-        pytest.param(True, False, ["writing", "vision", "formatting"], id="available_ctx_none"),
-        pytest.param(True, True, ["writing", "vision", "formatting"], id="available_with_ctx"),
+        pytest.param(False, [], False, ["writing", "formatting"], id="neither_ctx_none"),
+        pytest.param(False, [], True, ["writing", "formatting"], id="neither_with_ctx"),
+        pytest.param(True, [], False, ["writing", "vision", "formatting"], id="vision_only_ctx_none"),
+        pytest.param(True, [], True, ["writing", "vision", "formatting"], id="vision_only_with_ctx"),
+        pytest.param(False, [{"name": "s", "url": "http://x"}], True, ["writing", "mcp", "formatting"], id="mcp_only_with_ctx"),
+        pytest.param(True, [{"name": "s", "url": "http://x"}], True, ["writing", "vision", "mcp", "formatting"], id="both_with_ctx"),
     ],
 )
-def test_filter_vision_delegate_schemas(available: bool, use_ctx: bool, expected_enum: list[str]) -> None:
+def test_filter_unavailable_delegate_domains(
+    vision_available: bool, mcp_servers: list[dict], use_ctx: bool, expected_enum: list[str]
+) -> None:
+    schemas = _delegate_schemas()
+    schemas[0]["function"]["parameters"]["properties"]["domain"]["enum"] = ["writing", "vision", "mcp", "formatting"]
     ctx = MagicMock() if use_ctx else None
-    with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=available):
-        filtered = filter_vision_delegate_schemas(_delegate_schemas(), ctx=ctx)
+    with (
+        patch("plugin.vision.vision_availability.vision_venv_configured", return_value=vision_available),
+        patch("plugin.mcp.client.configured_servers", return_value=mcp_servers),
+    ):
+        filtered = filter_unavailable_delegate_domains(schemas, ctx=ctx)
     assert filtered[0]["function"]["parameters"]["properties"]["domain"]["enum"] == expected_enum
 
 
@@ -104,10 +113,14 @@ def test_specialized_domain_available():
         assert specialized_domain_available("vision") is True
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
         assert specialized_domain_available("vision") is False
+    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "s", "url": "http://x"}]):
+        assert specialized_domain_available("mcp") is True
+    with patch("plugin.mcp.client.configured_servers", return_value=[]):
+        assert specialized_domain_available("mcp") is False
     assert specialized_domain_available("writing") is True
 
 
-def test_filter_vision_delegate_schemas_skips_odd_entries_and_does_not_mutate():
+def test_filter_unavailable_delegate_domains_skips_odd_entries_and_does_not_mutate():
     schema = {
         "type": "function",
         "function": {
@@ -117,7 +130,7 @@ def test_filter_vision_delegate_schemas_skips_odd_entries_and_does_not_mutate():
     }
     junk = {"function": "not-a-dict"}
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
-        filtered = filter_vision_delegate_schemas([schema, "junk", junk, {"type": "function"}], ctx=None)
+        filtered = filter_unavailable_delegate_domains([schema, "junk", junk, {"type": "function"}], ctx=None)
     assert schema["function"]["parameters"]["properties"]["domain"]["enum"] == ["writing", "vision"]
     assert filtered[0] == {**schema, "function": {**schema["function"], "parameters": {"type": "object", "properties": {"domain": {"type": "string", "enum": ["writing"]}}}}}
     assert filtered[1:] == ["junk", junk, {"type": "function"}]

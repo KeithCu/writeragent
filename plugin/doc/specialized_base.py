@@ -389,10 +389,22 @@ class DelegateToSpecializedBase(ToolBase):
         if ctx.status_callback:
             ctx.status_callback(f"Delegating to specialized agent ({domain})...")
 
+        mcp_tools: list[ToolBase] = []
+        mcp_hint = ""
+        if domain == "mcp":
+            # Lazy: only this domain needs the MCP client. Listing is network I/O, so it runs on this delegate worker, never in main.call.
+            from plugin.mcp.client import McpClientError, mcp_domain_tools
+
+            try:
+                mcp_tools, mcp_hint = mcp_domain_tools(ctx)
+            except McpClientError as e:
+                return self._tool_error(str(e), code=e.code)
+
         # get_tools(doc=...) calls doc.supportsService — must not run on the sub-agent worker.
         domain_tools, peer_catalog, document_research_hint = main.call(
             lambda: _gather_domain_tools(ctx, domain)
         )
+        domain_tools = [*mcp_tools, *domain_tools]
 
         if not any(t.name != FINISH_TOOL_NAME for t in domain_tools):
             # The registry has already filtered this domain's tools by the document's services,
@@ -431,7 +443,7 @@ class DelegateToSpecializedBase(ToolBase):
             instructions = build_specialized_sub_agent_instructions(
                 agent_label,
                 domain,
-                extra=_sub_agent_hints(ctx, domain, agent_label, document_research_hint),
+                extra=_sub_agent_hints(ctx, domain, agent_label, document_research_hint) + mcp_hint,
             )
 
             examples_key = f"{agent_label.lower()}:{domain}"
@@ -518,6 +530,12 @@ class DelegateToSpecializedBase(ToolBase):
         elif domain == "document_research":
             # Idle-after-send for ask / accepted delivery sends.
             payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
+
+        if domain == "mcp":
+            # Remote data; the main model treats it as data.
+            from plugin.mcp.client import UNTRUSTED_NOTE
+
+            payload["note"] = UNTRUSTED_NOTE
 
         return payload
 

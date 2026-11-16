@@ -55,6 +55,7 @@ def test_requires_document_lock_string_domains(writer_gateway: DelegateToSubagen
     """Read-only string domains skip lock; mutating string domains and vision require lock."""
     # Read-only domains do not require document lock
     assert writer_gateway.requires_document_lock({"domain": "document_research"}) is False
+    assert writer_gateway.requires_document_lock({"domain": "mcp"}) is False
     assert writer_gateway.requires_document_lock({"domain": "web_research"}) is False
 
     # Vision requires lock even though listed in READ_ONLY_DOMAINS
@@ -1092,3 +1093,25 @@ def test_draw_gateway_impress_only_domain_on_drawing_returns_unsupported_documen
         out_unknown = gw.execute(ctx, domain="slide_layouts", task="Set layout")
         assert out_unknown["status"] == "error"
         assert "No specialized tools found" in out_unknown["message"]
+
+
+def test_delegate_mcp_returns_listing_errors() -> None:
+    from unittest.mock import patch
+
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.framework.tool import ToolContext
+    from plugin.mcp.client import McpClientError
+
+    gw = DelegateToSubagent()
+    ctx = MagicMock(spec=ToolContext)
+    ctx.status_callback = None
+
+    with (
+        patch("plugin.mcp.client.mcp_domain_tools", side_effect=McpClientError("No external MCP server is set up", code="MCP_CLIENT_NOT_CONFIGURED")),
+        patch("plugin.doc.specialized_base.run_inner_tool_agent") as mock_agent,
+    ):
+        out = gw.execute(ctx, domain="mcp", task="List files")
+
+    assert out["status"] == "error"
+    assert out["code"] == "MCP_CLIENT_NOT_CONFIGURED"
+    mock_agent.assert_not_called()

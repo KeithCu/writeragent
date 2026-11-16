@@ -100,7 +100,7 @@ This is user-send equivalence.
 | Tool context per call | `build_tool_execute_fn` in [`plugin/chatbot/tool_loop_actions.py`](../../plugin/chatbot/tool_loop_actions.py) | Builds `ToolContext(doc=…)` for **that** sidebar’s doc. No frame / listener / session on `ToolContext`. The caller of peer_send_work/peer_send_result does not rebind this. |
 | Frame → model | `_get_document_model` → `get_document_from_frame` | Sidebar stays on **its** window. Envelope sender uses `ctx.doc` (same model). |
 | FSM | `next_state` in [`plugin/chatbot/tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py) | Pure. Success is `status == "ok"` or `success is True`. No inject-user-message event. |
-| Schema filter | `ToolRegistry.get_schemas("openai", doc_type=…)` | Default excludes `specialized`, `specialized_control`, `mcp`. Precedent: `filter_vision_delegate_schemas` in [`plugin/framework/tool.py`](../../plugin/framework/tool.py). |
+| Schema filter | `ToolRegistry.get_schemas("openai", doc_type=…)` | Default excludes `specialized`, `specialized_control`, `mcp`. Precedent: `filter_unavailable_delegate_domains` in [`plugin/vision/vision_availability.py`](../../plugin/vision/vision_availability.py). |
 | Live panels | Production uid → weakref list in [`plugin/doc/live_panels.py`](../../plugin/doc/live_panels.py); debug `WeakSet` remains for tests | Register after `_wire_buttons`. Tool reads the map — [§4.3](#43-live-panel--busy--queue--deck). |
 
 Draw already registers a sidebar deck (`DrawingDocument` in `extension/registry/.../Sidebar.xcu`; Impress is also on that ContextList). A1 still needs that deck **constructed once** so a live panel exists.
@@ -249,7 +249,7 @@ Peer-exists rules (unchanged from #672):
 
 Hide when alone. Hide when the only other components are Start Center or unresolvable. Two Writer documents with distinct uids **do** count (Writer↔Writer is a legal pair). Do **not** show the tool merely because two components exist if you cannot name a supported non-self uid.
 
-Same idea as `filter_vision_delegate_schemas`: filter at schema time, not only at `execute`. Re-evaluate each caller send (open set changes). `get_open_documents` is main-thread; chat `get_schemas` already runs on the UI thread.
+Same idea as `filter_unavailable_delegate_domains`: filter at schema time, not only at `execute`. Re-evaluate each caller send (open set changes). `get_open_documents` is main-thread; chat `get_schemas` already runs on the UI thread.
 
 **Catalog for the model:** when visible, the schema description (and a short prompt block) lists those peers: `name`, `uid`, `url`, type. The model cannot call `document_list_open` from chat.
 
