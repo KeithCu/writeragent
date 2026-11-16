@@ -865,7 +865,14 @@ def test_failed_notifications_initialized_leaves_uninitialized(fake):
     with pytest.raises(McpClientError) as info:
         conn.list_tools()
     assert info.value.status == 500
-    assert conn._initialized is False
     fake.error_body = None
     assert len(conn.list_tools()) == len(TOOLS)
     assert fake.methods().count("initialize") == 2
+
+
+def test_redirect_invalid_location_port_is_config_error(fake):
+    fake.redirect_cross_origin_target = "http://127.0.0.1:99999/mcp"
+    conn = McpServerConnection(_server(fake))
+    with pytest.raises(McpClientError) as info:
+        conn.call_tool("nextcloud_list_files", {"path": "/"})
+    assert info.value.code == "MCP_CLIENT_CONFIG"

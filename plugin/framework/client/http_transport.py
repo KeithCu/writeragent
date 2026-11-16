@@ -31,7 +31,6 @@ import http.client
 import json
 import logging
 import socket
-import ssl
 import threading
 import time
 from typing import Any, Callable, Literal
@@ -70,14 +69,6 @@ from .request_controls import (
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
-
-
-class ConnectFailed(OSError):
-    """Marker for failures during TCP/TLS connect (before any request bytes are sent)."""
-
-
-class ConnectTimeoutError(TimeoutError, ConnectFailed):
-    """Connect deadline expired; still a TimeoutError/OSError for existing retry callers."""
 
 _MAX_REDIRECTS = 5
 
@@ -120,6 +111,7 @@ class LlmHttpTransport:
     _pacer: RequestPacer
     _openrouter_getter: Callable[[], bool] | None
     _connect_timeout: float
+    request_started: bool
 
     def __init__(
         self,
@@ -135,6 +127,7 @@ class LlmHttpTransport:
         self._openrouter_getter = openrouter_getter
         # None means the shared LLM connect budget; callers whose host should answer fast (web search) pass a shorter one.
         self._connect_timeout = LLM_CONNECT_TIMEOUT_SEC if connect_timeout is None else float(connect_timeout)
+        self.request_started = False
         self._persistent_conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
         self._conn_key: tuple[str, str, int, str] | None = None
         # Set while exchange follows a redirect onto a different origin.
@@ -252,6 +245,7 @@ class LlmHttpTransport:
         _allow_stale_resend: bool = True,
     ) -> http.client.HTTPResponse:
         """Send one request on the persistent connection and return its response."""
+        self.request_started = False
         key = self.pacing_key_for_model(request_model_from_body(body))
         if not wait_host_gap(key, cancel, status_callback):
             raise stopped_error()
@@ -281,6 +275,7 @@ class LlmHttpTransport:
             headers["User-Agent"] = USER_AGENT
         allow_stale_resend = _allow_stale_resend
         try:
+            self.request_started = True
             conn.request(method, path, body=body, headers=headers)
             self._pacer.mark_sent()
             mark_host_sent(key)
@@ -341,13 +336,9 @@ class LlmHttpTransport:
                 self._drop_stopped_connection(conn)
                 # TimeoutError is an OSError, so the shared retry budget can
                 # try again. It must not be the Settings read/stall budget.
-                raise ConnectTimeoutError("timed out")
+                raise TimeoutError("timed out")
             handle.join(min(0.05, remaining))
         error = outcome.get("error")
-        if isinstance(error, TimeoutError):
-            raise ConnectTimeoutError(str(error)) from error
-        if isinstance(error, OSError) and not isinstance(error, (ssl.SSLCertVerificationError, ConnectFailed)):
-            raise ConnectFailed(str(error)) from error
         if isinstance(error, Exception):
             raise error
 

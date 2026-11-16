@@ -37,8 +37,6 @@ import itertools
 import json
 import logging
 import re
-import socket
-import ssl
 import subprocess
 import threading
 import time
@@ -46,7 +44,7 @@ from typing import Any, Callable
 
 from plugin.framework.client.errors import NetworkError
 from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target
-from plugin.framework.client.http_transport import ConnectFailed, LlmHttpTransport
+from plugin.framework.client.http_transport import LlmHttpTransport
 from plugin.framework.config import get_config
 from plugin.framework.config_schema import as_bool
 from plugin.framework.send_cancellation import (
@@ -120,6 +118,8 @@ class McpClientError(Exception):
         self.application: bool = application
 
 
+# configured_servers() runs on every chat tool-list build and every external_mcp call,
+# so remember the last warned config value to emit warnings once per distinct servers value.
 _last_warned_servers_key: str | None = None
 
 
@@ -448,20 +448,20 @@ class McpServerConnection:
             try:
                 try:
                     resp = transport.send("POST", path, body, current_headers, cancel=cancel)
-                except (NetworkError, ConnectFailed, ssl.SSLCertVerificationError, ConnectionRefusedError, socket.gaierror) as e:
-                    raise self._transport_error(e, method, False, cancel, current_url, current_headers, request_id) from e
-                except (OSError, ValueError, AttributeError, http.client.HTTPException) as e:
-                    raise self._transport_error(e, method, True, cancel, current_url, current_headers, request_id) from e
+                except (NetworkError, OSError, ValueError, AttributeError, http.client.HTTPException) as e:
+                    raise self._transport_error(
+                        e, method, transport.request_started, cancel, current_url, current_headers, request_id
+                    ) from e
 
                 try:
                     if resp.status in (301, 302, 303, 307, 308):
                         location = resp.getheader("Location") or ""
-                        target = public_target(location) if location else "(missing Location)"
                         try:
+                            target = public_target(location) if location else "(missing Location)"
                             redirect = apply_redirect("POST", body, current_headers, current_url, resp.status, location)
                         except NetworkError as e:
                             raise McpClientError(
-                                f"MCP server '{self.name}' redirected ({resp.status}) to invalid URL {target}: {e}",
+                                f"MCP server '{self.name}' redirected ({resp.status}) to invalid URL: {e}",
                                 code="MCP_CLIENT_CONFIG",
                             ) from e
                         if redirect is None:

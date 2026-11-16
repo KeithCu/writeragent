@@ -1029,4 +1029,21 @@ def test_exchange_with_max_bytes_stop_during_body_raises_stopped():
     assert response.read.call_count == 1
 
 
+def test_transport_send_refused_connect_preserves_type_and_errno():
+    import errno
+    import socket
+
+    # Pick an unbound loopback port so connect() fails deterministically with ECONNREFUSED.
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    transport = LlmHttpTransport(lambda: f"http://127.0.0.1:{port}", lambda: 5, connect_timeout=1.0)
+    with pytest.raises(ConnectionRefusedError) as exc_info:
+        transport.send("POST", "/mcp", b"{}", headers={"Content-Type": "application/json"})
+    assert exc_info.value.errno == errno.ECONNREFUSED
+    assert transport.request_started is False
+
+
 
