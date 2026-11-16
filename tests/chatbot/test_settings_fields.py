@@ -479,3 +479,36 @@ def test_apply_module_config_result_stores_select_option_values():
         apply_field_specs_result({"count": "42", "mode": "Fast Mode"}, specs)
         mock_save.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
+
+def test_password_field_shows_resolved_secret(fake_keystore):
+    from unittest.mock import MagicMock
+
+    from plugin.framework.config import get_config_file_path, save
+
+    save({"mcp.tunnel_provider_token": "tok-secret"})
+    assert b"tok-secret" not in open(get_config_file_path(), "rb").read()
+
+    specs = build_module_field_specs("mcp", control_ids="flat")
+    tok_spec = next(s for s in specs if s["config_key"] == "mcp.tunnel_provider_token")
+    assert tok_spec["value"] == "tok-secret"
+    assert tok_spec["help"] == "Stored in: Fake Store"
+
+    ctrl = MagicMock()
+    ctrl.getModel.return_value.HelpText = "Translated tooltip"
+    populate_settings_control(ctrl, tok_spec)
+    assert ctrl.getModel.return_value.HelpText == "Translated tooltip\nStored in: Fake Store"
+
+
+def test_password_field_marks_keyring_locked_when_locked(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import save
+
+    save({"mcp.tunnel_provider_token": "tok-secret"})
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+
+    specs = build_module_field_specs("mcp", control_ids="flat")
+    tok_spec = next(s for s in specs if s["config_key"] == "mcp.tunnel_provider_token")
+    assert tok_spec["value"] == ""
+    assert tok_spec.get("keyring_locked") is True
+

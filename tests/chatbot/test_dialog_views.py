@@ -2367,3 +2367,29 @@ def test_test_connection_uses_endpoint_listener_key():
          patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
         listener.on_action_performed(None)
     assert sent and sent[0][1] == ""
+
+
+def test_key_storage_label_follows_endpoint(fake_keystore):
+    from plugin.chatbot.dialog_views import EndpointCombinedListener
+    from plugin.framework import keystore
+    from plugin.framework.config import set_api_key_for_endpoint
+    from plugin.framework.i18n import _
+
+    url = "https://api.test"
+    set_api_key_for_endpoint(url, "sk-1")
+
+    lbl_ctrl = MagicMock()
+    combo_ctrl = MagicMock()
+    combo_ctrl.getText.return_value = url
+    dlg = MagicMock()
+    dlg.getControl.side_effect = lambda name: {"label_api_key": lbl_ctrl}.get(name)
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, name: {"label_api_key": lbl_ctrl}.get(name)), \
+         patch("plugin.chatbot.dialog_views.set_control_text", side_effect=lambda c, t: c.setText(t)):
+        EndpointCombinedListener(dlg, MagicMock(), combo_ctrl)
+        assert "Fake Store" in lbl_ctrl.setText.call_args.args[0]
+
+        keystore.reset_for_tests(None)
+        combo_ctrl.getText.return_value = "https://plain.test"
+        EndpointCombinedListener(dlg, MagicMock(), combo_ctrl)
+        assert _("plain text") in lbl_ctrl.setText.call_args.args[0]

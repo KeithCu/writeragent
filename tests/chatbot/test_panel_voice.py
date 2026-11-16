@@ -211,3 +211,52 @@ def test_async_stt_stop_in_flight_restores_ask_and_skips_send(tmp_path):
     assert panel._orphan_send_outcome == "stopped"
     panel._restore_query_text.assert_called_once_with("Fake STT transcript.")
     assert not wav.exists()
+
+
+def test_prepare_stt_reads_keystore_off_main_thread(fake_keystore, tmp_path):
+    import threading
+    from plugin.chatbot.panel_voice import PanelVoiceController
+    from plugin.framework import config as fw_config, keystore
+    from plugin.framework.queue_executor import main
+    from plugin.framework.send_cancellation import SendCancellation
+
+    url = "https://openrouter.ai/api"
+    fw_config.save({"endpoint": url, "text_model": "chat"})
+    fw_config.set_api_key_for_endpoint(url, "sk-stt")
+    keystore.reset_for_tests(fake_keystore)
+
+    reads: list[bool] = []
+    fake_keystore.on_get = lambda _name: reads.append(main.is_current())
+
+    wav = tmp_path / "rec.wav"
+    wav.write_bytes(b"RIFF")
+
+    panel = MagicMock()
+    panel.ctx = MagicMock()
+    panel._stt_inflight = False
+    panel._send_cancellation = SendCancellation()
+
+    captured_key: dict[str, Any] = {}
+
+    def fake_transcribe(_wav, *, client=None, **_kw):
+        captured_key["api_key"] = client.config.get("api_key") if client is not None else None
+        return "hello"
+
+    ctrl = PanelVoiceController(panel)
+    with (
+        patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
+        patch("plugin.audio.stt_service.transcribe", side_effect=fake_transcribe),
+        patch("plugin.audio.stt_service.status_for_transcription", return_value="Transcribing audio..."),
+    ):
+        prepared = ctrl._prepare_stt(str(wav), "whisper-1")
+        assert prepared is not None
+        assert reads == []
+
+        _scope, call_fn = prepared
+        t = threading.Thread(target=call_fn)
+        t.start()
+        t.join(timeout=10)
+        assert not t.is_alive()
+
+    assert reads == [False]
+    assert captured_key["api_key"] == "sk-stt"

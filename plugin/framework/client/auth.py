@@ -150,6 +150,10 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     # Check uses provider_requires_api_key with provider_cfg.id so fallback to
     # custom correctly permits an empty key.
     if not api_key and provider_requires_api_key(provider_cfg.id):
+        from plugin.framework.config import api_key_locked_for_endpoint
+
+        if api_key_locked_for_endpoint(endpoint):
+            raise AuthError("The system keyring is locked. Unlock it to use the saved API key.", provider=provider_id, code="keyring_locked")
         raise AuthError(f"No API key configured for endpoint '{endpoint}'.", provider=provider_id, code="missing_api_key")
 
     return {"provider": provider_cfg.id, "endpoint": endpoint, "api_key": api_key, "header_style": provider_cfg.header_style, "headers": dict(provider_cfg.extra_headers)}

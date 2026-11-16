@@ -87,7 +87,7 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 | `page_comment_delete` | `page_comments` | `draw/comments.py` | Delete a page comment by index | Drawing+Presentation |
 | `slide_get_header_footer` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
 | `slide_set_header_footer` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
-| `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | `charts` | `draw/charts.py` | Charts CRUD (four tools) | Drawing+Presentation |
+| `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | `charts` | `calc/charts.py` | Charts CRUD (four tools) | Drawing+Presentation |
 | `form_*` (6 tools) | `forms` | `writer/specialized/forms.py` | Live ControlShape widgets (name-addressable; checkbox/radio State) | Drawing+Presentation+Spreadsheet+Text |
 | `math_insert` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
@@ -250,7 +250,7 @@ The Draw/Impress prompt, the delegate enum, and the MCP domain description all c
 
 Some tools are implemented in shared modules but work with Draw/Impress:
 
-- **Charts** (`plugin/draw/charts.py`): Chart tools work across all document types that support charts
+- **Charts** (`plugin/calc/charts.py`): Chart tools work across all document types that support charts
 - **Forms** (`plugin/writer/specialized/forms.py`): Live ControlShape tools inherit from `ToolWriterFormBase` ∪ `ToolDrawFormBase` and work across Writer/Calc/Draw/Impress. Paper-form blanks (empty TextShapes) are a different path — `get_tree` + `shape_fill_fields` / `shape_upsert` — see [§3.1](#31-controlshapes-vs-paper-form-fill).
 
 > This document focuses on Draw/Impress-specific usage of these shared tools.

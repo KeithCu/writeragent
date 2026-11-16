@@ -330,51 +330,47 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
 
     Writer and Draw ``createInstance`` raise ServiceNotRegisteredException
     (``unknown service: com.sun.star.drawing.ShapeCollection``). Calc returns None.
-    Writer/Calc ``shape_group`` share this Draw ``execute``.
+    Writer and Calc documents run this same Draw ``execute``.
     """
-    from plugin.calc.shapes import GroupShapes as CalcGroupShapes
-    from plugin.writer.specialized.shapes import GroupShapes as WriterGroupShapes
+    shapes = [MagicMock(), MagicMock()]
+    page = MagicMock()
+    page.getByIndex.side_effect = lambda i, shapes=shapes: shapes[i]
+    page.getCount.return_value = 2
 
-    for cls in (GroupShapes, WriterGroupShapes, CalcGroupShapes):
-        shapes = [MagicMock(), MagicMock()]
-        page = MagicMock()
-        page.getByIndex.side_effect = lambda i, shapes=shapes: shapes[i]
-        page.getCount.return_value = 2
+    doc = MagicMock()
+    doc.createInstance.side_effect = RuntimeError(
+        "unknown service: com.sun.star.drawing.ShapeCollection"
+    )
 
-        doc = MagicMock()
-        doc.createInstance.side_effect = RuntimeError(
-            "unknown service: com.sun.star.drawing.ShapeCollection"
-        )
+    collection = MagicMock()
+    uno_ctx = MagicMock()
+    uno_ctx.ServiceManager.createInstanceWithContext.return_value = collection
 
-        collection = MagicMock()
-        uno_ctx = MagicMock()
-        uno_ctx.ServiceManager.createInstanceWithContext.return_value = collection
+    tool_ctx = MagicMock()
+    tool_ctx.doc = doc
+    tool_ctx.ctx = uno_ctx
 
-        tool_ctx = MagicMock()
-        tool_ctx.doc = doc
-        tool_ctx.ctx = uno_ctx
+    pages = MagicMock()
+    pages.getByIndex.return_value = page
 
-        pages = MagicMock()
-        pages.getByIndex.return_value = page
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages
+        bridge.get_active_page.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        result = GroupShapes().execute(tool_ctx, indices=[0, 1])
 
-        with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
-            "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
-        ):
-            bridge = bridge_cls.return_value
-            bridge.get_pages.return_value = pages
-            bridge.get_active_page.return_value = page
-            bridge_cls.return_value.resolve_page.return_value = (page, 0)
-            result = cls().execute(tool_ctx, indices=[0, 1])
-
-        assert result["status"] == "ok", result
-        assert result["index"] == page.getCount() - 1
-        doc.createInstance.assert_not_called()
-        uno_ctx.ServiceManager.createInstanceWithContext.assert_called_once_with(
-            "com.sun.star.drawing.ShapeCollection",
-            uno_ctx,
-        )
-        assert [c.args[0] for c in collection.add.call_args_list] == shapes
-        page.group.assert_called_once_with(collection)
+    assert result["status"] == "ok", result
+    assert result["index"] == page.getCount() - 1
+    doc.createInstance.assert_not_called()
+    uno_ctx.ServiceManager.createInstanceWithContext.assert_called_once_with(
+        "com.sun.star.drawing.ShapeCollection",
+        uno_ctx,
+    )
+    assert [c.args[0] for c in collection.add.call_args_list] == shapes
+    page.group.assert_called_once_with(collection)
 
 
 def test_shape_upsert_line_allows_zero_width_or_height():
@@ -769,6 +765,19 @@ def test_shape_upsert_rejects_taken_name(kwargs, expect_status):
         page_shapes[0].setPosition.assert_not_called()
 
 
+def test_shape_upsert_edit_unknown_name_lists_available():
+    ctx, _doc, page, page_shapes, _created = _make_name_test_env(["Title", "Titl"])
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="edit", name="Titel", text="x")
+    assert out["status"] == "error"
+    assert out["details"]["available"] == ["Title", "Titl"]
+    assert "Title" in out["details"]["similar"]
+    for shape in page_shapes:
+        shape.setPosition.assert_not_called()
+        shape.setString.assert_not_called()
+
+
 def test_shape_upsert_create_strips_explicit_name():
     ctx, _doc, page, _shapes, created = _make_name_test_env([], created_name="")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
@@ -849,33 +858,6 @@ def test_shape_upsert_within_page_has_no_warning():
 
     assert out["status"] == "ok"
     assert "warnings" not in out
-
-
-def test_shape_tool_service_lists_and_scoping():
-    """Draw, Calc, and Writer shape tools share the union of uno_services."""
-    from plugin.calc import shapes as calc_shapes
-    from plugin.draw import shapes as draw_shapes
-    from plugin.writer.specialized import shapes as writer_shapes
-
-    tool_names = (
-        "UpsertShape",
-        "DeleteShape",
-        "GetDrawSummary",
-        "ConnectShapes",
-        "GroupShapes",
-        "AlignShapes",
-        "DistributeShapes",
-        "CreateDiagram",
-    )
-
-    for name in tool_names:
-        union = (
-            set(getattr(draw_shapes, name).uno_services)
-            | set(getattr(calc_shapes, name).uno_services)
-            | set(getattr(writer_shapes, name).uno_services)
-        )
-        for mod in (draw_shapes, calc_shapes, writer_shapes):
-            assert set(getattr(mod, name).uno_services) == union
 
 
 def test_outside_page_zero_width_or_height():

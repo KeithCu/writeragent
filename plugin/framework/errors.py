@@ -372,6 +372,9 @@ def format_error_message(e: BaseException) -> str:
             return _("No API key configured for {0}. Open Settings and add a key.").format(provider)
         return _("No API key configured. Open Settings and add a key.")
 
+    if isinstance(e, ConfigError) and e.code == "keyring_locked":
+        return _("The system keyring is locked. Unlock it to use the saved API key.")
+
     # Filesystem errors are not a down local server. Match connection-shaped
     # transport errors, not filesystem classes or errnos.
     reason_obj: BaseException | None

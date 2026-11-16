@@ -51,7 +51,14 @@ from plugin.framework.errors import NetworkError, best_effort
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent, resolve_openrouter_catalog_id
 from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.config import get_api_key_for_endpoint, get_config, get_current_endpoint, save, update_config_mapping
+from plugin.framework.config import (
+    api_key_needs_keystore_read,
+    get_api_key_for_endpoint,
+    get_config,
+    get_current_endpoint,
+    save,
+    update_config_mapping,
+)
 from plugin.framework.config_schema import as_bool
 
 log = logging.getLogger(__name__)
@@ -1237,6 +1244,11 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
        fall through. Off the UI thread, fetch inline and re-read the memo.
        Answers live only in those process memos; a failed fetch stores
        nothing, so the next check tries again.
+    4b. UI-thread uncached keystore guard: when ``api_key_override`` is None,
+       ``main.is_current()`` is True, and the endpoint's key is an uncached
+       ``keystore:`` ref, skip both the provider memo (whose key hashes the
+       secret) and the background lookup so neither reads the OS store or opens
+       a second prompt before the Send worker reads it once.
     5. Static default models list (``DEFAULT_MODELS``): fallback only when the
        API fetch failed or the provider has no vision API. ``ModelCapability.VISION``
        -> True; else if ``PROVIDER_VISION`` has the provider -> that value; else
@@ -1258,9 +1270,18 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     provider = get_provider_from_endpoint(endpoint_str)
 
     # 3. Warm in-process memo. 4. Cold: the UI thread schedules, a worker fetches.
-    warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)
+    on_ui_thread = main.is_current()
+    if api_key_override is None and on_ui_thread and api_key_needs_keystore_read(raw_ep):
+        # The memo key hashes the saved key, and computing it would read the
+        # OS keyring on the UI thread. Until this session has read the key
+        # once (the Send worker does that), skip the provider memo and the
+        # background lookup, which would open a second prompt, and answer
+        # from the static catalog.
+        warm, answer = True, None
+    else:
+        warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)
     if not warm:
-        if main.is_current():
+        if on_ui_thread:
             _schedule_vision_lookup(support_key, model_id_str, raw_ep, api_key_override)
         else:
             assert not main.is_current()

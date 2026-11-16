@@ -39,10 +39,6 @@ class ToolDrawSpecialBase(ToolBase):
     is_app_specialized_tool: ClassVar[bool] = True
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
-    # Do not assign required_core_tools = None here. ToolBase already defaults
-    # to None, and an explicit assignment stops MRO before a Writer/Calc shape
-    # base mixed in after the Draw implementation
-    # (UpsertShape(DrawUpsertShape, ToolWriterShapeBase)).
 
 
 # --- Domain-Specific Base Classes ---
@@ -59,6 +55,8 @@ class ToolDrawDocumentResearchBase(ToolDrawSpecialBase):
 
 
 class ToolDrawChartBase(ToolDrawSpecialBase):
+    """Delegate catalog row only; the tools are the ``plugin.calc.charts`` classes."""
+
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit data charts within the drawing or presentation."
     uno_services: list[str] | None = DRAW_AND_IMPRESS

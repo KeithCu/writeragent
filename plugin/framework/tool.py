@@ -638,13 +638,8 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
-        self._duplicate_registrations: list[tuple[str, type[ToolBase], type[ToolBase]]] = []
         self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
         self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []
-        # Shared names (shape_upsert / chart_upsert) last-wins the instance but
-        # must keep the union of required_core_tools. ClassVar cannot be set on
-        # the instance, so store the merge here.
-        self._required_core_union: dict[str, frozenset[str]] = {}
 
     # ── Registration ──────────────────────────────────────────────────
 
@@ -671,13 +666,13 @@ class ToolRegistry:
             if type(existing_tool).__name__ == type(tool).__name__ and type(existing_tool).__module__ == type(tool).__module__:
                 self._tools[tool.name] = tool
                 return
-            # A different class object replaces with a warning.
-            log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
-            self._duplicate_registrations.append((tool.name, type(existing_tool), type(tool)))
-            prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
-            nxt = getattr(tool, "required_core_tools", None)
-            if prev or nxt:
-                self._required_core_union[tool.name] = frozenset(prev or ()) | frozenset(nxt or ())
+            # One name, one class. Two classes under one name means one schema is advertised while
+            # another class's execute may run, so stop here and keep the first registration.
+            raise ValueError(
+                f"duplicate tool name {tool.name!r} registered by "
+                f"{type(existing_tool).__module__}.{type(existing_tool).__name__} and "
+                f"{type(tool).__module__}.{type(tool).__name__}"
+            )
         self._tools[tool.name] = tool
 
     def auto_discover_package(self, package_name: str, skip: frozenset[str] = frozenset()) -> None:
@@ -696,9 +691,10 @@ class ToolRegistry:
             full_module_name = f"{package_name}.{module_name}"
             try:
                 module = importlib.import_module(full_module_name)
-                self.auto_discover(module)
             except Exception:
                 log.exception("Failed to import module %s for tool discovery", full_module_name)
+                continue
+            self.auto_discover(module)
 
     def auto_discover(self, module: Any) -> None:
         """Automatically discover and register ToolBase subclasses in a module."""
@@ -711,9 +707,12 @@ class ToolRegistry:
         for obj in iter_named_concrete_subclasses(module, ToolBase, ToolBaseDummy):
             try:
                 tool_instance = obj()
-                self.register(tool_instance)
             except Exception:
                 log.exception("Failed to instantiate tool %s", obj.__name__)
+                continue
+            # Duplicate-name errors are deliberately not caught here so ModuleLoader records
+            # the module failure and make proxy-stubs fails instead of letting one class silently win.
+            self.register(tool_instance)
 
     # ── Lookup & Schema Generation ────────────────────────────────────
 
@@ -784,7 +783,7 @@ class ToolRegistry:
             required_core: set[str] = set()
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
-                    req = (self._required_core_union.get(t.name) if t.name else None) or getattr(t, "required_core_tools", None)
+                    req = t.required_core_tools
                     if req:
                         required_core.update(req)
 

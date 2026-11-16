@@ -273,7 +273,9 @@ def test_default_range_index_frame_has_no_header():
     assert not is_dataframe_payload(wire_default)
     assert wire_default == [["h1", "h2"], [1, 2]]
 
-    df_explicit_int = pd.DataFrame({0: [1], 1: [2]})
+    # List labels stay a plain Index, so they are real headers. pandas 3 makes
+    # dict keys 0..N-1 a RangeIndex, which is indistinguishable from default labels.
+    df_explicit_int = pd.DataFrame([[1, 2]], columns=[0, 1])
     wire_explicit = to_wire(df_explicit_int, target="pickle")
     assert is_dataframe_payload(wire_explicit)
 
