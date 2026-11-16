@@ -17,7 +17,8 @@ from plugin.chatbot.dialogs import (
     set_combo_items,
     set_control_text,
 )
-from plugin.framework.config import get_config, save
+from plugin.framework import keystore
+from plugin.framework.config import get_config, get_secret_config, save
 from plugin.framework.config_schema import as_bool, validate
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
@@ -89,6 +90,15 @@ def _resolve_field_options(schema: dict[str, Any], config_key: str, ctx: Any | N
     return None
 
 
+def secret_location_label(raw: object) -> str:
+    """Human-readable storage location for a secret field (``where`` it lives on OK)."""
+    if keystore.is_ref(raw):
+        return keystore.backend_label() or _("system keyring")
+    if keystore.can_store():
+        return keystore.backend_label()
+    return _("plain text")
+
+
 def build_module_field_specs(
     module_name: str,
     *,
@@ -124,12 +134,17 @@ def build_module_field_specs(
         else:
             ctrl_id = field_name
 
-        val = get_config(config_key)
+        is_password = schema.get("widget") == "password"
+        val = get_secret_config(config_key) if is_password else get_config(config_key)
         # Provider options (when present) drive the dropdown; yaml options are the fallback.
         resolved_opts = _resolve_field_options(schema, config_key, ctx)
         val = _display_label_for_stored_value(resolved_opts, val)
 
         field: dict[str, Any] = {"name": ctrl_id, "config_key": config_key, "value": str(val)}
+        if is_password:
+            field["help"] = _("Stored in: {where}").format(
+                where=secret_location_label(get_config(config_key))
+            )
         if resolved_opts:
             field["options"] = resolved_opts
 
@@ -168,6 +183,13 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
     """
     if not ctrl:
         return
+    help_line = str(field.get("help") or "").strip()
+    if help_line:
+        model = ctrl.getModel()
+        existing = str(model.HelpText or "").strip()
+        # Guard against duplicate lines if a caller re-populates a live dialog control.
+        if not existing.endswith(help_line):
+            model.HelpText = f"{existing}\n{help_line}" if existing else help_line
     field_type = str(field.get("type") or "")
     if is_checkbox_control(ctrl):
         set_checkbox_state(ctrl, 1 if as_bool(field.get("value")) else 0)

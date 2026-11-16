@@ -6,7 +6,7 @@ from plugin.framework.config import (
     get_config,
     save,
     get_current_endpoint,
-    get_api_key_for_endpoint,
+    has_api_key_for_endpoint,
     get_reasoning_effort_for_endpoint,
     set_reasoning_effort_for_endpoint,
 )
@@ -196,12 +196,11 @@ def populate_combobox_with_lru(
         if "audio" in lru_key.lower() or "stt" in lru_key.lower()
         else "text"
     )
-    effective_key = (
-        str(api_key_override).strip()
-        if api_key_override is not None
-        else str(get_api_key_for_endpoint(endpoint) or "").strip()
-    )
-    auth_blocked = bool(provider and provider_requires_api_key(provider) and not effective_key and remote_models is None)
+    # Presence only: a keystore ref counts as a key without reading the OS
+    # keyring. This runs on the main thread during panel creation, where a
+    # locked keyring read blocks LibreOffice until its unlock prompt is answered.
+    has_key = bool(str(api_key_override).strip()) if api_key_override is not None else has_api_key_for_endpoint(endpoint)
+    auth_blocked = bool(provider and provider_requires_api_key(provider) and not has_key and remote_models is None)
 
     fetch_succeeded = False
     to_show: list[str] = []

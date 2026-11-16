@@ -38,11 +38,11 @@ The default itself is not a change. If nothing changed, it does not write or emi
 Writes go through a temp file, ``fsync``, then ``os.replace``. Other files written with ``atomic_write_text`` (memory, skills, history JSON, harper cache) do not fsync.
 
 Concurrency: ``save`` and ``update_config_mapping`` hold ``_config_write_lock``
-(an ``RLock``) across the read, merge, validate, and write. Values for
-``api_keys_by_endpoint`` or ``reasoning_effort`` are slot patches merged into
-the map read under the lock. One ``config:changed`` is emitted **after** the
-lock is released. A batch that changes one key emits that key. A batch that
-changes more than one emits ``key=""``.
+(an ``RLock``) across the read, merge, validate, keystore writes, and file
+write. Values for ``api_keys_by_endpoint`` or ``reasoning_effort`` are slot
+patches merged into the map read under the lock. One ``config:changed`` is
+emitted **after** the lock is released. A batch that changes one key emits
+that key. A batch that changes more than one emits ``key=""``.
 
 A failed load whose ``(path, st_mtime_ns, st_size)`` is unchanged is not
 parsed or warned again, and ``{}`` is not cached. ``get_config`` before
@@ -72,6 +72,7 @@ from plugin.framework.json_utils import repair_json
 from plugin.framework.url_utils import normalize_endpoint_url
 
 from plugin.framework import config_schema as _config_schema
+from plugin.framework import keystore
 
 # Comment header written above the JSON object. Not a config key.
 CONFIG_SCHEMA_COMMENT = (
@@ -575,6 +576,8 @@ def save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
                 merged[k] = _merge_api_key_slots(merged.get(k, {}), v)
             elif k == "reasoning_effort" and isinstance(v, dict):
                 merged[k] = _merge_reasoning_effort_slots(merged.get(k, {}), v)
+            elif _config_schema.is_secret_config_key(k):
+                merged[k] = _secret_to_store(k, merged.get(k), v)
             else:
                 merged[k] = v
 
@@ -602,11 +605,49 @@ def save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
 # --- Per-endpoint API keys ---
 
 
+def _api_key_secret_name(slot: str) -> str:
+    return f"api_key:{slot}"
+
+
+def _secret_to_store(name: str, current: Any, new: Any) -> str:
+    """Route a secret write through the OS keystore, returning the JSON value to store."""
+    text = "" if new is None else str(new)
+    if keystore.is_ref(text):
+        return text
+    if keystore.is_ref(current):
+        # An equal value keeps the existing ref so save() sees no change and skips
+        # OS writes, file writes, config:changed emits, and tunnel restarts.
+        # An empty save over an unreadable ref also keeps the ref so a locked
+        # keyring never silently wipes the stored key.
+        if text == (keystore.get_secret(name) or ""):
+            return str(current)
+        if not text:
+            keystore.delete_secret(name)
+            return ""
+    if text and keystore.can_store() and keystore.set_secret(name, text):
+        return keystore.new_ref()
+    return text
+
+
+def _resolve_secret(name: str, raw: Any) -> str:
+    if keystore.is_ref(raw):
+        return keystore.get_secret(name) or ""
+    return str(raw or "")
+
+
+# Patch value for api_keys_by_endpoint that removes the slot instead of setting it.
+_DROP_SLOT: Any = object()
+
+
 def _merge_api_key_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
     """Return *current* with only the URL slots in *patch* replaced."""
     base = dict(current) if isinstance(current, dict) else {}
     for slot, secret in patch.items():
-        base[str(slot)] = "" if secret is None else str(secret)
+        slot_key = str(slot)
+        if secret is _DROP_SLOT:
+            base.pop(slot_key, None)
+            continue
+        base[slot_key] = _secret_to_store(_api_key_secret_name(slot_key), base.get(slot_key), secret)
     return base
 
 
@@ -633,13 +674,92 @@ def update_config_mapping(key: str, mutate: Callable[[Any], Any], *, event_key: 
         save({key: data}, event_key=event_key)
 
 
-def get_api_key_for_endpoint(endpoint: Any) -> str:
-    """Return API key for the given endpoint."""
+def _api_key_slot_raw(normalized_endpoint: str) -> str:
     data = get_config("api_keys_by_endpoint")
     if not isinstance(data, dict):
-        data = {}
+        return ""
+    raw = data.get(normalized_endpoint)
+    return raw if isinstance(raw, str) else ""
+
+
+def api_key_slot_value(endpoint: Any) -> str:
+    """Return the raw stored JSON value (plain text, ref, or ``""``) for *endpoint*."""
+    return _api_key_slot_raw(normalize_endpoint_url(endpoint or ""))
+
+
+def get_api_key_for_endpoint(endpoint: Any) -> str:
+    """Return API key for the given endpoint."""
     normalized = normalize_endpoint_url(endpoint or "")
-    return data.get(normalized) or ""
+    return _resolve_secret(_api_key_secret_name(normalized), _api_key_slot_raw(normalized))
+
+
+def has_api_key_for_endpoint(endpoint: Any) -> bool:
+    """True when the endpoint has a key stored, without reading the OS keystore.
+
+    A keystore ref counts as present. Use this on the main thread (panel
+    creation, gating) where a locked keyring read would block on its unlock
+    prompt; read the real key only when it is about to be sent.
+    """
+    return bool(_api_key_slot_raw(normalize_endpoint_url(endpoint or "")))
+
+
+def api_key_locked_for_endpoint(endpoint: Any) -> bool:
+    """True when the endpoint's key is in the OS keystore and its last read hit a locked store."""
+    normalized = normalize_endpoint_url(endpoint or "")
+    return keystore.is_ref(_api_key_slot_raw(normalized)) and keystore.is_locked(_api_key_secret_name(normalized))
+
+
+def get_secret_config(key: str) -> str:
+    """Return the resolved secret string for a ``widget: password`` config key."""
+    return _resolve_secret(key, get_config(key))
+
+
+def _normalized_api_key_slot_patch(slots: dict[str, Any]) -> dict[str, Any]:
+    """Patch that moves plain keys into the keystore under normalized slots.
+
+    Keys are read back by normalized endpoint, so a legacy slot such as
+    ``https://openrouter.ai/api/v1`` (normalized ``.../api``) is merged into
+    its normalized slot and dropped. A legacy slot that already became an
+    orphan keyring item (``api_key:<legacy>``) is adopted into the normalized
+    slot when that one is empty, then the orphan item is deleted.
+    """
+    patch: dict[str, Any] = {}
+    for slot, val in slots.items():
+        if not isinstance(val, str):
+            continue
+        norm = normalize_endpoint_url(slot)
+        if norm == slot:
+            if val and not keystore.is_ref(val) and slot not in patch:
+                patch[slot] = val
+            continue
+        secret = keystore.get_secret(_api_key_secret_name(slot)) if keystore.is_ref(val) else val
+        if secret is None and keystore.is_locked(_api_key_secret_name(slot)):
+            continue  # Locked orphan: keep it for a later Settings OK.
+        if secret and not slots.get(norm) and norm not in patch:
+            patch[norm] = secret
+        if keystore.is_ref(val):
+            keystore.delete_secret(_api_key_secret_name(slot))
+        patch[slot] = _DROP_SLOT
+    return patch
+
+
+def migrate_secrets_to_keystore() -> None:
+    """Move any plain-text API keys and password config values into the OS keystore."""
+    if not keystore.can_store():
+        return
+    with _config_write_lock:
+        patch: dict[str, Any] = {}
+        slots = get_config("api_keys_by_endpoint")
+        if isinstance(slots, dict):
+            slot_patch = _normalized_api_key_slot_patch({str(k): v for k, v in slots.items()})
+            if slot_patch:
+                patch["api_keys_by_endpoint"] = slot_patch
+        for key in _config_schema.SECRET_CONFIG_KEYS:
+            val = get_config(key)
+            if isinstance(val, str) and val and not keystore.is_ref(val):
+                patch[key] = val
+        if patch:
+            save(patch)
 
 
 def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None = None) -> None:
