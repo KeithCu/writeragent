@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
 from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
-from plugin.framework.config_schema import as_bool
+from plugin.framework.send_cancellation import unpack_approval
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
@@ -401,15 +401,6 @@ class VisitWebpageCdpTool(Tool):
             _cdp_refcount.visit_leave()
 
 
-def _unpack_approval(result: Any) -> tuple[bool, str | None]:
-    """Unpack an approval result into (proceed, optional_query_override)."""
-    if isinstance(result, tuple):
-        proceed = bool(result[0])
-        override = str(result[1]) if len(result) > 1 and result[1] is not None else None
-        return proceed, override
-    return bool(result), None
-
-
 def _user_stopped_payload() -> dict[str, Any]:
     return format_error_payload(ToolExecutionError("Web search stopped by user.", code="USER_STOPPED"))
 
@@ -507,7 +498,7 @@ def _run_web_agent(
                 # transcript matches what the user is approving (skip outer-query dedup).
                 echo(q)
                 approval_result = params.approval_callback(q, "web_search", step.arguments)
-                proceed, query_override = _unpack_approval(approval_result)
+                proceed, query_override = unpack_approval(approval_result)
 
                 if not proceed:
                     return _user_stopped_payload()
@@ -623,7 +614,7 @@ def _run_deep_web_research(
         # Same tuple-or-bool check as the web_search tool step. Reject or stop
         # skips this planning fetch; there is no second approval UI.
         approval_result = agent_params.approval_callback(query_str, "web_search", {"query": query_str})
-        proceed, query_override = _unpack_approval(approval_result)
+        proceed, query_override = unpack_approval(approval_result)
         if not proceed:
             # Reject at planning time returns the same stop payload as a rejected shallow search.
             return (
@@ -805,7 +796,7 @@ class WebResearchTool(ToolBase):
                 cdp_url=cdp_url,
                 status_callback=status_callback,
                 append_thinking_callback=ctx.append_thinking_callback,
-                approval_callback=ctx.approval_callback if as_bool(get_config("chatbot.prompt_for_web_research")) else None,
+                approval_callback=ctx.approval_callback,
                 chat_append_callback=ctx.chat_append_callback,
                 outer_query=query_str,
                 cancel=scope,

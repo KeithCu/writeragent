@@ -480,6 +480,32 @@ def test_apply_module_config_result_stores_select_option_values():
         mock_save.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
+def test_build_module_field_specs_dict_textarea_and_parse_json_setting():
+    from plugin.chatbot.settings_fields import parse_json_setting
+    from plugin.framework.errors import ConfigValidationError
+
+    manifest = {
+        "name": "mcp_client",
+        "config": {
+            "servers": {"type": "dict", "default": {}, "widget": "textarea"},
+        },
+    }
+    disk = {"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp"}}}
+    with (
+        patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest),
+        patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: disk[key]),
+    ):
+        specs = build_module_field_specs("mcp_client", control_ids="prefixed")
+    assert specs[0]["type"] == "json"
+    assert '"home"' in specs[0]["value"]
+    assert parse_json_setting("mcp_client.servers", specs[0]["value"]) == disk["mcp_client.servers"]
+    assert parse_json_setting("mcp_client.servers", "   ") == {}
+    with pytest.raises(ConfigValidationError):
+        parse_json_setting("mcp_client.servers", "[1]")
+    with pytest.raises(ConfigValidationError):
+        parse_json_setting("mcp_client.servers", "{bad json")
+
+
 def test_password_field_shows_resolved_secret(fake_keystore):
     from unittest.mock import MagicMock
 

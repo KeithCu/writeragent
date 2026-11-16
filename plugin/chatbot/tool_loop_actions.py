@@ -267,6 +267,7 @@ class TurnController:
     active_supports_status: bool
     slash_sidebar_only: bool
     outcome: SendOutcome | None
+    external_mcp_result_seen: bool
     selection_pin: SelectionPin | None
 
     def __init__(
@@ -301,6 +302,7 @@ class TurnController:
         self.active_supports_status = False
         self.slash_sidebar_only = False
         self.outcome = None
+        self.external_mcp_result_seen = False
 
     def same_messages(self) -> bool:
         """Clear replaces the list. A write against the old list must not land."""
@@ -835,12 +837,13 @@ def build_tool_execute_fn(
         prompt_for_web = False
         if needs_web_research_ui:
             try:
-                prompt_for_web = bool(get_config("chatbot.prompt_for_web_research"))
+                prompt_for_web = bool(get_config("chatbot.prompt_for_web_research")) or (
+                    isinstance(captured_turn, TurnController) and captured_turn.external_mcp_result_seen
+                )
             except Exception as ex:
                 # Fail closed. Leaving approval_cb as None after a config
-                # error skips Accept/Change/Reject: web_research prompts only
-                # when both the config flag and the callback are set, so the
-                # search would run without approval.
+                # error skips Accept/Change/Reject: web_research prompts when
+                # the callback is set, so the search would run without approval.
                 log.warning("tool_loop: web_research approval setup failed: %s", ex)
                 err = ToolExecutionError(
                     "Web research approval could not be shown. The search was not started.",
@@ -848,8 +851,8 @@ def build_tool_execute_fn(
                 )
                 return json.dumps(format_error_payload(err), default=str)
 
-        # external_mcp decides from mcp_client.confirm_calls whether to ask, and
-        # refuses to run when it must ask but has no callback (plugin/mcp/client.py).
+        # external_mcp decides from server trust and readOnlyHint whether to ask,
+        # and refuses to run when it must ask but has no callback (plugin/mcp/client.py).
         if name == "external_mcp":
             chat_append_cb = lambda text: put_for_turn(captured_turn, (StreamQueueKind.CHUNK, text))  # noqa: E731
 
@@ -906,6 +909,10 @@ def build_tool_execute_fn(
         # chat argument must not set the eval-harness switch.
         call_args = {key: value for key, value in safe_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
         res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
+        # Remote MCP text is untrusted and can steer the model into exfiltrating
+        # data via search queries, so web research asks for approval for the rest of the turn.
+        if name == "external_mcp" and isinstance(captured_turn, TurnController):
+            captured_turn.external_mcp_result_seen = True
         # execute_safe returns DOCUMENT_DISPOSED as a dict; returning that
         # JSON would queue TOOL_DONE and the loop would keep going on a
         # dead document. Raising DocumentDisposedError lets

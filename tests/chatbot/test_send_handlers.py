@@ -2022,3 +2022,29 @@ class TestSendHandlerDirectInlining:
         assert panel.thinking_flags[idx_answer] is False
 
 
+def test_web_mode_passes_no_approval_when_prompt_off():
+    panel = DummyChatbotPanel()
+    panel.session.messages = []
+    _arm_spawn_scope(panel)
+    seen = {}
+
+    def execute(_name, tctx, bypass_thread_guard=False, **_kwargs):
+        seen["approval_callback"] = tctx.approval_callback
+        return {"status": "ok", "result": "done"}
+
+    mock_registry = MagicMock()
+    mock_registry.execute.side_effect = execute
+    mock_registry._services = MagicMock()
+
+    def run_worker(_q, worker_fn, *_args, **_kwargs):
+        worker_fn()
+
+    with (
+        patch("plugin.app.get_tools", return_value=mock_registry),
+        patch("plugin.chatbot.send_handlers.get_config", return_value=False),
+        patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker),
+    ):
+        panel._execute_web_research_effect("query", MagicMock())
+    assert seen["approval_callback"] is None
+
+

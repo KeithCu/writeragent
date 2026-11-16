@@ -136,7 +136,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `agent_edit_max_surgical_runs` | `int` | `40` | ≥ `1` | Internal. Cap on word-level sub-edits per replace; more becomes one whole-block change. |
 | `agent_edit_split_author_colors` | `boolean` | `true` |  | Internal. Author whole-block deletions as 'WriterAgent (deletions)' so they show in a second colour. |
 
-## Vector Search (`embeddings`)
+## Search (`embeddings`)
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
@@ -163,17 +163,17 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `ssl_cert` | `string` | `""` |  | Internal |
 | `ssl_key` | `string` | `""` |  | Internal |
 
-## MCP Client (external servers for the sidebar chat) (`mcp_client`)
+## Integrations (`mcp_client`)
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | `enabled` | `boolean` | `false` |  | Sidebar chat only (external_mcp tool); never exposed to WriterAgent's MCP server or to scripts. |
-| `confirm_calls` | `boolean` | `true` |  | Shows Accept / Change / Reject before every call_tool. Turn off only for servers whose tools just read. |
+| `trusted` | `boolean` | `false` |  | Tools the server marks readOnlyHint run without Accept / Change / Reject; every other call still asks |
 | `name` | `string` | `""` |  | Short label the model uses for this server, e.g. home. |
 | `url` | `string` | `""` |  | Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp |
 | `token_keychain` | `string` | `""` |  | macOS Keychain item holding the bearer token. Preferred over the token field. |
 | `token` | `string` | `""` |  | Bearer token saved in plain text in writeragent.json. Used only when Keychain item is empty. |
-| `servers` | `list` | `[]` |  | Internal |
+| `servers` | `dict` | `{}` |  | Accepted keys per entry: url, headers, enabled, timeout, connect_timeout, tools.include, tools.exclude, trust (full/untrusted), token, token_keychain. |
 
 ## Python (`scripting`)
 

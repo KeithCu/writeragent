@@ -45,6 +45,30 @@ class SendCancelled(Exception):
     """Raised when main-thread work is skipped because the user stopped the send."""
 
 
+ApprovalCallback = Callable[[str, str, Any], Any]
+
+
+def unpack_approval(result: Any) -> tuple[bool, str | None]:
+    """Unpack an approval result into (proceed, optional_query_override)."""
+    if isinstance(result, tuple):
+        proceed = bool(result[0])
+        override = str(result[1]) if len(result) > 1 and result[1] is not None else None
+        return proceed, override
+    return bool(result), None
+
+
+def acquire_unless_cancelled(lock: threading.Lock, cancel: SendCancellation | None) -> bool:
+    """Acquire *lock*, polling Stop every 50 ms; return False if cancelled before acquiring."""
+    if is_cancelled(cancel):
+        return False
+    if lock.acquire(blocking=False):
+        return True
+    while not lock.acquire(timeout=0.05):
+        if is_cancelled(cancel):
+            return False
+    return True
+
+
 def wait_for_approval(event: threading.Event, cancel: SendCancellation | None, timeout: float = 0.2) -> bool:
     """Block until *event* is set, or the send is stopped.
 

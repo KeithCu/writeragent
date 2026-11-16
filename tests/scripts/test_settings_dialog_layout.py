@@ -246,13 +246,31 @@ def test_settings_explicit_tooltip_overrides_helper(tmp_path: Path) -> None:
     assert "hlp_sample__plain" not in tips
 
 
-def test_mcp_client_section_is_on_the_mcp_tab(tmp_path: Path) -> None:
-    """config_inline: mcp puts the MCP Client fields on the MCP tab under their own divider."""
-    ids = _control_ids(_generate_settings_xdl(tmp_path)[0])
-    for field in ("enabled", "confirm_calls", "name", "url", "token_keychain", "token"):
-        assert f"mcp_client__{field}" in ids
-    assert "mcp_client__servers" not in ids
-    assert "sep_mcp_client" in ids
+def test_mcp_client_fields_are_on_the_integrations_tab(tmp_path: Path) -> None:
+    """mcp_client fields live on the Integrations tab, and the dialog height is 218."""
+    xdl_path, _ = _generate_settings_xdl(tmp_path)
+    root = ET.parse(xdl_path).getroot()
+    assert root.get(f"{{{_DLG_NS}}}height") == "218"
+    btn = root.find(f".//{{{_DLG_NS}}}button[@{{{_DLG_NS}}}id='btn_tab_mcp_client']")
+    assert btn is not None
+    assert btn.get(f"{{{_DLG_NS}}}value") == "Integrations"
+
+    pages_by_id = {
+        el.get(f"{{{_DLG_NS}}}id"): el.get(f"{{{_DLG_NS}}}page")
+        for el in root.iter()
+        if el.get(f"{{{_DLG_NS}}}id")
+    }
+    for field in ("enabled", "trusted", "name", "url", "token_keychain", "token", "servers"):
+        assert f"mcp_client__{field}" in pages_by_id
+        assert pages_by_id[f"mcp_client__{field}"] != pages_by_id["mcp__mcp_enabled"]
+
+
+def test_search_tab_label(tmp_path: Path) -> None:
+    xdl_path, _ = _generate_settings_xdl(tmp_path)
+    root = ET.parse(xdl_path).getroot()
+    btn = root.find(f".//{{{_DLG_NS}}}button[@{{{_DLG_NS}}}id='btn_tab_embeddings']")
+    assert btn is not None
+    assert btn.get(f"{{{_DLG_NS}}}value") == "Search"
 
 
 @pytest.mark.parametrize("bad_widget", ["list_detail", "nope"])

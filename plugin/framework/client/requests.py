@@ -18,7 +18,11 @@ import logging
 import threading
 from typing import Any, final
 
-from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.send_cancellation import (
+    SendCancellation,
+    acquire_unless_cancelled,
+    is_cancelled,
+)
 
 from .http_security import origin_and_path
 from .http_transport import LlmHttpTransport
@@ -64,14 +68,6 @@ def _get_shared_transport(
             entry = _SharedTransport(origin, timeout, connect_timeout)
             _SYNC_TRANSPORTS[key] = entry
         return entry
-
-
-def _acquire_entry_lock(lock: threading.Lock, cancel: SendCancellation | None) -> None:
-    if lock.acquire(blocking=False):
-        return
-    while not lock.acquire(timeout=0.05):
-        if is_cancelled(cancel):
-            raise stopped_error()
 
 
 def close_sync_transports() -> None:
@@ -135,7 +131,8 @@ def sync_request(
 
     origin, path = origin_and_path(url)
     entry = _get_shared_transport(origin, timeout, connect_timeout)
-    _acquire_entry_lock(entry.lock, cancel)
+    if not acquire_unless_cancelled(entry.lock, cancel):
+        raise stopped_error()
     try:
         if is_cancelled(cancel):
             raise stopped_error()

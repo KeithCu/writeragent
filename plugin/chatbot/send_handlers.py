@@ -621,7 +621,7 @@ class SendHandlersMixin:
                 # run_search runs on the chatbot-send-handler worker;
                 # get_ctx() is main-thread-only. Panel bootstrap ctx matches
                 # tool_loop.execute_fn (async tools marshal UNO reads themselves).
-                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
+                tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb if as_bool(get_config("chatbot.prompt_for_web_research")) else None, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
                 extra_args: dict[str, Any] = {}
                 if spec.extra_kwarg and spec.extra_attr:

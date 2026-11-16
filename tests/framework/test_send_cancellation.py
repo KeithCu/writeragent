@@ -556,3 +556,35 @@ def test_claim_cancel_sets_flag_before_hooks():
     assert hook2_calls == [1]
 
 
+def test_unpack_approval():
+    from plugin.framework.send_cancellation import unpack_approval
+
+    assert unpack_approval((True, "edited")) == (True, "edited")
+    assert unpack_approval((True, None)) == (True, None)
+    assert unpack_approval((False, "ignored")) == (False, "ignored")
+    assert unpack_approval(True) == (True, None)
+    assert unpack_approval(False) == (False, None)
+
+
+def test_acquire_unless_cancelled():
+    from plugin.framework.send_cancellation import acquire_unless_cancelled
+
+    lock = threading.Lock()
+    scope = SendCancellation()
+    assert acquire_unless_cancelled(lock, scope) is True
+    lock.release()
+
+    lock.acquire()
+    try:
+        timer = threading.Timer(0.1, scope.cancel)
+        timer.start()
+        try:
+            assert acquire_unless_cancelled(lock, scope) is False
+        finally:
+            timer.cancel()
+            timer.join(timeout=2.0)
+    finally:
+        lock.release()
+
+
+

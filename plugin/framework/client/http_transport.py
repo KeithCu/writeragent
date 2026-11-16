@@ -111,6 +111,7 @@ class LlmHttpTransport:
     _pacer: RequestPacer
     _openrouter_getter: Callable[[], bool] | None
     _connect_timeout: float
+    request_started: bool
 
     def __init__(
         self,
@@ -126,6 +127,7 @@ class LlmHttpTransport:
         self._openrouter_getter = openrouter_getter
         # None means the shared LLM connect budget; callers whose host should answer fast (web search) pass a shorter one.
         self._connect_timeout = LLM_CONNECT_TIMEOUT_SEC if connect_timeout is None else float(connect_timeout)
+        self.request_started = False
         self._persistent_conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None
         self._conn_key: tuple[str, str, int, str] | None = None
         # Set while exchange follows a redirect onto a different origin.
@@ -243,6 +245,7 @@ class LlmHttpTransport:
         _allow_stale_resend: bool = True,
     ) -> http.client.HTTPResponse:
         """Send one request on the persistent connection and return its response."""
+        self.request_started = False
         key = self.pacing_key_for_model(request_model_from_body(body))
         if not wait_host_gap(key, cancel, status_callback):
             raise stopped_error()
@@ -272,6 +275,7 @@ class LlmHttpTransport:
             headers["User-Agent"] = USER_AGENT
         allow_stale_resend = _allow_stale_resend
         try:
+            self.request_started = True
             conn.request(method, path, body=body, headers=headers)
             self._pacer.mark_sent()
             mark_host_sent(key)

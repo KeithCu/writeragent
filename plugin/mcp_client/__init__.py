@@ -17,8 +17,9 @@
 """External MCP servers: owns the mcp_client.* settings and registers the external_mcp chat tool.
 
 The client itself lives in ``plugin/mcp/client.py`` next to WriterAgent's own
-MCP server. This module owns the settings, which ``config_inline: mcp`` shows
-as an "MCP Client" section on the Settings dialog's MCP tab.
+MCP server. This module owns the settings on the Settings dialog's Integrations
+tab and hides ``external_mcp`` from the chat tool list unless at least one
+server is configured.
 """
 
 from __future__ import annotations
@@ -37,3 +38,4 @@ class McpClientModule(ModuleBase):
         from plugin.mcp import client as mcp_client
 
         services.tools.auto_discover(mcp_client)
+        services.tools.tool_filters.append(mcp_client.filter_external_mcp)

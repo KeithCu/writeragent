@@ -384,7 +384,7 @@ def execute_tool(
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
         raise RuntimeError(
-            f"Tool {tool_name!r} cannot run from a venv script (see _BLOCKED_FROM_VENV)."
+            f"Tool {tool_name!r} cannot run from a venv script."
         )
     # Named-script tools must hit this gate first. An empty allowlist means
     # =PY() recalc; dispatching them before it would let recalc return every

@@ -1175,3 +1175,37 @@ def test_cdp_connection_leak_early_exception():
          mock_begin.assert_called_once_with(ctx.ctx, "chrome")
          # Important: Even though the exception was raised during LlmClient setup, finish must be called
          mock_finish.assert_called_once()
+
+
+def test_web_research_uses_ctx_approval_callback_as_given():
+    from plugin.chatbot.web_research import WebResearchTool
+
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.send_cancellation = None
+    cb = MagicMock(return_value=(True, None))
+    ctx.approval_callback = cb
+    captured = {}
+
+    def _fake_run(_ctx, _q, _hist, agent_params, **_kwargs):
+        captured["approval_callback"] = agent_params.approval_callback
+        return "ok"
+
+    def _cfg(key):
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        if key == "chatbot.max_tool_rounds":
+            return 1
+        if key == "chat_max_tokens":
+            return 2048
+        return 0
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_cfg),
+        patch("plugin.framework.config.get_api_config", return_value={}),
+        patch("plugin.chatbot.web_research._run_web_agent", side_effect=_fake_run),
+        patch("plugin.framework.client.llm_client.LlmClient"),
+    ):
+        res = WebResearchTool().execute(ctx, query="test query")
+    assert res["status"] == "ok"
+    assert captured["approval_callback"] is cb

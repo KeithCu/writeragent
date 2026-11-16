@@ -748,6 +748,20 @@ def test_apply_settings_result_uses_passed_field_specs():
         mock_save.assert_called_once_with({"doc.grammar_provider": "shared"})
 
 
+def test_apply_settings_result_parses_mcp_client_servers_json():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+
+    specs = [{"name": "mcp_client__servers", "config_key": "mcp_client.servers", "type": "json"}]
+    with (
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
+        patch("plugin.chatbot.settings_dialog.get_config", return_value={}),
+        patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://api.test"),
+        patch("plugin.chatbot.settings_dialog.save") as mock_save,
+    ):
+        apply_settings_result(MagicMock(), {"mcp_client__servers": '{"home": {"url": "http://localhost:8000/mcp"}}'}, specs)
+        mock_save.assert_called_once_with({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp"}}})
+
+
 def test_ok_migrates_plaintext_keys_and_typed_key_never_hits_disk():
     from plugin.chatbot.settings_dialog import apply_settings_result
     from plugin.framework import keystore
