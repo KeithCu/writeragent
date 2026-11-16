@@ -137,3 +137,21 @@ def test_draw_context_active_slide_index_matches_controller(ctx, doc):
     assert "Slide Size: width=" in text
     assert "(1/100 mm)" in text
 
+
+@native_test
+@with_native_doc("impress")
+def test_move_and_front_insert_keep_unnamed_slides_unnamed(ctx, doc):
+    from plugin.draw.bridge import DrawBridge
+
+    pages = doc.getDrawPages()
+    while pages.getCount() < 4:
+        pages.insertNewByIndex(pages.getCount() - 1)
+    _rename(pages.getByIndex(1), "Named")
+
+    bridge = DrawBridge(doc)
+    assert bridge.move_slide(0, 3) is True
+    bridge.create_slide(0, switch=False)
+    pages.insertNewByIndex(0)
+
+    assert _names(pages) == ["page1", "page2", "Named", "page4", "page5", "page6"]
+
