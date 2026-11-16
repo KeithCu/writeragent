@@ -19,6 +19,7 @@ from plugin.framework.config import (
     get_config,
     get_current_endpoint,
     get_api_key_for_endpoint,
+    migrate_secrets_to_keystore,
 )
 from plugin.framework.client.model_fetcher import (
     _sanitize_stored_model_value,
@@ -359,6 +360,7 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             _stage_lru(changed, val, lru_key, endpoint)
     if changed:
         save(changed)
+    migrate_secrets_to_keystore()
 
 
 def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> None:

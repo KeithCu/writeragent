@@ -23,7 +23,7 @@ import os
 import threading
 from typing import Any, Callable
 
-from plugin.framework.config import get_config, save
+from plugin.framework.config import get_config, get_secret_config, save
 from plugin.framework.http_server import format_bind_failure, is_port_in_use_error
 from plugin.framework.module_base import ModuleBase
 from plugin.mcp.cors import reload_cors_policy_from_config
@@ -315,7 +315,7 @@ class McpModule(ModuleBase):
             log.warning("tunnel_enabled but no usable MCP port (%r)", port)
             return
         provider = str(get_config("mcp.tunnel_provider") or DEFAULT_PROVIDER)
-        provider_token = str(get_config("mcp.tunnel_provider_token") or "")
+        provider_token = get_secret_config("mcp.tunnel_provider_token")
         # Armed before the thread is queued. stop() clears it, so a disable
         # that lands while this start is still waiting to run cannot lose.
         start_token = object()

@@ -8,6 +8,8 @@ if _repo_root not in sys.path:
 
 # Layer A thread guard defaults on in non-release bundles; keep headless pytest stable.
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
+# Disable OS keystore in pytest so existing tests keep plain-text JSON behavior.
+os.environ["WRITERAGENT_KEYSTORE"] = "0"
 import types
 from typing import Any
 from unittest.mock import MagicMock, patch

@@ -136,6 +136,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/ast_stmt_edit.py",
     "plugin/framework/config.py",
     "plugin/framework/config_schema.py",
+    "plugin/framework/keystore.py",
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
     "plugin/framework/doc_type.py",

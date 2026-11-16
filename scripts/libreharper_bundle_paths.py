@@ -44,8 +44,9 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/version.py",
     "plugin/framework/__init__.py",
     "plugin/framework/config.py",
-    # config.py does ``from plugin.framework import config_schema`` at import time.
+    # config.py does ``from plugin.framework import config_schema, keystore`` at import time.
     "plugin/framework/config_schema.py",
+    "plugin/framework/keystore.py",
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",

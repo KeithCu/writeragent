@@ -66,15 +66,17 @@ MODULES: list[dict[str, Any]] = []
 CONFIG_DEFAULTS: dict[str, Any] = {}
 CONFIG_SCHEMAS: dict[str, Any] = {}
 FLAT_TO_MODULE_KEY: dict[str, str] = {}
+SECRET_CONFIG_KEYS: frozenset[str] = frozenset()
 
 
 def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
     """Set manifest modules list and rebuild fast defaults/schemas lookup dictionaries."""
-    global MODULES, CONFIG_DEFAULTS, CONFIG_SCHEMAS, FLAT_TO_MODULE_KEY
+    global MODULES, CONFIG_DEFAULTS, CONFIG_SCHEMAS, FLAT_TO_MODULE_KEY, SECRET_CONFIG_KEYS
     MODULES = modules or []
     defaults: dict[str, Any] = {}
     schemas: dict[str, Any] = {}
     flat_to_mod: dict[str, str] = {"doc_agent_edit_review_mode": "doc.agent_edit_review_mode"}
+    secret_keys: set[str] = set()
     for m in MODULES:
         mod_name = m.get("name", "")
         config = m.get("config", {})
@@ -86,9 +88,17 @@ def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
                         defaults[full_key] = schema["default"]
                     schemas[full_key] = schema
                     flat_to_mod[fname] = full_key
+                    if schema.get("widget") == "password":
+                        secret_keys.add(full_key)
     CONFIG_DEFAULTS = defaults
     CONFIG_SCHEMAS = schemas
     FLAT_TO_MODULE_KEY = flat_to_mod
+    SECRET_CONFIG_KEYS = frozenset(secret_keys)
+
+
+def is_secret_config_key(key: str) -> bool:
+    """True when *key* is a ``widget: password`` module config field."""
+    return key in SECRET_CONFIG_KEYS
 
 
 # Bind derived tables from MODULES at import so callers do not need

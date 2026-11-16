@@ -34,12 +34,19 @@ def _patch_manifest(mock_modules):
         config_schema.CONFIG_DEFAULTS,
         config_schema.CONFIG_SCHEMAS,
         config_schema.FLAT_TO_MODULE_KEY,
+        config_schema.SECRET_CONFIG_KEYS,
     )
     config_schema.set_manifest_modules(mock_modules)
     try:
         yield
     finally:
-        config_schema.MODULES, config_schema.CONFIG_DEFAULTS, config_schema.CONFIG_SCHEMAS, config_schema.FLAT_TO_MODULE_KEY = orig
+        (
+            config_schema.MODULES,
+            config_schema.CONFIG_DEFAULTS,
+            config_schema.CONFIG_SCHEMAS,
+            config_schema.FLAT_TO_MODULE_KEY,
+            config_schema.SECRET_CONFIG_KEYS,
+        ) = orig
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.constants import get_plugin_dir
 import sys
@@ -1482,3 +1489,132 @@ def test_get_config_before_init_returns_default_when_uno_user_config_raises():
             assert get_config("chatbot.rich_text_control_sidebar") is True
     finally:
         reset_config_for_tests()
+
+
+def _install_fake_keystore(monkeypatch):
+    from plugin.framework import keystore
+    from tests.framework.test_keystore import FakeBackend
+
+    backend = FakeBackend()
+    monkeypatch.setattr(keystore, "_resolved", backend)
+    monkeypatch.setattr(keystore, "_cache", {})
+    monkeypatch.setattr(keystore, "_writes_failed", False)
+    monkeypatch.setattr(keystore, "_read_failures_logged", set())
+    return backend
+
+
+def test_api_key_saved_to_keystore_not_file(monkeypatch):
+    from plugin.framework.config import api_key_slot_value, get_config_file_path
+
+    backend = _install_fake_keystore(monkeypatch)
+    url = "https://api.example.com/v1"
+    set_api_key_for_endpoint(url, "sk-1")
+
+    raw_bytes = open(get_config_file_path(), "rb").read()
+    assert b"sk-1" not in raw_bytes
+    assert b"keystore:" in raw_bytes
+    assert api_key_slot_value(url).startswith("keystore:")
+    assert get_api_key_for_endpoint(url) == "sk-1"
+    assert backend.store == {"api_key:https://api.example.com": "sk-1"}
+
+
+def test_resaving_same_key_keeps_ref(monkeypatch):
+    from plugin.framework.config import api_key_slot_value
+
+    _install_fake_keystore(monkeypatch)
+    url = "https://api.example.com"
+    set_api_key_for_endpoint(url, "sk-1")
+    first_ref = api_key_slot_value(url)
+
+    with patch.object(get_event_bus(), "emit") as emit:
+        set_api_key_for_endpoint(url, "sk-1")
+    assert api_key_slot_value(url) == first_ref
+    emit.assert_not_called()
+
+
+def test_clearing_key_deletes_store_item(monkeypatch):
+    from plugin.framework.config import api_key_slot_value
+
+    backend = _install_fake_keystore(monkeypatch)
+    url = "https://api.example.com"
+    set_api_key_for_endpoint(url, "sk-1")
+    assert "api_key:https://api.example.com" in backend.store
+
+    set_api_key_for_endpoint(url, "")
+    assert api_key_slot_value(url) == ""
+    assert "api_key:https://api.example.com" not in backend.store
+    assert get_api_key_for_endpoint(url) == ""
+
+
+def test_store_write_failure_falls_back_to_plain_text(monkeypatch):
+    from plugin.framework.config import api_key_slot_value, get_config_file_path
+
+    backend = _install_fake_keystore(monkeypatch)
+    backend.fail_set = True
+    url = "https://api.example.com"
+    set_api_key_for_endpoint(url, "sk-1")
+
+    raw_bytes = open(get_config_file_path(), "rb").read()
+    assert b"sk-1" in raw_bytes
+    assert api_key_slot_value(url) == "sk-1"
+    assert get_api_key_for_endpoint(url) == "sk-1"
+
+
+def test_migrate_moves_all_plaintext_secrets(monkeypatch):
+    from plugin.framework.config import (
+        api_key_slot_value,
+        get_config_file_path,
+        get_secret_config,
+        migrate_secrets_to_keystore,
+    )
+
+    save(
+        {
+            "api_keys_by_endpoint": {
+                "https://one.test": "sk-one",
+                "https://two.test": "sk-two",
+            },
+            "mcp.tunnel_provider_token": "tok",
+        }
+    )
+    _install_fake_keystore(monkeypatch)
+    migrate_secrets_to_keystore()
+
+    raw_bytes = open(get_config_file_path(), "rb").read()
+    assert b"sk-one" not in raw_bytes
+    assert b"sk-two" not in raw_bytes
+    assert b'"tok"' not in raw_bytes
+    assert api_key_slot_value("https://one.test").startswith("keystore:")
+    assert api_key_slot_value("https://two.test").startswith("keystore:")
+    assert get_config("mcp.tunnel_provider_token").startswith("keystore:")
+    assert get_api_key_for_endpoint("https://one.test") == "sk-one"
+    assert get_api_key_for_endpoint("https://two.test") == "sk-two"
+    assert get_secret_config("mcp.tunnel_provider_token") == "tok"
+
+
+def test_migrate_without_store_leaves_file():
+    from plugin.framework.config import get_config_file_path, migrate_secrets_to_keystore
+
+    save({"api_keys_by_endpoint": {"https://one.test": "sk-one"}})
+    before = open(get_config_file_path(), "rb").read()
+    migrate_secrets_to_keystore()
+    after = open(get_config_file_path(), "rb").read()
+    assert after == before
+
+
+def test_unreadable_ref_reads_empty_and_survives_empty_save(monkeypatch):
+    from plugin.framework.config import api_key_slot_value
+
+    backend = _install_fake_keystore(monkeypatch)
+    url = "https://api.example.com"
+    set_api_key_for_endpoint(url, "sk-1")
+    ref = api_key_slot_value(url)
+
+    from plugin.framework import keystore
+
+    keystore._cache.clear()
+    backend.fail_get = True
+
+    assert get_api_key_for_endpoint(url) == ""
+    save({"api_keys_by_endpoint": {url: ""}})
+    assert api_key_slot_value(url) == ref

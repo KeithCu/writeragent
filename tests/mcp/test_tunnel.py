@@ -1287,6 +1287,7 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
         "mcp.tunnel_provider_token": "",
     }
     monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
+    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: str(cfg_data.get(k) or ""))
     mod._services = services
     bound = MagicMock()
     bound.is_running.return_value = True
@@ -1573,6 +1574,7 @@ def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
     services = MagicMock()
     cfg_data = {"mcp.mcp_enabled": True, "mcp.tunnel_enabled": True, "mcp.mcp_port": port, "mcp.tunnel_provider": "cloudflare", "mcp.tunnel_provider_token": ""}
     monkeypatch.setattr(mcp_mod, "get_config", lambda k: cfg_data.get(k))
+    monkeypatch.setattr(mcp_mod, "get_secret_config", lambda k: str(cfg_data.get(k) or ""))
     mod._services = services
     bound = MagicMock()
     bound.is_running.return_value = True
@@ -1603,6 +1605,45 @@ def test_sync_tunnel_string_port_is_coerced_to_int(monkeypatch):
     mod, tunnel = _sync_tunnel_module(monkeypatch, port="18765")
     mod._sync_tunnel()
     assert tunnel.start.call_args.args[0] == 18765
+
+
+def test_sync_tunnel_passes_resolved_keystore_token(monkeypatch):
+    import plugin.mcp as mcp_mod
+    from plugin.framework import keystore
+    from plugin.framework.config import save
+    from tests.framework.test_keystore import FakeBackend
+
+    backend = FakeBackend()
+    monkeypatch.setattr(keystore, "_resolved", backend)
+    monkeypatch.setattr(keystore, "_cache", {})
+    monkeypatch.setattr(keystore, "_writes_failed", False)
+    monkeypatch.setattr(keystore, "_read_failures_logged", set())
+
+    save(
+        {
+            "mcp.mcp_enabled": True,
+            "mcp.tunnel_enabled": True,
+            "mcp.mcp_port": "18765",
+            "mcp.tunnel_provider": "cloudflare",
+            "mcp.tunnel_provider_token": "tok-a",
+        }
+    )
+
+    mod = mcp_mod.McpModule.__new__(mcp_mod.McpModule)
+    mod.name = "mcp"
+    mod._services = MagicMock()
+    bound = MagicMock()
+    bound.is_running.return_value = True
+    bound.port = 18765
+    mod.server = bound
+    tunnel = MagicMock()
+    tunnel.last_error = None
+    mod.tunnel = tunnel
+    monkeypatch.setattr(mcp_mod, "_current_module", mod)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+
+    mod._sync_tunnel()
+    assert tunnel.start.call_args.kwargs["provider_token"] == "tok-a"
 
 
 @pytest.mark.slow
