@@ -328,6 +328,9 @@ def to_wire(
             # by pandas (e.g. pd.DataFrame(data) on a sheet range). As a header
             # they spill as a junk "0 | 1 | ..." row above the data, so send the
             # body alone, matching how an unnamed Series is handled below.
+            # pandas 3 also builds a RangeIndex from dict keys 0..N-1
+            # (`pd.DataFrame({0: [...], 1: [...]})`), so such a frame spills
+            # without a header too.
             cols = val.columns
             if len(cols) > 0 and isinstance(cols, pd_mod.RangeIndex) and cols.start == 0 and cols.step == 1:
                 return [] if len(val) == 0 else _frame_body(val, depth)
