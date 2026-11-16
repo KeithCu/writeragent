@@ -34,7 +34,6 @@ _PROVIDER_HOSTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("deepseek", ("api.deepseek.com",)),
     ("groq", ("api.groq.com",)),
     ("cerebras", ("api.cerebras.ai",)),
-    ("perplexity", ("api.perplexity.ai",)),
     ("xai", ("api.x.ai",)),
     ("anthropic", ("api.anthropic.com",)),
     ("google", ("generativelanguage.googleapis.com",)),

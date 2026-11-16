@@ -161,6 +161,25 @@ class TestTextModelPlaceholderGuards:
             set_text_model('(Connection failed)', update_lru=False)
             mock_set.assert_not_called()
 
+    def test_cerebras_and_deepseek_presets_resolve_a_tool_chat_default(self):
+        # Fresh Cerebras configs resolve text_model to "" unless Cerebras has a
+        # default_text catalog entry; DeepSeek must resolve to a chat+tools default too.
+        from plugin.framework.constants import ModelCapability
+        from plugin.framework.client.model_fetcher import ENDPOINT_PRESETS, get_text_model
+        from plugin.framework.default_models import get_model_capability
+
+        targets = {label: url for label, url in ENDPOINT_PRESETS if label in ("Cerebras", "DeepSeek")}
+        assert set(targets) == {"Cerebras", "DeepSeek"}
+        for url in targets.values():
+            with patch('plugin.framework.client.model_fetcher.get_config', return_value=''):
+                with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value=url):
+                    model_id = get_text_model()
+            assert model_id
+            caps = get_model_capability(model_id, url)
+            assert isinstance(caps, int)
+            assert caps & ModelCapability.CHAT
+            assert caps & ModelCapability.TOOLS
+
     def test_fetch_available_models_override_used_not_config_file(self):
         'Settings passes live api_key field; override must win over api_keys_by_endpoint.'
         from plugin.framework.client import model_fetcher as cfg
