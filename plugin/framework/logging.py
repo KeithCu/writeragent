@@ -141,7 +141,7 @@ def _redact_sensitive_inplace(o: Any) -> None:
     if isinstance(o, dict):
         for key, val in list(o.items()):
             if isinstance(key, str) and key.casefold() == _API_KEYS_BY_ENDPOINT and isinstance(val, dict):
-                # api_keys_by_endpoint is a URL→raw key map. An exact-name
+                # api_keys_by_endpoint is a URL→raw key or keystore: ref map. An exact-name
                 # string check leaves every key in the debug log. Replace
                 # each string value; non-strings stay for the walk below.
                 for inner_key, inner_val in list(val.items()):

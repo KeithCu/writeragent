@@ -332,7 +332,7 @@ class DelegateToSpecializedBase(ToolBase):
 
     # A delegation to a read-only domain never changes the active document.
     # It skips the MCP per-document gate, and in the sidebar it does not
-    # re-read the document context or count as an edit for the zero-tool nudge.
+    # re-read the document context.
     # Called before schema validation (MCP prepare, sidebar TOOL_DONE), so a
     # non-string domain must not reach the frozenset membership test (unhashable
     # values raise TypeError); it falls through to the mutating default.

@@ -16,7 +16,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Tests for consolidated plugin.framework.tool."""
 
-import logging
 import pytest
 import threading
 import time
@@ -395,26 +394,32 @@ class TestRegister:
         assert reg.get("fake_tool") is not None
         assert reg.get("missing") is None
 
-    def test_register_warns_same_class_name_different_module(self, caplog):
+    def test_register_rejects_same_name_from_different_class(self):
         def _exec(self, ctx, **kwargs):
             return {"status": "ok"}
 
         DrawCls = type("UpsertShape", (ToolBase,), {"name": "shape_upsert", "description": "draw", "execute": _exec})
         DrawCls.__module__ = "plugin.draw.shapes"
-        WriterCls = type("UpsertShape", (ToolBase,), {"name": "shape_upsert", "description": "writer", "execute": _exec})
-        WriterCls.__module__ = "plugin.writer.specialized.shapes"
+        OtherCls = type("UpsertShape", (ToolBase,), {"name": "shape_upsert", "description": "other", "execute": _exec})
+        OtherCls.__module__ = "plugin.other.shapes"
         reg = ToolRegistry(ServiceRegistry())
-        wa_logger = logging.getLogger("writeragent")
-        old_propagate = wa_logger.propagate
-        wa_logger.propagate = True
-        try:
-            with caplog.at_level("WARNING", logger="writeragent.tools"):
-                reg.register(DrawCls())
-                reg.register(WriterCls())
-            assert any("plugin.draw.shapes" in r.message and "plugin.writer.specialized.shapes" in r.message for r in caplog.records)
-            assert reg.get("shape_upsert").description == "writer"
-        finally:
-            wa_logger.propagate = old_propagate
+        reg.register(DrawCls())
+        with pytest.raises(ValueError, match="duplicate tool name 'shape_upsert'"):
+            reg.register(OtherCls())
+        assert reg.get("shape_upsert").description == "draw"
+
+    def test_auto_discover_raises_on_duplicate_name(self):
+        def _exec(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+        mod = types.ModuleType("plugin.fake_dup_mod")
+        DupTool = type("DupTool", (ToolBase,), {"name": "fake_tool", "description": "dup", "execute": _exec})
+        DupTool.__module__ = mod.__name__
+        mod.DupTool = DupTool  # type: ignore[attr-defined]
+
+        reg = _make_registry(FakeTool())
+        with pytest.raises(ValueError, match="duplicate tool name 'fake_tool'"):
+            reg.auto_discover(mod)
 
 class TestDocTypeFiltering:
     def test_tools_for_writer(self):
@@ -679,13 +684,9 @@ class TestChartToolsSpecializedTier:
 
     def test_skinny_chart_tools_discovered(self):
         import plugin.calc.charts as calc_charts
-        import plugin.draw.charts as draw_charts
-        import plugin.writer.specialized.charts as writer_charts
 
         reg = _make_registry()
         reg.auto_discover(calc_charts)
-        reg.auto_discover(writer_charts)
-        reg.auto_discover(draw_charts)
 
         for name in self._CHART_TOOL_NAMES:
             assert reg.get(name) is not None, f"{name} should be registered"
@@ -694,105 +695,37 @@ class TestChartToolsSpecializedTier:
         domain_names = {t.name for t in reg.get_tools(doc=doc, active_domain="charts")}
         assert domain_names == self._CHART_TOOL_NAMES
 
-    def test_writer_charts_domain_uses_writer_core_tools_not_sheet_readers(self):
-        """Shared chart tool names must not inherit Calc's required_core_tools via MRO."""
-        from plugin.calc.shapes import UpsertShape as CalcUpsertShape
-        from plugin.writer.specialized.charts import (
-            ChartDelete as WriterChartDelete,
-            ChartGetInfo as WriterChartGetInfo,
-            ChartList as WriterChartList,
-            ChartUpsert as WriterChartUpsert,
+    @pytest.mark.parametrize("domain", ["shapes", "charts"])
+    @pytest.mark.parametrize(
+        ("doc_type", "service", "readers"),
+        [
+            ("writer", "com.sun.star.text.TextDocument", {"get_content", "get_tree"}),
+            ("calc", "com.sun.star.sheet.SpreadsheetDocument", {"get_sheet_summary", "read_range"}),
+            ("draw", "com.sun.star.drawing.DrawingDocument", set()),
+            ("impress", "com.sun.star.presentation.PresentationDocument", set()),
+        ],
+    )
+    def test_shared_domain_gets_only_this_documents_readers(self, domain, doc_type, service, readers):
+        import plugin.calc.charts as calc_charts
+        import plugin.draw.shapes as draw_shapes
+        from plugin.calc.cells import ReadCellRange
+        from plugin.calc.sheets import GetSheetSummary
+        from plugin.writer.get_document_content import GetDocumentContent
+        from plugin.writer.outline import GetDocumentTree
+
+        reg = _make_registry(GetDocumentContent(), GetDocumentTree(), GetSheetSummary(), ReadCellRange())
+        reg.auto_discover(draw_shapes)
+        reg.auto_discover(calc_charts)
+
+        tools = reg.get_tools(
+            doc_type=doc_type,
+            uno_services_supported=frozenset({service}),
+            active_domain=domain,
+            exclude_tiers=(),
         )
-        from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
-
-        assert "get_content" in (WriterUpsertShape.required_core_tools or ())
-        assert "get_sheet_summary" in (CalcUpsertShape.required_core_tools or ())
-        for chart_cls in (WriterChartList, WriterChartGetInfo, WriterChartUpsert, WriterChartDelete):
-            assert chart_cls.required_core_tools is not None
-            assert "read_range" not in chart_cls.required_core_tools
-
-        def _exec(self, ctx, **kwargs):
-            return {"status": "ok"}
-
-        def core(name: str) -> ToolBase:
-            cls = type(
-                "Core_" + name,
-                (ToolBase,),
-                {"name": name, "description": name, "tier": "core", "requires_document": False, "execute": _exec},
-            )
-            return cls()
-
-        from plugin.writer.specialized.charts import (
-            ChartDelete as WriterChartDelete,
-            ChartGetInfo as WriterChartGetInfo,
-            ChartList as WriterChartList,
-            ChartUpsert as WriterChartUpsert,
-        )
-
-        reg = _make_registry(
-            core("get_content"),
-            core("get_tree"),
-            core("get_sheet_summary"),
-            core("read_range"),
-            WriterChartList(),
-            WriterChartGetInfo(),
-            WriterChartUpsert(),
-            WriterChartDelete(),
-        )
-        names = {t.name for t in reg.get_tools(active_domain="charts", filter_doc_type=False)}
-        assert self._CHART_TOOL_NAMES <= names
-        assert "get_content" in names
-        assert "get_tree" in names
-        assert "read_range" not in names
-        assert "get_sheet_summary" not in names
-
-    def test_chart_list_unions_required_core_tools_on_replace(self):
-        from plugin.calc.charts import ChartList as CalcChartList
-        from plugin.writer.specialized.charts import ChartList as WriterChartList
-
-        reg = _make_registry()
-        reg.register(CalcChartList())
-        reg.register(WriterChartList())
-        cores = reg._required_core_union.get("chart_list") or frozenset()
-        assert "get_content" in cores
-        assert "get_sheet_summary" in cores
-
-    def test_shared_shape_upsert_unions_required_core_tools_on_replace(self):
-        """Last-wins registration must keep Calc and Writer core tool sets."""
-        from plugin.calc.shapes import UpsertShape as CalcUpsertShape
-        from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
-
-        reg = _make_registry()
-        reg.register(CalcUpsertShape())
-        reg.register(WriterUpsertShape())
-        tool = reg.get("shape_upsert")
-        assert tool is not None
-        cores = reg._required_core_union.get("shape_upsert") or frozenset()
-        assert "get_content" in cores
-        assert "get_tree" in cores
-        assert "get_sheet_summary" in cores
-        assert "read_range" in cores
-
-        def _exec(self, ctx, **kwargs):
-            return {"status": "ok"}
-
-        def core(name: str) -> ToolBase:
-            cls = type(
-                "Core_" + name,
-                (ToolBase,),
-                {"name": name, "description": name, "tier": "core", "requires_document": False, "execute": _exec},
-            )
-            return cls()
-
-        for name in ("get_content", "get_tree", "get_sheet_summary", "read_range"):
-            reg.register(core(name))
-        # Last-wins would keep only Writer's readers. The shapes domain must
-        # still request Calc's sheet readers from the replaced registration.
-        names = {t.name for t in reg.get_tools(active_domain="shapes", filter_doc_type=False)}
-        assert "get_content" in names
-        assert "get_tree" in names
-        assert "get_sheet_summary" in names
-        assert "read_range" in names
+        prefix = "shape_" if domain == "shapes" else "chart_"
+        non_domain = {t.name for t in tools if not t.name.startswith(prefix)}
+        assert non_domain == readers
 
     def test_required_core_tools_includes_one_specialized_peer(self):
         """A domain may name one specialized tool from another domain."""

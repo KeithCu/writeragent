@@ -760,3 +760,26 @@ def test_apply_settings_result_parses_mcp_client_servers_json():
     ):
         apply_settings_result(MagicMock(), {"mcp_client__servers": '{"home": {"url": "http://localhost:8000/mcp"}}'}, specs)
         mock_save.assert_called_once_with({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp"}}})
+
+
+def test_ok_migrates_plaintext_keys_and_typed_key_never_hits_disk():
+    from plugin.chatbot.settings_dialog import apply_settings_result
+    from plugin.framework import keystore
+    from plugin.framework.config import get_api_key_for_endpoint, get_config_file_path, save
+    from tests.conftest import FakeKeystoreBackend
+
+    url1 = "https://one.test"
+    url2 = "https://two.test"
+    save({"endpoint": url1, "api_keys_by_endpoint": {url2: "sk-old-plain"}})
+
+    keystore.reset_for_tests(FakeKeystoreBackend())
+    try:
+        apply_settings_result(MagicMock(), {"endpoint": url1, "api_key": "sk-new"}, [])
+
+        raw_bytes = open(get_config_file_path(), "rb").read()
+        assert b"sk-new" not in raw_bytes
+        assert b"sk-old-plain" not in raw_bytes
+        assert get_api_key_for_endpoint(url1) == "sk-new"
+        assert get_api_key_for_endpoint(url2) == "sk-old-plain"
+    finally:
+        keystore.reset_for_tests()

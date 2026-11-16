@@ -172,3 +172,29 @@ def test_search_in_document_plain_bad_regex_is_invalid_regex_uno(ctx, doc):
     res = tool.execute(mock_ctx, pattern="([a-", regex=True)
     assert res["status"] == "error"
     assert res["code"] == "INVALID_REGEX"
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_miss_names_closest_header_text_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer import search as search_mod
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("Body paragraph one.")
+    page_styles = doc.getStyleFamilies().getByName("PageStyles")
+    standard = page_styles.getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    standard.getPropertyValue("HeaderText").setString("Acme Corp Quarterly Report")
+
+    res = ApplyDocumentContent().execute(
+        native_writer_tool_context(doc, ctx),
+        target="search",
+        old_content="Acme Corp Quartrely Report",
+        content="X",
+    )
+    assert res.get("status") == "error", res
+    msg = str(res.get("message", ""))
+    assert "differs at character 15: r vs e" in msg, msg
+    assert "Acme Corp Quarte…" in msg, msg
+    assert search_mod.get_search_miss_haystack(doc).count("Acme Corp Quarterly Report") == 1

@@ -14,9 +14,8 @@ plugin.chatbot.tool_loop_actions.
 from __future__ import annotations
 
 import dataclasses
-import re
 from enum import Enum, StrEnum, auto
-from typing import Any, Dict, List, Literal, Optional, NamedTuple, Sequence, TypeVar, assert_never, cast
+from typing import Any, Dict, List, Literal, Optional, NamedTuple, TypeVar, assert_never, cast
 
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import deal
@@ -93,11 +92,6 @@ class ToolLoopState(BaseState):
     status: str
     is_stopped: bool = False
     async_tools: frozenset[str] = frozenset()
-    doc_type: str = ""
-    query_text: str = ""
-    has_apply_tool: bool = False
-    has_mutated: bool = False
-    edit_nudge_sent: bool = False
 
 
 # --- Events ---
@@ -136,7 +130,6 @@ class UIEffectKind(StrEnum):
 
 
 class MessageRole(StrEnum):
-    USER = "user"
     ASSISTANT = "assistant"
     TOOL = "tool"
 
@@ -273,71 +266,6 @@ def _field(data: dict[str, Any], key: str, typ: type[_T], default: _T) -> _T:
     return val if isinstance(val, typ) else default
 
 
-EDIT_NUDGE_MESSAGE = (
-    "You answered in chat, so the document is unchanged. "
-    "Apply your changes to the document now by calling apply_content."
-)
-
-_EDIT_QUERY_RE = re.compile(
-    r"\b(?:"
-    r"rewrite|reformat|rephrase|paraphrase|edit|update|replace|insert|delete|remove|"
-    r"change|modify|fix|correct|clean\s*up|cleanup|convert|translate|proofread|polish|"
-    r"shorten|condense|expand|extend|refactor|rename|move|reorder|sort|apply|promote|"
-    r"merge|split|format|restyle|capitalize|lowercase|uppercase|indent|align|"
-    r"add\s+(?:a|an|the|some|new|more|this|that)\b|"
-    r"make\s+(?:this|that|it|the|every|only|all)\b|"
-    r"write\s+(?:a|an|the|some|new)\b|"
-    r"draft\s+(?:a|an|the|some|new)\b"
-    r")\b"
-    r"|\bsummarize\b.*\binto\b",
-    re.IGNORECASE,
-)
-
-
-def tools_have_apply_document_content(tools: Sequence[Any]) -> bool:
-    """Return True when ``apply_content`` is in the offered tool schemas."""
-    # crosshair: off
-    return any(
-        isinstance(t, dict)
-        and isinstance(t.get("function"), dict)
-        and t["function"].get("name") == "apply_content"
-        for t in tools
-    )
-
-
-def should_nudge_zero_tool_edit(
-    *,
-    query_text: str,
-    assistant_content: str,
-    doc_type: str,
-    has_apply_tool: bool,
-    has_mutated: bool,
-    already_nudged: bool,
-) -> bool:
-    """Return True when an edit-intent Writer turn ended in chat without calling tools.
-
-    Shared by the production FSM and ``scripts/prompt_optimization/llm_chat_eval.py``
-    so both paths agree on when to inject the one-time ``EDIT_NUDGE_MESSAGE``.
-    """
-    # crosshair: off
-    if already_nudged or has_mutated:
-        return False
-    if doc_type != "writer" or not has_apply_tool:
-        return False
-    text = assistant_content.strip() if isinstance(assistant_content, str) else ""
-    if not text:
-        return False
-    # Reply-side signals: model pasted a tool-call JSON object or an HTML table in chat.
-    if '"apply_content"' in text and '"name"' in text:
-        return True
-    if "<table" in text.lower():
-        return True
-    q = query_text.strip() if isinstance(query_text, str) else ""
-    if not q:
-        return False
-    return bool(_EDIT_QUERY_RE.search(q))
-
-
 def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition[ToolLoopState]:
     effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="ready"))
     effects.append(ExitLoopEffect())
@@ -430,42 +358,6 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             )
 
             if not tool_calls:
-                # One-time edit-turn nudge: if a Writer edit request got only chat text
-                # with zero tool calls and no mutating tool has run yet, commit the
-                # assistant reply, append EDIT_NUDGE_MESSAGE as a user turn, and spawn
-                # one follow-up LLM round. Guarded by not state.is_stopped (so Stop
-                # before STREAM_DONE never spawns) and round_num + 1 < max_rounds.
-                if (
-                    not state.is_stopped
-                    and state.round_num + 1 < state.max_rounds
-                    and isinstance(content, str)
-                    and should_nudge_zero_tool_edit(
-                        query_text=state.query_text,
-                        assistant_content=content,
-                        doc_type=state.doc_type,
-                        has_apply_tool=state.has_apply_tool,
-                        has_mutated=state.has_mutated,
-                        already_nudged=state.edit_nudge_sent,
-                    )
-                ):
-                    effects.append(ToolLoopUIEffect(kind=UIEffectKind.DEBUG, text="Tool loop: Adding assistant message to session"))
-                    effects.extend(_assistant_text_effects(content, response))
-                    effects.append(AddMessageEffect(role=MessageRole.USER, content=EDIT_NUDGE_MESSAGE))
-                    effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Thinking..."))
-                    effects.append(
-                        LogAgentEffect(
-                            location="tool_loop_state.py:edit_nudge",
-                            message="Nudging model to apply edits with apply_content",
-                            data={"round": state.round_num},
-                        )
-                    )
-                    new_round_num = state.round_num + 1
-                    effects.append(SpawnLLMWorkerEffect(round_num=new_round_num))
-                    return FsmTransition(
-                        dataclasses.replace(state, round_num=new_round_num, edit_nudge_sent=True),
-                        effects,
-                    )
-
                 effects.append(
                     LogAgentEffect(
                         location="tool_loop_state.py:exit_no_tools",
@@ -637,8 +529,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 effects.append(UpdateDocumentContextEffect())
 
             effects.append(TriggerNextToolEffect())
-            next_loop_state = dataclasses.replace(state, has_mutated=True) if (mutates_document and not state.has_mutated) else state
-            return FsmTransition(next_loop_state, effects)
+            return FsmTransition(state, effects)
 
     # Closed enum. A new EventKind must fail here instead of a no-op transition.
     assert_never(event.kind)

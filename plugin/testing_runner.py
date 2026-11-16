@@ -594,6 +594,10 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
         _office.options.use_user_profile = True
         _office.options.show_window = True
+    # UNO runs use a throwaway profile but inherit the real D-Bus session; disable
+    # the OS keystore so tests do not write keys into the developer's login keyring.
+    if not _office.options.use_user_profile:
+        os.environ.setdefault("WRITERAGENT_KEYSTORE", "0")
     return filters
 
 

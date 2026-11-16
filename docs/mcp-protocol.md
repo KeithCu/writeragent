@@ -20,7 +20,7 @@ what to consider doing next.
 
 **Client URL:** `http://localhost:18765/mcp` (streamable HTTP / JSON-RPC 2.0). External clients must include the `/mcp` path (not the server base URL alone).
 
-**Public tunnel (optional):** Settings → **Expose via public tunnel** (`mcp.tunnel_enabled`, default off), **Provider** (`mcp.tunnel_provider`, default `cloudflare`), and optional **Provider config** (`mcp.tunnel_provider_token`, password). When MCP is running, WriterAgent starts the selected CLI tunnel to the local MCP port and shows the public `/mcp` URL in **MCP Server Status** (and in the Start toast once the URL is known). One shared config string — meaning depends on provider:
+**Public tunnel (optional):** Settings → **Expose via public tunnel** (`mcp.tunnel_enabled`, default off), **Provider** (`mcp.tunnel_provider`, default `cloudflare`), and optional **Provider config** (`mcp.tunnel_provider_token`, password — stored in the OS keystore via `get_secret_config` when available). When MCP is running, WriterAgent starts the selected CLI tunnel to the local MCP port and shows the public `/mcp` URL in **MCP Server Status** (and in the Start toast once the URL is known). One shared config string — meaning depends on provider:
 
 | Provider | Empty Provider config | Non-empty Provider config |
 |----------|----------------------|---------------------------|

@@ -505,3 +505,22 @@ def test_build_module_field_specs_dict_textarea_and_parse_json_setting():
     with pytest.raises(ConfigValidationError):
         parse_json_setting("mcp_client.servers", "{bad json")
 
+
+def test_password_field_shows_resolved_secret(fake_keystore):
+    from unittest.mock import MagicMock
+
+    from plugin.framework.config import get_config_file_path, save
+
+    save({"mcp.tunnel_provider_token": "tok-secret"})
+    assert b"tok-secret" not in open(get_config_file_path(), "rb").read()
+
+    specs = build_module_field_specs("mcp", control_ids="flat")
+    tok_spec = next(s for s in specs if s["config_key"] == "mcp.tunnel_provider_token")
+    assert tok_spec["value"] == "tok-secret"
+    assert tok_spec["help"] == "Stored in: Fake Store"
+
+    ctrl = MagicMock()
+    ctrl.getModel.return_value.HelpText = "Translated tooltip"
+    populate_settings_control(ctrl, tok_spec)
+    assert ctrl.getModel.return_value.HelpText == "Translated tooltip\nStored in: Fake Store"
+
