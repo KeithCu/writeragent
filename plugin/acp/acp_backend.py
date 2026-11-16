@@ -406,23 +406,22 @@ class _ModelChoices:
     current_config_value: str | None = None
 
 
-def _extract_choice_pairs(items: list[Any], *, flatten_groups: bool) -> tuple[tuple[str, str], ...]:
+def _choice_pairs(items: Any, id_key: str, *, _recurse: bool = True) -> tuple[tuple[str, str], ...]:
+    """Extract ``(id, name)`` pairs from an ACP model or option list, flattening one group level."""
+    if not isinstance(items, list):
+        return ()
     pairs: list[tuple[str, str]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        if flatten_groups and isinstance(item.get("options"), list):
-            for sub in item["options"]:
-                if isinstance(sub, dict):
-                    val = sub.get("value")
-                    if isinstance(val, str) and val:
-                        name = sub.get("name")
-                        pairs.append((val, name if isinstance(name, str) else ""))
-        else:
-            val = item.get("value")
-            if isinstance(val, str) and val:
-                name = item.get("name")
-                pairs.append((val, name if isinstance(name, str) else ""))
+        sub = item.get("options")
+        if _recurse and isinstance(sub, list):
+            pairs.extend(_choice_pairs(sub, id_key, _recurse=False))
+            continue
+        val = item.get(id_key)
+        if isinstance(val, str) and val:
+            name = item.get("name")
+            pairs.append((val, name if isinstance(name, str) else ""))
     return tuple(pairs)
 
 
@@ -431,19 +430,11 @@ def _model_choices(result: Any) -> _ModelChoices:
     if not isinstance(result, dict):
         return _ModelChoices()
 
-    model_pairs: list[tuple[str, str]] = []
+    model_ids: tuple[tuple[str, str], ...] = ()
     current_model_id: str | None = None
     models = result.get("models")
     if isinstance(models, dict):
-        available = models.get("availableModels")
-        if isinstance(available, list):
-            for item in available:
-                if not isinstance(item, dict):
-                    continue
-                mid = item.get("modelId")
-                if isinstance(mid, str) and mid:
-                    name = item.get("name")
-                    model_pairs.append((mid, name if isinstance(name, str) else ""))
+        model_ids = _choice_pairs(models.get("availableModels"), "modelId")
         current = models.get("currentModelId")
         if isinstance(current, str):
             current_model_id = current
@@ -453,16 +444,13 @@ def _model_choices(result: Any) -> _ModelChoices:
     current_config_value: str | None = None
     config_options = result.get("configOptions")
     if isinstance(config_options, list):
-        model_opt: dict[str, Any] | None = None
-        for entry in config_options:
-            if isinstance(entry, dict) and entry.get("category") == "model":
-                model_opt = entry
-                break
-        if model_opt is None:
-            for entry in config_options:
-                if isinstance(entry, dict) and entry.get("id") == "model":
-                    model_opt = entry
-                    break
+        model_opt = next(
+            (e for e in config_options if isinstance(e, dict) and e.get("category") == "model"),
+            None,
+        ) or next(
+            (e for e in config_options if isinstance(e, dict) and e.get("id") == "model"),
+            None,
+        )
         if model_opt is not None:
             cid = model_opt.get("id")
             if isinstance(cid, str) and cid:
@@ -470,12 +458,10 @@ def _model_choices(result: Any) -> _ModelChoices:
             cur_val = model_opt.get("currentValue")
             if isinstance(cur_val, str):
                 current_config_value = cur_val
-            opts = model_opt.get("options")
-            if isinstance(opts, list):
-                config_values = _extract_choice_pairs(opts, flatten_groups=True)
+            config_values = _choice_pairs(model_opt.get("options"), "value")
 
     return _ModelChoices(
-        model_ids=tuple(model_pairs),
+        model_ids=model_ids,
         current_model_id=current_model_id,
         config_id=config_id,
         config_values=config_values,
@@ -892,6 +878,7 @@ class ACPBackend(AgentBackend):
             )
             with self._state_lock:
                 if not self._slot_lost_locked(conn):
+                    # Warn once per (session_id, wanted) rather than repeating on every send.
                     self._model_warn_key = (session_id, wanted)
             return
 
@@ -914,9 +901,13 @@ class ACPBackend(AgentBackend):
         except _TurnStopped:
             raise
         except Exception as exc:
+            if self._user_stopped():
+                raise _TurnStopped() from exc
             log.warning("%s %s failed: %s", self.display_name, method, exc, exc_info=True)
             with self._state_lock:
                 if not self._slot_lost_locked(conn):
+                    # Remember the failure for this session so a rejected or
+                    # timed-out switch does not stall every subsequent send.
                     self._model_warn_key = (session_id, wanted)
             return
 

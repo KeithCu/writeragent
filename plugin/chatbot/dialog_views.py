@@ -667,7 +667,7 @@ def sync_acp_model_ui(dlg: Any) -> None:
         # Disable rather than hide: setVisible on a later dialog step paints
         # the control onto General (unocontrolcontainer.cxx:implUpdateVisibility).
         # Unknown or partially typed backend text resolves to builtin, so it disables too.
-        enabled = value in acp_ids
+        enabled = str(value).strip().lower() in acp_ids
         for name in ("agent_backend__model", "label_agent_backend__model"):
             ctrl = get_optional(dlg, name)
             if ctrl is not None:

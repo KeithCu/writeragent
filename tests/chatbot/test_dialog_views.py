@@ -1875,6 +1875,11 @@ def test_acp_model_field_enabled_only_for_acp_backend() -> None:
         assert enabled[model_ctrl] is True
         assert enabled[model_label] is True
 
+        backend_ctrl.getText.return_value = "HERMES"
+        sync_acp_model_ui(dlg)
+        assert enabled[model_ctrl] is True
+        assert enabled[model_label] is True
+
         backend_ctrl.getText.return_value = "Ant"
         sync_acp_model_ui(dlg)
         assert enabled[model_ctrl] is False

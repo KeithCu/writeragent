@@ -2687,6 +2687,68 @@ class TestSessionModelSelection:
             "devstral-small",
         )
 
+    def test_switching_back_to_initial_model_sends_set_model(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        calls1, _ = self._run_send(backend, conn, model="gemini-4-argon-medium")
+        calls2, _ = self._run_send(backend, conn, model="gemini-3.8-flash-medium")
+        calls3, _ = self._run_send(backend, conn, model="gemini-4-argon-medium")
+        assert [m for m, _p in calls1].count("session/set_model") == 0
+        assert [p for m, p in calls2 if m == "session/set_model"] == [
+            {"sessionId": "sess-agy", "modelId": "gemini-3.8-flash-medium"}
+        ]
+        assert [p for m, p in calls3 if m == "session/set_model"] == [
+            {"sessionId": "sess-agy", "modelId": "gemini-4-argon-medium"}
+        ]
+
+    def test_stopped_during_model_switch_raises_turn_stopped_and_retries_next_send(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        calls: list[tuple[str, dict]] = []
+        fail_first = [True]
+
+        def send_request(method, params=None, timeout=120):
+            calls.append((method, params or {}))
+            if method == "session/new":
+                return _agy_session_new_result()
+            if method == "session/set_model":
+                if fail_first[0]:
+                    fail_first[0] = False
+                    if backend._active_cancel is not None:
+                        backend._active_cancel.cancel()
+                    raise ACPTimeoutError("timed out")
+                return {}
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(method)
+
+        conn.send_request.side_effect = send_request
+
+        def ensure_connection(cancel=None):
+            backend._conn = conn
+            backend._ready = True
+
+        backend._ensure_connection = ensure_connection
+
+        def config_get(key, default=None):
+            if key == "mcp.mcp_enabled":
+                return "false"
+            if key == "agent_backend.model":
+                return "gemini-3.8-flash-medium"
+            return default
+
+        q1 = queue.Queue()
+        q2 = queue.Queue()
+        with patch("plugin.framework.config.get_config", side_effect=config_get):
+            backend.send(queue=q1, user_message="hi", document_context=None, document_url=None)
+            backend.send(queue=q2, user_message="hi again", document_context=None, document_url=None)
+
+        events1 = [e[0] for e in _drain(q1)]
+        events2 = [e[0] for e in _drain(q2)]
+        assert StreamQueueKind.STOPPED in events1
+        assert StreamQueueKind.STREAM_DONE in events2
+        assert [m for m, _p in calls].count("session/set_model") == 2
+
 
 class TestAntigravityTerminatedBanner:
     def test_is_terminated_banner_predicate(self):
