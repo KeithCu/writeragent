@@ -143,11 +143,13 @@ def python_orchestrator_routing_line(*, delegate_tool: str = DELEGATE_SUBAGENT_T
 
 # image_generate edits the selected graphic whenever one is selected ('selection' explicitly,
 # or omitted while a graphic is selected; ImageGenerate.execute). What code cannot recover is
-# the user's edit wording, or a delete-then-generate.
+# the user's edit wording, or a delete-then-generate (observed: Nemotron Super paraphrased
+# an edit into generate-new).
 IMAGE_EDIT_TASK_RULE: str = (
     "To edit, change, or restyle an existing or selected image, delegate domain=images and keep the user's "
-    "edit wording in task (for example 'make it look like a wizard'); the images sub-agent then replaces "
-    "that picture in place, while a generate-new paraphrase inserts a new one."
+    "edit wording in task (for example 'make it look like a wizard') so the images sub-agent edits that "
+    "picture in place with those words; a generate-new paraphrase leads it to restyle with the wrong prompt "
+    "or to delete and insert a new picture."
 )
 IMAGE_EDIT_TOOL_RULE: str = (
     "To edit, change, or restyle the selected image, call image_generate with source_image='selection' and the "
