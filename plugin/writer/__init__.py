@@ -28,7 +28,7 @@ def _import_writer_tools():
     from . import tree, proximity  # noqa: F401  # pyright: ignore[reportUnusedImport]
     from . import apply_document_content, get_document_content, selection, styles, tracking, page, search, structural, outline, navigation, target_resolver, get_image  # noqa: F401  # pyright: ignore[reportUnusedImport]
     from .specialized import bookmarks
-    from .specialized import forms, charts, comments, shapes, indexes, textframes, fields, embedded, mail_merge  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    from .specialized import forms, comments, indexes, textframes, fields, embedded, mail_merge  # noqa: F401  # pyright: ignore[reportUnusedImport]
     from .locale import linguistic_index
     from .locale import ai_grammar_proofreader, grammar_proofread_locale, grammar_work_queue  # noqa: F401  # pyright: ignore[reportUnusedImport]
     return bookmarks, tree, proximity, linguistic_index

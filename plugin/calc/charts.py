@@ -27,7 +27,7 @@ import copy
 import logging
 import math
 import time
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, NamedTuple, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Iterator, Literal, NamedTuple, NoReturn, cast
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
+from plugin.writer.specialized_base import ToolWriterChartBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.errors import (
     ToolExecutionError,
@@ -1661,9 +1662,15 @@ def delete_chart(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
 
 class _ChartTool(ToolCalcChartBase):
-    """Shared chart-tool helpers (schema strip, union ``uno_services``)."""
+    """Shared chart-tool helpers (schema strip, union ``uno_services`` and union reader tools)."""
 
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
+    # One class serves every app, so it carries each app's reader tools. get_tools drops the
+    # readers that do not support the open document (Calc readers never reach a Writer agent).
+    required_core_tools: ClassVar[frozenset[str] | None] = (
+        (ToolCalcChartBase.required_core_tools or frozenset())
+        | (ToolWriterChartBase.required_core_tools or frozenset())
+    )
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         params = copy.deepcopy(cast("dict[str, Any]", self.parameters))

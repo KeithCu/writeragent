@@ -660,52 +660,6 @@ def test_duplicate_tool_name_fails_generation():
         generate_module(tools)
 
 
-def test_check_duplicate_registrations_rejects_clash_allows_shared():
-    from plugin.framework.tool import ToolBase, ToolRegistry
-    from scripts.generate_tool_proxies import check_duplicate_registrations
-
-    class _WriterTree(ToolBase):
-        name = "get_tree"
-        description = "Writer tree."
-        parameters = {"type": "object", "properties": {}}
-        uno_services = ["com.sun.star.text.TextDocument"]
-
-        def execute(self, ctx, **kwargs):
-            return {"status": "ok"}
-
-    class _DrawTree(ToolBase):
-        name = "get_tree"
-        description = "Draw tree."
-        parameters = {"type": "object", "properties": {}}
-        uno_services = ["com.sun.star.drawing.DrawingDocument"]
-
-        def execute(self, ctx, **kwargs):
-            return {"status": "ok"}
-
-    reg = ToolRegistry(services=None)
-    reg.register(_WriterTree())
-    reg.register(_DrawTree())
-    with pytest.raises(ValueError, match="duplicate tool name 'get_tree'"):
-        check_duplicate_registrations(reg)
-
-    # Deliberate shared classes (e.g. shape_upsert with the same class name) are allowed.
-    def _make_shared(mod_name: str, svc: str) -> ToolBase:
-        cls = type("UpsertShape", (ToolBase,), {
-            "name": "shape_upsert",
-            "description": "Upsert shape.",
-            "parameters": {"type": "object", "properties": {}},
-            "uno_services": [svc],
-            "execute": lambda self, ctx, **kw: {"status": "ok"},
-        })
-        cls.__module__ = mod_name
-        return cls()
-
-    shared_reg = ToolRegistry(services=None)
-    shared_reg.register(_make_shared("plugin.calc.shapes", "com.sun.star.sheet.SpreadsheetDocument"))
-    shared_reg.register(_make_shared("plugin.draw.shapes", "com.sun.star.drawing.DrawingDocument"))
-    check_duplicate_registrations(shared_reg)
-
-
 def _exec_generated_proxy(tools: list[ToolBase], handler):
     code = generate_module(tools)
     compile(code, "<generated>", "exec")

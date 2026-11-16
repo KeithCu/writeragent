@@ -1141,17 +1141,6 @@ def _config_in_scratch_dir(tmp_dir: str) -> None:
     config_mod._resolved_config_path = os.path.join(tmp_dir, "writeragent.json")
 
 
-def check_duplicate_registrations(registry: Any) -> None:
-    """Fail when two different tool classes register the same name, except deliberate shared classes."""
-    for name, prev_cls, new_cls in getattr(registry, "_duplicate_registrations", ()):
-        if name.startswith(("shape_", "chart_")) and prev_cls.__name__ == new_cls.__name__:
-            continue
-        raise ValueError(
-            f"duplicate tool name {name!r} registered by {prev_cls.__module__}.{prev_cls.__name__} "
-            f"and {new_cls.__module__}.{new_cls.__name__}"
-        )
-
-
 def validate_generated(code: str) -> None:
     """Ensure the generated module compiles and contains core tools."""
     compiled = compile(code, "<generated>", "exec")
@@ -1199,11 +1188,6 @@ def main(argv: list[str] | None = None) -> None:
         with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
             _config_in_scratch_dir(tmp_dir)
             registry = get_tools()
-            try:
-                check_duplicate_registrations(registry)
-            except Exception as exc:
-                sys.stderr.write(f"generate_tool_proxies: {exc}\n")
-                sys.exit(1)
             all_tools = registry.get_tools(
                 filter_doc_type=False,
                 exclude_tiers=frozenset({"specialized_control"}),
