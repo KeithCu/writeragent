@@ -544,7 +544,7 @@ CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_H
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, {DELEGATE_SUBAGENT_TOOL}(domain="web_research").
 Python on sheet data: write_range of =PY (that tool's description).
 SORT:
-Do {DELEGATE_SUBAGENT_TOOL}(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
+Do {DELEGATE_SUBAGENT_TOOL}(domain="ranges") then sort_range to reorder rows because rewriting values by hand loses the header row.
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
