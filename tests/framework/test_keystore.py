@@ -40,6 +40,27 @@ def test_backend_read_error_returns_none(fake_keystore, caplog):
     assert len(warnings) == 1
 
 
+def test_locked_read_is_not_cached(fake_keystore, caplog, monkeypatch):
+    fake_keystore.store["api_key:https://api.test"] = "sk-123"
+    fake_keystore.locked = True
+    with caplog.at_level(logging.WARNING, logger="plugin.framework.keystore"):
+        assert keystore.get_secret("api_key:https://api.test") is None
+        assert keystore.get_secret("api_key:https://api.test") is None
+    assert keystore.is_locked("api_key:https://api.test") is True
+    # A read right after a locked one does not prompt again.
+    assert fake_keystore.get_calls == 1
+    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
+
+    # After the retry window the backend is asked again (the user may have unlocked).
+    monkeypatch.setattr(keystore, "LOCKED_RETRY_S", 0.0)
+    assert keystore.get_secret("api_key:https://api.test") is None
+    assert fake_keystore.get_calls == 2
+
+    fake_keystore.locked = False
+    assert keystore.get_secret("api_key:https://api.test") == "sk-123"
+    assert keystore.is_locked("api_key:https://api.test") is False
+
+
 def test_write_failure_disables_writes_for_session(fake_keystore):
     fake_keystore.fail_set = True
     assert keystore.set_secret("k1", "v1") is False

@@ -1581,6 +1581,104 @@ def test_migrate_moves_all_plaintext_secrets():
         keystore.reset_for_tests()
 
 
+def test_migrate_merges_legacy_slot_into_normalized_slot(fake_keystore):
+    from plugin.framework.config import get_config_file_path, migrate_secrets_to_keystore
+
+    legacy = "https://openrouter.ai/api/v1"
+    save({"api_keys_by_endpoint": {legacy: "sk-or"}})
+    migrate_secrets_to_keystore()
+
+    slots = get_config("api_keys_by_endpoint")
+    assert legacy not in slots
+    assert slots["https://openrouter.ai/api"].startswith("keystore:")
+    assert fake_keystore.store == {"api_key:https://openrouter.ai/api": "sk-or"}
+    assert get_api_key_for_endpoint(legacy) == "sk-or"
+    assert b"sk-or" not in open(get_config_file_path(), "rb").read()
+
+
+def test_migrate_cleans_up_orphaned_legacy_item(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import migrate_secrets_to_keystore
+
+    legacy = "https://openrouter.ai/api/v1"
+    norm = "https://openrouter.ai/api"
+    # State left by the earlier migration: the legacy slot became a ref
+    # whose item nothing reads, next to a normalized slot with its own key.
+    set_api_key_for_endpoint(norm, "sk-new")
+    fake_keystore.store[f"api_key:{legacy}"] = "sk-old"
+    save({"api_keys_by_endpoint": {legacy: keystore.new_ref()}})
+
+    migrate_secrets_to_keystore()
+
+    assert legacy not in get_config("api_keys_by_endpoint")
+    assert fake_keystore.store == {f"api_key:{norm}": "sk-new"}
+    assert get_api_key_for_endpoint(norm) == "sk-new"
+
+
+def test_migrate_adopts_orphan_when_normalized_slot_empty(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import migrate_secrets_to_keystore
+
+    legacy = "https://openrouter.ai/api/v1"
+    fake_keystore.store[f"api_key:{legacy}"] = "sk-old"
+    save({"api_keys_by_endpoint": {legacy: keystore.new_ref()}})
+
+    migrate_secrets_to_keystore()
+
+    assert legacy not in get_config("api_keys_by_endpoint")
+    assert fake_keystore.store == {"api_key:https://openrouter.ai/api": "sk-old"}
+    assert get_api_key_for_endpoint(legacy) == "sk-old"
+
+
+def test_has_api_key_does_not_read_keystore(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.config import has_api_key_for_endpoint
+
+    url = "https://openrouter.ai/api"
+    set_api_key_for_endpoint(url, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+    assert has_api_key_for_endpoint(url) is True
+    assert has_api_key_for_endpoint("https://other.test") is False
+    assert fake_keystore.get_calls == 0
+
+
+def test_panel_model_combo_does_not_read_locked_keystore(fake_keystore):
+    from unittest.mock import MagicMock
+
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+    from plugin.framework import keystore
+
+    url = "https://openrouter.ai/api"
+    set_api_key_for_endpoint(url, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+    ctrl = MagicMock()
+    ctrl.getItemCount.return_value = 0
+    populate_combobox_with_lru(ctrl, "", "model_lru", url, skip_remote_fetch=True)
+    assert fake_keystore.get_calls == 0
+
+
+def test_locked_keystore_reports_keyring_locked(fake_keystore):
+    from plugin.framework import keystore
+    from plugin.framework.client.auth import AuthError, resolve_auth_for_config
+    from plugin.framework.errors import format_error_message
+
+    url = "https://openrouter.ai/api"
+    set_api_key_for_endpoint(url, "sk-1")
+    keystore.reset_for_tests(fake_keystore)
+    fake_keystore.locked = True
+    assert get_api_key_for_endpoint(url) == ""
+    with pytest.raises(AuthError) as exc:
+        resolve_auth_for_config({"endpoint": url, "api_key": ""})
+    assert exc.value.code == "keyring_locked"
+    assert "locked" in format_error_message(exc.value)
+
+    fake_keystore.locked = False
+    keystore.reset_for_tests(fake_keystore)
+    assert get_api_key_for_endpoint(url) == "sk-1"
+
+
 def test_migrate_without_store_leaves_file():
     from plugin.framework.config import get_config_file_path, migrate_secrets_to_keystore
 

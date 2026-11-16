@@ -173,7 +173,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_fla
                         board, ctrl_id, label_text, cb_left, curr_y + 2, cb_width, 10, checked=checked,
                     )
                 elif widget == "password":
-                    ctrl_el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14, echo_char=42)
+                    ctrl_el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, 14, echo_char="*")
                 elif widget == "textarea":
                     field_h = str(schema.get("height", 36))
                     ctrl_el = _common_add_textfield(board, ctrl_id, field_x, curr_y, field_w, field_h, multiline=True)

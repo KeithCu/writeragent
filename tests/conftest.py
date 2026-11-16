@@ -970,6 +970,7 @@ class FakeKeystoreBackend:
         self.fail_get = False
         self.fail_set = False
         self.fail_delete = False
+        self.locked = False
         self.on_get = None
 
     def get(self, name: str) -> str | None:
@@ -980,6 +981,10 @@ class FakeKeystoreBackend:
             from plugin.framework import keystore
 
             raise keystore.KeystoreError("read boom")
+        if self.locked and name in self.store:
+            from plugin.framework import keystore
+
+            raise keystore.KeystoreLocked("locked")
         return self.store.get(name)
 
     def set(self, name: str, value: str) -> None:

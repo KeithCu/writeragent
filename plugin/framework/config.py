@@ -635,11 +635,18 @@ def _resolve_secret(name: str, raw: Any) -> str:
     return str(raw or "")
 
 
+# Patch value for api_keys_by_endpoint that removes the slot instead of setting it.
+_DROP_SLOT: Any = object()
+
+
 def _merge_api_key_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
     """Return *current* with only the URL slots in *patch* replaced."""
     base = dict(current) if isinstance(current, dict) else {}
     for slot, secret in patch.items():
         slot_key = str(slot)
+        if secret is _DROP_SLOT:
+            base.pop(slot_key, None)
+            continue
         base[slot_key] = _secret_to_store(_api_key_secret_name(slot_key), base.get(slot_key), secret)
     return base
 
@@ -686,9 +693,54 @@ def get_api_key_for_endpoint(endpoint: Any) -> str:
     return _resolve_secret(_api_key_secret_name(normalized), _api_key_slot_raw(normalized))
 
 
+def has_api_key_for_endpoint(endpoint: Any) -> bool:
+    """True when the endpoint has a key stored, without reading the OS keystore.
+
+    A keystore ref counts as present. Use this on the main thread (panel
+    creation, gating) where a locked keyring read would block on its unlock
+    prompt; read the real key only when it is about to be sent.
+    """
+    return bool(_api_key_slot_raw(normalize_endpoint_url(endpoint or "")))
+
+
+def api_key_locked_for_endpoint(endpoint: Any) -> bool:
+    """True when the endpoint's key is in the OS keystore and its last read hit a locked store."""
+    normalized = normalize_endpoint_url(endpoint or "")
+    return keystore.is_ref(_api_key_slot_raw(normalized)) and keystore.is_locked(_api_key_secret_name(normalized))
+
+
 def get_secret_config(key: str) -> str:
     """Return the resolved secret string for a ``widget: password`` config key."""
     return _resolve_secret(key, get_config(key))
+
+
+def _normalized_api_key_slot_patch(slots: dict[str, Any]) -> dict[str, Any]:
+    """Patch that moves plain keys into the keystore under normalized slots.
+
+    Keys are read back by normalized endpoint, so a legacy slot such as
+    ``https://openrouter.ai/api/v1`` (normalized ``.../api``) is merged into
+    its normalized slot and dropped. A legacy slot that already became an
+    orphan keyring item (``api_key:<legacy>``) is adopted into the normalized
+    slot when that one is empty, then the orphan item is deleted.
+    """
+    patch: dict[str, Any] = {}
+    for slot, val in slots.items():
+        if not isinstance(val, str):
+            continue
+        norm = normalize_endpoint_url(slot)
+        if norm == slot:
+            if val and not keystore.is_ref(val) and slot not in patch:
+                patch[slot] = val
+            continue
+        secret = keystore.get_secret(_api_key_secret_name(slot)) if keystore.is_ref(val) else val
+        if secret is None and keystore.is_locked(_api_key_secret_name(slot)):
+            continue  # Locked orphan: keep it for a later Settings OK.
+        if secret and not slots.get(norm) and norm not in patch:
+            patch[norm] = secret
+        if keystore.is_ref(val):
+            keystore.delete_secret(_api_key_secret_name(slot))
+        patch[slot] = _DROP_SLOT
+    return patch
 
 
 def migrate_secrets_to_keystore() -> None:
@@ -699,13 +751,9 @@ def migrate_secrets_to_keystore() -> None:
         patch: dict[str, Any] = {}
         slots = get_config("api_keys_by_endpoint")
         if isinstance(slots, dict):
-            plain_slots = {
-                str(slot): val
-                for slot, val in slots.items()
-                if isinstance(val, str) and val and not keystore.is_ref(val)
-            }
-            if plain_slots:
-                patch["api_keys_by_endpoint"] = plain_slots
+            slot_patch = _normalized_api_key_slot_patch({str(k): v for k, v in slots.items()})
+            if slot_patch:
+                patch["api_keys_by_endpoint"] = slot_patch
         for key in _config_schema.SECRET_CONFIG_KEYS:
             val = get_config(key)
             if isinstance(val, str) and val and not keystore.is_ref(val):

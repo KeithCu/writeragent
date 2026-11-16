@@ -51,6 +51,7 @@ import os
 import secrets
 import sys
 import threading
+import time
 from typing import Any, Protocol, final
 
 from plugin.framework.errors import WriterAgentException
@@ -70,12 +71,25 @@ _cache_lock = threading.Lock()
 # never re-prompts once per slot during a single migration batch.
 _writes_failed: bool = False
 _read_failures_logged: set[str] = set()
+# Names whose last read hit a locked keyring (or a cancelled unlock prompt),
+# with the monotonic time of that read. Not cached, so a later read can prompt
+# again, but reads within LOCKED_RETRY_S return None without prompting: one
+# Send reads the key several times (main thread, LLM worker, context window),
+# and a cancelled prompt must not come straight back for each of them.
+_locked: dict[str, float] = {}
+LOCKED_RETRY_S = 5.0
 
 
 class KeystoreError(WriterAgentException):
     """Raised by platform keystore backends on OS store errors."""
 
     code: str = "KEYSTORE_ERROR"
+
+
+class KeystoreLocked(KeystoreError):
+    """The item exists but the store is locked (or the unlock prompt was cancelled)."""
+
+    code: str = "KEYSTORE_LOCKED"
 
 
 class _KeystoreBackend(Protocol):
@@ -179,6 +193,24 @@ class _LibSecret:
         ]
         self._clearv_sync.restype = ctypes.c_int
 
+        # Non-prompting search (no SECRET_SEARCH_UNLOCK) used to tell a missing
+        # item from a locked one after a lookup returns NULL.
+        self._searchv_sync = libsecret.secret_password_searchv_sync
+        self._searchv_sync.argtypes = [
+            ctypes.POINTER(_SecretSchema),
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.POINTER(_GError)),
+        ]
+        self._searchv_sync.restype = ctypes.c_void_p
+
+        libgobject = ctypes.CDLL("libgobject-2.0.so.0")
+        self._g_object_unref = libgobject.g_object_unref
+        self._g_list_free_full = libglib.g_list_free_full
+        self._g_list_free_full.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self._g_list_free_full.restype = None
+
         self._secret_password_free = libsecret.secret_password_free
         self._secret_password_free.argtypes = [ctypes.c_void_p]
         self._secret_password_free.restype = None
@@ -221,6 +253,8 @@ class _LibSecret:
             ptr = self._lookupv_sync(ctypes.byref(self._schema), table, None, ctypes.byref(err))
             self._raise_gerror(err)
             if not ptr:
+                if self._item_exists(table):
+                    raise KeystoreLocked(f"Secret {name!r} is in a locked keyring")
                 return None
             try:
                 return ctypes.string_at(ptr).decode("utf-8")
@@ -231,6 +265,17 @@ class _LibSecret:
         finally:
             self._g_hash_table_unref(table)
             del keepalive
+
+    def _item_exists(self, table: Any) -> bool:
+        """True when a matching item exists, locked or not, without prompting."""
+        err = ctypes.POINTER(_GError)()
+        found = self._searchv_sync(ctypes.byref(self._schema), table, 0, None, ctypes.byref(err))
+        if err:
+            self._g_error_free(err)
+        if not found:
+            return False
+        self._g_list_free_full(found, ctypes.cast(self._g_object_unref, ctypes.c_void_p))
+        return True
 
     def set(self, name: str, value: str) -> None:
         table, keepalive = self._make_attrs(name)
@@ -472,6 +517,8 @@ class _MacKeychain:
         data = ctypes.c_void_p()
         try:
             status = int(self._sec_item_copy_matching(q, ctypes.byref(data)))
+            if status in (-128, -25308):  # errSecUserCanceled, errSecInteractionNotAllowed
+                raise KeystoreLocked(f"OSStatus {status}")
             if status == -25300:  # errSecItemNotFound
                 return None
             if status != 0:
@@ -558,6 +605,7 @@ def reset_for_tests(backend: Any = _UNSET) -> None:
     with _cache_lock:
         _cache.clear()
         _read_failures_logged.clear()
+        _locked.clear()
     _writes_failed = False
 
 
@@ -591,11 +639,21 @@ def get_secret(name: str) -> str | None:
     with _cache_lock:
         if name in _cache:
             return _cache[name]
+        locked_at = _locked.get(name)
+        if locked_at is not None and time.monotonic() - locked_at < LOCKED_RETRY_S:
+            return None
     backend = _get_backend()
     if backend is None:
         return None
     try:
         value = backend.get(name)
+    except KeystoreLocked as exc:
+        # Not cached: a later read (Send, Settings) may prompt again and succeed.
+        with _cache_lock:
+            if name not in _locked:
+                log.warning("Secret %r unavailable: %s", name, exc)
+            _locked[name] = time.monotonic()
+        return None
     except KeystoreError as exc:
         with _cache_lock:
             if name not in _read_failures_logged:
@@ -603,7 +661,14 @@ def get_secret(name: str) -> str | None:
                 log.warning("Failed to read secret %r from %s: %s", name, backend.label, exc)
             return _cache.setdefault(name, None)
     with _cache_lock:
+        _locked.pop(name, None)
         return _cache.setdefault(name, value)
+
+
+def is_locked(name: str) -> bool:
+    """True when the last read of *name* found it in a locked keyring."""
+    with _cache_lock:
+        return name in _locked
 
 
 def set_secret(name: str, value: str) -> bool:
@@ -620,6 +685,7 @@ def set_secret(name: str, value: str) -> bool:
         return False
     with _cache_lock:
         _cache[name] = value
+        _locked.pop(name, None)
     return True
 
 
@@ -633,3 +699,4 @@ def delete_secret(name: str) -> None:
             log.warning("Failed to delete secret %r from %s: %s", name, backend.label, exc)
     with _cache_lock:
         _cache[name] = None
+        _locked.pop(name, None)
