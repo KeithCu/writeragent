@@ -106,6 +106,7 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # and partial or recorded replacements do not apply data-lo-para.
 # Range, selection and header reads copy paragraphs into a scratch document first, so
 # range_copy._COPIED_PARA_PROPERTIES must hold every UNO property a writer sets; test_every_para_writer_property_is_copied_by_range_reads pins that.
+# Range and selection reads also paint the five font and colour names through range_copy._PARA_LEVEL_CHAR_PROPERTIES.
 # Not emitted as style="": the import reads style="" as a character override.
 # ODF attribute -> CSS name, in emit order.
 _FODT_OVERRIDE_ATTRS = (
