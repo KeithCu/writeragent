@@ -289,7 +289,20 @@ _EDIT_QUERY_RE = re.compile(
     r"write\s+(?:a|an|the|some|new)\b|"
     r"draft\s+(?:a|an|the|some|new)\b"
     r")\b"
-    r"|\bsummarize\b.*\binto\b",
+    r"|\bsummarize\b.*\binto\b"
+    r"|\b(?:in|into|as)\s+(?:a|an)\s+(?:[\w-]+\s+){0,2}?table\b",
+    re.IGNORECASE,
+)
+
+# A request that opens with a read-only verb or question word is read-only even when an
+# edit word appears later (for example "Quote the selection, do not change it" or
+# "What would you change?"). Phrases like "in chat" likewise ask for a sidebar answer.
+# Because a missed nudge leaves the chat reply standing while a wrong nudge edits the
+# document unasked, this veto errs toward not nudging.
+_READ_ONLY_QUERY_RE = re.compile(
+    r"^\W*(?:please\s+)?(?:quote|explain|describe|count|list|show\s+me|tell\s+me|do\s+you|"
+    r"what|which|who|whose|why|how|where|when|is|are|does)\b"
+    r"|\bin\s+(?:the\s+)?chat\b",
     re.IGNORECASE,
 )
 
@@ -316,8 +329,10 @@ def should_nudge_zero_tool_edit(
 ) -> bool:
     """Return True when an edit-intent Writer turn ended in chat without calling tools.
 
-    Shared by the production FSM and ``scripts/prompt_optimization/llm_chat_eval.py``
-    so both paths agree on when to inject the one-time ``EDIT_NUDGE_MESSAGE``.
+    The user's query decides edit intent (with a leading read-only / ``in chat`` veto),
+    and a pasted ``"apply_content"`` tool call is the only reply-side signal. Shared by
+    the production FSM and ``scripts/prompt_optimization/llm_chat_eval.py`` so both
+    paths agree on when to inject the one-time ``EDIT_NUDGE_MESSAGE``.
     """
     # crosshair: off
     if already_nudged or has_mutated:
@@ -327,15 +342,13 @@ def should_nudge_zero_tool_edit(
     text = assistant_content.strip() if isinstance(assistant_content, str) else ""
     if not text:
         return False
-    # Reply-side signals: model pasted a tool-call JSON object or an HTML table in chat.
+    q = query_text.strip() if isinstance(query_text, str) else ""
+    if _READ_ONLY_QUERY_RE.search(q):
+        return False
+    # The model wrote an apply_content tool call as chat text instead of calling the tool.
     if '"apply_content"' in text and '"name"' in text:
         return True
-    if "<table" in text.lower():
-        return True
-    q = query_text.strip() if isinstance(query_text, str) else ""
-    if not q:
-        return False
-    return bool(_EDIT_QUERY_RE.search(q))
+    return bool(q) and bool(_EDIT_QUERY_RE.search(q))
 
 
 def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition[ToolLoopState]:

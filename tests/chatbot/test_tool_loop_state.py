@@ -1,6 +1,8 @@
 
 import json
 
+import pytest
+
 from plugin.chatbot.tool_loop_actions import (
     _describe_empty_response_tool_calls,
     format_empty_model_response_debug,
@@ -418,7 +420,6 @@ def test_truncate_delegate_task_accepts_long_ascii_and_unicode():
 def test_next_tool_delegate_keeps_full_task_on_spawn():
     """Sidebar line is a 120-char preview; SpawnToolWorkerEffect keeps the full task."""
     import json
-
     from plugin.chatbot.tool_loop_actions import DELEGATE_TASK_CHAT_MAX
 
     task = "Réécrire les styles — " + ("x" * 2200)
@@ -993,3 +994,151 @@ def test_stream_done_stopped_or_non_writer_does_not_nudge() -> None:
     )
     assert tr_calc.state.status == "Ready"
     assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr_calc.effects)
+
+
+@pytest.mark.parametrize(
+    ("query_text", "reply_content"),
+    [
+        (
+            "Quote back the selected text word for word; do not change anything.",
+            "<p>The selection reads: ...</p>",
+        ),
+        (
+            "Quote back the selected text exactly.",
+            "<table><tr><td>Q3</td></tr></table>",
+        ),
+        (
+            "What would you change in this paragraph?",
+            "<p>I would tighten the opening sentence.</p>",
+        ),
+        (
+            "Translate the selection into French in chat.",
+            "<p>Voici la traduction.</p>",
+        ),
+        (
+            "List the entries in the table of contents with their levels.",
+            "<table><tr><th>Entry</th><th>Level</th></tr></table>",
+        ),
+    ],
+)
+def test_stream_done_read_only_quote_turn_does_not_nudge(
+    query_text: str, reply_content: str
+) -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text=query_text,
+        has_apply_tool=True,
+    )
+    tr = next_state(
+        state,
+        create_event(
+            EventKind.STREAM_DONE,
+            response={"content": reply_content, "tool_calls": None},
+        ),
+    )
+    assert tr.state.status == "Ready"
+    assert tr.state.edit_nudge_sent is False
+    assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr.effects)
+    assert not any(
+        isinstance(e, AddMessageEffect) and e.role == MessageRole.USER for e in tr.effects
+    )
+
+
+@pytest.mark.parametrize(
+    ("query_text", "reply_content"),
+    [
+        (
+            "Rewrite the intro but do not change the numbers.",
+            "<p>Here is the rewritten intro.</p>",
+        ),
+        (
+            "Can you fix the typos in the selection?",
+            "<p>Fixed version.</p>",
+        ),
+        (
+            "Put this list into a table.",
+            "<table><tr><td>Item</td></tr></table>",
+        ),
+    ],
+)
+def test_stream_done_edit_request_answered_in_chat_still_nudges(
+    query_text: str, reply_content: str
+) -> None:
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text=query_text,
+        has_apply_tool=True,
+    )
+    tr = next_state(
+        state,
+        create_event(
+            EventKind.STREAM_DONE,
+            response={"content": reply_content, "tool_calls": None},
+        ),
+    )
+    assert tr.state.edit_nudge_sent is True
+    assert tr.state.round_num == 1
+    assert any(isinstance(e, SpawnLLMWorkerEffect) and e.round_num == 1 for e in tr.effects)
+    assert not any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    user_msgs = [
+        e for e in tr.effects if isinstance(e, AddMessageEffect) and e.role == MessageRole.USER
+    ]
+    assert len(user_msgs) == 1
+    assert user_msgs[0].content == EDIT_NUDGE_MESSAGE
+
+
+@pytest.mark.parametrize(
+    ("query_text", "expect_nudge"),
+    [
+        ("Create a short summary section at the end.", True),
+        ("What does an apply_content call look like?", False),
+    ],
+)
+def test_stream_done_pasted_apply_call_nudges_unless_read_only(
+    query_text: str, expect_nudge: bool
+) -> None:
+    pasted_call = '{"name": "apply_content", "arguments": {"html": "<p>Summary</p>"}}'
+    state = ToolLoopState(
+        round_num=0,
+        pending_tools=[],
+        max_rounds=5,
+        status="Thinking...",
+        doc_type="writer",
+        query_text=query_text,
+        has_apply_tool=True,
+    )
+    tr = next_state(
+        state,
+        create_event(
+            EventKind.STREAM_DONE,
+            response={"content": pasted_call, "tool_calls": None},
+        ),
+    )
+    if expect_nudge:
+        assert tr.state.edit_nudge_sent is True
+        assert tr.state.round_num == 1
+        assert any(isinstance(e, SpawnLLMWorkerEffect) and e.round_num == 1 for e in tr.effects)
+        user_msgs = [
+            e
+            for e in tr.effects
+            if isinstance(e, AddMessageEffect) and e.role == MessageRole.USER
+        ]
+        assert len(user_msgs) == 1
+        assert user_msgs[0].content == EDIT_NUDGE_MESSAGE
+    else:
+        assert tr.state.status == "Ready"
+        assert tr.state.edit_nudge_sent is False
+        assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+        assert not any(isinstance(e, SpawnLLMWorkerEffect) for e in tr.effects)
+        assert not any(
+            isinstance(e, AddMessageEffect) and e.role == MessageRole.USER for e in tr.effects
+        )
