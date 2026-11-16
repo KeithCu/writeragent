@@ -35,7 +35,7 @@ import ipaddress
 import logging
 import re
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.constants import ModelCapability
 from plugin.framework.default_models import (
@@ -56,6 +56,7 @@ from plugin.framework.config import (
     get_api_key_for_endpoint,
     get_config,
     get_current_endpoint,
+    has_api_key_for_endpoint,
     save,
     update_config_mapping,
 )
@@ -133,6 +134,10 @@ def _model_key(table: dict[str, Any], model_id: str) -> str:
 # Keys in flight for background vision capability resolution (UI thread schedule guard).
 _vision_in_flight_lock = threading.Lock()
 _vision_in_flight: set[str] = set()
+
+# Waiters for background /v1/models text catalog fetches, keyed by _catalog_memo_key.
+_text_fetch_lock = threading.Lock()
+_text_fetch_waiters: dict[str, list[Callable[[list[str]], None]]] = {}
 
 # Runtime PARAMETER / Modelfile line. Do not use this on model_info context_length.
 _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*$")
@@ -671,6 +676,71 @@ def cached_text_models(endpoint: str, api_key_override: str | None = None) -> li
         return None
     memo = _get_catalog_memo(endpoint, api_key_override)
     return list(memo.ids) if isinstance(memo.ids, list) else None
+
+
+def memo_text_models_or_fetch(
+    endpoint: str,
+    on_fetched: Callable[[list[str]], None],
+    *,
+    task_name: str,
+) -> list[str] | None:
+    """Return memoized ``/v1/models`` ids, or fetch once off-thread and post to UI.
+
+    Called on the main thread; never performs HTTP there. Skips both the memo
+    read and the worker fetch while the endpoint's key is an uncached
+    ``keystore:`` reference (matching ``has_native_vision`` step 4b), because
+    computing the memo key hashes the saved key and would trigger a keyring
+    prompt on the UI thread. At most one fetch per endpoint+key runs in flight;
+    concurrent callers share the waiter list and receive one ``main.post``.
+    """
+    from plugin.framework.client.auth import provider_requires_api_key
+
+    if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
+        return None
+    if api_key_needs_keystore_read(_key_slot_base(endpoint)):
+        return None
+    if provider_requires_api_key(get_provider_from_endpoint(endpoint)) and not has_api_key_for_endpoint(endpoint):
+        return None
+
+    cached = cached_text_models(endpoint)
+    if cached is not None:
+        return cached
+
+    key = _catalog_memo_key(endpoint)
+    with _text_fetch_lock:
+        if key in _text_fetch_waiters:
+            _text_fetch_waiters[key].append(on_fetched)
+            return None
+        _text_fetch_waiters[key] = [on_fetched]
+
+    def _job() -> None:
+        ids: list[str] | None = None
+        done: list[Callable[[list[str]], None]] = []
+        try:
+            ids = fetch_available_models(endpoint)
+        finally:
+            with _text_fetch_lock:
+                done = _text_fetch_waiters.pop(key, [])
+
+        if ids is not None:
+            fetched_ids = ids
+
+            def _deliver() -> None:
+                for cb in done:
+                    def _call(fn: Callable[[list[str]], None] = cb) -> None:
+                        fn(fetched_ids)
+
+                    best_effort(_call, "deliver fetched text models")
+
+            main.post(_deliver)
+
+    try:
+        run_in_background(_job, name=task_name)
+    except Exception:
+        with _text_fetch_lock:
+            _text_fetch_waiters.pop(key, None)
+        raise
+    return None
 
 
 def cached_image_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:

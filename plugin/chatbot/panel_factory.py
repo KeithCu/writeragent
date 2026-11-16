@@ -150,9 +150,15 @@ try:
 except ImportError:
     TOOLPANEL = 3  # Fallback
 
-from plugin.framework.uno_listeners import BaseItemListener, BaseTextListener
+from plugin.framework.uno_listeners import BaseFocusListener, BaseItemListener
 from plugin.framework.config import get_config, get_current_endpoint
-from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
+from plugin.framework.client.model_fetcher import (
+    get_image_model,
+    get_text_model,
+    memo_text_models_or_fetch,
+    set_image_model,
+    set_text_model,
+)
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.prompts import get_chat_system_prompt_for_document
@@ -369,7 +375,7 @@ class _SelectorItemSyncListener(BaseItemListener):
             self._sync_fn()
 
 
-class _SelectorTextSyncListener(BaseTextListener):
+class _SelectorFocusCommitListener(BaseFocusListener):
     panel: Any
     _sync_fn: Any
 
@@ -377,8 +383,8 @@ class _SelectorTextSyncListener(BaseTextListener):
         self.panel = panel
         self._sync_fn = sync_fn
 
-    def on_text_changed(self, rEvent: Any) -> None:
-        if not self.panel._in_refresh_controls:
+    def on_focus_lost(self, e: Any) -> None:
+        if not self.panel._released and not self.panel._in_refresh_controls:
             self._sync_fn()
 
 
@@ -386,12 +392,13 @@ def _wire_selector_sync_listeners(
     panel: Any,
     selector: Any,
     on_sync: Any,
-    on_text_sync: Any = None,
+    *,
+    commit_on_focus_lost: bool = False,
 ) -> None:
     if hasattr(selector, "addItemListener"):
         selector.addItemListener(_SelectorItemSyncListener(panel, on_sync))
-    if hasattr(selector, "addTextListener"):
-        selector.addTextListener(_SelectorTextSyncListener(panel, on_text_sync if on_text_sync is not None else on_sync))
+    if commit_on_focus_lost and hasattr(selector, "addFocusListener"):
+        selector.addFocusListener(_SelectorFocusCommitListener(panel, on_sync))
 
 
 class ChatPanelElement(unohelper.Base, XUIElement):
@@ -623,12 +630,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         Refreshes model, image, and mode selectors, Voice (TTS) checkbox, and backend indicator.
         Does not re-run ``translate_dialog`` — sidebar strings are translated once at wire/load.
 
-        Bugfix / Re-entrancy Guard:
+        Re-entrancy Guard:
         Populating combobox controls below (via populate_combobox_with_lru -> ctrl.setText,
-        removeItems, addItems) synchronously fires UNO listeners (ModelSyncListener,
-        ModelTextSyncListener, ImageModelSyncListener). Without ``_in_refresh_controls``,
+        removeItems, addItems) synchronously fires UNO listeners (_SelectorItemSyncListener,
+        _SelectorFocusCommitListener). Without ``_in_refresh_controls``,
         those listeners treat programmatic UI updates as user edits, calling
-        sync_sidebar_text_model -> update_lru_history -> save -> event_bus
+        sync_sidebar_text_model -> save -> event_bus
         emit('config_changed') -> _refresh_controls_from_config in an infinite synchronous
         recursion loop on the main UI thread that freezes LibreOffice.
         """
@@ -746,20 +753,21 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         current_endpoint = get_current_endpoint()
 
         if model_selector:
-            # LRU plus provider defaults only, no catalog HTTP on this
-            # thread. populate_combobox_with_lru fetches /v1/models unless
-            # skip_remote_fetch is set. A dead endpoint then hangs the
-            # editor on every settings apply, and failures are not memoized.
-            # Match Settings/eval.
-            # Keep catalog refresh off the main thread. The same populate path
-            # as config:changed, without skip_remote_fetch, fetches the model
-            # catalog on the UI thread and an unreachable endpoint freezes
-            # LibreOffice for the fetch timeout.
+            # Warm memo now; cold memo via background worker (never HTTP on UI thread).
+            def _on_fetched(ids: list[str]) -> None:
+                self._paint_fetched_text_models(current_endpoint, ids)
+
+            catalog = memo_text_models_or_fetch(
+                current_endpoint,
+                _on_fetched,
+                task_name="sidebar-models",
+            )
             set_val = populate_combobox_with_lru(
                 model_selector,
                 current_model,
                 "model_lru",
                 current_endpoint,
+                remote_models=catalog,
                 skip_remote_fetch=True,
             )
             if set_val != current_model:
@@ -775,6 +783,34 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if set_image_val != current_image:
                 set_image_model(set_image_val, update_lru=False)
 
+    def _paint_fetched_text_models(self, endpoint: str, ids: list[str]) -> None:
+        """Repaint the sidebar text model combo after an off-thread catalog fetch."""
+        if self._released or endpoint != get_current_endpoint():
+            return
+        sel = get_optional_control(self.m_panelRootWindow, "model_selector")
+        if not sel:
+            return
+        from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+        from plugin.framework.model_lru import sanitize_model_combobox_value
+
+        prior = self._in_refresh_controls
+        self._in_refresh_controls = True
+        try:
+            with suppress_disposed("paint fetched sidebar models", logger=log):
+                typed = sanitize_model_combobox_value(str(sel.getText() or "")) if hasattr(sel, "getText") else ""
+                shown = populate_combobox_with_lru(
+                    sel,
+                    get_text_model(),
+                    "model_lru",
+                    endpoint,
+                    remote_models=ids,
+                    skip_remote_fetch=True,
+                )
+                if typed and typed != shown:
+                    set_control_text(sel, typed)
+        finally:
+            self._in_refresh_controls = prior
+
     def _wire_model_selectors(self, controls: dict[str, Any]) -> None:
         """Initializes model selectors and their sync listeners."""
         model_selector = controls.get("model_selector")
@@ -789,6 +825,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 self,
                 model_selector,
                 lambda: sync_sidebar_text_model(model_selector),
+                commit_on_focus_lost=True,
             )
 
         if image_model_selector:
@@ -797,8 +834,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             _wire_selector_sync_listeners(
                 self,
                 image_model_selector,
-                lambda: sync_sidebar_image_model(image_model_selector, update_lru=True),
-                lambda: sync_sidebar_image_model(image_model_selector, update_lru=False),
+                lambda: sync_sidebar_image_model(image_model_selector),
+                commit_on_focus_lost=True,
             )
 
         if effort_selector:

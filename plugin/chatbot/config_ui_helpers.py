@@ -31,9 +31,10 @@ from plugin.framework.default_models import (
 from plugin.framework.client.model_fetcher import fetch_available_models, filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
+    drop_typed_partials,
     sanitize_model_combobox_value,
     lru_config_key,
-    next_lru_list,
+    next_model_lru_list,
 )
 
 
@@ -205,7 +206,7 @@ def populate_combobox_with_lru(
     fetch_succeeded = False
     to_show: list[str] = []
     # get_config LRU values are JSON-shaped; normalize to str ids for the filter.
-    lru_clean = [str(m) for m in lru if not _is_model_combobox_placeholder(str(m))]
+    lru_clean = drop_typed_partials([str(m) for m in lru if not _is_model_combobox_placeholder(str(m))])
     lru_head = ""
     if not auth_blocked:
         to_show = _filter_models_for_provider(lru_clean, provider)
@@ -310,8 +311,6 @@ def _sync_sidebar_model(
     model_key: str,
     lru_base: str,
     get_current_model: Any,
-    *,
-    update_lru: bool = True,
 ) -> str | None:
     if not ctrl or not hasattr(ctrl, "getText"):
         return None
@@ -323,29 +322,28 @@ def _sync_sidebar_model(
     if txt != get_current_model():
         patch[model_key] = txt
 
-    if update_lru:
-        lru_key = lru_config_key(lru_base, get_current_endpoint())
-        updated = next_lru_list(get_config(lru_key), txt)
-        if updated is not None:
-            patch[lru_key] = updated
+    lru_key = lru_config_key(lru_base, get_current_endpoint())
+    updated = next_model_lru_list(get_config(lru_key), txt)
+    if updated is not None:
+        patch[lru_key] = updated
 
     if patch:
         save(patch)
     return txt
 
 
-def sync_sidebar_image_model(ctrl: Any, update_lru: bool = True) -> str | None:
-    """Persist sidebar image model combobox text to image_model and optionally image_model_lru."""
+def sync_sidebar_image_model(ctrl: Any) -> str | None:
+    """Commit sidebar image model combobox text to image_model and image_model_lru (item select, focus lost, Send)."""
     from plugin.framework.client.model_fetcher import get_image_model
 
-    return _sync_sidebar_model(ctrl, "image_model", "image_model_lru", get_image_model, update_lru=update_lru)
+    return _sync_sidebar_model(ctrl, "image_model", "image_model_lru", get_image_model)
 
 
 def sync_sidebar_text_model(ctrl: Any) -> str | None:
-    """Persist sidebar chat model combobox text to text_model and model_lru."""
+    """Commit sidebar chat model combobox text to text_model and model_lru (item select, focus lost, Send)."""
     from plugin.framework.client.model_fetcher import get_text_model
 
-    return _sync_sidebar_model(ctrl, "text_model", "model_lru", get_text_model, update_lru=True)
+    return _sync_sidebar_model(ctrl, "text_model", "model_lru", get_text_model)
 
 
 def endpoint_from_selector_text(text: Any) -> str:

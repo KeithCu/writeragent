@@ -11,6 +11,8 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 
+import pytest
+
 from plugin.chatbot.panel_factory import ChatPanelElement
 from plugin.framework.event_bus import EventBus
 
@@ -27,6 +29,7 @@ class FiringCombo:
         self._items: list[str] = []
         self._text_listeners: list = []
         self._item_listeners: list = []
+        self._focus_listeners: list = []
         self.set_text_calls = 0
 
     def addTextListener(self, listener) -> None:
@@ -34,6 +37,13 @@ class FiringCombo:
 
     def addItemListener(self, listener) -> None:
         self._item_listeners.append(listener)
+
+    def addFocusListener(self, listener) -> None:
+        self._focus_listeners.append(listener)
+
+    def fire_focus_lost(self) -> None:
+        for listener in list(self._focus_listeners):
+            listener.focusLost(None)
 
     def getText(self) -> str:
         return self._text
@@ -128,6 +138,7 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
         patch("plugin.chatbot.panel_factory.get_config", return_value=""),
         patch("plugin.chatbot.panel_factory.set_text_model"),
         patch("plugin.chatbot.panel_factory.set_image_model"),
+        patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=None),
         patch("plugin.chatbot.panel_factory.set_control_enabled"),
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
@@ -145,13 +156,20 @@ def test_refresh_controls_does_not_recurse_when_combo_fires_listeners():
     assert set_config_keys == []
 
 
-def test_typed_image_model_is_saved_unless_refreshing():
-    image = FiringCombo()
-    panel = _make_panel(FiringCombo())
-    saved: list[str] = []
-
-    def set_image_model(txt, update_lru=False):
-        saved.append(txt)
+@pytest.mark.parametrize(
+    ("control_name", "model_key", "lru_base"),
+    [
+        ("model_selector", "text_model", "model_lru"),
+        ("image_model_selector", "image_model", "image_model_lru"),
+    ],
+)
+def test_typing_in_model_combo_saves_nothing_until_focus_lost(
+    control_name: str,
+    model_key: str,
+    lru_base: str,
+) -> None:
+    combo = FiringCombo()
+    panel = _make_panel(combo)
 
     with (
         patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru", side_effect=_fake_populate),
@@ -161,20 +179,33 @@ def test_typed_image_model_is_saved_unless_refreshing():
         patch("plugin.chatbot.panel_factory.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.panel_factory.get_config", return_value=""),
         patch("plugin.chatbot.panel_factory.set_text_model"),
+        patch("plugin.chatbot.panel_factory.set_image_model"),
+        patch("plugin.chatbot.panel_factory.memo_text_models_or_fetch", return_value=None),
+        patch("plugin.chatbot.config_ui_helpers.get_text_model", return_value=_MODEL),
         patch("plugin.chatbot.config_ui_helpers.get_image_model", return_value=""),
         patch("plugin.chatbot.config_ui_helpers.get_current_endpoint", return_value=_ENDPOINT),
         patch("plugin.chatbot.config_ui_helpers.get_config", return_value=[]),
         patch("plugin.chatbot.config_ui_helpers.save") as mock_save,
     ):
-        ChatPanelElement._wire_model_selectors(panel, {"image_model_selector": image})
-        image.setText("vendor/typed-image")
+        ChatPanelElement._wire_model_selectors(panel, {control_name: combo})
+        for partial in ("c", "cl", "claude-x"):
+            combo.setText(partial)
+        mock_save.assert_not_called()
+
+        combo.fire_focus_lost()
         assert mock_save.call_count == 1
-        assert "image_model" in mock_save.call_args[0][0]
-        assert mock_save.call_args[0][0]["image_model"] == "vendor/typed-image"
-        # SincesetText simulates typing, update_lru is False, lru shouldn't be touched.
-        assert "image_model_lru" not in mock_save.call_args[0][0]
+        saved_patch = mock_save.call_args[0][0]
+        assert saved_patch[model_key] == "claude-x"
+        assert saved_patch[f"{lru_base}@{_ENDPOINT}"] == ["claude-x"]
 
         mock_save.reset_mock()
         panel._in_refresh_controls = True
-        image.setText("vendor/during-refresh")
-        assert mock_save.call_count == 0
+        combo.setText("vendor/during-refresh")
+        combo.fire_focus_lost()
+        mock_save.assert_not_called()
+
+        panel._in_refresh_controls = False
+        panel._released = True
+        combo.setText("vendor/after-release")
+        combo.fire_focus_lost()
+        mock_save.assert_not_called()

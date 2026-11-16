@@ -781,3 +781,28 @@ def test_sync_sidebar_reasoning_effort():
         mock_set.assert_not_called()
 
 
+def test_populate_hides_typed_partials_from_model_lru():
+    from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
+
+    ctrl = MagicMock()
+    ctrl.getItemCount.return_value = 0
+    endpoint = "http://localhost:11434"
+    lru = ["claude-opus-5-5", "claude-opus-5-", "claude-opus-5", "claude-opus-"]
+
+    with patch("plugin.chatbot.config_ui_helpers.get_config", return_value=lru), \
+         patch("plugin.chatbot.config_ui_helpers.get_provider_defaults", return_value={}), \
+         patch("plugin.chatbot.config_ui_helpers.merge_provider_default_models"):
+        populate_combobox_with_lru(
+            ctrl,
+            "claude-opus-5-5",
+            "model_lru",
+            endpoint,
+            skip_remote_fetch=True,
+        )
+
+    items = list(ctrl.addItems.call_args.args[0])
+    assert "claude-opus-5-5" in items
+    assert "claude-opus-5-" not in items
+    assert "claude-opus-" not in items
+
+
