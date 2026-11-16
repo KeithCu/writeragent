@@ -175,6 +175,7 @@ The `delegate_to_subagent` tool uses sub-agent delegation:
 The outcome of sub-agent delegation is evaluated by `apply_inner_outcome` (shared between the gateway and Python inner-domain loops) into a structured payload:
 
 - **`status: "ok"`**: The sub-agent invoked `workflow_finished`.
+  - `answer` is always text: `workflow_finished` turns a JSON object, list, number, or boolean from the inner model into JSON text, and `null` becomes empty (`""`). The wire schema still asks for a string.
   - May include `recovered_tool_errors`: a list of error messages from earlier tool attempts that were subsequently resolved by a later successful call of the same tool (including retries with corrected arguments).
 - **`status: "incomplete"`, `code: "SPECIALIZED_WORKFLOW_INCOMPLETE"`**: The sub-agent returned without signaling workflow finish (e.g. stopped without reaching the finish tool).
 - **`status: "error"`, `code: "SPECIALIZED_TOOL_ERROR"`**: One or more domain tools encountered errors that were never retried and resolved.
