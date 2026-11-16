@@ -5,11 +5,15 @@
 """set_selection — select a passage so the user sees it highlighted and target='selection' can
 act on it. Headless MCP clients have no way to set a selection otherwise, which made
 target='selection' a trap (see the target_resolver fix). Selection is view state and transient,
-so for headless flows set_selection and the follow-up edit should be consecutive."""
+so for headless flows set_selection and the follow-up edit should be consecutive.
+
+In a sidebar turn, target='selection' reads the Send-time SelectionPin rather than the live
+view, so set_selection updates that pin when present; MCP contexts carry no pin.
+"""
 from typing import Any
 import logging
 
-from plugin.doc.text_helpers import get_text_cursor_at_range_reached
+from plugin.doc.text_helpers import clone_text_range, get_text_cursor_at_range_reached
 from plugin.framework.errors import reraise_if_disposed
 from plugin.framework.tool import ToolBase
 from plugin.writer.html_import import plain_text_if_markup
@@ -87,6 +91,8 @@ class SetSelection(ToolBase):
         if controller is None:
             return self._tool_error("No document view is available to hold a selection.", code="TOOL_EXECUTION_ERROR")
 
+        selection_pin = getattr(ctx, "selection_pin", None)
+
         # --- resolve the range to select ---
         if has_search:
             case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
@@ -94,7 +100,9 @@ class SetSelection(ToolBase):
             if not search_str.strip():
                 return self._tool_error("search_text is empty after normalization.", code="INVALID_PARAM")
 
-            res = self._select_by_search(doc, controller, search_str, kwargs.get("occurrence", 0), case_sensitive)
+            res = self._select_by_search(
+                doc, controller, search_str, kwargs.get("occurrence", 0), case_sensitive, selection_pin
+            )
             res["matched_case_sensitive"] = case_sensitive
             return res
 
@@ -109,6 +117,8 @@ class SetSelection(ToolBase):
             return self._tool_error("Could not reach character range in document.", code="TOOL_EXECUTION_ERROR")
 
         controller.select(target_range)
+        if selection_pin is not None:
+            selection_pin.range = clone_text_range(target_range)
 
         result: dict[str, Any] = {"status": "ok", **fields}
         result["char_start"] = char_start
@@ -121,7 +131,13 @@ class SetSelection(ToolBase):
         return result
 
     def _select_by_search(
-        self, doc: Any, controller: Any, search_str: str, raw_occurrence: Any, case_sensitive: bool
+        self,
+        doc: Any,
+        controller: Any,
+        search_str: str,
+        raw_occurrence: Any,
+        case_sensitive: bool,
+        selection_pin: Any = None,
     ) -> dict[str, Any]:
         found, err = occurrence_range_or_error(
             doc, search_str, raw_occurrence, case_sensitive=case_sensitive, subject="search_text"
@@ -130,6 +146,8 @@ class SetSelection(ToolBase):
             return err or self._tool_error("search_text not found")
 
         controller.select(found)
+        if selection_pin is not None:
+            selection_pin.range = clone_text_range(found)
         fields = _read_selection_fields(found)
         return {
             "status": "ok",

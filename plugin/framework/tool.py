@@ -90,6 +90,24 @@ def _name_looks_readonly(name: str) -> bool:
     return len(parts) >= 2 and any(p in _READ_NAME_TOKENS for p in parts[1:])
 
 
+class SelectionPin:
+    """Writer selection the current sidebar send acts on.
+
+    Holds a model text cursor copied from the view when the user pressed Send.
+    A cursor keeps its place while the user moves the caret, follows text
+    inserted before it, and sits after text inserted at it, so a later
+    target="selection" edit lands where the user asked, not where the caret is
+    now. set_selection replaces the cursor. None range means "no text selection
+    at Send": readers fall back to the live view. MCP contexts carry no pin.
+    """
+
+    __slots__: ClassVar[tuple[str, ...]] = ("range",)
+    range: Any
+
+    def __init__(self, text_range: Any) -> None:
+        self.range = text_range
+
+
 class ToolContext:
     """Immutable-ish context for a single tool invocation.
 
@@ -112,6 +130,7 @@ class ToolContext:
             for worker-thread HTTP registration and stable stop checks.
         uno_services_supported: Cached UNO service names for the active document (sidebar/MCP);
             used for tool compatibility without touching ``doc`` off the main thread.
+        selection_pin: Optional :class:`SelectionPin` holding the Send-time Writer selection.
     """
 
     doc: Any
@@ -130,6 +149,7 @@ class ToolContext:
     read_only_target: bool
     send_cancellation: SendCancellation | None
     uno_services_supported: frozenset[str]
+    selection_pin: SelectionPin | None
 
     __slots__: ClassVar[tuple[str, ...]] = (
         "doc",
@@ -148,6 +168,7 @@ class ToolContext:
         "read_only_target",
         "send_cancellation",
         "uno_services_supported",
+        "selection_pin",
     )
 
     def __init__(
@@ -168,6 +189,7 @@ class ToolContext:
         read_only_target: bool = False,
         send_cancellation: SendCancellation | None = None,
         uno_services_supported: Any = None,
+        selection_pin: SelectionPin | None = None,
     ) -> None:
         # crosshair: off
         self.doc = doc
@@ -185,6 +207,7 @@ class ToolContext:
         self.python_tool_domain = python_tool_domain
         self.read_only_target = read_only_target
         self.send_cancellation = send_cancellation
+        self.selection_pin = selection_pin
         if uno_services_supported is not None:
             self.uno_services_supported = uno_services_supported
         else:

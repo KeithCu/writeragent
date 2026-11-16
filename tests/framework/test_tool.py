@@ -25,7 +25,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.queue_executor import main
-from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
+from plugin.framework.tool import SelectionPin, ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
 from plugin.framework.service import ServiceRegistry
 from plugin.tests.testing_utils import TestingFactory
 
@@ -49,6 +49,7 @@ def test_tool_context_derive():
         "read_only_target": False,
         "send_cancellation": object(),
         "uno_services_supported": frozenset({"com.sun.star.text.CustomService"}),
+        "selection_pin": SelectionPin(object()),
     }
     parent = ToolContext(**sentinels)
     other = object()
@@ -71,6 +72,7 @@ def test_tool_context_derive():
     assert child.python_tool_domain == sentinels["python_tool_domain"]
     assert child.send_cancellation is sentinels["send_cancellation"]
     assert child.uno_services_supported is sentinels["uno_services_supported"]
+    assert child.selection_pin is sentinels["selection_pin"]
 
 # ── Tool Base Tests ──────────────────────────────────────────────────
 

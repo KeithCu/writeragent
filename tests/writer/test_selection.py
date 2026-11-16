@@ -23,7 +23,7 @@ def _ctx_with_controller(controller):
     doc = MagicMock()
     doc.getText.return_value = text
     doc.getCurrentController.return_value = controller
-    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={"config": MagicMock()})
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={"config": MagicMock()}, selection_pin=None)
     return ctx, cursor
 
 
@@ -122,7 +122,7 @@ def _selection_ctx():
     doc = MagicMock()
     controller = MagicMock()
     doc.getCurrentController.return_value = controller
-    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={})
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={}, selection_pin=None)
     return ctx, doc, controller
 
 
@@ -419,11 +419,59 @@ def test_set_selection_blank_search_text_errors_after_normalization():
 def test_set_selection_missing_controller_returns_tool_execution_error():
     doc = MagicMock()
     doc.getCurrentController.return_value = None
-    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={})
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={}, selection_pin=None)
     res = SetSelection().execute(ctx, search_text="foo")
     assert res["status"] == "error"
     assert res["code"] == "TOOL_EXECUTION_ERROR"
     assert "No document view is available" in res["message"]
+
+
+def test_set_selection_search_updates_pin():
+    from plugin.framework.tool import SelectionPin
+
+    ctx, _doc, controller = _selection_ctx()
+    ctx.selection_pin = SelectionPin(MagicMock())
+    found = MagicMock()
+    found.getString.return_value = "clause 3.2"
+    cloned = MagicMock()
+    found.getText.return_value.createTextCursorByRange.return_value = cloned
+
+    with patch("plugin.writer.search.find_occurrence_range", return_value=found):
+        res = SetSelection().execute(ctx, search_text="clause 3.2")
+
+    assert res["status"] == "ok"
+    controller.select.assert_called_once_with(found)
+    assert ctx.selection_pin.range is cloned
+
+
+def test_set_selection_char_range_updates_pin():
+    from plugin.framework.tool import SelectionPin
+
+    ctx, _doc, controller = _selection_ctx()
+    ctx.selection_pin = SelectionPin(MagicMock())
+    target_range = MagicMock()
+    target_range.getString.return_value = "hello"
+    cloned = MagicMock()
+    target_range.getText.return_value.createTextCursorByRange.return_value = cloned
+
+    with patch("plugin.writer.selection.get_text_cursor_at_range_reached", return_value=(target_range, True)):
+        res = SetSelection().execute(ctx, char_start=0, char_end=5)
+
+    assert res["status"] == "ok"
+    controller.select.assert_called_once_with(target_range)
+    assert ctx.selection_pin.range is cloned
+
+
+def test_set_selection_without_pin_is_live_only():
+    ctx, _doc, controller = _selection_ctx()
+    found = MagicMock()
+    found.getString.return_value = "clause 3.2"
+    with patch("plugin.writer.search.find_occurrence_range", return_value=found):
+        res = SetSelection().execute(ctx, search_text="clause 3.2")
+    assert res["status"] == "ok"
+    controller.select.assert_called_once_with(found)
+    assert ctx.selection_pin is None
+
 
 
 

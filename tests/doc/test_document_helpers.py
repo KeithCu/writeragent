@@ -822,3 +822,25 @@ def test_document_context_end_document_markers():
     assert ctx_head_tail.count("[DOCUMENT END]") == 1
     assert snapshot_text(ctx_head_tail).count("[END DOCUMENT]") == 1
 
+
+def test_document_context_uses_given_selection():
+    from plugin.framework.doc_type import DocumentType
+
+    model = MagicMock()
+    sentinel = MagicMock()
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers.writer_char_count", return_value=20),
+        patch("plugin.doc.text_helpers.get_document_length", return_value=20),
+        patch("plugin.doc.text_helpers.read_writer_text_slice", return_value="hello world"),
+        patch("plugin.doc.text_helpers.get_writer_selection_positions", return_value=(MagicMock(), MagicMock(), MagicMock())) as mock_pos,
+        patch("plugin.doc.document_helpers._writer_selection_overlaps_windows", return_value=True),
+        patch("plugin.doc.text_helpers.get_selection_range", return_value=(0, 5)) as mock_range,
+        patch("plugin.doc.document_helpers._inject_selection_markers", return_value="marked"),
+    ):
+        get_document_context_for_chat(model, max_context=8000, include_end=False, include_selection=True, selection=sentinel)
+
+    assert mock_pos.call_args.kwargs["selection"] is sentinel
+    assert mock_range.call_args.kwargs["selection"] is sentinel
+
+

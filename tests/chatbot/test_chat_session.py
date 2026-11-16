@@ -464,3 +464,23 @@ def test_history_load_strips_legacy_document_suffix_with_inner_end_doc():
     new_header_content = f"Base\n\n{SNAPSHOT_HEADER}\nSECRET\n[END DOCUMENT]"
     assert strip_legacy_document_suffix(new_header_content) == new_header_content
 
+
+def test_refresh_document_context_forwards_selection():
+    mock_db = MagicMock()
+    mock_db.get_messages.return_value = []
+    with patch("plugin.chatbot.chat_session.get_chat_history", return_value=mock_db):
+        session = ChatSession(system_prompt="Base", session_id="sid-sel")
+
+    sel = MagicMock()
+    model = MagicMock()
+    ctx = MagicMock()
+    with (
+        patch("plugin.doc.document_helpers.get_document_context_for_chat", return_value="ctx") as mock_get_ctx,
+        patch("plugin.framework.config.get_config", return_value=""),
+        patch("plugin.framework.prompts.get_chat_system_prompt_for_document", return_value="sys"),
+    ):
+        session.refresh_document_context(model, ctx, selection=sel)
+
+    assert mock_get_ctx.call_args.kwargs["selection"] is sel
+
+

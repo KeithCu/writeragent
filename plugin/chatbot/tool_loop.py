@@ -551,7 +551,19 @@ class ToolCallingMixin:
             # send was still starting. The user row must not land on the wiped chat.
             return
         try:
-            turn_session.refresh_document_context(model, self._panel.ctx)
+            pin = None
+            if doc_type_str == "writer":
+                from plugin.doc.text_helpers import selection_cursor_snapshot
+                from plugin.framework.tool import SelectionPin
+
+                pin = SelectionPin(selection_cursor_snapshot(model))
+            if started is not None:
+                started.selection_pin = pin
+            # Captured on the UI thread at Send; sync tools read it on the main
+            # thread, and disposal surfaces through the except arms below.
+            turn_session.refresh_document_context(
+                model, self._panel.ctx, selection=pin.range if pin is not None else None
+            )
             doc_text = turn_session.document_context
             log.debug("_do_send: document context length=%d" % len(doc_text))
             agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": CHAT_DOCUMENT_CONTEXT_MAX_CHARS}, hypothesis_id="B")
