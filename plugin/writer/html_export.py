@@ -240,8 +240,10 @@ def _hyperlink_urls(portions: list[tuple[Any, str]], trim_start: int, trim_end: 
     return urls
 
 
-def _restore_anchor_hrefs(content: str, urls: list[str]) -> str:
-    """Write *urls* back onto exported anchors. The filter does not keep ``|outline``."""
+def _restore_anchor_hrefs(
+    content: str, urls: list[str], anchor_re: re.Pattern[str]
+) -> str:
+    """Write *urls* back onto exported anchors matching *anchor_re*. The filter does not keep ``|outline``."""
     if not content or not urls:
         return content
     index = 0
@@ -254,7 +256,51 @@ def _restore_anchor_hrefs(content: str, urls: list[str]) -> str:
         index += 1
         return match.group(1) + url + match.group(3)
 
-    return _ANCHOR_HREF_RE.sub(_replace, content)
+    return anchor_re.sub(_replace, content)
+
+
+# In LibreOffice's XSLT export (filter/source/xslt/odf2xhtml/export/common/body.xsl
+# template create-href and common/table_of_content.xsl), an "|outline" link is written
+# as "#a_" + the link's own visible text, so the heading target is lost. Footnote anchors
+# (#ftn0) sit between them in the exported HTML, so only #a_ hrefs are paired with
+# only outline URLs, and only when the counts agree.
+_EXPORTED_OUTLINE_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")(#a_[^"]*)(")', re.IGNORECASE)
+
+
+def _is_outline_url(url: str) -> bool:
+    return "|outline" in url or "%7Coutline" in url
+
+
+def _put_outline_urls(content: str, urls: list[str]) -> str:
+    """Pure: write the outline URLs among *urls* onto exported #a_ anchors, in order; unchanged on count mismatch."""
+    outline_urls = [u for u in urls if _is_outline_url(u)]
+    if not outline_urls:
+        return content
+    anchor_count = len(_EXPORTED_OUTLINE_HREF_RE.findall(content))
+    if anchor_count != len(outline_urls):
+        log.debug(
+            "_put_outline_urls: count mismatch (%d #a_ hrefs vs %d outline URLs); leaving HTML unchanged",
+            anchor_count,
+            len(outline_urls),
+        )
+        return content
+    return _restore_anchor_hrefs(content, outline_urls, _EXPORTED_OUTLINE_HREF_RE)
+
+
+def _restore_outline_hrefs(model: Any, content: str) -> str:
+    """Full-read counterpart of the range path's _restore_anchor_hrefs."""
+    if 'href="#a_' not in content:
+        return content
+    urls: list[str] = []
+    try:
+        for para in range_copy.iter_xtext_paragraphs(model.getText()):
+            portions = list(_visible_portions(para))
+            urls.extend(_hyperlink_urls(portions, 0, sum(len(chunk) for _unused, chunk in portions)))
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("_restore_outline_hrefs: portion walk failed", exc_info=True)
+        return content
+    return _put_outline_urls(content, urls)
 
 
 def _starts_before(text: Any, left: Any, right: Any) -> bool:
@@ -545,7 +591,7 @@ def _range_to_content_via_temp_doc(
             reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
             content = _export_starwriter_html(temp_doc)
-        content = _restore_anchor_hrefs(content, copied_urls)
+        content = _restore_anchor_hrefs(content, copied_urls, _ANCHOR_HREF_RE)
         content = _apply_image_export_options(content, include_images=include_images)
         content = substitute_math_placeholders(content, math_records, ctx)
         content = html_ruby.inject_ruby_into_html(content, copied_ruby)
@@ -643,6 +689,7 @@ def document_to_content(
     xhtml_error: Exception | None = None
     try:
         content, fodt_has_ruby = _export_semantic(model, read_ruby=True)
+        content = _restore_outline_hrefs(model, content)
         content = finish(content, fodt_has_ruby, "the XHTML export came back empty")
         return _done(content, "xhtml")
     except Exception as e:

@@ -60,10 +60,10 @@ from plugin.framework.errors import (
     suggest_call,
     uno_read,
 )
-from plugin.doc.text_helpers import KeepViewSelection, build_heading_tree, iter_heading_nodes
+from plugin.doc.text_helpers import KeepViewSelection, get_string_without_tracked_deletions
 from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework.json_utils import safe_json_loads
-from plugin.writer import html_import, html_import_styles, record_changes, search as search_mod
+from plugin.writer import html_import, html_import_styles, range_copy, record_changes, search as search_mod
 from plugin.writer.hyperlink_fixup import (
     OutlineSnapshot,
     capture_outline_hyperlinks,
@@ -438,6 +438,37 @@ _ANCHOR_MISS_CODES: dict[search_mod.AnchorMissKind, str] = {
     "end": "ANCHOR_END_NOT_FOUND",
     "different_text": "ANCHOR_TEXT_DIFFERENT",
 }
+
+
+def _document_heading_texts(doc: Any) -> list[str]:
+    """Collect heading texts from the body, table cells, and text frames.
+
+    ``SwNodes::UpdateOutlineNode`` (sw/source/core/docnode/ndnum.cxx) adds any text node
+    with ``OutlineLevel > 0`` to the outline list, and ``SwDoc::GotoOutline``
+    (sw/source/core/doc/docnum.cxx) searches that list. The body-only ``build_heading_tree``
+    misses headings inside tables and text frames.
+    """
+    texts: list[Any] = []
+    body_text = uno_read(lambda: doc.getText(), None)
+    if body_text is not None:
+        texts.append(body_text)
+    frames = uno_read(lambda: doc.getTextFrames(), None)
+    if frames is not None:
+        frame_names: tuple[Any, ...] = uno_read(lambda: tuple(frames.getElementNames()), ())
+        for name in frame_names:
+            frame_text = uno_read(lambda: frames.getByName(name).getText(), None)
+            if frame_text is not None:
+                texts.append(frame_text)
+
+    headings: list[str] = []
+    for text_obj in texts:
+        for para in range_copy.iter_xtext_paragraphs(text_obj):
+            level = uno_read(lambda: para.getPropertyValue("OutlineLevel"), 0)
+            if isinstance(level, int) and level > 0:
+                text = uno_read(lambda: get_string_without_tracked_deletions(para), "")
+                if text:
+                    headings.append(text)
+    return headings
 
 
 class ApplyDocumentContent(ToolBase):
@@ -1006,10 +1037,7 @@ class ApplyDocumentContent(ToolBase):
         document_headings: list[str] = (
             []
             if params.target == "full_document"
-            else [
-                str(node.get("text", ""))
-                for node in iter_heading_nodes(build_heading_tree(doc))
-            ]
+            else _document_heading_texts(doc)
         )
 
         def is_bookmark(name: str) -> bool:

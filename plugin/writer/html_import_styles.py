@@ -20,7 +20,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
-from plugin.framework.errors import Diagnostic, append_warnings, reraise_if_disposed, uno_read
+from plugin.framework.errors import (
+    Diagnostic,
+    append_warnings,
+    reraise_if_disposed,
+    similar_names,
+    uno_read,
+)
 from plugin.framework.html_stripper import escape_prose_angle_brackets
 from plugin.framework.uno_context import enum_has_more
 
@@ -802,15 +808,61 @@ def has_bare_fragment_links(content: str) -> bool:
     return False
 
 
+# LibreOffice's XHTML export (filter/source/xslt/odf2xhtml/export/xhtml/body.xsl,
+# template create-heading-anchor2) builds heading ids as "a_" + heading number + "_" +
+# title with spaces, punctuation, and accented letters folded to "_". Folding both
+# sides to ASCII alphanumeric or "_" avoids duplicating the export's character table.
+_NOT_ID_CHAR_RE = re.compile(r"[^0-9A-Za-z]")
+
+
+def _fold_export_id(text: str) -> str:
+    return _NOT_ID_CHAR_RE.sub("_", text)
+
+
+def _is_export_anchor_for(fragment: str, heading: str) -> bool:
+    folded_heading = _fold_export_id(heading)
+    if not folded_heading:
+        return False
+    return re.fullmatch(
+        r"a_(?:[0-9]+_?)*_" + re.escape(folded_heading),
+        _fold_export_id(fragment),
+    ) is not None
+
+
+def _match_heading(name: str, headings: set[str]) -> str | None:
+    """Resolve *name* against *headings* in three tiers: exact, unique case-insensitive,
+    and unique XHTML export anchor id (``a__Heading_Text``).
+
+    Writer's own ``SwDoc::GotoOutline`` requires the exact heading text, so the
+    rewrite uses the matched heading's real text. When a tier matches more than
+    one heading, ``None`` is returned so the caller leaves the link untouched.
+    """
+    if name in headings:
+        return name
+
+    folded = name.casefold()
+    case_matches = [h for h in headings if h.casefold() == folded]
+    if case_matches:
+        return case_matches[0] if len(case_matches) == 1 else None
+
+    if name.startswith("a_"):
+        id_matches = [h for h in headings if _is_export_anchor_for(name, h)]
+        if id_matches:
+            return id_matches[0] if len(id_matches) == 1 else None
+
+    return None
+
+
 def resolve_heading_links(
     content: str,
     document_headings: Iterable[str],
     *,
     is_bookmark: Callable[[str], bool],
 ) -> tuple[str, list[Diagnostic]]:
-    """Rewrite bare href="#Heading" anchors to href="#Heading|outline" when the fragment exactly
-    matches a heading; return the rewritten HTML and one LINK_TARGET_NOT_FOUND warning per distinct
-    fragment that matches no heading, no id/name in *content*, and no existing bookmark.
+    """Rewrite bare href="#Heading" anchors to href="#Heading|outline" when the fragment
+    matches a heading (exact, unique case-insensitive, or unique export anchor id ``a__…``);
+    return the rewritten HTML and one LINK_TARGET_NOT_FOUND warning per distinct fragment
+    that matches no heading, no id/name in *content*, and no existing bookmark.
     """
     if not has_bare_fragment_links(content):
         return content, []
@@ -852,19 +904,26 @@ def resolve_heading_links(
         if not name or name in id_names or is_bookmark(name):
             return m.group(0)
 
-        if name in heading_set:
-            escaped = html_mod.escape(name, quote=True)
+        target = _match_heading(name, heading_set)
+        if target is not None:
+            escaped = html_mod.escape(target, quote=True)
             return f"{prefix}{quote}#{escaped}|outline{quote}"
 
         if name not in seen_missing:
             seen_missing.add(name)
+            closest = similar_names(name, sorted(heading_set))
+            closest_suffix = (
+                " Closest headings: " + ", ".join(f'"{h}"' for h in closest) + "."
+                if closest
+                else ""
+            )
             diagnostics.append({
                 "code": LINK_TARGET_NOT_FOUND,
                 "link_target": f"#{name}",
                 "message": (
                     f'Link target "#{name}" matches no heading or bookmark and will not jump anywhere. '
                     'Use the exact heading text, href="#Heading text|outline", or give the target element '
-                    'an id and link to that.'
+                    f'an id and link to that.{closest_suffix}'
                 ),
             })
         return m.group(0)

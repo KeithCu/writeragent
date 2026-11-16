@@ -818,7 +818,18 @@ def _cell_name(cur: Any, text: Any) -> str:
     return _safe_name(_prop(cur, "Cell"))
 
 
-def _find_page_style_label(doc: Any, text_obj: Any) -> str | None:
+# A region that is off reads as None; Left, Right, and First return the shared
+# text when their *IsShared flag is on (verified via SwXHeadFootText).
+_HEADER_FOOTER_TEXT_PROPS: tuple[tuple[str, str], ...] = (
+    ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
+    ("HeaderTextFirst", "first-page header"),
+    ("FooterText", "footer"), ("FooterTextLeft", "footer"), ("FooterTextRight", "footer"),
+    ("FooterTextFirst", "first-page footer"),
+)
+
+
+def _iter_header_footer_texts(doc: Any) -> Iterator[tuple[Any, str, Any]]:
+    """Yield (page_style, region_label, xtext) for enabled header/footer regions on in-use page styles."""
     try:
         styles = doc.getStyleFamilies().getByName("PageStyles")
         for i in range(int(styles.getCount())):
@@ -829,23 +840,25 @@ def _find_page_style_label(doc: Any, text_obj: Any) -> str | None:
             except Exception as exc:
                 reraise_if_disposed(exc)
                 log.debug("header/footer label: isInUse failed", exc_info=True)
-            for attr, region in (
-                ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
-                ("HeaderTextFirst", "first-page header"),
-                ("FooterText", "footer"), ("FooterTextLeft", "footer"), ("FooterTextRight", "footer"),
-                ("FooterTextFirst", "first-page footer"),
-            ):
+            for attr, region in _HEADER_FOOTER_TEXT_PROPS:
                 try:
-                    if uno_same(getattr(st, attr, None), text_obj):
-                        name = _safe_name(st)
-                        return "%s (page style '%s')" % (region, name) if name else region
+                    xtext = getattr(st, attr, None)
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("header/footer label: %s unreadable: %s", attr, exc)
                     continue
+                if xtext is not None:
+                    yield st, region, xtext
     except Exception as exc:
         reraise_if_disposed(exc)
         log.debug("header/footer label: page-style walk failed", exc_info=True)
+
+
+def _find_page_style_label(doc: Any, text_obj: Any) -> str | None:
+    for st, region, region_text in _iter_header_footer_texts(doc):
+        if uno_same(region_text, text_obj):
+            name = _safe_name(st)
+            return "%s (page style '%s')" % (region, name) if name else region
     return None
 
 
@@ -1319,7 +1332,7 @@ MAX_MISS_HAYSTACK_CHARS = 2_000_000
 
 
 def get_search_miss_haystack(doc: Any) -> str:
-    """Read document body and text frames (without tracked deletions) for near-miss search."""
+    """Read document body, text frames, and header/footer regions (without tracked deletions) for near-miss search."""
     try:
         body_text = get_string_without_tracked_deletions(doc.getText())
     except Exception as exc:
@@ -1342,6 +1355,18 @@ def get_search_miss_haystack(doc: Any) -> str:
     except Exception as exc:
         reraise_if_disposed(exc)
         log.warning("Failed to enumerate text frames for search miss: %s", exc)
+
+    seen_regions: set[str] = set()
+    for _style, _region, xtext in _iter_header_footer_texts(doc):
+        try:
+            region_text = get_string_without_tracked_deletions(xtext)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.warning("Failed to read header/footer text for search miss: %s", exc)
+            continue
+        if region_text and region_text not in seen_regions:
+            seen_regions.add(region_text)
+            parts.append(region_text)
 
     hay = "\n".join(parts)
     if len(hay) > MAX_MISS_HAYSTACK_CHARS:
