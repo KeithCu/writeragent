@@ -116,11 +116,11 @@ class McpServersEditor:
         servers = {str(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
         editor = cls(controls, servers)
         editor._load(next(iter(editor._dict_names()), None))
-        attach(controls["server"], "addItemListener", _ServerItemListener(editor, controls["server"]))
-        attach(controls["add_server"], "addActionListener", _AddServerListener(editor))
-        attach(controls["remove_server"], "addActionListener", _RemoveServerListener(editor))
+        attach(controls["server"], "Item", _ServerItemListener(editor, controls["server"]))
+        attach(controls["add_server"], "Action", _AddServerListener(editor))
+        attach(controls["remove_server"], "Action", _RemoveServerListener(editor))
         for field_key in ("url", "token"):
-            attach(controls[field_key], "addFocusListener", _ProbeFocusListener(editor))
+            attach(controls[field_key], "Focus", _ProbeFocusListener(editor))
         return editor
 
     def _unique_name(self, base: str = "server") -> str:

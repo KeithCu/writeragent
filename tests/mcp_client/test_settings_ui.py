@@ -101,9 +101,9 @@ def _attach_editor(
 
     attached: list[Any] = []
 
-    def _attach(ctrl: Any, method: str, listener: Any) -> None:
-        getattr(ctrl, method)(listener)
-        attached.append((ctrl, method, listener))
+    def _attach(ctrl: Any, kind: str, listener: Any) -> None:
+        getattr(ctrl, f"add{kind}Listener")(listener)
+        attached.append((ctrl, kind, listener))
 
     editor = McpServersEditor.attach(dlg, _attach)
     assert editor is not None
@@ -177,7 +177,7 @@ def test_remove_deletes_entry_and_rename_keeps_token(
 
     dlg = _FakeDlg()
     monkeypatch.setattr(settings_ui.main, "post", lambda fn: fn())
-    editor = McpServersEditor.attach(dlg, lambda ctrl, m, listener: getattr(ctrl, m)(listener))
+    editor = McpServersEditor.attach(dlg, lambda ctrl, kind, listener: getattr(ctrl, f"add{kind}Listener")(listener))
     assert editor is not None
 
     # Rename 'a' -> 'alpha'
