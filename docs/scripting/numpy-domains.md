@@ -41,6 +41,8 @@ The 14 Calc **Analysis Helpers** in [`plugin/scripting/analysis.py`](../../plugi
 uv pip install numpy pandas scipy scikit-learn statsmodels fg-data-profiling pandas-montecarlo
 ```
 
+The helpers work on pandas 2.3 and 3.x. fg-data-profiling declares `pandas<3`, so this line installs pandas 2.3; without it uv installs pandas 3. The dev lock and the compute image run pandas 3.1.
+
 | Package | Used by |
 |---------|---------|
 | `numpy`, `pandas` | All helpers (coercion, tables, aggregates) |

@@ -20,7 +20,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, final
 
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.doc.visual_helpers import UNITS_PER_INCH, mm_to_unit
-from plugin.framework.errors import Diagnostic, append_warnings, reraise_if_disposed, uno_read
+from plugin.framework.errors import (
+    Diagnostic,
+    append_warnings,
+    reraise_if_disposed,
+    similar_names,
+    uno_read,
+)
 from plugin.framework.html_stripper import escape_prose_angle_brackets
 from plugin.framework.uno_context import enum_has_more
 
@@ -803,15 +809,48 @@ def has_bare_fragment_links(content: str) -> bool:
     return False
 
 
+# LibreOffice's XHTML export (filter/source/xslt/odf2xhtml/export/xhtml/body.xsl,
+# template create-heading-anchor2) builds heading ids as "a_" + heading number + "_" +
+# title with spaces, punctuation, and non-ASCII characters folded to "_". Building the
+# pattern from the heading keeps ASCII letters/digits exact and lets other characters
+# match either "_" or themselves, avoiding cross-script collisions (e.g. Cyrillic).
+def _heading_id_pattern(heading: str) -> str:
+    parts: list[str] = []
+    for ch in heading:
+        escaped = re.escape(ch)
+        # Emit a plain "_" when ch is "_" (or escapes to "_") so runs of underscores
+        # never become "(?:_|_)" and trigger exponential regex backtracking on misses.
+        if (ch.isascii() and ch.isalnum()) or escaped == "_":
+            parts.append(escaped)
+        else:
+            parts.append(f"(?:_|{escaped})")
+    return "".join(parts)
+
+
+def _compile_heading_id_pattern(heading: str) -> re.Pattern[str]:
+    return re.compile(
+        r"a_(?:[0-9]+(?:_[0-9]+)*_?)?_" + _heading_id_pattern(heading)
+    )
+
+
+_LINK_TARGET_ADVICE = (
+    'Use the exact heading text, href="#Heading text|outline", or give the target element '
+    "an id and link to that."
+)
+_MAX_CLOSEST_HEADING_SUGGESTIONS = 10
+
+
 def resolve_heading_links(
     content: str,
     document_headings: Iterable[str],
     *,
     is_bookmark: Callable[[str], bool],
 ) -> tuple[str, list[Diagnostic]]:
-    """Rewrite bare href="#Heading" anchors to href="#Heading|outline" when the fragment exactly
-    matches a heading; return the rewritten HTML and one LINK_TARGET_NOT_FOUND warning per distinct
-    fragment that matches no heading, no id/name in *content*, and no existing bookmark.
+    """Rewrite bare href="#Heading" anchors to href="#Heading|outline" when the fragment
+    matches a heading (exact, unique case-insensitive, or unique export anchor id ``a__…``);
+    return the rewritten HTML and one LINK_TARGET_NOT_FOUND warning per distinct fragment
+    that matches no heading, no id/name in *content*, and no existing bookmark, or matches
+    several headings.
     """
     if not has_bare_fragment_links(content):
         return content, []
@@ -836,12 +875,64 @@ def resolve_heading_links(
 
     diagnostics: list[Diagnostic] = []
     seen_missing: set[str] = set()
+    closest_lookups = 0
+    match_cache: dict[str, tuple[str | None, list[str]]] = {}
+    sorted_headings: list[str] | None = None
+    heading_patterns: list[tuple[str, re.Pattern[str]]] | None = None
+
+    def _get_sorted_headings() -> list[str]:
+        nonlocal sorted_headings
+        if sorted_headings is None:
+            sorted_headings = sorted(heading_set)
+        return sorted_headings
+
+    def _match_heading(name: str) -> tuple[str | None, list[str]]:
+        """Resolve *name* in three tiers: exact, unique case-insensitive, and unique a__ id.
+
+        Writer's own ``SwDoc::GotoOutline`` requires the exact heading text, so the
+        rewrite uses the matched heading's real text. Results are cached per distinct
+        *name* and each heading's export-anchor regex is compiled at most once per call
+        so large documents with many links do not thrash Python's regex cache.
+        """
+        nonlocal heading_patterns
+        cached = match_cache.get(name)
+        if cached is not None:
+            return cached
+
+        if name in heading_set:
+            result: tuple[str | None, list[str]] = (name, [])
+            match_cache[name] = result
+            return result
+
+        folded = name.casefold()
+        case_matches = sorted(h for h in heading_set if h.casefold() == folded)
+        if case_matches:
+            result = (case_matches[0], []) if len(case_matches) == 1 else (None, case_matches)
+            match_cache[name] = result
+            return result
+
+        if name.startswith("a_"):
+            if heading_patterns is None:
+                heading_patterns = [
+                    (h, _compile_heading_id_pattern(h))
+                    for h in _get_sorted_headings()
+                ]
+            id_matches = [h for h, pat in heading_patterns if pat.fullmatch(name) is not None]
+            if id_matches:
+                result = (id_matches[0], []) if len(id_matches) == 1 else (None, id_matches)
+                match_cache[name] = result
+                return result
+
+        result = (None, [])
+        match_cache[name] = result
+        return result
 
     # Writer resolves hyperlinks in SwView::JumpToSwMark (sw/source/uibase/uiview/view2.cxx).
     # Without a '|suffix', it only checks bookmarks and anchor names; bare '#Heading' links fail
     # to navigate. Adding '|outline' directs navigation to SwDoc::GotoOutline
     # (sw/source/core/doc/docnum.cxx), matching headings by outline text.
     def _replace_link(m: re.Match[str]) -> str:
+        nonlocal closest_lookups
         prefix = m.group(1)
         quote = m.group(2)
         frag = m.group(3)
@@ -853,20 +944,37 @@ def resolve_heading_links(
         if not name or name in id_names or is_bookmark(name):
             return m.group(0)
 
-        if name in heading_set:
-            escaped = html_mod.escape(name, quote=True)
+        target, ambiguous = _match_heading(name)
+        if target is not None:
+            escaped = html_mod.escape(target, quote=True)
             return f"{prefix}{quote}#{escaped}|outline{quote}"
 
         if name not in seen_missing:
             seen_missing.add(name)
+            if ambiguous:
+                candidates = ", ".join(f'"{h}"' for h in ambiguous)
+                msg = (
+                    f'Link target "#{name}" matches several headings: {candidates}. '
+                    f"{_LINK_TARGET_ADVICE}"
+                )
+            else:
+                closest: list[str] = []
+                if closest_lookups < _MAX_CLOSEST_HEADING_SUGGESTIONS:
+                    closest_lookups += 1
+                    closest = similar_names(name, _get_sorted_headings())
+                closest_suffix = (
+                    " Closest headings: " + ", ".join(f'"{h}"' for h in closest) + "."
+                    if closest
+                    else ""
+                )
+                msg = (
+                    f'Link target "#{name}" matches no heading or bookmark and will not jump anywhere. '
+                    f"{_LINK_TARGET_ADVICE}{closest_suffix}"
+                )
             diagnostics.append({
                 "code": LINK_TARGET_NOT_FOUND,
                 "link_target": f"#{name}",
-                "message": (
-                    f'Link target "#{name}" matches no heading or bookmark and will not jump anywhere. '
-                    'Use the exact heading text, href="#Heading text|outline", or give the target element '
-                    'an id and link to that.'
-                ),
+                "message": msg,
             })
         return m.group(0)
 

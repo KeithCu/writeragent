@@ -137,7 +137,7 @@ Tests: [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/tes
 
 **Problem**: An empty ``properties: {}`` was treated as "no schema", so a no-arg tool such as ``sheet_list`` accepted hallucinated kwargs. The same name registered twice (Writer/Calc ``shape_upsert``) kept only the last ``required_core_tools``. Each provider shim then built the next request from the unchecked call.
 
-**Solution**: [`call_properties`](../../plugin/framework/tool_schema.py) / [`without_unknown_kwargs`](../../plugin/framework/tool_schema.py) are the allow-list. ``properties: {}`` is closed. [`normalize_outbound_tool_calls`](../../plugin/framework/tool_schema.py) runs in [`make_chat_request`](../../plugin/framework/client/llm_client.py) before ``build_chat_request``, so OpenAI and Anthropic format the same checked arguments. Duplicate advertised names union ``properties`` instead of last-wins. Duplicate registrations union ``required_core_tools``; ``get_tools`` reads that union. ``ToolRegistry.execute`` strips with the same helper before ``validate``.
+**Solution**: [`call_properties`](../../plugin/framework/tool_schema.py) / [`without_unknown_kwargs`](../../plugin/framework/tool_schema.py) are the allow-list. ``properties: {}`` is closed. [`normalize_outbound_tool_calls`](../../plugin/framework/tool_schema.py) runs in [`make_chat_request`](../../plugin/framework/client/llm_client.py) before ``build_chat_request``, so OpenAI and Anthropic format the same checked arguments. Duplicate advertised names union ``properties`` instead of last-wins. A tool name has exactly one class; a duplicate registration raises. Shared shape and chart classes declare every app's readers. ``ToolRegistry.execute`` strips with the same helper before ``validate``.
 
 Tests: [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py), [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/test_tool_schema_convert.py), [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py).
 
@@ -229,26 +229,6 @@ Tests: [`tests/framework/client/test_openai_shim.py`](../../tests/framework/clie
 - **Unknown-tool suggestions** ([`ToolRegistry._unknown_tool_error`](../../plugin/framework/tool.py)): `UNKNOWN_TOOL` runs `difflib.get_close_matches` against the offered tools for the current `doc_type`, `uno_services_supported`, and `active_domain` (respecting default tier exclusions), returning up to 3 close names in the error message and in `details.suggestions`.
 
 Tests: [`tests/framework/test_stream_delta.py`](../../tests/framework/test_stream_delta.py), [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py).
-
----
-
-## 15. One-time zero-tool edit-turn nudge
-
-**Problem**:
-On Writer edit tasks (such as rewriting a paragraph or converting text to an HTML table), smaller models sometimes emit zero tool calls and paste the rewritten prose or HTML directly into the chat reply with `finish_reason="stop"`, leaving the document unchanged.
-
-**Workaround** ([`should_nudge_zero_tool_edit`](../../plugin/chatbot/tool_loop_state.py)):
-- Both the production FSM (`next_state` on `EventKind.STREAM_DONE` in [`tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py)) and the eval harness ([`llm_chat_eval.py`](../../scripts/prompt_optimization/llm_chat_eval.py)) call the shared helper `should_nudge_zero_tool_edit`.
-- When `doc_type == "writer"`, `apply_content` is in the offered tools, no mutating tool has run yet (`not has_mutated`), `not edit_nudge_sent`, and the turn shows edit intent (imperative edit verb in the user query, or a `<table>` / `"apply_content"` JSON snippet in the assistant text), the loop commits the assistant message, appends `EDIT_NUDGE_MESSAGE` as a `user` turn, sets `edit_nudge_sent = True`, and spawns one follow-up LLM round (`round_num + 1 < max_rounds`).
-- Plain questions without edit intent and turns where a mutating tool already ran (`has_mutated=True` set on `TOOL_RESULT`) exit normally without nudging.
-
-**Interleaving notes (`ToolLoopState`)**:
-- **Stop before `STREAM_DONE`**: `next_state` checks `not state.is_stopped` before emitting `SpawnLLMWorkerEffect`, preserving the `@deal.ensure(_transition_invariants)` / `stopped_effects_exclude_tool_spawns` guarantee.
-- **Stop after nudge spawn**: The follow-up worker runs under the turn's `spawn_scope` / `TurnController`, so Stop aborts the HTTP stream and latches `is_stopped=True`.
-- **Clear / mode switch**: `TurnController` is aborted, so `turn.can_write(host)` and `_live_spawn_target()` drop any late `AddMessageEffect` or `SpawnLLMWorkerEffect`.
-- **Mutating tool before `STREAM_DONE`**: `EventKind.TOOL_RESULT` latches `has_mutated=True` whenever `mutates_document` is true, preventing a nudge if a later round ends with chat text. Read-only tools (`web_research`, read-only delegations) set neither `mutates_document` nor `has_mutated`, and do not refresh `[DOCUMENT CONTENT]`.
-
-Tests: [`tests/chatbot/test_tool_loop_state.py`](../../tests/chatbot/test_tool_loop_state.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py).
 
 ---
 
