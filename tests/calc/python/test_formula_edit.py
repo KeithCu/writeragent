@@ -356,6 +356,8 @@ def test_unicode_sheet_names_round_trip():
     assert parse_data_binding_text(text) == ["'Données'.A1:A5"]
     assert format_py_data_range("Q1-2026.A1") == "'Q1-2026'.A1"
     assert format_excel_data_range("日本.A1") == "'日本'!A1"
+    long_sheet = "'" + "Q" * 70 + "'.A1"
+    assert format_py_data_range(long_sheet) == "Q" * 70 + ".A1"
 
 
 def test_build_data_suffix():

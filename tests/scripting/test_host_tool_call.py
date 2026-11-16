@@ -59,10 +59,12 @@ def test_no_numpy_module_leaves_args_untouched() -> None:
 
     set_process_role(ROLE_WORKER)
     try:
-        with patch.dict(sys.modules, {"numpy": None}), patch(
+        with patch.dict(sys.modules), patch(
             "plugin.framework.ipc.exchange_tool_call", side_effect=_fake_exchange
         ):
+            sys.modules.pop("numpy", None)
             call_host_tool("read_range", range="A1:B2", count=3)
+            assert "numpy" not in sys.modules
     finally:
         set_process_role(None)
 

@@ -22,7 +22,6 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SOURCE,
-    DEAL_MAX_TOKEN,
     ascii_bounded,
     deal,
     inverse_ensure,
@@ -256,6 +255,7 @@ def assemble_python_formula(prefix: str, token: str, suffix: str, *, quoted: boo
 
 # CrossHair keeps ASCII here (runner sets ``_DEAL_ASCII_STR = ascii_bounded``)
 # because Unicode strip/split blows up its search; pytest accepts Unicode sheet names.
+# See formal-verification.md (format_data_binding_display bullet).
 @deal.pre(lambda data_suffix: _DEAL_ASCII_STR(data_suffix, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda data_suffix, result: not result or (not result.startswith(";") and not result.startswith(",") and not result.endswith(")")))
@@ -273,6 +273,7 @@ def format_data_binding_display(data_suffix: str) -> str:
 
 # CrossHair keeps ASCII here (runner sets ``_DEAL_ASCII_STR = ascii_bounded``)
 # because Unicode re.split/parsing blows up its search; pytest accepts Unicode sheet names.
+# See formal-verification.md (format_data_binding_display bullet).
 @deal.pre(lambda text: _DEAL_ASCII_STR(text, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 def parse_data_binding_text(text: str) -> list[str]:
@@ -300,7 +301,7 @@ def _is_ascii_letter(c: str) -> bool:
     return "A" <= c <= "Z" or "a" <= c <= "z"
 
 
-@deal.pre(lambda s: _DEAL_ASCII_STR(s, DEAL_MAX_TOKEN))
+@deal.pre(lambda s: _deal_range_addr_ok(s))
 def _is_sheet_identifier(s: str) -> bool:
     """``[A-Za-z_][A-Za-z0-9_]*`` without regex."""
     if not s:
