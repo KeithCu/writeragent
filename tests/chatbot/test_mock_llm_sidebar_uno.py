@@ -29,7 +29,6 @@ from tests.chatbot.mock_llm_harness import (
 )
 
 _session = None
-_saved_prompt_research: bool | None = None
 WELCOME_BODY = "Welcome to WriterAgent."
 
 
@@ -52,22 +51,25 @@ def _setup_mock(ctx):
     if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") != "1":
         raise unittest.SkipTest("use make test-mock-sidebar (LibreOffice user profile)")
 
-    global _saved_prompt_research
     init_config(ctx)
-    from plugin.chatbot.chat_sidebar_mode import mark_librarian_invoked
+    # Point writeragent.json at the mock *before* showing the deck so the live
+    # OXT send path is not still using the user's real endpoint; fold test flags
+    # into the same start save so the single 2s OXT settle covers them too.
+    # Packet E1–E8 must not block on HITL Accept; R8 turns prompt_for_web_research on locally.
+    _session = start_mock_sidebar_session(
+        delay_ms=20,
+        offline=True,
+        extra_config={
+            "chatbot.librarian_invoked": True,
+            "chatbot.prompt_for_web_research": False,
+        },
+    )
     from plugin.chatbot.memory import MemoryStore
-    from plugin.framework.config import get_config, save
 
-    # Ensure clean CI profile starts directly in Chat mode (creates USER.md and sets flag).
-    mark_librarian_invoked()
     try:
         MemoryStore().write("# Test User Profile\n")
     except Exception:
         pass
-
-    # Packet E1–E8 must not block on HITL Accept. R8 turns this on locally.
-    _saved_prompt_research = get_config("chatbot.prompt_for_web_research")
-    save({"chatbot.prompt_for_web_research": False})
     # Import hooks before later panel creates; factory WeakSet also sees panels
     # that were wired before this module loaded (debug-only).
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
@@ -80,9 +82,6 @@ def _setup_mock(ctx):
     )
 
     _ensure_writer_doc(ctx)
-    # Point writeragent.json at the mock *before* showing the deck so the live
-    # OXT send path is not still using the user's real endpoint.
-    _session = start_mock_sidebar_session(delay_ms=20, offline=True)
     controls = wait_for_chat_dialog_controls(ctx, timeout=20.0)
     adopt_runtime_send_listeners()
     sl = send_listener()
@@ -127,44 +126,40 @@ def _setup_mock(ctx):
 
 @teardown
 def _teardown_mock():
-    global _session, _saved_prompt_research
-    from plugin.chatbot.sidebar_test_hooks import press_stop, send_listener, send_state
+    global _session
+    from plugin.chatbot.sidebar_test_hooks import press_stop, send_listener, send_state, wait_idle
 
-    sl = send_listener()
-    if sl is not None:
-        try:
-            if send_state(listener=sl).is_busy:
-                press_stop(listener=sl)
-        except Exception:
-            pass
-    if _session is not None:
-        # Clear fail/delay mutations so a partial run does not leave the mock wedged.
-        try:
-            _session.config.fail = "none"
-            _session.config.delay_ms = 20
-        except Exception:
-            pass
     try:
-        from plugin.chatbot.sidebar_test_hooks import clear_fake_tts
+        sl = send_listener()
+        if sl is not None:
+            try:
+                if send_state(listener=sl).is_busy:
+                    press_stop(listener=sl)
+                wait_idle(listener=sl, timeout=15.0)
+            except Exception:
+                pass
+        if _session is not None:
+            # Clear fail/delay mutations so a partial run does not leave the mock wedged.
+            try:
+                _session.config.fail = "none"
+                _session.config.delay_ms = 20
+            except Exception:
+                pass
+        try:
+            from plugin.chatbot.sidebar_test_hooks import clear_fake_tts
 
-        clear_fake_tts()
-    except Exception:
-        pass
-    stop_mock_sidebar_session(_session)
-    _session = None
+            clear_fake_tts()
+        except Exception:
+            pass
+    finally:
+        stop_mock_sidebar_session(_session)
+        _session = None
     try:
         from plugin.chatbot.audio_recorder import clear_stub_recorder_control
 
         clear_stub_recorder_control()
     except Exception:
         pass
-    if _saved_prompt_research is not None:
-        try:
-            from plugin.framework.config import save
-
-            save({"chatbot.prompt_for_web_research": _saved_prompt_research})
-        except Exception:
-            pass
 
 
 def _control_text(ctrl) -> str:
@@ -618,12 +613,13 @@ def _rebind_mock(**flags: Any) -> None:
 
     ``LlmClient`` keeps a persistent ``HTTPConnection`` whose socket timeout is
     fixed at connect time. Changing ``request_timeout`` alone does not update
-    an existing socket — rebinding the endpoint forces a fresh connection.
+    an existing socket — rebinding the endpoint forces a fresh connection. The
+    session's whole-file backup restore covers the new URL on teardown.
     """
     import threading
     from http.server import ThreadingHTTPServer
 
-    from plugin.framework.config import set_api_key_for_endpoint, save
+    from plugin.framework.config import save
     from scripts.mock_llm_server import make_handler_class
 
     assert _session is not None
@@ -631,6 +627,7 @@ def _rebind_mock(**flags: Any) -> None:
         setattr(_session.config, key, value)
     try:
         _session.httpd.shutdown()
+        _session.httpd.server_close()
         _session.thread.join(timeout=2)
     except Exception:
         pass
@@ -643,7 +640,6 @@ def _rebind_mock(**flags: Any) -> None:
     _session.thread = thread
     _session.base_url = base_url
     save({"endpoint": base_url})
-    set_api_key_for_endpoint(base_url, "mock-key")
     if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
         time.sleep(2.1)
 
