@@ -1279,6 +1279,30 @@ def test_rename_migrates_model_stt_model_and_flat_keys(tmp_path):
         assert written.get("chatbot.deep_research_max_rounds") == 5
 
 
+def test_rename_migrates_agy_model_to_agent_backend_model(tmp_path):
+    reset_config_for_tests()
+    cfg_file = tmp_path / "writeragent.json"
+    with patch("plugin.framework.config.get_config_file_path", return_value=str(cfg_file)):
+        with open(cfg_file, "w", encoding="utf-8") as f:
+            json.dump({"agent_backend.agy_model": "gemini-4-argon-medium"}, f)
+        reset_config_for_tests()
+        assert get_config("agent_backend.model") == "gemini-4-argon-medium"
+        written = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
+        assert "agent_backend.agy_model" not in written
+        assert written.get("agent_backend.model") == "gemini-4-argon-medium"
+
+        with open(cfg_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "agent_backend.agy_model": "gemini-4-argon-medium",
+                "agent_backend.model": "grok-4.6",
+            }, f)
+        reset_config_for_tests()
+        assert get_config("agent_backend.model") == "grok-4.6"
+        written2 = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
+        assert "agent_backend.agy_model" not in written2
+        assert written2.get("agent_backend.model") == "grok-4.6"
+
+
 def test_bad_save_rolls_back_cache_and_keeps_disk(tmp_path):
     reset_config_for_tests()
     cfg_file = tmp_path / "writeragent.json"
