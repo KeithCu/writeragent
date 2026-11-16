@@ -257,7 +257,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     description: str = (
         "Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). "
         "Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. "
-        "Optional data fills cells from A1; optional width and height are 1/100 mm (both or neither). "
+        "Optional data fills cells from A1; optional width and height (both or neither). "
         "Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name "
         "and the exact visible width."
     )
@@ -274,8 +274,8 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
                 },
             },
             "name": {"type": "string", "description": "Optional container name in getEmbeddedObjects()."},
-            "width": {"type": "integer", "description": "Frame width in 1/100 mm (requires height)."},
-            "height": {"type": "integer", "description": "Frame height in 1/100 mm (requires width)."},
+            "width": {"type": "integer", "description": "Frame width, 1/100 mm (requires height)."},
+            "height": {"type": "integer", "description": "Frame height, 1/100 mm (requires width)."},
             **target_params("the embedded spreadsheet"),
         },
         "required": ["object_type"],

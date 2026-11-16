@@ -345,8 +345,8 @@ _CONTROL_PROPERTIES: dict[str, Any] = {
     "items": {"type": ["array", "string"], "items": {"type": "string"}, "description": "List of options for a combobox or list box."},
     "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
     "default_value": {"type": "string", "description": "Initial value for text or date fields."},
-    "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
-    "height": {"type": "integer", "description": "Height in 100ths of mm (default varies by type)."},
+    "width": {"type": "integer", "description": "Width, 1/100 mm (default varies by type)."},
+    "height": {"type": "integer", "description": "Height, 1/100 mm (default varies by type)."},
     "page": _PAGE_PROPERTY,
 }
 

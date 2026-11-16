@@ -590,15 +590,15 @@ class UpsertShape(_AnyDocumentShapeTool):
             },
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
             "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC + " (required only for action='create')"},
-            "x": {"type": "integer", "description": "X position (100ths of mm) (required only for action='create')"},
-            "y": {"type": "integer", "description": "Y position (100ths of mm) (required only for action='create')"},
-            "width": {"type": "integer", "description": "Width (100ths of mm) (required only for action='create')"},
-            "height": {"type": "integer", "description": "Height (100ths of mm) (required only for action='create')"},
+            "x": {"type": "integer", "description": "X position, 1/100 mm (required only for action='create')"},
+            "y": {"type": "integer", "description": "Y position, 1/100 mm (required only for action='create')"},
+            "width": {"type": "integer", "description": "Width, 1/100 mm (required only for action='create')"},
+            "height": {"type": "integer", "description": "Height, 1/100 mm (required only for action='create')"},
             "text": {"type": "string", "description": "Text content"},
             "fill_color": {"type": "string", "description": "Fill color. Hex (#FF0000) or name (red)"},
             "fill_style": {"type": "string", "enum": ["solid", "transparent", "none"], "description": "Fill style"},
             "line_color": {"type": "string", "description": "Line border color"},
-            "line_width": {"type": "integer", "description": "Line width (100ths of mm)"},
+            "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
             "text_color": {"type": "string", "description": "Text character color"},
             "font_size": {"type": "number", "description": "Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size."},
             "font_name": {"type": "string", "description": "Font family name"},
@@ -800,7 +800,7 @@ class ConnectShapes(_AnyDocumentShapeTool):
             "end": {"type": ["integer", "string"], "description": "Index or Name of the ending shape."},
             "page": {"type": "integer", "description": "Page index containing the shapes"},
             "line_color": {"type": "string", "description": "Color of the connector line"},
-            "line_width": {"type": "integer", "description": "Line width (100ths of mm)"},
+            "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
         },
         "required": ["start", "end"],
     }
@@ -1006,7 +1006,7 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
 class AlignShapes(_AnyDocumentShapeTool):
     name: str | None = "shape_align"
     description: str = (
-        "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. "
+        "Align multiple shapes on a page to a shared edge or center axis. "
         "Needs at least two indices or Names."
         + _DIGIT_REF_SCHEMA_NOTE
     )
@@ -1031,7 +1031,7 @@ class AlignShapes(_AnyDocumentShapeTool):
 
 class DistributeShapes(_AnyDocumentShapeTool):
     name: str | None = "shape_distribute"
-    description: str = "Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm." + _DIGIT_REF_SCHEMA_NOTE
+    description: str = "Evenly distribute three or more shapes between the first and last along an axis." + _DIGIT_REF_SCHEMA_NOTE
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -1053,7 +1053,7 @@ class DistributeShapes(_AnyDocumentShapeTool):
 
 class CreateDiagram(_AnyDocumentShapeTool):
     name: str | None = "shape_create_diagram"
-    description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
+    description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node x/y/width/height: 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

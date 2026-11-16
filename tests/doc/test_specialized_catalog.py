@@ -273,3 +273,12 @@ def test_catalog_entries_narrowed_by_uno_services() -> None:
         agent_label="Draw"
     )
 
+
+def test_loop_hint_shapes_states_units_for_every_label() -> None:
+    from plugin.doc.specialized_catalog import loop_hint
+
+    expected = loop_hint("shapes", None)
+    assert expected != ""
+    for label in ("Writer", "Calc", "Draw"):
+        assert loop_hint("shapes", label) == expected
+

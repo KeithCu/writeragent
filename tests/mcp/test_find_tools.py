@@ -573,6 +573,14 @@ def test_no_document_chart_guidance_is_app_neutral():
     assert g != get_domain_guidance("charts", agent_label="Calc")
 
 
+def test_shapes_domain_guidance_matches_loop_hint():
+    from plugin.doc.specialized_catalog import loop_hint
+
+    g = get_domain_guidance("shapes", agent_label=None)
+    assert g != ""
+    assert g == loop_hint("shapes", None)
+
+
 def test_direct_flat_lists_app_specific_tools_without_document():
     reg = ToolRegistry(MagicMock())
     for cls in (FindTools, _FtInsert, _AppSpecificTool):

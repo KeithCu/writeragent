@@ -156,6 +156,10 @@ DELEGATE_ANCHOR_RULE = (
     "for a read request, return what the user asked for."
 )
 
+# Every shape length and position (x, y, width, height, line width) is one LibreOffice unit.
+# Page and slide sizes are reported in this same unit so the model never converts.
+SHAPE_UNITS_RULE = "Shape x, y, width, height and line widths are whole numbers in 1/100 mm (1000 = 1 cm; A4 is 21000 x 29700)."
+
 # Shared guidance for writing `task` strings when delegating to specialized sub-agents.
 # Must stay a single line (delegation templates are one line; tests assert no newlines).
 SPECIALIZED_TASK_RULES = (
@@ -323,8 +327,9 @@ def python_specialized_sub_agent_hint(agent_label: str) -> str:
         " you MUST call python_delegate_domains with domains (a list of those domain names) and task"
         " (what the inner agent should accomplish, including sizes, colors, and positions or the computed layout)"
         " BEFORE workflow_finished."
-        " When placing shapes, that task must use page-scale absolute positions in HMM (1/100 mm)"
+        " When placing shapes, that task must give page-scale absolute positions"
         " from the top-left of the page, not a tiny origin-centered cluster around (0,0)."
+        f" {SHAPE_UNITS_RULE}"
         " When placing many shapes, tell the inner agent to use one python_run_script"
         " with a Python for-loop (import writeragent as wa; wa.shape.upsert),"
         " not one LLM tool call per shape."

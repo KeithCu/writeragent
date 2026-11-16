@@ -9,6 +9,7 @@ from plugin.framework.prompts import (
     CALC_SPECIALIZED_DELEGATION_TEMPLATE,
     DRAW_SPECIALIZED_DELEGATION_TEMPLATE,
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
+    SHAPE_UNITS_RULE,
     WRITER_SIDEBAR_ONLY_DOMAINS,
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
 )
@@ -49,6 +50,7 @@ _LOOP_HINTS: dict[str, dict[str | None, str]] = {
         "Draw": _CHARTS_HEADERS_ROWS_HINT,
         None: _CHARTS_NEUTRAL_HINT,
     },
+    "shapes": dict.fromkeys((None, "Writer", "Calc", "Draw"), SHAPE_UNITS_RULE),
 }
 
 
@@ -59,7 +61,8 @@ def loop_hint(domain: str, agent_label: str | None) -> str:
     MCP tool_find direct guidance with no app known (the host model runs the tools
     itself, so footnotes has no "task executor" clause and charts names both apps).
     Charts differ per app (Calc passes data_range; Writer and Draw pass headers/rows).
-    Footnotes is one sentence for every app. Unknown domain or label -> "".
+    Footnotes is one sentence for every app. Shapes is the coordinate-unit sentence for
+    every app. Unknown domain or label -> "".
     """
     return _LOOP_HINTS.get(domain, {}).get(agent_label, "")
 
