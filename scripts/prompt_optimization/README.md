@@ -20,7 +20,7 @@ make eval-ab SUITE=calc           # A/B compare origin/master vs working tree (c
 
 - Defaults: `SUITE=all`, `MODELS=openai/gpt-oss-20b:nitro,openai/gpt-oss-120b:nitro`, `REPEATS=3`, `OUT_DIR=/tmp/wa-eval-ab`, optional `TASKS=task1,task2`.
 - Runs `scripts/generate_manifest.py` first, then executes one `run_eval_multi.py` at a time in the foreground (`-j 1 --lo-workers 2 --backend auto`).
-- Writes resumable results to `/tmp/wa-eval-ab/<suite>/<side>-<source>-<config>-rN.json` (skipping completed repeats) and prints a per-task pass-rate / quality table plus a `B better` / `B worse` / `B same` summary line. Any change to the Side A commit, uncommitted `plugin/` or `scripts/` files on Side B, the model list, or the task list starts fresh files and ignores older ones.
+- Writes resumable results to `/tmp/wa-eval-ab/<suite>/<side>-<source>-<config>-rN.json` (skipping completed repeats) and prints a per-task pass-rate / quality table plus a `B better` / `B worse` / `B same` summary line. Any change to the Side A commit, the Side B HEAD commit or uncommitted `plugin/` or `scripts/` changes, the model list, or the task list starts fresh files and ignores older ones.
 
 Local OpenAI-compatible (Ollama, vLLM, etc.):
 

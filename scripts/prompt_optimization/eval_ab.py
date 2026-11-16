@@ -138,7 +138,16 @@ def working_tree_id(repo_root: Path) -> str:
     Side B without requiring a commit.
     """
     head = resolve_commit(repo_root, "HEAD")
-    diff = _git_stdout(repo_root, "diff", "--binary", "HEAD", "--", *SOURCE_PATHS)
+    diff = _git_stdout(
+        repo_root,
+        "diff",
+        "--no-ext-diff",
+        "--no-color",
+        "--binary",
+        "HEAD",
+        "--",
+        *SOURCE_PATHS,
+    )
     untracked_raw = _git_stdout(
         repo_root,
         "ls-files",
@@ -165,6 +174,8 @@ def run_config_id(models: list[str], tasks: list[str]) -> str:
 
     Including the run configuration prevents a run with different ``MODELS`` or
     ``TASKS`` from reusing stale detail rows and mixing them into ``overall``.
+    ``--repeats`` is deliberately excluded: the repeat index is in the
+    filename, so raising ``REPEATS`` reuses ``r1..rN``.
     """
     payload = json.dumps({"models": sorted(models), "tasks": sorted(tasks)}).encode(
         "utf-8"
@@ -498,6 +509,12 @@ def main(argv: list[str] | None = None) -> int:
             if is_repeat_done(suite_dir, side, keys[side], rep):
                 print(f"[skip] {side}-r{rep} already exists: {out_path}")
                 continue
+            if side == "B" and working_tree_id(REPO_ROOT) != b_source:
+                print(
+                    "ERROR: working tree changed during the run; aborting.",
+                    file=sys.stderr,
+                )
+                return 2
             assert root is not None
             print(f"[run] {side}-r{rep} ({len(tasks)} tasks, {len(models)} models) -> {out_path}")
             run_one_eval(

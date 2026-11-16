@@ -198,10 +198,11 @@ def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys
     assert eval_ab.is_repeat_done(suite_dir, "A", "k", 1)
     assert eval_ab.is_repeat_done(suite_dir, "B", "k", 1)
 
+    # End-to-end resume checks use a separate repo and out_dir/calc.
     repo = _init_repo(tmp_path / "repo")
     out_dir = tmp_path / "out"
+    calc_dir = out_dir / "calc"
     worktree_refs: list[str] = []
-    run_sides: list[str] = []
 
     monkeypatch.setattr(eval_ab, "REPO_ROOT", repo)
     monkeypatch.setattr(eval_ab, "run_generate_manifest", lambda root: None)
@@ -217,7 +218,6 @@ def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys
         assert lo_workers == 2
         assert backend == "auto"
         side = "A" if out_path.name.startswith("A-") else "B"
-        run_sides.append(side)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps([{"openrouter_id": models[0]}]), encoding="utf-8")
         eval_ab.details_path_for(out_path).write_text(
@@ -245,40 +245,50 @@ def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys
 
     # (a) First run executes both A and B, checking out the resolved 40-char SHA.
     assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
-    assert run_sides == ["A", "B"]
+    out_a = capsys.readouterr().out
+    assert "[run] A-r1" in out_a
+    assert "[run] B-r1" in out_a
+    assert "B better" in out_a
     assert len(worktree_refs) == 1
     assert len(worktree_refs[0]) == 40
     assert worktree_refs[0] == eval_ab.resolve_commit(repo, "master")
-    assert "B better" in capsys.readouterr().out
+    files_after_a = {p.name for p in calc_dir.glob("*-r1.json")}
+    assert len(files_after_a) == 2
 
-    # (b) Identical rerun skips both A and B.
-    run_sides.clear()
+    # (b) Identical rerun skips both A and B and writes no new files.
     assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
-    assert run_sides == []
-    out = capsys.readouterr().out
-    assert "[skip] A-r1" in out
-    assert "[skip] B-r1" in out
+    out_b = capsys.readouterr().out
+    assert "[skip] A-r1" in out_b
+    assert "[skip] B-r1" in out_b
+    assert {p.name for p in calc_dir.glob("*-r1.json")} == files_after_a
 
     # (c) Editing plugin/a.py invalidates only B.
     (repo / "plugin" / "a.py").write_text("x = 2\n", encoding="utf-8")
-    run_sides.clear()
     assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
-    assert run_sides == ["B"]
-    capsys.readouterr()
+    out_c = capsys.readouterr().out
+    assert "[skip] A-r1" in out_c
+    assert "[run] B-r1" in out_c
+    files_after_c = {p.name for p in calc_dir.glob("*-r1.json")}
+    assert len(files_after_c - files_after_a) == 1
+    assert next(iter(files_after_c - files_after_a)).startswith("B-")
 
     # (d) Changing --tasks invalidates both A and B.
-    run_sides.clear()
     assert eval_ab.main([*base_args, "--tasks", "tax_column"]) == 0
-    assert run_sides == ["A", "B"]
-    capsys.readouterr()
+    out_d = capsys.readouterr().out
+    assert "[run] A-r1" in out_d
+    assert "[run] B-r1" in out_d
+    files_after_d = {p.name for p in calc_dir.glob("*-r1.json")}
+    assert len(files_after_d - files_after_c) == 2
 
-    # (e) Committing the edit moves master, so rerunning original tasks runs A.
+    # (e) Committing the edit moves master and B's HEAD, so rerunning original tasks runs both A and B.
     _git(repo, "add", "plugin/a.py")
     _git(repo, "commit", "-m", "second")
-    run_sides.clear()
     assert eval_ab.main([*base_args, "--tasks", "data_sorting"]) == 0
-    assert "A" in run_sides
-    capsys.readouterr()
+    out_e = capsys.readouterr().out
+    assert "[run] A-r1" in out_e
+    assert "[run] B-r1" in out_e
+    files_after_e = {p.name for p in calc_dir.glob("*-r1.json")}
+    assert len(files_after_e - files_after_d) == 2
 
     # Bad --ref exits with code 2 and a clear git error.
     assert eval_ab.main([
@@ -289,3 +299,38 @@ def test_is_repeat_done_and_resume_skips_completed(monkeypatch, tmp_path, capsys
         "--out-dir", str(out_dir),
     ]) == 2
     assert "ERROR: git failed:" in capsys.readouterr().err
+
+
+def test_main_aborts_if_working_tree_changes_mid_run(monkeypatch, tmp_path, capsys) -> None:
+    repo = _init_repo(tmp_path / "repo")
+    out_dir = tmp_path / "out"
+
+    monkeypatch.setattr(eval_ab, "REPO_ROOT", repo)
+    monkeypatch.setattr(eval_ab, "run_generate_manifest", lambda root: None)
+    monkeypatch.setattr(
+        eval_ab,
+        "ensure_side_a_worktree",
+        lambda repo_root, worktree_dir, ref="origin/master": tmp_path / "wt-a",
+    )
+
+    def fake_run_one_eval(
+        root: Path, *, models, tasks, out_path: Path, jobs=1, lo_workers=2, backend="auto"
+    ) -> None:
+        # Simulate editing a tracked source file while Side A is running.
+        (repo / "plugin" / "a.py").write_text("x = 99\n", encoding="utf-8")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("[]", encoding="utf-8")
+        eval_ab.details_path_for(out_path).write_text("[]", encoding="utf-8")
+
+    monkeypatch.setattr(eval_ab, "run_one_eval", fake_run_one_eval)
+
+    rc = eval_ab.main([
+        "--suite", "calc",
+        "--tasks", "data_sorting",
+        "--models", "m1",
+        "--repeats", "1",
+        "--ref", "master",
+        "--out-dir", str(out_dir),
+    ])
+    assert rc == 2
+    assert "working tree changed during the run" in capsys.readouterr().err
