@@ -232,24 +232,4 @@ Tests: [`tests/framework/test_stream_delta.py`](../../tests/framework/test_strea
 
 ---
 
-## 15. One-time zero-tool edit-turn nudge
-
-**Problem**:
-On Writer edit tasks (such as rewriting a paragraph or converting text to an HTML table), smaller models sometimes emit zero tool calls and paste the rewritten prose or HTML directly into the chat reply with `finish_reason="stop"`, leaving the document unchanged.
-
-**Workaround** ([`should_nudge_zero_tool_edit`](../../plugin/chatbot/tool_loop_state.py)):
-- Both the production FSM (`next_state` on `EventKind.STREAM_DONE` in [`tool_loop_state.py`](../../plugin/chatbot/tool_loop_state.py)) and the eval harness ([`llm_chat_eval.py`](../../scripts/prompt_optimization/llm_chat_eval.py)) call the shared helper `should_nudge_zero_tool_edit`.
-- When `doc_type == "writer"`, `apply_content` is in the offered tools, no mutating tool has run yet (`not has_mutated`), `not edit_nudge_sent`, and the turn shows edit intent (imperative edit verb in the user query, or a `<table>` / `"apply_content"` JSON snippet in the assistant text), the loop commits the assistant message, appends `EDIT_NUDGE_MESSAGE` as a `user` turn, sets `edit_nudge_sent = True`, and spawns one follow-up LLM round (`round_num + 1 < max_rounds`).
-- Plain questions without edit intent and turns where a mutating tool already ran (`has_mutated=True` set on `TOOL_RESULT`) exit normally without nudging.
-
-**Interleaving notes (`ToolLoopState`)**:
-- **Stop before `STREAM_DONE`**: `next_state` checks `not state.is_stopped` before emitting `SpawnLLMWorkerEffect`, preserving the `@deal.ensure(_transition_invariants)` / `stopped_effects_exclude_tool_spawns` guarantee.
-- **Stop after nudge spawn**: The follow-up worker runs under the turn's `spawn_scope` / `TurnController`, so Stop aborts the HTTP stream and latches `is_stopped=True`.
-- **Clear / mode switch**: `TurnController` is aborted, so `turn.can_write(host)` and `_live_spawn_target()` drop any late `AddMessageEffect` or `SpawnLLMWorkerEffect`.
-- **Mutating tool before `STREAM_DONE`**: `EventKind.TOOL_RESULT` latches `has_mutated=True` whenever `mutates_document` is true, preventing a nudge if a later round ends with chat text. Read-only tools (`web_research`, read-only delegations) set neither `mutates_document` nor `has_mutated`, and do not refresh `[DOCUMENT CONTENT]`.
-
-Tests: [`tests/chatbot/test_tool_loop_state.py`](../../tests/chatbot/test_tool_loop_state.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py).
-
----
-
 *This document should be updated as new hacks are discovered or as improvements in models allow us to remove them.*
