@@ -450,9 +450,11 @@ class ToolCallingMixin:
         *,
         user_transcript_text: str | None = None,
     ) -> None:
-        # The send already called begin_send_turn. A mode click inside
-        # pump_ui_idle aborts that turn and swaps the session. Do not start
-        # another turn here: that rebind wrote this reply onto the other chat.
+        # Send called begin_send_turn at click time, and this body runs later
+        # from a posted drain. A Stop, Clear or mode click in between aborts
+        # that turn (a mode click also swaps the session). Do not start another
+        # turn here: a new turn would bind to the other chat and this reply
+        # would be written there.
         entered = running_turn(self._panel)
         if entered is None:
             return
@@ -485,11 +487,6 @@ class ToolCallingMixin:
             turn_session = session_for_turn(self._panel)
             active_domain = turn_session.active_specialized_domain if turn_session is not None else None
             python_tool_domain = getattr(turn_session, "python_tool_domain", None) if turn_session is not None else None
-            from plugin.framework.queue_executor import pump_ui_idle
-
-            toolkit = get_toolkit(self._panel.ctx)
-            if toolkit:
-                pump_ui_idle(toolkit, max_queue_items=4)
             if entered.slash_sidebar_only:
                 # Slash answer presets are sidebar-only; mid-loop refresh must not re-add tools.
                 active_tools: list[Any] = []
@@ -575,8 +572,9 @@ class ToolCallingMixin:
 
         # Peer extracted send already appended the envelope + body once.
         # Calling add_user_message again would double-post that turn.
-        # The turn was bound before pump_ui_idle. Refresh edits that list
-        # in place, so the pin still names it.
+        # The turn's session was pinned when the send began (begin_send_turn).
+        # refresh_document_context edits that session's message list in place,
+        # so the pin still names the list this user row is appended to.
         if not skip_append_user:
             # Check for vision capability and selected image base64.
             # `model` in this function is the UNO document, not the model id.

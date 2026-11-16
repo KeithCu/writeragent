@@ -312,7 +312,6 @@ def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_g
     with (
         patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
         patch("plugin.chatbot.tool_loop.get_config", return_value=128),
-        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None),
         patch("plugin.chatbot.tool_loop.LlmClient") as mock_llm_cls,
         patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
         agent_session(scope),
@@ -323,6 +322,30 @@ def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_g
     assert test_instance.client is existing
     scope.cancel()
     existing.stop.assert_called()
+
+
+def test_send_setup_does_not_pump_vcl_or_run_queued_work(test_instance, mock_get_tools):
+    """Send setup must not re-enter VCL or run other queued main-thread work.
+
+    An unbounded processEventsToIdle here stalled a send for 75 s with AI grammar on.
+    """
+    import plugin.framework.queue_executor as queue_executor
+
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    toolkit = MagicMock()
+
+    with (
+        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=toolkit),
+        patch.object(queue_executor.main, "process_queue") as pq,
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+    ):
+        test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
+
+    toolkit.processEventsToIdle.assert_not_called()
+    pq.assert_not_called()
+    test_instance._start_tool_calling_async.assert_called_once()
 
 
 def test_handle_stream_error_payload_dict(test_instance):
