@@ -162,7 +162,7 @@ These ideas came out of an Opus review of the Calc prompts and tools in November
 
 - **Locale date and number coercion (review rows 6 and 32, coercion half only).** Row 6 also suggested optionally parsing unambiguous locale date forms. Row 32 also suggested optionally coercing strings such as `1,5` based on the document locale. The warn-only half of those rows (report values that look like dates or numbers but were stored as text, with no conversion) shipped in PR 3560. Coercion itself is deferred because guessing locale dates or numbers is risky.
 
-- **Header auto-detect on sort (review row 14, header half only).** The multi-key half shipped via optional `then_by` on `sort_range`; auto-detecting the header row and reporting `header_detected` stays deferred.
+- **Header auto-detect on sort (review row 14, header half only).** The multi-key half shipped via optional `then_by` on `sort_range`; auto-detecting the header row and reporting `header_detected` stays deferred because guessing the header is risky (`has_header` is required so labels do not sort as values) and needs its own eval.
 
 - **Promote common tools out of delegation (review row 15).** Common tasks such as sort, new sheet, and chart are hidden behind delegation, so the prompt has to describe every domain. The suggestion was to promote the three or four most used tools to the top level and keep domain blurbs in the delegate tool description only. Deferred because this redesigns delegation.
 

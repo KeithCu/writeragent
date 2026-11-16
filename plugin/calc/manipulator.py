@@ -318,7 +318,7 @@ def _sort_unchanged_message(range_str: str, keys: Sequence[SortKey]) -> str:
             f"Range {range_str}: key column {keys[0][0]} unchanged by the sort; no rows moved. "
             "Calling it again changes nothing; if rows should move, check range, has_header and sort_column."
         )
-    col_list = ", ".join(str(col) for col, _unused in keys)
+    col_list = ", ".join(str(col) for col in dict.fromkeys(col for col, _unused in keys))
     return (
         f"Range {range_str}: key columns {col_list} unchanged by the sort; no rows moved. "
         "Calling it again changes nothing; if rows should move, check range, has_header, sort_column and then_by."
