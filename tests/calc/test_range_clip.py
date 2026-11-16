@@ -39,8 +39,8 @@ def test_clip_workbook_data_ranges_special_names():
     clipped = clip_workbook_data_ranges(ranges, sheet_bounds=bounds)
     assert clipped == [
         "'$Prices'.F1:F55",
-        "2024.F1:F55",
-        "Q1-Sales.F1:F55",
+        "'2024'.F1:F55",
+        "'Q1-Sales'.F1:F55",
     ]
 
 

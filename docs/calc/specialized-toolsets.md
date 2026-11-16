@@ -28,7 +28,7 @@ Calc chat and tool capabilities in WriterAgent were adapted from the standalone 
 - **Single-Process PyUNO**: WriterAgent executes all Calc operations directly inside LibreOffice's Python environment. It does **not** launch socket/pipe bridge servers (`BridgeServer`/`BridgeClient`), standalone PyUNO processes, or external PyQt5 UIs.
 - **Modular Component Layer**:
   - `bridge.py`: In-process document, sheet, and cell resolution from the active component context.
-  - `address_utils.py`: Pure Python A1 address and range parsing/formatting.
+  - `address_utils.py`: Pure Python A1 address and range parsing/formatting. Sheet-qualified addresses quote the sheet name by Calc's formula rule (`quote_sheet_name`): bare only for an identifier (letter or `_`, then letters, digits, `_`, or combining marks), so `'Q1-2026'.B2` and `'2024'.B2` can be pasted into formulas.
   - `inspector.py`: Analytical read operations (`read_range`, cell details, formatting metadata).
   - `analyzer.py`: Sheet structure analysis, used range bounds, and data region detection.
   - `error_detector.py`: Formula error code mapping exposed via `detect_errors`; `error.code` is the token the cell shows (`#DIV/0!`, `#NULL!`, or `Err:502` where Calc has no `#` form; `ScGlobal::GetErrorString`), the numeric `error_code` is authoritative (`#N/A` is `32767`), suggestions live on `ERROR_TYPES` rows, and results use sheet-qualified addresses.
