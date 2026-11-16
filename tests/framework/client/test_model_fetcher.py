@@ -1627,7 +1627,7 @@ def test_is_image_only_model():
 def test_ui_thread_skips_provider_memo_until_key_read(fake_keystore):
     from plugin.framework import keystore
     from plugin.framework.client import model_fetcher
-    from plugin.framework.config import set_api_key_for_endpoint
+    from plugin.framework.config import get_api_key_for_endpoint, set_api_key_for_endpoint
     from plugin.framework.queue_executor import main
 
     url = "https://openrouter.ai/api"
@@ -1635,14 +1635,15 @@ def test_ui_thread_skips_provider_memo_until_key_read(fake_keystore):
     keystore.reset_for_tests(fake_keystore)
     fake_keystore.get_calls = 0
 
-    with (
-        patch.object(main, "is_current", return_value=True),
-        patch.object(model_fetcher, "run_in_background") as bg_lookup,
-    ):
-        model_fetcher.has_native_vision("vendor/cold-vision-model", url)
-        assert fake_keystore.get_calls == 0
-        assert bg_lookup.call_count == 0
+    with patch.object(model_fetcher, "run_in_background") as bg_lookup:
+        with patch.object(main, "is_current", return_value=True):
+            model_fetcher.has_native_vision("vendor/cold-vision-model", url)
+            assert fake_keystore.get_calls == 0
+            assert bg_lookup.call_count == 0
 
-        assert keystore.get_secret(f"api_key:{url}") == "sk-1"
-        model_fetcher.has_native_vision("vendor/cold-vision-model", url)
-        assert bg_lookup.call_count == 1
+        with patch.object(main, "is_current", return_value=False):
+            assert get_api_key_for_endpoint(url) == "sk-1"
+
+        with patch.object(main, "is_current", return_value=True):
+            model_fetcher.has_native_vision("vendor/cold-vision-model", url)
+            assert bg_lookup.call_count == 1

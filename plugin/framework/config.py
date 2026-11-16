@@ -710,7 +710,7 @@ def api_key_locked_for_endpoint(endpoint: Any) -> bool:
 
 
 def api_key_needs_keystore_read(endpoint: Any) -> bool:
-    """True when *endpoint* has a ``keystore:`` ref not yet cached in memory."""
+    """True when *endpoint* has a ``keystore:`` ref not yet cached, so reading it would call the OS store and may open an unlock prompt."""
     normalized = normalize_endpoint_url(endpoint or "")
     return keystore.is_ref(_api_key_slot_raw(normalized)) and not keystore.is_cached(_api_key_secret_name(normalized))
 

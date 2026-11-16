@@ -146,6 +146,8 @@ def build_module_field_specs(
                 where=secret_location_label(get_config(config_key))
             )
             if not str(val) and secret_config_locked(config_key):
+                # Opened blank because the store is locked; apply_settings_result
+                # will not save the blank as a clear (see _left_blank_while_locked).
                 field["keyring_locked"] = True
         if resolved_opts:
             field["options"] = resolved_opts

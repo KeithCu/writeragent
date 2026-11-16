@@ -346,21 +346,29 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             if save_key not in ("text_model", "image_model") or val != str(get_config(save_key) or "").strip():
                 lru_rows.append((save_key, val, lru_name, current_endpoint if scoped else ""))
 
-    if "api_key" in result and not _left_blank_while_locked(field_specs_by_name.get("api_key"), result["api_key"]):
-        # One slot, not a copy of the whole map. save merges that slot
-        # into the map it reads under the config lock. Copying the map here
-        # and replacing it in the batch dropped a key another writer stored
-        # for a different endpoint between this read and that write.
+    if "api_key" in result:
         typed_key = str(result["api_key"])
-        slot = endpoint_for_api_key_write(
-            typed_key,
-            saved_endpoint,
-            current_endpoint,
-            str(get_api_key_for_endpoint(saved_endpoint) or ""),
-            str(get_api_key_for_endpoint(current_endpoint) or ""),
+        # Skip when the field opened blank under a locked keyring (same endpoint)
+        # or the endpoint being saved is currently locked (covers switching
+        # endpoints inside the dialog via _sync_api_key).
+        open_locked = current_endpoint == saved_endpoint and _left_blank_while_locked(
+            field_specs_by_name.get("api_key"), typed_key
         )
-        if slot is not None:
-            pending["api_keys_by_endpoint"] = {slot: typed_key}
+        save_locked = not typed_key and api_key_locked_for_endpoint(current_endpoint)
+        if not (open_locked or save_locked):
+            # One slot, not a copy of the whole map. save merges that slot
+            # into the map it reads under the config lock. Copying the map here
+            # and replacing it in the batch dropped a key another writer stored
+            # for a different endpoint between this read and that write.
+            slot = endpoint_for_api_key_write(
+                typed_key,
+                saved_endpoint,
+                current_endpoint,
+                str(get_api_key_for_endpoint(saved_endpoint) or ""),
+                str(get_api_key_for_endpoint(current_endpoint) or ""),
+            )
+            if slot is not None:
+                pending["api_keys_by_endpoint"] = {slot: typed_key}
 
     # One save, and only keys that differ from disk or from the
     # schema default of a missing key. Passing the whole dialog made a
