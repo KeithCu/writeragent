@@ -439,6 +439,7 @@ class WriterAgentToolCallingAgent(ToolCallingAgent):
                 return tool(**arguments, sanitize_inputs_outputs=True)
             return tool(arguments, sanitize_inputs_outputs=True)
         except Exception as e:
+            # same text as ToolCallingAgent.execute_tool_call's tool branch (plugin/contrib/smolagents/agents.py)
             error_msg = (
                 f"Error executing tool '{tool_name}' with arguments {str(arguments)}: {type(e).__name__}: {e}\n"
                 "Please try again or use another tool"

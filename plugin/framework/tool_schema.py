@@ -345,14 +345,14 @@ def coerce_call_args(props: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
     Returns a new dict without mutating *kwargs*. Nested ``items`` and
     ``properties`` are not walked. Rules applied per property in order:
-    - Skip type coercion when ``type`` is missing or ``value_matches_type`` already holds.
-    - Numeric strings (ASCII digits only, finite) convert to ``int`` or ``float``; ``integer`` accepts whole values only.
+    - Skip type coercion when ``type`` is missing or ``value_matches_type`` already holds; unions that include ``string`` keep strings so the tool owns string parsing (such as forms ``items``).
+    - Numeric strings match ASCII digits and finite floats only (Python ``int()``/``float()`` accept ``1_0``, full-width digits, ``nan``, and ``inf``); ``integer`` accepts whole values only.
     - Boolean words (``true``/``yes``/``1`` and ``false``/``no``/``0``, case-insensitive) convert to ``bool``.
     - JSON strings starting with ``[`` or ``{`` parse for ``array`` or ``object``; dicts wrap into ``[dict]`` for array-only.
-    - Any other non-list string (or non-None scalar/dict) wraps into ``[value]`` when ``type`` includes ``array``.
+    - Any other non-list string (or non-None scalar/dict) becomes ``[value]`` when ``type`` includes ``array`` and is never split on commas (HTML and formulas contain commas).
     - Whole floats convert to ``int`` for ``integer``; ints ``0``/``1`` convert to ``bool`` for ``boolean``.
     - Non-bool numbers (``int``/``float``) convert to ``str(value)`` when ``type`` includes ``string``.
-    - String enum misses map to a unique string member by fold, plural ``s``, or one-edit match (5+ chars).
+    - String enum misses map only on a unique match (never pick a member silently) by fold, plural ``s``, or one-edit match with a 5-character floor (short members such as ``line``/``pie`` and ``odt``/``pdf`` are within two edits of each other).
     """
     if not isinstance(kwargs, dict):
         return kwargs
