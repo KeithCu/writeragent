@@ -257,6 +257,10 @@ class SettingsDialog:
                     apply_settings_result(self._ctx, result, field_specs)
                     # init_logging runs on save so log level changes apply without restart.
                     init_logging(self._ctx)
+                    # OK drops external MCP server connections so the next mcp delegation lists their tools again.
+                    from plugin.mcp.client import drop_connections
+
+                    drop_connections()
                     return result
                 except ConfigValidationError as ve:
                     msgbox(self._ctx, _("Invalid Setting"), str(ve))

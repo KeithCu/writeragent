@@ -2125,6 +2125,38 @@ def test_settings_show_preserves_original_exception_when_cleanup_hits_disposed_c
     dlg.dispose.assert_called_once()
 
 
+def test_settings_ok_makes_mcp_servers_list_tools_again():
+    from plugin.mcp import client as mcp_client
+
+    dlg = MagicMock()
+    dlg.execute.return_value = 1
+    ctx = MagicMock()
+    view = SettingsDialog(ctx)
+    view._dlg = dlg
+    extracted = {"mcp_client__name": "home"}
+
+    mcp_client._connections["home"] = mcp_client.McpServerConnection({"name": "home", "url": "http://127.0.0.1:9/mcp"})
+    try:
+        with (
+            patch.object(view, "_create_dialog"),
+            patch.object(view, "_setup_tabs"),
+            patch.object(view, "_populate_fields"),
+            patch.object(view, "_schedule_initial_models_fetch"),
+            patch.object(view, "_apply_sqlite_restrictions"),
+            patch.object(view, "_cleanup"),
+            patch.object(view, "_extract_results", return_value=extracted),
+            patch("plugin.chatbot.dialog_views.set_active_settings_dialog"),
+            patch("plugin.chatbot.dialog_views.init_logging"),
+            patch("plugin.chatbot.dialog_views.get_optional", return_value=None),
+            patch("plugin.chatbot.dialog_views.get_current_endpoint", return_value="https://api.test"),
+            patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
+            patch("plugin.chatbot.settings_dialog.apply_settings_result"),
+        ):
+            assert view.show() == extracted
+        assert mcp_client._connections == {}
+    finally:
+        mcp_client._connections.clear()
+
 
 def test_setup_module_tabs_missing_manifest_is_quiet():
     dlg = MagicMock()
