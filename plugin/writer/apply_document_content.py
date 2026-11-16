@@ -308,10 +308,11 @@ def _find_ranges(
 ) -> tuple[list[Any], search_mod.MatchMode]:
     if regex:
         resolved_cs = search_mod.resolve_case_sensitive(cs)
-        raw_hits = search_mod.find_ranges_regex_case(
-            doc, pattern, True, resolved_cs, all_matches=limit > 1
-        )
-        hits = raw_hits if isinstance(raw_hits, list) else ([] if raw_hits is None else [raw_hits])
+        if limit > 1:
+            hits = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=True)
+        else:
+            first = search_mod.find_ranges_regex_case(doc, pattern, True, resolved_cs, all_matches=False)
+            hits = [] if first is None else [first]
         return hits, search_mod.MatchMode(resolved_cs, False)
     return search_mod.find_literal_ranges(doc, pattern, case_sensitive=cs, limit=limit)
 
@@ -1611,6 +1612,10 @@ class ApplyDocumentContent(ToolBase):
                     occurrence=0 if params.occurrence is None else params.occurrence,
                     case_sensitive=params.anchor.case_sensitive,
                 )
+            except search_mod.OccurrenceOutOfRange as e:
+                res = self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
+                res.update(e.mode.result_fields())
+                return res
             except IndexError as e:
                 return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
             if found is None:
@@ -1634,6 +1639,7 @@ class ApplyDocumentContent(ToolBase):
             params.case_sensitive,
             limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
         )
+        # Empty ranges fall through to the existing miss / drawing-shape path (models often send occurrence=0).
         if not ranges:
             res = self._finish_search_miss(doc, params)
         elif params.all_matches:

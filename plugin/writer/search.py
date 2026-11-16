@@ -148,12 +148,26 @@ class MatchMode:
         }
 
 
-EDIT_CASE_SENSITIVE_DESCRIPTION = (
+_LADDER_CASE_SENSITIVE_BODY = (
     "Omit to match exact case first and ignore case only when nothing matches; true or false "
     "forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/"
-    "curly quote or dash variant matches (never for a needle of punctuation alone). "
-    "matched_case_sensitive and matched_folded in the result name the pass that matched."
+    "curly quote or dash variant matches (never for a needle of punctuation alone)."
 )
+EDIT_CASE_SENSITIVE_DESCRIPTION = (
+    _LADDER_CASE_SENSITIVE_BODY
+    + " matched_case_sensitive and matched_folded in the result name the pass that matched."
+)
+CURSOR_CASE_SENSITIVE_DESCRIPTION = _LADDER_CASE_SENSITIVE_BODY
+
+
+class OccurrenceOutOfRange(IndexError):
+    """Raised by find_occurrence_range when matches exist in *mode* but occurrence is past the end."""
+
+    mode: MatchMode
+
+    def __init__(self, message: str, mode: MatchMode) -> None:
+        super().__init__(message)
+        self.mode = mode
 
 
 def explicit_case_sensitive(raw: Any) -> bool | None:
@@ -801,8 +815,9 @@ def find_occurrence_range(
     if not hits:
         return None, mode
     if occurrence >= len(hits):
-        raise IndexError(
-            f"occurrence {occurrence} out of range (found {len(hits)} match(es), use 0..{len(hits) - 1})."
+        raise OccurrenceOutOfRange(
+            f"occurrence {occurrence} out of range (found {len(hits)} match(es), use 0..{len(hits) - 1}).",
+            mode,
         )
     return hits[occurrence], mode
 
@@ -829,6 +844,8 @@ def occurrence_range_or_error(
     occurrence = 0 if occurrence is None else occurrence
     try:
         found, mode = find_occurrence_range(doc, text, occurrence=occurrence, case_sensitive=case_sensitive)
+    except OccurrenceOutOfRange as exc:
+        return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE"), exc.mode
     except IndexError as exc:
         return None, make_tool_error(str(exc), code="OCCURRENCE_OUT_OF_RANGE"), last_mode
     if found is None:

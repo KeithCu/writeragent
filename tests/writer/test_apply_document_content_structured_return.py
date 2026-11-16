@@ -1041,7 +1041,10 @@ def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
 
 def test_anchor_occurrence_index_error(monkeypatch):
     def _raise_oor(*args, **kwargs):
-        raise IndexError("occurrence 2 out of range (found 1 match(es), use 0..0).")
+        raise search_mod.OccurrenceOutOfRange(
+            "occurrence 2 out of range (found 1 match(es), use 0..0).",
+            search_mod.MatchMode(True, False),
+        )
 
     monkeypatch.setattr(search_mod, "find_anchor_span", _raise_oor)
     tool = ApplyDocumentContent()
@@ -1049,6 +1052,8 @@ def test_anchor_occurrence_index_error(monkeypatch):
     assert res["status"] == "error"
     assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
     assert "occurrence 2 out of range" in res["message"]
+    assert res["matched_case_sensitive"] is True
+    assert res["matched_folded"] is False
 
 
 def test_anchor_span_containing_table_refused(monkeypatch):

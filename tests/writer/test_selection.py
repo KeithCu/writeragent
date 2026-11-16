@@ -490,6 +490,19 @@ def test_set_selection_without_pin_is_live_only():
     assert ctx.selection_pin is None
 
 
+def test_set_selection_oor_reports_winning_mode():
+    from tests.writer.test_search import _SampleFakeDoc
+
+    doc = _SampleFakeDoc("Apple pie. apple tart.")
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock(), services={}, selection_pin=None)
+    res = SetSelection().execute(ctx, search_text="Apple", occurrence=1)
+    assert res["status"] == "error"
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
+    assert "found 1 match(es)" in res["message"]
+    assert res["matched_case_sensitive"] is True
+    assert res["matched_folded"] is False
+
+
 
 
 

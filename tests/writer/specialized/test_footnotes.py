@@ -180,7 +180,8 @@ def test_footnotes_insert_anchor_occurrence_too_high():
     )
     assert res["status"] == "error"
     assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
-    assert res["matched_case_sensitive"] is False
+    assert res["matched_case_sensitive"] is True
+    assert res["matched_folded"] is False
     assert "use 0..0" in res["message"]
 
 

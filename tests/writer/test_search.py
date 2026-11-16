@@ -739,13 +739,19 @@ def test_occurrence_range_or_error_payloads():
     assert err["code"] == "INVALID_PARAM"
     assert mode == MatchMode(False, False)
 
-    # Out of range (IndexError)
-    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("occurrence 2 out of range")):
-        rng, err, mode = occurrence_range_or_error(doc, "text", 2, case_sensitive=False, subject="test_param")
+    # Out of range (OccurrenceOutOfRange carries winning mode)
+    from plugin.writer.search import OccurrenceOutOfRange
+
+    with patch(
+        "plugin.writer.search.find_occurrence_range",
+        side_effect=OccurrenceOutOfRange("occurrence 2 out of range", MatchMode(True, False)),
+    ):
+        rng, err, mode = occurrence_range_or_error(doc, "text", 2, case_sensitive=None, subject="test_param")
         assert rng is None
         assert err is not None
         assert err["code"] == "OCCURRENCE_OUT_OF_RANGE"
         assert "occurrence 2 out of range" in err["message"]
+        assert mode == MatchMode(True, False)
 
     # Not found (None)
     with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(True, False))):

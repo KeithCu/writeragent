@@ -1153,7 +1153,7 @@ class _EmbeddedProxy:
             height (optional): Frame height in 1/100 mm (requires width).
             target (optional): Where to insert the embedded spreadsheet. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("embedded_insert", object_type=object_type, data=data, name=name, width=width, height=height, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1180,7 +1180,7 @@ class _FieldProxy:
             properties (optional): Optional dictionary of UNO properties to apply to the field. Example: {'NumberingType': 4} for Arabic numbering, or {'IsDate': true} to force a date display on a DateTime field.
             target (optional): Where to insert the field. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("field_insert", field=field, properties=properties, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1345,7 +1345,7 @@ class _FrameProxy:
         Args:
             target (optional): Where to insert the text frame. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
             name (optional): Optional frame name (from frame_list when set).
             text (optional): Initial text placed inside the frame.
             width_mm (optional): Frame width in millimetres (default 80).
@@ -1570,7 +1570,7 @@ class _IndexProxy:
             fields (optional): Extra/override Fields names (Identifier, Author, ISBN, …). Ignored unless kind=bibliography.
             target (optional): Where to insert the mark or cite. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find if target = 'search'; the mark or cite goes at the start of the match and the text is kept.
-            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("index_add_mark", text=text, kind=kind, primary_key=primary_key, secondary_key=secondary_key, identifier=identifier, author=author, title=title, year=year, pages=pages, bibliographic_type=bibliographic_type, fields=fields, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1583,7 +1583,7 @@ class _IndexProxy:
             create_from_outline (optional): Whether to create the index from the document outline (mainly for toc). Default true.
             target (optional): Where to insert the index. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("index_create", kind=kind, title=title, create_from_outline=create_from_outline, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
@@ -1595,7 +1595,7 @@ class _IndexProxy:
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match.
             dry_run (optional): Do not edit. Report text (the entry that would be removed) and an empty text_after.
-            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("index_delete_toc_entry", old_content=old_content, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive))
 
@@ -1612,7 +1612,7 @@ class _IndexProxy:
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only, when position is before or after. Omit for the first.
             dry_run (optional): Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted).
-            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("index_insert_toc_entry", content=content, page=page, hyperlink_url=hyperlink_url, position=position, old_content=old_content, level=level, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive))
 
@@ -1643,7 +1643,7 @@ class _IndexProxy:
             index (optional): Document index position from index_list. Omit when the document has exactly one TOC.
             occurrence (optional): 0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match.
             dry_run (optional): Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link.
-            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For old_content: Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("index_refresh_toc_entry", old_content=old_content, content=content, hyperlink_url=hyperlink_url, index=index, occurrence=occurrence, dry_run=dry_run, case_sensitive=case_sensitive))
 
@@ -1667,7 +1667,7 @@ class _MailMergeProxy:
             command_type (optional): Data command type: 'table' (0), 'query' (1), or 'command' (2). One of: table, query, command.
             target (optional): Where to insert the field. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
-            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone). matched_case_sensitive and matched_folded in the result name the pass that matched.
+            case_sensitive (optional): For target='search': Omit to match exact case first and ignore case only when nothing matches; true or false forces that mode. Quotes and dashes match as typed first; if nothing matches, any straight/curly quote or dash variant matches (never for a needle of punctuation alone).
         """
         return _result(call_host_tool("mail_merge_insert_field", column_name=column_name, data_source_name=data_source_name, table_name=table_name, command_type=command_type, target=target, old_content=old_content, case_sensitive=case_sensitive))
 
