@@ -142,9 +142,7 @@ def build_module_field_specs(
 
         field: dict[str, Any] = {"name": ctrl_id, "config_key": config_key, "value": str(val)}
         if is_password:
-            helper = schema.get("helper")
-            prefix_help = _(str(helper)) + "\n" if helper else ""
-            field["help"] = prefix_help + _("Stored in: {where}").format(
+            field["help"] = _("Stored in: {where}").format(
                 where=secret_location_label(get_config(config_key))
             )
         if resolved_opts:
@@ -185,13 +183,12 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
     """
     if not ctrl:
         return
-    if field.get("help"):
-        try:
-            model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-            if model is not None and hasattr(model, "HelpText"):
-                model.HelpText = str(field["help"])
-        except Exception:
-            log.debug("set HelpText failed for %s", field.get("name"), exc_info=True)
+    help_line = str(field.get("help") or "").strip()
+    if help_line:
+        model = ctrl.getModel()
+        existing = str(model.HelpText or "").strip()
+        if not existing.endswith(help_line):
+            model.HelpText = f"{existing}\n{help_line}" if existing else help_line
     field_type = str(field.get("type") or "")
     if is_checkbox_control(ctrl):
         set_checkbox_state(ctrl, 1 if as_bool(field.get("value")) else 0)

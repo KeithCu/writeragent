@@ -1607,17 +1607,9 @@ def test_sync_tunnel_string_port_is_coerced_to_int(monkeypatch):
     assert tunnel.start.call_args.args[0] == 18765
 
 
-def test_sync_tunnel_passes_resolved_keystore_token(monkeypatch):
+def test_sync_tunnel_passes_resolved_keystore_token(monkeypatch, fake_keystore):
     import plugin.mcp as mcp_mod
-    from plugin.framework import keystore
     from plugin.framework.config import save
-    from tests.framework.test_keystore import FakeBackend
-
-    backend = FakeBackend()
-    monkeypatch.setattr(keystore, "_resolved", backend)
-    monkeypatch.setattr(keystore, "_cache", {})
-    monkeypatch.setattr(keystore, "_writes_failed", False)
-    monkeypatch.setattr(keystore, "_read_failures_logged", set())
 
     save(
         {

@@ -2336,18 +2336,11 @@ def test_test_connection_uses_endpoint_listener_key():
     assert sent and sent[0][1] == ""
 
 
-def test_key_storage_label_follows_endpoint(monkeypatch):
+def test_key_storage_label_follows_endpoint(fake_keystore):
     from plugin.chatbot.dialog_views import EndpointCombinedListener
     from plugin.framework import keystore
     from plugin.framework.config import set_api_key_for_endpoint
     from plugin.framework.i18n import _
-    from tests.framework.test_keystore import FakeBackend
-
-    backend = FakeBackend()
-    monkeypatch.setattr(keystore, "_resolved", backend)
-    monkeypatch.setattr(keystore, "_cache", {})
-    monkeypatch.setattr(keystore, "_writes_failed", False)
-    monkeypatch.setattr(keystore, "_read_failures_logged", set())
 
     url = "https://api.test"
     set_api_key_for_endpoint(url, "sk-1")
@@ -2363,7 +2356,7 @@ def test_key_storage_label_follows_endpoint(monkeypatch):
         EndpointCombinedListener(dlg, MagicMock(), combo_ctrl)
         assert "Fake Store" in lbl_ctrl.setText.call_args.args[0]
 
-        monkeypatch.setattr(keystore, "_resolved", None)
+        keystore.reset_for_tests(None)
         combo_ctrl.getText.return_value = "https://plain.test"
         EndpointCombinedListener(dlg, MagicMock(), combo_ctrl)
         assert _("plain text") in lbl_ctrl.setText.call_args.args[0]

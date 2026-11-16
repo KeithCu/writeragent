@@ -61,10 +61,13 @@ SERVICE = "WriterAgent"
 REF_PREFIX = "keystore:"
 
 _UNSET = object()
-_resolved: Any = _UNSET
+_detected: bool = False
+_resolved: _KeystoreBackend | None = None
 _init_lock = threading.Lock()
 _cache: dict[str, str | None] = {}
 _cache_lock = threading.Lock()
+# Latched after any set_secret failure so a cancelled Linux unlock prompt
+# never re-prompts once per slot during a single migration batch.
 _writes_failed: bool = False
 _read_failures_logged: set[str] = set()
 
@@ -221,11 +224,13 @@ class _LibSecret:
                 return None
             try:
                 return ctypes.string_at(ptr).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise KeystoreError(f"Invalid UTF-8 in secret {name!r}: {exc}") from exc
             finally:
                 self._secret_password_free(ptr)
         finally:
-            del keepalive
             self._g_hash_table_unref(table)
+            del keepalive
 
     def set(self, name: str, value: str) -> None:
         table, keepalive = self._make_attrs(name)
@@ -246,8 +251,8 @@ class _LibSecret:
             if not ok:
                 raise KeystoreError("secret_password_storev_sync returned FALSE")
         finally:
-            del keepalive
             self._g_hash_table_unref(table)
+            del keepalive
 
     def delete(self, name: str) -> None:
         table, keepalive = self._make_attrs(name)
@@ -256,8 +261,8 @@ class _LibSecret:
             self._clearv_sync(ctypes.byref(self._schema), table, None, ctypes.byref(err))
             self._raise_gerror(err)
         finally:
-            del keepalive
             self._g_hash_table_unref(table)
+            del keepalive
 
 
 @final
@@ -270,6 +275,7 @@ class _WinCredentials:
     _cred_write: Any
     _cred_delete: Any
     _cred_free: Any
+    _get_last_error: Any
 
     def __init__(self) -> None:
         if sys.platform != "win32":
@@ -293,7 +299,8 @@ class _WinCredentials:
                 ("UserName", wintypes.LPWSTR),
             ]
 
-        advapi32: Any = getattr(ctypes, "WinDLL")("advapi32", use_last_error=True)
+        advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+        self._get_last_error = ctypes.get_last_error
 
         self._cred_struct = _CREDENTIALW
         self._cred_read = advapi32.CredReadW
@@ -320,7 +327,7 @@ class _WinCredentials:
     def get(self, name: str) -> str | None:
         pcred: Any = ctypes.POINTER(self._cred_struct)()
         if not self._cred_read(f"{SERVICE}/{name}", 1, 0, ctypes.byref(pcred)):
-            err = int(getattr(ctypes, "get_last_error")())
+            err = int(self._get_last_error())
             if err == 1168:  # ERROR_NOT_FOUND
                 return None
             raise KeystoreError(f"CredReadW failed (error {err})")
@@ -328,7 +335,10 @@ class _WinCredentials:
             cred = pcred.contents
             if not cred.CredentialBlob or cred.CredentialBlobSize == 0:
                 return ""
-            return ctypes.string_at(cred.CredentialBlob, cred.CredentialBlobSize).decode("utf-16-le")
+            try:
+                return ctypes.string_at(cred.CredentialBlob, cred.CredentialBlobSize).decode("utf-16-le")
+            except UnicodeDecodeError as exc:
+                raise KeystoreError(f"Invalid UTF-16-LE in secret {name!r}: {exc}") from exc
         finally:
             self._cred_free(pcred)
 
@@ -342,19 +352,19 @@ class _WinCredentials:
             Comment=None,
             CredentialBlobSize=len(blob),
             CredentialBlob=blob_buf,
-            Persist=3,  # CRED_PERSIST_ENTERPRISE
+            Persist=3,  # CRED_PERSIST_ENTERPRISE: roams with %APPDATA% like writeragent.json
             AttributeCount=0,
             Attributes=None,
             TargetAlias=None,
-            UserName=SERVICE,
+            UserName=SERVICE,  # CredWriteW caps UserName at 513 chars; endpoint URLs can be longer
         )
         if not self._cred_write(ctypes.byref(cred), 0):
-            err = int(getattr(ctypes, "get_last_error")())
+            err = int(self._get_last_error())
             raise KeystoreError(f"CredWriteW failed (error {err})")
 
     def delete(self, name: str) -> None:
         if not self._cred_delete(f"{SERVICE}/{name}", 1, 0):
-            err = int(getattr(ctypes, "get_last_error")())
+            err = int(self._get_last_error())
             if err != 1168:  # ERROR_NOT_FOUND
                 raise KeystoreError(f"CredDeleteW failed (error {err})")
 
@@ -436,7 +446,10 @@ class _MacKeychain:
         self._create_cf = create_cf
 
     def _k(self, name: str) -> ctypes.c_void_p:
-        return ctypes.c_void_p.in_dll(self._sec, name)
+        try:
+            return ctypes.c_void_p.in_dll(self._sec, name)
+        except ValueError as exc:
+            raise KeystoreError(f"Missing Security symbol {name!r}: {exc}") from exc
 
     def _create_query(self, **kwargs: Any) -> Any:
         return self._cf_dict_create(
@@ -463,10 +476,13 @@ class _MacKeychain:
                 return None
             if status != 0:
                 raise KeystoreError(f"OSStatus {status}")
-            return ctypes.string_at(
-                self._cf_data_get_byte_ptr(data),
-                self._cf_data_get_length(data),
-            ).decode("utf-8")
+            try:
+                return ctypes.string_at(
+                    self._cf_data_get_byte_ptr(data),
+                    self._cf_data_get_length(data),
+                ).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise KeystoreError(f"Invalid UTF-8 in secret {name!r}: {exc}") from exc
         finally:
             if data:
                 self._cf_release(data)
@@ -474,6 +490,7 @@ class _MacKeychain:
                 self._cf_release(q)
 
     def set(self, name: str, value: str) -> None:
+        # SecItemAdd fails with errSecDuplicateItem (-25299) if the item already exists.
         self.delete(name)
         q = self._create_query(
             kSecClass=self._k("kSecClassGenericPassword"),
@@ -519,13 +536,29 @@ def _detect() -> _KeystoreBackend | None:
 
 
 def _get_backend() -> _KeystoreBackend | None:
-    global _resolved
-    if _resolved is not _UNSET:
-        return _resolved  # type: ignore[return-value]
+    global _detected, _resolved
+    if _detected:
+        return _resolved
     with _init_lock:
-        if _resolved is _UNSET:
+        if not _detected:
             _resolved = _detect()
-        return _resolved  # type: ignore[return-value]
+            _detected = True
+        return _resolved
+
+
+def reset_for_tests(backend: Any = _UNSET) -> None:
+    """Reset cached keystore state for unit tests (optionally installing *backend*)."""
+    global _detected, _resolved, _writes_failed
+    if backend is _UNSET:
+        _detected = False
+        _resolved = None
+    else:
+        _detected = True
+        _resolved = backend
+    with _cache_lock:
+        _cache.clear()
+        _read_failures_logged.clear()
+    _writes_failed = False
 
 
 def is_ref(value: object) -> bool:
@@ -534,7 +567,11 @@ def is_ref(value: object) -> bool:
 
 
 def new_ref() -> str:
-    """Return a fresh ``keystore:<8 hex>`` reference token."""
+    """Return a fresh ``keystore:<8 hex>`` reference token.
+
+    Each write generates a new token so ``config.save()`` sees a changed JSON
+    value, writes the file, and emits ``config:changed``.
+    """
     return REF_PREFIX + secrets.token_hex(4)
 
 

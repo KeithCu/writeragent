@@ -1491,22 +1491,9 @@ def test_get_config_before_init_returns_default_when_uno_user_config_raises():
         reset_config_for_tests()
 
 
-def _install_fake_keystore(monkeypatch):
-    from plugin.framework import keystore
-    from tests.framework.test_keystore import FakeBackend
-
-    backend = FakeBackend()
-    monkeypatch.setattr(keystore, "_resolved", backend)
-    monkeypatch.setattr(keystore, "_cache", {})
-    monkeypatch.setattr(keystore, "_writes_failed", False)
-    monkeypatch.setattr(keystore, "_read_failures_logged", set())
-    return backend
-
-
-def test_api_key_saved_to_keystore_not_file(monkeypatch):
+def test_api_key_saved_to_keystore_not_file(fake_keystore):
     from plugin.framework.config import api_key_slot_value, get_config_file_path
 
-    backend = _install_fake_keystore(monkeypatch)
     url = "https://api.example.com/v1"
     set_api_key_for_endpoint(url, "sk-1")
 
@@ -1515,13 +1502,12 @@ def test_api_key_saved_to_keystore_not_file(monkeypatch):
     assert b"keystore:" in raw_bytes
     assert api_key_slot_value(url).startswith("keystore:")
     assert get_api_key_for_endpoint(url) == "sk-1"
-    assert backend.store == {"api_key:https://api.example.com": "sk-1"}
+    assert fake_keystore.store == {"api_key:https://api.example.com": "sk-1"}
 
 
-def test_resaving_same_key_keeps_ref(monkeypatch):
+def test_resaving_same_key_keeps_ref(fake_keystore):
     from plugin.framework.config import api_key_slot_value
 
-    _install_fake_keystore(monkeypatch)
     url = "https://api.example.com"
     set_api_key_for_endpoint(url, "sk-1")
     first_ref = api_key_slot_value(url)
@@ -1532,25 +1518,23 @@ def test_resaving_same_key_keeps_ref(monkeypatch):
     emit.assert_not_called()
 
 
-def test_clearing_key_deletes_store_item(monkeypatch):
+def test_clearing_key_deletes_store_item(fake_keystore):
     from plugin.framework.config import api_key_slot_value
 
-    backend = _install_fake_keystore(monkeypatch)
     url = "https://api.example.com"
     set_api_key_for_endpoint(url, "sk-1")
-    assert "api_key:https://api.example.com" in backend.store
+    assert "api_key:https://api.example.com" in fake_keystore.store
 
     set_api_key_for_endpoint(url, "")
     assert api_key_slot_value(url) == ""
-    assert "api_key:https://api.example.com" not in backend.store
+    assert "api_key:https://api.example.com" not in fake_keystore.store
     assert get_api_key_for_endpoint(url) == ""
 
 
-def test_store_write_failure_falls_back_to_plain_text(monkeypatch):
+def test_store_write_failure_falls_back_to_plain_text(fake_keystore):
     from plugin.framework.config import api_key_slot_value, get_config_file_path
 
-    backend = _install_fake_keystore(monkeypatch)
-    backend.fail_set = True
+    fake_keystore.fail_set = True
     url = "https://api.example.com"
     set_api_key_for_endpoint(url, "sk-1")
 
@@ -1560,13 +1544,15 @@ def test_store_write_failure_falls_back_to_plain_text(monkeypatch):
     assert get_api_key_for_endpoint(url) == "sk-1"
 
 
-def test_migrate_moves_all_plaintext_secrets(monkeypatch):
+def test_migrate_moves_all_plaintext_secrets():
+    from plugin.framework import keystore
     from plugin.framework.config import (
         api_key_slot_value,
         get_config_file_path,
         get_secret_config,
         migrate_secrets_to_keystore,
     )
+    from tests.conftest import FakeKeystoreBackend
 
     save(
         {
@@ -1577,19 +1563,22 @@ def test_migrate_moves_all_plaintext_secrets(monkeypatch):
             "mcp.tunnel_provider_token": "tok",
         }
     )
-    _install_fake_keystore(monkeypatch)
-    migrate_secrets_to_keystore()
+    keystore.reset_for_tests(FakeKeystoreBackend())
+    try:
+        migrate_secrets_to_keystore()
 
-    raw_bytes = open(get_config_file_path(), "rb").read()
-    assert b"sk-one" not in raw_bytes
-    assert b"sk-two" not in raw_bytes
-    assert b'"tok"' not in raw_bytes
-    assert api_key_slot_value("https://one.test").startswith("keystore:")
-    assert api_key_slot_value("https://two.test").startswith("keystore:")
-    assert get_config("mcp.tunnel_provider_token").startswith("keystore:")
-    assert get_api_key_for_endpoint("https://one.test") == "sk-one"
-    assert get_api_key_for_endpoint("https://two.test") == "sk-two"
-    assert get_secret_config("mcp.tunnel_provider_token") == "tok"
+        raw_bytes = open(get_config_file_path(), "rb").read()
+        assert b"sk-one" not in raw_bytes
+        assert b"sk-two" not in raw_bytes
+        assert b'"tok"' not in raw_bytes
+        assert api_key_slot_value("https://one.test").startswith("keystore:")
+        assert api_key_slot_value("https://two.test").startswith("keystore:")
+        assert get_config("mcp.tunnel_provider_token").startswith("keystore:")
+        assert get_api_key_for_endpoint("https://one.test") == "sk-one"
+        assert get_api_key_for_endpoint("https://two.test") == "sk-two"
+        assert get_secret_config("mcp.tunnel_provider_token") == "tok"
+    finally:
+        keystore.reset_for_tests()
 
 
 def test_migrate_without_store_leaves_file():
@@ -1602,18 +1591,16 @@ def test_migrate_without_store_leaves_file():
     assert after == before
 
 
-def test_unreadable_ref_reads_empty_and_survives_empty_save(monkeypatch):
+def test_unreadable_ref_reads_empty_and_survives_empty_save(fake_keystore):
+    from plugin.framework import keystore
     from plugin.framework.config import api_key_slot_value
 
-    backend = _install_fake_keystore(monkeypatch)
     url = "https://api.example.com"
     set_api_key_for_endpoint(url, "sk-1")
     ref = api_key_slot_value(url)
 
-    from plugin.framework import keystore
-
     keystore._cache.clear()
-    backend.fail_get = True
+    fake_keystore.fail_get = True
 
     assert get_api_key_for_endpoint(url) == ""
     save({"api_keys_by_endpoint": {url: ""}})

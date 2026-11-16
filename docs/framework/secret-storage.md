@@ -44,4 +44,4 @@ Set `WRITERAGENT_KEYSTORE=0` in the environment to disable the OS store and keep
 
 - **Downgrading** to an older WriterAgent version that does not understand `keystore:` references will send the literal `keystore:<hex>` string as the API key or tunnel token, causing authentication failures until the key is re-entered in Settings.
 - **Copying `writeragent.json`** to another machine or OS user account no longer transfers secrets; re-enter keys on the target machine.
-- **Multiple LibreOffice profiles** under the same OS user account share the same OS store items per normalized endpoint URL.
+- **Multiple LibreOffice profiles** under the same OS user account share the same OS store items per normalized endpoint URL; clearing a key in one profile deletes that shared OS store item for every profile on that OS account.

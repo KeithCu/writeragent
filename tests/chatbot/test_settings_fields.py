@@ -480,16 +480,10 @@ def test_apply_module_config_result_stores_select_option_values():
         mock_save.assert_called_once_with({"demo.count": "42", "demo.mode": "fast"})
 
 
-def test_password_field_shows_resolved_secret(monkeypatch):
-    from plugin.framework import keystore
-    from plugin.framework.config import get_config_file_path, save
-    from tests.framework.test_keystore import FakeBackend
+def test_password_field_shows_resolved_secret(fake_keystore):
+    from unittest.mock import MagicMock
 
-    backend = FakeBackend()
-    monkeypatch.setattr(keystore, "_resolved", backend)
-    monkeypatch.setattr(keystore, "_cache", {})
-    monkeypatch.setattr(keystore, "_writes_failed", False)
-    monkeypatch.setattr(keystore, "_read_failures_logged", set())
+    from plugin.framework.config import get_config_file_path, save
 
     save({"mcp.tunnel_provider_token": "tok-secret"})
     assert b"tok-secret" not in open(get_config_file_path(), "rb").read()
@@ -497,5 +491,10 @@ def test_password_field_shows_resolved_secret(monkeypatch):
     specs = build_module_field_specs("mcp", control_ids="flat")
     tok_spec = next(s for s in specs if s["config_key"] == "mcp.tunnel_provider_token")
     assert tok_spec["value"] == "tok-secret"
-    assert "Fake Store" in tok_spec["help"]
+    assert tok_spec["help"] == "Stored in: Fake Store"
+
+    ctrl = MagicMock()
+    ctrl.getModel.return_value.HelpText = "Translated tooltip"
+    populate_settings_control(ctrl, tok_spec)
+    assert ctrl.getModel.return_value.HelpText == "Translated tooltip\nStored in: Fake Store"
 

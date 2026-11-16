@@ -615,6 +615,10 @@ def _secret_to_store(name: str, current: Any, new: Any) -> str:
     if keystore.is_ref(text):
         return text
     if keystore.is_ref(current):
+        # An equal value keeps the existing ref so save() sees no change and skips
+        # OS writes, file writes, config:changed emits, and tunnel restarts.
+        # An empty save over an unreadable ref also keeps the ref so a locked
+        # keyring never silently wipes the stored key.
         if text == (keystore.get_secret(name) or ""):
             return str(current)
         if not text:
@@ -663,20 +667,23 @@ def update_config_mapping(key: str, mutate: Callable[[Any], Any], *, event_key: 
         save({key: data}, event_key=event_key)
 
 
-def api_key_slot_value(endpoint: Any) -> str:
-    """Return the raw stored JSON value (plain text, ref, or ``""``) for *endpoint*."""
+def _api_key_slot_raw(normalized_endpoint: str) -> str:
     data = get_config("api_keys_by_endpoint")
     if not isinstance(data, dict):
         return ""
-    normalized = normalize_endpoint_url(endpoint or "")
-    raw = data.get(normalized)
+    raw = data.get(normalized_endpoint)
     return raw if isinstance(raw, str) else ""
+
+
+def api_key_slot_value(endpoint: Any) -> str:
+    """Return the raw stored JSON value (plain text, ref, or ``""``) for *endpoint*."""
+    return _api_key_slot_raw(normalize_endpoint_url(endpoint or ""))
 
 
 def get_api_key_for_endpoint(endpoint: Any) -> str:
     """Return API key for the given endpoint."""
     normalized = normalize_endpoint_url(endpoint or "")
-    return _resolve_secret(_api_key_secret_name(normalized), api_key_slot_value(normalized))
+    return _resolve_secret(_api_key_secret_name(normalized), _api_key_slot_raw(normalized))
 
 
 def get_secret_config(key: str) -> str:
@@ -688,22 +695,23 @@ def migrate_secrets_to_keystore() -> None:
     """Move any plain-text API keys and password config values into the OS keystore."""
     if not keystore.can_store():
         return
-    patch: dict[str, Any] = {}
-    slots = get_config("api_keys_by_endpoint")
-    if isinstance(slots, dict):
-        plain_slots = {
-            str(slot): val
-            for slot, val in slots.items()
-            if isinstance(val, str) and val and not keystore.is_ref(val)
-        }
-        if plain_slots:
-            patch["api_keys_by_endpoint"] = plain_slots
-    for key in _config_schema.SECRET_CONFIG_KEYS:
-        val = get_config(key)
-        if isinstance(val, str) and val and not keystore.is_ref(val):
-            patch[key] = val
-    if patch:
-        save(patch)
+    with _config_write_lock:
+        patch: dict[str, Any] = {}
+        slots = get_config("api_keys_by_endpoint")
+        if isinstance(slots, dict):
+            plain_slots = {
+                str(slot): val
+                for slot, val in slots.items()
+                if isinstance(val, str) and val and not keystore.is_ref(val)
+            }
+            if plain_slots:
+                patch["api_keys_by_endpoint"] = plain_slots
+        for key in _config_schema.SECRET_CONFIG_KEYS:
+            val = get_config(key)
+            if isinstance(val, str) and val and not keystore.is_ref(val):
+                patch[key] = val
+        if patch:
+            save(patch)
 
 
 def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None = None) -> None:

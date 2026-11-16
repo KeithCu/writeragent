@@ -10,53 +10,7 @@ import pytest
 from plugin.framework import keystore
 
 
-class FakeBackend:
-    """In-memory keystore backend for unit tests."""
-
-    label = "Fake Store"
-
-    def __init__(self) -> None:
-        self.store: dict[str, str] = {}
-        self.get_calls = 0
-        self.set_calls = 0
-        self.delete_calls = 0
-        self.fail_get = False
-        self.fail_set = False
-        self.fail_delete = False
-        self.on_get = None
-
-    def get(self, name: str) -> str | None:
-        self.get_calls += 1
-        if self.on_get is not None:
-            self.on_get(name)
-        if self.fail_get:
-            raise keystore.KeystoreError("read boom")
-        return self.store.get(name)
-
-    def set(self, name: str, value: str) -> None:
-        self.set_calls += 1
-        if self.fail_set:
-            raise keystore.KeystoreError("write boom")
-        self.store[name] = value
-
-    def delete(self, name: str) -> None:
-        self.delete_calls += 1
-        if self.fail_delete:
-            raise keystore.KeystoreError("delete boom")
-        self.store.pop(name, None)
-
-
-@pytest.fixture
-def fake_keystore(monkeypatch):
-    backend = FakeBackend()
-    monkeypatch.setattr(keystore, "_resolved", backend)
-    monkeypatch.setattr(keystore, "_cache", {})
-    monkeypatch.setattr(keystore, "_writes_failed", False)
-    monkeypatch.setattr(keystore, "_read_failures_logged", set())
-    return backend
-
-
-def test_roundtrip_and_cache(fake_keystore: FakeBackend):
+def test_roundtrip_and_cache(fake_keystore):
     assert keystore.backend_label() == "Fake Store"
     assert keystore.can_store() is True
 
@@ -77,7 +31,7 @@ def test_roundtrip_and_cache(fake_keystore: FakeBackend):
     assert keystore.get_secret("api_key:https://api.test") is None
 
 
-def test_backend_read_error_returns_none(fake_keystore: FakeBackend, caplog):
+def test_backend_read_error_returns_none(fake_keystore, caplog):
     fake_keystore.fail_get = True
     with caplog.at_level(logging.WARNING, logger="plugin.framework.keystore"):
         assert keystore.get_secret("api_key:https://api.test") is None
@@ -86,7 +40,7 @@ def test_backend_read_error_returns_none(fake_keystore: FakeBackend, caplog):
     assert len(warnings) == 1
 
 
-def test_write_failure_disables_writes_for_session(fake_keystore: FakeBackend):
+def test_write_failure_disables_writes_for_session(fake_keystore):
     fake_keystore.fail_set = True
     assert keystore.set_secret("k1", "v1") is False
     assert keystore.can_store() is False
@@ -99,24 +53,28 @@ def test_write_failure_disables_writes_for_session(fake_keystore: FakeBackend):
 
 def test_env_switch_disables_store(monkeypatch):
     monkeypatch.setenv("WRITERAGENT_KEYSTORE", "0")
-    monkeypatch.setattr(keystore, "_resolved", keystore._UNSET)
-    monkeypatch.setattr(keystore, "_cache", {})
-    monkeypatch.setattr(keystore, "_writes_failed", False)
-
-    assert keystore.backend_label() == ""
-    assert keystore.can_store() is False
-    assert keystore.set_secret("k", "v") is False
-    assert keystore.get_secret("k") is None
+    keystore.reset_for_tests()
+    try:
+        assert keystore.backend_label() == ""
+        assert keystore.can_store() is False
+        assert keystore.set_secret("k", "v") is False
+        assert keystore.get_secret("k") is None
+    finally:
+        keystore.reset_for_tests()
 
 
 def test_libsecret_missing_means_no_store(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_KEYSTORE", raising=False)
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(keystore.ctypes, "CDLL", lambda *_args, **_kw: (_ for _ in ()).throw(OSError("no libsecret")))
+
+    def _raise_oserror(*args, **kwargs):
+        raise OSError("no libsecret")
+
+    monkeypatch.setattr(keystore.ctypes, "CDLL", _raise_oserror)
     assert keystore._detect() is None
 
 
-def test_stale_reader_does_not_overwrite_newer_set(fake_keystore: FakeBackend):
+def test_stale_reader_does_not_overwrite_newer_set(fake_keystore):
     name = "api_key:https://api.test"
     fake_keystore.store[name] = "old"
 
