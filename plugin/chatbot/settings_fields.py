@@ -187,6 +187,7 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
     if help_line:
         model = ctrl.getModel()
         existing = str(model.HelpText or "").strip()
+        # Guard against duplicate lines if a caller re-populates a live dialog control.
         if not existing.endswith(help_line):
             model.HelpText = f"{existing}\n{help_line}" if existing else help_line
     field_type = str(field.get("type") or "")

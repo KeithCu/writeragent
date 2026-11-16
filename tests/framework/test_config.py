@@ -1599,7 +1599,7 @@ def test_unreadable_ref_reads_empty_and_survives_empty_save(fake_keystore):
     set_api_key_for_endpoint(url, "sk-1")
     ref = api_key_slot_value(url)
 
-    keystore._cache.clear()
+    keystore.reset_for_tests(fake_keystore)
     fake_keystore.fail_get = True
 
     assert get_api_key_for_endpoint(url) == ""

@@ -21,7 +21,7 @@ def test_roundtrip_and_cache(fake_keystore):
     assert fake_keystore.get_calls == 0
 
     # Cold cache: first get hits backend once, second get hits cache.
-    keystore._cache.clear()
+    keystore.reset_for_tests(fake_keystore)
     assert keystore.get_secret("api_key:https://api.test") == "sk-123"
     assert keystore.get_secret("api_key:https://api.test") == "sk-123"
     assert fake_keystore.get_calls == 1
@@ -87,7 +87,7 @@ def test_stale_reader_does_not_overwrite_newer_set(fake_keystore):
     assert keystore.get_secret(name) == "new"
 
     # Same interleaving with delete_secret during an in-flight read.
-    keystore._cache.clear()
+    keystore.reset_for_tests(fake_keystore)
     fake_keystore.store[name] = "old"
 
     def hijack_with_delete(key: str) -> None:

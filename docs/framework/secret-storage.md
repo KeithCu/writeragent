@@ -26,7 +26,7 @@ All items share the service name `"WriterAgent"`.
 
 - **Migration trigger:** Pressing **OK** in Settings (`apply_settings_result` in [`plugin/chatbot/settings_dialog.py`](../../plugin/chatbot/settings_dialog.py)) calls `migrate_secrets_to_keystore()`, which moves all remaining non-empty plain-text API keys and `widget: password` config values into the OS store.
 - **Fallback:** If no OS store is available (for example headless Linux without a Secret Service daemon) or if a write fails, `set_secret()` sets a session-wide `_writes_failed` flag and `config.save()` keeps the secret in plain text in `writeragent.json`. Settings displays the active location (`Secret Service`, `Keychain`, `Credential Manager`, or `plain text`) on the API Key label and the Provider config tooltip.
-- **Unreadable refs:** If a `keystore:` ref cannot be read from the OS store, the getter returns `""` and the Settings field appears empty, while the `keystore:` ref in `writeragent.json` is preserved unless the user types a new key or clears it.
+- **Unreadable refs:** If a `keystore:` ref cannot be read from the OS store, the getter returns `""` and the Settings field appears empty, while the `keystore:` ref in `writeragent.json` is preserved unless the user types a new key; clearing the field while the store is unreadable keeps the ref, so a locked keyring never wipes the key.
 
 ## Disabling for tests
 
