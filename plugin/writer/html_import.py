@@ -716,6 +716,18 @@ def _lo_style_for_replaced_range(
     return True, None
 
 
+def _insert_inline(model: Any, ctx: Any, cursor: Any, content: str) -> html_import_styles.WriteReport:
+    """Insert inline *content* at *cursor* without splitting its host paragraph.
+
+    Inline inserts never apply ``data-lo-para`` properties, so any requested names
+    are reported as unapplied on the returned ``WriteReport``.
+    """
+    insert_inline_at_cursor(model, ctx, cursor, content)
+    return html_import_styles.WriteReport(
+        unapplied_para=html_import_styles.unapplied_para_names_for_content(content),
+    )
+
+
 def _insert_at_caret(
     model: Any,
     ctx: Any,
@@ -741,10 +753,7 @@ def _insert_at_caret(
     if (cursor.isStartOfParagraph() and cursor.isEndOfParagraph()) or html_fragment_contains_mixed_math(content):
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     if not content_is_block(content):
-        insert_inline_at_cursor(model, ctx, cursor, content)
-        return html_import_styles.WriteReport(
-            unapplied_para=html_import_styles.unapplied_para_names_for_content(content),
-        )
+        return _insert_inline(model, ctx, cursor, content)
     if cursor.isStartOfParagraph():
         return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
     snapped = not cursor.isEndOfParagraph()
@@ -774,8 +783,11 @@ def insert_content_at_position(
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
-    caret was mid-paragraph. Pass *selection* to act on an explicit text range
-    (such as a pinned Send-time selection) instead of reading the live view.
+    caret was mid-paragraph. When the selection is non-collapsed and *content* is
+    inline (no block markup, no real newline, no math), it replaces the selection in
+    place, keeping the host paragraph and its style with Track Changes on or off. Pass
+    *selection* to act on an explicit text range (such as a pinned Send-time selection)
+    instead of reading the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
@@ -789,6 +801,7 @@ def insert_content_at_position(
         styled = position in ("beginning", "end")
         note = None
         caret = False
+        inline = False
         drop_leftover = False
 
         if position == "beginning":
@@ -829,9 +842,29 @@ def insert_content_at_position(
                     # Clear only real text selections (never shapes).
                     if hasattr(rng, "setString"):
                         raise_if_range_hosts_nested_table(rng)
-                        if not caret and not record_changes.is_recording_changes(model):
+                        recording = record_changes.is_recording_changes(model)
+                        # Inline content (plain text or inline tags, no newline, no math)
+                        # replaces the selection in place, like typing over it. Otherwise
+                        # ensure_html_linebreaks wraps it in <p>, which splits the host
+                        # paragraph on import (SwHTMLParser::CallParser in
+                        # sw/source/filter/html/swhtml.cxx calls SplitNode twice and joins
+                        # back only the first). While Track Changes records, the cleared
+                        # text also stays in that paragraph as a tracked deletion, so after
+                        # Accept the paragraph would be left empty.
+                        # The trailing break is trimmed in both modes; otherwise a recorded
+                        # Shift+Down selection deletes the paragraph break and Accept joins
+                        # the next paragraph.
+                        inline = (
+                            not caret
+                            and not content_is_block(content)
+                            and not html_fragment_contains_mixed_math(content)
+                        )
+                        if not caret and (inline or not recording):
                             rng = _without_trailing_break(rng)
-                            drop_leftover = _range_covers_whole_paragraphs(rng)
+                        drop_leftover = (
+                            not (caret or inline or recording)
+                            and _range_covers_whole_paragraphs(rng)
+                        )
                         styled, note = _lo_style_for_replaced_range(model, content, rng)
                         rng.setString("")
                 except AttributeError as e:
@@ -845,23 +878,27 @@ def insert_content_at_position(
                     styled = False
                     note = None
                     caret = False
+                    inline = False
                     drop_leftover = False
                     cursor = _doc_end_cursor()
         else:
             raise ToolExecutionError("Unknown position: %s" % position)
 
         # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
-        # Whole-paragraph selection matches also honor data-lo-style and drop the leftover empty
+        # Whole-paragraph block selection matches also honor data-lo-style and drop the leftover empty
         # paragraph when Track Changes is off; absorb prep is omitted because setString("") already emptied it.
+        # Non-collapsed inline selections go through _insert_inline in place, keeping the host paragraph
+        # and its style whether Track Changes is on or off.
         if position in ("beginning", "end"):
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        report = (
-            _insert_at_caret(model, ctx, cursor, content, styled)
-            if caret
-            else _insert_into_emptied_range(
+        if caret:
+            report = _insert_at_caret(model, ctx, cursor, content, styled)
+        elif inline:
+            report = _insert_inline(model, ctx, cursor, content)
+        else:
+            report = _insert_into_emptied_range(
                 model, ctx, cursor, content, apply_styles=styled, drop_leftover=drop_leftover
             )
-        )
         if note:
             report.style_skips.append(note)
         return report

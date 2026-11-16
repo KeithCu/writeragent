@@ -1110,12 +1110,100 @@ def test_selection_whole_paragraph_replace_leaves_no_empty_paragraph_uno(ctx: An
 
     _seed_three_paras(doc)
     doc.getCurrentController().select(_find_first(doc, "Replace me"))
-    insert_content_at_position(doc, ctx, "plain words", "selection")
+    insert_content_at_position(doc, ctx, "<p>plain words</p>", "selection")
     assert [t for s, t in _body_style_and_text(doc) if s != "TextTable"] == [
         "Keep before",
         "plain words",
         "Keep after",
     ]
+
+
+def _dispatch(ctx: Any, doc: Any, cmd: str) -> None:
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(doc.getCurrentController().getFrame(), cmd, "", 0, ())
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_inline_replace_stays_in_paragraph_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    def _setup_case(case: str) -> tuple[str, list[tuple[str, str]], str]:
+        _seed_three_paras(doc)
+        if case == "word":
+            doc.getCurrentController().select(_find_first(doc, "Replace"))
+            return "Swap", [("Standard", "Keep before"), ("Standard", "Swap me"), ("Standard", "Keep after")], "Standard"
+        if case == "whole":
+            mid = _find_first(doc, "Replace me")
+            mid.setPropertyValue("ParaStyleName", "Heading 1")
+            doc.getCurrentController().select(mid)
+            return (
+                "plain words",
+                [("Standard", "Keep before"), ("Heading 1", "plain words"), ("Standard", "Keep after")],
+                "Heading 1",
+            )
+        # shiftdown: selection ends at the next paragraph's start
+        found = _find_first(doc, "Replace me")
+        sel = doc.getText().createTextCursorByRange(found.getStart())
+        sel.gotoNextParagraph(True)
+        doc.getCurrentController().select(sel)
+        return (
+            "plain words",
+            [("Standard", "Keep before"), ("Standard", "plain words"), ("Standard", "Keep after")],
+            "Standard",
+        )
+
+    for case in ("word", "whole", "shiftdown"):
+        content, expected, orig_style = _setup_case(case)
+        insert_content_at_position(doc, ctx, content, "selection")
+        actual = _body_style_and_text(doc)
+        assert len(actual) == 3, f"case={case} rec=False: {actual!r}"
+        assert actual == expected, f"case={case} rec=False: {actual!r}"
+
+        for action_cmd, post_expected in (
+            (".uno:AcceptAllTrackedChanges", expected),
+            (
+                ".uno:RejectAllTrackedChanges",
+                [("Standard", "Keep before"), (orig_style, "Replace me"), ("Standard", "Keep after")],
+            ),
+        ):
+            content, unused_expected, unused_style = _setup_case(case)
+            doc.setPropertyValue("RecordChanges", True)
+            try:
+                insert_content_at_position(doc, ctx, content, "selection")
+                assert len(_body_style_and_text(doc)) == 3, f"case={case} rec=True pre-{action_cmd}"
+                _dispatch(ctx, doc, action_cmd)
+            finally:
+                doc.setPropertyValue("RecordChanges", False)
+            actual = _body_style_and_text(doc)
+            assert actual == post_expected, f"case={case} rec=True {action_cmd}: {actual!r}"
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_inline_replace_in_table_cell_stays_in_paragraph_uno(ctx: Any, doc: Any) -> None:
+    from plugin.writer.html_import import insert_content_at_position
+
+    text = doc.getText()
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    text.insertTextContent(cur, table, False)
+    cell = table.getCellByName("A1")
+    cell.setString("Cell words here")
+
+    cell_cur = cell.createTextCursor()
+    cell_cur.gotoStart(False)
+    cell_cur.goRight(5, False)
+    cell_cur.goRight(5, True)
+    doc.getCurrentController().select(cell_cur)
+
+    insert_content_at_position(doc, ctx, "books", "selection")
+    assert _para_texts_via_enum(cell) == ["Cell books here"]
+    assert doc.getTextTables().getCount() == 1
 
 
 @native_test
