@@ -198,3 +198,95 @@ def test_search_miss_names_closest_header_text_uno(ctx, doc):
     assert "differs at character 15: r vs e" in msg, msg
     assert "Acme Corp Quarte…" in msg, msg
     assert search_mod.get_search_miss_haystack(doc).count("Acme Corp Quarterly Report") == 1
+
+
+@native_test
+@with_native_doc("writer")
+def test_replace_all_defined_term_exact_case_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("The Seller and the seller.")
+    res = ApplyDocumentContent().execute(
+        native_writer_tool_context(doc, ctx),
+        target="search",
+        old_content="Seller",
+        content="Vendor",
+        all_matches=True,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1
+    assert res.get("matched_case_sensitive") is True
+    assert doc.getText().getString() == "The Vendor and the seller."
+
+
+@native_test
+@with_native_doc("writer")
+def test_replace_all_en_dash_keeps_hyphens_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("e-mail 2020\u20132021")
+    res = ApplyDocumentContent().execute(
+        native_writer_tool_context(doc, ctx),
+        target="search",
+        old_content="\u2013",
+        content=" to ",
+        all_matches=True,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1
+    assert res.get("matched_folded") is False
+    assert doc.getText().getString() == "e-mail 2020 to 2021"
+
+
+@native_test
+@with_native_doc("writer")
+def test_two_paragraph_needle_prefers_chain_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("Intro: Revenue Growth was strong.\rRevenue\rGrowth")
+    res = ApplyDocumentContent().execute(
+        native_writer_tool_context(doc, ctx),
+        target="search",
+        old_content="Revenue\nGrowth",
+        content="Summary",
+    )
+    assert res.get("status") == "ok", res
+    body = doc.getText().getString().replace("\r\n", "\n").replace("\r", "\n")
+    assert body.startswith("Intro: Revenue Growth was strong.")
+    assert "Summary" in body
+
+
+@native_test
+@with_native_doc("writer")
+def test_explicit_case_sensitive_chains_paragraphs_uno(ctx, doc):
+    from plugin.tests.testing_utils import native_writer_tool_context
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("Intro: Revenue Growth was strong.\rRevenue\rGrowth")
+    tool = ApplyDocumentContent()
+    tctx = native_writer_tool_context(doc, ctx)
+
+    hit = tool.execute(
+        tctx,
+        target="search",
+        old_content="Revenue\nGrowth",
+        content="Summary",
+        case_sensitive=True,
+        dry_run=True,
+    )
+    assert hit.get("status") == "ok", hit
+    assert hit.get("replaceable_count") == 1
+
+    miss = tool.execute(
+        tctx,
+        target="search",
+        old_content="Revenue\ngrowth",
+        content="Summary",
+        case_sensitive=True,
+        dry_run=True,
+    )
+    assert miss.get("status") == "ok", miss
+    assert miss.get("replaceable_count") == 0

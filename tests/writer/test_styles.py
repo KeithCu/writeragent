@@ -18,6 +18,7 @@ import sys
 from contextlib import contextmanager
 
 import pytest
+from plugin.writer.search import MatchMode
 from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
@@ -375,7 +376,7 @@ def test_apply_style_rejects_unknown_clear_direct(mock_resolve, mock_ctx):
 def test_apply_style_character(mock_preserve, mock_ctx):
     cursor = MagicMock()
     tool = ApplyStyle()
-    with patch("plugin.writer.search.find_first_range", return_value=MagicMock()), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=cursor):
         res = tool.execute(mock_ctx, style="Source Text", family="CharacterStyles", target="search", old_content="code")
 
@@ -389,7 +390,7 @@ def test_apply_style_character(mock_preserve, mock_ctx):
 def test_apply_style_first_match_search_reports_count(mock_ctx):
     tool = ApplyStyle()
     rng = MagicMock()
-    with patch("plugin.writer.search.find_first_range", return_value=rng), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([rng], MatchMode(True, False))), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
          patch("plugin.writer.styles.resolve_target_cursor") as mock_resolve, \
          patch.object(tool, "_apply_one", return_value=None):
@@ -897,7 +898,7 @@ def test_apply_style_all_matches_applies_to_each():
     from plugin.writer.styles import ApplyStyle
 
     ranges = [MagicMock(), MagicMock(), MagicMock()]
-    with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
@@ -915,7 +916,7 @@ def test_apply_style_all_matches_does_not_abort_on_stop_checker():
     stop_scope = SendCancellation()
     stop_scope.cancel()
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=(ranges, MatchMode(True, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
@@ -931,7 +932,7 @@ def test_apply_style_all_matches_does_not_abort_on_stop_checker():
 def test_apply_style_occurrence_out_of_range():
     from plugin.writer.styles import ApplyStyle
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
@@ -943,7 +944,7 @@ def test_apply_style_occurrence_out_of_range():
 def test_apply_style_search_miss_reports_normalized_and_closest():
     from plugin.writer.styles import ApplyStyle
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.search.search_closest_mismatch", return_value={"message": "closest match starts 'Title…', differs at character 4: e vs x", "closest_match": "Title…", "diff_at": 4}), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
@@ -960,7 +961,7 @@ def test_apply_style_search_miss_reports_normalized_and_closest():
 def test_apply_style_search_oversized_refused():
     from plugin.writer.styles import ApplyStyle
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.old_content_covers_most", return_value=True), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
@@ -975,7 +976,7 @@ def test_apply_style_search_oversized_refused():
 def test_apply_style_search_single_match_oversized_refused():
     from plugin.writer.styles import ApplyStyle
 
-    with patch("plugin.writer.search.find_first_range", return_value=None), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.old_content_covers_most", return_value=True), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
@@ -993,7 +994,7 @@ def test_apply_style_search_single_match_oversized_refused():
 def test_apply_style_search_single_match_shape_only_miss():
     from plugin.writer.styles import ApplyStyle
 
-    with patch("plugin.writer.search.find_first_range", return_value=None), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))), \
          patch("plugin.writer.search.drawing_shape_containing", return_value="Banner"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
@@ -1227,7 +1228,7 @@ def test_apply_style_all_matches_rolls_back():
         return {"applied_direct": 1}
 
     tool._apply_one = mock_apply_one
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.styles.next_agent_edit_undo_title", return_value="Agent Edit"):
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
         assert res["status"] == "error"
@@ -1245,7 +1246,7 @@ def test_apply_style_all_matches_refuses_without_undo_manager():
     mock_apply_one = MagicMock()
     tool._apply_one = mock_apply_one
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]):
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))):
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
         assert res["status"] == "error"
         assert "Nothing was changed" in res["message"]
@@ -1312,7 +1313,7 @@ def test_apply_style_all_matches_leave_failure_is_not_ok():
     doc.getUndoManager.return_value = mgr
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     tool._apply_one = MagicMock(return_value=None)
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.styles.next_agent_edit_undo_title", return_value="Agent Edit"):
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
     assert res["status"] == "error"
@@ -1333,7 +1334,7 @@ def test_apply_style_all_matches_leave_disposed_reraises():
     doc.getUndoManager.return_value = mgr
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
     tool._apply_one = MagicMock(return_value=None)
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.styles.next_agent_edit_undo_title", return_value="Agent Edit"):
         with pytest.raises(DocumentDisposedError):
             tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
@@ -1566,7 +1567,7 @@ def test_style_list_calc_cell_styles_returns_entries():
     ],
 )
 def test_apply_style_case_sensitive_forwarded_to_search(occurrence, expected_finder):
-    """ApplyStyle target='search' threads case_sensitive to find_first_range / find_all_ranges."""
+    """ApplyStyle target='search' threads case_sensitive to find_literal_ranges and reports mode fields."""
     from plugin.writer.styles import ApplyStyle
 
     ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
@@ -1574,26 +1575,25 @@ def test_apply_style_case_sensitive_forwarded_to_search(occurrence, expected_fin
     r2 = MagicMock()
     calls = []
 
-    def fake_find_first(doc, s, *, case_sensitive=False):
-        calls.append(("first", s, case_sensitive))
-        return r1
-
-    def fake_find_all(doc, s, *, case_sensitive=False):
-        calls.append(("all", s, case_sensitive))
-        return [r1, r2]
+    def fake_find_literal(doc, s, *, case_sensitive=None, limit=200):
+        calls.append(("all" if limit > 1 else "first", s, case_sensitive))
+        return ([r1, r2] if limit > 1 else [r1]), MatchMode(bool(case_sensitive is not False), False)
 
     extra = {} if occurrence is None else {"occurrence": occurrence}
-    with patch("plugin.writer.search.find_first_range", side_effect=fake_find_first), \
-         patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+    with patch("plugin.writer.search.find_literal_ranges", side_effect=fake_find_literal), \
          patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
          patch.object(ApplyStyle, "_apply_one", return_value=None):
         res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", **extra)
         assert res_default["status"] == "ok"
-        assert calls[-1] == (expected_finder, "apple", False)
+        assert calls[-1] == (expected_finder, "apple", None)
+        assert res_default["matched_case_sensitive"] is True
+        assert res_default["matched_folded"] is False
 
         res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True, **extra)
         assert res_cs["status"] == "ok"
         assert calls[-1] == (expected_finder, "apple", True)
+        assert res_cs["matched_case_sensitive"] is True
+        assert res_cs["matched_folded"] is False
 
 
 def test_apply_style_suggests_call_when_single_close_match():
@@ -1695,7 +1695,7 @@ def test_apply_style_parameter_validations():
     assert res["code"] == "INVALID_PARAM"
 
     # occurrence out of range
-    with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]):
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([MagicMock()], MatchMode(True, False))):
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", occurrence=5)
         assert res["status"] == "error"
         assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
@@ -1712,13 +1712,13 @@ def test_apply_style_undo_unavailable_and_rollback_failed():
     tool = ApplyStyle()
     ctx = _style_ctx()
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.styles.commit_or_rollback", side_effect=UndoUnavailable("no undo")):
         res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
         assert res["status"] == "error"
         assert res["code"] == "UNDO_UNAVAILABLE"
 
-    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+    with patch("plugin.writer.search.find_literal_ranges", return_value=([r1, r2], MatchMode(True, False))), \
          patch("plugin.writer.styles.commit_or_rollback", return_value=UndoOutcome(
              error={"code": "ROLLBACK_FAILED", "message": "cannot rollback"}
          )):

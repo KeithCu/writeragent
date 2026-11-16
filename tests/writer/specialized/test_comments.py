@@ -453,6 +453,7 @@ def test_comment_resolve_assigns_non_empty_name():
 
 
 def test_add_comment_search_uses_find_occurrence_range():
+    from plugin.writer.search import MatchMode
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -463,19 +464,20 @@ def test_add_comment_search_uses_find_occurrence_range():
     match_range.getText.return_value = mtext
     doc.getTextFields.return_value = _fields_that_grow()
 
-    with patch("plugin.writer.search.find_occurrence_range", return_value=match_range) as mock_find, \
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(match_range, MatchMode(True, False))) as mock_find, \
          patch("plugin.writer.search.find_all_ranges") as mock_find_all, \
          patch("plugin.writer.specialized.comments._set_annotation_date"):
         res = AddComment().execute(ctx, content="test note", search="find me", occurrence=1)
 
     assert res["status"] == "ok"
-    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive=False)
+    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive=None)
     mock_find_all.assert_not_called()
 
 
 def test_add_comment_case_sensitive_distinguishes_cased_occurrences():
-    """Two occurrences differing only by case: omitted case_sensitive hits the first
-    case-insensitive match, while case_sensitive=True hits the exact-case occurrence."""
+    """Two occurrences differing only by case: omitted case_sensitive tries exact first,
+    while case_sensitive=False hits the case-insensitive occurrence."""
+    from plugin.writer.search import MatchMode
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -489,27 +491,26 @@ def test_add_comment_case_sensitive_distinguishes_cased_occurrences():
     range_exact.getString.return_value = "the board approved"
     range_exact.getText.return_value = MagicMock()
 
-    def fake_find(d, text, *, occurrence=0, case_sensitive=False):
-        if case_sensitive:
-            return range_exact if text == "the board approved" else None
-        return range_insensitive
+    def fake_find(d, text, *, occurrence=0, case_sensitive=None):
+        if case_sensitive is False:
+            return range_insensitive, MatchMode(False, False)
+        return (range_exact, MatchMode(True, False)) if text == "the board approved" else (None, MatchMode(False, False))
 
     with patch("plugin.writer.search.find_occurrence_range", side_effect=fake_find), \
          patch("plugin.writer.specialized.comments._set_annotation_date"):
-        # Omitted case_sensitive hits the first case-insensitive match ("The board approved")
         doc.getTextFields.return_value = _fields_that_grow()
         res_default = AddComment().execute(ctx, content="note", search="the board approved")
         assert res_default["status"] == "ok"
-        assert res_default["anchor_text"] == "The board approved"
+        assert res_default["anchor_text"] == "the board approved"
 
-        # Explicit case_sensitive=True hits the exact-case occurrence ("the board approved")
         doc.getTextFields.return_value = _fields_that_grow()
-        res_exact = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=True)
-        assert res_exact["status"] == "ok"
-        assert res_exact["anchor_text"] == "the board approved"
+        res_insensitive = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=False)
+        assert res_insensitive["status"] == "ok"
+        assert res_insensitive["anchor_text"] == "The board approved"
 
 
 def test_add_comment_search_index_error_and_none_return_not_found():
+    from plugin.writer.search import MatchMode
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -524,7 +525,7 @@ def test_add_comment_search_index_error_and_none_return_not_found():
     assert res_idx["matched"] is False
     assert res_idx["comment_added"] is False
 
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))):
         res_none = AddComment().execute(ctx, content="note", search="missing", occurrence=0)
     assert res_none["status"] == "error"
     assert res_none["code"] == "OLD_CONTENT_NOT_FOUND"
