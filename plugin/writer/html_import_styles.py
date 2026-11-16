@@ -810,47 +810,51 @@ def has_bare_fragment_links(content: str) -> bool:
 
 # LibreOffice's XHTML export (filter/source/xslt/odf2xhtml/export/xhtml/body.xsl,
 # template create-heading-anchor2) builds heading ids as "a_" + heading number + "_" +
-# title with spaces, punctuation, and accented letters folded to "_". Folding both
-# sides to ASCII alphanumeric or "_" avoids duplicating the export's character table.
-_NOT_ID_CHAR_RE = re.compile(r"[^0-9A-Za-z]")
-
-
-def _fold_export_id(text: str) -> str:
-    return _NOT_ID_CHAR_RE.sub("_", text)
+# title with spaces, punctuation, and non-ASCII characters folded to "_". Building the
+# pattern from the heading keeps ASCII letters/digits exact and lets other characters
+# match either "_" or themselves, avoiding cross-script collisions (e.g. Cyrillic).
+def _heading_id_pattern(heading: str) -> str:
+    return "".join(
+        re.escape(ch) if ch.isascii() and ch.isalnum() else f"(?:_|{re.escape(ch)})"
+        for ch in heading
+    )
 
 
 def _is_export_anchor_for(fragment: str, heading: str) -> bool:
-    folded_heading = _fold_export_id(heading)
-    if not folded_heading:
+    if not heading:
         return False
-    return re.fullmatch(
-        r"a_(?:[0-9]+_?)*_" + re.escape(folded_heading),
-        _fold_export_id(fragment),
-    ) is not None
+    return (
+        re.fullmatch(
+            r"a_(?:[0-9]+(?:_[0-9]+)*_?)?_" + _heading_id_pattern(heading),
+            fragment,
+        )
+        is not None
+    )
 
 
-def _match_heading(name: str, headings: set[str]) -> str | None:
+def _match_heading(name: str, headings: set[str]) -> tuple[str | None, list[str]]:
     """Resolve *name* against *headings* in three tiers: exact, unique case-insensitive,
     and unique XHTML export anchor id (``a__Heading_Text``).
 
     Writer's own ``SwDoc::GotoOutline`` requires the exact heading text, so the
     rewrite uses the matched heading's real text. When a tier matches more than
-    one heading, ``None`` is returned so the caller leaves the link untouched.
+    one heading, ``(None, sorted_candidates)`` is returned so the caller can
+    leave the link untouched and report the colliding headings.
     """
     if name in headings:
-        return name
+        return name, []
 
     folded = name.casefold()
-    case_matches = [h for h in headings if h.casefold() == folded]
+    case_matches = sorted(h for h in headings if h.casefold() == folded)
     if case_matches:
-        return case_matches[0] if len(case_matches) == 1 else None
+        return (case_matches[0], []) if len(case_matches) == 1 else (None, case_matches)
 
     if name.startswith("a_"):
-        id_matches = [h for h in headings if _is_export_anchor_for(name, h)]
+        id_matches = sorted(h for h in headings if _is_export_anchor_for(name, h))
         if id_matches:
-            return id_matches[0] if len(id_matches) == 1 else None
+            return (id_matches[0], []) if len(id_matches) == 1 else (None, id_matches)
 
-    return None
+    return None, []
 
 
 def resolve_heading_links(
@@ -904,27 +908,36 @@ def resolve_heading_links(
         if not name or name in id_names or is_bookmark(name):
             return m.group(0)
 
-        target = _match_heading(name, heading_set)
+        target, ambiguous = _match_heading(name, heading_set)
         if target is not None:
             escaped = html_mod.escape(target, quote=True)
             return f"{prefix}{quote}#{escaped}|outline{quote}"
 
         if name not in seen_missing:
             seen_missing.add(name)
-            closest = similar_names(name, sorted(heading_set))
-            closest_suffix = (
-                " Closest headings: " + ", ".join(f'"{h}"' for h in closest) + "."
-                if closest
-                else ""
-            )
-            diagnostics.append({
-                "code": LINK_TARGET_NOT_FOUND,
-                "link_target": f"#{name}",
-                "message": (
+            if ambiguous:
+                candidates = ", ".join(f'"{h}"' for h in ambiguous)
+                msg = (
+                    f'Link target "#{name}" matches several headings: {candidates}. '
+                    'Use the exact heading text, href="#Heading text|outline", or give the target element '
+                    'an id and link to that.'
+                )
+            else:
+                closest = similar_names(name, sorted(heading_set))
+                closest_suffix = (
+                    " Closest headings: " + ", ".join(f'"{h}"' for h in closest) + "."
+                    if closest
+                    else ""
+                )
+                msg = (
                     f'Link target "#{name}" matches no heading or bookmark and will not jump anywhere. '
                     'Use the exact heading text, href="#Heading text|outline", or give the target element '
                     f'an id and link to that.{closest_suffix}'
-                ),
+                )
+            diagnostics.append({
+                "code": LINK_TARGET_NOT_FOUND,
+                "link_target": f"#{name}",
+                "message": msg,
             })
         return m.group(0)
 

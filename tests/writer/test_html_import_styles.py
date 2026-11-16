@@ -823,6 +823,29 @@ def test_resolve_heading_links_export_anchor_id():
     assert len(diags_miss) == 1
     assert diags_miss[0]["code"] == "LINK_TARGET_NOT_FOUND"
 
+    out_cyr, diags_cyr = resolve_heading_links(
+        '<p><a href="#a__Обзор">go</a></p>',
+        ["Итоги"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out_cyr == '<p><a href="#a__Обзор">go</a></p>'
+    assert len(diags_cyr) == 1
+    assert diags_cyr[0]["code"] == "LINK_TARGET_NOT_FOUND"
+
+
+def test_resolve_heading_links_long_digit_export_id_does_not_hang():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    html = '<a href="#a_' + "1" * 40 + 'x">'
+    out, diags = resolve_heading_links(
+        html,
+        ["Intro"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == html
+    assert len(diags) == 1
+    assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+
 
 def test_resolve_heading_links_ambiguous_case_match_warns():
     from plugin.writer.html_import_styles import resolve_heading_links
@@ -830,14 +853,15 @@ def test_resolve_heading_links_ambiguous_case_match_warns():
     html = '<p><a href="#intro">go</a></p>'
     out, diags = resolve_heading_links(
         html,
-        ["Intro", "iNtro"],
+        ["Intro", "INTRO"],
         is_bookmark=lambda _name: False,
     )
     assert out == html
     assert len(diags) == 1
     assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+    assert "matches several headings" in diags[0]["message"]
     assert '"Intro"' in diags[0]["message"]
-    assert '"iNtro"' in diags[0]["message"]
+    assert '"INTRO"' in diags[0]["message"]
 
 
 def test_resolve_heading_links_miss_lists_closest_heading():

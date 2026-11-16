@@ -288,7 +288,14 @@ def _put_outline_urls(content: str, urls: list[str]) -> str:
 
 
 def _restore_outline_hrefs(model: Any, content: str) -> str:
-    """Full-read counterpart of the range path's _restore_anchor_hrefs."""
+    """Full-read counterpart of the range path's _restore_anchor_hrefs.
+
+    Walks only body and table paragraphs; outline links in frames, footnotes, or
+    headers make the counts differ, and the guard in ``_put_outline_urls`` then
+    leaves the HTML unchanged. A walk failure returns *content* rather than raising
+    so a cosmetic restore failure cannot push the whole read onto the StarWriter
+    fallback (which would drop every style token).
+    """
     if 'href="#a_' not in content:
         return content
     urls: list[str] = []
