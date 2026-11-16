@@ -70,17 +70,21 @@ except (ImportError, ModuleNotFoundError):
 
 # Policy overview: docs/enabling_numpy_in_libreoffice.md (Import blocklist).
 # Stdlib and third-party packages need no entry; anything not on a blocklist below is
-# allowed. pandas, numpy, PIL and matplotlib can read and write files (DataFrame.to_csv,
-# plt.savefig). That is accepted: compute callers are presumed trusted, and the
-# container plus a scrubbed environment is the boundary. If callers become untrusted,
-# block those packages or their file-writing submodules.
+# allowed. pandas, numpy, PIL, matplotlib and raw `duckdb` (COPY ... TO) can read and
+# write files (DataFrame.to_csv, plt.savefig); `GuardedDuckDBConnection` guards only
+# `session_duckdb()` connections, not raw `import duckdb`. That is accepted: compute
+# callers are presumed trusted, and the container plus a scrubbed environment is the
+# boundary. If callers become untrusted, block those packages or their file-writing
+# submodules.
 
 # DANGEROUS_MODULES blocks `plugin`, so these are the only `plugin.*` modules a script
 # can import. Each entry also opens its `writeragent.X` spelling, and every other
 # `writeragent.X` alias is refused, so scripts cannot reach host modules such as
 # `plugin.framework.config`. `import writeragent` maps to `plugin.scripting.writeragent_api`.
-# Entries are exact names; a wildcard or blanket `writeragent.*` would open every plugin
-# module. The two `writeragent.*` entries are aliases whose plugin module stays blocked.
+# Matching is exact, so a `.*` entry is silently ignored; list each submodule. Never add
+# wildcard matching here: a blanket `writeragent.*` would open every plugin module,
+# including `plugin.framework.config`. The two `writeragent.*` entries are aliases whose
+# plugin module stays blocked.
 PUBLIC_PLUGIN_IMPORTS: frozenset[str] = frozenset((
     "plugin.scripting.writeragent_api",
     "plugin.scripting.host_tool_call",
