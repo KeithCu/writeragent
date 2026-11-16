@@ -199,6 +199,35 @@ def test_inline_web_approval_lifecycle():
     assert panel.clear_control.model.Label == "Clear"
 
 
+def test_inline_approval_card_keeps_waiting_status_past_watchdog():
+    import time
+    import plugin.framework.logging as logging_mod
+
+    panel = DummyEventsPanel()
+    controller = PanelEventsController(panel)
+    panel._events = controller
+    shared = logging_mod._shared()
+    saved = shared["hung_shown"]
+    ev = threading.Event()
+    try:
+        shared["hung_shown"] = False
+        logging_mod.update_activity_state("tool_execute", 1, "delegate_to_subagent", status_control=panel.status_control)
+        controller.begin_inline_web_approval("python tutorial", "web_search", ev)
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = time.monotonic() - 40
+        with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            logging_mod._watchdog_check(panel.status_control)
+            assert panel.status_control.text == "Waiting for approval…"
+            controller._finish_inline_web_approval(True)
+            with shared["activity_lock"]:
+                shared["activity"]["last_activity"] = time.monotonic() - 40
+            logging_mod._watchdog_check(panel.status_control)
+            assert panel.status_control.text.startswith("Hung:")
+    finally:
+        shared["hung_shown"] = saved
+        logging_mod.update_activity_state("")
+
+
 def test_open_web_search_change_dialog():
     panel = DummyEventsPanel()
     controller = PanelEventsController(panel)

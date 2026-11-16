@@ -973,6 +973,55 @@ def test_wire_schemas_seen_by_model_and_arrays_have_items(fake):
             },
         },
         {
+            "name": "str_list_or_null",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "r": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "null"},
+                        ],
+                        "default": None,
+                    }
+                },
+            },
+        },
+        {
+            "name": "object_or_string",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "f": {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {"a": {"type": "string"}},
+                                "required": ["a"],
+                            },
+                            {"type": "string"},
+                        ],
+                        "description": "F",
+                    }
+                },
+                "required": ["f"],
+            },
+        },
+        {
+            "name": "nested_union",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "rows": {
+                        "type": "array",
+                        "items": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+                    }
+                },
+                "required": ["rows"],
+            },
+        },
+        {
             "name": "two_models",
             "inputSchema": {
                 "type": "object",
@@ -1004,6 +1053,7 @@ def test_wire_schemas_seen_by_model_and_arrays_have_items(fake):
                 "properties": {
                     "items_list": {"type": "array", "items": {"$ref": "#/$defs/Item"}, "description": "Items"},
                     "limit": {"anyOf": [{"type": "string"}, {"type": "integer"}], "description": "Limit"},
+                    "opt_num": {"anyOf": [{"type": "integer"}, {"type": "null"}], "description": "Opt"},
                 },
                 "required": ["items_list"],
             },
@@ -1013,9 +1063,50 @@ def test_wire_schemas_seen_by_model_and_arrays_have_items(fake):
     with _with_servers({"claw": _server(fake)}):
         tools, _hint = mcp_domain_tools(ctx)
 
-    assert [t.name for t in tools] == ["mcp__claw__good_tool"]
-    wire = get_tool_json_schema(SmolToolAdapter(tools[0], ctx, inputs_style="specialized"))
-    assert wire == {
+    by_name = {t.name: t for t in tools}
+    assert list(by_name) == [
+        "mcp__claw__str_or_list",
+        "mcp__claw__str_list_or_null",
+        "mcp__claw__object_or_string",
+        "mcp__claw__nested_union",
+        "mcp__claw__two_models",
+        "mcp__claw__one_of_prop",
+        "mcp__claw__good_tool",
+    ]
+    wire_by_name = {
+        name: get_tool_json_schema(SmolToolAdapter(tool, ctx, inputs_style="specialized"))
+        for name, tool in by_name.items()
+    }
+    assert wire_by_name["mcp__claw__str_or_list"]["function"]["parameters"]["properties"] == {
+        "q": {"type": ["string", "array"], "items": {"type": "string"}, "description": ""}
+    }
+    assert wire_by_name["mcp__claw__str_list_or_null"]["function"]["parameters"]["properties"] == {
+        "r": {"type": ["string", "array"], "items": {"type": "string"}, "default": None, "description": ""}
+    }
+    obj_or_str_params = wire_by_name["mcp__claw__object_or_string"]["function"]["parameters"]
+    assert obj_or_str_params["properties"] == {
+        "f": {
+            "type": ["object", "string"],
+            "properties": {"a": {"type": "string"}},
+            "required": ["a"],
+            "description": "F",
+        }
+    }
+    assert obj_or_str_params["required"] == ["f"]
+    assert wire_by_name["mcp__claw__nested_union"]["function"]["parameters"]["properties"] == {
+        "rows": {
+            "type": "array",
+            "items": {"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+            "description": "",
+        }
+    }
+    assert wire_by_name["mcp__claw__two_models"]["function"]["parameters"]["properties"] == {
+        "m": {"type": "object", "properties": {"a": {"type": ["string", "null"]}}, "description": ""}
+    }
+    assert wire_by_name["mcp__claw__one_of_prop"]["function"]["parameters"]["properties"] == {
+        "x": {"type": ["string", "integer", "null"], "description": ""}
+    }
+    assert wire_by_name["mcp__claw__good_tool"] == {
         "type": "function",
         "function": {
             "name": "mcp__claw__good_tool",
@@ -1036,6 +1127,10 @@ def test_wire_schemas_seen_by_model_and_arrays_have_items(fake):
                         "type": ["string", "integer", "null"],
                         "description": "Limit",
                     },
+                    "opt_num": {
+                        "type": ["integer", "null"],
+                        "description": "Opt",
+                    },
                 },
                 "required": ["items_list"],
             },
@@ -1043,6 +1138,48 @@ def test_wire_schemas_seen_by_model_and_arrays_have_items(fake):
     }
 
 
+def test_deepwiki_ask_wiki_question_is_offered(fake):
+    from plugin.chatbot.smol_agent import SmolToolAdapter
+    from plugin.contrib.smolagents.models import get_tool_json_schema
+
+    repo_desc = "GitHub repository or list of repositories (max 10) in owner/repo format."
+    fake.custom_tools = [
+        {
+            "name": "ask_wiki_question",
+            "description": "Ask a question about a GitHub repository",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repoName": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ],
+                        "description": repo_desc,
+                    },
+                    "question": {"type": "string", "description": "Question to ask"},
+                },
+                "required": ["repoName", "question"],
+                "additionalProperties": False,
+            },
+        }
+    ]
+    ctx = _chat_ctx()
+    with _with_servers({"deepwiki": _server(fake, name="deepwiki")}):
+        tools, _hint = mcp_domain_tools(ctx)
+
+    assert [t.name for t in tools] == ["mcp__deepwiki__ask_wiki_question"]
+    tool = tools[0]
+    wire = get_tool_json_schema(SmolToolAdapter(tool, ctx, inputs_style="specialized"))
+    params = wire["function"]["parameters"]
+    assert params["properties"]["repoName"] == {
+        "type": ["string", "array"],
+        "items": {"type": "string"},
+        "description": repo_desc,
+    }
+    assert params["required"] == ["repoName", "question"]
+    assert tool.validate(repoName=["a/b"], question="q") == (True, None)
+    assert tool.validate(repoName="a/b", question="q") == (True, None)
 def test_down_server_error_is_capped_in_hint(fake):
     fake.error_body = (500, "x" * 600)
     ctx = _chat_ctx()

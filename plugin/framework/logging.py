@@ -23,8 +23,9 @@ Paths are set via init_logging(ctx). No file logging when the config dir is unav
 Also: redaction helpers for debug logs that would otherwise embed large base64 (chat multimodal parts, image API JSON) or long opaque ``signature`` blobs.
 
 Concurrency: ``init_logging`` may run from bootstrap while workers already
-log. The debug log path, ``enable_agent_log``, the init lock, the activity dict,
-the activity lock, and the watchdog hung_shown / stacks_dumped flags live in
+log. The debug log path, ``enable_agent_log``, the init lock, the activity dict
+(including ``waiting_for_user``), the activity lock, and the watchdog
+hung_shown / stacks_dumped flags live in
 ``sys._writeragent_logging_shared``, accessed via ``process_global``.
 ``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
 line does not fsync. Actual line writes go through Python’s ``logging`` handler lock;
@@ -72,6 +73,7 @@ def _create_logging_shared() -> _LoggingShared:
             "round_num": -1,
             "tool_name": None,
             "last_activity": 0.0,
+            "waiting_for_user": False,
         },
         "activity_lock": threading.Lock(),
         "hung_shown": False,
@@ -684,6 +686,15 @@ def _post_main(fn: Any, *args: Any, fail_msg: str) -> bool:
     return True
 
 
+def set_waiting_for_user(waiting: bool) -> None:
+    """Mark whether the turn is parked on an approval prompt only the user can answer."""
+    shared = _shared()
+    with shared["activity_lock"]:
+        act = shared["activity"]
+        act["waiting_for_user"] = bool(waiting)
+        act["last_activity"] = time.monotonic()
+
+
 def update_activity_state(phase: str, round_num: Any = None, tool_name: str | None = None, status_control: Any = None) -> None:
     """Update shared activity state (call from main thread at phase boundaries).
 
@@ -696,6 +707,9 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
         act = shared["activity"]
         act["phase"] = phase
         act["last_activity"] = time.monotonic()
+        # A phase boundary or turn end means the turn is no longer parked on an approval card;
+        # the flag must never outlive the turn and hide a later real hang.
+        act["waiting_for_user"] = False
         if round_num is not None:
             act["round_num"] = round_num
         # Always assign tool_name so omitting it clears any previous tool.
@@ -749,6 +763,16 @@ def _dump_thread_stacks() -> None:
         log.debug("watchdog: thread stack dump failed", exc_info=True)
 
 
+def _show_hung_status(status_control: Any, text: str) -> None:
+    """Set Hung: status on the UI thread unless an approval prompt is now waiting on the user."""
+    shared = _shared()
+    with shared["activity_lock"]:
+        # A card opened between the watchdog tick and this post must keep its "Waiting for approval…" line.
+        if shared["activity"].get("waiting_for_user", False):
+            return
+    status_control.setText(text)
+
+
 def _watchdog_check(status_control: Any) -> None:
     """One watchdog pass. Posts Hung: after the idle threshold, and clears it when activity resumes."""
     # Flush the debug file on each watchdog check. The activity timestamps
@@ -761,13 +785,15 @@ def _watchdog_check(status_control: Any) -> None:
         round_num = act["round_num"]
         tool_name = act["tool_name"]
         last = act["last_activity"]
+        waiting = bool(act.get("waiting_for_user", False))
         active_status_control: Any = act.get("status_control", status_control)
     if active_status_control is None:
         active_status_control = status_control
     if not phase:
         return
     last_val = last if isinstance(last, (int, float)) else 0.0
-    elapsed = time.monotonic() - last_val
+    # Time spent waiting on the user to answer an approval prompt is not a stall.
+    elapsed = 0.0 if waiting else time.monotonic() - last_val
     if elapsed < _watchdog_threshold_sec:
         shared["stacks_dumped"] = False
         if shared["hung_shown"] and active_status_control is not None:
@@ -786,7 +812,7 @@ def _watchdog_check(status_control: Any) -> None:
         hung_text = "%s %s round %s" % (_HUNG_STATUS_PREFIX, phase, round_num)
         if tool_name:
             hung_text += " %s" % tool_name
-        if _post_main(active_status_control.setText, hung_text, fail_msg="watchdog: failed to post Hung status to main thread"):
+        if _post_main(_show_hung_status, active_status_control, hung_text, fail_msg="watchdog: failed to post Hung status to main thread"):
             shared["hung_shown"] = True
 
 
