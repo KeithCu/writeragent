@@ -287,7 +287,7 @@ Registry totals at a typical build: **225** registered tools (core 42, specializ
 | Draw | 25 | 24 | 83 (82) |
 | Impress | 25 | 24 | 83 (82) |
 
-**Notes:** Delegate ≈ sidebar minus chat-tier peer tools, plus `document_list_open`. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools and chat-tier domains (`mcp` is omitted from the delegate enum and `tool_find`), plus `document_list_open`. Parentheses on `direct_flat` are when `image_extract_structure` is dropped (vision venv not configured). Sidebar may also hide `image_get` for text-only models; these counts **include** `image_get`. Writer sidebar-only (omitted from `direct_flat`): `brainstorming_search_web`, `deep_research_search_web`, `brainstorming_save_design_spec`, `writing_plan_write_section`, `writing_plan_search_web`. Calc: `deep_research_search_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_search_web`, `export_presentation_project`, `validate_ppt_master_project`.
 
 The Writer-only row below is illustrative; use the table above for integration planning.
 

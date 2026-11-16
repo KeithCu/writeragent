@@ -534,3 +534,15 @@ def test_kind_prompt_impress_keeps_placeholders_draw_omits_them() -> None:
         assert "placeholder_list" not in draw_prompt
         for tool_name in ("slide_add", "slide_delete", "slide_duplicate", "slide_move", "slide_rename", "slide_set_active", "document_undo", "document_redo"):
             assert f"- {tool_name}:" in draw_prompt
+
+
+def test_mcp_blurb_claims_requests_naming_an_mcp_server() -> None:
+    """Guard against the Scrolly misroute where a public MCP server lost to web_research."""
+    from plugin.framework.prompts import get_specialized_delegation_tool_hint
+
+    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "deepwiki", "url": "http://localhost"}]):
+        hint = get_specialized_delegation_tool_hint("Writer", ctx=object())
+
+    mcp_line = next(line for line in hint.splitlines() if "mcp:" in line)
+    assert "MCP server" in mcp_line
+    assert "MCP tool" in mcp_line

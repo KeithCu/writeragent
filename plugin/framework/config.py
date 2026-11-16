@@ -578,6 +578,8 @@ def save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
                 merged[k] = _merge_reasoning_effort_slots(merged.get(k, {}), v)
             elif _config_schema.is_secret_config_key(k):
                 merged[k] = _secret_to_store(k, merged.get(k), v)
+            elif k in _config_schema.SECRET_ENTRY_FIELDS and isinstance(v, dict):
+                merged[k] = _merge_secret_entries(k, merged.get(k), v)
             else:
                 merged[k] = v
 
@@ -633,6 +635,51 @@ def _resolve_secret(name: str, raw: Any) -> str:
     if keystore.is_ref(raw):
         return keystore.get_secret(name) or ""
     return str(raw or "")
+
+
+def _entry_secret_name(key: str, entry_name: str, field: str) -> str:
+    return f"{key}:{str(entry_name).strip()}.{field}"
+
+
+def resolve_entry_secret(key: str, entry_name: str, field: str, raw: Any) -> str:
+    """Return the resolved secret string for one field of a keyed config entry."""
+    return _resolve_secret(_entry_secret_name(key, entry_name, field), raw)
+
+
+def _merge_secret_entries(key: str, current: Any, new: dict[str, Any]) -> dict[str, Any]:
+    """Route secret fields inside dict-of-dicts config entries through the OS keystore."""
+    fields = _config_schema.SECRET_ENTRY_FIELDS.get(key, ())
+    cur_map = current if isinstance(current, dict) else {}
+    out: dict[str, Any] = {}
+    written_secret_names: set[str] = set()
+    for name, entry in new.items():
+        if not isinstance(entry, dict):
+            out[name] = entry
+            continue
+        old = cur_map.get(name)
+        old_entry = old if isinstance(old, dict) else {}
+        updated = dict(entry)
+        for field in fields:
+            if field not in updated and field not in old_entry:
+                continue
+            secret_name = _entry_secret_name(key, str(name), field)
+            stored = _secret_to_store(secret_name, old_entry.get(field), updated.get(field))
+            if stored:
+                updated[field] = stored
+                written_secret_names.add(secret_name)
+            else:
+                updated.pop(field, None)
+        out[name] = updated
+    # Deleting before the file write follows _secret_to_store's own blank-delete.
+    for old_name, old_entry in cur_map.items():
+        if old_name in new or not isinstance(old_entry, dict):
+            continue
+        for field in fields:
+            if keystore.is_ref(old_entry.get(field)):
+                secret_name = _entry_secret_name(key, str(old_name), field)
+                if secret_name not in written_secret_names:
+                    keystore.delete_secret(secret_name)
+    return out
 
 
 # Patch value for api_keys_by_endpoint that removes the slot instead of setting it.
@@ -773,6 +820,19 @@ def migrate_secrets_to_keystore() -> None:
             val = get_config(key)
             if isinstance(val, str) and val and not keystore.is_ref(val):
                 patch[key] = val
+        for key, fields in _config_schema.SECRET_ENTRY_FIELDS.items():
+            entries = get_config(key)
+            if not isinstance(entries, dict):
+                continue
+            if any(
+                isinstance(entry, dict)
+                and isinstance(entry.get(field), str)
+                and bool(entry.get(field))
+                and not keystore.is_ref(entry.get(field))
+                for entry in entries.values()
+                for field in fields
+            ):
+                patch[key] = entries
         if patch:
             save(patch)
         for name in orphans:

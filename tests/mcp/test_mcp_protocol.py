@@ -1220,3 +1220,31 @@ def test_batch_initialize_rejected():
         },
     }
 
+
+def test_tools_list_leaves_out_the_mcp_domain():
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks, register_writeragent_tool_filters
+
+    register_writeragent_prompt_hooks()
+    services = MagicMock()
+    registry = ToolRegistry(services)
+    registry.register(DelegateToSubagent())
+    register_writeragent_tool_filters(registry)
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s in (ALL_DOCUMENT_SERVICES[1], "com.sun.star.document.OfficeDocument")
+    services.tools = registry
+    services.get.side_effect = lambda name: getattr(services, name, None)
+    services.main_thread.call.side_effect = lambda fn, *a, **k: fn(*a, **{kk: vv for kk, vv in k.items() if kk != "timeout"})
+    services.document.get_active_document.return_value = doc
+    services.document.detect_doc_type.return_value = "writer"
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: "delegate"
+
+    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
+        tools = handler._mcp_tools_list({})["tools"]
+    delegate = next(t for t in tools if t["name"] == DELEGATE_SUBAGENT_TOOL)
+    assert "mcp" not in delegate["inputSchema"]["properties"]["domain"]["enum"]
+

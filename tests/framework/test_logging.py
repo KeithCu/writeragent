@@ -875,7 +875,7 @@ class TestOptionalFlushFileHandler:
             logging_mod._debug_slot()["handler"] = old_h
 
 
-def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
+def test_redact_api_keys_by_endpoint_and_secret_key_names() -> None:
     from plugin.framework.logging import LOG_REDACT_SECRET_PLACEHOLDER
 
     raw = {
@@ -890,6 +890,11 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
         "session_token": "st-secret",
         "apikey": "ak-secret",
         "ApiKey": "ak-secret2",
+        "github_token": "ghp-123",
+        "dbPassword": "pw-123",
+        "clientSecret": "cs-123",
+        "tokenizer": "tiktoken",
+        "secretary": "jane",
         "auth": "visible",
         "token_int": {"token": 99},
     }
@@ -900,12 +905,17 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
     assert out["token"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["Secret"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["max_tokens"] == 128
-    assert out["secret_sauce"] == "keep"
+    assert out["secret_sauce"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["client_secret"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["private_key"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["session_token"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["apikey"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["ApiKey"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["github_token"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["dbPassword"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["clientSecret"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["tokenizer"] == "tiktoken"
+    assert out["secretary"] == "jane"
     assert out["auth"] == "visible"
     assert out["token_int"]["token"] == 99
     assert raw["api_keys_by_endpoint"]["https://api.example"] == "sk-live"
@@ -1834,3 +1844,66 @@ def test_debug_log_max_bytes_env(monkeypatch):
     assert logging_mod._debug_log_max_bytes() == 5 * 1024 * 1024
     monkeypatch.delenv("WRITERAGENT_DEBUG_LOG_MAX_MB")
     assert logging_mod._debug_log_max_bytes() == 5 * 1024 * 1024
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("token", True),
+        ("api_key", True),
+        ("apiKey", True),
+        ("x-api-key", True),
+        ("X-Auth-Token", True),
+        ("github_token", True),
+        ("db_password", True),
+        ("Authorization", True),
+        ("clientSecret", True),
+        ("APIToken", True),
+        ("access_token", True),
+        ("private_key", True),
+        ("Cookie", True),
+        ("credentials", True),
+        ("max_tokens", False),
+        ("tokenizer", False),
+        ("author", False),
+        ("secretary", False),
+        ("key", False),
+        ("sort_key", False),
+        ("keyword", False),
+        ("prompt_tokens", False),
+        ("passwordless", False),
+        ("authors", False),
+    ],
+)
+def test_is_secret_key(key: str, expected: bool) -> None:
+    from plugin.framework.logging import is_secret_key
+
+    assert is_secret_key(key) is expected
+
+
+def test_tool_call_argument_strings_are_redacted() -> None:
+    import json
+    from plugin.framework.logging import redact_sensitive_payload_for_log
+
+    payload = {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "login",
+                            "arguments": json.dumps({"password": "hunter2", "q": 1}),
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    redacted = redact_sensitive_payload_for_log(payload)
+    args_str = redacted["messages"][0]["tool_calls"][0]["function"]["arguments"]
+    assert "hunter2" not in args_str
+    parsed = json.loads(args_str)
+    assert parsed == {"password": "<redacted>", "q": 1}

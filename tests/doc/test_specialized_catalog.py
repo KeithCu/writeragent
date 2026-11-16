@@ -308,6 +308,27 @@ def test_live_catalog_hides_domains_that_cannot_run() -> None:
         }
         assert "mcp" in with_server
         assert "vision" not in with_server
+
+
+def test_chat_tier_domain_skipped_for_mcp_and_discovery() -> None:
+    from unittest.mock import patch
+
+    from plugin.doc.specialized_catalog import catalog_entries_from_base, get_specialized_domain_catalog
+
+    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
+        discovery = {
+            e["domain"]
+            for e in get_specialized_domain_catalog(agent_label=None, ctx=object(), for_discovery=True)
+        }
+        assert "mcp" not in discovery
+        for label in ("Writer", "Calc", "Draw"):
+            for_mcp = {
+                e["domain"]
+                for e in catalog_entries_from_base(agent_label=label, ctx=object(), for_mcp=True)
+            }
+            assert "mcp" not in for_mcp
+            chat_live = {e["domain"] for e in catalog_entries_from_base(agent_label=label, ctx=object())}
+            assert "mcp" in chat_live
 def test_loop_hint_shapes_states_units_for_every_label() -> None:
     from plugin.doc.specialized_catalog import loop_hint
 

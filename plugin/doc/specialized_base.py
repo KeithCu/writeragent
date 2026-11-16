@@ -49,6 +49,7 @@ from plugin.doc.specialized_catalog import (
     READ_ONLY_DOMAINS,
     apply_inner_outcome,
     catalog_entries_from_base,
+    chat_tier_domains,
     expects_edits,
     format_specialized_domains_description,
     loop_hint,
@@ -322,7 +323,7 @@ class DelegateToSpecializedBase(ToolBase):
         bound = {e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services)}
         return [d for d in self._domains if d in bound]
 
-    def description_for_services(self, uno_services: frozenset[str]) -> str | None:
+    def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
         """Optional narrowed tool description for *uno_services* (None keeps the class description)."""
         return None
 
@@ -560,7 +561,7 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
         params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
         domain_prop = params["properties"]["domain"]
         domain_prop["enum"] = tool.domains_for_services(uno_services)
-        desc = tool.description_for_services(uno_services)
+        desc = tool.description_for_services(uno_services, for_mcp="inputSchema" in patched)
         if desc is not None:
             if "function" in patched:
                 patched["function"]["description"] = desc
@@ -587,7 +588,7 @@ _CALC_DELEGATE_DESCRIPTION = (
     f"in this spreadsheet and returns a summary. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
     f"web_research {DELEGATION_PUBLIC_WEB_HINT}; vision runs OCR on the currently selected image and inserts the "
     f"recognized text below it (when configured). Also: images, sheets, ranges, search, charts, shapes, "
-    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms, mcp."
+    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
 )
 
 _DRAW_DELEGATE_LEAD = (
@@ -598,7 +599,7 @@ _DRAW_DELEGATE_LEAD = (
 
 _DRAW_DELEGATE_DESCRIPTION = (
     f"{_DRAW_DELEGATE_LEAD}"
-    "Available domains: charts, document_research, forms, images, mcp, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
+    "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
     "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
 )
 
@@ -692,11 +693,15 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         bound = {e["domain"] for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services)}
         return [d for d in self._domains if d in allowed and d in bound]
 
-    def description_for_services(self, uno_services: frozenset[str]) -> str | None:
+    def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
         """Return the app-specific description narrowed to *uno_services*."""
         label = self.agent_label_for(uno_services=uno_services)
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION
         if label == "Draw":
-            return _format_draw_delegate_description(self.domains_for_services(uno_services))
+            domains = self.domains_for_services(uno_services)
+            if for_mcp:
+                hidden = chat_tier_domains()
+                domains = [d for d in domains if d not in hidden]
+            return _format_draw_delegate_description(domains)
         return _WRITER_DELEGATE_DESCRIPTION

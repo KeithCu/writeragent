@@ -35,6 +35,7 @@ def _patch_manifest(mock_modules):
         config_schema.CONFIG_SCHEMAS,
         config_schema.FLAT_TO_MODULE_KEY,
         config_schema.SECRET_CONFIG_KEYS,
+        config_schema.SECRET_ENTRY_FIELDS,
     )
     config_schema.set_manifest_modules(mock_modules)
     try:
@@ -46,6 +47,7 @@ def _patch_manifest(mock_modules):
             config_schema.CONFIG_SCHEMAS,
             config_schema.FLAT_TO_MODULE_KEY,
             config_schema.SECRET_CONFIG_KEYS,
+            config_schema.SECRET_ENTRY_FIELDS,
         ) = orig
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.constants import get_plugin_dir
@@ -1725,3 +1727,85 @@ def test_migrate_keeps_orphan_when_config_write_fails(fake_keystore):
         migrate_secrets_to_keystore()
 
     assert fake_keystore.store[legacy_name] == "sk-old"
+
+
+def test_secret_fields_route_server_tokens_through_keystore(fake_keystore):
+    from pathlib import Path
+
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, get_config_file_path, resolve_entry_secret
+
+    save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "tok-secret-1"}}})
+    raw_file = Path(get_config_file_path()).read_text(encoding="utf-8")
+    assert "tok-secret-1" not in raw_file
+    servers = get_config("mcp_client.servers")
+    assert keystore.is_ref(servers["home"]["token"])
+    assert resolve_entry_secret("mcp_client.servers", "home", "token", servers["home"]["token"]) == "tok-secret-1"
+
+    # Saving the same plain text again adds no set_calls.
+    calls_before = fake_keystore.set_calls
+    save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "tok-secret-1"}}})
+    assert fake_keystore.set_calls == calls_before
+
+    # Renaming re-stores under the new name and deletes the old item.
+    save({"mcp_client.servers": {"work": {"url": "http://localhost:8000/mcp", "token": "tok-secret-1"}}})
+    assert "mcp_client.servers:home.token" not in fake_keystore.store
+    assert fake_keystore.store.get("mcp_client.servers:work.token") == "tok-secret-1"
+
+    # Removing the server deletes its item.
+    save({"mcp_client.servers": {}})
+    assert "mcp_client.servers:work.token" not in fake_keystore.store
+
+
+def test_migrate_moves_plain_server_tokens(fake_keystore):
+    from pathlib import Path
+
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, get_config_file_path, migrate_secrets_to_keystore, resolve_entry_secret
+
+    keystore.reset_for_tests(None)
+    save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "tok-plain"}}})
+    assert "tok-plain" in Path(get_config_file_path()).read_text(encoding="utf-8")
+
+    keystore.reset_for_tests(fake_keystore)
+    migrate_secrets_to_keystore()
+
+    assert "tok-plain" not in Path(get_config_file_path()).read_text(encoding="utf-8")
+    servers = get_config("mcp_client.servers")
+    assert keystore.is_ref(servers["home"]["token"])
+    assert resolve_entry_secret("mcp_client.servers", "home", "token", servers["home"]["token"]) == "tok-plain"
+
+
+def test_server_token_stays_plain_without_store():
+    from pathlib import Path
+
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, get_config_file_path, resolve_entry_secret
+
+    keystore.reset_for_tests(None)
+    try:
+        save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "tok-plain"}}})
+        assert "tok-plain" in Path(get_config_file_path()).read_text(encoding="utf-8")
+        servers = get_config("mcp_client.servers")
+        assert servers["home"]["token"] == "tok-plain"
+        assert resolve_entry_secret("mcp_client.servers", "home", "token", servers["home"]["token"]) == "tok-plain"
+    finally:
+        keystore.reset_for_tests(None)
+
+
+def test_server_token_strips_whitespace_from_entry_name(fake_keystore):
+    from plugin.framework.config import get_config, resolve_entry_secret
+
+    save({"mcp_client.servers": {" home": {"url": "http://localhost:8000/mcp", "token": "tok-ws"}}})
+    servers = get_config("mcp_client.servers")
+    assert fake_keystore.store.get("mcp_client.servers:home.token") == "tok-ws"
+    assert resolve_entry_secret("mcp_client.servers", "home", "token", servers[" home"]["token"]) == "tok-ws"
+
+
+def test_renaming_whitespace_entry_to_stripped_name_keeps_secret(fake_keystore):
+    from plugin.framework.config import get_config, resolve_entry_secret
+
+    save({"mcp_client.servers": {" home": {"url": "http://localhost:8000/mcp", "token": "t"}}})
+    save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "t"}}})
+    servers = get_config("mcp_client.servers")
+    assert resolve_entry_secret("mcp_client.servers", "home", "token", servers["home"]["token"]) == "t"

@@ -260,28 +260,11 @@ def test_mcp_client_fields_are_on_the_integrations_tab(tmp_path: Path) -> None:
         for el in root.iter()
         if el.get(f"{{{_DLG_NS}}}id")
     }
-    for field in ("enabled", "trusted", "name", "url", "token_keychain", "token", "servers"):
+    for field in ("server", "add_server", "remove_server", "enabled", "trusted", "name", "url", "token", "status"):
         assert f"mcp_client__{field}" in pages_by_id
         assert pages_by_id[f"mcp_client__{field}"] != pages_by_id["mcp__mcp_enabled"]
-
-
-def test_mcp_client_token_lines_up_with_server_url(tmp_path: Path) -> None:
-    """Token input and its label share left/width alignment with Server URL on Integrations."""
-    xdl_path, _ = _generate_settings_xdl(tmp_path)
-    root = ET.parse(xdl_path).getroot()
-    by_id = {
-        el.get(f"{{{_DLG_NS}}}id"): el
-        for el in root.iter()
-        if el.get(f"{{{_DLG_NS}}}id")
-    }
-    url_ctrl = by_id["mcp_client__url"]
-    token_ctrl = by_id["mcp_client__token"]
-    assert token_ctrl.get(f"{{{_DLG_NS}}}left") == url_ctrl.get(f"{{{_DLG_NS}}}left")
-    assert token_ctrl.get(f"{{{_DLG_NS}}}width") == url_ctrl.get(f"{{{_DLG_NS}}}width")
-
-    url_label = by_id["label_mcp_client__url"]
-    token_label = by_id["label_mcp_client__token"]
-    assert token_label.get(f"{{{_DLG_NS}}}left") == url_label.get(f"{{{_DLG_NS}}}left")
+    assert "mcp_client__token_keychain" not in pages_by_id
+    assert "mcp_client__servers" not in pages_by_id
 
 
 def test_search_tab_label(tmp_path: Path) -> None:

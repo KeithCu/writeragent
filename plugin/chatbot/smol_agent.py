@@ -29,6 +29,7 @@ from plugin.contrib.smolagents.utils import AgentToolExecutionError
 from plugin.chatbot import smol_examples
 from plugin.framework.errors import ToolExecutionError, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.tool import field_from_tool_arguments, prepare_tool_call
 from plugin.doc.specialized_catalog import InnerToolCall
 
@@ -330,7 +331,8 @@ class SmolAgentExecutor:
                     else:
                         # Default ToolCall handling
                         if self.ctx.append_thinking_callback:
-                            self.ctx.append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+                            safe_args = redact_sensitive_payload_for_log(step.arguments)
+                            self.ctx.append_thinking_callback(f"Running tool: {step.name} with {safe_args}\n")
                         if self.ctx.status_callback:
                             self.ctx.status_callback(f"Tool: {step.name}...")
 
@@ -504,7 +506,8 @@ def _document_open_tool_handler(ctx: ToolContext) -> Callable[[ToolCall], None]:
             path_or_name = field_from_tool_arguments(step.arguments, "path_or_name")
             chat_append_callback(document_open_step_chat_text(path_or_name))
         if append_thinking_callback:
-            append_thinking_callback(f"Running tool: {step.name} with {step.arguments}\n")
+            safe_args = redact_sensitive_payload_for_log(step.arguments)
+            append_thinking_callback(f"Running tool: {step.name} with {safe_args}\n")
         if status_callback:
             status_callback(f"{step.name}...")
 

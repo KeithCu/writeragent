@@ -67,16 +67,18 @@ CONFIG_DEFAULTS: dict[str, Any] = {}
 CONFIG_SCHEMAS: dict[str, Any] = {}
 FLAT_TO_MODULE_KEY: dict[str, str] = {}
 SECRET_CONFIG_KEYS: frozenset[str] = frozenset()
+SECRET_ENTRY_FIELDS: dict[str, tuple[str, ...]] = {}
 
 
 def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
     """Set manifest modules list and rebuild fast defaults/schemas lookup dictionaries."""
-    global MODULES, CONFIG_DEFAULTS, CONFIG_SCHEMAS, FLAT_TO_MODULE_KEY, SECRET_CONFIG_KEYS
+    global MODULES, CONFIG_DEFAULTS, CONFIG_SCHEMAS, FLAT_TO_MODULE_KEY, SECRET_CONFIG_KEYS, SECRET_ENTRY_FIELDS
     MODULES = modules or []
     defaults: dict[str, Any] = {}
     schemas: dict[str, Any] = {}
     flat_to_mod: dict[str, str] = {"doc_agent_edit_review_mode": "doc.agent_edit_review_mode"}
     secret_keys: set[str] = set()
+    secret_entry_fields: dict[str, tuple[str, ...]] = {}
     for m in MODULES:
         mod_name = m.get("name", "")
         config = m.get("config", {})
@@ -88,12 +90,16 @@ def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
                         defaults[full_key] = schema["default"]
                     schemas[full_key] = schema
                     flat_to_mod[fname] = full_key
-                    if schema.get("widget") == "password":
+                    if schema.get("widget") == "password" and schema.get("settings_persist") is not False:
                         secret_keys.add(full_key)
+                    entry_fields = schema.get("secret_fields")
+                    if isinstance(entry_fields, list) and entry_fields:
+                        secret_entry_fields[full_key] = tuple(str(f) for f in entry_fields)
     CONFIG_DEFAULTS = defaults
     CONFIG_SCHEMAS = schemas
     FLAT_TO_MODULE_KEY = flat_to_mod
     SECRET_CONFIG_KEYS = frozenset(secret_keys)
+    SECRET_ENTRY_FIELDS = secret_entry_fields
 
 
 def is_secret_config_key(key: str) -> bool:

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.config import get_config
 from plugin.framework.constants import DELEGATE_SUBAGENT_TOOL
@@ -62,30 +62,41 @@ def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[A
     return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]
 
 
-def filter_unavailable_delegate_domains(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
-    """Remove unavailable domains (such as ``vision`` or ``mcp``) from delegate gateway domain enums."""
+def filter_delegate_domains(schemas: list[dict[str, Any]], keep: Callable[[str], bool]) -> list[dict[str, Any]]:
+    """Filter ``domain.enum`` on ``delegate_to_subagent`` schemas (OpenAI or MCP shape) using *keep*."""
     out: list[dict[str, Any]] = []
     for schema in schemas:
         fn = schema.get("function") if isinstance(schema, dict) else None
-        if not isinstance(fn, dict) or fn.get("name") != DELEGATE_SUBAGENT_TOOL:
+        holder = fn if isinstance(fn, dict) else (schema if isinstance(schema, dict) else None)
+        if not isinstance(holder, dict) or holder.get("name") != DELEGATE_SUBAGENT_TOOL:
             out.append(schema)
             continue
-        params = fn.get("parameters")
+        params_key = "parameters" if isinstance(fn, dict) else "inputSchema"
+        params = holder.get(params_key)
         props = params.get("properties") if isinstance(params, dict) else None
         domain_prop = props.get("domain") if isinstance(props, dict) else None
-        if not isinstance(params, dict) or not isinstance(props, dict) or not isinstance(domain_prop, dict) or not isinstance(domain_prop.get("enum"), list):
+        enum = domain_prop.get("enum") if isinstance(domain_prop, dict) else None
+        if not isinstance(params, dict) or not isinstance(props, dict) or not isinstance(domain_prop, dict) or not isinstance(enum, list):
             out.append(schema)
             continue
-        enum = domain_prop["enum"]
-        kept = [d for d in enum if specialized_domain_available(str(d), ctx)]
+        kept = [d for d in enum if keep(str(d))]
         if len(kept) == len(enum):
             out.append(schema)
             continue
         # Copy only the path being changed; deepcopy of the whole schema would run on
         # every get_schemas call while a domain is unconfigured.
         new_domain = {**domain_prop, "enum": kept}
-        out.append({**schema, "function": {**fn, "parameters": {**params, "properties": {**props, "domain": new_domain}}}})
+        new_params = {**params, "properties": {**props, "domain": new_domain}}
+        if isinstance(fn, dict):
+            out.append({**schema, "function": {**fn, params_key: new_params}})
+        else:
+            out.append({**schema, params_key: new_params})
     return out
+
+
+def filter_unavailable_delegate_domains(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
+    """Remove unavailable domains (such as ``vision`` or ``mcp``) from delegate gateway domain enums."""
+    return filter_delegate_domains(schemas, lambda d: specialized_domain_available(d, ctx))
 
 
 def get_vision_core_directive(model: Any, ctx: Any) -> str:

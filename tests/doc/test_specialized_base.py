@@ -1115,3 +1115,36 @@ def test_delegate_mcp_returns_listing_errors() -> None:
     assert out["status"] == "error"
     assert out["code"] == "MCP_CLIENT_NOT_CONFIGURED"
     mock_agent.assert_not_called()
+
+
+def test_mcp_server_schema_hides_chat_only_domain() -> None:
+    from unittest.mock import patch
+
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.framework.constants import ALL_DOCUMENT_SERVICES, DELEGATE_SUBAGENT_TOOL
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks, register_writeragent_tool_filters
+
+    register_writeragent_prompt_hooks()
+    services = MagicMock()
+    services.document.get_active_document.return_value = None
+    registry = ToolRegistry(services)
+    registry.register(DelegateToSubagent())
+    register_writeragent_tool_filters(registry)
+
+    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
+        for kwargs in (
+            {"doc_type": "writer"},
+            {"doc_type": "calc", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[0]})},
+            {"doc_type": "draw", "uno_services_supported": frozenset({ALL_DOCUMENT_SERVICES[2]})},
+        ):
+            schemas = registry.get_schemas("mcp", **kwargs)
+            delegate = next(s for s in schemas if s["name"] == DELEGATE_SUBAGENT_TOOL)
+            domain_prop = delegate["inputSchema"]["properties"]["domain"]
+            assert "mcp" not in domain_prop["enum"]
+            assert "mcp" not in domain_prop["description"]
+            assert "mcp" not in delegate["description"]
+
+        chat_schemas = registry.get_schemas("openai", doc_type="writer", ctx=object())
+        chat_delegate = next(s for s in chat_schemas if s["function"]["name"] == DELEGATE_SUBAGENT_TOOL)
+        assert "mcp" in chat_delegate["function"]["parameters"]["properties"]["domain"]["enum"]

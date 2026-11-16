@@ -14,6 +14,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Word-bounded secret key matching (_is_word_start, _is_word_end, is_secret_key)
+# adapted from Hermes Agent (agent/redact.py), MIT License.
 """Simple file logging for WriterAgent. Single debug log in the LO user config dir (writeragent_debug.log).
 
 Paths are set via init_logging(ctx). No file logging when the config dir is unavailable.
@@ -33,6 +36,7 @@ you do not need another mutex around ``log.info``.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import time
@@ -112,28 +116,43 @@ LOG_REDACT_IMAGE_PLACEHOLDER = "<image base64 data truncated, length=%d>"
 LOG_REDACT_SIGNATURE_PLACEHOLDER = "<signature truncated, length=%d>"
 # Image-model reasoning_details[].signature blobs are thousands of chars; keep short values readable.
 LOG_REDACT_SIGNATURE_MIN_LEN = 256
-# Exact casefolded names, not substrings (max_tokens must survive).
-_SECRET_LOG_KEYS = frozenset(
-    {
-        "api_key",
-        "api-key",
-        "x-api-key",
-        "authorization",
-        "bearer",
-        "password",
-        "token",
-        "secret",
-        "access_token",
-        "refresh_token",
-        "id_token",
-        "client_secret",
-        "private_key",
-        "session_token",
-        "apikey",
-    }
-)
 _API_KEYS_BY_ENDPOINT = "api_keys_by_endpoint"
 LOG_REDACT_SECRET_PLACEHOLDER = "<redacted>"
+
+_SECRET_KEY_WORD_RE = re.compile(
+    r"api[_.\-]?key|token|secret|password|passwd|passphrase|private[_.\-]?key|authorization|bearer|credentials?|cookie",
+    re.IGNORECASE,
+)
+
+
+def _is_word_start(key: str, idx: int) -> bool:
+    if idx == 0:
+        return True
+    prev = key[idx - 1]
+    if not prev.isalnum():
+        return True
+    if prev.islower() and key[idx].isupper():
+        return True
+    return prev.isupper() and key[idx].isupper() and idx + 1 < len(key) and key[idx + 1].islower()
+
+
+def _is_word_end(key: str, end: int) -> bool:
+    if end == len(key):
+        return True
+    nxt = key[end]
+    if not nxt.isalnum():
+        return True
+    if key[end - 1].islower() and nxt.isupper():
+        return True
+    return key[end - 1].isupper() and nxt.isupper() and end + 1 < len(key) and key[end + 1].islower()
+
+
+def is_secret_key(key: str) -> bool:
+    """Return True if *key* contains a word-bounded secret identifier (e.g. token, apiKey, db_password)."""
+    for match in _SECRET_KEY_WORD_RE.finditer(key):
+        if _is_word_start(key, match.start()) and _is_word_end(key, match.end()):
+            return True
+    return False
 
 
 def _redact_sensitive_inplace(o: Any) -> None:
@@ -147,8 +166,17 @@ def _redact_sensitive_inplace(o: Any) -> None:
                 for inner_key, inner_val in list(val.items()):
                     if isinstance(inner_val, str):
                         val[inner_key] = LOG_REDACT_SECRET_PLACEHOLDER
-            elif isinstance(key, str) and key.casefold() in _SECRET_LOG_KEYS and isinstance(val, str):
+            elif isinstance(key, str) and is_secret_key(key) and isinstance(val, str):
                 o[key] = LOG_REDACT_SECRET_PLACEHOLDER
+        args_str = o.get("arguments")
+        if isinstance(args_str, str):
+            try:
+                parsed_args = json.loads(args_str)
+            except (ValueError, TypeError):
+                parsed_args = None
+            if isinstance(parsed_args, dict):
+                _redact_sensitive_inplace(parsed_args)
+                o["arguments"] = json.dumps(parsed_args, ensure_ascii=False)
         if o.get("type") == "input_audio":
             ia = o.get("input_audio")
             if isinstance(ia, dict) and isinstance(ia.get("data"), str):
@@ -333,7 +361,7 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
 
 
 def redact_sensitive_payload_for_log(obj: Any) -> Any:
-    """Deep copy of a request/response payload with audio/image base64 and long signature blobs replaced for safe debug logging."""
+    """Deep copy of a payload with secrets, audio/image base64, and long signatures masked (logs, approval cards, echoes)."""
     out = deepcopy(obj)
     _redact_sensitive_inplace(out)
     return out

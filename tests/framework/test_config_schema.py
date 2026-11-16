@@ -65,6 +65,7 @@ def restore_manifest():
         schema.CONFIG_SCHEMAS,
         schema.FLAT_TO_MODULE_KEY,
         schema.SECRET_CONFIG_KEYS,
+        schema.SECRET_ENTRY_FIELDS,
     )
     yield schema
     (
@@ -73,6 +74,7 @@ def restore_manifest():
         schema.CONFIG_SCHEMAS,
         schema.FLAT_TO_MODULE_KEY,
         schema.SECRET_CONFIG_KEYS,
+        schema.SECRET_ENTRY_FIELDS,
     ) = orig
 
 
@@ -388,35 +390,18 @@ def test_validate_replaces_universal_sample_with_old_proxy_calls() -> None:
     assert out["saved_python_scripts"]["Universal Sample"] == _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
 
 
-def test_password_widget_marks_secret_key() -> None:
-    from plugin.framework import config_schema
-
-    orig = (
-        config_schema.MODULES,
-        config_schema.CONFIG_DEFAULTS,
-        config_schema.CONFIG_SCHEMAS,
-        config_schema.FLAT_TO_MODULE_KEY,
-        config_schema.SECRET_CONFIG_KEYS,
+def test_password_widget_marks_secret_key(restore_manifest) -> None:
+    config_schema = restore_manifest
+    config_schema.set_manifest_modules(
+        [
+            {
+                "name": "sample",
+                "config": {
+                    "secret_tok": {"type": "string", "default": "", "widget": "password"},
+                    "plain_txt": {"type": "string", "default": "", "widget": "text"},
+                },
+            }
+        ]
     )
-    try:
-        config_schema.set_manifest_modules(
-            [
-                {
-                    "name": "sample",
-                    "config": {
-                        "secret_tok": {"type": "string", "default": "", "widget": "password"},
-                        "plain_txt": {"type": "string", "default": "", "widget": "text"},
-                    },
-                }
-            ]
-        )
-        assert config_schema.is_secret_config_key("sample.secret_tok") is True
-        assert config_schema.is_secret_config_key("sample.plain_txt") is False
-    finally:
-        (
-            config_schema.MODULES,
-            config_schema.CONFIG_DEFAULTS,
-            config_schema.CONFIG_SCHEMAS,
-            config_schema.FLAT_TO_MODULE_KEY,
-            config_schema.SECRET_CONFIG_KEYS,
-        ) = orig
+    assert config_schema.is_secret_config_key("sample.secret_tok") is True
+    assert config_schema.is_secret_config_key("sample.plain_txt") is False

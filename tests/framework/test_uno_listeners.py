@@ -574,5 +574,24 @@ def test_base_terminate_listener():
         raise AssertionError("TerminationVetoException was swallowed by BaseTerminateListener")
 
 
+def test_base_focus_listener_dispatches_events():
+    from plugin.framework.uno_listeners import BaseFocusListener
+
+    seen: list[str] = []
+
+    class _Listener(BaseFocusListener):
+        def on_focus_gained(self, e):
+            seen.append("gained")
+
+        def on_focus_lost(self, e):
+            seen.append("lost")
+
+    listener = _Listener()
+    ev = MagicMock()
+    listener.focusGained(ev)
+    listener.focusLost(ev)
+    assert seen == ["gained", "lost"]
+
+
 
 

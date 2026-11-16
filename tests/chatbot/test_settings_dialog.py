@@ -748,20 +748,6 @@ def test_apply_settings_result_uses_passed_field_specs():
         mock_save.assert_called_once_with({"doc.grammar_provider": "shared"})
 
 
-def test_apply_settings_result_parses_mcp_client_servers_json():
-    from plugin.chatbot.settings_dialog import apply_settings_result
-
-    specs = [{"name": "mcp_client__servers", "config_key": "mcp_client.servers", "type": "json"}]
-    with (
-        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
-        patch("plugin.chatbot.settings_dialog.get_config", return_value={}),
-        patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://api.test"),
-        patch("plugin.chatbot.settings_dialog.save") as mock_save,
-    ):
-        apply_settings_result(MagicMock(), {"mcp_client__servers": '{"home": {"url": "http://localhost:8000/mcp"}}'}, specs)
-        mock_save.assert_called_once_with({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp"}}})
-
-
 def test_ok_migrates_plaintext_keys_and_typed_key_never_hits_disk():
     from plugin.chatbot.settings_dialog import apply_settings_result
     from plugin.framework import keystore
@@ -854,3 +840,22 @@ def test_locked_blank_password_field_is_not_saved(fake_keystore, monkeypatch):
 
     keystore.reset_for_tests(fake_keystore)
     assert get_secret_config("mcp.tunnel_provider_token") == "tok-secret"
+
+
+def test_ok_migrates_a_server_token(fake_keystore):
+    from pathlib import Path
+
+    from plugin.chatbot.settings_dialog import apply_settings_result
+    from plugin.framework import keystore
+    from plugin.framework.config import get_config, get_config_file_path, resolve_entry_secret, save
+
+    keystore.reset_for_tests(None)
+    save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "tok-plain"}}})
+    assert "tok-plain" in Path(get_config_file_path()).read_text(encoding="utf-8")
+
+    keystore.reset_for_tests(fake_keystore)
+    apply_settings_result(MagicMock(), {}, [])
+
+    assert "tok-plain" not in Path(get_config_file_path()).read_text(encoding="utf-8")
+    servers = get_config("mcp_client.servers")
+    assert resolve_entry_secret("mcp_client.servers", "home", "token", servers["home"]["token"]) == "tok-plain"
