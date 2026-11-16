@@ -220,7 +220,7 @@ def test_range_scope_without_both_offsets_is_an_error():
     [
         {"scope": "whole"},
         {"max_chars": True},
-        {"scope": "range", "start": "2", "end": 4},
+        {"scope": "range", "start": "two", "end": 4},
     ],
 )
 def test_get_document_content_wrong_arguments_are_rejected_before_execute(args):

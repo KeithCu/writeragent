@@ -3,9 +3,11 @@ from unittest.mock import patch
 from plugin.framework.config import LRU_MAX_ITEMS
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
+    drop_typed_partials,
     sanitize_model_combobox_value,
     lru_config_key,
     next_lru_list,
+    next_model_lru_list,
     update_lru_history,
 )
 
@@ -95,3 +97,21 @@ class TestModelLru:
              patch("plugin.framework.model_lru.save", side_effect=mock_save) as mock_set:
             update_lru_history("first", "prompt_lru", "")
             mock_set.assert_not_called()
+
+    def test_drop_typed_partials_collapses_keystroke_chains_keeps_real_ids(self):
+        assert drop_typed_partials(
+            ["claude-opus-5-5", "claude-opu-5-5", "claude-opus-5-", "claude-opus-5", "claude-opus-", "claude-opus"]
+        ) == ["claude-opus-5-5"]
+        assert drop_typed_partials(
+            ["openai/gpt-oss-20b:nitro", "openai/gpt-oss-20b:nitr", "openai/gpt-oss-20b:nit", "openai/gpt-oss-20b"]
+        ) == ["openai/gpt-oss-20b:nitro", "openai/gpt-oss-20b"]
+        real_ids = ["gpt-4o-mini", "gpt-4o", "o3", "o1", "claude-opus-4-1", "claude-opus-4"]
+        assert drop_typed_partials(real_ids) == real_ids
+
+    def test_next_model_lru_list_cleans_even_when_head_unchanged(self):
+        assert next_model_lru_list(
+            ["claude-opus-5-5", "claude-opus-5-", "claude-opus-5"],
+            "claude-opus-5-5",
+        ) == ["claude-opus-5-5"]
+        assert next_model_lru_list(["claude-opus-5-5", "gpt-4o"], "claude-opus-5-5") is None
+        assert next_model_lru_list("not-a-list", "x") == ["x"]

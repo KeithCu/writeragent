@@ -256,17 +256,25 @@ def test_named_range_tools_error_handling():
     assert res_del["status"] == "error"
     assert res_del["code"] == "NAMED_RANGE_NOT_FOUND"
 
-    # 6. CreateFromTitles invalid border (rejected by schema validator)
+    # 6. CreateFromTitles invalid border (rejected by schema validator; uppercase enum coerces)
     tool_titles = _tool("named_range_create_from_titles")
-    for bad_border in ("invalid_border", "TOP"):
-        prep = prepare_tool_call(
-            tool_titles,
-            SimpleNamespace(doc_type="calc"),
-            "named_range_create_from_titles",
-            {"range": ["A1:B5"], "border": bad_border},
-        )
-        assert prep.error is not None
-        assert prep.error["code"] == "VALIDATION_ERROR"
+    prep = prepare_tool_call(
+        tool_titles,
+        SimpleNamespace(doc_type="calc"),
+        "named_range_create_from_titles",
+        {"range": ["A1:B5"], "border": "invalid_border"},
+    )
+    assert prep.error is not None
+    assert prep.error["code"] == "VALIDATION_ERROR"
+
+    coerced = prepare_tool_call(
+        tool_titles,
+        SimpleNamespace(doc_type="calc"),
+        "named_range_create_from_titles",
+        {"range": ["A1:B5"], "border": "TOP"},
+    )
+    assert coerced.error is None
+    assert coerced.kwargs["border"] == "top"
 
     # 7. CreateFromTitles missing range
     res_titles = tool_titles.execute_safe(ctx, range=[])

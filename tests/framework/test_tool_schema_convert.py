@@ -406,14 +406,14 @@ def test_coerce_call_args_wraps_array_range_and_formula_values():
             },
         },
     }
-    out = coerce_call_args("write_range", props, {"range": "A1", "values": ["a", 1]})
+    out = coerce_call_args(props, {"range": "A1", "values": ["a", 1]})
     assert out["range"] == ["A1"]
     assert out["values"] == ["a", 1]
-    empty = coerce_call_args("write_range", props, {"range": "A1", "values": []})
+    empty = coerce_call_args(props, {"range": "A1", "values": []})
     assert empty["values"] == []
-    number = coerce_call_args("write_range", props, {"range": "A1", "values": 3})
+    number = coerce_call_args(props, {"range": "A1", "values": 3})
     assert number["values"] == "3"
-    plain = coerce_call_args("other", {"range": {"type": "string"}}, {"range": "A1"})
+    plain = coerce_call_args({"range": {"type": "string"}}, {"range": "A1"})
     assert plain["range"] == "A1"
 
 
@@ -546,3 +546,114 @@ def test_to_mcp_schema_injects_document_url():
     input_schema = schema.get("inputSchema", {})
     assert "document_url" in input_schema.get("properties", {})
     assert input_schema["properties"]["document_url"]["type"] == ["string", "null"]
+
+
+@pytest.mark.parametrize(
+    ("schema_type", "raw", "expected"),
+    [
+        ("integer", "3", 3),
+        ("integer", " -2 ", -2),
+        ("integer", "3.0", 3),
+        ("integer", 3.0, 3),
+        ("integer", "3.5", "3.5"),
+        ("integer", "1_0", "1_0"),
+        ("integer", "１２", "１２"),
+        ("integer", "abc", "abc"),
+        ("number", "1.5", 1.5),
+        ("number", "2", 2),
+        ("number", "nan", "nan"),
+        ("number", "1e999", "1e999"),
+    ],
+)
+def test_coerce_numeric_strings(schema_type, raw, expected):
+    from plugin.framework.tool_schema import coerce_call_args
+
+    out = coerce_call_args({"n": {"type": schema_type}}, {"n": raw})
+    assert out["n"] == expected
+    assert type(out["n"]) is type(expected)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("TRUE", True),
+        (" yes ", True),
+        ("1", True),
+        (1, True),
+        ("false", False),
+        ("no", False),
+        ("0", False),
+        (0, False),
+        ("maybe", "maybe"),
+        (2, 2),
+    ],
+)
+def test_coerce_boolean_words(raw, expected):
+    from plugin.framework.tool_schema import coerce_call_args
+
+    out = coerce_call_args({"flag": {"type": "boolean"}}, {"flag": raw})
+    assert out["flag"] is expected if isinstance(expected, bool) else out["flag"] == expected
+
+
+def test_coerce_number_to_string():
+    from plugin.framework.tool_schema import coerce_call_args
+
+    assert coerce_call_args({"s": {"type": "string"}}, {"s": 50})["s"] == "50"
+    assert coerce_call_args({"s": {"type": "string"}}, {"s": True})["s"] is True
+    assert coerce_call_args({"s": {"type": ["integer", "string"]}}, {"s": "5"})["s"] == "5"
+    assert coerce_call_args({"values": {"type": ["string", "array", "null"]}}, {"values": 3})["values"] == "3"
+
+
+@pytest.mark.parametrize(
+    ("schema_type", "raw", "expected"),
+    [
+        ("array", "A1", ["A1"]),
+        ("array", '["A1:B2"]', ["A1:B2"]),
+        ("array", 3, [3]),
+        ("array", {"a": 1}, [{"a": 1}]),
+        ("array", '{"field": 1}', [{"field": 1}]),
+        ("array", "[not json", ["[not json"]),
+        (["array", "string"], "a,b", "a,b"),
+    ],
+)
+def test_coerce_single_value_to_list(schema_type, raw, expected):
+    from plugin.framework.tool_schema import coerce_call_args
+
+    out = coerce_call_args({"items": {"type": schema_type}}, {"items": raw})
+    assert out["items"] == expected
+
+
+def test_coerce_json_object_string():
+    from plugin.framework.tool_schema import coerce_call_args
+
+    assert coerce_call_args({"obj": {"type": "object"}}, {"obj": '{"a": 1}'})["obj"] == {"a": 1}
+    assert coerce_call_args({"obj": {"type": "object"}}, {"obj": "x"})["obj"] == "x"
+    assert coerce_call_args({"obj": {"type": "object"}}, {"obj": "[1]"})["obj"] == "[1]"
+
+
+@pytest.mark.parametrize(
+    ("prop", "raw", "expected"),
+    [
+        ({"type": "string", "enum": ["GREATER", "LESS"]}, "greater", "GREATER"),
+        ({"type": "string", "enum": ["top_left", "bottom_right"]}, "Bottom Right", "bottom_right"),
+        ({"type": "string", "enum": ["rows", "cols"]}, "row", "rows"),
+        ({"type": "string", "enum": ["footnote", "endnote"]}, "Footnotes", "footnote"),
+        ({"type": "string", "enum": ["left", "center", "right"]}, "centre", "center"),
+        ({"type": "string", "enum": ["register", "unregister"]}, "registr", "register"),
+        ({"type": "string", "enum": ["register", "unregister"]}, "unregistr", "unregister"),
+        ({"type": "integer", "enum": [0, 1, 2]}, "1", 1),
+    ],
+)
+def test_coerce_enum_spelling(prop, raw, expected):
+    from plugin.framework.tool_schema import coerce_call_args
+
+    assert coerce_call_args({"op": prop}, {"op": raw})["op"] == expected
+
+
+def test_coerce_enum_leaves_ambiguous_or_short():
+    from plugin.framework.tool_schema import coerce_call_args
+
+    assert coerce_call_args({"k": {"type": "string", "enum": ["line", "pie"]}}, {"k": "lin"})["k"] == "lin"
+    assert coerce_call_args({"k": {"type": "string", "enum": ["alpha1", "alpha2"]}}, {"k": "alpha3"})["k"] == "alpha3"
+    assert coerce_call_args({"k": {"type": "string", "enum": ["ordered", "unordered"]}}, {"k": "deordered"})["k"] == "deordered"
+    assert coerce_call_args({"k": {}}, {"k": "7"})["k"] == "7"

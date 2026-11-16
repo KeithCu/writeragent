@@ -697,8 +697,8 @@ def test_get_presentation_info_reports_deck():
         out = GetPresentationInfo().execute(ctx)
 
     assert out["slide_count"] == 2
-    assert out["width_mm"] == 338
-    assert out["height_mm"] == 190
+    assert out["width"] == 33867
+    assert out["height"] == 19050
     assert out["master_slides"] == ["Default"]
     assert out["is_impress"] is True
 

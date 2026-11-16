@@ -329,4 +329,11 @@ def test_chat_tier_domain_skipped_for_mcp_and_discovery() -> None:
             assert "mcp" not in for_mcp
             chat_live = {e["domain"] for e in catalog_entries_from_base(agent_label=label, ctx=object())}
             assert "mcp" in chat_live
+def test_loop_hint_shapes_states_units_for_every_label() -> None:
+    from plugin.doc.specialized_catalog import loop_hint
+
+    expected = loop_hint("shapes", None)
+    assert expected != ""
+    for label in ("Writer", "Calc", "Draw"):
+        assert loop_hint("shapes", label) == expected
 

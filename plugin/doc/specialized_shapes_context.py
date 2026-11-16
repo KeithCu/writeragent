@@ -59,19 +59,17 @@ def _writer_canvas_for_style(doc: Any, style_name: str) -> str | None:
         if not page_styles.hasByName(style_name):
             return None
         style = page_styles.getByName(style_name)
-        w = float(style.getPropertyValue("Width")) / 100.0
-        h = float(style.getPropertyValue("Height")) / 100.0
-        lm = float(style.getPropertyValue("LeftMargin")) / 100.0
-        rm = float(style.getPropertyValue("RightMargin")) / 100.0
-        tm = float(style.getPropertyValue("TopMargin")) / 100.0
-        bm = float(style.getPropertyValue("BottomMargin")) / 100.0
+        w = int(style.getPropertyValue("Width"))
+        h = int(style.getPropertyValue("Height"))
+        lm = int(style.getPropertyValue("LeftMargin"))
+        rm = int(style.getPropertyValue("RightMargin"))
+        tm = int(style.getPropertyValue("TopMargin"))
+        bm = int(style.getPropertyValue("BottomMargin"))
         orient = "landscape" if bool(style.getPropertyValue("IsLandscape")) else "portrait"
         return (
             " Document canvas (Writer): "
-            f"page style '{style_name}'; paper {w:.1f} x {h:.1f} mm ({orient}); "
-            f"margins L/R/T/B {lm:.1f}/{rm:.1f}/"
-            f"{tm:.1f}/{bm:.1f} mm. "
-            "Shape x/y/width/height use LibreOffice units of 1/100 mm. "
+            f"page style '{style_name}'; paper {w} x {h} ({orient}); "
+            f"margins L/R/T/B {lm}/{rm}/{tm}/{bm} (1/100 mm). "
             "For page-anchored shapes, (0,0) is relative to the printable page area (inside margins), not the paper edge."
         )
 
@@ -93,7 +91,7 @@ def _format_writer_canvas(doc: Any) -> str:
 def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
     def _body() -> str:
         # Lazy: cross-app — the Draw/Calc bridge is only loaded when that app's document is the target.
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import DrawBridge, page_size
 
         bridge = DrawBridge(doc)
         pages = bridge.get_pages()
@@ -102,11 +100,11 @@ def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
         if page is None:
             return ""
         idx = int(bridge.get_active_page_index())
-        w_mm = float(getattr(page, "Width", 0) or 0) / 100.0
-        h_mm = float(getattr(page, "Height", 0) or 0) / 100.0
-        if w_mm <= 0 or h_mm <= 0:
+        size = page_size(page)
+        if size is None:
             return ""
-        return f" Document canvas ({product_label}): active slide/page index {idx} (0-based), size {w_mm:.1f} x {h_mm:.1f} mm; {n_pages} page(s) total. Shape x/y/width/height use 1/100 mm."
+        w, h = size
+        return f" Document canvas ({product_label}): active slide/page index {idx} (0-based), size {w} x {h} (1/100 mm); {n_pages} page(s) total."
 
     return uno_read(_body, "")
 
@@ -116,13 +114,13 @@ def _format_calc_canvas(doc: Any) -> str:
     def _body() -> str:
         # Lazy: cross-app — the Draw/Calc bridge is only loaded when that app's document is the target.
         from plugin.calc.bridge import CalcBridge
+        from plugin.draw.bridge import page_size
 
         bridge = CalcBridge(doc)
         sheet = bridge.get_active_sheet()
         dp = sheet.getDrawPage()
-        w_mm = float(getattr(dp, "Width", 0) or 0) / 100.0
-        h_mm = float(getattr(dp, "Height", 0) or 0) / 100.0
-        size_part = f"draw-page size {w_mm:.1f} x {h_mm:.1f} mm" if (w_mm > 0 and h_mm > 0) else "no fixed page size"
+        size = page_size(dp)
+        size_part = f"draw-page size {size[0]} x {size[1]} (1/100 mm)" if size else "no fixed page size"
 
         sheets = doc.getSheets()
         n_sheets = int(sheets.getCount())
@@ -135,7 +133,7 @@ def _format_calc_canvas(doc: Any) -> str:
         sheet_name = str(getattr(sheet, "Name", "") or "").strip()
         name_part = f", name '{sheet_name}'" if sheet_name else ""
 
-        return f" Document canvas (Calc): active sheet index {sheet_idx} (0-based){name_part}, {size_part}; {n_sheets} sheet(s). Shape x/y/width/height use 1/100 mm."
+        return f" Document canvas (Calc): active sheet index {sheet_idx} (0-based){name_part}, {size_part}; {n_sheets} sheet(s)."
 
     return uno_read(_body, "")
 

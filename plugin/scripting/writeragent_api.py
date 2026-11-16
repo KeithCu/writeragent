@@ -702,10 +702,10 @@ class _CalcProxy:
         return _result(call_host_tool("delete_structure", structure_type=structure_type, start=start, count=count, confirm=confirm))
 
     def detect_errors(self, *, range_name: list[str] | None = None) -> _Item:
-        """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
+        """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
 
         Args:
-            range_name (optional): Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.
+            range_name (optional): Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("detect_errors", range=range_name))
 
@@ -754,20 +754,20 @@ class _CalcProxy:
         return _result(call_host_tool("list_functions", filter=filter))
 
     def merge_cells(self, range_name: list[str], *, center: bool | None = None, unmerge: bool | None = None) -> _Item:
-        """Merges the specified cell range(s). Typically used for main headers. The merged area shows the top-left cell's content; other cells keep their content (hidden, still counted by formulas) and are listed in hidden_cells. Write text with write_range (before or after merging) into the top-left cell, and style with set_style. Refuses ranges overlapping an existing merge. Supports lists for non-contiguous areas.
+        """Merges the specified cell range(s). Typically used for main headers. The merged area shows the top-left cell's content; other cells keep their content (hidden, still counted by formulas) and are listed in hidden_cells. Write text with write_range (before or after merging) into the top-left cell, and style with set_style. Refuses ranges overlapping an existing merge.
 
         Args:
-            range_name (required): Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).
+            range_name (required): Range(s) to merge. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             center (optional): Center content (default: true).
             unmerge (optional): Split merged cells instead of merging (default: false).
         """
         return _result(call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge))
 
     def read_range(self, range_name: list[str], *, format: str = 'rows') -> _Item:
-        """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). Supports lists for non-contiguous areas. `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`.
+        """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). `result` has one entry per requested range, in order, even for one range: `{status, range, result: [payload]}`, where payload is the `rows` object or the `cells` grid; an oversized range's entry adds `truncated`, `message`, `hint`, `preview_range`, `row_count`, `column_count`, `cell_count` and optional `column_distincts`.
 
         Args:
-            range_name (required): Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["'Data Sheet'!B2"]). Sheet prefixes target that sheet without switching the active sheet.
+            range_name (required): Cell range(s) to read. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             format (optional): rows (default): 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
         """
         return _result(call_host_tool("read_range", range=range_name, format=format))
@@ -799,10 +799,10 @@ class _CalcProxy:
         return _result(call_host_tool("search_cells", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, sheet=sheet, all_sheets=all_sheets))
 
     def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | None = None, font_color: str | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | None = None, border_mode: str | None = None, number_format: str | None = None, column_width_mm: float | None = None, row_height_mm: float | None = None, autofit: str | None = None) -> _Item:
-        """Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas.
+        """Applies style and formatting to the specified cell(s) or range(s).
 
         Args:
-            range_name (required): Target cell(s) or range(s) (e.g. ["A1:D10"] or ["A1", "B2"]).
+            range_name (required): Target cell(s) or range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             bold (optional): Bold font.
             italic (optional): Italic font.
             font_size (optional): Font size (points).
@@ -821,10 +821,10 @@ class _CalcProxy:
         return _result(call_host_tool("set_style", range=range_name, bold=bold, italic=italic, font_size=font_size, bg_color=bg_color, font_color=font_color, h_align=h_align, v_align=v_align, wrap_text=wrap_text, border_color=border_color, border_mode=border_mode, number_format=number_format, column_width_mm=column_width_mm, row_height_mm=row_height_mm, autofit=autofit))
 
     def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None, then_by: list[Any] | None = None) -> _Item:
-        """Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas. The result says 'no rows moved' when the key columns were already in that order.
+        """Stable sort of the specified range(s) by one key column, with optional tie-break columns in then_by. Do call sort_range to reorder rows (not rewrite the block with write_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. For ties use then_by in the same call instead of a second sort, e.g. Revenue descending then Product A–Z: sort_column=1, ascending=false, then_by=[{"column": 0, "ascending": true}]. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. The result says 'no rows moved' when the key columns were already in that order.
 
         Args:
-            range_name (required): Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).
+            range_name (required): Range(s) to sort. One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             has_header (required): true when row 1 is labels; false only for a headerless block (default: true).
             sort_column (optional): 0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.
             ascending (optional): true = smallest first (default); false = largest/highest first.
@@ -833,10 +833,10 @@ class _CalcProxy:
         return _result(call_host_tool("sort_range", range=range_name, sort_column=sort_column, ascending=ascending, then_by=then_by, has_header=has_header))
 
     def write_range(self, range_name: list[str], *, values: str | list[Any] | None = None, array: bool | None = None, source: str | None = None) -> _Item:
-        """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; to write many cells at once, send a 2-D array (one inner array per row) that matches the range, or give only the top-left cell and the array sets the size. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
+        """Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; to write many cells at once, send a 2-D array (one inner array per row) that matches the range, or give only the top-left cell and the array sets the size. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. Reductions that spill a small result: write =PY("result = …"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). That cell spills the 2D result (values are in the neighbors). A small peek of the origin or headers is enough — do not dump the input or full spill into chat. If they asked for in-place unique rows, still land beside/new sheet and say where. Tables (headers, mixed types): =PY("result = data.to_pandas().drop_duplicates()"; DataRange). Use data.to_pandas() rather than pd.DataFrame(data) so row 0 becomes the column names. DO: to copy a block onto another sheet or place, pass source and dest range; do not pass values. Dest is the top-left (or a matching range whose start is used); the copied size is the source extent. Relative formula refs adjust for the dest offset; $ stay.
 
         Args:
-            range_name (required): Target range(s) (e.g. ["A1:A10"], ["Sheet1.B2:D2"] or ["Sheet1!B2:D2"]). A sheet prefix targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
+            range_name (required): Target range(s). One entry per area: A1, A1:D10 or a named range. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet. With source, this is the paste top-left (source extent is copied).
             values (optional): Required unless source is set (do not pass both). Single string: fills the entire range with that value or formula (use '=' prefix for formulas). One ordinary formula into a multi-cell column or row is fill-down/across — relative A1 refs adjust per cell ($ stays absolute). Prefer that for a related rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not mix them in one formula. 2-D array: one inner array per row; must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null (e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same =B2*…-style formula in every cell pins every row to the first ref — use one formula string over the whole column range instead. A JSON string of a flat or 2-D array is still accepted. Empty string or empty array clears. A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other array functions) is entered as an array formula over its result; occupied cells besides the origin are refused. =PY() is still the spill path for Python reductions.
             array (optional): Optional. true forces an array formula even for LET/XLOOKUP; false forces a scalar formula (setFormula / fill-down).
             source (optional): Optional source block to copy (A1, Sheet.A1 or Sheet!A1). When set, dest range is the paste top-left (or a matching range whose start is used); copied size is the source extent. Do not pass values.
@@ -853,7 +853,7 @@ class _CellCommentProxy:
         """Add a comment (annotation) to a specific cell in a Calc sheet.
 
         Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell.
+            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             text (required): Comment text.
             sheet (optional): Sheet name (active sheet if omitted).
         """
@@ -863,7 +863,7 @@ class _CellCommentProxy:
         """Delete the comment (annotation) from a specific cell.
 
         Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell.
+            cell (required): One cell (B3) or a named range that refers to one cell. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             sheet (optional): Sheet name (active sheet if omitted).
         """
         return _result(call_host_tool("cell_comment_delete", cell=cell, sheet=sheet))
@@ -1033,10 +1033,10 @@ class _ConditionalFormattingProxy:
     """Proxy for conditional_formatting tools."""
 
     def add(self, range_name: builtins.list[str], operator: str, *, formula1: str | None = None, formula2: str | None = None, style: str | None = None, bg_color: str | None = None, font_color: str | None = None, bold: bool | None = None) -> _Item:
-        """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
+        """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
-            range_name (required): Cell range to apply the rule to (e.g. ["A1:D10"]).
+            range_name (required): Cell range to apply the rule to (A1:D10 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             operator (required): Condition operator. One of: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE.
             formula1 (optional): First formula/value. For FORMULA, the condition (e.g. 'A1>100'; Excel or Calc syntax, e.g. 'AND($A1>1,$A1<5)'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
             formula2 (optional): Second value (required for BETWEEN and NOT_BETWEEN).
@@ -1051,7 +1051,7 @@ class _ConditionalFormattingProxy:
         """List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present.
 
         Args:
-            range_name (optional): Cell range (e.g. ["A1:D10"]). If omitted, scans used area.
+            range_name (optional): Cell range (A1:D10 or a named range); omit to scan the used area. A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("conditional_formatting_list", range=range_name))
 
@@ -1059,7 +1059,7 @@ class _ConditionalFormattingProxy:
         """Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use conditional_formatting_list to see current rules and their indices.
 
         Args:
-            range_name (required): Cell range (e.g. ["A1:D10"]).
+            range_name (required): Cell range (A1:D10 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             rule_index (optional): 0-based index of the rule to remove. If omitted, all rules are cleared.
         """
         return _result(call_host_tool("conditional_formatting_remove", range=range_name, rule_index=rule_index))
@@ -1133,7 +1133,7 @@ class _DrawProxy:
     """Proxy for draw tools."""
 
     def get_deck_info(self) -> _Item:
-        """Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."""
+        """Get presentation metadata: slide count, slide width and height (1/100 mm, the unit shapes use), master slide names, and whether it is an Impress document."""
         return _result(call_host_tool("get_deck_info"))
 
 draw = _DrawProxy()
@@ -1143,14 +1143,14 @@ class _EmbeddedProxy:
     """Proxy for embedded tools."""
 
     def insert(self, object_type: str, *, data: list[Any] | None = None, name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
-        """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height are 1/100 mm (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
+        """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
 
         Args:
             object_type (required): Embedded object type (Calc spreadsheet only). One of: spreadsheet.
             data (optional): Optional rows of cell values (string, number, or null). Default empty sheet.
             name (optional): Optional container name in getEmbeddedObjects().
-            width (optional): Frame width in 1/100 mm (requires height).
-            height (optional): Frame height in 1/100 mm (requires width).
+            width (optional): Frame width, 1/100 mm (requires height).
+            height (optional): Frame height, 1/100 mm (requires width).
             target (optional): Where to insert the embedded spreadsheet. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
             case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
@@ -1270,7 +1270,7 @@ class _FormProxy:
         """
         return _result(call_host_tool("form_create", fields=fields))
 
-    def create_control(self, control: str, name: str, *, label: str | None = None, group_name: str | None = None, items: list[str] | None = None, placeholder: str | None = None, default_value: str | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
+    def create_control(self, control: str, name: str, *, label: str | None = None, group_name: str | None = None, items: list[str] | str | None = None, placeholder: str | None = None, default_value: str | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
         """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are shape_fill_fields / shape_upsert targets.
 
         Args:
@@ -1281,8 +1281,8 @@ class _FormProxy:
             items (optional): List of options for a combobox or list box.
             placeholder (optional): Placeholder/hint text for text fields.
             default_value (optional): Initial value for text or date fields.
-            width (optional): Width in 100ths of mm (default varies by type).
-            height (optional): Height in 100ths of mm (default varies by type).
+            width (optional): Width, 1/100 mm (default varies by type).
+            height (optional): Height, 1/100 mm (default varies by type).
             page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_create_control", control=control, label=label, name=name, group_name=group_name, items=items, placeholder=placeholder, default_value=default_value, width=width, height=height, page=page))
@@ -1297,7 +1297,7 @@ class _FormProxy:
         """
         return _result(call_host_tool("form_delete_control", index=index, name=name, page=page))
 
-    def edit_control(self, *, index: int | None = None, name: str | None = None, new_name: str | None = None, group_name: str | None = None, label: str | None = None, text: str | None = None, state: int | None = None, items: list[str] | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
+    def edit_control(self, *, index: int | None = None, name: str | None = None, new_name: str | None = None, group_name: str | None = None, label: str | None = None, text: str | None = None, state: int | None = None, items: list[str] | str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
         """Edit a live form widget by name (preferred) or draw-page index from form_list_controls. Set checkbox/radio State (0/1/2 or yes/no) and text-field Text. Writer/Calc/Draw/Impress. When index is omitted, name looks up the control; use new_name to rename. When index is passed, name still renames (older callers).
 
         Args:
@@ -1733,14 +1733,14 @@ class _MathProxy:
     """Proxy for math tools."""
 
     def insert(self, formula_type: str, formula: str, page: int, x: int, y: int) -> _Item:
-        """Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x, y (100ths of mm). Size is derived from the formula when possible.
+        """Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x and y. Size is derived from the formula when possible.
 
         Args:
             formula_type (required): Whether formula is LaTeX (converted via LO) or MathML. One of: latex, mathml.
             formula (required): LaTeX or MathML formula text, per formula_type.
             page (required): Zero-based index of the draw page or slide.
-            x (required): X position of the shape (100ths of mm).
-            y (required): Y position of the shape (100ths of mm).
+            x (required): X position, 1/100 mm.
+            y (required): Y position, 1/100 mm.
         """
         return _result(call_host_tool("math_insert", formula_type=formula_type, formula=formula, page=page, x=x, y=y))
 
@@ -1792,7 +1792,7 @@ class _NamedRangeProxy:
         """Automatically creates multiple named ranges based on the content of title cells (headers) in a table range. Border specifies where headers are located ('top', 'bottom', 'left', 'right').
 
         Args:
-            range_name (required): The table cell range or named range containing both headers and data (e.g. ["A1:D20"], ["Sheet1.A1:D20"], or ["Table"]).
+            range_name (required): The table cell range or named range containing both headers and data (A1:D20 or Table). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             border (optional): Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'. One of: top, bottom, left, right.
             scope (optional): Container scope for creating the names: 'global' (default) or specific sheet name.
         """
@@ -2030,7 +2030,7 @@ class _PageCommentProxy:
 
         Args:
             text (required): Comment text.
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
             author (optional): Author name (optional).
         """
         return _result(call_host_tool("page_comment_add", text=text, page=page, author=author))
@@ -2040,7 +2040,7 @@ class _PageCommentProxy:
 
         Args:
             index (required): 0-based index on the page.
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("page_comment_delete", index=index, page=page))
 
@@ -2140,7 +2140,7 @@ class _PlaceholderProxy:
         Args:
             role (optional): Placeholder role: 'title', 'subtitle', or 'body'.
             index (optional): Shape index (from placeholder_list).
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("placeholder_get_text", role=role, index=index, page=page))
 
@@ -2148,7 +2148,7 @@ class _PlaceholderProxy:
         """List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before placeholder_set_text. If count=0, delegate domain=slide_layouts with layout='text', then retry.
 
         Args:
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("placeholder_list", page=page))
 
@@ -2159,7 +2159,7 @@ class _PlaceholderProxy:
             text (required): Text to set on the placeholder.
             role (optional): Placeholder role: 'title', 'subtitle', or 'body'.
             index (optional): Shape index (from placeholder_list).
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("placeholder_set_text", text=text, role=role, index=index, page=page))
 
@@ -2289,12 +2289,12 @@ class _ShapeProxy:
     """Proxy for shape tools."""
 
     def align(self, indices: list[Any], alignment: str, *, page: int | None = None) -> _Item:
-        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
+        """Align multiple shapes on a page to a shared edge or center axis. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             indices (required): Shape indices or Names to align.
             alignment (required): Alignment axis. One of: left, center_horizontal, right, top, center_vertical, bottom.
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("shape_align", page=page, indices=indices, alignment=alignment))
 
@@ -2304,18 +2304,18 @@ class _ShapeProxy:
         Args:
             start (required): Index or Name of the starting shape.
             end (required): Index or Name of the ending shape.
-            page (optional): Page index containing the shapes.
+            page (optional): 0-based page (slide) index; the active page if omitted.
             line_color (optional): Color of the connector line.
-            line_width (optional): Line width (100ths of mm).
+            line_width (optional): Line width, 1/100 mm.
         """
         return _result(call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width))
 
     def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> _Item:
-        """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
+        """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node x/y/width/height: 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
 
         Args:
             nodes (required):
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
             layout (optional): How to place nodes (default: horizontal_flow). One of: horizontal_flow, vertical_flow, grid, custom.
             connections (optional):
         """
@@ -2327,17 +2327,17 @@ class _ShapeProxy:
         Args:
             index (optional): 0-based index or dotted group path such as "2.0.1". When both index and name are passed, index wins.
             name (optional): Shape Name (use for all-digit names that would be parsed as an index).
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("shape_delete", index=index, name=name, page=page))
 
     def distribute(self, indices: list[Any], axis: str, *, page: int | None = None) -> _Item:
-        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
+        """Evenly distribute three or more shapes between the first and last along an axis. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             indices (required): Shape indices or Names to distribute.
             axis (required): Distribution axis. One of: horizontal, vertical.
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("shape_distribute", page=page, indices=indices, axis=axis))
 
@@ -2346,7 +2346,7 @@ class _ShapeProxy:
 
         Args:
             fields (required): Fields to write. Target precedence: name (preferred; disambiguated by path_index or index), path_index, index, or label_hint. Each item needs a value.
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("shape_fill_fields", page=page, fields=fields))
 
@@ -2354,7 +2354,7 @@ class _ShapeProxy:
         """Returns a summary of shapes on the active or specified page. Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.
 
         Args:
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("shape_get_summary", page=page))
 
@@ -2362,7 +2362,7 @@ class _ShapeProxy:
         """Read the page as a shape tree so you can fill blanks and see widgets without a screenshot. Empty or near-empty text boxes are fill targets (fillable=true) with name, geometry, and a label_hint (nearest text to the left or above). ControlShapes include type, name, and current value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields.
 
         Args:
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("shape_get_tree", page=page))
 
@@ -2371,7 +2371,7 @@ class _ShapeProxy:
 
         Args:
             indices (required): List of shape indices or Names to group.
-            page (optional): Page index containing the shapes.
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("shape_group", indices=indices, page=page))
 
@@ -2382,17 +2382,17 @@ class _ShapeProxy:
             action (required): Action to perform: 'create' a new shape, or 'edit' an existing one. One of: create, edit.
             index (optional): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
             name (optional): Shape Name. Edit: look up by Name when index is omitted; with index, renames (must be unused on the page). Create: optional unique Name; when omitted a unique Name is assigned and returned as `name`.
-            page (optional): 0-based page index (active page if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
             shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
-            x (optional): X position (100ths of mm) (required only for action='create').
-            y (optional): Y position (100ths of mm) (required only for action='create').
-            width (optional): Width (100ths of mm) (required only for action='create').
-            height (optional): Height (100ths of mm) (required only for action='create').
+            x (optional): X position, 1/100 mm (required only for action='create').
+            y (optional): Y position, 1/100 mm (required only for action='create').
+            width (optional): Width, 1/100 mm (required only for action='create').
+            height (optional): Height, 1/100 mm (required only for action='create').
             text (optional): Text content.
             fill_color (optional): Fill color. Hex (#FF0000) or name (red).
             fill_style (optional): Fill style. One of: solid, transparent, none.
             line_color (optional): Line border color.
-            line_width (optional): Line width (100ths of mm).
+            line_width (optional): Line width, 1/100 mm.
             text_color (optional): Text character color.
             font_size (optional): Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size.
             font_name (optional): Font family name.
@@ -2410,7 +2410,7 @@ class _SheetProxy:
         """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_subagent(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
-            range_name (required): Range to filter (e.g. ["A1:D20"]).
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             criteria (required): Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit or AND (default) vs previous, or OR. Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; [{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].
             has_header (optional): First row is headers only (default true).
         """
@@ -2420,7 +2420,7 @@ class _SheetProxy:
         """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_apply_filter. delegate_to_subagent(domain='sheets').
 
         Args:
-            range_name (required): Range to filter (e.g. ["A1:D20"]).
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
             has_header (optional): First row is headers only (default true).
         """
         return _result(call_host_tool("sheet_clear_filter", range=range_name, has_header=has_header))
@@ -2448,7 +2448,7 @@ class _SheetProxy:
         """Return active filter criteria and has_header for a range, or empty if none. delegate_to_subagent(domain='sheets').
 
         Args:
-            range_name (required): Range to filter (e.g. ["A1:D20"]).
+            range_name (required): Range to filter (A1:D20 or a named range). A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet.
         """
         return _result(call_host_tool("sheet_get_filter", range=range_name))
 
@@ -2578,7 +2578,7 @@ class _SlideProxy:
         """Get the layout type of an Impress slide. Returns the layout ID and a human-readable name.
 
         Args:
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("slide_get_layout", page=page))
 
@@ -2586,7 +2586,7 @@ class _SlideProxy:
         """Get the master slide assigned to a specific slide. Returns the master slide name.
 
         Args:
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("slide_get_master", page=page))
 
@@ -2594,7 +2594,7 @@ class _SlideProxy:
         """Read speaker notes from an Impress slide. Returns the notes text.
 
         Args:
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("slide_get_notes", page=page))
 
@@ -2602,7 +2602,7 @@ class _SlideProxy:
         """Get the transition effect, speed, duration, and advance mode for an Impress slide.
 
         Args:
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("slide_get_transition", page=page))
 
@@ -2611,7 +2611,7 @@ class _SlideProxy:
         return _result(call_host_tool("slide_list"))
 
     def list_masters(self) -> _Item:
-        """List all master slides (master pages) in the document with name and dimensions."""
+        """List all master slides (master pages) in the document with name and size (1/100 mm)."""
         return _result(call_host_tool("slide_list_masters"))
 
     def move(self, from_page: int, to_page: int) -> _Item:
@@ -2627,7 +2627,7 @@ class _SlideProxy:
         """Read text from shapes on a slide (including grouped descendants and table cells as TSV) and speaker notes. Returns structured text per shape or table.
 
         Args:
-            page (optional): 0-based slide index (default: active slide).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("slide_read_text", page=page))
 
@@ -2681,7 +2681,7 @@ class _SlideProxy:
 
         Args:
             layout (required): Layout name (e.g. 'blank', 'title', 'text_and_object').
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("slide_set_layout", page=page, layout=layout))
 
@@ -2690,7 +2690,7 @@ class _SlideProxy:
 
         Args:
             master (required): Name of the master slide to assign.
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
         """
         return _result(call_host_tool("slide_set_master", page=page, master=master))
 
@@ -2699,7 +2699,7 @@ class _SlideProxy:
 
         Args:
             text (required): Speaker notes text.
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
             append (optional): Append to existing notes instead of replacing (default: false).
         """
         return _result(call_host_tool("slide_set_notes", text=text, page=page, append=append))
@@ -2708,7 +2708,7 @@ class _SlideProxy:
         """Set the transition effect on an Impress slide. Effects: none, fade_from_left/top/right/bottom, move_from_left/top/right/bottom, dissolve, random, open_vertical/horizontal, close_vertical/horizontal, roll_from_left/top/right/bottom, uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. Speed: slow, medium, fast. Advance: on_click, auto, semi_auto (set duration for auto-advance).
 
         Args:
-            page (optional): 0-based slide index (active slide if omitted).
+            page (optional): 0-based page (slide) index; the active page if omitted.
             effect (optional): Transition effect name (e.g. 'dissolve', 'fade_from_left', 'random', 'none'). Case-insensitive.
             speed (optional): Transition speed (default: medium). One of: slow, medium, fast.
             duration (optional): Auto-advance duration in seconds (0 = manual advance).
@@ -2833,7 +2833,7 @@ class _TableProxy:
         return _result(call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index))
 
     def insert(self, rows: int, columns: int, *, data: builtins.list[Any] | None = None, parent: str | None = None, cell: str | None = None, page: int | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None) -> _Item:
-        """Insert a table. Writer: text table at the view cursor (or document end); pass parent + cell to nest inside an existing table cell (inserts at the cell end). Draw/Impress: TableShape; position/size in 1/100 mm. parent/cell are Writer-only. Optional data is a 2D array of cell strings.
+        """Insert a table. Writer: text table at the view cursor (or document end); pass parent + cell to nest inside an existing table cell (inserts at the cell end). Draw/Impress: TableShape. parent/cell are Writer-only. Optional data is a 2D array of cell strings.
 
         Args:
             rows (required): Number of rows.
@@ -2842,10 +2842,10 @@ class _TableProxy:
             parent (optional): Writer: host table name from table_list (requires cell).
             cell (optional): Writer: A1-style host cell (requires parent).
             page (optional): Draw/Impress: 0-based page index (active if omitted).
-            x (optional): Draw/Impress: X in 1/100 mm (default: 3000).
-            y (optional): Draw/Impress: Y in 1/100 mm (default: 4000).
-            width (optional): Draw/Impress: width in 1/100 mm (default: 20000).
-            height (optional): Draw/Impress: height in 1/100 mm (default: 10000).
+            x (optional): Draw/Impress: X position, 1/100 mm (default: 3000).
+            y (optional): Draw/Impress: Y position, 1/100 mm (default: 4000).
+            width (optional): Draw/Impress: width, 1/100 mm (default: 20000).
+            height (optional): Draw/Impress: height, 1/100 mm (default: 10000).
         """
         return _result(call_host_tool("table_insert", rows=rows, columns=columns, data=data, parent=parent, cell=cell, page=page, x=x, y=y, width=width, height=height))
 

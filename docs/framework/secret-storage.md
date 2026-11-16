@@ -39,7 +39,7 @@ All items share the service name `"WriterAgent"`.
 
 ## Disabling for tests
 
-Set `WRITERAGENT_KEYSTORE=0` in the environment to disable the OS store and keep secrets in plain text. `tests/conftest.py` and `plugin/testing_runner.py` (when not using `--user-profile`) set this automatically so tests never touch the developer's login keyring.
+Set `WRITERAGENT_KEYSTORE=0` in the environment to disable the OS store and keep secrets in plain text. `tests/conftest.py` and `plugin/testing_runner.py` (when not using `--user-profile`) set this automatically so tests never touch the developer's login keyring. The `--user-profile` mock sidebar suites keep the keystore on, but they store no API key for the mock endpoint.
 
 ## Inspecting or deleting stored items
 

@@ -98,7 +98,7 @@ def smol_agent_mocks():
             side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
         ),
         patch("plugin.chatbot.smol_agent.get_api_config", return_value={"model": "test/model"}),
-        patch("plugin.chatbot.smol_agent.ToolCallingAgent", return_value=mock_agent_instance) as mock_agent_class,
+        patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent", return_value=mock_agent_instance) as mock_agent_class,
         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
         patch("plugin.chatbot.smol_agent.LlmClient"),
     ):

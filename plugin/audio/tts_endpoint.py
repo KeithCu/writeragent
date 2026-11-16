@@ -28,12 +28,35 @@ _PCM_RATE_RE = re.compile(r"rate\s*=\s*(\d+)", re.IGNORECASE)
 _DEFAULT_PCM_RATE = 24000
 _SPEECH_RESPONSE_MAX_BYTES = 32 * 1024 * 1024
 _TTS_FORMAT_WORDS_RE = re.compile(r"\b(mp3|pcm|wav)\b")
+# Local playback rate range every player supports with pitch kept:
+# ffmpeg atempo (0.5-2.0), AudioQueue/afplay, and WMP's documented examples.
+_LOCAL_RATE_MIN = 0.5
+_LOCAL_RATE_MAX = 2.0
+
+
+def endpoint_honors_speed(endpoint_url: str, model: str) -> bool:
+    """True when this server applies the request's speed field itself.
+
+    Live checks at 1.5x vs 1.0x: OpenRouter Kokoro (4.656s -> 3.000s) honors
+    speed, while Gemini, Grok, Orpheus 3B, and Voxtral Mini ignore it.
+    Together's SDK schema (together-ai 0.40.0 speech.ts) has no speed field for
+    any model, Kokoro included. OpenAI documents speed 0.25-4.0 on /audio/speech.
+    """
+    from plugin.framework.client.provider_detection import get_provider_from_endpoint
+    from plugin.framework.errors import ConfigError
+
+    try:
+        host = get_provider_from_endpoint(endpoint_url)
+    except (ConfigError, ValueError):
+        host = None
+    return host == "openai" or ("kokoro" in (model or "").casefold() and host != "together")
 
 
 @dataclasses.dataclass(frozen=True)
 class _EndpointClip:
     audio: bytes
     suffix: str
+    rate: float = 1.0  # playback rate the local player must apply (1.0 when server applied speed)
 
 
 def _sniff_audio_format(audio_bytes: bytes, content_type: str = "") -> str | None:
@@ -275,7 +298,9 @@ def download_endpoint_speech(
 ) -> _EndpointClip | None:
     """Download one ``/audio/speech`` clip returning audio bytes and metadata.
 
-    Remote TTS does not use the warm Kokoro worker. Returns None on failure or cancel.
+    Remote TTS does not use the warm Kokoro worker. The server applies speed
+    only where ``endpoint_honors_speed`` is true; otherwise the returned clip's
+    ``rate`` is applied during local playback. Returns None on failure or cancel.
     """
     from plugin.framework.client.model_fetcher import (
         cached_tts_response_format,
@@ -292,6 +317,7 @@ def download_endpoint_speech(
     if is_openrouter_endpoint(endpoint_url, explicit_is_openrouter=is_or):
         model = preferred_openrouter_tts_model_id(model)
 
+    native = endpoint_honors_speed(endpoint_url, model)
     url = _speech_url(endpoint_url)
 
     eff_voice = _resolve_tts_voice(model, voice, endpoint_url=endpoint_url)
@@ -310,14 +336,16 @@ def download_endpoint_speech(
         payload: dict[str, Any] = {
             "model": model or "hexgrad/Kokoro-82M",
             "input": text,
-            "speed": speed,
             "response_format": response_format,
         }
+        if native:
+            payload["speed"] = speed
         if eff_voice:
             payload["voice"] = eff_voice
         log.info(
-            "Requesting TTS from %s (model=%s, voice=%s, format=%s, text_len=%d)",
-            public_target(url), payload["model"], payload.get("voice", ""), response_format, len(text),
+            "Requesting TTS from %s (model=%s, voice=%s, format=%s, speed=%s, text_len=%d)",
+            public_target(url), payload["model"], payload.get("voice", ""), response_format,
+            payload.get("speed", "local"), len(text),
         )
         audio_bytes, content_type, code, err_body = _post_audio_speech(
             url, headers, payload, cancel=cancel,
@@ -359,5 +387,6 @@ def download_endpoint_speech(
         log.info("TTS playback cancelled after download")
         return None
     suffix = ".mp3" if actual_format == "mp3" else ".wav"
-    return _EndpointClip(audio=audio_bytes, suffix=suffix)
+    rate = 1.0 if native else max(_LOCAL_RATE_MIN, min(_LOCAL_RATE_MAX, speed))
+    return _EndpointClip(audio=audio_bytes, suffix=suffix, rate=rate)
 

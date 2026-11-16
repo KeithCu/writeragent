@@ -103,8 +103,9 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 
 ### 2.3 Unit & Coordinate System
 
-- **Slide Dimensions**: `get_deck_info` reports slide width and height in **millimeters** (e.g. $280\text{mm} \times 157\text{mm}$ for 16:9).
+- **Slide Dimensions**: `get_deck_info` reports slide `width`/`height` in **1/100 mm** (e.g. `28000 x 15750` for 16:9), the unit shapes use.
 - **Shape Coordinates & Sizes**: Shape tools (`shape_upsert`, `shape_connect`) operate in **$1/100\text{ths}$ of a millimeter** ($1\text{mm} = 100\text{ units}$, $10\text{mm} = 1000\text{ units}$, $100\text{mm} = 10000\text{ units}$).
+- **Optional `page` parameter**: Draw/Impress tools whose optional `page` goes through `DrawBridge.resolve_page` share `DRAW_PAGE_PROPERTY` (`plugin/draw/base.py`: 0-based page/slide index, active page if omitted).
 
 ### 2.4 math_insert (math domain)
 

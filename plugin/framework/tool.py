@@ -67,6 +67,7 @@ from plugin.framework.tool_schema import (
     required_keys,
     to_mcp_schema as to_mcp_schema,
     to_openai_schema as to_openai_schema,
+    value_matches_type,
     without_unknown_kwargs as without_unknown_kwargs,
 )
 
@@ -222,33 +223,6 @@ class ToolContext:
         return ToolContext(**values)
 
 
-def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
-    """True when *value* fits a JSON Schema ``type`` (string or union list).
-
-    A missing type is accepted. An unknown name such as ``"str"`` matches
-    nothing. Unions accept any listed JSON Schema member.
-    """
-    if schema_type is None:
-        return True
-    types = schema_type if isinstance(schema_type, list) else [schema_type]
-    for one in types:
-        if one == "string" and isinstance(value, str):
-            return True
-        if one == "integer" and type(value) is int:
-            return True
-        if one == "number" and type(value) in (int, float):
-            return True
-        if one == "boolean" and type(value) is bool:
-            return True
-        if one == "array" and isinstance(value, list):
-            return True
-        if one == "object" and isinstance(value, dict):
-            return True
-        if one == "null" and value is None:
-            return True
-    return False
-
-
 def field_from_tool_arguments(arguments: Any, field: str) -> Any:
     """Read *field* from tool arguments (dict or JSON string), or None."""
     # CrossHair's regex engine crashes inside the json.loads repair path.
@@ -388,7 +362,7 @@ class ToolBase(_ToolErrorMixin, ABC):
                 enum = prop.get("enum")
                 if isinstance(enum, list) and enum and value not in enum:
                     return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in enum)}"
-                if not _tool_arg_matches_type(value, prop.get("type")):
+                if not value_matches_type(value, prop.get("type")):
                     return False, f"Invalid type for {key}: expected {prop.get('type')}, got {type(value).__name__}"
         return True, None
 
@@ -569,11 +543,12 @@ class PreparedToolCall(NamedTuple):
 
 
 def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dict[str, Any]) -> PreparedToolCall:
-    """Schema filter, optional-null drop, coercion and ``validate()`` before a tool runs.
+    """Single argument gate for ``ToolRegistry.execute`` (chat, MCP, ``wa.*`` scripts) and ``SmolToolAdapter.forward``.
 
-    ToolRegistry.execute and SmolToolAdapter.forward both call this, so a
-    specialized sub-agent gets the same VALIDATION_ERROR (and enum options)
-    as the main chat path instead of executing with unchecked arguments.
+    ``WriterAgentToolCallingAgent`` skips smolagents' own ``validate_tool_arguments``
+    for adapters, so sub-agents get the same coercion, unknown-key drop, and
+    ``VALIDATION_ERROR`` payload. Steps: allow-list filter, optional-null drop,
+    ``coerce_call_args``, and ``tool.validate()``.
     """
     # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
     # from API/LLM) do not cause "Unknown parameter" validation errors.
@@ -596,7 +571,7 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
         # fails validation.
         kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required}
 
-    kwargs = coerce_call_args(tool.name, props, kwargs)
+    kwargs = coerce_call_args(props, kwargs)
 
     # Common context for all error details
     common_details: dict[str, Any] = {"tool_name": tool_name}

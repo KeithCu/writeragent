@@ -33,12 +33,16 @@ In `plugin/calc/manipulator.py`, `_parse_json_array_string` walks the string wit
 ### [Solution] `FormulaDialects.to_api`
 [`plugin/calc/formula_dialect.py`](../../plugin/calc/formula_dialect.py) translates incoming formula text via Calc's own `com.sun.star.sheet.FormulaParser` cascade (Calc API grammar as written first, then Excel English, then Calc punctuation with `Sheet!A1`) before writing, so both Excel and Calc syntax work without prompt steering.
 
-## 5. Defensive Parameter Handling
-**Problem**: Models sometimes pass range names as lists or wrap them in extra quotes.
+## 5. Schema-driven argument coercion
+**Problem**: Models frequently send numeric strings (`"1"`), boolean words (`"true"`, `"yes"`), whole floats (`1.0`) for integers, bare values or JSON strings for arrays/objects, or case/hyphen/typo variants of enum values.
 
-### [Workaround] Multi-Type Dispatcher
-In `core/calc_tools.py`, the `execute_calc_tool` dispatcher often checks if `range_name` is a list or a single string.
-- **Looping**: If the model passes a list of ranges (hallucination or efficiency attempt), the code loops over them automatically rather than crashing.
+### [Solution] `coerce_call_args` in `prepare_tool_call`
+[`coerce_call_args`](../../plugin/framework/tool_schema.py) runs inside [`prepare_tool_call`](../../plugin/framework/tool.py) before `ToolBase.validate()` on every path (main chat, MCP, `wa.*` scripts, and smol sub-agents via `WriterAgentToolCallingAgent` skipping smolagents' pre-validator for adapters):
+- **Numeric strings**: ASCII digits and finite numbers convert to `int`/`float`; `integer` properties accept whole values only (`"3.0"` → `3`, `"3.5"` stays rejected).
+- **Booleans**: case-insensitive `true`/`yes`/`1` and `false`/`no`/`0` or ints `0`/`1` convert to `bool`.
+- **Strings from numbers**: non-bool `int`/`float` convert to `str` when the schema type includes `string`.
+- **Arrays & objects**: JSON strings starting with `[` or `{` are parsed; a parsed dict becomes `[dict]` for array-only types, and other bare non-list values wrap into `[value]` for arrays.
+- **Unique-match enums**: string enum misses are matched only when a unique string member matches under (a) casefold + space/hyphen→`_`, (b) plural `s`, or (c) one edit for values of 5+ characters; ambiguous or unmatched values fall through to `VALIDATION_ERROR`.
 
 ## 6. Robust Linebreak Normalization
 **Problem**: LLMs (especially when streaming or acting as a sub-agent) are inconsistent with line endings, often mixing `\n`, `\r\n`, and occasionally `\n\r` or legacy `\r`. This breaks structural operations like paragraph splitting (`split("\n\n")`) and can cause search/replace failures if the AI's response uses a different sequence than the document's internal representation.

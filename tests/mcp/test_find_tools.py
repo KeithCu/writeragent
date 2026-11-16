@@ -396,7 +396,7 @@ def test_execute_tolerates_malformed_schemas_in_domain_listing(bad_schemas):
 
 def test_non_string_domain_is_rejected_by_the_validator():
     tool = FindTools()
-    prepared = prepare_tool_call(tool, _ctx(MagicMock()), tool.name, {"domain": 123})
+    prepared = prepare_tool_call(tool, _ctx(MagicMock()), tool.name, {"domain": True})
     assert prepared.error is not None
     assert prepared.error["code"] == "VALIDATION_ERROR"
     assert "domain" in prepared.error["message"]
@@ -571,6 +571,14 @@ def test_no_document_chart_guidance_is_app_neutral():
     assert isinstance(g, str) and g.strip()
     assert g == get_domain_guidance("charts", agent_label=None)
     assert g != get_domain_guidance("charts", agent_label="Calc")
+
+
+def test_shapes_domain_guidance_matches_loop_hint():
+    from plugin.doc.specialized_catalog import loop_hint
+
+    g = get_domain_guidance("shapes", agent_label=None)
+    assert g != ""
+    assert g == loop_hint("shapes", None)
 
 
 def test_direct_flat_lists_app_specific_tools_without_document():
