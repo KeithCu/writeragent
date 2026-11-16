@@ -145,6 +145,8 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
 
 class ToolWriterShapeBase(ToolWriterSpecialBase):
+    """Delegate catalog row only; the tools are the ``plugin.draw.shapes`` classes, which take this class's ``required_core_tools``."""
+
     specialized_domain: ClassVar[str | None] = "shapes"
     specialized_domain_description: ClassVar[str | None] = (
         "Create and edit drawing shapes, connectors, groups, align/distribute layouts, and diagrams."
@@ -161,6 +163,8 @@ class ToolWriterPythonBase(ToolWriterSpecialBase):
 
 
 class ToolWriterChartBase(ToolWriterSpecialBase):
+    """Delegate catalog row only; the tools are the ``plugin.calc.charts`` classes, which take this class's ``required_core_tools``."""
+
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit data charts within the document."
 

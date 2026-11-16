@@ -259,13 +259,23 @@ def _initialized_app_modules():
 
 @pytest.mark.parametrize("label", ["Writer", "Calc", "Draw"])
 def test_catalog_domains_have_tools_or_marker_allowlist(label, _initialized_app_modules):
-    from plugin.framework.tool import ToolBaseDummy
+    from plugin.framework.doc_type import uno_services_for_doc_type_label
+    from plugin.framework.tool import ToolBaseDummy, tool_supports_document
 
     bases = _app_bases()
     all_tools = _all_tool_classes()
     cat_domains = {e["domain"] for e in get_specialized_domain_catalog(agent_label=label, ctx=None, for_discovery=True)}
 
-    app_tools = [t for t in all_tools if issubclass(t, bases[label]) and not issubclass(t, ToolBaseDummy)]
+    # Shared shape and chart classes are not subclasses of every app's base class, so match
+    # by document support rather than issubclass(t, bases[label]).
+    doc_type = label.lower()
+    services = uno_services_for_doc_type_label(doc_type)
+    app_tools = [
+        t
+        for t in all_tools
+        if not issubclass(t, ToolBaseDummy)
+        and tool_supports_document(t, doc_type=doc_type, uno_services_supported=services)
+    ]
     tool_domains = {getattr(t, "specialized_domain", None) for t in app_tools}
 
     # Test-module tool classes (e.g. tests/framework/test_tool.py's styles_peer_test) stay in

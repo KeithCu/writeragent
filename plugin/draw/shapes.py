@@ -19,10 +19,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
+from plugin.writer.specialized_base import ToolWriterShapeBase
 from . import layout
 from .base import ToolDrawShapeBase
 
@@ -33,10 +35,16 @@ log = logging.getLogger(__name__)
 
 
 class _AnyDocumentShapeTool(ToolDrawShapeBase):
-    """Writer and Calc as well as Draw and Impress (align, distribute, diagram included)."""
+    """Shared shape-tool base for Writer, Calc, Draw, and Impress (the only class for these names)."""
 
     uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    # One class serves every app, so it carries each app's reader tools. get_tools drops the
+    # readers that do not support the open document (Calc readers never reach a Writer agent).
+    required_core_tools: ClassVar[frozenset[str] | None] = (
+        (ToolCalcShapeBase.required_core_tools or frozenset())
+        | (ToolWriterShapeBase.required_core_tools or frozenset())
+    )
 
 
 def _page_shape_names(page: Any) -> list[str]:
