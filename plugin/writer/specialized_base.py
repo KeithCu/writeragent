@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
@@ -112,7 +113,8 @@ class ToolWriterTextFramesBase(ToolWriterSpecialBase):
 class ToolWriterSectionBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "sections"
     specialized_domain_description: ClassVar[str | None] = (
-        "List, read, create, and delete text sections (named blocks of whole paragraphs) and set their columns or protection."
+        "List, read, create, rename, and delete text sections (named blocks of whole paragraphs) "
+        "and set their columns, margins, visibility, protection, or password."
     )
 
 
@@ -262,7 +264,17 @@ class SpecializedWorkflowFinished(ToolBase):
 
     name: str | None = FINISH_TOOL_NAME
     description: str = "Provides a final answer to the given task and exits the specialized toolset mode."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"answer": {"type": "string", "description": "The final answer to the task. Use only standard Python types (numbers, strings, lists), no Numpy types."}}, "required": ["answer"]}
+    # `answer` has no "type" so the inner smolagents adapter (`to_smol_inputs`,
+    # specialized style) treats it as "any" and accepts an object or list instead
+    # of failing the finish call. The request schema still asks for a string
+    # because `get_tool_json_schema` maps "any" to "string".
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "answer": {"description": "Final answer in plain text: a short summary of what was done or found."},
+        },
+        "required": ["answer"],
+    }
     tier: str = "specialized_control"
     # Name-based detection treated this as a document write, so a read-only
     # document_research target rejected the exit tool. It only clears the
@@ -271,4 +283,14 @@ class SpecializedWorkflowFinished(ToolBase):
     is_final_answer_tool: bool = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return {"status": "ok", "finished": True, "answer": kwargs["answer"], "message": "Specialized task complete. Normal toolset restored."}
+        answer = kwargs["answer"]
+        # Callers expect text: document_research returns str(answer), and the main
+        # model reads it. JSON keeps a structured answer readable; str() would give
+        # a Python repr. A null answer is the same as an empty one.
+        if answer is None:
+            text = ""
+        elif isinstance(answer, str):
+            text = answer
+        else:
+            text = json.dumps(answer, ensure_ascii=False, default=str)
+        return {"status": "ok", "finished": True, "answer": text, "message": "Specialized task complete. Normal toolset restored."}

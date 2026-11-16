@@ -234,11 +234,11 @@ class SessionStore:
             if key.kind is SessionKind.ISOLATED:
                 self._isolated_init_lru.pop(key, None)
             self._maybe_drop_record(key)
-        _reset_session_duckdb(key.wire())
+        _close_session_duckdb(key.wire())
         if cell_sid:
             self._forget_cell_unlocked(key.without_init())
             # Init-hash change drops the workbook kernel; DuckDB tables must go too.
-            _reset_session_duckdb(cell_sid)
+            _close_session_duckdb(cell_sid)
 
     def _drop_unlocked(self, key: SessionKey) -> None:
         # Desktop workbooks use calc:… and compute uses the raw Online session id;
@@ -351,13 +351,13 @@ def _install_timeout_context_pool() -> None:
 _install_timeout_context_pool()
 
 
-def _reset_session_duckdb(session_id: str) -> None:
+def _close_session_duckdb(session_id: str) -> None:
     """Close the Phase D DuckDB catalog for *session_id* (LibrePy has no module)."""
     try:
-        from plugin.scripting.venv.duckdb_sql import reset_session_duckdb
+        from plugin.scripting.venv.duckdb_sql import close_session_duckdb
     except ImportError:
         return
-    reset_session_duckdb(session_id)
+    close_session_duckdb(session_id)
 
 
 def _host_scoped_dir(bindings: dict[str, Any] | None) -> str | None:

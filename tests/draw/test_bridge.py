@@ -479,6 +479,9 @@ class _MovePages:
     def __init__(self, pages: list[_MovePage]) -> None:
         self.pages = pages
 
+    def _new_page(self, shapes: list[_MoveShape], notes_text: str | None = None) -> _MovePage:
+        return _MovePage("", shapes, notes_text=notes_text)
+
     def getCount(self) -> int:
         return len(self.pages)
 
@@ -486,7 +489,7 @@ class _MovePages:
         return self.pages[index]
 
     def insertNewByIndex(self, index: int) -> _MovePage:
-        page = _MovePage("", [])
+        page = self._new_page([])
         if not self.pages:
             self.pages.append(page)
             return page
@@ -518,9 +521,76 @@ class _MoveDoc:
             clone.payload = getattr(shape, "payload", None)
             clone.from_duplicate = True
             clones.append(clone)
-        copy = _MovePage("", clones, notes_text=page.notes_text)
+        copy = self._pages._new_page(clones, notes_text=page.notes_text)
         self._pages.pages.insert(idx + 1, copy)
         return copy
+
+
+class _SdNamingPage(_MovePage):
+    """Fake page matching LibreOffice's default ``pageN`` naming.
+
+    Mirrors ``sd/source/ui/unoidl/unopage.cxx:getPageApiName`` (unnamed slides
+    report ``page<Number>``) and ``SdDrawPage::setName`` (writing ``""`` or
+    ``page<own Number>`` clears the stored name; any other string is stored as
+    a real name).
+    """
+
+    def __init__(
+        self,
+        deck: list[_MovePage],
+        real_name: str = "",
+        shapes: list[_MoveShape] | None = None,
+        notes_text: str | None = None,
+    ) -> None:
+        self._deck = deck
+        self.real_name = real_name
+        self.shapes = [] if shapes is None else shapes
+        self.notes_text = notes_text
+
+    @property
+    def Number(self) -> int:
+        return self._deck.index(self) + 1
+
+    @property
+    def Name(self) -> str:
+        return self.real_name or "page%d" % self.Number
+
+    @Name.setter
+    def Name(self, value: str) -> None:
+        self.real_name = "" if value in ("", "page%d" % self.Number) else value
+
+
+class _SdNamingPages(_MovePages):
+    def _new_page(self, shapes: list[_MoveShape], notes_text: str | None = None) -> _MovePage:
+        return _SdNamingPage(self.pages, "", shapes, notes_text=notes_text)
+
+
+def test_move_slide_keeps_unnamed_slides_unnamed():
+    from plugin.draw.bridge import DrawBridge
+
+    deck: list[_MovePage] = []
+    for real_name in ("", "Named", "", ""):
+        deck.append(_SdNamingPage(deck, real_name, [_MoveShape(real_name or "u")]))
+    pages = _SdNamingPages(deck)
+    bridge = DrawBridge(_MoveDoc(pages))
+    assert bridge.move_slide(0, 3) is True
+    assert [p.real_name for p in deck] == ["Named", "", "", ""]  # type: ignore[attr-defined]
+    assert [p.Name for p in deck] == ["Named", "page2", "page3", "page4"]
+    assert bridge.move_slide(0, 2) is True
+    assert [p.real_name for p in deck] == ["", "", "Named", ""]  # type: ignore[attr-defined]
+
+
+def test_create_slide_front_keeps_unnamed_slides_unnamed():
+    from plugin.draw.bridge import DrawBridge
+
+    deck: list[_MovePage] = []
+    for real_name in ("", "B"):
+        deck.append(_SdNamingPage(deck, real_name, [_MoveShape(real_name or "u")]))
+    pages = _SdNamingPages(deck)
+    bridge = DrawBridge(_ViewDoc(pages, None))
+    _page, idx = bridge.create_slide(0, switch=False)
+    assert idx == 0
+    assert [p.real_name for p in deck] == ["", "", "B"]  # type: ignore[attr-defined]
 
 
 def test_move_slide_copies_then_removes_source():

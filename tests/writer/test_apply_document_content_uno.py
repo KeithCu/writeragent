@@ -142,3 +142,147 @@ def test_insert_after_caret_still_moves_caret_uno(ctx, doc):
     para_cur = doc.getText().createTextCursorByRange(view_cursor.getStart())
     para_cur.gotoStartOfParagraph(True)
     assert para_cur.getString() == "Alpha one. Beta two. INS"
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_target_uses_send_time_selection_when_caret_moves_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    # Pinned context: caret moves to document start, get_content and edit still see Beta two.
+    _reset_three_paras(doc)
+    controller = _select_match(doc, "Beta two.")
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    vc = controller.getViewCursor()
+    vc.gotoStart(False)
+
+    res_get = GetDocumentContent().execute(tctx, scope="selection")
+    assert res_get.get("status") == "ok", res_get
+    assert "Beta two." in res_get.get("content", ""), res_get
+
+    res = ApplyDocumentContent().execute(tctx, target="selection", content="REPLACED")
+    assert res.get("status") == "ok", res
+    body = doc.getText().getString().replace("\r\n", "\n").replace("\r", "\n")
+    assert "Alpha one. REPLACED" in body
+    assert "Beta two." not in body
+    assert controller.getViewCursor().isCollapsed()
+    assert doc.getText().compareRegionStarts(controller.getViewCursor().getStart(), doc.getText().getStart()) == 0
+
+    # Unpinned context (MCP): replacement lands at the live caret (document start).
+    _reset_three_paras(doc)
+    controller = _select_match(doc, "Beta two.")
+    unpinned_ctx = native_writer_tool_context(doc, ctx)
+    vc = controller.getViewCursor()
+    vc.gotoStart(False)
+
+    res = ApplyDocumentContent().execute(unpinned_ctx, target="selection", content="MCP_")
+    assert res.get("status") == "ok", res
+    body = doc.getText().getString().replace("\r\n", "\n").replace("\r", "\n")
+    assert body.startswith("MCP_Intro paragraph here.")
+    assert "Beta two." in body
+
+
+def _body_paras(doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    enum = doc.getText().createEnumeration()
+    out = []
+    while enum_has_more(enum):
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            out.append(el)
+    return out
+
+
+def _seed_three_simple_paras(doc):
+    text = doc.getText()
+    doc.setPropertyValue("RecordChanges", False)
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.gotoEnd(True)
+    cur.setString("")
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+
+@native_test
+@with_native_doc("writer")
+def test_position_before_after_apply_block_styles_uno(ctx, doc):
+    tctx = native_writer_tool_context(doc, ctx)
+    content = '<p data-lo-style="Heading2">H</p><p data-lo-para="text-align:center">P</p>'
+
+    for pos in ("before", "after"):
+        _seed_three_simple_paras(doc)
+        res = ApplyDocumentContent().execute(
+            tctx,
+            target="search",
+            old_content="Replace me",
+            position=pos,
+            content=content,
+        )
+        assert res.get("status") == "ok", res
+        assert "warnings" not in res, res
+
+        paras = {p.getString(): p for p in _body_paras(doc)}
+        assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
+        assert paras["P"].getPropertyValue("ParaAdjust") == 3
+        assert paras["P"].getPropertyState("ParaAdjust").value == "DIRECT_VALUE"
+        for untouched in ("Keep before", "Replace me", "Keep after"):
+            assert paras[untouched].getPropertyValue("ParaStyleName") == "Standard"
+            assert paras[untouched].getPropertyState("ParaAdjust").value == "DEFAULT_VALUE"
+
+
+@native_test
+@with_native_doc("writer")
+def test_position_after_styles_while_recording_stay_insert_only_uno(ctx, doc):
+    from plugin.framework.uno_context import enum_has_more
+
+    tctx = native_writer_tool_context(doc, ctx)
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    for pos in ("before", "after"):
+        _seed_three_simple_paras(doc)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res = ApplyDocumentContent().execute(
+                tctx,
+                target="search",
+                old_content="Replace me",
+                position=pos,
+                content='<p data-lo-style="Heading2">H</p>',
+            )
+            assert res.get("status") == "ok", res
+            paras = {p.getString(): p for p in _body_paras(doc)}
+            assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
+
+            rl_types = []
+            enum = doc.getRedlines().createEnumeration()
+            while enum_has_more(enum):
+                rl = enum.nextElement()
+                rl_types.append(str(rl.getPropertyValue("RedlineType")))
+            assert set(rl_types) == {"Insert"}, (pos, rl_types)
+
+            helper.executeDispatch(
+                doc.getCurrentController().getFrame(),
+                ".uno:RejectAllTrackedChanges",
+                "",
+                0,
+                (),
+            )
+            assert [p.getString() for p in _body_paras(doc)] == [
+                "Keep before",
+                "Replace me",
+                "Keep after",
+            ]
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
+

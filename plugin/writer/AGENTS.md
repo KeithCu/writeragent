@@ -9,6 +9,7 @@ document boundaries, LibrePy-safe helpers in `plugin/doc/text_helpers.py`).
 - Charts / shapes (shared **names** with Calc/Draw): `specialized/charts.py`, `specialized/shapes.py`
 - Light reads (tracked deletions, heading tree, selection text/range, text slices): `plugin/doc/text_helpers.py`
 - Streamed Writer rewrite/append: `plugin/writer/edit_review.py`; compound undo: `plugin/doc/compound_undo.py`
+- Selection target: `target_resolver.request_selection_range` (pinned at Send in the sidebar, live for MCP)
 
 Topic docs: [docs/writer/math-tex.md](../../docs/writer/math-tex.md),
 [docs/writer/grammar-checker-plan.md](../../docs/writer/grammar-checker-plan.md),

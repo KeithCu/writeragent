@@ -21,7 +21,7 @@ def _ctx():
     doc = MagicMock()
     doc.getDrawPage.return_value = None
     doc.getText.return_value = text
-    return SimpleNamespace(doc=doc, ctx=MagicMock(), services=MagicMock()), cursor
+    return SimpleNamespace(doc=doc, ctx=MagicMock(), services=MagicMock(), selection_pin=None), cursor
 
 
 def test_resolve_target_cursor_unknown_target_raises():
@@ -317,3 +317,37 @@ def test_insert_at_target_insert_error_dict_is_returned_after_rollback(monkeypat
     res = insert_at_target(tool, ctx, {"target": "end"}, lambda c: err_dict, what="the thing")
     assert res == err_dict
     undo_mgr.undo.assert_called_once()
+
+
+def test_selection_uses_pinned_range_not_live_view():
+    from plugin.framework.tool import SelectionPin
+
+    ctx, _ = _ctx()
+    controller = MagicMock()
+    ctx.doc.getCurrentController.return_value = controller
+    pinned_rng = MagicMock()
+    pinned_cursor = MagicMock()
+    pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_cursor
+    ctx.selection_pin = SelectionPin(pinned_rng)
+
+    res = resolve_target_cursor(ctx, "selection", None)
+    assert res is pinned_cursor
+    controller.getSelection.assert_not_called()
+
+
+def test_selection_without_pin_reads_live_view():
+    from plugin.framework.tool import SelectionPin
+
+    for pin in (None, SelectionPin(None)):
+        ctx, _ = _ctx()
+        ctx.selection_pin = pin
+        controller = MagicMock()
+        ctx.doc.getCurrentController.return_value = controller
+        vc_cursor = MagicMock()
+        controller.getSelection.return_value = None
+        controller.getViewCursor.return_value.getText.return_value.createTextCursorByRange.return_value = vc_cursor
+
+        res = resolve_target_cursor(ctx, "selection", None)
+        assert res is vc_cursor
+        controller.getSelection.assert_called_once()
+

@@ -1521,4 +1521,20 @@ def test_shared_save_selected_script_user_and_doc_and_builtin():
             assert "not in My Scripts or this document" in err
 
 
+def test_save_selected_script_builtin_skips_closed_document():
+    """Built-in template names must not read document properties (FU-SCRIPT-GUARDS 215)."""
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.scripting.document_scripts import read_only_helper_message
+
+    doc = object()
+    with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}), patch(
+        "plugin.scripting.document_scripts.get_document_property",
+        side_effect=DocumentDisposedError("gone"),
+    ):
+        assert save_selected_script(doc, "[Vision] extract_text", "x", allow_builtin_skip=True) is None
+        assert save_selected_script(doc, "[Vision] extract_text", "x", allow_builtin_skip=False) == read_only_helper_message()
+        with pytest.raises(DocumentDisposedError):
+            save_selected_script(doc, "[Doc] Report", "x")
+
+
 

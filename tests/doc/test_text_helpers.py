@@ -983,3 +983,58 @@ def test_keep_view_selection_restore_errors():
     with KeepViewSelection(_Controller(RuntimeError("select failed"))):
         pass
 
+
+def test_live_selection_range_and_snapshot():
+    from plugin.doc.text_helpers import (
+        get_writer_selection_positions,
+        live_selection_range,
+        selection_cursor_snapshot,
+    )
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    # Selection range wins over view cursor.
+    sel_rng = MagicMock()
+    controller = MagicMock()
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=sel_rng):
+        assert live_selection_range(controller) is sel_rng
+    controller.getViewCursor.assert_not_called()
+
+    # Falls back to view cursor when selected_text_range returns None.
+    vc = MagicMock()
+    controller.getViewCursor.return_value = vc
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=None):
+        assert live_selection_range(controller) is vc
+
+    # Both raising non-disposal errors yields None; disposal re-raises.
+    bad_ctrl = MagicMock()
+    bad_ctrl.getViewCursor.side_effect = RuntimeError("no view")
+    with patch("plugin.doc.text_helpers.selected_text_range", side_effect=RuntimeError("no sel")):
+        assert live_selection_range(bad_ctrl) is None
+    with patch("plugin.doc.text_helpers.selected_text_range", side_effect=DisposedException("gone")):
+        with pytest.raises(DocumentDisposedError):
+            live_selection_range(bad_ctrl)
+
+    # selection_cursor_snapshot clones the range, and returns None when getText() raises (frame case).
+    doc = MagicMock()
+    doc.getCurrentController.return_value = controller
+    cloned = MagicMock()
+    sel_rng.getText.return_value.createTextCursorByRange.return_value = cloned
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=sel_rng):
+        assert selection_cursor_snapshot(doc) is cloned
+
+    frame_rng = MagicMock()
+    frame_rng.getText.side_effect = RuntimeError("no text selection")
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=frame_rng):
+        assert selection_cursor_snapshot(doc) is None
+
+    # Explicit selection= skips model.getCurrentController().
+    model = MagicMock()
+    explicit_rng = MagicMock()
+    pos = get_writer_selection_positions(model, selection=explicit_rng)
+    assert pos == (explicit_rng.getText.return_value, explicit_rng.getStart.return_value, explicit_rng.getEnd.return_value)
+    model.getCurrentController.assert_not_called()
+
+

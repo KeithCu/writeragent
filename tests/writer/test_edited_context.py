@@ -184,6 +184,7 @@ def test_apply_document_content_edited_context_wired(mode, kwargs):
     text = FakeText(["P0", "old", "P2"])
     found = FakeCursor(text, 1)
     ctx = MagicMock()
+    ctx.selection_pin = None
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.doc.getText.return_value = text
     controller = ctx.doc.getCurrentController.return_value

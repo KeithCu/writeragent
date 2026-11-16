@@ -5,7 +5,11 @@
 """set_selection — select a passage so the user sees it highlighted and target='selection' can
 act on it. Headless MCP clients have no way to set a selection otherwise, which made
 target='selection' a trap (see the target_resolver fix). Selection is view state and transient,
-so for headless flows set_selection and the follow-up edit should be consecutive."""
+so for headless flows set_selection and the follow-up edit should be consecutive.
+
+In a sidebar turn, target='selection' reads the Send-time SelectionPin rather than the live
+view, so set_selection updates that pin when present; MCP contexts carry no pin.
+"""
 from typing import Any
 import logging
 
@@ -19,6 +23,7 @@ from plugin.writer.search import (
     occurrence_range_or_error,
     resolve_case_sensitive,
 )
+from plugin.writer.target_resolver import update_selection_pin
 
 log = logging.getLogger("writeragent.writer")
 
@@ -94,7 +99,9 @@ class SetSelection(ToolBase):
             if not search_str.strip():
                 return self._tool_error("search_text is empty after normalization.", code="INVALID_PARAM")
 
-            res = self._select_by_search(doc, controller, search_str, kwargs.get("occurrence", 0), case_sensitive)
+            res = self._select_by_search(
+                ctx, controller, search_str, kwargs.get("occurrence", 0), case_sensitive
+            )
             res["matched_case_sensitive"] = case_sensitive
             return res
 
@@ -109,6 +116,7 @@ class SetSelection(ToolBase):
             return self._tool_error("Could not reach character range in document.", code="TOOL_EXECUTION_ERROR")
 
         controller.select(target_range)
+        update_selection_pin(ctx, target_range)
 
         result: dict[str, Any] = {"status": "ok", **fields}
         result["char_start"] = char_start
@@ -121,8 +129,14 @@ class SetSelection(ToolBase):
         return result
 
     def _select_by_search(
-        self, doc: Any, controller: Any, search_str: str, raw_occurrence: Any, case_sensitive: bool
+        self,
+        ctx: Any,
+        controller: Any,
+        search_str: str,
+        raw_occurrence: Any,
+        case_sensitive: bool,
     ) -> dict[str, Any]:
+        doc = ctx.doc
         found, err = occurrence_range_or_error(
             doc, search_str, raw_occurrence, case_sensitive=case_sensitive, subject="search_text"
         )
@@ -130,6 +144,7 @@ class SetSelection(ToolBase):
             return err or self._tool_error("search_text not found")
 
         controller.select(found)
+        update_selection_pin(ctx, found)
         fields = _read_selection_fields(found)
         return {
             "status": "ok",

@@ -48,9 +48,9 @@ config:
     label: Prompt for Agent Permissions
     helper: "Ask for confirmation before allowing the agent to use tools (read files, execute commands, etc.)"
 
-  agy_model:
+  model:
     type: string
     default: ""
     widget: text
-    label: Antigravity model
-    helper: "agy modelId from session/new models.availableModels, for example gemini-4-argon-medium. Empty keeps agy's current model. configOptions family ids such as gemini-4-argon are not modelIds."
+    label: Model
+    helper: "Model id or name the selected agent offers, for example gemini-4-argon-medium, grok-4.6 or devstral-small. Empty keeps the agent's current model. Not used by Built-in."

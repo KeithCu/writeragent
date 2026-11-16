@@ -13,7 +13,7 @@ This module centralizes how we:
 
 Model ID styles:
 - ``slug``: OpenRouter and Together AI (``org/model`` ids)
-- ``bare``: all other registered providers (``gpt-4o``, ``glm-5.2``, ``deepseek-chat``, …)
+- ``bare``: all other registered providers (``gpt-4o``, ``glm-5.2``, ``deepseek-flash``, …)
 """
 
 from __future__ import annotations
@@ -63,7 +63,6 @@ PROVIDERS: dict[str, ProviderConfig] = {
     "deepseek": ProviderConfig(id="deepseek"),
     "groq": ProviderConfig(id="groq"),
     "cerebras": ProviderConfig(id="cerebras"),
-    "perplexity": ProviderConfig(id="perplexity"),
     "xai": ProviderConfig(id="xai"),
     "anthropic": ProviderConfig(id="anthropic", header_style="x-api-key", extra_headers={"anthropic-version": "2023-06-01"}),
     # Google's official OpenAI-compatible endpoint (/v1beta/openai) requires

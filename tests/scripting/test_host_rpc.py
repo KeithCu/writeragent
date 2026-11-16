@@ -792,13 +792,15 @@ def test_section_and_structural_proxies_and_allowlists(monkeypatch):
     import plugin.scripting.writeragent_api as api
 
     assert "section_list" in api.DOMAIN_TOOLS["sections"]
+    assert "section_get_info" in api.DOMAIN_TOOLS["sections"]
     assert "section_read" in api.DOMAIN_TOOLS["sections"]
     assert api.TOOL_METHODS["section_list"] == ("section", "__iter__")
+    assert api.TOOL_METHODS["section_get_info"] == ("section", "__getitem__")
     assert api.TOOL_METHODS["section_read"] == ("section", "read")
 
     sections_allowed = resolve_allowed_tools("sections")
     assert sections_allowed is not None
-    assert {"section_list", "section_read", "section_create"} <= sections_allowed
+    assert {"section_list", "section_get_info", "section_read", "section_create"} <= sections_allowed
 
     structural_allowed = resolve_allowed_tools("structural")
     assert structural_allowed is not None
@@ -810,15 +812,19 @@ def test_section_and_structural_proxies_and_allowlists(monkeypatch):
         calls.append((tool, kwargs))
         if tool == "section_list":
             return {"status": "ok", "sections": [{"name": "Intro"}], "count": 1}
+        if tool == "section_get_info":
+            return {"status": "ok", "name": "Intro", "column_count": 2}
         return {"status": "ok"}
 
     monkeypatch.setattr(api, "call_host_tool", _fake_call)
 
     assert [s.name for s in api.section] == ["Intro"]
+    assert api.section["Intro"].column_count == 2
     api.section.read("Intro")
 
     assert calls == [
         ("section_list", {}),
+        ("section_get_info", {"name": "Intro"}),
         ("section_read", {"name": "Intro"}),
     ]
 

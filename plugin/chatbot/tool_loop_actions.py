@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.tool import SelectionPin
 
 from plugin.chatbot.compaction import tool_rows_after
 from plugin.chatbot.memory import format_upsert_memory_chat_line
@@ -267,6 +268,7 @@ class TurnController:
     slash_sidebar_only: bool
     outcome: SendOutcome | None
     external_mcp_result_seen: bool
+    selection_pin: SelectionPin | None
 
     def __init__(
         self,
@@ -287,6 +289,7 @@ class TurnController:
         self._stop_committed = False
         self._stop_partial_text = None
         self.closed_by_document = False
+        self.selection_pin = None
         self._overflow_compact_attempts = 0
         self._last_compact_reason = None
         self._last_compact_tokens_before = None
@@ -810,7 +813,7 @@ def build_tool_execute_fn(
         status_callback: Callable[[str], None] | None = None,
         append_thinking_callback: Callable[[str], None] | None = None,
         *,
-        captured_turn: Any = None,
+        captured_turn: TurnController | None = None,
         # Caller passes the spawn-time scope; never read host._send_cancellation here (drain clears it).
         send_cancellation: SendCancellation | None = None,
     ) -> str:
@@ -897,6 +900,7 @@ def build_tool_execute_fn(
             python_tool_domain=python_tool_domain,
             send_cancellation=send_cancellation,
             uno_services_supported=getattr(host, "cached_uno_services", None),
+            selection_pin=captured_turn.selection_pin if captured_turn is not None else None,
         )
         # ToolRegistry.execute binds keyword-only bypass_thread_guard (and
         # ctx/tool_name) from **safe_args, so a model argument can skip
@@ -1009,7 +1013,10 @@ class ToolLoopEffectInterpreter:
             if not doc:
                 log.debug("Tool loop: document disposed during context refresh")
                 return _fail("\n[Document closed or unavailable.]\n")
-            turn.session.refresh_document_context(doc, host.ctx)
+            pin = turn.selection_pin
+            turn.session.refresh_document_context(
+                doc, host.ctx, selection=pin.range if pin is not None else None
+            )
             return False
         except Exception as exc:
             if is_disposal(exc):

@@ -645,11 +645,18 @@ def test_search_occurrence_position_after_uses_selected_match(monkeypatch):
     monkeypatch.setattr("plugin.writer.apply_document_content.collapsed_anchor", lambda found: None)
     monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda content: False)
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *args, **kwargs: True)
+    from plugin.writer.html_import_styles import WriteReport
+
     inserted = []
+
+    def _fake_insert(*args, **kwargs):
+        inserted.append(True)
+        return WriteReport()
+
     monkeypatch.setattr(
         format_mod,
         "insert_html_at_cursor",
-        lambda *args, **kwargs: inserted.append(True),
+        _fake_insert,
     )
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.record_html_atomically",

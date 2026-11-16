@@ -46,8 +46,8 @@ class FakeSession:
     def set_system_context(self, base_prompt, doc_text=""):
         self.system_context = (base_prompt, doc_text)
 
-    def refresh_document_context(self, model, ctx):
-        self.refresh_calls.append((model, ctx))
+    def refresh_document_context(self, model, ctx, selection=None):
+        self.refresh_calls.append((model, ctx, selection))
         self.set_system_context("base prompt", "fresh doc")
 
 
@@ -272,7 +272,7 @@ def test_update_document_context_effect_stops_when_document_is_gone():
 def test_update_document_context_effect_reports_error_on_unexpected_refresh_failure():
     host = FakeHost()
 
-    def failing_refresh(model, ctx):
+    def failing_refresh(model, ctx, selection=None):
         raise ValueError("Corrupt section tree")
 
     host.session.refresh_document_context = failing_refresh
@@ -2087,3 +2087,49 @@ class TestFinalizeSidebarAssistantResponse:
         current_turn(send).stripper = None
         finalize_sidebar_assistant_response(send)
         send.rerender_rich_text_session.assert_called_once()
+
+
+def test_execute_fn_copies_turn_selection_pin_onto_tool_context():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.framework.tool import SelectionPin
+
+    host = FakeHost()
+    turn = begin_send_turn(host)
+    pin = SelectionPin(MagicMock())
+    turn.selection_pin = pin
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    try:
+        registry.execute.return_value = {"status": "ok"}
+        execute_fn("get_content", {}, MagicMock(), MagicMock(), captured_turn=turn)
+    finally:
+        _restore_main(old_main)
+
+    tctx = registry.execute.call_args[0][1]
+    assert tctx.selection_pin is pin
+
+
+def test_refresh_document_context_passes_pin_range():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.framework.tool import SelectionPin
+
+    host = FakeHost()
+    turn = begin_send_turn(host)
+    pin_range = MagicMock()
+    turn.selection_pin = SelectionPin(pin_range)
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    assert interpreter.execute(UpdateDocumentContextEffect()) is False
+    assert host.session.refresh_calls[-1][2] is pin_range
+
+
+def test_refresh_document_context_passes_none_without_pin():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    host = FakeHost()
+    begin_send_turn(host)
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    assert interpreter.execute(UpdateDocumentContextEffect()) is False
+    assert host.session.refresh_calls[-1][2] is None
+
