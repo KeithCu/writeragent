@@ -650,13 +650,9 @@ def alias_import_names() -> frozenset[str]:
     Python then sets the submodule as an attribute of the parent module, so a
     ``wa.vision`` namespace would turn into that submodule for the rest of the run.
     """
-    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
+    from plugin.scripting.sandbox import PUBLIC_PLUGIN_IMPORTS
 
-    return frozenset(
-        entry.split(".")[1]
-        for entry in VENV_AUTHORIZED_IMPORTS
-        if entry.startswith(("plugin.", "writeragent.")) and "." in entry
-    )
+    return frozenset(entry.split(".")[1] for entry in PUBLIC_PLUGIN_IMPORTS)
 
 
 def check_api_domains(domains: frozenset[str]) -> None:
