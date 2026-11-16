@@ -98,7 +98,7 @@ Each column configuration is represented by a `TextColumn` struct:
 - **`LeftMargin`** (`int`): Spacing to the left of the column (1/100th mm; reported in mm).
 - **`RightMargin`** (`int`): Spacing to the right of the column (1/100th mm; reported in mm).
 
-Setting `spacing_mm=0` in `page_set_columns` explicitly writes the inner margins to `0`, clearing any previous gap.
+Setting `spacing_mm=0` in `page_set_columns` explicitly writes the inner margins to `0`, clearing any previous gap. `page_set_columns` accepts `column_count` 1–99 (matching the Columns dialog's 99-slot arrays) and `spacing_mm` as a finite number ≥ 0, and rejects anything else with `INVALID_PARAM` before touching the style.
 
 ### Python Example: Setting 2 Columns on a Page Style
 ```python

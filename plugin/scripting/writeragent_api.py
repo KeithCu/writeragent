@@ -1949,7 +1949,7 @@ class _PageProxy:
         """Set the number of columns and spacing for a page style.
 
         Args:
-            column_count (required): Number of columns (e.g., 2).
+            column_count (required): Number of columns (1-99).
             style (optional): The name of the page style. Defaults to 'Standard'.
             spacing_mm (optional): Spacing between columns in mm. Defaults to 0.
         """
