@@ -24,13 +24,21 @@ All items share the service name `"WriterAgent"`.
 
 ## Migration and fallback
 
-- **Migration trigger:** Pressing **OK** in Settings (`apply_settings_result` in [`plugin/chatbot/settings_dialog.py`](../../plugin/chatbot/settings_dialog.py)) calls `migrate_secrets_to_keystore()`, which moves all remaining non-empty plain-text API keys and `widget: password` config values into the OS store.
+- **Migration trigger:** Pressing **OK** in Settings (`apply_settings_result` in [`plugin/chatbot/settings_dialog.py`](../../plugin/chatbot/settings_dialog.py)) calls `migrate_secrets_to_keystore()`, which moves all remaining non-empty plain-text API keys and `widget: password` config values into the OS store. Orphan keyring items from legacy unnormalized endpoint slots are deleted only after the config write succeeds.
 - **Fallback:** If no OS store is available (for example headless Linux without a Secret Service daemon) or if a write fails, `set_secret()` sets a session-wide `_writes_failed` flag and `config.save()` keeps the secret in plain text in `writeragent.json`. Settings displays the active location (`Secret Service`, `Keychain`, `Credential Manager`, or `plain text`) on the API Key label and the Provider config tooltip.
-- **Unreadable refs:** If a `keystore:` ref cannot be read from the OS store, the getter returns `""` and the Settings field appears empty, while the `keystore:` ref in `writeragent.json` is preserved unless the user types a new key; clearing the field while the store is unreadable keeps the ref, so a locked keyring never wipes the key.
+- **Unreadable refs:** If a `keystore:` ref cannot be read from the OS store, the getter returns `""` and the Settings field appears empty, while the `keystore:` ref in `writeragent.json` is preserved unless the user types a new key. A field that opened blank because the store was locked carries `keyring_locked=True` and is skipped on OK even if the store is unlocked in the meantime; for the API Key field, OK also checks `api_key_locked_for_endpoint` for the endpoint being saved so switching to a locked endpoint in the dialog never wipes its key either (unlock first, reopen or re-sync, then clear to delete).
+
+## Locked keyring and threads
+
+- **No caching of locked reads:** A locked or cancelled read is not cached in `_cache`, so unlocking later in the session succeeds on the next read. Reads within `LOCKED_RETRY_S` (5 s) return `None` without prompting again because Settings reads the same key several times while opening (`settings_dialog._get_core_field_specs`, `dialog_views._schedule_initial_models_fetch`, and TTS voice context) and background callers such as the grammar checker read on every request.
+- **Off-UI-thread Send and voice STT:** Chat Send (`tool_loop._do_send_chat_with_tools`) and voice STT (`panel_voice._prepare_stt`) call `get_api_config(with_api_key=False)` on the UI thread and read the key once on their worker thread (`_run_stream_worker` / `_call`), so an unlock prompt never freezes LibreOffice's UI thread.
+- **Vision lookup guard:** On the UI thread (`main.is_current()`), `has_native_vision` skips the provider memo (whose key hashes the secret) and background lookup while `api_key_needs_keystore_read` is true, answering from the static catalog until the Send worker reads the key once.
+- **Settings:** Settings is the intentional UI-thread reader for displaying its own fields.
+- **Older libsecret:** `secret_password_searchv_sync` exists since libsecret 0.19.0; on older distributions `_LibSecret` still stores and reads secrets, but cannot distinguish a locked item from a missing one.
 
 ## Disabling for tests
 
-Set `WRITERAGENT_KEYSTORE=0` in the environment to disable the OS store and keep secrets in plain text. `tests/conftest.py` and `plugin/testing_runner.py` (when not using `--user-profile`) set this automatically so tests never touch the developer's login keyring.
+Set `WRITERAGENT_KEYSTORE=0` in the environment to disable the OS store and keep secrets in plain text. `tests/conftest.py` and `plugin/testing_runner.py` (when not using `--user-profile`) set this automatically so tests never touch the developer's login keyring. The `--user-profile` mock sidebar suites keep the keystore on, but they store no API key for the mock endpoint.
 
 ## Inspecting or deleting stored items
 

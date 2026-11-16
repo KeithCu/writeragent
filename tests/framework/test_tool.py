@@ -540,10 +540,10 @@ class TestExecute:
         assert result["status"] == "error"
         assert result["code"] == "VALIDATION_ERROR"
 
-    def test_string_range_wraps_when_schema_type_lists_array(self):
+    def test_string_range_kept_when_schema_type_lists_string_and_array(self):
         class ListedRangeTool(ToolBase):
             name = "listed_range_tool"
-            description = "range type is a list that includes array"
+            description = "range type is a list that includes string and array"
             parameters = {
                 "type": "object",
                 "properties": {"range": {"type": ["string", "array"], "items": {"type": "string"}}},
@@ -552,13 +552,12 @@ class TestExecute:
             uno_services = None
 
             def execute(self, ctx, **kwargs):
-                return {"status": "ok", "range": kwargs["range"], "first": kwargs["range"][0]}
+                return {"status": "ok", "range": kwargs["range"]}
 
         reg = _make_registry(ListedRangeTool())
         ctx = _make_ctx()
         result = reg.execute("listed_range_tool", ctx, range="A1:D20")
-        assert result["range"] == ["A1:D20"]
-        assert result["first"] == "A1:D20"
+        assert result["range"] == "A1:D20"
 
     def test_validation_failure_returns_error(self):
         reg = _make_registry(FakeTool())
@@ -1942,3 +1941,62 @@ def test_get_tools_signature_and_ctx() -> None:
     reg.tool_filters = [_track]
     reg.get_tools(ctx=sentinel_ctx)
     assert seen == [sentinel_ctx]
+
+
+def test_prepare_tool_call_coerces_before_validate() -> None:
+    from types import SimpleNamespace
+    from plugin.framework.tool import ToolBase, prepare_tool_call
+
+    class _CoerceTool(ToolBase):
+        name = "coerce_probe"
+        description = "Probe tool."
+        parameters = {
+            "type": "object",
+            "properties": {
+                "page": {"type": "integer"},
+                "flag": {"type": "boolean"},
+                "op": {"type": "string", "enum": ["GREATER", "LESS"]},
+            },
+            "required": ["page", "flag", "op"],
+        }
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    prepared = prepare_tool_call(
+        _CoerceTool(),
+        SimpleNamespace(doc_type="writer", caller=None),
+        "coerce_probe",
+        {"page": "2", "flag": "true", "op": "greater"},
+    )
+    assert prepared.error is None
+    assert prepared.kwargs == {"page": 2, "flag": True, "op": "GREATER"}
+    assert type(prepared.kwargs["page"]) is int
+    assert prepared.kwargs["flag"] is True
+
+
+def test_prepare_tool_call_ambiguous_enum_lists_options() -> None:
+    from types import SimpleNamespace
+    from plugin.framework.tool import ToolBase, prepare_tool_call
+
+    class _EnumTool(ToolBase):
+        name = "enum_probe"
+        description = "Probe tool."
+        parameters = {
+            "type": "object",
+            "properties": {"op": {"type": "string", "enum": ["alpha1", "alpha2"]}},
+            "required": ["op"],
+        }
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    prepared = prepare_tool_call(
+        _EnumTool(),
+        SimpleNamespace(doc_type="writer", caller=None),
+        "enum_probe",
+        {"op": "alpha3"},
+    )
+    assert prepared.error is not None
+    assert prepared.error["code"] == "VALIDATION_ERROR"
+    assert "Valid options" in prepared.error["message"]

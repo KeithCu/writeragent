@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.base import ToolCalcCommentBase
+from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcCommentBase
 from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.errors import make_tool_ok
@@ -102,7 +102,7 @@ class AddCellComment(ToolCalcCommentBase):
     description: str = "Add a comment (annotation) to a specific cell in a Calc sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell."}, "text": {"type": "string", "description": "Comment text."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
+        "properties": {"cell": {"type": "string", "description": f"One cell (B3) or a named range that refers to one cell. {CALC_SHEET_PREFIX_NOTE}"}, "text": {"type": "string", "description": "Comment text."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}},
         "required": ["cell", "text"],
     }
     is_mutation: bool | None = True
@@ -134,7 +134,7 @@ class DeleteCellComment(ToolCalcCommentBase):
 
     name: str | None = "cell_comment_delete"
     description: str = "Delete the comment (annotation) from a specific cell."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": "Cell address (e.g. 'B3' or 'Sheet1.B3') or a named range that refers to one cell."}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": f"One cell (B3) or a named range that refers to one cell. {CALC_SHEET_PREFIX_NOTE}"}, "sheet": {"type": "string", "description": "Sheet name (active sheet if omitted)."}}, "required": ["cell"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

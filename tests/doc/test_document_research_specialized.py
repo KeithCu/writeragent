@@ -102,7 +102,7 @@ def smol_agent_mocks():
     with (
         patch("plugin.chatbot.smol_agent.get_config", side_effect=_mock_get_config_for_sub_agent),
         patch("plugin.chatbot.smol_agent.get_api_config", return_value={}),
-        patch("plugin.chatbot.smol_agent.ToolCallingAgent", return_value=mock_agent_instance) as mock_agent_class,
+        patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent", return_value=mock_agent_instance) as mock_agent_class,
         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
         patch("plugin.chatbot.smol_agent.LlmClient"),
     ):

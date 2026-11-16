@@ -844,3 +844,130 @@ def test_document_context_uses_given_selection():
     assert mock_range.call_args.kwargs["selection"] is sentinel
 
 
+def _fake_writer_shape(
+    shape_type: str,
+    *,
+    name: str,
+    services: set[str] | None = None,
+    clsid: str | None = None,
+    anchor_type: str = "AS_CHARACTER",
+    anchor_page: int = 0,
+    anchor_paragraph: str = "",
+):
+    shape = MagicMock()
+    shape.getShapeType.return_value = shape_type
+    shape.Name = name
+    shape.supportsService.side_effect = lambda svc: svc in (services or set())
+    if clsid is not None:
+        shape.CLSID = clsid
+    else:
+        del shape.CLSID
+    shape.getPosition.side_effect = AttributeError("no pos")
+    shape.getSize.side_effect = AttributeError("no size")
+    del shape.getString
+
+    anchor_enum = MagicMock()
+    anchor_enum.value = anchor_type
+
+    def get_prop(prop: str):
+        if prop == "AnchorType":
+            return anchor_enum
+        if prop == "AnchorPageNo":
+            return anchor_page
+        raise KeyError(prop)
+
+    shape.getPropertyValue.side_effect = get_prop
+    if anchor_paragraph:
+        cur = MagicMock()
+        cur.getString.return_value = anchor_paragraph
+        anchor = MagicMock()
+        anchor.getText.return_value.createTextCursorByRange.return_value = cur
+        shape.getAnchor.return_value = anchor
+    else:
+        shape.getAnchor.side_effect = AttributeError("no anchor")
+    return shape
+
+
+def _fake_draw_page(shapes):
+    page = MagicMock()
+    page.getCount.return_value = len(shapes)
+    page.getByIndex.side_effect = lambda i: shapes[i]
+    return page
+
+
+def _writer_ctx_with_page(page=None, *, draw_page_error=None):
+    from plugin.framework.doc_type import DocumentType
+
+    model = MagicMock()
+    if draw_page_error is not None:
+        model.getDrawPage.side_effect = draw_page_error
+    else:
+        model.getDrawPage.return_value = page
+
+    with (
+        patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
+        patch("plugin.doc.text_helpers.writer_char_count", return_value=20),
+        patch("plugin.doc.text_helpers.get_document_length", return_value=20),
+        patch("plugin.doc.text_helpers.read_writer_text_slice", return_value="Intro paragraph here."),
+        patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=False),
+    ):
+        return get_document_context_for_chat(model, max_context=8000, include_end=True, include_selection=False)
+
+
+def test_writer_context_lists_embedded_object_names():
+    chart = _fake_writer_shape(
+        "FrameShape",
+        name="Chart_0",
+        services={"com.sun.star.text.TextEmbeddedObject"},
+        clsid="12DCAE26-281F-416F-a234-c3086127382e",
+        anchor_paragraph="Intro paragraph here.",
+    )
+    image = _fake_writer_shape(
+        "FrameShape",
+        name="Image1",
+        services={"com.sun.star.text.TextGraphicObject"},
+    )
+    out = _writer_ctx_with_page(_fake_draw_page([chart, image]))
+    lines = out.splitlines()
+    assert any("Chart_0" in line and "Chart" in line for line in lines)
+    assert any("Image1" in line and "Image" in line for line in lines)
+
+
+def test_writer_context_without_objects_matches_text_only():
+    empty_out = _writer_ctx_with_page(_fake_draw_page([]))
+    with patch("plugin.doc.document_helpers._writer_objects_section", return_value=""):
+        text_only_out = _writer_ctx_with_page(_fake_draw_page([]))
+    assert empty_out == text_only_out
+
+
+def test_writer_context_caps_object_list():
+    shapes = [
+        _fake_writer_shape(
+            "FrameShape",
+            name=f"Image{i}",
+            services={"com.sun.star.text.TextGraphicObject"},
+        )
+        for i in range(25)
+    ]
+    out = _writer_ctx_with_page(_fake_draw_page(shapes))
+    obj_lines = [line for line in out.splitlines() if line.startswith("- [")]
+    assert len(obj_lines) == 20
+    assert "[19]" in out
+    assert "[20]" not in out
+
+
+def test_writer_context_object_list_failure_keeps_text():
+    out = _writer_ctx_with_page(draw_page_error=RuntimeError("draw page broken"))
+    assert "Intro paragraph here." in out
+
+
+def test_writer_anchor_note_reports_at_page_number():
+    from plugin.doc.document_helpers import _writer_anchor_note
+
+    shape = _fake_writer_shape(
+        "com.sun.star.drawing.RectangleShape",
+        name="Shape1",
+        anchor_type="AT_PAGE",
+        anchor_page=3,
+    )
+    assert "page 3" in _writer_anchor_note(shape)

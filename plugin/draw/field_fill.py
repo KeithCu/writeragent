@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from plugin.draw.base import ToolDrawShapeBase
+from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
 from plugin.draw.tree import build_shape_tree, coerce_control_state, find_shape_on_page, is_control_shape_type
 from plugin.framework.errors import is_disposal, uno_read
 
@@ -195,7 +195,7 @@ class FillDrawFields(ToolDrawShapeBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)."},
+            "page": DRAW_PAGE_PROPERTY,
             "fields": {
                 "type": "array",
                 "description": (

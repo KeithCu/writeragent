@@ -175,7 +175,7 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 
 ### 8. Minor code-quality (low)
 
-- **`has_native_vision` metadata:** Uncatalogued ids (for example `google/gemini-3.8-flash`) are vision-capable when OpenRouter/Together `architecture.input_modalities` includes `image`. The sidebar still skips that GET so the combobox stays LRU + defaults; the capability check fetches once per process and stores the result in the in-process `CatalogMemo` (never `vision_support_map`). Do not add a `DEFAULT_MODELS` row per model id.
+- **`has_native_vision` metadata:** Uncatalogued ids (for example `google/gemini-3.8-flash`) are vision-capable when OpenRouter/Together `architecture.input_modalities` includes `image`. The sidebar text combo populates from `/v1/models` off-thread via `memo_text_models_or_fetch`; the vision capability check is unchanged—it fetches once per process and stores the result in the in-process `CatalogMemo` (never `vision_support_map`). Do not add a `DEFAULT_MODELS` row per model id.
 
 ---
 

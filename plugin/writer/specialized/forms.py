@@ -23,6 +23,7 @@ to labels) use shape_get_tree + shape_fill_fields / shape_upsert instead.
 """
 
 from datetime import datetime
+import json
 import logging
 import re
 from typing import Any
@@ -139,7 +140,17 @@ def _coerce_items(raw: Any) -> list[str] | None:
     if isinstance(raw, (list, tuple)):
         items = [str(x) for x in raw if str(x).strip()]
     elif isinstance(raw, str):
-        items = [part.strip() for part in raw.split(",") if part.strip()]
+        stripped = raw.strip()
+        parsed: Any = None
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+        if isinstance(parsed, list):
+            items = [str(x) for x in parsed if str(x).strip()]
+        else:
+            items = [part.strip() for part in raw.split(",") if part.strip()]
     else:
         return None
     return items if items else None
@@ -329,11 +340,13 @@ _CONTROL_PROPERTIES: dict[str, Any] = {
     "label": {"type": "string", "description": "Label text for the control (e.g. 'I agree')."},
     "name": {"type": "string", "description": "Internal name/key for the control."},
     "group_name": {"type": "string", "description": "Group name for radio buttons (mutually exclusive in the same group)."},
-    "items": {"type": "array", "items": {"type": "string"}, "description": "List of options for a combobox or list box."},
+    # A string is split on commas by _coerce_items (JSON array strings are parsed first);
+    # the union keeps coerce_call_args from wrapping "a,b" into a single option.
+    "items": {"type": ["array", "string"], "items": {"type": "string"}, "description": "List of options for a combobox or list box."},
     "placeholder": {"type": "string", "description": "Placeholder/hint text for text fields."},
     "default_value": {"type": "string", "description": "Initial value for text or date fields."},
-    "width": {"type": "integer", "description": "Width in 100ths of mm (default varies by type)."},
-    "height": {"type": "integer", "description": "Height in 100ths of mm (default varies by type)."},
+    "width": {"type": "integer", "description": "Width, 1/100 mm (default varies by type)."},
+    "height": {"type": "integer", "description": "Height, 1/100 mm (default varies by type)."},
     "page": _PAGE_PROPERTY,
 }
 
@@ -795,7 +808,9 @@ class FormEditControl(ToolWriterFormBase):
             "label": {"type": "string", "description": "New label text."},
             "text": {"type": "string", "description": "New text value (for text fields)."},
             "state": {"type": "integer", "description": "Checkbox/radio State: 0 unchecked, 1 checked, 2 indeterminate (yes/no/checked strings also accepted)."},
-            "items": {"type": "array", "items": {"type": "string"}, "description": "New item list (for comboboxes or list boxes)."},
+            # A string is split on commas by _coerce_items (JSON array strings are parsed first);
+            # the union keeps coerce_call_args from wrapping "a,b" into a single option.
+            "items": {"type": ["array", "string"], "items": {"type": "string"}, "description": "New item list (for comboboxes or list boxes)."},
             "x": {"type": "integer"},
             "y": {"type": "integer"},
             "width": {"type": "integer"},

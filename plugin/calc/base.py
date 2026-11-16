@@ -36,6 +36,15 @@ from typing import ClassVar
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.framework.tool import ToolBase
 
+# Params using these notes resolve through CalcBridge.resolve_range_or_address /
+# resolve_cell / resolve, which accept Calc '.', Excel '!', quoted names, and '$',
+# and never activate the target sheet. insert_html is excluded because
+# ScTabViewObj::select switches tabs when the target is on another sheet.
+CALC_SHEET_PREFIX_NOTE: str = (
+    "A sheet prefix (Sheet2.A1, Sheet2!A1, 'Data Sheet'.B2) targets that sheet without switching the active sheet."
+)
+CALC_RANGE_LIST_NOTE: str = f"One entry per area: A1, A1:D10 or a named range. {CALC_SHEET_PREFIX_NOTE}"
+
 
 class ToolCalcSpecialBase(ToolBase):
     """Base class for all specialized Calc tools.
@@ -59,7 +68,10 @@ class ToolCalcSpecialBase(ToolBase):
 
 class ToolCalcImageBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
-    specialized_domain_description: ClassVar[str | None] = "Image manipulation and insertion in spreadsheets; image_list_nearby_files for folder discovery, image_list for in-sheet graphics; edit a selected image with image_generate(source_image='selection')."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Image manipulation and insertion in spreadsheets; image_list_nearby_files for folder discovery, "
+        "image_list for in-sheet graphics; generate or edit images."
+    )
 
 
 class ToolCalcVisionBase(ToolCalcSpecialBase):

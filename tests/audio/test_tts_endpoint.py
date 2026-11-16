@@ -630,8 +630,8 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
     utt = tts._begin_utterance()
     scope = utt.scope
 
-    def play(path, cancel=None):
-        del path, cancel
+    def play(path, cancel=None, rate=1.0):
+        del path, cancel, rate
         tts.stop_speech()
         return False
 
@@ -682,8 +682,8 @@ def test_speak_endpoint_prefetch_pipeline_overlap():
             chunk2_download_started.set()
         return _EndpointClip(b"RIFFfake", ".wav")
 
-    def fake_play(path, cancel=None):
-        del path, cancel
+    def fake_play(path, cancel=None, rate=1.0):
+        del path, cancel, rate
         # Wait until second download is in flight before returning
         assert chunk2_download_started.wait(timeout=5.0)
         return True
@@ -758,3 +758,40 @@ def test_stopped_post_logs_debug_not_warning(caplog):
     assert code2 == 503
     warnings2 = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
     assert any("TTS POST" in msg and "503" in msg for msg in warnings2)
+
+
+@pytest.mark.parametrize(
+    "endpoint,model,speed,expected_payload_speed,expected_clip_rate",
+    [
+        ("https://openrouter.ai/api", "hexgrad/Kokoro-82M", 1.25, 1.25, 1.0),
+        ("https://openrouter.ai/api", "google/gemini-3.1-flash-tts-preview", 1.25, None, 1.25),
+        ("https://api.together.xyz", "hexgrad/Kokoro-82M", 1.25, None, 1.25),
+        ("https://api.together.xyz", "cartesia/sonic-3", 3.0, None, 2.0),
+        ("https://api.together.xyz", "cartesia/sonic-3", 0.25, None, 0.5),
+        ("http://localhost:8880/v1", "kokoro", 1.5, 1.5, 1.0),
+        ("https://api.openai.com/v1", "tts-1", 1.5, 1.5, 1.0),
+    ],
+)
+def test_download_endpoint_speech_speed_native_or_local(
+    endpoint: str,
+    model: str,
+    speed: float,
+    expected_payload_speed: float | None,
+    expected_clip_rate: float,
+):
+    with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake", "audio/mpeg")) as mock_sync:
+        clip = download_endpoint_speech(
+            "Hello",
+            endpoint,
+            "k",
+            model=model,
+            voice="",
+            speed=speed,
+        )
+    assert clip is not None
+    payload = json.loads(mock_sync.call_args.kwargs["data"].decode("utf-8"))
+    if expected_payload_speed is None:
+        assert "speed" not in payload
+    else:
+        assert payload["speed"] == expected_payload_speed
+    assert clip.rate == expected_clip_rate

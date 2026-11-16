@@ -373,8 +373,8 @@ def test_prefetch_keeps_synthesizing_during_playback(tmp_path):
         paths.append(str(path))
         return tts._ReadyClip(str(path), sentence, 4)
 
-    def play(path, cancel=None):
-        del path
+    def play(path, cancel=None, rate=1.0):
+        del path, rate
         if cancel is not None and not long_started.is_set():
             assert long_started.wait(2), "next sentence was not synthesizing while the short one played"
         return True
@@ -415,8 +415,8 @@ def test_ready_queue_backpressure_stops_past_the_cap(max_clips):
         started.append(sentence)
         return tts._ReadyClip(None, sentence, 0)
 
-    def play(path, cancel=None):
-        del path, cancel
+    def play(path, cancel=None, rate=1.0):
+        del path, rate, cancel
 
     def speak_system(text, speed=1.0, *, cancel=None):
         del text, speed, cancel
@@ -477,7 +477,8 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
         path.write_bytes(b"wav")
         return tts._ReadyClip(str(path), sentence, 3)
 
-    def play(path, cancel=None):
+    def play(path, cancel=None, rate=1.0):
+        del rate
         played.append(path)
         first_playing.set()
         while cancel is not None and not cancel.is_cancelled():
@@ -569,8 +570,8 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
             return None
         return tts._ReadyClip(path, "Hello.", 3)
 
-    def track_play(path, cancel=None):
-        del cancel
+    def track_play(path, cancel=None, rate=1.0):
+        del cancel, rate
         play_calls.append(path)
         return True
 
@@ -917,9 +918,10 @@ def test_play_audio_file_windows_path_not_in_script(mock_popen):
     mp3_cmd = mock_popen.call_args.args[0]
     assert mp3 not in " ".join(mp3_cmd)
     assert "$env:WA_AUDIO_PATH" in mp3_cmd[-1]
-    assert mp3_cmd[-1] == tts_service._WIN_MP3_PLAYER
+    assert mp3_cmd[-1] == tts_service._WIN_WMP_PLAYER
     assert '"' not in mp3_cmd[-1]
     assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_PATH"] == mp3
+    assert mock_popen.call_args.kwargs["env"]["WA_AUDIO_RATE"] == "1"
 
 
 def test_windows_player_nonzero_exit_triggers_os_fallback():
@@ -1138,8 +1140,8 @@ def test_sentence_pipeline_consumer_error_unblocks_producer(tmp_path, max_clips)
         path.write_bytes(b"R")
         return tts._ReadyClip(str(path), sentence, 1)
 
-    def play(path, cancel=None):
-        del path, cancel
+    def play(path, cancel=None, rate=1.0):
+        del path, rate, cancel
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline and len(started) < cap + 2:
             time.sleep(0.02)
@@ -1890,5 +1892,89 @@ def test_remember_download_failed_ignores_stale_generation():
         tts.stop_speech()
         utt.note_download_failed("piper")
         assert not utt.download_failed("piper")
+    finally:
+        tts.stop_speech()
+
+
+def test_player_candidates_apply_playback_rate():
+    import plugin.audio.tts_service as tts
+
+    with patch("sys.platform", "linux"), patch("shutil.which", return_value="/usr/bin/player"):
+        mp3_fast = dict((name, cmd) for name, cmd, _env in tts._get_player_candidates("/tmp/clip.mp3", 1.25))
+        assert mp3_fast["ffplay"][-3:] == ["-af", "atempo=1.25", "/tmp/clip.mp3"]
+        assert mp3_fast["mpv"][-2:] == ["--speed=1.25", "/tmp/clip.mp3"]
+        assert mp3_fast["mpg123"] == ["mpg123", "-q", "/tmp/clip.mp3"]
+
+        wav_fast = dict((name, cmd) for name, cmd, _env in tts._get_player_candidates("/tmp/clip.wav", 1.25))
+        assert wav_fast["ffplay"][-3:] == ["-af", "atempo=1.25", "/tmp/clip.wav"]
+
+        mp3_unit = dict((name, cmd) for name, cmd, _env in tts._get_player_candidates("/tmp/clip.mp3", 1.0))
+        assert "-af" not in mp3_unit["ffplay"]
+        assert not any(arg.startswith("--speed=") for arg in mp3_unit["mpv"])
+
+    with patch("sys.platform", "darwin"):
+        assert tts._get_player_candidates("/tmp/clip.mp3", 1.25) == [
+            ("afplay", ["afplay", "-r", "1.25", "-q", "1", "/tmp/clip.mp3"], None)
+        ]
+        assert tts._get_player_candidates("/tmp/clip.mp3", 1.0) == [
+            ("afplay", ["afplay", "/tmp/clip.mp3"], None)
+        ]
+
+    with patch("sys.platform", "win32"):
+        _name, cmd_fast, env_fast = tts._get_player_candidates("C:\\clip.wav", 1.25)[0]
+        assert cmd_fast[-1] == tts._WIN_WMP_PLAYER
+        assert env_fast is not None
+        assert env_fast["WA_AUDIO_RATE"] == "1.25"
+
+        _name2, cmd_unit, env_unit = tts._get_player_candidates("C:\\clip.wav", 1.0)[0]
+        assert cmd_unit[-1] == tts._WIN_WAV_PLAYER
+        assert env_unit is not None
+        assert env_unit["WA_AUDIO_RATE"] == "1"
+
+
+def test_endpoint_clip_rate_reaches_player():
+    import plugin.audio.tts_service as tts
+    from plugin.audio.tts_endpoint import _EndpointClip
+
+    proc = MagicMock()
+    proc.wait.return_value = 0
+    utt = tts._begin_utterance()
+    try:
+        with patch("sys.platform", "linux"), \
+             patch("shutil.which", return_value="/usr/bin/ffplay"), \
+             patch(
+                 "plugin.audio.tts_service.download_endpoint_speech",
+                 return_value=_EndpointClip(b"ID3fake", ".mp3", rate=1.25),
+             ), \
+             patch("plugin.audio.tts_service._popen_for_speech", return_value=proc) as mock_popen:
+            tts._speak_endpoint(
+                "Hello.",
+                "https://openrouter.ai/api",
+                "k",
+                model="google/gemini-3.1-flash-tts-preview",
+                voice="Aoede",
+                speed=1.25,
+                cancel=utt.scope,
+            )
+        assert mock_popen.called
+        argv = mock_popen.call_args.args[0]
+        assert "atempo=1.25" in argv
+    finally:
+        tts.stop_speech()
+
+
+def test_local_clips_play_at_unit_rate(tmp_path):
+    import plugin.audio.tts_service as tts
+
+    wav = tmp_path / "local.wav"
+    wav.write_bytes(b"RIFFdata")
+
+    utt = tts._begin_utterance()
+    try:
+        with patch("plugin.audio.tts_service._piper_audio_file", return_value=str(wav)), \
+             patch("plugin.audio.tts_service._play_audio_file", return_value=True) as mock_play:
+            tts._run_sentence_pipeline(["Hello."], "piper", "en_US-lessac-medium", 1.5, None, utt)
+        mock_play.assert_called_once()
+        assert mock_play.call_args.kwargs["rate"] == 1.0
     finally:
         tts.stop_speech()

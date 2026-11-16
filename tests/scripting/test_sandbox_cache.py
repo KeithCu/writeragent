@@ -228,7 +228,7 @@ def test_blocked_entries_fit_cache_key() -> None:
     from plugin.scripting.sandbox import (
         FILE_BLOCKED_MODULES,
         NETWORK_BLOCKED_MODULES,
-        VENV_AUTHORIZED_IMPORTS,
+        PUBLIC_PLUGIN_IMPORTS,
     )
 
     for seq in (
@@ -236,7 +236,7 @@ def test_blocked_entries_fit_cache_key() -> None:
         NETWORK_BLOCKED_MODULES,
         FILE_BLOCKED_MODULES,
         SMOL_BASE_BUILTIN_MODULES,
-        VENV_AUTHORIZED_IMPORTS,
+        PUBLIC_PLUGIN_IMPORTS,
     ):
         for name in seq:
             assert "\0" not in name

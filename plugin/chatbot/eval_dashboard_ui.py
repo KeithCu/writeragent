@@ -83,33 +83,15 @@ class EvalDashboard:
         )
 
     def _schedule_models_fetch(self, endpoint: str, current_model: str) -> None:
-        from plugin.framework.client.model_fetcher import (
-            cached_text_models,
-            endpoint_url_suitable_for_v1_models_fetch,
-            fetch_available_models,
+        from plugin.framework.client.model_fetcher import memo_text_models_or_fetch
+
+        cached = memo_text_models_or_fetch(
+            endpoint,
+            lambda ids: self._apply_model_list(endpoint, current_model, ids),
+            task_name="eval-models",
         )
-        from plugin.framework.queue_executor import main
-        from plugin.framework.worker_pool import run_in_background
-
-        if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
-            return
-
-        # Apply a catalog this process already holds on this turn. A miss
-        # still fetches on the worker, then paints once.
-        cached = cached_text_models(endpoint)
-        if isinstance(cached, list):
+        if cached is not None:
             self._apply_model_list(endpoint, current_model, cached)
-            return
-
-        def _fetch_eval_models() -> None:
-            models = fetch_available_models(endpoint)
-
-            def _apply() -> None:
-                self._apply_model_list(endpoint, current_model, models)
-
-            main.post(_apply)
-
-        run_in_background(_fetch_eval_models, name="eval-models")
 
 
 

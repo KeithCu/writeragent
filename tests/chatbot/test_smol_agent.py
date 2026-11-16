@@ -493,7 +493,7 @@ def test_smol_tool_adapter_resolves_dynamic_parameters():
     assert "p" not in adapter.inputs
 
 
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.chatbot.smol_agent.get_config")
@@ -737,7 +737,7 @@ class TestLibrarianSmol:
         ctx.stop_checker.return_value = False
 
         # Mock ToolCallingAgent to simulate a switch_mode observation
-        with patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
+        with patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent") as mock_agent_class:
             mock_agent = mock_agent_class.return_value
 
             fa = FinalAnswerStep(
@@ -767,7 +767,7 @@ class TestLibrarianSmol:
         )
         fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
-        with patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
+        with patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent") as mock_agent_class:
             mock_agent = mock_agent_class.return_value
             mock_agent.run.return_value = [tc, fa]
 
@@ -790,7 +790,7 @@ class TestLibrarianSmol:
         fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
-             patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
+             patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent") as mock_agent_class:
             mock_store = mock_store_class.return_value
             mock_store.read.return_value = '{"favorite_color": "blue", "name": "Alice"}'
             
@@ -816,7 +816,7 @@ class TestLibrarianSmol:
         fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
-            "plugin.chatbot.smol_agent.ToolCallingAgent"
+            "plugin.chatbot.smol_agent.WriterAgentToolCallingAgent"
         ) as mock_agent_class:
             mock_store_class.return_value.read.return_value = long_mem
             mock_agent_class.return_value.run.return_value = [fa]
@@ -837,7 +837,7 @@ class TestLibrarianSmol:
         fa = FinalAnswerStep(output={"status": "ok", "result": "Hello"})
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, \
-             patch("plugin.chatbot.smol_agent.ToolCallingAgent") as mock_agent_class:
+             patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent") as mock_agent_class:
             mock_store_class.return_value.read.return_value = ""
             mock_agent_class.return_value.run.return_value = [fa]
 
@@ -861,7 +861,7 @@ class TestLibrarianSmol:
         ctx.send_cancellation = scope
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
-            "plugin.chatbot.smol_agent.ToolCallingAgent"
+            "plugin.chatbot.smol_agent.WriterAgentToolCallingAgent"
         ) as mock_agent_class:
             mock_store_class.return_value.read.return_value = ""
             mock_agent = mock_agent_class.return_value
@@ -1197,4 +1197,92 @@ def test_inner_call_recorder_logs_name_result_mutating() -> None:
     assert calls[0].name == "tiny_mutating_tool"
     assert calls[0].result == {"status": "ok", "echo": "abc"}
     assert calls[0].mutating is True
+
+
+def test_writeragent_agent_lets_string_args_reach_tool():
+    from typing import Any
+    from plugin.chatbot.smol_agent import SmolToolAdapter, WriterAgentToolCallingAgent
+    from plugin.framework.tool import ToolBase, ToolContext
+
+    seen: dict[str, Any] = {}
+
+    class _ProbeTool(ToolBase):
+        name = "probe"
+        description = "Probe tool."
+        parameters = {
+            "type": "object",
+            "properties": {"page": {"type": "integer"}, "flag": {"type": "boolean"}},
+            "required": ["page", "flag"],
+        }
+
+        def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+            seen.update(kwargs)
+            return {"status": "ok"}
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc_type = "writer"
+    ctx.caller = None
+    ctx.read_only_target = False
+
+    agent = WriterAgentToolCallingAgent(
+        tools=[SmolToolAdapter(_ProbeTool(), ctx, safe=False, inputs_style="specialized")],
+        model=MagicMock(),
+    )
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        res = agent.execute_tool_call("probe", {"page": "1", "flag": "true", "bogus": 1})
+
+    assert seen == {"page": 1, "flag": True}
+    assert type(seen["page"]) is int
+    assert seen["flag"] is True
+    assert res["ignored_parameters"] == ["bogus"]
+
+
+def test_writeragent_agent_returns_validation_error_payload():
+    from typing import Any
+    from plugin.chatbot.smol_agent import SmolToolAdapter, WriterAgentToolCallingAgent
+    from plugin.framework.tool import ToolBase, ToolContext
+
+    class _ProbeTool(ToolBase):
+        name = "probe"
+        description = "Probe tool."
+        parameters = {
+            "type": "object",
+            "properties": {"page": {"type": "integer"}},
+            "required": ["page"],
+        }
+
+        def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+            return {"status": "ok"}
+
+    ctx = MagicMock(spec=ToolContext)
+    ctx.doc_type = "writer"
+    ctx.caller = None
+    ctx.read_only_target = False
+
+    agent = WriterAgentToolCallingAgent(
+        tools=[SmolToolAdapter(_ProbeTool(), ctx, safe=False, inputs_style="specialized")],
+        model=MagicMock(),
+    )
+    res = agent.execute_tool_call("probe", {"page": "x"})
+    assert isinstance(res, dict)
+    assert res["code"] == "VALIDATION_ERROR"
+
+
+def test_writeragent_agent_still_validates_plain_smol_tools():
+    from plugin.chatbot.smol_agent import WriterAgentToolCallingAgent
+    from plugin.contrib.smolagents.tools import Tool as SmolTool
+    from plugin.contrib.smolagents.utils import AgentToolCallError
+
+    class _PlainTool(SmolTool):
+        name = "plain"
+        description = "Plain smol tool."
+        inputs = {"text": {"type": "string", "description": "text"}}
+        output_type = "string"
+
+        def forward(self, text: str) -> str:
+            return text
+
+    agent = WriterAgentToolCallingAgent(tools=[_PlainTool()], model=MagicMock())
+    with pytest.raises(AgentToolCallError):
+        agent.execute_tool_call("plain", {"text": 123})
 

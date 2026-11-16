@@ -36,6 +36,8 @@ import logging
 import re
 from typing import Any, Iterator
 
+from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.draw.base import DRAW_PAGE_PROPERTY
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -169,6 +171,65 @@ def _shape_geometry(shape: Any) -> dict[str, int] | None:
     if pos is None or size is None:
         return None
     return {"x": int(pos.X), "y": int(pos.Y), "width": int(size.Width), "height": int(size.Height)}
+
+
+def shape_kind(shape: Any) -> str:
+    """Human-readable shape kind.
+
+    Writer's ``SwXFrame::getShapeType`` (``sw/source/core/unocore/unoframe.cxx``)
+    reports every frame, image, and OLE object as ``"FrameShape"``, so frames
+    and OLE shapes are distinguished by UNO service and CLSID.
+    """
+    type_name = uno_read(lambda: str(shape.getShapeType()).split(".")[-1], "Shape")
+    if type_name not in ("FrameShape", "OLE2Shape"):
+        return type_name
+
+    if type_name == "FrameShape":
+        if uno_read(lambda: bool(shape.supportsService("com.sun.star.text.TextGraphicObject")), False):
+            return "Image"
+        if uno_read(lambda: bool(shape.supportsService("com.sun.star.text.TextFrame")), False):
+            return "TextFrame"
+
+    clsid = uno_read(lambda: str(shape.CLSID or "").lower(), "")
+    if clsid:
+        # lazy: calc.charts and writer.math pull in calc/writer modules that
+        # import back into plugin.draw / plugin.doc; both are already loaded by
+        # tool registration.
+        from plugin.calc.charts import _is_chart_clsid
+        from plugin.writer.math.math_mml_convert import MATH_CLSID
+
+        if _is_chart_clsid(clsid):
+            return "Chart"
+        if clsid == MATH_CLSID.lower():
+            return "Formula"
+
+    return "EmbeddedObject" if type_name == "FrameShape" else type_name
+
+
+def shape_summary_line(address: int | str, shape: Any) -> str:
+    """One chat-context object line shared by Draw/Impress and Writer; unreadable fields are omitted.
+
+    The address and Name are what ``shape_delete`` and ``chart_delete`` resolve;
+    keep them in that form.
+    """
+    line = "- [%s] %s" % (address, shape_kind(shape))
+
+    def read_name() -> str:
+        raw = shape.Name
+        return raw.strip() if isinstance(raw, str) else ""
+
+    name = uno_read(read_name, "")
+    if name:
+        line += ' "%s"' % name
+    geom = _shape_geometry(shape)
+    if geom:
+        line += ": pos(%d, %d) size(%dx%d)" % (geom["x"], geom["y"], geom["width"], geom["height"])
+    get_string = getattr(shape, "getString", None)
+    if callable(get_string):
+        text = uno_read(lambda: normalize_linebreaks(str(get_string() or "")), "")
+        if text:
+            line += ' text: "%s"' % text[:200]
+    return line
 
 
 def _gap(label_g: dict[str, int], blank_g: dict[str, int], *, horizontal: bool) -> int | None:
@@ -455,7 +516,7 @@ class GetDrawTree(ToolBase):
         "label_hint (nearest text to the left or above). ControlShapes include type, name, and current "
         "value/state. Address shapes by name from this tree — draw-page index shifts when other shapes sit between fields."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"

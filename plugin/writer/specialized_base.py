@@ -129,7 +129,7 @@ class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
     specialized_domain: ClassVar[str | None] = "images"
     specialized_domain_description: ClassVar[str | None] = (
         "In-document image operations (image_list) and nearby folder images (image_list_nearby_files); "
-        "generate new images, or edit a selected image with image_generate(source_image='selection')."
+        "generate new images or edit the selected one."
     )
     # Writer + Draw/Impress graphic hosts; ignore keeps the shared constant assignable.
     uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES  # type: ignore[assignment]

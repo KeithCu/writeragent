@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.draw.base import DRAW_PAGE_PROPERTY
 from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBase, ToolContext
@@ -168,7 +169,7 @@ class ListPlaceholders(ToolBase):
 
     name: str | None = "placeholder_list"
     description: str = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index. Call this before placeholder_set_text. If count=0, delegate domain=slide_layouts with layout='text', then retry."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -185,7 +186,7 @@ class GetPlaceholderText(ToolBase):
     description: str = "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Prefer placeholder_list first; use index when roles are missing."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."}, "index": {"type": "integer", "description": "Shape index (from placeholder_list)."}, "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}},
+        "properties": {"role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."}, "index": {"type": "integer", "description": "Shape index (from placeholder_list)."}, "page": DRAW_PAGE_PROPERTY},
         "required": [],
     }
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
@@ -221,7 +222,7 @@ class SetPlaceholderText(ToolBase):
             "text": {"type": "string", "description": "Text to set on the placeholder."},
             "role": {"type": "string", "description": "Placeholder role: 'title', 'subtitle', or 'body'."},
             "index": {"type": "integer", "description": "Shape index (from placeholder_list)."},
-            "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
+            "page": DRAW_PAGE_PROPERTY,
         },
         "required": ["text"],
     }

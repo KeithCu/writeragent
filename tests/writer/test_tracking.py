@@ -150,7 +150,7 @@ def test_track_changes_show():
     view_settings.setPropertyValue.assert_not_called()
 
 
-@pytest.mark.parametrize("show", ["not-a-bool", 1, None])
+@pytest.mark.parametrize("show", ["not-a-bool", 2, None])
 def test_track_changes_show_wrong_type_rejected_by_schema(show):
     """The schema validator (prepare_tool_call) owns argument type checks, so execute has no manual guard."""
     prepared = prepare_tool_call(

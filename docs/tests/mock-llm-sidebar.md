@@ -132,6 +132,10 @@ make test-mock-sidebar FILTER="B E"    # Run multiple packets
 
 `FILTER=P` loads only `tests/chatbot/test_mock_llm_peer_sidebar_uno.py` (`test_p1_*` / `test_p2_*`). It does not run Packets B–G.
 
+#### Config isolation
+
+`start_mock_sidebar_session` snapshots `writeragent.json` into a sidecar file (`writeragent.json.mock-session`) before pointing the profile at the ephemeral mock, and `stop_mock_sidebar_session` writes that exact text back and deletes the sidecar (clearing the in-process config cache under `_config_write_lock`). Any settings changed in the visible LibreOffice during a run are therefore reverted at stop. If a previous run was killed before teardown, the next `start_mock_sidebar_session` restores the leftover sidecar first when `writeragent.json` still points at a `127.0.0.1` mock (`mock-model`), or drops the stale sidecar if the user already repointed the endpoint. No API key is stored for the mock (it is a custom `127.0.0.1` endpoint that requires no key), so no OS keyring item is created.
+
 #### GitHub Actions (PR CI option)
 
 [`.github/workflows/pr-ci.yml`](../../.github/workflows/pr-ci.yml) exposes this as a **Run workflow** checkbox, default off. Pull requests never set it.

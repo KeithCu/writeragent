@@ -593,7 +593,7 @@ def _mock_get_config_for_sub_agent(key):
     side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
 def test_specialized_delegation_sub_agent_mode(
@@ -655,7 +655,7 @@ def test_specialized_delegation_sub_agent_mode(
     side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
 def test_shapes_delegation_includes_canvas_in_instructions(
@@ -714,7 +714,7 @@ def test_shapes_delegation_includes_canvas_in_instructions(
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
-    assert "210.0" in instructions
+    assert "21000" in instructions
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     assert any(t.name == "dummy_shape_tool" for t in smol_tools)
 
@@ -794,7 +794,7 @@ def test_active_domain_schemas_include_calc_and_draw(registry, dummy_draw_tool):
     side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
 def test_calc_specialized_delegation_sub_agent(
@@ -834,7 +834,7 @@ def test_calc_specialized_delegation_sub_agent(
     side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
-@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
 def test_draw_specialized_delegation_sub_agent(

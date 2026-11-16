@@ -34,8 +34,8 @@ def test_conditional_formatting_add_validation_errors():
 
     tool = _tool("conditional_formatting_add")
 
-    # 1. Unknown operator rejected by schema validator
-    for bad_op in ("INVALID_OP", "NONE", "greater"):
+    # 1. Unknown operator rejected by schema validator; lowercase enum coerces
+    for bad_op in ("INVALID_OP", "NONE"):
         prep = prepare_tool_call(
             tool,
             SimpleNamespace(doc_type="calc"),
@@ -44,6 +44,15 @@ def test_conditional_formatting_add_validation_errors():
         )
         assert prep.error is not None
         assert prep.error["code"] == "VALIDATION_ERROR"
+
+    coerced = prepare_tool_call(
+        tool,
+        SimpleNamespace(doc_type="calc"),
+        "conditional_formatting_add",
+        {"range": ["A1:A10"], "operator": "greater", "style": "Result"},
+    )
+    assert coerced.error is None
+    assert coerced.kwargs["operator"] == "GREATER"
 
     # 2. BETWEEN missing formula2
     res_missing_f2 = tool.execute_safe(ctx, range=["A1:A10"], operator="BETWEEN", formula1="10", formula2="", style="Result")

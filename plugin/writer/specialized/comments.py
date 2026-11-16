@@ -119,7 +119,7 @@ class CommentList(ToolWriterCommentBase):
         # prepare_tool_call has already checked that start_index is an integer; negatives clamp to 0.
         start_index = max(0, kwargs.get("start_index") or 0)
         max_raw = kwargs.get("max_comments", 100)
-        max_val, max_err = parse_non_negative_int(max_raw, name="max_comments", coerce=True)
+        max_val, max_err = parse_non_negative_int(max_raw, name="max_comments")
         if max_err:
             return self._tool_error(max_err, code="INVALID_PARAM", parameter="max_comments")
         max_comments = max(1, max_val if max_val is not None else 100)

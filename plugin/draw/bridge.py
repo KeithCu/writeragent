@@ -22,7 +22,6 @@ import logging
 from typing import Any
 
 
-from plugin.doc import text_helpers as _text_helpers
 from plugin.framework.doc_type import is_impress
 from plugin.framework.constants import truncate_chat_context
 from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, is_disposal, uno_call, uno_read
@@ -898,25 +897,6 @@ def set_notes_text(page: Any, text: str) -> bool:
     return True
 
 
-def _shape_summary_line(index: int | str, shape: Any) -> str:
-    """One chat-context shape line; an unreadable field is omitted, not the whole page."""
-    type_name = uno_read(lambda: str(shape.getShapeType()).split(".")[-1], "Shape")
-    line = "- [%s] %s" % (index, type_name)
-
-    def read_pos_size() -> str:
-        pos = shape.getPosition()
-        size = shape.getSize()
-        return ": pos(%d, %d) size(%dx%d)" % (pos.X, pos.Y, size.Width, size.Height)
-
-    line += uno_read(read_pos_size, "")
-    get_string = getattr(shape, "getString", None)
-    if callable(get_string):
-        text = uno_read(lambda: _text_helpers.normalize_linebreaks(str(get_string() or "")), "")
-        if text:
-            line += ' text: "%s"' % text[:200]
-    return line
-
-
 @main_thread_only
 def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | None = None) -> str:
     """Get a Draw/Impress chat summary. max_context is a prefix cap; when the summary is longer, the prefix is returned with a blank line and "[... document truncated ...]" appended. ctx is unused and kept so document_helpers can pass the chat signature."""
@@ -970,10 +950,12 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
                 if sn and sn.strip():
                     ctx_str += "\nSpeaker Notes:\n%s\n" % sn.strip()
 
+            from plugin.draw.tree import shape_summary_line
+
             shapes = bridge.get_shapes(active_page)
             ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress_doc else "Page", active_page_idx)
             for address, s in shapes:
-                ctx_str += _shape_summary_line(address, s) + "\n"
+                ctx_str += shape_summary_line(address, s) + "\n"
 
         # Active-page context must respect max_context like Writer text. truncate_chat_context
         # caps the full summary including shapes and speaker notes.

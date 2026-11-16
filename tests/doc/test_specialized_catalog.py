@@ -308,4 +308,11 @@ def test_live_catalog_hides_domains_that_cannot_run() -> None:
         }
         assert "mcp" in with_server
         assert "vision" not in with_server
+def test_loop_hint_shapes_states_units_for_every_label() -> None:
+    from plugin.doc.specialized_catalog import loop_hint
+
+    expected = loop_hint("shapes", None)
+    assert expected != ""
+    for label in ("Writer", "Calc", "Draw"):
+        assert loop_hint("shapes", label) == expected
 

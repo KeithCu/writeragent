@@ -28,7 +28,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 import uno
 
-from plugin.calc.base import ToolCalcSheetBase
+from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface, range_args
 from plugin.calc.sheet_filter_criteria import (
@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 _RANGE_PARAM_SCHEMA: dict[str, Any] = {
     "type": "array",
     "items": {"type": "string"},
-    "description": 'Range to filter (e.g. ["A1:D20"]).',
+    "description": f"Range to filter (A1:D20 or a named range). {CALC_SHEET_PREFIX_NOTE}",
 }
 _HAS_HEADER_PARAM_SCHEMA: dict[str, Any] = {
     "type": "boolean",
