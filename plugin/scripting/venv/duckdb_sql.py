@@ -235,25 +235,35 @@ def _connection_alive(con: Any) -> bool:
         return False
 
 
-def reset_session_duckdb(session_id: str | None = None) -> None:
-    """Close cached connection(s). ``None`` closes every session's connection (the ``fresh_sandbox_sessions`` fixture in tests/conftest.py uses it; scripts can call it through the facade).
+def close_session_duckdb(session_id: str) -> None:
+    """Host only: close the cached DuckDB connection for *session_id*.
 
-    Reset Python Session calls this for the workbook id so registered tables
-    do not survive the namespace wipe.
+    The caller has already chosen the session (Reset Python Session, init
+    change, LRU eviction, or ``reset_session_duckdb`` after resolving). Not
+    exported to scripts.
     """
+    keys = {session_id}
+    normalized = persistable_duckdb_session_id(session_id)
+    if normalized:
+        keys.add(normalized)
     with _SESSION_LOCK:
-        if session_id is None:
-            cons = list(_SESSION_CONNECTIONS.values())
-            _SESSION_CONNECTIONS.clear()
-        else:
-            keys = {session_id}
-            normalized = persistable_duckdb_session_id(session_id)
-            if normalized:
-                keys.add(normalized)
-            cons = [_SESSION_CONNECTIONS.pop(key, None) for key in keys]
+        cons = [_SESSION_CONNECTIONS.pop(key, None) for key in keys]
     for con in cons:
         if con is not None:
             _close_connection(con)
+
+
+def reset_session_duckdb(session_id: str) -> None:
+    """Script-facing (``writeragent.scripting.duckdb_sql``).
+
+    Closes only the calling cell's own workbook catalog: inside
+    ``run_sandboxed_code``, an id that names another workbook resolves to the
+    cell's own session (``resolve_duckdb_session_id``), and an isolated cell
+    closes nothing. Outside the sandbox the named id is closed.
+    """
+    key = resolve_duckdb_session_id(session_id)
+    if key is not None:
+        close_session_duckdb(key)
 
 
 def session_duckdb(session_id: str | None = None) -> Any:
@@ -343,7 +353,7 @@ def invalidate_session_tables(
     if key is None:
         return
     if not names:
-        reset_session_duckdb(key)
+        close_session_duckdb(key)
         return
     with _SESSION_LOCK:
         con = _SESSION_CONNECTIONS.get(key)
