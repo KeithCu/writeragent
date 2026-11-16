@@ -665,4 +665,3 @@ def test_rename_slide_refuses_reserved_and_duplicate_names_uno(ctx, doc):
     dup_default = RenameSlide().execute(tctx, page=0, name="page3")
     assert dup_default.get("status") == "error", dup_default
     assert dup_default.get("code") == "INVALID_PARAM", dup_default
-

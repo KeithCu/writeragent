@@ -443,5 +443,3 @@ def test_insert_table_assigns_unused_shape_name():
     assert out["status"] == "ok"
     assert out["name"] == "Shape2"
     assert shape.Name == "Shape2"
-
-

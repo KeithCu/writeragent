@@ -524,7 +524,9 @@ class RenameSlide(_SlideMutationTool):
         bridge = DrawBridge(ctx.doc)
         page, _idx = bridge.resolve_page(page_idx)
         pages = bridge.get_pages()
-        # Compare against LibreOffice's API names so another unnamed slide counts as its pageN.
+        # UNO setName does not check uniqueness (the rename dialog does, via
+        # sd/source/ui/docshell/docshel2.cxx:DrawDocShell::IsNewPageNameValid);
+        # compare against LibreOffice's API names so another unnamed slide counts as its pageN.
         for i in range(pages.getCount()):
             if i != page_idx and str(pages.getByIndex(i).Name or "").strip() == wanted.strip():
                 return self._tool_error(
@@ -543,8 +545,8 @@ class RenameSlide(_SlideMutationTool):
             bridge.rename_slide(page_idx, previous)
             kept = str(page.Name or "")
             return self._tool_error(
-                "LibreOffice refused the name %r: names starting with its default slide label (such as 'Slide 3') are reserved. The slide keeps the name %r."
-                % (wanted, kept),
+                "LibreOffice did not store the name %r (it stores %r instead; names starting with its default slide label such as 'Slide 3', or a slide's own default 'pageN', are not kept). The slide keeps the name %r."
+                % (wanted, stored, kept),
                 code="INVALID_PARAM",
             )
         return {"status": "ok", "message": "Slide renamed", "page": page_idx, "name": wanted, "active_page_index": bridge.get_active_page_index()}
