@@ -401,7 +401,9 @@ def _drop_leftover_paragraph(leftover: Any, *, merge_forward_after_table: bool) 
     leftover.gotoEndOfParagraph(True)
     if leftover.getString() != "":
         return
-    # A tracked insertion swallows the deleted break.
+    # Join the leftover onto the last imported block by deleting that block's break.
+    # While recording, the break belongs to our own tracked insertion, so deleting it
+    # removes it rather than adding a Delete redline.
     if _delete_preceding_break(leftover) or not merge_forward_after_table:
         return
     if leftover.goRight(1, True):

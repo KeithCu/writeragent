@@ -207,26 +207,41 @@ def test_position_after_styles_while_recording_stay_insert_only_uno(ctx, doc):
     from plugin.framework.uno_context import enum_has_more
 
     tctx = native_writer_tool_context(doc, ctx)
-    _seed_three_simple_paras(doc)
-    doc.setPropertyValue("RecordChanges", True)
-    try:
-        res = ApplyDocumentContent().execute(
-            tctx,
-            target="search",
-            old_content="Replace me",
-            position="after",
-            content='<p data-lo-style="Heading2">H</p>',
-        )
-        assert res.get("status") == "ok", res
-        paras = {p.getString(): p for p in _body_paras(doc)}
-        assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    for pos in ("before", "after"):
+        _seed_three_simple_paras(doc)
+        doc.setPropertyValue("RecordChanges", True)
+        try:
+            res = ApplyDocumentContent().execute(
+                tctx,
+                target="search",
+                old_content="Replace me",
+                position=pos,
+                content='<p data-lo-style="Heading2">H</p>',
+            )
+            assert res.get("status") == "ok", res
+            paras = {p.getString(): p for p in _body_paras(doc)}
+            assert paras["H"].getPropertyValue("ParaStyleName") == "Heading 2"
 
-        rl_types = []
-        enum = doc.getRedlines().createEnumeration()
-        while enum_has_more(enum):
-            rl = enum.nextElement()
-            rl_types.append(str(rl.getPropertyValue("RedlineType")))
-        assert set(rl_types) == {"Insert"}, rl_types
-    finally:
-        doc.setPropertyValue("RecordChanges", False)
+            rl_types = []
+            enum = doc.getRedlines().createEnumeration()
+            while enum_has_more(enum):
+                rl = enum.nextElement()
+                rl_types.append(str(rl.getPropertyValue("RedlineType")))
+            assert set(rl_types) == {"Insert"}, (pos, rl_types)
+
+            helper.executeDispatch(
+                doc.getCurrentController().getFrame(),
+                ".uno:RejectAllTrackedChanges",
+                "",
+                0,
+                (),
+            )
+            assert [p.getString() for p in _body_paras(doc)] == [
+                "Keep before",
+                "Replace me",
+                "Keep after",
+            ]
+        finally:
+            doc.setPropertyValue("RecordChanges", False)
 
