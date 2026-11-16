@@ -19,7 +19,8 @@ from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.inspector import grid_to_rows
 from plugin.calc.manipulator import (
-    _parse_formula_or_values_string,
+    _delimited_text_message,
+    _parse_json_array_string,
     _values_length_mismatch_message,
 )
 from plugin.framework.json_utils import safe_json_loads
@@ -1020,9 +1021,11 @@ class CalcWorld:
 
         values: Any = raw_values
         if isinstance(values, str):
-            parsed = _parse_formula_or_values_string(
-                values, single_cell_range=(c0 == c1 and r0 == r1)
-            )
+            parsed = _parse_json_array_string(values)
+            if parsed is None:
+                refusal = _delimited_text_message(rng, values, single_cell=(c0 == c1 and r0 == r1))
+                if refusal:
+                    return refusal
             values = parsed if parsed is not None else [values]
         elif isinstance(values, (list, tuple)):
             values = list(values)

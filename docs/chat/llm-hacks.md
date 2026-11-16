@@ -2,31 +2,30 @@
 
 This document tracks technical workarounds and "hacks" implemented to handle the quirks, inconsistencies, and limitations of LLMs when interacting with LibreOffice tools.
 
-## 1. CSV Delimiter Handling
-**Problem**: LLMs are inconsistent with CSV delimiters. Since Calc formula syntax favors semicolons (`;`), models often use them for CSV data even when asked for commas (`,`). This leads to data being imported into a single column.
+## 1. Delimited text in `write_range`
+**Problem**: A plain string in `write_range` is one cell value. If a model sends a whole table or delimited row as one string (with line breaks, `,`, or `;`), it would silently land in a single cell or repeat across the range with `status: ok`.
 
-### [Workaround] Auto-Detection
-Instead of requiring a `delimiter` parameter, the tool `write_range` now handles it automatically in `plugin/calc/manipulator.py` when CSV data is provided.
-- **Implementation**: The tool peeks at the first few lines. If semicolons are significantly more prevalent than commas, it switches the CSV reader to `;`. Otherwise, it defaults to `,`.
-- **Reasoning**: Reduces the cognitive load on the LLM and makes the tool "just work" regardless of the model's preferred separator.
+### [Workaround] Refusal Guard (`_delimited_text_message`)
+In `plugin/calc/manipulator.py`, `_delimited_text_message` refuses plain (non-formula, non-JSON) strings with `INVALID_PARAM` when:
+- the string contains `\n` (any target); or
+- the string contains `,` or `;` and the target has more than one cell.
 
-## 2. Range Writing Semicolon Splitting
-**Problem**: When using `write_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a native row array `[["Name", "Age", "Salary"]]` or a JSON-encoded flat array. Without a workaround, this writes the entire string into a single cell.
+Formulas (leading `=` after strip) are exempt so `=PY` code with line breaks and formulas with `;` are untouched. One-line prose with commas or semicolons into a single cell stays literal. To keep line breaks inside one cell, the caller sends `[["a\nb"]]`.
 
-### [Workaround] Raw String Splitting
-The internal `_parse_formula_or_values_string` helper in `plugin/calc/manipulator.py` detects raw semicolon-separated strings.
-- **Formula-Safe Detection**: It skips strings starting with `=` (standard formulas) but splits other strings containing `;` using `csv.reader`.
-- **CSV Reader**: Using `csv.reader` (with `skipinitialspace=True`) ensures that if the LLM puts a semicolon inside a quoted string, it won't be split incorrectly.
+## 2. JSON-string arrays
+**Problem**: LLMs sometimes send a 1-D or 2-D array serialized as a JSON string (e.g., `'["Name"; "Age"; "Salary"]'`) instead of a native JSON array.
 
-**Preferred shape:** Tool schemas advertise a 2-D native array (one inner array per row). Semicolon and CSV string parsers remain for models that still send text.
+### [Workaround] `_parse_json_array_string`
+`_parse_json_array_string` in `plugin/calc/manipulator.py` parses strings starting with `[` as JSON arrays (normalizing Calc-style `;` separators outside quotes to `,`). The old one-line `Name;Age;Salary` and multiline CSV splits were removed in favour of the `INVALID_PARAM` refusal above.
+
+**Preferred shape:** Tool schemas advertise a 2-D native array (one inner array per row).
 
 ## 3. Formula-Safe JSON Normalization
 **Problem**: LLMs often use semicolons inside JSON arrays (e.g., `["A"; "B"]`). Standard `json.loads` fails here. A blind `replace(";", ",")` fix breaks real formulas that *need* semicolons (e.g., `=SUM(A1;B1)` becomes `=SUM(A1,B1)` which is an error in Calc).
 
-### [Workaround] Regex-Bound Replacement
-In `plugin/calc/manipulator.py`, we use a regular expression to normalize JSON arrays before parsing.
-- **Regex**: `re.sub(r';(?=(?:[^"]*"[^"]*")*[^"]*$)', ',', s_strip)`
-- **Behavior**: This only replaces semicolons that are **not** inside double quotes. This preserves semicolons inside formula strings while fixing the JSON structure.
+### [Workaround] Character-Loop Normalization
+In `plugin/calc/manipulator.py`, `_parse_json_array_string` walks the string with a character loop tracking double-quoted strings and backslash escapes.
+- **Behavior**: This only replaces semicolons that are **not** inside double quotes with commas. This preserves semicolons inside formula strings while fixing the JSON structure.
 
 ## 4. Formula dialect acceptance
 **Problem**: Calc's UNO API expects `GRAM_API` (`;` separators, `Sheet.A1` dot sheet refs, `{1;2|3;4}` inline arrays), while models frequently emit Excel syntax (`,`, `Sheet!A1`, `{1,2;3,4}`).

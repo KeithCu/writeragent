@@ -423,8 +423,9 @@ class WriteCellRange(ToolBase):
     name: str | None = "write_range"
     description: str = (
         "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; "
-        "a 2-D array (one inner array per row) must match the range; or multiline CSV from a start "
-        "cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. "
+        "to write many cells at once, send a 2-D array (one inner array per row) that matches the "
+        "range, or give only the top-left cell and the array sets the size. A JSON string of an array "
+        "is still accepted. Use an empty string or empty array to clear contents. "
         "Supports lists for non-contiguous "
         "areas. Prefer plain values/ISO "
         "dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), "
@@ -471,7 +472,7 @@ class WriteCellRange(ToolBase):
                     "rate or tax column. Excel syntax (=SUM(A1,B1), Sheet1!A1, {1,2;3,4}) "
                     "and Calc syntax (=SUM(A1;B1), Sheet1.A1) are both accepted; do not "
                     "mix them in one formula. 2-D array: one inner array per row; "
-                    "must match the range. Cells are string, number, boolean, or null "
+                    "must match the range, or pass only the top-left cell. Cells are string, number, boolean, or null "
                     '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
                     "=B2*…-style formula in every cell pins every row to the "
                     "first ref — use one formula string over the whole column "

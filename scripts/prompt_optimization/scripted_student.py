@@ -712,6 +712,39 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     ],
 }
 
+from dataset import (
+    FORMULA_TABLE_HEADER,
+    FORMULA_TABLE_ITEMS,
+    PASTE_TABLE_ROWS,
+)
+
+SCRIPTS["paste_table"] = [
+    _tools(_tc("write_range", {"range": ["A1"], "values": PASTE_TABLE_ROWS}, "paste_1")),
+    _stop(),
+]
+SCRIPTS["formula_table"] = [
+    _tools(
+        _tc(
+            "write_range",
+            {
+                "range": ["A1"],
+                "values": (
+                    [FORMULA_TABLE_HEADER]
+                    + [
+                        [item, qty, price, f"=B{r}*C{r}"]
+                        for r, (item, qty, price) in enumerate(
+                            FORMULA_TABLE_ITEMS, start=2
+                        )
+                    ]
+                    + [["Total", "", "", f"=SUM(D2:D{1 + len(FORMULA_TABLE_ITEMS)})"]]
+                ),
+            },
+            "formula_1",
+        )
+    ),
+    _stop(),
+]
+
 _PY_FORMULA = '=PY("result = data.to_pandas().drop_duplicates()"; A1:H500)'
 _PY_WRITE = _tools(
     _tc(

@@ -24,8 +24,6 @@ from __future__ import annotations
 
 from collections import Counter
 from contextlib import contextmanager
-import csv
-import io
 from itertools import chain
 import logging
 import re
@@ -637,31 +635,16 @@ def _py_run_detail(doc: Any, parts: PyFormula, prior: DiagnosticEntry | None) ->
     return f" ({' '.join(latest.message.split())[:400]})"
 
 
-def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
-    """Parse *formula_or_values* when it arrives as a JSON string or as a
-    raw semicolon-separated string.
+def _parse_json_array_string(s: str) -> list[Any] | None:
+    """Return the list when *s* is a JSON array string (semicolons outside quotes read as commas), else None.
 
-    The AI often sends formula_or_values as a JSON-encoded string (e.g.
-    ``'["Name"; "Category"; "Value"]'``) or as a raw string like
-    ``'Name;Category;Value'``.  Without this, write_formula_range would
-    write the whole string as one value per cell.  We normalise
-    LibreOffice-style semicolon separators and return a flat list.
-
-    Args:
-        s: Raw string from the tool caller.
-        single_cell_range: True when ``write_formula_range`` targets exactly
-            one cell (range corners coincide). Passed so Case 2 does not treat
-            ordinary prose (commas, semicolons) as CSV columns for that cell.
-
-    Returns:
-        A flat list of values, or *None* if *s* should be treated as a
-        single literal value.
+    A model often sends the array as a JSON string, sometimes with Calc-style
+    semicolons (e.g. ``'["Name"; "Category"; "Value"]'``).
     """
     s_strip = s.strip()
     if not s_strip:
         return None
 
-    # Case 1: JSON array e.g. ["a"; "b"] or ["a", "b"]
     if s_strip.startswith("["):
         # Replace semicolons NOT inside double quotes with commas.
         normalized_list = []
@@ -684,39 +667,33 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
         if isinstance(data, list):
             return data
 
-    # Case 2: Raw semicolon-separated string or multiline CSV
-    # Only if it is not a formula (starting with =)
-    if not s_strip.startswith("="):
-        # Could be multiline CSV or single line with delimiter
-        delimiter = ","
-        first_line = s.split("\n")[0]
-        if ";" in first_line and "," not in first_line:
-            delimiter = ";"
+    return None
 
-        # If it has a delimiter or is multiline, try to parse it
-        if delimiter in s or "\n" in s:
-            try:
-                reader = csv.reader(io.StringIO(s), delimiter=delimiter, skipinitialspace=True)
-                rows = list(reader)
-                if len(rows) == 1:
-                    # csv.reader splits on the data delimiter, so a one-cell write such as
-                    # "Hello, world" would become two fields, and write_formula_range would
-                    # fail ("Array has N values but range has 1 cells") or mis-split it.
-                    #
-                    # When *single_cell_range* is True, a single line with several fields is
-                    # ambiguous (a real CSV row, or a sentence with commas or semicolons), so it
-                    # is literal text for that one cell. To write many columns, use a range
-                    # (A1:B1) or a JSON array. Multiline CSV still returns a 2-D list below,
-                    # and write_formula_range expands the anchor cell.
-                    if single_cell_range and len(rows[0]) > 1:
-                        return None
-                    return [val.strip() for val in rows[0]]
-                else:
-                    # 2D array representing multiline CSV
-                    return [[val.strip() for val in row] for row in rows]
-            except Exception as e:
-                log.debug("Failed to read sample csv: %s", e)
 
+def _delimited_text_message(range_name: str, s: str, *, single_cell: bool) -> str | None:
+    """Return the refusal text when a plain string would be ambiguous as one value, else None."""
+    # A plain string is one cell value. A model that sends a whole table as one
+    # delimited string would otherwise see that text land in one cell, or repeated
+    # across the range, with status: ok. The refusal tells it to send the 2-D array.
+    # One-line text into one cell stays literal, because commas and semicolons are
+    # normal in prose. Strings starting with '=' are exempt (e.g. =PY code with
+    # line breaks, or formulas using ';').
+    s_strip = s.strip()
+    if not s_strip or s_strip.startswith("="):
+        return None
+    if "\n" in s:
+        return (
+            f'values for {range_name} is one text string with line breaks, and a string is written as one value. '
+            'To write rows, send a 2-D array with one inner array per row, e.g. [["Name", "Age"], ["Ann", 30]]; '
+            'the range may be just its top-left cell. To keep line breaks inside one cell, send [["line 1\\nline 2"]].'
+        )
+    if not single_cell and ("," in s or ";" in s):
+        return (
+            f'values for {range_name} is one text string containing , or ;, and a string is written as one value, '
+            'not split into cells. To write one value per cell, send a 2-D array with one inner array per row, '
+            'e.g. [["Name", "Age", "Salary"]] for a 1×3 range. To repeat the same text in every cell, send it once '
+            'per cell in the 2-D array.'
+        )
     return None
 
 
@@ -1520,12 +1497,16 @@ class CellManipulator:
             total = num_rows * num_cols
             _check_write_cap(total)
 
-            # Normalise string-as-array from AI callers. Single-cell ranges skip the
-            # CSV "single row -> many fields" path so prose with commas stays one value.
+            # A JSON array string becomes the array; other text is refused when it
+            # would be ambiguous as one value.
             if isinstance(values, str):
-                parsed = _parse_formula_or_values_string(values, single_cell_range=start == end)
+                parsed = _parse_json_array_string(values)
                 if parsed is not None:
                     values = parsed
+                else:
+                    refusal = _delimited_text_message(range_str, values, single_cell=start == end)
+                    if refusal:
+                        raise CalcError(refusal, code="INVALID_PARAM")
             caller_list = isinstance(values, (list, tuple))
 
             rows_2d = isinstance(values, (list, tuple)) and bool(values) and isinstance(values[0], (list, tuple))
@@ -1627,12 +1608,8 @@ class CellManipulator:
 
             expand_overwrite_warning: str | None = None
             if plan.expanded:
-                non_empty_count = 0
-                for r in range(start[1], end[1] + 1):
-                    for c in range(start[0], end[0] + 1):
-                        cell = sheet.getCellByPosition(c, r)
-                        if cell.getFormula() or cell.getString():
-                            non_empty_count += 1
+                # One getFormulaArray read replaces a UNO round trip per cell.
+                non_empty_count = len(_occupied_cells(sheet, start[0], start[1], end[0], end[1]))
                 if non_empty_count > 0:
                     expand_overwrite_warning = f"overwrote {non_empty_count} non-empty cell(s)"
 
