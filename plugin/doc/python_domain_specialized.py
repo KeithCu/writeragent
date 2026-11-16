@@ -28,7 +28,6 @@ gateway.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, ClassVar
 
@@ -78,17 +77,7 @@ def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozen
 
 
 def normalize_domain_list(raw: Any) -> tuple[list[str] | None, str | None]:
-    """Return ``(names, None)`` or ``(None, error)``.
-
-    A JSON array string is accepted because some models stringify tool arguments
-    before the host parses them. A bare domain name is not: the parameter is a list.
-    """
-    if isinstance(raw, str):
-        text = raw.strip()
-        try:
-            raw = json.loads(text) if text.startswith("[") else None
-        except json.JSONDecodeError:
-            raw = None
+    """Return ``(names, None)`` or ``(None, error)``."""
     if not isinstance(raw, (list, tuple)):
         return None, _DOMAINS_ERROR
     names: list[str] = []

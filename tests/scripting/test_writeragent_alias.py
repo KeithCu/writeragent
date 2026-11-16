@@ -62,8 +62,8 @@ def test_alias_importer_ignores_blanket_writeragent_star():
 
     install_alias_authorizer()
     importer = AliasImporter()
-    starred = ("writeragent.*", "duckdb", "duckdb.*", "plugin.scripting.analysis")
-    with patch("plugin.scripting.sandbox.VENV_AUTHORIZED_IMPORTS", starred), patch(
+    starred = frozenset({"writeragent.*", "plugin.scripting.analysis"})
+    with patch("plugin.scripting.sandbox.PUBLIC_PLUGIN_IMPORTS", starred), patch(
         "importlib.util.find_spec"
     ) as mock_find:
         assert importer.find_spec("writeragent.framework.config") is None
@@ -94,9 +94,10 @@ def test_alias_importer_resolves_allowlisted_module_via_mock():
 
 def test_executor_refuses_aliased_config_and_llm_client():
     from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
-    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
+    from plugin.scripting.sandbox import PUBLIC_PLUGIN_IMPORTS
 
-    executor = LocalPythonExecutor(additional_authorized_imports=list(VENV_AUTHORIZED_IMPORTS))
+    # Explicit "writeragent" keeps _matches_prefix's exact-only root case covered.
+    executor = LocalPythonExecutor(additional_authorized_imports=[*sorted(PUBLIC_PLUGIN_IMPORTS), "writeragent"])
     executor.send_tools({})
     for code in (
         "import writeragent.framework.config",

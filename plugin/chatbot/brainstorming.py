@@ -63,7 +63,7 @@ KEY PRINCIPLES:
 
 HTML RULES (CRITICAL):
 - All reply_to_user answer text must be HTML (see CHAT RESPONSE FORMAT below).
-- brainstorming_save_design_spec content must be a JSON array of HTML strings — no Markdown (#, **, ```).
+- brainstorming_save_design_spec content is HTML — no Markdown (#, **, ```).
 - Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
 - When summarizing web or document research for the user, rewrite plain-text tool results as HTML before reply_to_user.
 
@@ -90,7 +90,7 @@ class SaveDesignSpec(HtmlContentToolBase):
     name: str | None = "brainstorming_save_design_spec"
     description: str = (
         "Save the approved design spec to the active Writer document. "
-        "content must be a JSON array of HTML strings (one fragment per block). No Markdown."
+        "HTML, one fragment per block. No Markdown."
     )
 
 

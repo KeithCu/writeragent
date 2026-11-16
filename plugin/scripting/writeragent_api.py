@@ -1033,7 +1033,7 @@ class _ConditionalFormattingProxy:
     """Proxy for conditional_formatting tools."""
 
     def add(self, range_name: builtins.list[str], operator: str, *, formula1: str | None = None, formula2: str | None = None, style: str | None = None, bg_color: str | None = None, font_color: str | None = None, bold: bool | None = None) -> _Item:
-        """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
+        """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Pass style or inline formatting (bg_color, font_color, bold), not both. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
             range_name (required): Cell range to apply the rule to (e.g. ["A1:D10"]).
@@ -1270,7 +1270,7 @@ class _FormProxy:
         """
         return _result(call_host_tool("form_create", fields=fields))
 
-    def create_control(self, control: str, name: str, *, label: str | None = None, group_name: str | None = None, items: list[str] | None = None, placeholder: str | None = None, default_value: str | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
+    def create_control(self, control: str, name: str, *, label: str | None = None, group_name: str | None = None, items: list[str] | str | None = None, placeholder: str | None = None, default_value: str | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
         """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are shape_fill_fields / shape_upsert targets.
 
         Args:
@@ -1297,7 +1297,7 @@ class _FormProxy:
         """
         return _result(call_host_tool("form_delete_control", index=index, name=name, page=page))
 
-    def edit_control(self, *, index: int | None = None, name: str | None = None, new_name: str | None = None, group_name: str | None = None, label: str | None = None, text: str | None = None, state: int | None = None, items: list[str] | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
+    def edit_control(self, *, index: int | None = None, name: str | None = None, new_name: str | None = None, group_name: str | None = None, label: str | None = None, text: str | None = None, state: int | None = None, items: list[str] | str | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> _Item:
         """Edit a live form widget by name (preferred) or draw-page index from form_list_controls. Set checkbox/radio State (0/1/2 or yes/no) and text-field Text. Writer/Calc/Draw/Impress. When index is omitted, name looks up the control; use new_name to rename. When index is passed, name still renames (older callers).
 
         Args:

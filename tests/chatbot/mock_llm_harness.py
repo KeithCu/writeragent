@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 import threading
 import time
 import unittest
 from http.server import ThreadingHTTPServer
 from typing import Any
+from urllib.parse import urlsplit
 
 try:
     from scripts.mock_llm_server import (
@@ -34,95 +37,202 @@ def mock_config(config: Any, **flags: Any) -> Any:
     return config
 
 
+_CONFIG_BACKUP_SUFFIX = ".mock-session"
+
+
+def _config_backup_path() -> str:
+    from plugin.framework.config import get_config_file_path
+
+    return get_config_file_path() + _CONFIG_BACKUP_SUFFIX
+
+
+def _read_text(path: str) -> str | None:
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as handle:
+            return handle.read()
+    except FileNotFoundError:
+        return None
+
+
+def _save_config_backup() -> None:
+    """Snapshot the exact writeragent.json text before a mock session edits it.
+
+    Storing the raw file text lets stop restore every key the session or live
+    sidebar wrote, including model LRUs, support maps, and flags.
+    """
+    from plugin.framework.config import atomic_write_text, get_config_file_path
+
+    config_path = get_config_file_path()
+    backup_path = _config_backup_path()
+    os.makedirs(os.path.dirname(backup_path) or ".", exist_ok=True)
+    atomic_write_text(backup_path, json.dumps({"config": _read_text(config_path)}), fsync=True)
+
+
+def _still_pointed_at_mock(text: str | None) -> bool:
+    """Return True if *text* still points at an ephemeral 127.0.0.1 mock session.
+
+    Used during crash recovery so a stale backup does not overwrite settings
+    the user intentionally changed after a killed run.
+    """
+    from plugin.framework.config import parse_config_json_text
+
+    if text is None:
+        return False
+    data = parse_config_json_text(text)
+    if data is None:
+        return False
+    endpoint = data.get("endpoint")
+    if not isinstance(endpoint, str) or data.get("text_model") != MOCK_MODEL_ID:
+        return False
+    try:
+        host = urlsplit(endpoint).hostname
+    except ValueError:
+        return False
+    return host == "127.0.0.1"
+
+
+def _restore_config_backup(*, only_if_still_mock: bool) -> bool:
+    """Restore writeragent.json from the sidecar backup and remove the sidecar.
+
+    When *only_if_still_mock* is True (recovery at next start after a killed
+    run), the backup is restored only if the live file still points at the mock;
+    otherwise the stale backup is dropped. Clears the config cache under
+    ``_config_write_lock`` because ``_load`` trusts its cache for 2 s.
+    """
+    import plugin.framework.config as fw_config
+    from plugin.framework.config import atomic_write_text, get_config_file_path
+
+    backup_path = _config_backup_path()
+    backup_text = _read_text(backup_path)
+    if backup_text is None:
+        return False
+    try:
+        payload = json.loads(backup_text)
+        if not isinstance(payload, dict) or "config" not in payload:
+            raise ValueError("missing config key")
+        saved_text = payload["config"]
+        if saved_text is not None and not isinstance(saved_text, str):
+            raise ValueError("invalid config value")
+    except (ValueError, KeyError) as exc:
+        print(
+            f"mock_llm_harness: dropping malformed backup {backup_path} ({exc})",
+            file=sys.stderr,
+        )
+        try:
+            os.remove(backup_path)
+        except FileNotFoundError:
+            pass
+        return False
+    config_path = get_config_file_path()
+    restored = False
+    if not only_if_still_mock or _still_pointed_at_mock(_read_text(config_path)):
+        with fw_config._config_write_lock:
+            if saved_text is None:
+                try:
+                    os.remove(config_path)
+                except FileNotFoundError:
+                    pass
+            else:
+                atomic_write_text(config_path, saved_text, prefix=".writeragent-", fsync=True)
+            fw_config._invalidate_config_cache()
+        restored = True
+    else:
+        print(
+            f"mock_llm_harness: dropping stale backup {backup_path} (config no longer points at mock)",
+            file=sys.stderr,
+        )
+    try:
+        os.remove(backup_path)
+    except FileNotFoundError:
+        pass
+    return restored
+
+
 class MockSidebarSession:
-    """Running mock LLM + saved WriterAgent endpoint/model to restore on close."""
+    """Running mock LLM handle for a live sidebar session."""
 
     def __init__(
         self,
         httpd: ThreadingHTTPServer,
         thread: threading.Thread,
         base_url: str,
-        saved: dict[str, Any],
         config: MockLLMConfig,
     ) -> None:
         self.httpd = httpd
         self.thread = thread
         self.base_url = base_url
-        self.saved = saved
         # Mutate in place for F5/F6/F16 (fail / delay) without restarting soffice.
         self.config = config
 
 
-def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **flags: Any) -> MockSidebarSession:
+def start_mock_sidebar_session(
+    *,
+    delay_ms: int = 20,
+    offline: bool = True,
+    extra_config: dict[str, Any] | None = None,
+    **flags: Any,
+) -> MockSidebarSession:
     """Bind an ephemeral mock and point config at ``writeragent-mock``."""
-    from plugin.framework.client.model_fetcher import get_text_model, set_text_model
-    from plugin.framework.config import (
-        get_api_key_for_endpoint,
-        get_current_endpoint,
-        save,
-        set_api_key_for_endpoint,
-    )
+    from plugin.framework.client.model_fetcher import set_text_model
+    from plugin.framework.config import save
 
     if make_handler_class is None or MockLLMConfig is Any:
         raise RuntimeError("scripts.mock_llm_server is not available in stripped release builds")
 
-    config = MockLLMConfig(delay_ms=delay_ms, offline=offline)
-    mock_config(config, **flags)
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(config))
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    host, port = httpd.server_address[:2]
-    base_url = "http://%s:%s" % (host, port)
+    # Finish a killed run's cleanup before snapshotting, or we would snapshot mock state.
+    _restore_config_backup(only_if_still_mock=True)
+    _save_config_backup()
 
-    saved_stt_provider: Any = None
+    httpd: ThreadingHTTPServer | None = None
+    thread: threading.Thread | None = None
     try:
-        from plugin.framework.config import get_config
+        config = MockLLMConfig(delay_ms=delay_ms, offline=offline)
+        mock_config(config, **flags)
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler_class(config))
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        host, port = httpd.server_address[:2]
+        base_url = "http://%s:%s" % (host, port)
 
-        saved_stt_provider = get_config("audio.stt_provider")
-    except Exception:
-        saved_stt_provider = None
+        updates: dict[str, Any] = {"endpoint": base_url, "audio.stt_provider": "endpoint"}
+        if extra_config:
+            updates.update(extra_config)
+        save(updates)
+        set_text_model(MOCK_MODEL_ID, update_lru=False)
+        # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
+        if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
+            time.sleep(2.1)
+    except BaseException:
+        if httpd is not None:
+            try:
+                httpd.shutdown()
+            except Exception:
+                pass
+            try:
+                httpd.server_close()
+            except Exception:
+                pass
+        if thread is not None:
+            try:
+                thread.join(timeout=2)
+            except Exception:
+                pass
+        _restore_config_backup(only_if_still_mock=False)
+        raise
 
-    saved = {
-        "endpoint": get_current_endpoint(),
-        "text_model": get_text_model(),
-        "api_key": get_api_key_for_endpoint(base_url),
-        "stt_provider": saved_stt_provider,
-    }
-    save({"endpoint": base_url})
-    set_text_model(MOCK_MODEL_ID, update_lru=False)
-    save({"audio.stt_provider": "endpoint"})
-    if not get_api_key_for_endpoint(base_url):
-        set_api_key_for_endpoint(base_url, "mock-key")
-    # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
-    if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
-        time.sleep(2.1)
-    return MockSidebarSession(httpd, thread, base_url, saved, config)
+    return MockSidebarSession(httpd, thread, base_url, config)
 
 
 def stop_mock_sidebar_session(session: MockSidebarSession | None) -> None:
     if session is None:
         return
-    from plugin.framework.client.model_fetcher import set_text_model
-    from plugin.framework.config import save, set_api_key_for_endpoint
-
     try:
         session.httpd.shutdown()
+        session.httpd.server_close()
         session.thread.join(timeout=2)
     except Exception:
         pass
-    saved = session.saved
-    if saved.get("endpoint") is not None:
-        save({"endpoint": saved["endpoint"]})
-    if saved.get("text_model"):
-        set_text_model(saved["text_model"], update_lru=False)
-    if saved.get("stt_provider") is not None:
-        save({"audio.stt_provider": saved["stt_provider"]})
-    elif "stt_provider" in saved:
-        try:
-            save({"audio.stt_provider": "local_whisper"})
-        except Exception:
-            pass
-    set_api_key_for_endpoint(session.base_url, saved.get("api_key") or "")
+    _restore_config_backup(only_if_still_mock=False)
 
 
 def require_send_listener(*, skip_if_missing: bool = True, frame: Any = None, doc: Any = None):

@@ -470,18 +470,14 @@ def test_import_authorized_explicit_alias_without_plugin_entry() -> None:
     assert import_authorized("writeragent.framework.config", ()) is False
 
 
-def test_venv_allowlist_omits_mirrored_plugin_entries_and_keeps_duckdb() -> None:
-    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+def test_public_plugin_imports_gate_aliases() -> None:
+    from plugin.scripting.sandbox import PUBLIC_PLUGIN_IMPORTS, import_authorized
 
-    assert "writeragent.*" not in VENV_AUTHORIZED_IMPORTS
-    assert "duckdb" in VENV_AUTHORIZED_IMPORTS
-    assert "duckdb.*" in VENV_AUTHORIZED_IMPORTS
-    assert "plugin.scripting.duckdb_sql" not in VENV_AUTHORIZED_IMPORTS
-    assert "plugin.vision.venv.vision" not in VENV_AUTHORIZED_IMPORTS
-    for entry in VENV_AUTHORIZED_IMPORTS:
+    assert not any("*" in e for e in PUBLIC_PLUGIN_IMPORTS)
+    for entry in PUBLIC_PLUGIN_IMPORTS:
         if entry.startswith("plugin."):
             mirror = "writeragent." + entry[len("plugin."):]
-            assert mirror not in VENV_AUTHORIZED_IMPORTS
+            assert mirror not in PUBLIC_PLUGIN_IMPORTS
     assert import_authorized("import-not-used", ()) is True
     assert import_authorized("subprocess", ()) is False
     assert import_authorized("writeragent.framework.config", ()) is False
@@ -492,6 +488,36 @@ def test_venv_allowlist_omits_mirrored_plugin_entries_and_keeps_duckdb() -> None
     assert import_authorized("duckdb", ()) is True
     assert import_authorized("duckdb.functional", ()) is True
     assert import_authorized("plugin.scripting.duckdb_sql", ()) is False
+    assert import_authorized("plugin.vision.venv.vision", ()) is False
+
+
+def test_unlisted_packages_pass_default_blocklist() -> None:
+    from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES
+    from plugin.scripting.sandbox import import_authorized
+
+    for name in (
+        "numpy",
+        "pandas.io.formats",
+        "matplotlib.pyplot",
+        "duckdb",
+        "spacy",
+        "json",
+        "copy",
+        "platform",
+        "writeragent",
+    ):
+        assert import_authorized(name, BASE_BUILTIN_MODULES) is True, name
+    assert import_authorized("requests", BASE_BUILTIN_MODULES) is False
+    assert import_authorized("plugin.framework.config", BASE_BUILTIN_MODULES) is False
+
+
+def test_public_plugin_module_children_refused() -> None:
+    from plugin.scripting.sandbox import import_authorized
+
+    assert import_authorized("writeragent.scripting.calc_functions", ()) is True
+    assert import_authorized("plugin.scripting.writeragent_api", ()) is True
+    assert import_authorized("plugin.scripting.calc_functions.anything", ()) is False
+    assert import_authorized("writeragent.scripting.writeragent_namespace.anything", ()) is False
 
 
 def test_import_authorized_intermediate_nodes_rejected() -> None:
@@ -580,22 +606,15 @@ def test_python_candidates_in_bin_dir_handles_oserror(tmp_path, monkeypatch) -> 
 
 
 def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None:
-    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+    from plugin.scripting.sandbox import PUBLIC_PLUGIN_IMPORTS, import_authorized
 
-    for entry in VENV_AUTHORIZED_IMPORTS:
+    for entry in PUBLIC_PLUGIN_IMPORTS:
         if not entry.startswith("plugin."):
             continue
         alias = "writeragent." + entry[len("plugin.") :]
         assert import_authorized(alias, ()) == import_authorized(
             entry, ()
         )
-        if entry.endswith(".*"):
-            prefix = entry[: -2]
-            child = prefix + ".child"
-            alias_child = "writeragent." + child[len("plugin.") :]
-            assert import_authorized(alias_child, ()) == import_authorized(
-                child, ()
-            )
     assert import_authorized("writeragent.vision", ()) is True
     assert import_authorized("plugin.vision", ()) is False
     assert import_authorized("writeragent.scripting.duckdb_sql", ()) is True

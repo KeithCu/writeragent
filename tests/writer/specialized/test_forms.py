@@ -1004,6 +1004,21 @@ def test_form_tools_registered_for_all_doc_types():
             assert ft in names, f"Form tool '{ft}' missing from registry for {doc_type}"
 
 
+def test_form_create_control_items_comma_and_json_array():
+    from types import SimpleNamespace
+    from plugin.framework.tool import prepare_tool_call
+    from plugin.writer.specialized.forms import FormCreateControl, _items_or_error
+
+    tool = FormCreateControl()
+    ctx = SimpleNamespace(doc_type="writer", caller=None)
+    for raw in ("a,b", '["a","b"]'):
+        prep = prepare_tool_call(tool, ctx, "form_create_control", {"control": "combobox", "name": "cb", "items": raw})
+        assert prep.error is None
+        items, err = _items_or_error(prep.kwargs)
+        assert err is None
+        assert items == ["a", "b"]
+
+
 
 
 

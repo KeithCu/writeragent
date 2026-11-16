@@ -320,21 +320,11 @@ _TRACKED_DELETION_HINT = (
 
 
 def parse_non_negative_int(
-    raw: Any, *, name: str = "occurrence", coerce: bool = False
+    raw: Any, *, name: str = "occurrence"
 ) -> tuple[int | None, str | None]:
-    """Validate a non-negative integer parameter, optionally coercing via int()."""
-    # coerce=True normalizes string numbers, floats, and empty strings through int()
-    # for shared occurrence parameters; strict int-only checks reject common model input.
+    """Validate a non-negative integer parameter."""
     if raw is None:
         return None, None
-    if coerce:
-        try:
-            val = int(raw or 0)
-        except (TypeError, ValueError):
-            return None, f"{name} must be a non-negative integer."
-        if val < 0:
-            return None, f"{name} must be a non-negative integer."
-        return val, None
     if type(raw) is not int or raw < 0:
         return None, f"{name} must be a non-negative integer."
     return raw, None
@@ -838,7 +828,7 @@ def occurrence_range_or_error(
     tool parameter in the sentence). Callers add their own top-level fields.
     """
     last_mode = match_modes(text, case_sensitive)[-1]
-    occurrence, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
+    occurrence, occ_err = parse_non_negative_int(raw_occurrence)
     if occ_err:
         return None, make_tool_error(occ_err, code="INVALID_PARAM"), last_mode
     occurrence = 0 if occurrence is None else occurrence

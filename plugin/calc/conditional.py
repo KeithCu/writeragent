@@ -145,8 +145,6 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "Add a conditional formatting rule to a Calc cell range. "
         "Applies a cell style when the condition is met. "
         "Pass style or inline formatting (bg_color, font_color, bold), not both. "
-        "Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, "
-        "LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. "
         "DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; "
         "formula1 may be omitted or empty for those. "
         "Use formula2 for BETWEEN and NOT_BETWEEN."

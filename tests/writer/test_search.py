@@ -220,7 +220,7 @@ def test_search_in_document_max_results_rejects_non_positive(bad_val):
     doc.createSearchDescriptor.assert_not_called()
 
 
-@pytest.mark.parametrize("bad_val", [True, False, "20", 1.5])
+@pytest.mark.parametrize("bad_val", [True, False, "twenty", 1.5])
 def test_search_in_document_max_results_wrong_type_is_rejected_before_execute(bad_val):
     from types import SimpleNamespace
 
@@ -765,7 +765,7 @@ def test_occurrence_range_or_error_payloads():
     # Hit
     mock_found = MagicMock()
     with patch("plugin.writer.search.find_occurrence_range", return_value=(mock_found, MatchMode(True, False))) as mock_find:
-        rng, err, mode = occurrence_range_or_error(doc, "text", "1", case_sensitive=True, subject="test_param")
+        rng, err, mode = occurrence_range_or_error(doc, "text", 1, case_sensitive=True, subject="test_param")
         assert rng is mock_found
         assert err is None
         assert mode == MatchMode(True, False)
@@ -924,16 +924,6 @@ def test_parse_non_negative_int():
     assert parse_non_negative_int("2") == (None, "occurrence must be a non-negative integer.")
     assert parse_non_negative_int(1.0) == (None, "occurrence must be a non-negative integer.")
     assert parse_non_negative_int("") == (None, "occurrence must be a non-negative integer.")
-
-    # With coerce=True: int() coercion allowed for comments, footnotes, page style
-    assert parse_non_negative_int("2", coerce=True) == (2, None)
-    assert parse_non_negative_int(1.0, coerce=True) == (1, None)
-    assert parse_non_negative_int("", coerce=True) == (0, None)
-    assert parse_non_negative_int(0, coerce=True) == (0, None)
-    assert parse_non_negative_int(5, coerce=True) == (5, None)
-    assert parse_non_negative_int(-1, coerce=True) == (None, "occurrence must be a non-negative integer.")
-    assert parse_non_negative_int("-2", coerce=True) == (None, "occurrence must be a non-negative integer.")
-    assert parse_non_negative_int("abc", coerce=True) == (None, "occurrence must be a non-negative integer.")
 
 
 def test_search_in_document_disposed_get_string_propagates():

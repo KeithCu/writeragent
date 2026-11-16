@@ -461,9 +461,9 @@ def test_sheet_move_position_bound_is_count_minus_one():
     ("tool_name", "kwargs"),
     [
         ("sheet_move", {"sheet": "A", "position": True}),
-        ("sheet_create", {"sheet": "New", "position": "2"}),
+        ("sheet_create", {"sheet": "New", "position": "two"}),
         ("sheet_copy", {"source": "A", "new_name": "B", "position": 1.5}),
-        ("sheet_hide", {"sheet": "A", "visible": "false"}),
+        ("sheet_hide", {"sheet": "A", "visible": "notabool"}),
     ],
 )
 def test_sheet_schema_rejects_wrong_types_before_execute(tool_name, kwargs):
