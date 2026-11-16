@@ -713,7 +713,7 @@ def test_shapes_delegation_includes_canvas_in_instructions(
     assert result["code"] == "SPECIALIZED_WORKFLOW_INCOMPLETE"
     instructions = mock_agent_class.call_args.kwargs["instructions"]
     assert "Document canvas (Writer)" in instructions
-    assert "210.0" in instructions
+    assert "21000" in instructions
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     assert any(t.name == "dummy_shape_tool" for t in smol_tools)
 

@@ -116,15 +116,15 @@ def _heuristic_size_hmm(formula: str) -> tuple[int, int]:
 
 class InsertMathDraw(ToolDrawSpecialBase):
     name: str | None = "math_insert"
-    description: str = "Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x, y (100ths of mm). Size is derived from the formula when possible."
+    description: str = "Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x and y. Size is derived from the formula when possible."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "formula_type": {"type": "string", "enum": ["latex", "mathml"], "description": "Whether formula is LaTeX (converted via LO) or MathML."},
             "formula": {"type": "string", "description": "LaTeX or MathML formula text, per formula_type."},
             "page": {"type": "integer", "description": "Zero-based index of the draw page or slide."},
-            "x": {"type": "integer", "description": "X position of the shape (100ths of mm)."},
-            "y": {"type": "integer", "description": "Y position of the shape (100ths of mm)."},
+            "x": {"type": "integer", "description": "X position, 1/100 mm."},
+            "y": {"type": "integer", "description": "Y position, 1/100 mm."},
         },
         "required": ["formula_type", "formula", "page", "x", "y"],
     }

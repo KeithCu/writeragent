@@ -433,11 +433,11 @@ _KNOWN_CHARACTER_PROPERTIES = {
 # Schema metadata only — names come from CLEARABLE_PARA_PROPERTIES (above) so the
 # inspect set and the clear_direct wipe cannot drift.
 _PARA_PROPERTY_SCHEMA = {
-    "ParaTopMargin": {"type": "integer", "description": "Top margin in 1/100th mm (1 inch = 2540)."},
-    "ParaBottomMargin": {"type": "integer", "description": "Bottom margin in 1/100th mm."},
-    "ParaLeftMargin": {"type": "integer", "description": "Left margin in 1/100th mm."},
-    "ParaRightMargin": {"type": "integer", "description": "Right margin in 1/100th mm."},
-    "ParaFirstLineIndent": {"type": "integer", "description": "First line indent in 1/100th mm."},
+    "ParaTopMargin": {"type": "integer", "description": "Top margin, 1/100 mm (1 inch = 2540)."},
+    "ParaBottomMargin": {"type": "integer", "description": "Bottom margin, 1/100 mm."},
+    "ParaLeftMargin": {"type": "integer", "description": "Left margin, 1/100 mm."},
+    "ParaRightMargin": {"type": "integer", "description": "Right margin, 1/100 mm."},
+    "ParaFirstLineIndent": {"type": "integer", "description": "First line indent, 1/100 mm."},
     "ParaAdjust": enum_param(["left", "center", "right", "justify"], "Paragraph alignment: left, center, right, or justify."),
     "ParaBackColor": {"type": "string", "description": "Paragraph background color (hex string). Hex, integer, or -1 / automatic / transparent for automatic or no fill."},
     "ParaKeepTogether": {"type": "boolean", "description": "Keep lines of the paragraph together."},

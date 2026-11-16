@@ -1133,7 +1133,7 @@ class _DrawProxy:
     """Proxy for draw tools."""
 
     def get_deck_info(self) -> _Item:
-        """Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."""
+        """Get presentation metadata: slide count, slide width and height (1/100 mm, the unit shapes use), master slide names, and whether it is an Impress document."""
         return _result(call_host_tool("get_deck_info"))
 
 draw = _DrawProxy()
@@ -1143,14 +1143,14 @@ class _EmbeddedProxy:
     """Proxy for embedded tools."""
 
     def insert(self, object_type: str, *, data: list[Any] | None = None, name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None, case_sensitive: bool | None = None) -> _Item:
-        """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height are 1/100 mm (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
+        """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
 
         Args:
             object_type (required): Embedded object type (Calc spreadsheet only). One of: spreadsheet.
             data (optional): Optional rows of cell values (string, number, or null). Default empty sheet.
             name (optional): Optional container name in getEmbeddedObjects().
-            width (optional): Frame width in 1/100 mm (requires height).
-            height (optional): Frame height in 1/100 mm (requires width).
+            width (optional): Frame width, 1/100 mm (requires height).
+            height (optional): Frame height, 1/100 mm (requires width).
             target (optional): Where to insert the embedded spreadsheet. One of: beginning, end, selection, full_document, search.
             old_content (optional): Text to find and replace if target = 'search'.
             case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
@@ -1281,8 +1281,8 @@ class _FormProxy:
             items (optional): List of options for a combobox or list box.
             placeholder (optional): Placeholder/hint text for text fields.
             default_value (optional): Initial value for text or date fields.
-            width (optional): Width in 100ths of mm (default varies by type).
-            height (optional): Height in 100ths of mm (default varies by type).
+            width (optional): Width, 1/100 mm (default varies by type).
+            height (optional): Height, 1/100 mm (default varies by type).
             page (optional): Draw/Impress 0-based page index (active page if omitted). Ignored in Writer/Calc.
         """
         return _result(call_host_tool("form_create_control", control=control, label=label, name=name, group_name=group_name, items=items, placeholder=placeholder, default_value=default_value, width=width, height=height, page=page))
@@ -1733,14 +1733,14 @@ class _MathProxy:
     """Proxy for math tools."""
 
     def insert(self, formula_type: str, formula: str, page: int, x: int, y: int) -> _Item:
-        """Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x, y (100ths of mm). Size is derived from the formula when possible.
+        """Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x and y. Size is derived from the formula when possible.
 
         Args:
             formula_type (required): Whether formula is LaTeX (converted via LO) or MathML. One of: latex, mathml.
             formula (required): LaTeX or MathML formula text, per formula_type.
             page (required): Zero-based index of the draw page or slide.
-            x (required): X position of the shape (100ths of mm).
-            y (required): Y position of the shape (100ths of mm).
+            x (required): X position, 1/100 mm.
+            y (required): Y position, 1/100 mm.
         """
         return _result(call_host_tool("math_insert", formula_type=formula_type, formula=formula, page=page, x=x, y=y))
 
@@ -2289,7 +2289,7 @@ class _ShapeProxy:
     """Proxy for shape tools."""
 
     def align(self, indices: list[Any], alignment: str, *, page: int | None = None) -> _Item:
-        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
+        """Align multiple shapes on a page to a shared edge or center axis. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             indices (required): Shape indices or Names to align.
@@ -2306,12 +2306,12 @@ class _ShapeProxy:
             end (required): Index or Name of the ending shape.
             page (optional): Page index containing the shapes.
             line_color (optional): Color of the connector line.
-            line_width (optional): Line width (100ths of mm).
+            line_width (optional): Line width, 1/100 mm.
         """
         return _result(call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width))
 
     def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> _Item:
-        """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
+        """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node x/y/width/height: 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
 
         Args:
             nodes (required):
@@ -2332,7 +2332,7 @@ class _ShapeProxy:
         return _result(call_host_tool("shape_delete", index=index, name=name, page=page))
 
     def distribute(self, indices: list[Any], axis: str, *, page: int | None = None) -> _Item:
-        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
+        """Evenly distribute three or more shapes between the first and last along an axis. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             indices (required): Shape indices or Names to distribute.
@@ -2384,15 +2384,15 @@ class _ShapeProxy:
             name (optional): Shape Name. Edit: look up by Name when index is omitted; with index, renames (must be unused on the page). Create: optional unique Name; when omitted a unique Name is assigned and returned as `name`.
             page (optional): 0-based page index (active page if omitted).
             shape_type (optional): Type of shape. Simple aliases (built-in UNO classes): rectangle, round-rectangle, ellipse, text, line, connector. Polygons and symbols: octagon, hexagon, diamond, trapezoid, smiley, heart, sun, moon; stars (star4, star5, star8, star24); arrows and callouts (names with -arrow, -arrow-callout, line-callout-1, etc.); braces and brackets (brace-pair, bracket-pair, left-brace, left-bracket, etc.); other shapes (cube, ring, cloud-callout, lightning, etc.). (required only for action='create').
-            x (optional): X position (100ths of mm) (required only for action='create').
-            y (optional): Y position (100ths of mm) (required only for action='create').
-            width (optional): Width (100ths of mm) (required only for action='create').
-            height (optional): Height (100ths of mm) (required only for action='create').
+            x (optional): X position, 1/100 mm (required only for action='create').
+            y (optional): Y position, 1/100 mm (required only for action='create').
+            width (optional): Width, 1/100 mm (required only for action='create').
+            height (optional): Height, 1/100 mm (required only for action='create').
             text (optional): Text content.
             fill_color (optional): Fill color. Hex (#FF0000) or name (red).
             fill_style (optional): Fill style. One of: solid, transparent, none.
             line_color (optional): Line border color.
-            line_width (optional): Line width (100ths of mm).
+            line_width (optional): Line width, 1/100 mm.
             text_color (optional): Text character color.
             font_size (optional): Optional. Omit for TextFitToSize AUTOFIT (auto-size to the shape box); that is usually correct. Only set a point size when you need a specific fixed size.
             font_name (optional): Font family name.
@@ -2611,7 +2611,7 @@ class _SlideProxy:
         return _result(call_host_tool("slide_list"))
 
     def list_masters(self) -> _Item:
-        """List all master slides (master pages) in the document with name and dimensions."""
+        """List all master slides (master pages) in the document with name and size (1/100 mm)."""
         return _result(call_host_tool("slide_list_masters"))
 
     def move(self, from_page: int, to_page: int) -> _Item:
@@ -2833,7 +2833,7 @@ class _TableProxy:
         return _result(call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index))
 
     def insert(self, rows: int, columns: int, *, data: builtins.list[Any] | None = None, parent: str | None = None, cell: str | None = None, page: int | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None) -> _Item:
-        """Insert a table. Writer: text table at the view cursor (or document end); pass parent + cell to nest inside an existing table cell (inserts at the cell end). Draw/Impress: TableShape; position/size in 1/100 mm. parent/cell are Writer-only. Optional data is a 2D array of cell strings.
+        """Insert a table. Writer: text table at the view cursor (or document end); pass parent + cell to nest inside an existing table cell (inserts at the cell end). Draw/Impress: TableShape. parent/cell are Writer-only. Optional data is a 2D array of cell strings.
 
         Args:
             rows (required): Number of rows.
@@ -2842,10 +2842,10 @@ class _TableProxy:
             parent (optional): Writer: host table name from table_list (requires cell).
             cell (optional): Writer: A1-style host cell (requires parent).
             page (optional): Draw/Impress: 0-based page index (active if omitted).
-            x (optional): Draw/Impress: X in 1/100 mm (default: 3000).
-            y (optional): Draw/Impress: Y in 1/100 mm (default: 4000).
-            width (optional): Draw/Impress: width in 1/100 mm (default: 20000).
-            height (optional): Draw/Impress: height in 1/100 mm (default: 10000).
+            x (optional): Draw/Impress: X position, 1/100 mm (default: 3000).
+            y (optional): Draw/Impress: Y position, 1/100 mm (default: 4000).
+            width (optional): Draw/Impress: width, 1/100 mm (default: 20000).
+            height (optional): Draw/Impress: height, 1/100 mm (default: 10000).
         """
         return _result(call_host_tool("table_insert", rows=rows, columns=columns, data=data, parent=parent, cell=cell, page=page, x=x, y=y, width=width, height=height))
 

@@ -275,9 +275,9 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
             " script that uses shapes) you MUST write one python_run_script with a Python"
             " for-loop that calls wa.shape.upsert(...) before finishing — actually place shapes"
             " on the page. Those shape mutators are not LLM tools. Do not invent JSON geometry,"
-            " return a pasteable script/macro listing, or finish with prose alone. Use page-scale"
-            " HMM sizes: a full-page composite is typically 10000–20000 HMM wide. Width near"
-            " 1900 HMM (~19mm) is a tiny speck and is wrong. shape_get_summary can verify."
+            " return a pasteable script/macro listing, or finish with prose alone. Size the layout"
+            " against the canvas page size given below; a full-page composite spans most of the"
+            " page width. shape_get_summary can verify."
         )
     instructions = (
         f"You are an inner {label} agent with tools for these specialized domains: {domain_list}. "
@@ -337,8 +337,8 @@ class DelegateToolDomains(ToolBase):
         "create or draw. Do venv scripts, symbolic math, and python helpers yourself when "
         "the task does not need those domain tools. Do not pass python in domains — this "
         "agent already has that toolset. Pass domains (list of domain names) and task "
-        "(what the inner agent should accomplish, including that bulk shapes go through "
-        "the script loop at page-scale HMM — typically 10000–20000 HMM wide, never ~1900 HMM / ~19mm speck)."
+        "(what the inner agent should accomplish, including that bulk shapes go through the"
+        " script loop at page scale: a full-page layout is about 10000–20000 wide in 1/100 mm, not ~1900)."
     )
     tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = _PYTHON_DOMAIN

@@ -46,8 +46,8 @@ def test_format_shapes_canvas_context_writer_standard_page():
     s = format_shapes_canvas_context(doc)
     assert "Writer" in s
     assert "Standard" in s
-    assert "210.0" in s
-    assert "297.0" in s
+    assert "21000 x 29700" in s
+    assert "2000/2000/2500/2500" in s
 
 
 def test_writer_page_style_uses_view_cursor_text():
@@ -105,7 +105,7 @@ def test_writer_page_style_uses_view_cursor_text():
             20_000,
             2,  # 1-based slide number -> index 1
             5,
-            ["Document canvas (Draw):", "280.0", "200.0", "index 1", "5 page"],
+            ["Document canvas (Draw):", "28000 x 20000", "index 1", "5 page"],
             id="draw",
         ),
         pytest.param(
@@ -114,7 +114,7 @@ def test_writer_page_style_uses_view_cursor_text():
             19_050,
             1,
             3,
-            ["Document canvas (Impress):", "254.0", "190.5"],
+            ["Document canvas (Impress):", "25400 x 19050"],
             id="impress",
         ),
     ],
@@ -207,8 +207,7 @@ def test_format_shapes_canvas_context_calc_active_sheet():
         s = format_shapes_canvas_context(doc)
     assert "Calc" in s
     assert "Sheet2" in s
-    assert "300.0" in s
-    assert "200.0" in s
+    assert "30000 x 20000" in s
     assert "draw-page" in s
     assert "index 1 (0-based)" in s
     assert "1/100 mm" in s
@@ -243,8 +242,29 @@ def test_format_shapes_canvas_context_calc_zero_size_draw_page():
     assert "no fixed page size" in s
     assert "index 1 (0-based)" in s
     assert "Sheet2" in s
-    assert "1/100 mm" in s
-    assert "0.0 x 0.0" not in s
+    assert "0 x 0" not in s
+
+
+def test_draw_canvas_reports_page_size_in_shape_units():
+    doc = MagicMock()
+    doc.supportsService = lambda svc: svc == "com.sun.star.drawing.DrawingDocument"
+
+    page = MagicMock()
+    page.Width = 15875
+    page.Height = 10000
+    page.getNumber = lambda: 1
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex = MagicMock(return_value=page)
+    doc.getDrawPages.return_value = pages
+
+    ctrl = MagicMock()
+    ctrl.getCurrentPage.return_value = page
+    doc.getCurrentController.return_value = ctrl
+
+    s = format_shapes_canvas_context(doc)
+    assert "15875 x 10000" in s
 
 
 def test_format_shapes_canvas_context_none_doc():

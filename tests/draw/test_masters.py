@@ -41,8 +41,8 @@ def test_slide_master_list():
     assert res["status"] == "ok"
     assert res["count"] == 2
     assert res["master_slides"] == [
-        {"index": 0, "name": "DefaultMaster", "width_mm": 210, "height_mm": 297},
-        {"index": 1, "name": "", "width_mm": 280, "height_mm": 210},
+        {"index": 0, "name": "DefaultMaster", "width": 21000, "height": 29700},
+        {"index": 1, "name": "", "width": 28000, "height": 21000},
     ]
 
 

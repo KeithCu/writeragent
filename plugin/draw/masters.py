@@ -72,7 +72,7 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
     """List all master slides in a Draw/Impress document."""
 
     name: str | None = "slide_list_masters"
-    description: str = "List all master slides (master pages) in the document with name and dimensions."
+    description: str = "List all master slides (master pages) in the document with name and size (1/100 mm)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -81,8 +81,8 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
             result.append({
                 "index": i,
                 "name": name,
-                "width_mm": m.Width // 100,
-                "height_mm": m.Height // 100,
+                "width": m.Width,
+                "height": m.Height,
             })
         return {"status": "ok", "master_slides": result, "count": len(result)}
 

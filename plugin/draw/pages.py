@@ -403,7 +403,7 @@ class GetPresentationInfo(ToolBase):
     """Get presentation metadata."""
 
     name: str | None = "get_deck_info"
-    description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
+    description: str = "Get presentation metadata: slide count, slide width and height (1/100 mm, the unit shapes use), master slide names, and whether it is an Impress document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
@@ -414,13 +414,7 @@ class GetPresentationInfo(ToolBase):
         count = pages.getCount()
 
         # Dimensions from first page
-        width_mm = 0
-        height_mm = 0
-        if count > 0:
-            p = pages.getByIndex(0)
-            size = page_size(p)
-            if size:
-                width_mm, height_mm = size[0] // 100, size[1] // 100
+        width, height = (page_size(pages.getByIndex(0)) or (0, 0)) if count > 0 else (0, 0)
 
         # Master pages
         masters = [name or ("Master_%d" % i) for i, _m, name in iter_masters(doc)]
@@ -428,7 +422,7 @@ class GetPresentationInfo(ToolBase):
         bridge = DrawBridge(doc)
         active_idx = bridge.active_or_ctx_index(None, active_page_index=ctx.active_page_index)
 
-        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress(doc), "active_page_index": active_idx}
+        return {"status": "ok", "slide_count": count, "width": width, "height": height, "master_slides": masters, "is_impress": is_impress(doc), "active_page_index": active_idx}
 
 
 class SetActivePage(ToolBase):
