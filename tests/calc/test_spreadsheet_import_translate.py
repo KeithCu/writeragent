@@ -572,6 +572,7 @@ _DB_CRIT_SINGLE = [["Tree", "Height"], ["Apple", ">15"]]
         pytest.param("=NORMSINV(0.5)", [], pytest.approx(0.0, abs=1e-6), id="normsinv"),
         pytest.param("=PERMUT(5; 2)", [], 20.0, id="permut"),
         pytest.param("=POISSON(2; 2; 0)", [], pytest.approx(0.2706706, abs=1e-6), id="poisson"),
+        pytest.param("=POISSON(2; 3)", [], pytest.approx(0.4231901, abs=1e-6), id="poisson_two_args_cumulative"),
         pytest.param("=STANDARDIZE(42; 40; 1.5)", [], pytest.approx(1.3333333, abs=1e-6), id="standardize"),
         pytest.param("=TDIST(1.96; 60; 2)", [], pytest.approx(0.0546449, abs=1e-6), id="tdist"),
         pytest.param("=TINV(0.05; 60)", [], pytest.approx(2.0002978, abs=1e-6), id="tinv"),

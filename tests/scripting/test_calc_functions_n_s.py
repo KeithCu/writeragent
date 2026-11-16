@@ -521,6 +521,9 @@ def test_poisson_text_cumulative_flag():
     assert math.isclose(calc.poisson(2, 2, ""), pmf)
     assert math.isclose(calc.poisson(2, 2, None), pmf)
     assert math.isclose(calc.poisson(2, 2, "1"), cdf)
+    assert math.isclose(calc.poisson(2, 2, "TRUE"), cdf)
+    assert math.isclose(calc.poisson(2, 3), 0.4231900811268435)
+    assert math.isclose(calc.poisson(2, 3, None), 0.22404180765538775)
     with pytest.raises(ValueError):
         calc.poisson(2, 2, "abc")
 

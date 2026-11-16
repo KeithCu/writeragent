@@ -18,7 +18,6 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
-    as_bool_flag,
     as_nonzero,
     coupon_schedule,
     date_to_serial,
@@ -314,7 +313,7 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     try:
         european = as_nonzero(method)
     except (ValueError, TypeError, OverflowError):
-        # Calc shows #VALUE! for a text flag; this returns NaN (#NUM!), pinned by test_days360_method_is_numeric.
+        # Calc shows #VALUE! for text other than TRUE/FALSE; this returns NaN (#NUM!), pinned by test_days360_method_is_numeric.
         return float("nan")
     return days360_dates(sd, ed, european=european)
 
@@ -651,7 +650,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     try:
         is_full = as_nonzero(full_precision)
     except (ValueError, TypeError, OverflowError):
-        # Calc shows #VALUE! for a text flag; this returns NaN (#NUM!).
+        # Calc shows #VALUE! for text other than TRUE/FALSE; this returns NaN (#NUM!).
         return float("nan")
 
     if not math.isfinite(res):
@@ -675,16 +674,6 @@ def even(n: Any) -> float:
     return float(math.floor(v / 2.0) * 2)
 
 
-def _flag_default_true(val: Any) -> bool:
-    # EXPONDIST and GAMMADIST read a blank flag as cumulative. Calc's GetBool
-    # reads a blank cell or an empty argument as 0, the density (ScExpDist,
-    # ScGammaDist in interpr3.cxx). Kept until that change is approved;
-    # test_d_h_bad_inputs expondist-blank-flag pins it.
-    if val is None or val == "":
-        return True
-    return as_nonzero(val)
-
-
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
     st = scipy_stats()
     if st is None:
@@ -692,8 +681,9 @@ def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
 
     x_val = float(x)
     lam = float(lambda_)
-    # A text flag raises ValueError (#VALUE!), as GetBool does in Calc.
-    cum = _flag_default_true(c)
+    # ScExpDist reads the flag with GetDouble (interpr3.cxx), so a blank cell is
+    # 0, the density. An omitted flag keeps the default 1 (cumulative).
+    cum = as_nonzero(c)
     # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
     # Excel EXPONDIST is #NUM! for both.
     if x_val < 0 or lam <= 0:
@@ -758,7 +748,10 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
         elem = arr.ndim == 2 and crit.ndim == 2 and crit.shape == arr.shape
         if not (row or col or elem):
             return "#VALUE!"
-        mask = np.asarray([as_nonzero(x) for x in crit.ravel()])
+        # The include array is a matrix, not a GetBool flag: Calc reads its
+        # elements with GetDoubleArray (ScFilter, interpr1.cxx), so the text TRUE
+        # is an error there. float() keeps text other than numbers an error.
+        mask = np.asarray([x is not None and x != "" and bool(float(x)) for x in crit.ravel()])
         out = arr[mask] if row else arr[:, mask] if col else arr[mask.reshape(arr.shape)]
     except (ValueError, TypeError, IndexError, OverflowError):
         return "#VALUE!"
@@ -877,8 +870,9 @@ def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
     x_val = float(x)
     a = float(alpha)
     b = float(beta)
-    # A text flag raises ValueError (#VALUE!), as GetBool does in Calc.
-    cum = _flag_default_true(c)
+    # ScGammaDist reads a fourth argument with GetBool (interpr3.cxx), so a blank
+    # cell is 0, the density. Only an omitted flag is cumulative.
+    cum = as_nonzero(c)
     # st.gamma.pdf of a negative x is 0. Excel is #NUM!.
     if x_val < 0 or a <= 0 or b <= 0:
         return float("nan")
@@ -950,8 +944,8 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
             new_x_arr = np.asarray(new_x, dtype=float).ravel()
 
         y_log = np.log(y)
-        # GROWTH reads const the way TREND does; both are CalculateTrendGrowth (interpr5.cxx) with GetBool. A blank, 0, "0" or the text FALSE is false, and TRUE keeps the intercept. as_bool_flag is that reading.
-        use_const = as_bool_flag(const)
+        # GROWTH reads const the way TREND does; both are CalculateTrendGrowth (interpr5.cxx) with GetBool. A blank, 0, "0" or the text FALSE is false, and TRUE keeps the intercept. as_nonzero is that reading.
+        use_const = as_nonzero(const)
         if use_const:
             coeffs = np.polyfit(x, y_log, 1)
             res = np.exp(np.polyval(coeffs, new_x_arr))

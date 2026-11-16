@@ -19,6 +19,7 @@ from plugin.scripting.venv.calc_functions_a_c import (
 from plugin.scripting.venv.calc_functions_d_h import _dollar_frac
 from plugin.scripting.venv.calc_functions_t_z import _find_match_index
 from plugin.scripting.venv.calc_functions_util import (
+    as_nonzero,
     build_holiday_set,
     calc_function,
     collect_a_values,
@@ -512,7 +513,34 @@ def test_orient_columns():
     arr_2x1 = np.zeros((2, 1))
     assert orient_columns(arr_2x1, 2, axis=1).shape == (1, 2)
 
-    # a 0-d array is returned unchanged
+    # a scalar (0-d) is one 1×1 sample on either axis
     arr_0d = np.array(5)
-    assert orient_columns(arr_0d, 1, axis=0).shape == ()
+    assert orient_columns(arr_0d, 1, axis=0).shape == (1, 1)
+    assert orient_columns(arr_0d, 1, axis=1).shape == (1, 1)
+
+
+@pytest.mark.parametrize(
+    ("val", "expected"),
+    [
+        (None, False),
+        ("", False),
+        (" FALSE", False),
+        ("False", False),
+        ("0", False),
+        (0.0, False),
+        ("TRUE", True),
+        ("true", True),
+        ("1", True),
+        (2, True),
+        (True, True),
+    ],
+)
+def test_as_nonzero_reads_calc_getbool(val, expected):
+    assert as_nonzero(val) is expected
+
+
+@pytest.mark.parametrize("val", ["yes", "WAHR", "abc"])
+def test_as_nonzero_other_text_raises(val):
+    with pytest.raises(ValueError):
+        as_nonzero(val)
 

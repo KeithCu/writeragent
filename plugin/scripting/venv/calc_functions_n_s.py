@@ -503,7 +503,7 @@ def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> fl
     return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
 
-def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
+def poisson(x: Any, mean: Any, cumulative: Any = True) -> float:
     # int(float(+inf)) raises OverflowError. The old except missed it,
     # so POISSON(+inf) crashed. Excel is #NUM!.
     k = int(float(x))
@@ -514,7 +514,7 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
     if st is None:
         return float("nan")
 
-    # ScPoissonDist: cumulative uses GetBool (GetDouble() != 0) rather than Python truthiness.
+    # ScPoissonDist: the two-argument form is cumulative (nParamCount != 3 || GetBool()); a blank third argument is the mass function.
     if as_nonzero(cumulative):
         return float(st.poisson.cdf(k, m))
     return float(st.poisson.pmf(k, m))

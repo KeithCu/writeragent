@@ -603,7 +603,7 @@ FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "PEARSON": _calc("pearson", 2, 2),
     "PERCENTRANK": _calc("percentrank", 2, 3),
     "PERMUT": _calc("permut", 2, 2),
-    "POISSON": _arity("POISSON", 2, 3, lambda a: f"calc.poisson({a[0]}, {a[1]}, {a[2] if len(a) > 2 else 'False'})"),
+    "POISSON": _calc("poisson", 2, 3),
     "PROB": _calc("prob", 3, 4),
     "STANDARDIZE": _calc("standardize", 3, 3),
     "TDIST": _calc("tdist", 3, 3),
