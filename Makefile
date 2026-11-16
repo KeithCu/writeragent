@@ -244,7 +244,7 @@ help:
 	@echo ""
 	@echo "Benchmarks (prompt optimization / eval):"
 	@echo "  make eval-deps              uv pip install dspy-ai (after uv sync)"
-	@echo "  make eval-ab                A/B prompt eval (SUITE=calc|writer|draw|all|string|lo, REPEATS=3, MODELS=..., TASKS=...)"
+	@echo "  make eval-ab                A/B prompt eval (SUITE=calc|writer|draw|all|string|lo, REPEATS=3, MODELS=..., TASKS=..., OUT_DIR=/tmp/wa-eval-ab)"
 	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
 	@echo "  make run_eval-smoke         Quick smoke: one model, one example (gpt-oss-120b:nitro; needs a key)"
 	@echo "  make run_eval-lo-scripted   Headless LO + scripted student (no API key)"
@@ -968,7 +968,8 @@ eval-ab:
 		$(if $(strip $(SUITE)),--suite "$(SUITE)",) \
 		$(if $(strip $(MODELS)),--models "$(MODELS)",) \
 		$(if $(strip $(REPEATS)),--repeats "$(REPEATS)",) \
-		$(if $(strip $(TASKS)),--tasks "$(TASKS)",)
+		$(if $(strip $(TASKS)),--tasks "$(TASKS)",) \
+		$(if $(strip $(OUT_DIR)),--out-dir "$(OUT_DIR)",)
 
 run_eval:
 	"$(PYTHON)" scripts/benchmark.py $(EVAL_ARGS)
