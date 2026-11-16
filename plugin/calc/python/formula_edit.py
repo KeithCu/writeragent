@@ -329,13 +329,12 @@ def _format_qualified_range(range_addr: str, *, separator: str) -> str:
             sheet, rest = cand_sheet.strip("'\""), cand_rest
     if sheet is None or is_cell_token(sheet.replace("$", "")):
         return addr
-    clean_sheet = sheet.replace("$", "")
-    needs_quotes = not _is_sheet_identifier(clean_sheet) if separator == "." else (bool(clean_sheet) and not _is_sheet_identifier(clean_sheet))
+    needs_quotes = not _is_sheet_identifier(sheet) if separator == "." else (bool(sheet) and not _is_sheet_identifier(sheet))
     dollar = "$" if addr.startswith("$") else ""
     if needs_quotes:
-        s = clean_sheet.replace("''", "'").replace("'", "''")
+        s = sheet.replace("''", "'").replace("'", "''")
         return f"{dollar}'{s}'{separator}{rest}"
-    return f"{dollar}{clean_sheet}{separator}{rest}"
+    return f"{dollar}{sheet}{separator}{rest}"
 
 
 @deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))
