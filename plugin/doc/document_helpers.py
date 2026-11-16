@@ -125,10 +125,9 @@ def _writer_anchor_note(shape: Any) -> str:
     Uses a paragraph excerpt rather than a paragraph index because computing
     a paragraph index requires walking the entire document body on every send.
     """
-    anchor_type = uno_read(lambda: shape.getPropertyValue("AnchorType"), None)
-    if anchor_type is None:
+    kind = uno_read(lambda: str(shape.getPropertyValue("AnchorType").value), "")
+    if not kind:
         return ""
-    kind = str(getattr(anchor_type, "value", anchor_type))
     if kind == "AT_PAGE":
         page_no = uno_read(lambda: int(shape.getPropertyValue("AnchorPageNo")), 0)
         return " anchor: AT_PAGE page %d" % page_no if page_no > 0 else " anchor: AT_PAGE"
@@ -163,7 +162,16 @@ def _writer_objects_section(model: Any) -> str:
             lines.append("[... more objects not listed; page_get_objects lists the objects on one page]")
         return "\n\nObjects (index, kind, name, anchor):\n" + "\n".join(lines)
 
+    # One uno_read around the whole build: a non-disposal failure (e.g.
+    # getDrawPage raising) drops only this section instead of falling into the
+    # outer fallback and losing the text, while disposal still escapes as
+    # DocumentDisposedError.
     return uno_read(build, "")
+
+
+def _writer_snapshot(model: Any, body: str) -> str:
+    """Append the draw-page object list and Math OLE hint after a Writer excerpt."""
+    return _with_math_ole_chat_hint(model, body + _writer_objects_section(model))
 
 
 def _with_math_ole_chat_hint(model: Any, body: str) -> str:
@@ -305,10 +313,9 @@ def get_document_context_for_chat(
                 # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
                 end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
-                return _with_math_ole_chat_hint(
+                return _writer_snapshot(
                     model,
-                    ("Document length: %d characters.\n\n%s%s%s" % (shown_len, start_excerpt, middle_note, end_excerpt))
-                    + _writer_objects_section(model),
+                    "Document length: %d characters.\n\n%s%s%s" % (shown_len, start_excerpt, middle_note, end_excerpt),
                 )
 
             take = min(doc_len, max_context)
@@ -317,10 +324,9 @@ def get_document_context_for_chat(
                 excerpt += "\n\n[... document truncated ...]"
             # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
             excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "")
-            return _with_math_ole_chat_hint(
+            return _writer_snapshot(
                 model,
-                ("Document length: %d characters.\n\n%s" % (shown_len, excerpt))
-                + _writer_objects_section(model),
+                "Document length: %d characters.\n\n%s" % (shown_len, excerpt),
             )
 
         return ""

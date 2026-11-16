@@ -560,5 +560,3 @@ def test_shape_summary_line_carries_name_geometry_and_text():
 
     unnamed = _Shape("com.sun.star.drawing.RectangleShape", name="")
     assert '""' not in shape_summary_line("0", unnamed)
-
-

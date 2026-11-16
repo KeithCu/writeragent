@@ -971,6 +971,3 @@ def test_writer_anchor_note_reports_at_page_number():
         anchor_page=3,
     )
     assert "page 3" in _writer_anchor_note(shape)
-
-
-

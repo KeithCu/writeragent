@@ -191,8 +191,9 @@ def shape_kind(shape: Any) -> str:
 
     clsid = uno_read(lambda: str(shape.CLSID or "").lower(), "")
     if clsid:
-        # Lazy imports: these are large modules, and plugin.calc.charts is
-        # already loaded at startup by tool registration.
+        # lazy: calc.charts and writer.math pull in calc/writer modules that
+        # import back into plugin.draw / plugin.doc; both are already loaded by
+        # tool registration.
         from plugin.calc.charts import _is_chart_clsid
         from plugin.writer.math.math_mml_convert import MATH_CLSID
 
@@ -205,7 +206,11 @@ def shape_kind(shape: Any) -> str:
 
 
 def shape_summary_line(address: int | str, shape: Any) -> str:
-    """One chat-context object line shared by Draw/Impress and Writer; unreadable fields are omitted."""
+    """One chat-context object line shared by Draw/Impress and Writer; unreadable fields are omitted.
+
+    The address and Name are what ``shape_delete`` and ``chart_delete`` resolve;
+    keep them in that form.
+    """
     line = "- [%s] %s" % (address, shape_kind(shape))
 
     def read_name() -> str:

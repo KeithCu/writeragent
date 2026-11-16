@@ -1416,4 +1416,3 @@ def test_get_draw_context_for_chat_lists_shape_names():
 
     out = _chat_ctx([("0", shape)])
     assert '"Box"' in out
-
