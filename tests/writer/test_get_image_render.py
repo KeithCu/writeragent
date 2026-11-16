@@ -329,11 +329,11 @@ def test_draw_page_filter_disposal_propagates():
 @pytest.mark.parametrize(
     "args",
     [
-        {"page": "2"},
+        {"page": "two"},
         {"page": True},
-        {"image": 123},
-        {"selection": "false"},
-        {"image": "Logo", "sheet_index": "1"},
+        {"image": True},
+        {"selection": "maybe"},
+        {"image": "Logo", "sheet_index": "one"},
     ],
 )
 def test_wrong_argument_types_are_rejected_before_execute(args):

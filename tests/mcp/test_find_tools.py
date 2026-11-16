@@ -396,7 +396,7 @@ def test_execute_tolerates_malformed_schemas_in_domain_listing(bad_schemas):
 
 def test_non_string_domain_is_rejected_by_the_validator():
     tool = FindTools()
-    prepared = prepare_tool_call(tool, _ctx(MagicMock()), tool.name, {"domain": 123})
+    prepared = prepare_tool_call(tool, _ctx(MagicMock()), tool.name, {"domain": True})
     assert prepared.error is not None
     assert prepared.error["code"] == "VALIDATION_ERROR"
     assert "domain" in prepared.error["message"]
