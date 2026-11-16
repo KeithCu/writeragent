@@ -32,7 +32,7 @@ from plugin.framework.uno_bootstrap import set_alias_authorizer
 # CrossHair patches this module attribute to shrink basename preconditions.
 _DEAL_BASENAME_LEN = DEAL_MAX_PATH
 
-# --- Import policy: blocklists and the alias list (read through import_authorized) ---
+# --- Import policy: blocklists and the public plugin modules (read through import_authorized) ---
 
 # LibreHarper bundles this module for wrap_command_for_sandbox and does not
 # bundle smolagents. The fallback keeps `import plugin.scripting.sandbox` working.
@@ -69,121 +69,35 @@ except (ImportError, ModuleNotFoundError):
 
 
 # Policy overview: docs/enabling_numpy_in_libreoffice.md (Import blocklist).
-# VENV_AUTHORIZED_IMPORTS is checked before the blocklist (import_authorized), so a
-# row admits a name even when a block entry covers it. Two kinds of row decide
-# anything: the plugin.scripting.* rows, the only way a plugin.* name passes the
-# "plugin" block, and the alias gate (writeragent.X passes only when plugin.X or the
-# alias itself is listed). The stdlib and third-party rows sit on no blocklist and
-# decide nothing today; they stay listed (plugin/scripting/AGENTS.md).
-# No writeragent.* wildcard: _compile_allowlist skips it.
-# pandas, numpy, PIL and matplotlib can read and write files (DataFrame.to_csv,
+# Stdlib and third-party packages need no entry; anything not on a blocklist below is
+# allowed. pandas, numpy, PIL and matplotlib can read and write files (DataFrame.to_csv,
 # plt.savefig). That is accepted: compute callers are presumed trusted, and the
-# container plus a scrubbed environment is the boundary. If callers become
-# untrusted, narrow these rows to the submodules formulas need and block the rest.
-_VENV_STDLIB: tuple[str, ...] = (
-    "copy",
-    "csv",
-    "dataclasses",
-    "decimal",
-    "enum",
-    "fractions",
-    "functools",
-    "json",
-    "operator",
-    "platform",
-    "pprint",
-    "string",
-    "textwrap",
-    "typing",
-)
+# container plus a scrubbed environment is the boundary. If callers become untrusted,
+# block those packages or their file-writing submodules.
 
-_VENV_PACKAGES: tuple[str, ...] = (
-    "numpy",
-    "numpy.*",
-    "pandas",
-    "pandas.*",
-    "scipy",
-    "scipy.*",
-    "sklearn",
-    "sklearn.*",
-    "matplotlib",
-    "matplotlib.*",
-    "seaborn",
-    "seaborn.*",
-    "sympy",
-    "sympy.*",
-    "statsmodels",
-    "statsmodels.*",
-    "networkx",
-    "networkx.*",
-    "PIL",
-    "PIL.*",
-    "data_profiling",
-    "data_profiling.*",
-    "pandas_montecarlo",
-    "pandas_montecarlo.*",
-    "cv2",
-    # webview / PyQt / jedi are editor-only. They are probed in a one-shot
-    # subprocess (venv_diagnostics), not imported into the warm =PY() worker.
-    "writeragent",
+# DANGEROUS_MODULES blocks `plugin`, so these are the only `plugin.*` modules a script
+# can import. Each entry also opens its `writeragent.X` spelling, and every other
+# `writeragent.X` alias is refused, so scripts cannot reach host modules such as
+# `plugin.framework.config`. `import writeragent` maps to `plugin.scripting.writeragent_api`.
+# Entries are exact names; a wildcard or blanket `writeragent.*` would open every plugin
+# module. The two `writeragent.*` entries are aliases whose plugin module stays blocked.
+PUBLIC_PLUGIN_IMPORTS: frozenset[str] = frozenset((
     "plugin.scripting.writeragent_api",
-    "plugin.scripting.writeragent_api.*",
     "plugin.scripting.host_tool_call",
     "plugin.scripting.writeragent_namespace",
-    "plugin.scripting.writeragent_namespace.*",
     "plugin.scripting.payload_codec",
     "plugin.scripting.analysis",
-    "css_inline",
-    "latex2mathml",
-    "latex2mathml.*",
     "plugin.scripting.viz",
     "plugin.scripting.symbolic",
     "plugin.scripting.units",
     "plugin.scripting.text_analytics",  # trusted text analytics (spaCy) for Run Python Script + direct imports in user scripts
-    "spacy",
-    "spacy.*",
-    "textdescriptives",
-    "spacytextblob",
-    "spacytextblob.*",
-    "pint",
-    "pint.*",
-    # duckdb is on no blocklist, so scripts reach the raw C module
-    # (connect/execute/df) with or without these rows; AGENTS.md keeps them.
-    # session_duckdb() still returns GuardedDuckDBConnection for trusted SQL.
-    "duckdb",
-    "duckdb.*",
-    "sentence_transformers",
-    "sentence_transformers.*",
-    "transformers",
-    "transformers.*",
-    "yfinance",
-    "yfinance.*",
-    "pandas_ta",
-    "pandas_ta.*",
-    "quantstats",
-    "quantstats.*",
-    "pypfopt",
-    "pypfopt.*",
     "plugin.scripting.quant",
     "plugin.scripting.optimize",
     "plugin.scripting.forecast",
     "plugin.scripting.calc_functions",
-    "plugin.scripting.calc_functions.*",
-)
-
-# Aliases a script may import whose plugin module stays off the list, so only
-# the writeragent.* spelling passes the "plugin" block.
-# vision: ``from writeragent.vision import run_vision`` (not plugin.vision.venv.vision).
-# duckdb_sql: SQL templates; test_sandbox pins that ``plugin.scripting.duckdb_sql``
-# itself stays refused.
-_ALIAS_ONLY_IMPORTS: tuple[str, ...] = (
-    "writeragent.vision",
-    "writeragent.scripting.duckdb_sql",
-)
-
-# writeragent.X is authorized by import_authorized via _alias_real_module
-# (plugin.X). Do not copy plugin entries into this tuple.
-VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = _VENV_STDLIB + _VENV_PACKAGES + _ALIAS_ONLY_IMPORTS
+    "writeragent.vision",  # ``from writeragent.vision import run_vision`` (not plugin.vision.venv.vision)
+    "writeragent.scripting.duckdb_sql",  # SQL templates; ``plugin.scripting.duckdb_sql`` itself stays refused
+))
 
 
 def _alias_real_module(name: str) -> str | None:
@@ -193,25 +107,6 @@ def _alias_real_module(name: str) -> str | None:
     if name.startswith("writeragent."):
         return "plugin" + name[len("writeragent"):]
     return None
-
-
-@functools.lru_cache(maxsize=128)
-def _compile_allowlist(authorized_imports: tuple[str, ...]) -> tuple[frozenset[str], tuple[str, ...]]:
-    exact: set[str] = set()
-    wildcards: list[str] = []
-    for entry in authorized_imports:
-        if entry == "writeragent.*" or entry == "*":
-            # writeragent.* would authorize every alias, including plugin.framework.config,
-            # and "*" would compile to prefix "" and match every name, including os.
-            # Skip both; explicit writeragent.X and name.* entries still compile.
-            continue
-        elif entry.endswith(".*"):
-            prefix = entry[:-2]
-            exact.add(prefix)
-            wildcards.append(prefix + ".")
-        else:
-            exact.add(entry)
-    return frozenset(exact), tuple(wildcards)
 
 
 def _matches_prefix(
@@ -251,7 +146,7 @@ def import_authorized(
 
     Default-allow with a short explicit blocklist. Order:
     1. explicit extras (authorized_imports or SANDBOX_EXTRA_MODULES) win;
-    2. public alias list (VENV_AUTHORIZED_IMPORTS) is the alias gate;
+    2. public plugin modules (PUBLIC_PLUGIN_IMPORTS) pass the plugin block and the alias gate;
     3. non-public writeragent.* alias is rejected;
     4. otherwise rejected if name matches active blocklist.
     """
@@ -263,9 +158,8 @@ def import_authorized(
     for n in (name, real):
         if n and _matches_prefix(n, extras):
             return True
-    exact, wildcards = _compile_allowlist(VENV_AUTHORIZED_IMPORTS)
     for n in (name, real):
-        if n and (n in exact or any(n.startswith(p) for p in wildcards)):
+        if n and n in PUBLIC_PLUGIN_IMPORTS:
             return True
     if real is not None:
         return False
@@ -420,7 +314,7 @@ def alias_has_authorized_child(fullname: str) -> bool:
     else:
         other = ""
     other_prefix = (other + ".") if other else ""
-    for entry in (*VENV_AUTHORIZED_IMPORTS, *active_extra_imports()):
+    for entry in (*PUBLIC_PLUGIN_IMPORTS, *active_extra_imports()):
         if entry.endswith(".*"):
             entry = entry[:-2]
         if entry.startswith(prefix) or (other_prefix and entry.startswith(other_prefix)):
