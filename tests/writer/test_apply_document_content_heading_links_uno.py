@@ -49,7 +49,7 @@ def _jump_to_mark(ctx, doc, mark_name: str) -> None:
 def _view_cursor_paragraph_text(doc) -> str:
     """Return the trimmed paragraph text at the view cursor."""
     vc = doc.getCurrentController().getViewCursor()
-    cur = doc.getText().createTextCursorByRange(vc.getStart())
+    cur = vc.getText().createTextCursorByRange(vc.getStart())
     cur.gotoStartOfParagraph(False)
     cur.gotoEndOfParagraph(True)
     return str(cur.getString() or "").strip()
@@ -169,3 +169,68 @@ def test_tagless_dollar_math_vs_currency_search_uno(ctx, doc) -> None:
     assert "(formatting preserved)" in str(res_curr.get("message", ""))
     assert doc.getEmbeddedObjects().getCount() == 1
     assert "costs $5 and $7" in text.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_heading_links_resolve_table_frame_and_variants_uno(ctx, doc) -> None:
+    """Bare links resolve against table-cell and frame headings, case-insensitively, and by a__ id."""
+    text = doc.getText()
+    text.setString("")
+
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    text.insertTextContent(text.getEnd(), table, False)
+    cell = table.getCellByName("A1")
+    cell.setString("Cell Heading")
+    ccur = cell.createTextCursor()
+    ccur.gotoStart(False)
+    ccur.gotoEnd(True)
+    ccur.setPropertyValue("ParaStyleName", "Heading 2")
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    frame.setName("HeadingFrame")
+    frame.setSize(uno.createUnoStruct("com.sun.star.awt.Size", 5000, 2000))
+    text.insertTextContent(text.getEnd(), frame, False)
+    ftext = frame.getText()
+    ftext.setString("Frame Heading")
+    fcur = ftext.createTextCursor()
+    fcur.gotoStart(False)
+    fcur.gotoEnd(True)
+    fcur.setPropertyValue("ParaStyleName", "Heading 3")
+
+    bcur = text.createTextCursor()
+    bcur.gotoEnd(False)
+    text.insertControlCharacter(bcur, 0, False)
+    text.insertString(bcur, "Body Heading", False)
+    bcur.gotoStartOfParagraph(True)
+    bcur.setPropertyValue("ParaStyleName", "Heading 1")
+
+    tool = ApplyDocumentContent()
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    res = tool.execute(
+        tool_ctx,
+        target="end",
+        content=(
+            '<p><a href="#Cell Heading">cell</a> '
+            '<a href="#Frame Heading">frame</a> '
+            '<a href="#body heading">case</a> '
+            '<a href="#a__Body_Heading">id</a></p>'
+        ),
+    )
+    assert res.get("status") == "ok", res
+    assert not res.get("warnings"), res
+
+    portion_urls = [url for _text, url in _read_portion_urls(doc)]
+    assert portion_urls == [
+        "#Cell Heading|outline",
+        "#Frame Heading|outline",
+        "#Body Heading|outline",
+        "#Body Heading|outline",
+    ], portion_urls
+
+    _jump_to_mark(ctx, doc, "Cell Heading|outline")
+    assert _view_cursor_paragraph_text(doc) == "Cell Heading"
+
+    _jump_to_mark(ctx, doc, "Frame Heading|outline")
+    assert _view_cursor_paragraph_text(doc) == "Frame Heading"
