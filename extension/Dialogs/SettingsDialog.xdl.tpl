@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE dlg:window PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "dialog.dtd">
 <dlg:window xmlns:dlg="http://openoffice.org/2000/dialog" xmlns:script="http://openoffice.org/2000/script"
-  dlg:id="SettingsDialog" dlg:left="100" dlg:top="50" dlg:width="440" dlg:height="218"
+  dlg:id="SettingsDialog" dlg:left="100" dlg:top="50" dlg:width="440" dlg:height="304"
   dlg:closeable="true" dlg:moveable="true" dlg:resizeable="false" dlg:title="Settings"
   dlg:page="1">
  <dlg:bulletinboard>
@@ -77,7 +77,7 @@
        Cancel is button-type cancel, so execute() is false, Escape dismisses,
        and nothing is written. Bottom-right corner aligned:
        right margin 8 to match dialog content, width 60, gap 8. -->
-  <dlg:button dlg:id="btn_ok" dlg:left="304" dlg:top="190" dlg:width="60" dlg:height="16" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>
-  <dlg:button dlg:id="btn_cancel" dlg:left="372" dlg:top="190" dlg:width="60" dlg:height="16" dlg:tabstop="true" dlg:value="Cancel" dlg:button-type="cancel"/>
+  <dlg:button dlg:id="btn_ok" dlg:left="304" dlg:top="276" dlg:width="60" dlg:height="16" dlg:value="OK" dlg:button-type="ok" dlg:default="true"/>
+  <dlg:button dlg:id="btn_cancel" dlg:left="372" dlg:top="276" dlg:width="60" dlg:height="16" dlg:tabstop="true" dlg:value="Cancel" dlg:button-type="cancel"/>
  </dlg:bulletinboard>
 </dlg:window>

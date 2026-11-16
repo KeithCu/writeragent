@@ -246,6 +246,15 @@ def test_settings_explicit_tooltip_overrides_helper(tmp_path: Path) -> None:
     assert "hlp_sample__plain" not in tips
 
 
+def test_mcp_client_section_is_on_the_mcp_tab(tmp_path: Path) -> None:
+    """config_inline: mcp puts the MCP Client fields on the MCP tab under their own divider."""
+    ids = _control_ids(_generate_settings_xdl(tmp_path)[0])
+    for field in ("enabled", "confirm_calls", "name", "url", "token_keychain", "token"):
+        assert f"mcp_client__{field}" in ids
+    assert "mcp_client__servers" not in ids
+    assert "sep_mcp_client" in ids
+
+
 @pytest.mark.parametrize("bad_widget", ["list_detail", "nope"])
 def test_unknown_widget_rejected_by_settings_and_standalone(tmp_path: Path, bad_widget: str) -> None:
     """Settings and standalone generators reject unsupported or unknown widgets."""

@@ -1,0 +1,68 @@
+name: mcp_client
+title: MCP Client (external servers for the sidebar chat)
+requires: [config, events]
+
+# Shown on the Settings dialog's MCP tab under its own divider, after the
+# MCP server and agent backend settings. Code: plugin/mcp/client.py.
+config_inline: mcp
+
+config:
+  enabled:
+    type: boolean
+    default: false
+    widget: checkbox
+    label: Use this MCP server in chat
+    helper: Sidebar chat only (external_mcp tool); never exposed to WriterAgent's MCP server or to scripts.
+    inline: true
+    width: 168
+  confirm_calls:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Ask before each remote tool call
+    helper: Shows Accept / Change / Reject before every call_tool. Turn off only for servers whose tools just read.
+    # Same row as enabled (inline above), to its right.
+    x: 195
+    width: 235
+  name:
+    type: string
+    default: ""
+    widget: text
+    label: Name
+    helper: Short label the model uses for this server, e.g. home.
+    inline: true
+    width: 100
+  url:
+    type: string
+    default: ""
+    widget: text
+    label: Server URL
+    helper: Streamable-HTTP MCP endpoint, e.g. http://localhost:8000/mcp
+    label_x: 215
+    label_width: 42
+    x: 260
+    width: 170
+  token_keychain:
+    type: string
+    default: ""
+    widget: text
+    label: Keychain item
+    helper: macOS Keychain item holding the bearer token. Preferred over the token field.
+    inline: true
+    width: 100
+  token:
+    type: string
+    default: ""
+    widget: password
+    label: Token
+    helper: Bearer token saved in plain text in writeragent.json. Used only when Keychain item is empty.
+    label_x: 215
+    label_width: 85
+    x: 302
+    width: 128
+  # More servers, as a JSON list of {name, url, token_keychain or token,
+  # enabled} in writeragent.json. See docs/mcp-client.md.
+  servers:
+    type: list
+    default: []
+    internal: true
