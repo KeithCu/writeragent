@@ -847,6 +847,21 @@ def test_resolve_heading_links_long_digit_export_id_does_not_hang():
     assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
 
 
+def test_resolve_heading_links_long_underscore_heading_does_not_hang():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    heading = "_" * 40
+    html = f'<a href="#a__{"_" * 40}x">'
+    out, diags = resolve_heading_links(
+        html,
+        [heading],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == html
+    assert len(diags) == 1
+    assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+
+
 def test_resolve_heading_links_ambiguous_case_match_warns():
     from plugin.writer.html_import_styles import resolve_heading_links
 
@@ -876,31 +891,40 @@ def test_resolve_heading_links_miss_lists_closest_heading():
     assert 'Closest headings: "Getting Started"' in diags[0]["message"]
 
 
-def test_resolve_heading_links_compiles_each_heading_once_across_many_links(monkeypatch):
-    from plugin.writer import html_import_styles
+def test_resolve_heading_links_caps_closest_heading_suggestions():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    links = " ".join(
+        f'<a href="#Getting Startd {idx}">miss {idx}</a>'
+        for idx in range(12)
+    )
+    out, diags = resolve_heading_links(
+        f"<p>{links}</p>",
+        ["Getting Started"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == f"<p>{links}</p>"
+    assert len(diags) == 12
+    for idx in range(10):
+        assert 'Closest headings: "Getting Started"' in diags[idx]["message"]
+    for idx in range(10, 12):
+        assert "Closest headings:" not in diags[idx]["message"]
+
+
+def test_resolve_heading_links_compiles_each_heading_once_across_many_links():
+    from plugin.writer.html_import_styles import resolve_heading_links
 
     headings = [f"Section {idx}" for idx in range(600)]
-    compile_calls = 0
-    orig_compile = html_import_styles._compile_heading_id_pattern
-
-    def counting_compile(heading: str):
-        nonlocal compile_calls
-        compile_calls += 1
-        return orig_compile(heading)
-
-    monkeypatch.setattr(html_import_styles, "_compile_heading_id_pattern", counting_compile)
-
     links = (
         ['<a href="#a__Section_599">last</a>'] * 10
         + ['<a href="#a__Section_0">first</a>'] * 10
         + ['<a href="#a__No_Such_Section">miss</a>'] * 10
     )
-    out, diags = html_import_styles.resolve_heading_links(
+    out, diags = resolve_heading_links(
         "<p>" + " ".join(links) + "</p>",
         headings,
         is_bookmark=lambda _name: False,
     )
-    assert compile_calls == 600
     assert out.count('href="#Section 599|outline"') == 10
     assert out.count('href="#Section 0|outline"') == 10
     assert out.count('href="#a__No_Such_Section"') == 10

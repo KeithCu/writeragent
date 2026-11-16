@@ -814,10 +814,16 @@ def has_bare_fragment_links(content: str) -> bool:
 # pattern from the heading keeps ASCII letters/digits exact and lets other characters
 # match either "_" or themselves, avoiding cross-script collisions (e.g. Cyrillic).
 def _heading_id_pattern(heading: str) -> str:
-    return "".join(
-        re.escape(ch) if ch.isascii() and ch.isalnum() else f"(?:_|{re.escape(ch)})"
-        for ch in heading
-    )
+    parts: list[str] = []
+    for ch in heading:
+        escaped = re.escape(ch)
+        # Emit a plain "_" when ch is "_" (or escapes to "_") so runs of underscores
+        # never become "(?:_|_)" and trigger exponential regex backtracking on misses.
+        if (ch.isascii() and ch.isalnum()) or escaped == "_":
+            parts.append(escaped)
+        else:
+            parts.append(f"(?:_|{escaped})")
+    return "".join(parts)
 
 
 def _compile_heading_id_pattern(heading: str) -> re.Pattern[str]:
@@ -830,6 +836,7 @@ _LINK_TARGET_ADVICE = (
     'Use the exact heading text, href="#Heading text|outline", or give the target element '
     "an id and link to that."
 )
+_MAX_CLOSEST_HEADING_SUGGESTIONS = 10
 
 
 def resolve_heading_links(
@@ -867,6 +874,7 @@ def resolve_heading_links(
 
     diagnostics: list[Diagnostic] = []
     seen_missing: set[str] = set()
+    closest_lookups = 0
     match_cache: dict[str, tuple[str | None, list[str]]] = {}
     sorted_headings: list[str] | None = None
     heading_patterns: list[tuple[str, re.Pattern[str]]] | None = None
@@ -923,6 +931,7 @@ def resolve_heading_links(
     # to navigate. Adding '|outline' directs navigation to SwDoc::GotoOutline
     # (sw/source/core/doc/docnum.cxx), matching headings by outline text.
     def _replace_link(m: re.Match[str]) -> str:
+        nonlocal closest_lookups
         prefix = m.group(1)
         quote = m.group(2)
         frag = m.group(3)
@@ -948,7 +957,10 @@ def resolve_heading_links(
                     f"{_LINK_TARGET_ADVICE}"
                 )
             else:
-                closest = similar_names(name, _get_sorted_headings())
+                closest: list[str] = []
+                if closest_lookups < _MAX_CLOSEST_HEADING_SUGGESTIONS:
+                    closest_lookups += 1
+                    closest = similar_names(name, _get_sorted_headings())
                 closest_suffix = (
                     " Closest headings: " + ", ".join(f'"{h}"' for h in closest) + "."
                     if closest
