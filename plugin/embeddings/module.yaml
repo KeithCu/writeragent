@@ -1,5 +1,5 @@
 name: embeddings
-title: Vector Search
+title: Search
 requires: [config]
 
 actions:

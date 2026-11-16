@@ -33,6 +33,7 @@ from typing import Any, cast
 from plugin.chatbot.settings_fields import (
     build_module_field_specs,
     changed_config_values,
+    parse_json_setting,
     spec_save_key,
     stored_select_value,
 )
@@ -321,6 +322,9 @@ def apply_settings_result(ctx: Any, result: dict[str, Any], field_specs: list[di
             if not sanitized:
                 continue
             val = sanitized
+
+        if spec.get("type") == "json":
+            val = parse_json_setting(save_key, val)
 
         pending[save_key] = val
         if val and save_key in _LRU_FOR_KEY:

@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, NamedTuple, cast
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from plugin.framework.send_cancellation import SendCancellation
+    from plugin.framework.send_cancellation import ApprovalCallback, SendCancellation
 
 from plugin.framework.errors import (
     SuggestedCall,
@@ -122,7 +122,7 @@ class ToolContext:
     active_page_index: int | None
     status_callback: Callable[[str], None] | None
     append_thinking_callback: Callable[[str], None] | None
-    approval_callback: Callable[[str], bool] | None
+    approval_callback: ApprovalCallback | None
     chat_append_callback: Callable[[str], None] | None
     set_active_domain_callback: Callable[[str | None], None] | None
     active_domain: str | None

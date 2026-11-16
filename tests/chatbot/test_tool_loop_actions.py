@@ -334,7 +334,7 @@ def test_web_research_approval_missing_queue_does_not_run_search():
 
 
 def test_external_mcp_gets_the_approval_step_without_web_research_prompting():
-    """external_mcp asks per mcp_client.confirm_calls, so it needs the callback even when web research prompting is off."""
+    """external_mcp decides from server trust and readOnlyHint, so it needs the callback even when web research prompting is off."""
     host = FakeHost()
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     registry, old_main = _install_fake_main_registry()
@@ -346,6 +346,41 @@ def test_external_mcp_gets_the_approval_step_without_web_research_prompting():
         _restore_main(old_main)
     assert called_ctx.approval_callback is not None
     assert called_ctx.chat_append_callback is not None
+
+
+def test_web_research_asks_after_external_mcp_result_in_same_turn():
+    from plugin.chatbot.tool_loop_actions import TurnController
+
+    host = FakeHost()
+    turn = TurnController(session=MagicMock())
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.get_config", return_value=False):
+            execute_fn("external_mcp", {"action": "call_tool", "tool": "x"}, MagicMock(), MagicMock(), captured_turn=turn)
+            execute_fn("web_research", {"query": "test"}, MagicMock(), MagicMock(), captured_turn=turn)
+            web_ctx = registry.execute.call_args[0][1]
+    finally:
+        _restore_main(old_main)
+    assert web_ctx.approval_callback is not None
+
+
+def test_external_mcp_taint_does_not_carry_to_next_turn():
+    from plugin.chatbot.tool_loop_actions import TurnController
+
+    host = FakeHost()
+    turn1 = TurnController(session=MagicMock())
+    turn2 = TurnController(session=MagicMock())
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.get_config", return_value=False):
+            execute_fn("external_mcp", {"action": "call_tool", "tool": "x"}, MagicMock(), MagicMock(), captured_turn=turn1)
+            execute_fn("web_research", {"query": "test"}, MagicMock(), MagicMock(), captured_turn=turn2)
+            web_ctx = registry.execute.call_args[0][1]
+    finally:
+        _restore_main(old_main)
+    assert web_ctx.approval_callback is None
 
 
 def test_execute_fn_reraises_disposed_document():

@@ -28,6 +28,7 @@ SETTINGS_TAB_MODULE_ORDER = (
     "chatbot",
     "embeddings",
     "mcp",
+    "mcp_client",
     "scripting",
 )
 

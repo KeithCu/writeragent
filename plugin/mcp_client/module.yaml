@@ -1,12 +1,11 @@
 name: mcp_client
-title: MCP Client (external servers for the sidebar chat)
+title: Integrations
 requires: [config, events]
 
-# Shown on the Settings dialog's MCP tab under its own divider, after the
-# MCP server and agent backend settings. Code: plugin/mcp/client.py.
-config_inline: mcp
-
 config:
+  _sep_mcp_servers:
+    widget: separator
+    label: MCP servers for the sidebar chat
   enabled:
     type: boolean
     default: false
@@ -15,13 +14,12 @@ config:
     helper: Sidebar chat only (external_mcp tool); never exposed to WriterAgent's MCP server or to scripts.
     inline: true
     width: 168
-  confirm_calls:
+  trusted:
     type: boolean
-    default: true
+    default: false
     widget: checkbox
-    label: Ask before each remote tool call
-    helper: Shows Accept / Change / Reject before every call_tool. Turn off only for servers whose tools just read.
-    # Same row as enabled (inline above), to its right.
+    label: Trust its read-only tools (no prompt)
+    helper: Tools the server marks readOnlyHint run without Accept / Change / Reject; every other call still asks
     x: 195
     width: 235
   name:
@@ -46,7 +44,7 @@ config:
     type: string
     default: ""
     widget: text
-    label: Keychain item
+    label: Keychain item (macOS)
     helper: macOS Keychain item holding the bearer token. Preferred over the token field.
     inline: true
     width: 100
@@ -60,9 +58,15 @@ config:
     label_width: 85
     x: 302
     width: 128
-  # More servers, as a JSON list of {name, url, token_keychain or token,
-  # enabled} in writeragent.json. See docs/mcp-client.md.
   servers:
-    type: list
-    default: []
-    internal: true
+    type: dict
+    default: {}
+    widget: textarea
+    label: "More servers (JSON object keyed by server name):"
+    helper: "Accepted keys per entry: url, headers, enabled, timeout, connect_timeout, tools.include, tools.exclude, trust (full/untrusted), token, token_keychain."
+    label_above: true
+    label_x: 8
+    label_width: 422
+    x: 8
+    width: 422
+    height: 90

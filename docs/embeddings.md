@@ -1,6 +1,6 @@
 # Cross-file search (embeddings and hybrid retrieval)
 
-> **Status (2026-06):** **Shipped** — unified **`corpus.db`** + sqlite-vec (schema v3) with **hybrid FTS + semantic search** (RRF fusion). Default embedding model: **`paraphrase-multilingual-MiniLM-L12-v2`**. Cross-file search is **off by default**; enable **Embeddings + FTS** in **Settings → Vector Search**.
+> **Status (2026-06):** **Shipped** — unified **`corpus.db`** + sqlite-vec (schema v3) with **hybrid FTS + semantic search** (RRF fusion). Default embedding model: **`paraphrase-multilingual-MiniLM-L12-v2`**. Cross-file search is **off by default**; enable **Embeddings + FTS** in **Settings → Search**.
 
 **Related:** [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) · [scripting/numpy-domains.md](scripting/numpy-domains.md) · [chat/multi-document-dev-plan.md](chat/multi-document-dev-plan.md) · [scripting/cython-extension.md](scripting/cython-extension.md)
 
@@ -34,7 +34,7 @@ The index lives beside your documents (not in the LibreOffice profile):
 ### Turning it on
 
 1. **Settings → Python** — set **Python venv path** and install packages (see [Venv setup](#local-embedders-mvp) and [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md)).
-2. **Settings → Vector Search** — set **Cross-file search** to **Embeddings + FTS** ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)).
+2. **Settings → Search** — set **Cross-file search** to **Embeddings + FTS** ([`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml)).
 3. Optional: change **Embedding Model** or enable **Enable cross-file rerank** (second-stage cross-encoder; off by default).
 
 The first search may return **“index building in the background — retry shortly.”** Background indexing catches up within minutes.
@@ -218,7 +218,7 @@ Implementation: [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embedd
 
 ## Settings reference
 
-From [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) (**Vector Search** tab):
+From [`plugin/embeddings/module.yaml`](../plugin/embeddings/module.yaml) (**Search** tab):
 
 | Config key | UI label | Default | Notes |
 |------------|----------|---------|-------|
@@ -707,7 +707,7 @@ Cross-file hybrid search is **shipped** (schema v3 `corpus.db`, `research_search
 
 ## Appendix A: LlamaIndex backend {#llamaindex-option}
 
-**LlamaIndex** is an alternative, optional backend for cross-file search (FTS + embeddings) under **Settings → Vector Search → Cross-file search → LlamaIndex** (`folder_search_mode="llama_index"`).
+**LlamaIndex** is an alternative, optional backend for cross-file search (FTS + embeddings) under **Settings → Search → Cross-file search → LlamaIndex** (`folder_search_mode="llama_index"`).
 
 **Why it exists:** the default **`hybrid`** backend is a lean, hand-rolled sqlite-vec + FTS5 + vendored RRF stack. LlamaIndex is the path to **stock retrieval composition** — `QueryFusionRetriever`, `SentenceTransformerRerank`, `IngestionPipeline`, metadata filters, sub-question engines — without growing a parallel custom framework in `plugin/embeddings/venv/`. If you plan to invest in retrieval quality beyond “good enough RRF,” LlamaIndex is the intended integration surface.
 
@@ -824,7 +824,7 @@ Query expansion is **not on the roadmap** — see [Deferred / low priority](#lla
 
 To evaluate and compare backends on the **same** `corpus.db`:
 
-1. Open **Settings → Vector Search → Cross-file search** and toggle between `hybrid` and `llama_index`.
+1. Open **Settings → Search → Cross-file search** and toggle between `hybrid` and `llama_index`.
 2. Run folder routing eval:
    ```bash
    HF_HUB_OFFLINE=1 .venv/bin/python scripts/eval_folder_search_routing.py --folder ~/Desktop/Writing --mode all
@@ -925,7 +925,7 @@ These are the reasons to **keep** LlamaIndex after Phase 1 — capabilities the 
 
 ## Appendix B: Zvec backend {#zvec-backend}
 
-**zvec** (Alibaba in-process vector database, C++ with PyBind11 bindings) is a selectable alternative backend for cross-file search under **Settings → Vector Search → Zvec (experimental)** (`folder_search_mode="zvec"`). Requires `pip install zvec` in the embeddings venv.
+**zvec** (Alibaba in-process vector database, C++ with PyBind11 bindings) is a selectable alternative backend for cross-file search under **Settings → Search → Zvec (experimental)** (`folder_search_mode="zvec"`). Requires `pip install zvec` in the embeddings venv.
 
 **Why it exists:** the default **`hybrid`** path is a hand-rolled sqlite-vec + FTS5 + vendored RRF stack — you own schema sync, hybrid glue, incremental state, and alignment repair. **LlamaIndex** ([Appendix A](#llamaindex-option)) bets on a *retrieval framework* atop the same `corpus.db`. **Zvec** bets on replacing the *storage and hybrid execution engine itself* with a purpose-built embedded DB for dense + sparse vectors + native FTS + hybrid queries in one engine. It is the other major “get a better vector database than custom sqlite glue” path.
 
