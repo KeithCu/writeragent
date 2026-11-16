@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
+from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel, TranslationResult
 from plugin.calc.spreadsheet_import.translate import translate_formula
 from plugin.calc.spreadsheet_import.vectorize import detect_vectorized_columns, is_elementwise_code
 
 
-def _translate_model(model: SheetModel) -> dict[str, object]:
+def _translate_model(model: SheetModel) -> dict[str, TranslationResult | None]:
     return {
         addr: translate_formula(rec.formula, cell_addr=addr, functions_only=True)
         for addr, rec in sorted(model.cells.items())
@@ -38,7 +38,7 @@ def test_detect_vectorized_columns():
     }
     model = SheetModel(sheet_name="Sheet1", used_range="A1:B6", cells=cells)
     translations = _translate_model(model)
-    runs = detect_vectorized_columns(model, translations)  # type: ignore[arg-type]
+    runs = detect_vectorized_columns(model, translations)
     assert len(runs) == 2
     assert runs[0].cells == ["B1", "B2", "B3"]
     assert runs[0].column == "A1:A3"
@@ -78,7 +78,18 @@ def test_detect_skips_columns_one_shared_py_cannot_compute():
     }
     model = SheetModel(sheet_name="Sheet1", used_range="A1:K3", cells=cells)
     translations = _translate_model(model)
-    assert detect_vectorized_columns(model, translations) == []  # type: ignore[arg-type]
+    assert detect_vectorized_columns(model, translations) == []
+
+
+def test_detect_skips_same_column_recurrence():
+    cells = {
+        "B1": CellRecord(address="B1", type="constant", value=100, formula=None, number_format=None),
+        "B2": CellRecord(address="B2", type="formula", value=105, formula="=ROUND(B1*1.05;2)", number_format=None),
+        "B3": CellRecord(address="B3", type="formula", value=110.25, formula="=ROUND(B2*1.05;2)", number_format=None),
+        "B4": CellRecord(address="B4", type="formula", value=115.76, formula="=ROUND(B3*1.05;2)", number_format=None),
+    }
+    model = SheetModel(sheet_name="Sheet1", used_range="B1:B4", cells=cells)
+    assert detect_vectorized_columns(model, _translate_model(model)) == []
 
 
 @pytest.mark.parametrize(

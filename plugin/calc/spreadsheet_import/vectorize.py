@@ -111,20 +111,24 @@ def is_elementwise_code(code: str) -> bool:
     return True
 
 
-def _single_numeric_ref(model: SheetModel, translation: TranslationResult) -> tuple[int, int] | None:
-    if not (translation.ok and translation.code and translation.data_ranges and len(translation.data_ranges) == 1):
+def _single_numeric_ref(model: SheetModel, translation: TranslationResult | None) -> tuple[int, int, str] | None:
+    if translation is None or not (translation.ok and translation.code and translation.data_ranges and len(translation.data_ranges) == 1):
         return None
     ref = translation.data_ranges[0]
+    # A range or window shifts by a different amount on each row, and another sheet's
+    # values are not in the model so they cannot be checked as numbers.
     if ":" in ref or split_sheet_prefix(ref)[0] is not None:
         return None
     # Check model.cells before parse_address so a named range (e.g. PRICES)
     # returns None instead of hitting parse_address's column-letter contract.
+    # One text or blank cell would make numpy fail for the whole shared =PY column.
     record = model.cells.get(ref)
     if record is None or isinstance(record.value, bool) or not isinstance(record.value, (int, float)):
         return None
     if not is_elementwise_code(translation.code):
         return None
-    return parse_address(ref)
+    ref_col, ref_row = parse_address(ref)
+    return ref_col, ref_row, translation.code
 
 
 def detect_vectorized_columns(
@@ -148,21 +152,17 @@ def detect_vectorized_columns(
             runs.append(VectorRun(cells=list(current_cells), code=vec_code, column=col_range))
 
     for addr in sorted(translations, key=parse_address):
-        translation = translations[addr]
-        if translation is None:
-            _flush()
-            current_cells = []
-            current_key = None
-            continue
-        ref_pos = _single_numeric_ref(model, translation)
-        if ref_pos is None or translation.code is None:
-            _flush()
-            current_cells = []
-            current_key = None
-            continue
+        ref_info = _single_numeric_ref(model, translations[addr])
         col, row = parse_address(addr)
-        ref_col, ref_row = ref_pos
-        key = (col, translation.code, ref_col, ref_row - row)
+        # Skip cells that cannot share a vector =PY, including same-column recurrences
+        # (e.g. =ROUND(B1*1.05;2) in B2:B4) where reading the column range creates a circular ref.
+        if ref_info is None or ref_info[0] == col:
+            _flush()
+            current_cells = []
+            current_key = None
+            continue
+        ref_col, ref_row, code = ref_info
+        key = (col, code, ref_col, ref_row - row)
         if current_cells and key == current_key and row == last_row + 1:
             current_cells.append(addr)
         else:

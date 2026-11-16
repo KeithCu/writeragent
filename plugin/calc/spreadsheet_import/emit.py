@@ -107,6 +107,7 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool, sheet_bo
             else:
                 _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")
         except Exception:
+            # Per-cell emit failure (e.g. range_clip / PyFormula) must not abort the sheet.
             log.exception("build_converted_output_model: cell %s failed", addr)
             _pass_through(addr, record, "EMIT_ERROR")
 

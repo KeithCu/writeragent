@@ -186,7 +186,7 @@ def test_ingest_precedents_skip_other_sheets_and_text():
     assert model.cells["A1"].precedents == ["B1"]
     assert model.cells["B1"].precedents == ["C1"]
     assert model.cells["C1"].precedents == ["A1"]
-    assert model.cells["D1"].precedents == ["A1", "B2"] or model.cells["D1"].precedents == ["A1"]  # B2 is out of range
+    assert model.cells["D1"].precedents == ["A1"]
     assert model.cells["E1"].precedents == ["A1"]
     assert model.cells["F1"].precedents == ["D1"]
     assert model.cells["G1"].precedents == ["A1", "B1"]
