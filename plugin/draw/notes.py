@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.draw.base import ToolDrawSpeakerNotesBase
+from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawSpeakerNotesBase
 from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.framework.errors import uno_read
@@ -23,7 +23,7 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
 
     name: str | None = "slide_get_notes"
     description: str = "Read speaker notes from an Impress slide. Returns the notes text."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = DrawBridge(ctx.doc)
@@ -39,7 +39,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     description: str = "Set or replace speaker notes on an Impress slide."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"text": {"type": "string", "description": "Speaker notes text."}, "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "append": {"type": "boolean", "description": "Append to existing notes instead of replacing (default: false)."}},
+        "properties": {"text": {"type": "string", "description": "Speaker notes text."}, "page": DRAW_PAGE_PROPERTY, "append": {"type": "boolean", "description": "Append to existing notes instead of replacing (default: false)."}},
         "required": ["text"],
     }
     is_mutation: bool | None = True

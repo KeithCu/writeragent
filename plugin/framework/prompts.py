@@ -141,11 +141,23 @@ def python_orchestrator_routing_line(*, delegate_tool: str = DELEGATE_SUBAGENT_T
     )
 
 
-# Brief hint for gateway tool JSON schemas (see SPECIALIZED_TASK_RULES in system prompt).
-# Parent Nemotron Super rewrote "make it look like a wizard" into a generate-new
-# task; the specialist then omitted source_image. Schema + task rules must
-# keep the user's edit wording and name source_image='selection'.
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "Plain-language instructions for the sub-agent: what to do and where. For edit/change/restyle of an existing or selected image, instruct the images sub-agent to call image_generate(source_image='selection') and keep the user's wording so img2img replaces the graphic in place."
+# image_generate edits the selected graphic whenever one is selected ('selection' explicitly,
+# or omitted while a graphic is selected; ImageGenerate.execute). What code cannot recover is
+# the user's edit wording, or a delete-then-generate.
+IMAGE_EDIT_TASK_RULE: str = (
+    "To edit, change, or restyle an existing or selected image, delegate domain=images and keep the user's "
+    "edit wording in task (for example 'make it look like a wizard'); the images sub-agent then replaces "
+    "that picture in place, while a generate-new paraphrase inserts a new one."
+)
+IMAGE_EDIT_TOOL_RULE: str = (
+    "To edit, change, or restyle the selected image, call image_generate with source_image='selection' and the "
+    "user's edit wording (for example 'make it look like a wizard'); it replaces that picture in place, "
+    "while deleting it and generating a new one inserts a different picture."
+)
+
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = (
+    f"Plain-language instructions for the sub-agent: what to do and where. {IMAGE_EDIT_TASK_RULE}"
+)
 
 # Later tool calls read the live document directly; echoing modified content
 # back into chat history wastes context and corrupts links on round-trip retypes.
@@ -164,10 +176,7 @@ SHAPE_UNITS_RULE = "Shape x, y, width, height and line widths are whole numbers 
 # Must stay a single line (delegation templates are one line; tests assert no newlines).
 SPECIALIZED_TASK_RULES = (
     "Write `task` in plain language as instructions for the sub-agent: what to do and where. "
-    "When the user wants to edit, change, or restyle an existing or selected image, "
-    "the task must instruct the images sub-agent to call image_generate(source_image='selection') and keep the "
-    "user's wording (for example 'make it look like a wizard') so img2img replaces "
-    "the graphic in place. "
+    f"{IMAGE_EDIT_TASK_RULE} "
     "For data already in the document, name where it is (heading, TOC entry text, "
     "cell range, Draw page and shape name) in task and let the sub-agent read and edit it there; "
     "do not paste rows, values, or links read from the document into task. "
@@ -267,19 +276,11 @@ def build_specialized_sub_agent_instructions(
 def images_specialized_sub_agent_hint() -> str:
     """Smol sub-agent instructions suffix for delegate_to_subagent (domain=\"images\").
 
-    Edit/change/restyle of an existing or selected image must go through
-    ``image_generate(source_image='selection')``. That path reads the
-    selection and replaces that graphic in place, so it stays in the
-    same frame. A prompt-only generate (after ``image_delete`` or not)
-    creates a new image instead of img2img.
+    Steers the images sub-agent via ``IMAGE_EDIT_TOOL_RULE`` so it keeps the user's
+    edit wording and avoids deleting and regenerating a new picture.
     """
     return (
-        " To edit, change, or restyle an existing or selected image"
-        " (for example 'make it look like a wizard'), call image_generate"
-        " with source_image='selection'."
-        " That reads the selected pixels and replaces that picture in place, so the"
-        " graphic stays in the same frame."
-        " Discover local image files with image_list_nearby_files before"
+        f" {IMAGE_EDIT_TOOL_RULE} Discover local image files with image_list_nearby_files before"
         " image_insert when the user refers to a photo in the folder."
     )
 
@@ -495,10 +496,10 @@ WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill �
 - search jumps to specific text.
 - Reserve get_content(scope='full') for short documents or a deliberate full read."""
 
-WRITER_IMAGES_RULES = """IMAGES:
+WRITER_IMAGES_RULES = f"""IMAGES:
 - Image tools live in the 'images' domain: image_generate, image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm, width_px/height_px, and hyperlink_url), image_download, image_crop_and_highlight.
   Extract text and structure (layout, tables) from images with image_extract_structure in the 'vision' domain; inserts a high-quality representation into the document.
-- To edit, change, or restyle an existing or selected image, delegate domain=images with a task that instructs image_generate(source_image='selection') and keeps the user's wording (e.g. 'make it look like a wizard'). That runs img2img and replaces the graphic in place. A generate-new paraphrase inserts a new graphic.
+- {IMAGE_EDIT_TASK_RULE}
 - Writer letterhead logos: image_insert(target='header'|'footer'). A different first page needs page_set_style_properties(first_is_shared=false) then target='header_first' (or footer_first) — otherwise the logo lands in the shared header and repeats on every page.
 - image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
 - To paste an excerpt of a picture and mark a passage on it (yellow highlight, red box, underline), use image_crop_and_highlight with boxes in the picture's own pixels (or units='percent'), then check it with image_get. Do not cut it with crop_*_mm or draw loose shapes over it: those are placed in page millimetres and drift.

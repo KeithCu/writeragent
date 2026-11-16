@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from plugin.framework.doc_type import is_impress
 from plugin.draw.bridge import DrawBridge, page_size
-from plugin.draw.base import DRAW_AND_IMPRESS
+from plugin.draw.base import DRAW_AND_IMPRESS, DRAW_PAGE_PROPERTY
 from plugin.draw.masters import iter_masters
 from plugin.draw.placeholders import slide_title
 from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
@@ -286,7 +286,7 @@ class ReadSlideText(ToolBase):
         "Read text from shapes on a slide (including grouped descendants and table cells as TSV) "
         "and speaker notes. Returns structured text per shape or table."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
 

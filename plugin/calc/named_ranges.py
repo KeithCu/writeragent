@@ -28,7 +28,7 @@ from plugin.calc.address_utils import (
     parse_address,
     split_sheet_prefix,
 )
-from plugin.calc.base import ToolCalcRangeBase
+from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, is_agent_visible_sheet
 from plugin.calc.calc_utils import range_args
 from plugin.calc.formula_dialect import make_cell_address, to_api
@@ -452,7 +452,7 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "range": {"type": "array", "items": {"type": "string"}, "description": 'The table cell range or named range containing both headers and data (e.g. ["A1:D20"], ["Sheet1.A1:D20"], or ["Table"]).'},
+            "range": {"type": "array", "items": {"type": "string"}, "description": f"The table cell range or named range containing both headers and data (A1:D20 or Table). {CALC_SHEET_PREFIX_NOTE}"},
             "border": {"type": "string", "description": "Which edge contains the title labels: 'top' (default), 'bottom', 'left', or 'right'.", "enum": ["top", "bottom", "left", "right"]},
             "scope": {"type": "string", "description": "Container scope for creating the names: 'global' (default) or specific sheet name."},
         },

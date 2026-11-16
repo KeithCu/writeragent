@@ -40,8 +40,6 @@ WORKFLOW (in order):
 
 HTML RULES (CRITICAL):
 - All reply_to_user answer text must be HTML.
-- writing_plan_write_section content is HTML — no Markdown (#, **, ```).
-- Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
 
 COMPLETION TOOLS:
 - reply_to_user: continue the writing plan conversation (questions, section drafts, summaries).

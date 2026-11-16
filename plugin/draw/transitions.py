@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
+from plugin.draw.base import DRAW_PAGE_PROPERTY, ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.layouts import available_layout_names, layout_id, layout_name
 from plugin.framework.errors import available_miss_details, is_disposal, uno_read
@@ -67,7 +67,7 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
 
     name: str | None = "slide_get_transition"
     description: str = "Get the transition effect, speed, duration, and advance mode for an Impress slide."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
@@ -108,7 +108,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."},
+            "page": DRAW_PAGE_PROPERTY,
             "effect": {"type": "string", "description": ("Transition effect name (e.g. 'dissolve', 'fade_from_left', 'random', 'none'). Case-insensitive.")},
             "speed": {"type": "string", "enum": list(_SPEED_ENUM), "description": "Transition speed (default: medium)."},
             "duration": {"type": "integer", "description": "Auto-advance duration in seconds (0 = manual advance)."},
@@ -200,7 +200,7 @@ class GetSlideLayout(ToolDrawSlideLayoutBase):
 
     name: str | None = "slide_get_layout"
     description: str = "Get the layout type of an Impress slide. Returns the layout ID and a human-readable name."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
@@ -216,7 +216,7 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
     description: str = (
         "Set the layout of an Impress slide. Layouts: blank, title, text, title_only, two_column_text, text_and_chart, chart, text_and_object, object, text_and_clipart, large_object, four_objects, vertical_text, two_objects, and more. Use slide_get_layout to see all available layout names."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}, "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."}}, "required": ["layout"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY, "layout": {"type": "string", "description": "Layout name (e.g. 'blank', 'title', 'text_and_object')."}}, "required": ["layout"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:

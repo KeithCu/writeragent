@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.base import ToolCalcErrorBase
+from plugin.calc.base import CALC_SHEET_PREFIX_NOTE, ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
@@ -40,8 +40,8 @@ class DetectErrors(ToolCalcErrorBase):
     """Detect and explain formula errors in a range."""
 
     name: str | None = "detect_errors"
-    description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas. Explanations are capped at 50 per range; truncated and total_error_count report any remainder."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}}, "required": []}
+    description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Explanations are capped at 50 per range; truncated and total_error_count report any remainder."
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": f"Range(s) to check; omit for the whole sheet. One entry per area: A1 or A1:D10. {CALC_SHEET_PREFIX_NOTE}"}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = False
 

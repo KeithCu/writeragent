@@ -26,7 +26,7 @@ from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_p
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
 from plugin.writer.specialized_base import ToolWriterShapeBase
 from . import layout
-from .base import ToolDrawShapeBase
+from .base import DRAW_PAGE_PROPERTY, ToolDrawShapeBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase, ToolContext
@@ -265,7 +265,7 @@ class GetDrawSummary(_AnyDocumentShapeTool):
         "Returns a summary of shapes on the active or specified page. "
         'Child shapes in groups use a dotted index (e.g. "2.0.1") which edit and delete accept.'
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based page index (active page if omitted)"}}, "required": []}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": DRAW_PAGE_PROPERTY}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
@@ -588,7 +588,7 @@ class UpsertShape(_AnyDocumentShapeTool):
                 "type": "string",
                 "description": "Shape Name. Edit: look up by Name when index is omitted; with index, renames (must be unused on the page). Create: optional unique Name; when omitted a unique Name is assigned and returned as `name`.",
             },
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
+            "page": DRAW_PAGE_PROPERTY,
             "shape_type": {"type": "string", "description": _CREATE_SHAPE_SHAPE_TYPE_DESC + " (required only for action='create')"},
             "x": {"type": "integer", "description": "X position, 1/100 mm (required only for action='create')"},
             "y": {"type": "integer", "description": "Y position, 1/100 mm (required only for action='create')"},
@@ -798,7 +798,7 @@ class ConnectShapes(_AnyDocumentShapeTool):
         "properties": {
             "start": {"type": ["integer", "string"], "description": "Index or Name of the starting shape."},
             "end": {"type": ["integer", "string"], "description": "Index or Name of the ending shape."},
-            "page": {"type": "integer", "description": "Page index containing the shapes"},
+            "page": DRAW_PAGE_PROPERTY,
             "line_color": {"type": "string", "description": "Color of the connector line"},
             "line_width": {"type": "integer", "description": "Line width, 1/100 mm"},
         },
@@ -905,7 +905,7 @@ class GroupShapes(_AnyDocumentShapeTool):
         "The result is one group shape you can move with shape_upsert (action edit)."
         + _DIGIT_REF_SCHEMA_NOTE
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "List of shape indices or Names to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "List of shape indices or Names to group."}, "page": DRAW_PAGE_PROPERTY}, "required": ["indices"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1013,7 +1013,7 @@ class AlignShapes(_AnyDocumentShapeTool):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
+            "page": DRAW_PAGE_PROPERTY,
             "indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "Shape indices or Names to align"},
             "alignment": {"type": "string", "enum": list(layout.ALIGNMENTS), "description": "Alignment axis"},
         },
@@ -1035,7 +1035,7 @@ class DistributeShapes(_AnyDocumentShapeTool):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
+            "page": DRAW_PAGE_PROPERTY,
             "indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "Shape indices or Names to distribute"},
             "axis": {"type": "string", "enum": list(layout.DISTRIBUTE_AXES), "description": "Distribution axis"},
         },
@@ -1057,7 +1057,7 @@ class CreateDiagram(_AnyDocumentShapeTool):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
+            "page": DRAW_PAGE_PROPERTY,
             "layout": {"type": "string", "enum": list(layout.DIAGRAM_LAYOUTS), "description": "How to place nodes (default: horizontal_flow)"},
             "nodes": {
                 "type": "array",
@@ -1189,7 +1189,7 @@ class DeleteShape(_AnyDocumentShapeTool):
                 "description": '0-based index or dotted group path such as "2.0.1". When both index and name are passed, index wins.',
             },
             "name": {"type": "string", "description": "Shape Name (use for all-digit names that would be parsed as an index)."},
-            "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
+            "page": DRAW_PAGE_PROPERTY,
         },
         "required": [],
     }
