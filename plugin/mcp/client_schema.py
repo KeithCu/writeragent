@@ -73,7 +73,8 @@ _UNION_KEYS = ("anyOf", "oneOf")
 _UNION_META_KEYS = ("title", "description", "default", "examples")
 
 # Keywords JSON Schema applies only to values of one type; branches whose extra keys are all
-# in their own type's set can be merged into one type-list node without changing what validates.
+# in their own type's set can be merged into one type-list node and never loosen what validates
+# (integer <= number, so a number branch's numeric bounds may tighten an integer branch).
 _TYPE_KEYWORDS: dict[str, frozenset[str]] = {
     "array": frozenset({"items", "minItems", "maxItems", "uniqueItems"}),
     "object": frozenset({"properties", "required", "additionalProperties", "minProperties", "maxProperties"}),
@@ -655,10 +656,21 @@ def _collapse_parameter_union(prop: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(variants, list):
             continue
         rest = {k: v for k, v in prop.items() if k != key}
+        outer_meta = {k: v for k, v in rest.items() if k in _UNION_META_KEYS}
+        non_meta_rest = {k: v for k, v in rest.items() if k not in _UNION_META_KEYS}
         branches = [item for item in variants if isinstance(item, dict) and not _is_null_branch(item)]
         merged = _merge_typed_branches(branches)
         candidates = ([merged] if merged is not None else []) + branches
-        collapsed = next(({**c, **rest} for c in candidates if _is_sendable({**c, **rest})), None)
+        # Outer metadata wins; outer constraints must not loosen or override a branch's own constraints.
+        collapsed = next(
+            (
+                candidate
+                for c in candidates
+                if not any(k in c and c[k] != v for k, v in non_meta_rest.items())
+                and _is_sendable(candidate := {**non_meta_rest, **c, **outer_meta})
+            ),
+            None,
+        )
         if collapsed is None:
             return prop
         prop = collapsed
@@ -669,7 +681,9 @@ def _validate_wire_schema(parameters: dict[str, Any], tool_name: str) -> None:
     """Reject parameter shapes that ``to_smol_inputs`` / ``get_tool_json_schema`` would mangle or providers 400.
 
     Top-level ``anyOf``/``oneOf`` unions are collapsed by ``_collapse_parameter_union`` first; only
-    unsendable unions or ``allOf`` remain here to be rejected.
+    unsendable unions or ``allOf`` remain here to be rejected. Typeless parameters are rejected
+    because ``to_smol_inputs`` defaults a missing ``type`` to ``"any"``, which
+    ``get_tool_json_schema`` maps to ``"string"``.
     """
     _check_arrays_have_items(parameters, tool_name or "<tool>")
     props = parameters.get("properties")

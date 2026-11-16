@@ -411,21 +411,21 @@ def test_mcp_prefixed_tool_name_patterns():
 
 
 @pytest.mark.parametrize(
-    "bad_prop",
+    ("bad_prop", "match"),
     [
-        pytest.param({"allOf": [{"type": "object", "properties": {"a": {"type": "string"}}}]}, id="allOf"),
-        pytest.param({"description": "anything"}, id="typeless"),
-        pytest.param({"type": "array"}, id="array_without_items"),
-        pytest.param({"type": "object", "properties": {"nested": {"type": "array"}}}, id="nested_array_without_items"),
-        pytest.param({"anyOf": [{"type": "array"}, {"description": "no type"}]}, id="no_sendable_branch"),
+        pytest.param({"allOf": [{"type": "object", "properties": {"a": {"type": "string"}}}]}, None, id="allOf"),
+        pytest.param({"description": "anything"}, None, id="typeless"),
+        pytest.param({"type": "array"}, None, id="array_without_items"),
+        pytest.param({"type": "object", "properties": {"nested": {"type": "array"}}}, None, id="nested_array_without_items"),
+        pytest.param({"anyOf": [{"description": "a"}, {"description": "b"}]}, "no branch", id="no_sendable_branch"),
     ],
 )
-def test_convert_mcp_schema_rejects_unconvertible_shapes(bad_prop):
+def test_convert_mcp_schema_rejects_unconvertible_shapes(bad_prop, match):
     spec = {
         "name": "bad_tool",
         "inputSchema": {"type": "object", "properties": {"arg": bad_prop}},
     }
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=match):
         convert_mcp_schema("srv", spec)
 
 
@@ -464,6 +464,15 @@ def test_convert_mcp_schema_accepts_scalar_anyof_and_array_with_items():
             {"type": "string", "enum": ["a", "b"]},
             id="enum_branch_not_loosened",
         ),
+        pytest.param(
+            {
+                "type": "object",
+                "properties": {"url": {"type": "string"}, "path": {"type": "string"}},
+                "oneOf": [{"required": ["url"]}, {"required": ["path"]}],
+            },
+            None,
+            id="outer_required_must_not_loosen_oneof_required",
+        ),
     ],
 )
 def test_convert_mcp_schema_union_fallbacks(prop, expected):
@@ -471,5 +480,9 @@ def test_convert_mcp_schema_union_fallbacks(prop, expected):
         "name": "fallback_tool",
         "inputSchema": {"type": "object", "properties": {"arg": prop}},
     }
+    if expected is None:
+        with pytest.raises(ValueError, match="no branch"):
+            convert_mcp_schema("srv", spec)
+        return
     out = convert_mcp_schema("srv", spec)
     assert out["parameters"]["properties"]["arg"] == expected
