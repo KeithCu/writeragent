@@ -219,6 +219,12 @@ GENERIC_EDIT_CONFIRMATION_RULES = """EDITING THE DOCUMENT:
 - VERIFY every edit by the tool result's structured fields: status='error' (or a zero count, where the tool reports counts) means nothing changed — do not assume success from friendly message wording.
 - Any document content shown to you earlier may be a partial/truncated snapshot — before a targeted edit that depends on the exact current content, re-read through the tools."""
 
+ACT_DIRECTLY_USING_TOOLS_LINE = (
+    "Act directly using tools (perform as many steps as needed in one turn). "
+    "Keep chat replies short (one short paragraph, no filler); "
+    "go longer when the user asks for detail, opinions, or ideas, or to explain a failure."
+)
+
 
 MEMORY_GUIDANCE = """MEMORY:
 You have a persistent file-backed memory tool.
@@ -586,7 +592,7 @@ CALC_FORMULA_SYNTAX_TEMPLATE = (
 )
 
 DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.
-Do not explain, do the operation directly using tools. Perform as many steps as needed in one turn when possible.
+{ACT_DIRECTLY_USING_TOOLS_LINE}
 
 {CHAT_RESPONSE_FORMAT}
 
@@ -664,7 +670,7 @@ IMPRESS_ONLY_DRAW_PROMPT_PARTS = (
 )
 
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
-Act directly using tools (perform as many steps as needed in one turn). Keep chat replies short (one short paragraph, no filler); go longer when the user asks for detail, opinions, or ideas, or to explain a failure.
+{ACT_DIRECTLY_USING_TOOLS_LINE}
 
 {CHAT_RESPONSE_FORMAT}
 
