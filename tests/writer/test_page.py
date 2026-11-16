@@ -848,8 +848,8 @@ def test_page_break_before_text_sets_break_on_match_paragraph():
     doc, para = _pagebreak_doc()
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Assinaturas")
     assert res["status"] == "ok" and "before" in res["message"]
-    assert doc.createSearchDescriptor.return_value.SearchCaseSensitive is False
-    assert res["matched_case_sensitive"] is False
+    assert doc.createSearchDescriptor.return_value.SearchCaseSensitive is True
+    assert res["matched_case_sensitive"] is True
     para.setPropertyValue.assert_called_once_with("BreakType", 4)
     para.gotoNextParagraph.assert_not_called()
 
@@ -867,9 +867,9 @@ def test_page_break_page_style_sets_page_desc_name_on_match_paragraph():
     )
     assert res["status"] == "ok"
     assert "before" in res["message"]
-    assert set(res) == {"status", "message", "page_style", "matched_case_sensitive"}
+    assert set(res) == {"status", "message", "page_style", "matched_case_sensitive", "matched_folded"}
     assert res["page_style"] == "Annex"
-    assert res["matched_case_sensitive"] is False
+    assert res["matched_case_sensitive"] is True
     para.setPropertyValue.assert_has_calls([call("BreakType", 4), call("PageDescName", "Annex")])
     assert para.setPropertyValue.call_count == 2
     para.gotoNextParagraph.assert_not_called()
@@ -901,10 +901,10 @@ def test_page_break_restart_sets_page_number_offset(restart_num):
     )
     assert res["status"] == "ok"
     assert "after" in res["message"]
-    assert set(res) == {"status", "message", "page_style", "restart_page_number", "matched_case_sensitive"}
+    assert set(res) == {"status", "message", "page_style", "restart_page_number", "matched_case_sensitive", "matched_folded"}
     assert res["page_style"] == "Annex"
     assert res["restart_page_number"] == restart_num
-    assert res["matched_case_sensitive"] is False
+    assert res["matched_case_sensitive"] is True
     para.gotoNextParagraph.assert_called_once()
     para.setPropertyValue.assert_has_calls([
         call("BreakType", 4),
@@ -987,7 +987,7 @@ def test_page_break_anchor_strips_markup_before_find():
     doc, para = _pagebreak_doc()
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="<b>Assinaturas</b>")
     assert res["status"] == "ok"
-    assert doc.createSearchDescriptor.return_value.SearchString == escape_for_lo_regex("Assinaturas")
+    assert doc.createSearchDescriptor.return_value.SearchString == escape_for_lo_regex("Assinaturas", fold=False)
 
 
 def test_page_break_unknown_page_style_changes_nothing():

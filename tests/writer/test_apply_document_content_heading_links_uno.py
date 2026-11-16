@@ -170,6 +170,16 @@ def test_tagless_dollar_math_vs_currency_search_uno(ctx, doc) -> None:
     assert doc.getEmbeddedObjects().getCount() == 1
     assert "costs $5 and $7" in text.getString()
 
+    # 3. Calc reference dollars: not math, embedded-object count stays 1
+    res_ref = tool.execute(
+        tool_ctx,
+        target="end",
+        content="Select $A:$B in Calc.",
+    )
+    assert res_ref.get("status") == "ok", res_ref
+    assert doc.getEmbeddedObjects().getCount() == 1
+    assert "Select $A:$B in Calc." in text.getString()
+
 
 @native_test
 @with_native_doc("writer")

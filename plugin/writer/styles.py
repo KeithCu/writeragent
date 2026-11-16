@@ -1238,7 +1238,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family. Default: ParagraphStyles.")),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
-            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.EDIT_CASE_SENSITIVE_DESCRIPTION}"},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
@@ -1336,7 +1336,7 @@ class ApplyStyle(FrameworkToolBase):
         self,
         ctx: ToolContext,
         kwargs: dict[str, Any],
-    ) -> tuple[list[Any], dict[str, Any] | None]:
+    ) -> tuple[list[Any], dict[str, Any] | None, search_mod.MatchMode | None]:
         # target='search' resolves its own ranges here so a miss returns the structured
         # build_search_not_found_response payload; resolve_target_cursor serves other targets
         # and raises ValueError. Each match gets a cursor in its own text object (cell/frame safe).
@@ -1346,31 +1346,35 @@ class ApplyStyle(FrameworkToolBase):
                 "target='search' requires old_content.",
                 code="INVALID_PARAM",
                 top_level={"applied": False, "matched": False},
-            )
-        cs = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+            ), None
+        cs = search_mod.explicit_case_sensitive(kwargs.get("case_sensitive"))
         occ = kwargs.get("occurrence")
         many = bool(kwargs.get("all_matches")) or occ is not None
-        if many:
-            ranges = search_mod.find_all_ranges(ctx.doc, s, case_sensitive=cs)
-        else:
-            found = search_mod.find_first_range(ctx.doc, s, case_sensitive=cs)
-            ranges = [] if found is None else [found]
+        ranges, mode = search_mod.find_literal_ranges(
+            ctx.doc,
+            s,
+            case_sensitive=cs,
+            limit=search_mod.MAX_SEARCH_REPLACEMENTS if many else 1,
+        )
         if not ranges:
             res = search_mod.build_search_not_found_response(
-                ctx.doc, s, case_sensitive=cs, all_matches=many, refuse_oversized=True
+                ctx.doc, s, case_sensitive=mode.case_sensitive, all_matches=many, refuse_oversized=True
             )
             res.update({"target": "search", "applied": False, "matched": False})  # build_search_not_found_response takes no top_level kwarg; the shared builder's payload is extended here
-            return [], res
+            res.update(mode.result_fields())
+            return [], res, mode
         if occ is not None:
             # Schema type integer (bool fails). validate has no min/max.
             if occ < 0 or occ >= len(ranges):
-                return [], self._tool_error(
+                err = self._tool_error(
                     "occurrence %s out of range (found %d match(es), use 0..%d)."
                     % (occ, len(ranges), len(ranges) - 1),
                     code="OCCURRENCE_OUT_OF_RANGE",
                 )
+                err.update(mode.result_fields())
+                return [], err, mode
             ranges = [ranges[occ]]
-        return [cursor_spanning_range(r) for r in ranges], None
+        return [cursor_spanning_range(r) for r in ranges], None, mode
 
     def _apply_cursors(
         self,
@@ -1492,8 +1496,9 @@ class ApplyStyle(FrameworkToolBase):
                     "(target='search') instead, or omit clear_direct to use style_props.",
                     code="INVALID_PARAM")
 
+        search_mode: search_mod.MatchMode | None = None
         if target == "search":
-            cursors, err = self._search_cursors(ctx, kwargs)
+            cursors, err, search_mode = self._search_cursors(ctx, kwargs)
         else:
             try:
                 cursors, err = [resolve_target_cursor(ctx, target, kwargs.get("old_content"), case_sensitive=kwargs.get("case_sensitive"))], None
@@ -1506,7 +1511,10 @@ class ApplyStyle(FrameworkToolBase):
         if err is not None:
             return err
 
-        return self._success(style_name, family, target, reports)
+        res = self._success(style_name, family, target, reports)
+        if search_mode is not None:
+            res.update(search_mode.result_fields())
+        return res
 
 
 class StyleUpdate(ToolWriterStyleBase):

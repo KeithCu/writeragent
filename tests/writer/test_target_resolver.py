@@ -52,7 +52,7 @@ def test_resolve_target_cursor_valid_targets():
 def test_search_hit_returns_cursor_in_match_text(monkeypatch):
     ctx, _ = _ctx()
     found = MagicMock()
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: found)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s, **kw: found)
     res = resolve_target_cursor(ctx, "search", "needle")
     match_cursor = found.getText.return_value.createTextCursorByRange.return_value
     assert res is match_cursor
@@ -61,7 +61,7 @@ def test_search_hit_returns_cursor_in_match_text(monkeypatch):
 
 def test_search_miss_uses_generic_hint(monkeypatch):
     ctx, _ = _ctx()
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s, **kw: None)
     with pytest.raises(ValueError, match="old_content not found in document") as exc_info:
         resolve_target_cursor(ctx, "search", "needle")
     assert "shorter, unique substring" in str(exc_info.value)
@@ -69,7 +69,7 @@ def test_search_miss_uses_generic_hint(monkeypatch):
 
 def test_search_miss_inside_shape_names_the_shape(monkeypatch):
     ctx, _ = _ctx()
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s, **kw: None)
     monkeypatch.setattr("plugin.writer.search.drawing_shape_containing", lambda doc, s, **k: "Frame 1")
     with pytest.raises(ValueError) as exc_info:
         resolve_target_cursor(ctx, "search", "needle")
@@ -83,7 +83,7 @@ def test_search_converts_markup_before_find(monkeypatch):
     captured = {}
     found = MagicMock()
 
-    def fake_find(doc, search_string):
+    def fake_find(doc, search_string, **kw):
         captured["search_string"] = search_string
         return found
 
@@ -94,7 +94,7 @@ def test_search_converts_markup_before_find(monkeypatch):
 
 def test_search_oversized_old_content_raises_value_error(monkeypatch):
     ctx, _ = _ctx()
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s, **kw: None)
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.old_content_covers_most", lambda doc, n: True)
     with pytest.raises(ValueError, match="target='full_document'"):
         resolve_target_cursor(ctx, "search", "half or more of doc")
@@ -102,7 +102,7 @@ def test_search_oversized_old_content_raises_value_error(monkeypatch):
 
 def test_search_miss_includes_closest_mismatch(monkeypatch):
     ctx, _ = _ctx()
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s, **kw: None)
     monkeypatch.setattr(
         "plugin.writer.target_resolver.search_mod.search_closest_mismatch",
         lambda doc, s, lenient=True: {"message": "closest match starts 'needle…', differs at character 3: l vs x", "closest_match": "needle…", "diff_at": 3},
@@ -136,7 +136,7 @@ def test_search_span_failure_becomes_value_error(monkeypatch):
     ctx, _ = _ctx()
     found = MagicMock()
     found.getText.return_value.createTextCursorByRange.side_effect = RuntimeError("no span")
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: found)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s, **kw: found)
     with pytest.raises(ValueError, match="Could not span the search match"):
         resolve_target_cursor(ctx, "search", "needle")
 
@@ -150,7 +150,7 @@ def test_search_span_disposed_raises_document_disposed(monkeypatch):
     ctx, _ = _ctx()
     found = MagicMock()
     found.getText.return_value.createTextCursorByRange.side_effect = DisposedException("closed")
-    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: found)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s, **kw: found)
     with pytest.raises(DocumentDisposedError):
         resolve_target_cursor(ctx, "search", "needle")
 
@@ -159,16 +159,16 @@ def test_resolve_target_cursor_case_sensitive_forwarding(monkeypatch):
     ctx, _ = _ctx()
     calls = []
 
-    def fake_find(doc, search_string, *, case_sensitive=False):
+    def fake_find(doc, search_string, *, case_sensitive=None):
         calls.append((search_string, case_sensitive))
         found = MagicMock()
         return found
 
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", fake_find)
 
-    # Omitted case_sensitive defaults to False
+    # Omitted case_sensitive forwards None (ladder)
     resolve_target_cursor(ctx, "search", "needle")
-    assert calls[-1] == ("needle", False)
+    assert calls[-1] == ("needle", None)
 
     # Explicit case_sensitive=True forwards True
     resolve_target_cursor(ctx, "search", "needle", case_sensitive=True)

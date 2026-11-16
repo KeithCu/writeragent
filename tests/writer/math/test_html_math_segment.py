@@ -308,6 +308,34 @@ class TestHtmlMarkupIsNotMath:
         segs4 = segment_html_with_mixed_math(h4)
         assert [s.text for s in segs4 if s.kind == "tex"] == ["x<code", "z"]
 
+    def test_calc_references_are_not_tex(self):
+        cases = (
+            "Select $A:$B",
+            "Use $A$1:$B$2",
+            "=SUM($A$1:$A$10)",
+            "Sum $A1+$B1",
+            "<p>Use $A$1:$B$2</p>",
+        )
+        for frag in cases:
+            assert html_fragment_contains_tex_math(frag) is False
+            segs = segment_html_with_mixed_math(frag)
+            assert [s.kind for s in segs] == ["html"]
+            assert segs[0].text == frag
+
+    def test_tex_next_to_calc_reference_still_math(self):
+        segs = segment_html_with_mixed_math("Select $A:$B, then $x^2$.")
+        assert [s.text for s in segs if s.kind == "tex"] == ["x^2"]
+
+        for tex_frag, expected in (
+            ("$H2$", "H2"),
+            ("$A$", "A"),
+            ("$k$th", "k"),
+            ("$A:B$", "A:B"),
+        ):
+            assert html_fragment_contains_tex_math(tex_frag) is True
+            got = segment_html_with_mixed_math(tex_frag)
+            assert [s.text for s in got if s.kind == "tex"] == [expected]
+
         h5 = r"<code-block>$x$</code-block> then \(y\)"
         segs5 = segment_html_with_mixed_math(h5)
         assert [s.text for s in segs5 if s.kind == "tex"] == ["x", "y"]

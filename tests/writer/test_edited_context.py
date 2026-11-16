@@ -200,16 +200,18 @@ def test_apply_document_content_edited_context_wired(mode, kwargs):
         stack.enter_context(patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"))
         stack.enter_context(patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False))
 
+        from plugin.writer.search import MatchMode
+
         if mode == "shape_edit":
             shape = MagicMock()
-            stack.enter_context(patch("plugin.writer.search.find_first_range", return_value=None))
+            stack.enter_context(patch("plugin.writer.search.find_literal_ranges", return_value=([], MatchMode(False, False))))
             stack.enter_context(patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape))
             stack.enter_context(patch("plugin.writer.search.shape_display_name", return_value="Box1"))
             stack.enter_context(patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True))
         elif mode == "all_matches":
-            stack.enter_context(patch("plugin.writer.search.find_all_ranges", return_value=[found]))
+            stack.enter_context(patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))))
         elif mode in ("position_before", "replace_one"):
-            stack.enter_context(patch("plugin.writer.search.find_first_range", return_value=found))
+            stack.enter_context(patch("plugin.writer.search.find_literal_ranges", return_value=([found], MatchMode(True, False))))
 
         res = ApplyDocumentContent().execute(ctx, **kwargs)
 

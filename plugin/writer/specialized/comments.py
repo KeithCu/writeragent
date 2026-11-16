@@ -31,13 +31,13 @@ from plugin.framework.errors import name_miss_details
 from plugin.framework.uno_context import uno_same
 from ..edit_review import next_agent_edit_undo_title
 from ..search import (
-    CASE_SENSITIVE_DESCRIPTION,
+    EDIT_CASE_SENSITIVE_DESCRIPTION,
     LocationLabeler,
     describe_match_location,
     enclosing_paragraph_text,
+    explicit_case_sensitive,
     occurrence_range_or_error,
     parse_non_negative_int,
-    resolve_case_sensitive,
 )
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
@@ -164,7 +164,7 @@ class AddComment(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "content": {"type": "string", "description": "The comment text."},
         "search": {"type": "string", "description": "Anchor a new root comment to text matching this string. Not required when parent_name is set."},
-        "case_sensitive": {"type": "boolean", "description": f"For search: {CASE_SENSITIVE_DESCRIPTION}"},
+        "case_sensitive": {"type": "boolean", "description": f"For search: {EDIT_CASE_SENSITIVE_DESCRIPTION}"},
         "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
         "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
         "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior comment_add success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
@@ -206,16 +206,17 @@ class AddComment(ToolBase):
             return self._tool_error("Provide search.")
 
         doc = ctx.doc
-        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+        case_sensitive = explicit_case_sensitive(kwargs.get("case_sensitive"))
 
         # status="error" (not "not_found"): an anchor miss is a failure, so the chat FSM and
         # MCP host don't treat a no-op as success. anchor_text is returned on success only.
-        found, err = occurrence_range_or_error(
+        found, err, mode = occurrence_range_or_error(
             doc, search_text, kwargs.get("occurrence", 0), case_sensitive=case_sensitive, subject="search"
         )
         if found is None:
             res = err or self._tool_error("Anchor not found")
             res.update({"matched": False, "comment_added": False})
+            res.update(mode.result_fields())
             return res
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
@@ -241,6 +242,7 @@ class AddComment(ToolBase):
                     "matched": True,
                     "comment_added": False,
                     "anchor_text": anchor_text or search_text,
+                    **mode.result_fields(),
                 },
             )
 
@@ -254,6 +256,7 @@ class AddComment(ToolBase):
             "comment_added": True,
             "anchor_text": anchor_text or search_text,
             "name": _annotation_name(annotation) or new_name,
+            **mode.result_fields(),
         }
 
 

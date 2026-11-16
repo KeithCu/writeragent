@@ -727,39 +727,48 @@ def test_find_first_range_chain_cross_text_is_skipped():
 
 
 def test_occurrence_range_or_error_payloads():
-    from plugin.writer.search import occurrence_range_or_error
+    from plugin.writer.search import MatchMode, occurrence_range_or_error
 
     doc = MagicMock()
     doc.getDrawPage.return_value = None
 
     # Bad occurrence
-    rng, err = occurrence_range_or_error(doc, "text", "bad", case_sensitive=False, subject="test_param")
+    rng, err, mode = occurrence_range_or_error(doc, "text", "bad", case_sensitive=False, subject="test_param")
     assert rng is None
     assert err is not None
     assert err["code"] == "INVALID_PARAM"
+    assert mode == MatchMode(False, False)
 
-    # Out of range (IndexError)
-    with patch("plugin.writer.search.find_occurrence_range", side_effect=IndexError("occurrence 2 out of range")):
-        rng, err = occurrence_range_or_error(doc, "text", 2, case_sensitive=False, subject="test_param")
+    # Out of range (OccurrenceOutOfRange carries winning mode)
+    from plugin.writer.search import OccurrenceOutOfRange
+
+    with patch(
+        "plugin.writer.search.find_occurrence_range",
+        side_effect=OccurrenceOutOfRange("occurrence 2 out of range", MatchMode(True, False)),
+    ):
+        rng, err, mode = occurrence_range_or_error(doc, "text", 2, case_sensitive=None, subject="test_param")
         assert rng is None
         assert err is not None
         assert err["code"] == "OCCURRENCE_OUT_OF_RANGE"
         assert "occurrence 2 out of range" in err["message"]
+        assert mode == MatchMode(True, False)
 
     # Not found (None)
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
-        rng, err = occurrence_range_or_error(doc, "text", 0, case_sensitive=True, subject="test_param")
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(True, False))):
+        rng, err, mode = occurrence_range_or_error(doc, "text", 0, case_sensitive=True, subject="test_param")
         assert rng is None
         assert err is not None
         assert err["code"] == "OLD_CONTENT_NOT_FOUND"
         assert err["message"].startswith("test_param not found in document")
+        assert mode == MatchMode(True, False)
 
     # Hit
     mock_found = MagicMock()
-    with patch("plugin.writer.search.find_occurrence_range", return_value=mock_found) as mock_find:
-        rng, err = occurrence_range_or_error(doc, "text", 1, case_sensitive=True, subject="test_param")
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(mock_found, MatchMode(True, False))) as mock_find:
+        rng, err, mode = occurrence_range_or_error(doc, "text", 1, case_sensitive=True, subject="test_param")
         assert rng is mock_found
         assert err is None
+        assert mode == MatchMode(True, False)
         mock_find.assert_called_once_with(doc, "text", occurrence=1, case_sensitive=True)
 
 
@@ -810,14 +819,14 @@ def test_find_occurrence_range_repeated_text_and_past_end():
     doc.findNext.side_effect = [second, None]
 
     # occurrence 0
-    res0 = find_occurrence_range(doc, "hit", occurrence=0)
+    res0, unused_mode0 = find_occurrence_range(doc, "hit", occurrence=0)
     assert res0 is first
     doc.findNext.assert_not_called()
 
     # occurrence 1
     doc.findFirst.return_value = first
     doc.findNext.side_effect = [second, None]
-    res1 = find_occurrence_range(doc, "hit", occurrence=1)
+    res1, unused_mode1 = find_occurrence_range(doc, "hit", occurrence=1)
     assert res1 is second
 
     # occurrence past end
@@ -878,12 +887,13 @@ def test_find_occurrence_range_newline_passage():
     sd = MagicMock()
     doc.createSearchDescriptor.return_value = sd
 
-    doc.findFirst.side_effect = [None, None, None]
+    doc.findFirst.return_value = None
 
-    assert find_occurrence_range(doc, "Para 1\nPara 2") is None
+    rng, unused_mode = find_occurrence_range(doc, "Para 1\nPara 2")
+    assert rng is None
 
 
-def test_find_first_range_default_case_insensitive():
+def test_find_first_range_default_tries_exact_then_insensitive():
     from plugin.writer.search import find_first_range
 
     doc = MagicMock()
@@ -893,12 +903,12 @@ def test_find_first_range_default_case_insensitive():
     hit = MagicMock()
     hit.getString.return_value = "lower"
 
-    doc.findFirst.return_value = hit
+    doc.findFirst.side_effect = [None, hit]
 
     res = find_first_range(doc, "LOWER")
     assert res is hit
     assert sd.SearchCaseSensitive is False
-    assert doc.findFirst.call_count == 1
+    assert doc.findFirst.call_count == 2
 
 
 def test_parse_non_negative_int():
@@ -1149,13 +1159,14 @@ def test_pick_end_after_start_different_xtext_stops():
 
 def test_find_anchor_span_missing_start():
     from unittest.mock import patch
-    from plugin.writer.search import find_anchor_span
+    from plugin.writer.search import MatchMode, find_anchor_span
 
     doc = MagicMock()
-    with patch("plugin.writer.search.find_occurrence_range", return_value=None):
-        cursor, err = find_anchor_span(doc, "missing", "end")
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(None, MatchMode(False, False))):
+        cursor, err, mode = find_anchor_span(doc, "missing", "end")
         assert cursor is None
         assert err == "start"
+        assert mode == MatchMode(False, False)
 
 
 def test_pick_end_after_start_empty_iterator():
@@ -1205,7 +1216,7 @@ def test_iter_descriptor_hits_with_after():
 
 
 def test_iter_literal_ranges_yields_candidate_matches():
-    from plugin.writer.search import iter_literal_ranges
+    from plugin.writer.search import MatchMode, iter_literal_ranges
 
     doc = MagicMock()
     hit1 = MagicMock()
@@ -1214,20 +1225,20 @@ def test_iter_literal_ranges_yields_candidate_matches():
     doc.findFirst.return_value = hit1
     doc.findNext.return_value = None
 
-    hits = list(iter_literal_ranges(doc, "hello", case_sensitive=True))
+    hits = list(iter_literal_ranges(doc, "hello", MatchMode(True, False)))
     assert hits == [hit1]
 
 
 def test_iter_literal_ranges_all_candidates_yields_all():
     from unittest.mock import patch
-    from plugin.writer.search import iter_literal_ranges
+    from plugin.writer.search import MatchMode, iter_literal_ranges
 
     doc = MagicMock()
     frame_hit = MagicMock()
     body_hit = MagicMock()
     chain_hit = MagicMock()
 
-    def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
+    def fake_iter_lo(doc, candidate, mode, after=None):
         if "\n" in candidate:
             yield frame_hit
         else:
@@ -1235,18 +1246,19 @@ def test_iter_literal_ranges_all_candidates_yields_all():
 
     with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
          patch("plugin.writer.search._iter_chain_matches", return_value=iter([chain_hit])):
-        # 1. all_candidates=False: stops on the first candidate (yielding the frame hit)
-        hits_default = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=False))
+        mode = MatchMode(False, False)
+        # 1. all_candidates=False: stops on the first source (yielding the frame hit)
+        hits_default = list(iter_literal_ranges(doc, "Hello\nWorld", mode, all_candidates=False))
         assert hits_default == [frame_hit]
 
-        # 2. all_candidates=True: yields hits across all candidates, then chain matches
-        hits_all = list(iter_literal_ranges(doc, "Hello\nWorld", all_candidates=True))
-        assert hits_all == [frame_hit, body_hit, chain_hit]
+        # 2. all_candidates=True: yields typed literal, then chain matches, then collapsed
+        hits_all = list(iter_literal_ranges(doc, "Hello\nWorld", mode, all_candidates=True))
+        assert hits_all == [frame_hit, chain_hit, body_hit]
 
 
 def test_find_anchor_span_skips_foreign_candidate_to_find_same_text():
     from unittest.mock import patch
-    from plugin.writer.search import find_anchor_span
+    from plugin.writer.search import MatchMode, find_anchor_span
 
     doc = MagicMock()
     body_text = MagicMock()
@@ -1271,17 +1283,19 @@ def test_find_anchor_span_skips_foreign_candidate_to_find_same_text():
     created_cursor = MagicMock()
     body_text.createTextCursorByRange.return_value = created_cursor
 
-    def fake_iter_lo(doc, candidate, case_sensitive=False, after=None):
+    def fake_iter_lo(doc, candidate, mode, after=None):
         if "\n" in candidate:
             yield frame_hit
         else:
             yield body_hit
 
-    with patch("plugin.writer.search.find_occurrence_range", return_value=start_match), \
-         patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo):
-        cursor, err = find_anchor_span(doc, "start", "Hello\nWorld")
+    with patch("plugin.writer.search.find_occurrence_range", return_value=(start_match, MatchMode(True, False))), \
+         patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
+         patch("plugin.writer.search._iter_chain_matches", return_value=iter(())):
+        cursor, err, mode = find_anchor_span(doc, "start", "Hello\nWorld")
         assert err is None
         assert cursor is created_cursor
+        assert mode == MatchMode(True, False)
 
 
 class _SampleFakeCursor:
@@ -1407,7 +1421,30 @@ class _SampleFakeDoc:
         return tf
 
 
-def test_search_selection_apply_shared_case_default_on_sample_text():
+def _sample_apply_replace(doc, old_content, content, *, all_matches=False, case_sensitive=None):
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+
+    def fake_replace_preserving(model, target_range, new_text, *args, **kwargs):
+        model.text = model.text[:target_range.start] + new_text + model.text[target_range.end:]
+
+    kwargs = {"content": [content], "target": "search", "old_content": old_content}
+    if all_matches:
+        kwargs["all_matches"] = True
+    if case_sensitive is not None:
+        kwargs["case_sensitive"] = case_sensitive
+
+    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.edit_review_wait_seconds", return_value=0), \
+         patch("plugin.writer.edit_review.replace_preserving_format", side_effect=fake_replace_preserving), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()):
+        return ApplyDocumentContent().execute(ctx, **kwargs)
+
+
+def test_read_search_forgiving_edit_search_exact_first():
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.search import SearchInDocument
     from plugin.writer.selection import SetSelection
@@ -1416,19 +1453,16 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     doc = _SampleFakeDoc("Apple pie and apple tart")
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
 
-    # 1. search
-    # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
+    # 1. search (read tool stays case-insensitive by default)
     s_default = SearchInDocument().execute(ctx, pattern="apple")
     assert s_default["status"] == "ok"
     assert [m["text"] for m in s_default["matches"]] == ["Apple", "apple"]
     assert s_default["matched_case_sensitive"] is False
 
-    # Uppercase query with default case-insensitive also hits both
     s_upper = SearchInDocument().execute(ctx, pattern="APPLE")
     assert [m["text"] for m in s_upper["matches"]] == ["Apple", "apple"]
     assert s_upper["matched_case_sensitive"] is False
 
-    # Explicit case_sensitive=True finds only exact casing
     s_exact = SearchInDocument().execute(ctx, pattern="apple", case_sensitive=True)
     assert [m["text"] for m in s_exact["matches"]] == ["apple"]
     assert s_exact["matched_case_sensitive"] is True
@@ -1437,23 +1471,16 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     assert s_exact_miss["matches"] == []
     assert s_exact_miss["matched_case_sensitive"] is True
 
-    # 2. set_selection
-    # Default (omitted) is case-insensitive: occurrence 0 hits first match "Apple"
+    # 2. set_selection (exact-first ladder)
     sel_default = SetSelection().execute(ctx, search_text="apple")
     assert sel_default["status"] == "ok"
-    assert sel_default["selected_text"] == "Apple"
-    assert sel_default["matched_case_sensitive"] is False
+    assert sel_default["selected_text"] == "apple"
+    assert sel_default["matched_case_sensitive"] is True
 
     sel_upper = SetSelection().execute(ctx, search_text="APPLE")
     assert sel_upper["status"] == "ok"
     assert sel_upper["selected_text"] == "Apple"
     assert sel_upper["matched_case_sensitive"] is False
-
-    # Explicit case_sensitive=True selects exact match
-    sel_exact = SetSelection().execute(ctx, search_text="apple", case_sensitive=True)
-    assert sel_exact["status"] == "ok"
-    assert sel_exact["selected_text"] == "apple"
-    assert sel_exact["matched_case_sensitive"] is True
 
     sel_exact_miss = SetSelection().execute(ctx, search_text="APPLE", case_sensitive=True)
     assert sel_exact_miss["status"] == "error"
@@ -1461,64 +1488,84 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
     assert sel_exact_miss["matched_case_sensitive"] is True
 
     # 3. apply_content (dry_run preview)
-    # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
     app_default = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", dry_run=True)
     assert app_default["status"] == "ok"
-    assert app_default["replaceable"][0]["text"] == "Apple"
-    assert [m["text"] for m in app_default["replaceable"]] == ["Apple", "apple"]
-    assert app_default["matched_case_sensitive"] is False
+    assert [m["text"] for m in app_default["replaceable"]] == ["apple"]
+    assert app_default["matched_case_sensitive"] is True
 
     app_upper = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", dry_run=True)
     assert [m["text"] for m in app_upper["replaceable"]] == ["Apple", "apple"]
     assert app_upper["matched_case_sensitive"] is False
 
-    # Explicit case_sensitive=True finds only exact casing
-    app_exact = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", case_sensitive=True, dry_run=True)
-    assert [m["text"] for m in app_exact["replaceable"]] == ["apple"]
-    assert app_exact["matched_case_sensitive"] is True
-
-    app_exact_miss = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", case_sensitive=True, dry_run=True)
-    assert app_exact_miss["replaceable"] == []
-    assert app_exact_miss["matched_case_sensitive"] is True
-
-    # 4. Explicit case_sensitive=None (JSON null) falls back to default case-insensitive
-    s_none = SearchInDocument().execute(ctx, pattern="apple", case_sensitive=None)
-    assert s_none["matched_case_sensitive"] is False
-    assert [m["text"] for m in s_none["matches"]] == ["Apple", "apple"]
-
-    sel_none = SetSelection().execute(ctx, search_text="apple", case_sensitive=None)
-    assert sel_none["matched_case_sensitive"] is False
-    assert sel_none["selected_text"] == "Apple"
+    app_false = ApplyDocumentContent().execute(
+        ctx, content="cherry", target="search", old_content="apple", case_sensitive=False, dry_run=True,
+    )
+    assert [m["text"] for m in app_false["replaceable"]] == ["Apple", "apple"]
+    assert app_false["matched_case_sensitive"] is False
 
     app_none = ApplyDocumentContent().execute(
         ctx, content="cherry", target="search", old_content="apple", case_sensitive=None, dry_run=True,
     )
-    assert app_none["matched_case_sensitive"] is False
-    assert [m["text"] for m in app_none["replaceable"]] == ["Apple", "apple"]
+    assert [m["text"] for m in app_none["replaceable"]] == ["apple"]
+    assert app_none["matched_case_sensitive"] is True
 
-    # 5. apply_content non-dry-run replace with all_matches=True
+    # 4. apply_content non-dry-run replace with all_matches=True only replaces exact-case "apple"
     doc_replace = _SampleFakeDoc("Apple pie and apple tart")
-    ctx_replace = TestingFactory.create_context(doc=doc_replace, doc_type="writer")
+    res_replace = _sample_apply_replace(doc_replace, "apple", "cherry", all_matches=True)
+    assert res_replace["status"] == "ok"
+    assert res_replace["replaced_count"] == 1
+    assert res_replace["matched_case_sensitive"] is True
+    assert doc_replace.text == "Apple pie and cherry tart"
 
-    replaced_items: list[str] = []
 
-    def fake_replace_preserving(model, target_range, new_text, *args, **kwargs):
-        replaced_items.append(target_range.getString())
-        model.text = model.text[:target_range.start] + new_text + model.text[target_range.end:]
+def test_all_matches_en_dash_keeps_hyphens():
+    doc = _SampleFakeDoc("e-mail 2020\u20132021")
+    res = _sample_apply_replace(doc, "\u2013", " to ", all_matches=True)
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    assert res["matched_folded"] is False
+    assert doc.text == "e-mail 2020 to 2021"
 
-    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
-         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
-         patch("plugin.writer.apply_document_content.edit_review_wait_seconds", return_value=0), \
-         patch("plugin.writer.edit_review.replace_preserving_format", side_effect=fake_replace_preserving), \
-         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()):
-        res_replace = ApplyDocumentContent().execute(
-            ctx_replace, content=["cherry"], target="search", old_content="apple", all_matches=True,
-        )
-        assert res_replace["status"] == "ok"
-        assert res_replace["replaced_count"] == 2
-        assert res_replace["matched_case_sensitive"] is False
-        assert set(replaced_items) == {"Apple", "apple"}
-        assert doc_replace.text == "cherry pie and cherry tart"
+
+def test_punctuation_only_needle_never_folds():
+    doc = _SampleFakeDoc("e-mail")
+    res = _sample_apply_replace(doc, "\u2013", " to ", all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "OLD_CONTENT_NOT_FOUND"
+    assert doc.text == "e-mail"
+
+
+def test_straight_quote_replace_leaves_curly_quotes():
+    doc = _SampleFakeDoc("It's and it\u2019s.")
+    res = _sample_apply_replace(doc, "It's", "That's", all_matches=True)
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    assert res["matched_folded"] is False
+    assert doc.text == "That's and it\u2019s."
+
+
+def test_folded_pass_when_typed_form_absent():
+    doc = _SampleFakeDoc("It\u2019s ready.")
+    res = _sample_apply_replace(doc, "It's", "That's")
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    assert res["matched_case_sensitive"] is True
+    assert res["matched_folded"] is True
+    assert doc.text == "That's ready."
+
+
+def test_match_modes_ladder():
+    from plugin.writer.search import MatchMode, match_modes
+
+    assert match_modes("Seller's", None) == [
+        MatchMode(True, False),
+        MatchMode(True, True),
+        MatchMode(False, False),
+        MatchMode(False, True),
+    ]
+    assert match_modes("Seller", None) == [MatchMode(True, False), MatchMode(False, False)]
+    assert match_modes("\u2013", None) == [MatchMode(True, False), MatchMode(False, False)]
+    assert match_modes("x", True) == [MatchMode(True, False)]
 
 
 # ---- replace_text_in_shape ---------------------------------------------------
@@ -1626,19 +1673,19 @@ def test_normalize_search_string_collapses_nbsp():
 
 
 def test_escape_for_lo_regex_expands_ascii_space_runs():
-    assert escape_for_lo_regex("a  b") == "a" + HORIZONTAL_SPACE_CLASS + "+" + "b"
-    assert escape_for_lo_regex("hello world") == "hello" + HORIZONTAL_SPACE_CLASS + "+" + "world"
+    assert escape_for_lo_regex("a  b", fold=True) == "a" + HORIZONTAL_SPACE_CLASS + "+" + "b"
+    assert escape_for_lo_regex("hello world", fold=True) == "hello" + HORIZONTAL_SPACE_CLASS + "+" + "world"
 
 
 def test_escape_for_lo_regex_normalizes_exotic_spaces_in_needle():
     nbsp = "\u00a0"
     # NBSP in needle is normalized to ASCII space, then expanded to the flex space class.
-    assert escape_for_lo_regex("a" + nbsp + "b") == "a" + HORIZONTAL_SPACE_CLASS + "+" + "b"
+    assert escape_for_lo_regex("a" + nbsp + "b", fold=True) == "a" + HORIZONTAL_SPACE_CLASS + "+" + "b"
 
 
 def test_escape_for_lo_regex_escapes_regex_metacharacters():
-    assert escape_for_lo_regex("a.b") == r"a\.b"
-    assert escape_for_lo_regex("(test)") == r"\(test\)"
+    assert escape_for_lo_regex("a.b", fold=True) == r"a\.b"
+    assert escape_for_lo_regex("(test)", fold=True) == r"\(test\)"
 
 
 def test_prepare_old_content_strips_tags_and_preserves_newlines():
@@ -1649,24 +1696,35 @@ def test_prepare_old_content_strips_tags_and_preserves_newlines():
 
 
 def test_compare_normalize_quotes_and_dashes():
-    assert _compare_normalize("it’s") == _compare_normalize("it's")
-    assert _compare_normalize("a–b") == _compare_normalize("a-b")
+    from plugin.writer.search import MatchMode
+
+    assert _compare_normalize("it’s", MatchMode(False, True)) == _compare_normalize("it's", MatchMode(False, True))
+    assert _compare_normalize("a–b", MatchMode(False, True)) == _compare_normalize("a-b", MatchMode(False, True))
 
 
 def test_escape_for_lo_regex_quotes_and_dashes():
-    assert escape_for_lo_regex("it's") == escape_for_lo_regex("it’s")
-    assert SINGLE_QUOTE_CLASS in escape_for_lo_regex("it's")
-    assert DASH_CLASS in escape_for_lo_regex("a-b")
+    assert escape_for_lo_regex("it's", fold=True) == escape_for_lo_regex("it’s", fold=True)
+    assert SINGLE_QUOTE_CLASS in escape_for_lo_regex("it's", fold=True)
+    assert DASH_CLASS in escape_for_lo_regex("a-b", fold=True)
+    assert escape_for_lo_regex("\u2013", fold=False) == "\u2013"
 
 
 def test_paragraph_matches_part_tail_and_middle():
-    ok, off = _paragraph_matches_part("prefix and ‘tail’", "'tail'", tail=True)
+    from plugin.writer.search import MatchMode
+
+    folded_ci = MatchMode(False, True)
+    exact = MatchMode(True, False)
+    ok, off = _paragraph_matches_part("prefix and ‘tail’", "'tail'", folded_ci, tail=True)
     assert ok is True
-    ok, off = _paragraph_matches_part("prefix and tail", "prefix", tail=True)
+    ok, off = _paragraph_matches_part("prefix and tail", "prefix", folded_ci, tail=True)
     assert ok is False
-    ok, off = _paragraph_matches_part("middle–line", "middle-line")
+    ok, off = _paragraph_matches_part("middle–line", "middle-line", folded_ci)
     assert ok is True
-    ok, off = _paragraph_matches_part("middle line", "muddle line")
+    ok, off = _paragraph_matches_part("middle–line", "middle-line", exact)
+    assert ok is False
+    ok, off = _paragraph_matches_part("Hello", "hello", exact)
+    assert ok is False
+    ok, off = _paragraph_matches_part("middle line", "muddle line", folded_ci)
     assert ok is False
 
 
@@ -1997,7 +2055,7 @@ def test_a_body_match_and_a_hostile_range_delete_nothing():
 def test_crlf_normalized_for_search_and_chain_matching():
     """Windows UNO getString() emits CRLF paragraph breaks; search and chaining must treat CRLF as LF."""
     from unittest.mock import patch
-    from plugin.writer.search import iter_literal_ranges
+    from plugin.writer.search import MatchMode, iter_literal_ranges
 
     assert normalize_search_string_for_find("Line1\r\nLine2") == "Line1\nLine2"
     assert prepare_old_content("Line1\r\nLine2") == "Line1\nLine2"
@@ -2007,19 +2065,19 @@ def test_crlf_normalized_for_search_and_chain_matching():
     chain_calls: list[tuple[list[str], int]] = []
     chain_hit = MagicMock()
 
-    def fake_iter_lo(_doc, candidate, _case_sensitive=False, after=None):
+    def fake_iter_lo(_doc, candidate, _mode, after=None):
         seen_candidates.append(candidate)
         return iter(())
 
-    def fake_chain(_doc, parts, anchor_idx, _case_sensitive=False, after=None):
+    def fake_chain(_doc, parts, anchor_idx, _mode, after=None):
         chain_calls.append((parts, anchor_idx))
         yield chain_hit
 
     with patch("plugin.writer.search._iter_lo_matches", side_effect=fake_iter_lo), \
          patch("plugin.writer.search._iter_chain_matches", side_effect=fake_chain):
-        hits = list(iter_literal_ranges(doc, "Line1\r\nLine2"))
+        hits = list(iter_literal_ranges(doc, "Line1\r\nLine2", MatchMode(False, False)))
 
     assert hits == [chain_hit]
-    assert seen_candidates == ["Line1\nLine2", "Line1 Line2"]
+    assert seen_candidates == ["Line1\nLine2"]
     assert chain_calls == [(["Line1", "Line2"], 0)]
 

@@ -63,7 +63,7 @@ class MockRange:
 
 
 def test_search_no_match_returns_error_zero(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(False, False)))
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="zzz", content="BAR")
     assert res["status"] == "error", res
     assert res["code"] == "OLD_CONTENT_NOT_FOUND", res
@@ -72,7 +72,7 @@ def test_search_no_match_returns_error_zero(monkeypatch):
 
 
 def test_search_single_success(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="foo", content="BAR")
     assert res["status"] == "ok", res
     assert res["replaced_count"] == 1, res
@@ -80,7 +80,7 @@ def test_search_single_success(monkeypatch):
 
 
 def test_search_all_matches_reports_count(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [MockRange(), MockRange(), MockRange()])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange(), MockRange(), MockRange()], search_mod.MatchMode(True, False)))
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="foo", content="BAR", all_matches=True)
     assert res["status"] == "ok", res
@@ -89,7 +89,7 @@ def test_search_all_matches_reports_count(monkeypatch):
 
 
 def test_search_all_matches_no_match_errors(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(True, False)))
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="zzz", content="BAR", all_matches=True)
     assert res["status"] == "error", res
@@ -105,11 +105,11 @@ def test_search_tagged_needle_normalized(monkeypatch):
 
     captured = {}
 
-    def fake_find(doc, s):
+    def fake_find(doc, s, **k):
         captured["needle"] = s
-        return MockRange()
+        return [MockRange()], search_mod.MatchMode(True, False)
 
-    monkeypatch.setattr(search_mod, "find_first_range", fake_find)
+    monkeypatch.setattr(search_mod, "find_literal_ranges", fake_find)
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="<p>Hello <b>World</b></p>", content="BAR"
     )
@@ -119,7 +119,7 @@ def test_search_tagged_needle_normalized(monkeypatch):
 
 
 def test_search_oversized_old_content_refused_on_miss(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(False, False)))
     monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="huge content", content="BAR"
@@ -132,7 +132,7 @@ def test_search_oversized_old_content_refused_on_miss(monkeypatch):
 
 
 def test_search_oversized_old_content_never_blocks_match(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="huge content", content="BAR"
@@ -143,7 +143,7 @@ def test_search_oversized_old_content_never_blocks_match(monkeypatch):
 
 
 def test_search_oversized_old_content_with_near_miss_reports_hint_not_refusal(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(False, False)))
     monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
     monkeypatch.setattr(
         search_mod,
@@ -165,7 +165,7 @@ def test_search_oversized_old_content_with_near_miss_reports_hint_not_refusal(mo
 
 
 def test_dry_run_oversized_retains_dry_run_keys(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(search_mod, "sweep_draw_shape_preview_matches", lambda *a, **k: [])
     monkeypatch.setattr(search_mod, "sweep_comment_preview_matches", lambda *a, **k: [])
     monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
@@ -193,7 +193,7 @@ def test_search_empty_after_normalization_reports_normalized_key():
 
 
 def test_dry_run_reports_normalized_old_content_and_miss_fields(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(search_mod, "sweep_draw_shape_preview_matches", lambda *a, **k: [])
     monkeypatch.setattr(search_mod, "sweep_comment_preview_matches", lambda *a, **k: [])
     monkeypatch.setattr(
@@ -286,7 +286,7 @@ def test_failed_write_is_not_annotated():
 def test_search_target_warns_for_mapped_property(monkeypatch):
     """Search replacement reports unapplied property failures returned by import."""
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         format_mod,
         "replace_single_range_with_content",
@@ -307,7 +307,7 @@ def test_search_target_warns_for_mapped_property(monkeypatch):
 def test_search_target_warns_with_partial_match_code(monkeypatch):
     """Search replacement reports PARA_IGNORED_PARTIAL_MATCH on partial match skip."""
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         format_mod,
         "replace_single_range_with_content",
@@ -333,7 +333,7 @@ def test_search_target_warns_with_partial_match_code(monkeypatch):
 def test_search_target_warns_with_recording_code(monkeypatch):
     """Search replacement reports PARA_IGNORED_RECORDING on recording skip."""
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         format_mod,
         "replace_single_range_with_content",
@@ -359,7 +359,7 @@ def test_search_target_warns_with_recording_code(monkeypatch):
 def test_search_target_reports_no_warning_when_import_applied_everything(monkeypatch):
     """When import applies all properties, no warnings are attached."""
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         format_mod, "replace_single_range_with_content", lambda *a, **k: html_import_styles.WriteReport()
     )
@@ -377,7 +377,7 @@ def test_search_all_matches_unions_failures_with_dedupe(monkeypatch):
     """all_matches aggregates and deduplicates failures across all replacements."""
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *a, **k: True)
     r1, r2 = MockRange("foo1"), MockRange("foo2")
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1, r2])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([r1, r2], search_mod.MatchMode(True, False)))
     calls: list[int] = []
 
     def fake_replace(*a, **k):
@@ -403,7 +403,7 @@ def test_search_all_matches_unions_failures_with_dedupe(monkeypatch):
 
 def test_content_without_the_attribute_is_untouched(monkeypatch):
     """Content without data-lo-para or body text mentioning the words produces no warnings."""
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     res = ApplyDocumentContent().execute(
         _ctx(),
         target="search",
@@ -416,7 +416,7 @@ def test_content_without_the_attribute_is_untouched(monkeypatch):
 
 def test_search_target_warns_for_unresolved_heading_link(monkeypatch):
     """Unmatched bare fragment link emits LINK_TARGET_NOT_FOUND warning."""
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     res = ApplyDocumentContent().execute(
         _ctx(),
         target="search",
@@ -440,7 +440,7 @@ def test_search_target_warns_for_unresolved_heading_link(monkeypatch):
 def test_search_target_resolves_heading_link_to_outline(monkeypatch):
     """Bare fragment link matching a written heading is rewritten to |outline without warnings."""
     monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     passed_down: list[str] = []
 
     def mock_replace(doc, found, content, *args, **kwargs):
@@ -463,11 +463,7 @@ def test_search_occurrence_selects_requested_match(monkeypatch):
     second = MockRange()
     selected = []
 
-    monkeypatch.setattr(
-        search_mod,
-        "find_all_ranges",
-        lambda doc, s: [first, second],
-    )
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([first, second], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.record_preserve_replace",
         lambda session, doc, found, content, ctx, reviewable: selected.append(found),
@@ -503,11 +499,7 @@ def test_search_occurrence_rejects_all_matches():
 
 
 def test_search_occurrence_out_of_range(monkeypatch):
-    monkeypatch.setattr(
-        search_mod,
-        "find_all_ranges",
-        lambda doc, s: [MockRange(), MockRange()],
-    )
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange(), MockRange()], search_mod.MatchMode(True, False)))
 
     res = ApplyDocumentContent().execute(
         _ctx(),
@@ -527,11 +519,7 @@ def test_search_occurrence_dry_run_selects_without_editing(monkeypatch):
     first = MockRange()
     second = MockRange()
 
-    monkeypatch.setattr(
-        search_mod,
-        "find_all_ranges",
-        lambda doc, s: [first, second],
-    )
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([first, second], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
@@ -637,11 +625,7 @@ def test_search_occurrence_position_after_uses_selected_match(monkeypatch):
     cursor.getPropertyValue.return_value = None
     second.getText.return_value.createTextCursorByRange.return_value = cursor
 
-    monkeypatch.setattr(
-        search_mod,
-        "find_all_ranges",
-        lambda doc, s: [first, second],
-    )
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([first, second], search_mod.MatchMode(True, False)))
     monkeypatch.setattr("plugin.writer.apply_document_content.collapsed_anchor", lambda found: None)
     monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda content: False)
     monkeypatch.setattr(format_mod, "content_has_markup", lambda *args, **kwargs: True)
@@ -682,7 +666,7 @@ def test_search_occurrence_position_after_uses_selected_match(monkeypatch):
 
 
 def test_search_occurrence_empty_ranges_falls_through_to_not_found(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(True, False)))
 
     res = ApplyDocumentContent().execute(
         _ctx(),
@@ -701,11 +685,7 @@ def test_search_occurrence_dry_run_oor_includes_replaceable(monkeypatch):
     first = MockRange()
     second = MockRange()
 
-    monkeypatch.setattr(
-        search_mod,
-        "find_all_ranges",
-        lambda doc, s: [first, second],
-    )
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([first, second], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
@@ -746,11 +726,7 @@ def test_dry_run_splits_replaceable_and_not_replaceable(monkeypatch):
     first = MockRange("first text")
     second = MockRange("second text")
 
-    monkeypatch.setattr(
-        search_mod,
-        "find_all_ranges",
-        lambda doc, s: [first, second],
-    )
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([first, second], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         search_mod,
         "describe_match_location",
@@ -824,8 +800,8 @@ def test_dry_run_shared_preview_cap(monkeypatch):
     body_ranges = [MockRange(f"body {i}") for i in range(19)]
     monkeypatch.setattr(
         search_mod,
-        "find_all_ranges",
-        lambda doc, s: body_ranges,
+        "find_literal_ranges",
+        lambda doc, s, **k: (body_ranges, search_mod.MatchMode(True, False)),
     )
     monkeypatch.setattr(
         search_mod,
@@ -991,7 +967,7 @@ def test_anchor_rejects_regex_and_all_matches_and_position_and_dry_run():
 
 
 def test_anchor_omitted_target_and_success_messages(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None, search_mod.MatchMode(True, False)))
     tool = ApplyDocumentContent()
 
     # Plain text:
@@ -1009,7 +985,7 @@ def test_anchor_omitted_target_and_success_messages(monkeypatch):
 
 
 def test_anchor_miss_start(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start"))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start", search_mod.MatchMode(True, False)))
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
@@ -1019,7 +995,7 @@ def test_anchor_miss_start(monkeypatch):
 
 
 def test_anchor_miss_end(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "end"))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "end", search_mod.MatchMode(True, False)))
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
@@ -1029,7 +1005,7 @@ def test_anchor_miss_end(monkeypatch):
 
 
 def test_anchor_miss_different_text(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "different_text"))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "different_text", search_mod.MatchMode(True, False)))
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
@@ -1042,7 +1018,7 @@ def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
     from unittest.mock import MagicMock
     import plugin.writer.apply_document_content as apply_mod
 
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start"))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start", search_mod.MatchMode(True, False)))
     mock_shape = MagicMock()
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda doc, text, **k: mock_shape)
     monkeypatch.setattr(search_mod, "shape_display_name", lambda shape: "MyBox")
@@ -1065,7 +1041,10 @@ def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
 
 def test_anchor_occurrence_index_error(monkeypatch):
     def _raise_oor(*args, **kwargs):
-        raise IndexError("occurrence 2 out of range (found 1 match(es), use 0..0).")
+        raise search_mod.OccurrenceOutOfRange(
+            "occurrence 2 out of range (found 1 match(es), use 0..0).",
+            search_mod.MatchMode(True, False),
+        )
 
     monkeypatch.setattr(search_mod, "find_anchor_span", _raise_oor)
     tool = ApplyDocumentContent()
@@ -1073,6 +1052,8 @@ def test_anchor_occurrence_index_error(monkeypatch):
     assert res["status"] == "error"
     assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
     assert "occurrence 2 out of range" in res["message"]
+    assert res["matched_case_sensitive"] is True
+    assert res["matched_folded"] is False
 
 
 def test_anchor_span_containing_table_refused(monkeypatch):
@@ -1084,7 +1065,7 @@ def test_anchor_span_containing_table_refused(monkeypatch):
     mock_range = MockRange()
     mock_range.createEnumeration = lambda: enum
 
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (mock_range, None))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (mock_range, None, search_mod.MatchMode(True, False)))
     tool = ApplyDocumentContent()
     res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
     assert res["status"] == "error"
@@ -1095,7 +1076,7 @@ def test_anchor_span_containing_table_refused(monkeypatch):
 def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
     from unittest.mock import patch
 
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None, search_mod.MatchMode(True, False)))
     recorded_content = []
 
     def fake_replace(doc, found, content, ctx, **k):
@@ -1117,7 +1098,7 @@ def test_anchor_plain_text_wraps_in_p_and_skips_hyperlinks(monkeypatch):
 
 
 def test_anchor_plain_text_single_line_unwrapped(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None, search_mod.MatchMode(True, False)))
     recorded_content = []
 
     def fake_replace(doc, found, content, ctx, **k):
@@ -1137,7 +1118,7 @@ def test_anchor_plain_text_single_line_unwrapped(monkeypatch):
 
 def test_anchor_markup_not_wrapped_again(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
-    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None, search_mod.MatchMode(True, False)))
     recorded_content = []
 
     def fake_replace(doc, found, content, ctx, **k):
@@ -1318,7 +1299,7 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
         return html_import_styles.WriteReport(math=[search_entry])
 
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", fake_replace_single)
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
 
     res_search = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="foo", content=r"<p>\(search_formula\)</p>"
@@ -1330,7 +1311,7 @@ def test_target_end_and_search_report_math_objects(monkeypatch):
     # all_matches with two ranges yields two entries in loop order
     r1 = MockRange("match1")
     r2 = MockRange("match2")
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1, r2])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([r1, r2], search_mod.MatchMode(True, False)))
 
     res_all = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="foo", content=r"<p>\(batch_formula\)</p>", all_matches=True
@@ -1361,7 +1342,7 @@ def test_error_or_rollback_omits_math_objects(monkeypatch):
 
 
 def test_position_before_after_with_math_segments_returns_invalid_param(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: True)
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="foo", content="<p>some math</p>", position="before"
@@ -1380,7 +1361,7 @@ def test_position_before_after_in_table_cell_returns_invalid_param(monkeypatch):
     found.getText.return_value = text_obj
     found.getStart.return_value = MagicMock()
 
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: found)
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([found], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(format_mod, "html_fragment_contains_mixed_math", lambda s: False)
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="foo", content="bar", position="after"
@@ -1397,7 +1378,7 @@ def test_replace_single_table_block_in_cell_returns_coded_error(monkeypatch):
         raise ToolExecutionError("block html in cell", code="TABLE_BLOCK_IN_CELL")
 
     monkeypatch.setattr(format_mod, "content_has_markup", lambda s: True)
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([MockRange()], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", _fail_block)
 
     res = ApplyDocumentContent().execute(
@@ -1411,7 +1392,7 @@ def test_replace_all_rollback_failed_code(monkeypatch):
     from plugin.doc.compound_undo import UndoOutcome
 
     r1 = MockRange("match1")
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([r1], search_mod.MatchMode(True, False)))
     monkeypatch.setattr(
         "plugin.writer.apply_document_content.commit_or_rollback",
         lambda doc, title, mutate, session=None: UndoOutcome(
@@ -1431,7 +1412,7 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
     from plugin.doc.compound_undo import UndoOutcome
 
     r1 = MockRange("match1")
-    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [r1])
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([r1], search_mod.MatchMode(True, False)))
 
     # Case 1: nothing_landed is False -> rollback could not be completed, so partial changes may remain.
     monkeypatch.setattr(
@@ -1465,7 +1446,7 @@ def test_replace_all_mutate_error_rollback_status(monkeypatch):
 
 
 def test_shape_search_miss_review_mode_returns_shape_text_needs_delegation(monkeypatch):
-    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr(search_mod, "find_literal_ranges", lambda doc, s, **k: ([], search_mod.MatchMode(False, False)))
     monkeypatch.setattr("plugin.writer.apply_document_content.review_recording_enabled", lambda: True)
     mock_shape = MagicMock()
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda doc, text, **k: mock_shape)
