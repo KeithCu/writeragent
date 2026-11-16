@@ -25,10 +25,10 @@ on servers set under Settings > Integrations (``mcp_client.*``, module
 Remote tools are exposed through the ``mcp`` sub-agent domain
 (``delegate_to_subagent(domain="mcp")``). Each server's tool list is fetched on
 the first delegation that needs it and kept in memory until something marks it
-stale (``list_changed`` in a reply, an unknown-tool reply, a failed call, a
-settings edit, or Settings OK). Per-tool schemas (``mcp__<server>__<tool>``)
-are rebuilt for that sub-agent on every delegation; remote tools never enter
-``ToolRegistry``.
+stale (a new session, ``list_changed`` in a reply, an unknown-tool reply, a
+failed call, a settings edit, or Settings OK). Per-tool schemas
+(``mcp__<server>__<tool>``) are rebuilt for that sub-agent on every delegation;
+remote tools never enter ``ToolRegistry``.
 
 Requests use a fresh ``LlmHttpTransport`` per call (never ``exchange()``) so
 failed POSTs are never retried and Stop/DNS cancellation works cleanly.
@@ -346,7 +346,8 @@ class McpServerConnection:
         # Servers may send notifications inside a POST SSE reply; dropping _tools makes the next
         # delegation re-list. Only tool-list changes matter because prompts and resources are unused.
         # _post is reached only from _rpc/_initialize under self._lock, so _tools is still written
-        # under its lock; if this arrives inside a tools/list reply, the fetch assignment wins.
+        # under its lock; if this arrives inside a tools/list reply, the fetch assignment wins,
+        # which is correct because that reply already carries the new list.
         if isinstance(message, dict) and message.get("method") == "notifications/tools/list_changed":
             log.info("MCP server '%s' says its tool list changed; it will be listed again", self.name)
             self._tools = None
@@ -532,6 +533,8 @@ class McpServerConnection:
         self._session_id = None
         self._initialized = False
         self._version_negotiated = False
+        # A new session means the server's state may have changed, so its tool list must be fetched again.
+        self._tools = None
         from plugin.version import EXTENSION_VERSION
 
         result = self._rpc(
@@ -734,8 +737,9 @@ def drop_connections() -> None:
     ``config:changed`` for an unchanged save. Pressing OK is the user's way to
     pick up tools added on a server whose ``tools/list_changed`` never reaches
     us, since we read notifications only inside POST replies and not the GET
-    stream. In-flight work finishes on the old connection objects, and nothing
-    reads their cache afterwards.
+    stream; this also resets the server's pause (circuit breaker) and session,
+    since pressing OK is an explicit user retry. In-flight work finishes on the
+    old connection objects, and nothing reads their cache afterwards.
     """
     with _connections_lock:
         _connections.clear()

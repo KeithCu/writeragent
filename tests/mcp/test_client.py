@@ -329,6 +329,20 @@ def test_session_id_is_sent_and_rebuilt_after_404(fake):
     assert fake.requests[-1][0]["mcp-session-id"] == "s1"
 
 
+def test_session_reinitialize_after_404_drops_cached_tools(fake):
+    fake.sessions = True
+    conn = McpServerConnection(_server(fake))
+    assert len(conn.list_tools()) == len(TOOLS)
+
+    fake.custom_tools = [TOOLS[0]]
+    fake.forget_sessions = True
+    assert render_call_result(conn.call_tool("nextcloud_list_files", {"path": "/"})) == {"result": "files in /"}
+
+    tools = conn.list_tools()
+    assert [t["name"] for t in tools] == [TOOLS[0]["name"]]
+    assert fake.methods().count("tools/list") == 2
+
+
 def test_wrong_token_is_an_error_not_a_retry(fake):
     conn = McpServerConnection(_server(fake, token="nope"))
     with pytest.raises(McpClientError) as info:
