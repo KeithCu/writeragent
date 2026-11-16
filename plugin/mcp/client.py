@@ -23,9 +23,12 @@ on servers set under Settings > Integrations (``mcp_client.*``, module
 ``docs/mcp-client.md``).
 
 Remote tools are exposed through the ``mcp`` sub-agent domain
-(``delegate_to_subagent(domain="mcp")``). Each delegation re-lists the
-configured servers and builds native per-tool schemas (``mcp__<server>__<tool>``)
-for that sub-agent only; remote tools never enter ``ToolRegistry``.
+(``delegate_to_subagent(domain="mcp")``). Each server's tool list is fetched on
+the first delegation that needs it and kept in memory until something marks it
+stale (a new session, ``list_changed`` in a reply, an unknown-tool reply, a
+failed call, a settings edit, or Settings OK). Per-tool schemas
+(``mcp__<server>__<tool>``) are rebuilt for that sub-agent on every delegation;
+remote tools never enter ``ToolRegistry``.
 
 Requests use a fresh ``LlmHttpTransport`` per call (never ``exchange()``) so
 failed POSTs are never retried and Stop/DNS cancellation works cleanly.
@@ -74,6 +77,7 @@ from plugin.mcp.client_helpers import (
     escape_invisible,
     format_approval_arguments,
     make_tool_filter,
+    names_unknown_tool,
     normalize_server_trust,
     safe_numeric,
     sanitize_error,
@@ -339,6 +343,15 @@ class McpServerConnection:
         except ValueError:
             log.debug("MCP SSE: skipping non-JSON event from '%s'", self.name)
             return None
+        # Servers may send notifications inside a POST SSE reply; dropping _tools makes the next
+        # delegation re-list. Only tool-list changes matter because prompts and resources are unused.
+        # _post is reached only from _rpc/_initialize under self._lock, so _tools is still written
+        # under its lock; if this arrives inside a tools/list reply, the fetch assignment wins,
+        # which is correct because that reply already carries the new list.
+        if isinstance(message, dict) and message.get("method") == "notifications/tools/list_changed":
+            log.info("MCP server '%s' says its tool list changed; it will be listed again", self.name)
+            self._tools = None
+            return None
         if _is_response(message, request_id):
             return message
         return None
@@ -520,6 +533,8 @@ class McpServerConnection:
         self._session_id = None
         self._initialized = False
         self._version_negotiated = False
+        # A new session means the server's state may have changed, so its tool list must be fetched again.
+        self._tools = None
         from plugin.version import EXTENSION_VERSION
 
         result = self._rpc(
@@ -559,38 +574,69 @@ class McpServerConnection:
         self._initialize(cancel=cancel)
         return self._rpc(method, params, timeout=timeout, cancel=cancel)
 
-    def list_tools(self, *, refresh: bool = False, cancel: SendCancellation | None = None) -> list[dict[str, Any]]:
+    def _fetch_tools_locked(self, cancel: SendCancellation | None) -> list[dict[str, Any]]:
+        """Fetch and filter the server's tool list. Caller must hold ``self._lock``."""
+        if not self._initialized:
+            self._initialize(cancel=cancel)
+        if not self._advertises_tools:
+            return []
+        tools: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _page in range(MAX_LIST_PAGES):
+            result = self._request_locked(
+                "tools/list",
+                {"cursor": cursor} if cursor else {},
+                timeout=self.connect_timeout,
+                cancel=cancel,
+            )
+            for t in result.get("tools") or []:
+                if isinstance(t, dict) and isinstance(t.get("name"), str) and t["name"] and self._allowed(t["name"]):
+                    tools.append(t)
+            next_cursor = result.get("nextCursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                break
+            cursor = next_cursor
+        else:
+            log.warning("MCP server '%s' tools/list hit %d-page cap; keeping partial list", self.name, MAX_LIST_PAGES)
+        return tools
+
+    def list_tools(self, *, cancel: SendCancellation | None = None) -> list[dict[str, Any]]:
+        """Return the server's allowed tools, fetching once and caching in memory.
+
+        The per-server lock is held across the fetch, so two turns asking at the
+        same time make one ``tools/list``: the second waits, then finds the list
+        filled in. A fetch that raises leaves ``_tools`` as ``None``, so a
+        failing server keeps no entry.
+        """
         if not acquire_unless_cancelled(self._lock, cancel):
             raise McpClientError("Stopped by user.", code="USER_STOPPED")
         try:
-            if not self._initialized:
-                self._initialize(cancel=cancel)
-            if not self._advertises_tools:
-                self._tools = []
-                return self._tools
-            if self._tools is None or refresh:
-                tools: list[dict[str, Any]] = []
-                cursor: str | None = None
-                for _page in range(MAX_LIST_PAGES):
-                    result = self._request_locked(
-                        "tools/list",
-                        {"cursor": cursor} if cursor else {},
-                        timeout=self.connect_timeout,
-                        cancel=cancel,
-                    )
-                    for t in result.get("tools") or []:
-                        if isinstance(t, dict) and isinstance(t.get("name"), str) and t["name"] and self._allowed(t["name"]):
-                            tools.append(t)
-                    next_cursor = result.get("nextCursor")
-                    if not isinstance(next_cursor, str) or not next_cursor:
-                        break
-                    cursor = next_cursor
-                else:
-                    log.warning("MCP server '%s' tools/list hit %d-page cap; keeping partial list", self.name, MAX_LIST_PAGES)
-                self._tools = tools
+            if self._tools is None:
+                self._tools = self._fetch_tools_locked(cancel)
             return self._tools
         finally:
             self._lock.release()
+
+    def _relist_after_unknown_tool(self, tool: str, error_text: str, cancel: SendCancellation | None) -> bool:
+        """Re-list tools when *error_text* reports *tool* as unknown; True if *tool* is still offered.
+
+        An unknown-tool reply for a tool we listed means our cached list is stale (the
+        server restarted or changed its tools). Re-listing updates the cache for the next
+        delegation, and the call is worth one retry only when the fresh list still offers
+        that name. A failed re-list leaves no entry and keeps the original call outcome.
+        Caller must hold ``self._lock``.
+        """
+        if not names_unknown_tool(tool, error_text):
+            return False
+        self._tools = None
+        try:
+            self._tools = self._fetch_tools_locked(cancel)
+        except McpClientError as e:
+            if e.code == "USER_STOPPED":
+                raise
+            log.warning("MCP server '%s': re-listing tools after an unknown-tool reply failed: %s", self.name, e)
+            return False
+        return any(t["name"] == tool for t in self._tools)
 
     def _bump_breaker(self, *, application: bool) -> None:
         self._all_application = application if self._failures == 0 else (self._all_application and application)
@@ -629,19 +675,36 @@ class McpServerConnection:
                     f"Tool '{tool}' is excluded by configuration on server '{self.name}'.",
                     code="MCP_CLIENT_TOOL_EXCLUDED",
                 )
-            try:
-                result = self._request_locked(
-                    "tools/call",
-                    {"name": tool, "arguments": arguments},
-                    timeout=self.tool_timeout,
-                    cancel=cancel,
-                )
-            except McpClientError as e:
-                # The breaker protects against a flapping remote server and must not hide
-                # local configuration or Keychain errors behind an "unreachable" message.
-                if e.code in ("MCP_CLIENT_ERROR", "MCP_OUTCOME_UNCERTAIN"):
-                    self._bump_breaker(application=e.application)
-                raise
+            # Retry at most once after an unknown-tool reply: the user already approved this
+            # call and the server reported that it ran nothing. Only the final attempt reaches
+            # the circuit breaker.
+            result: dict[str, Any] = {}
+            for attempt in range(2):
+                try:
+                    result = self._request_locked(
+                        "tools/call",
+                        {"name": tool, "arguments": arguments},
+                        timeout=self.tool_timeout,
+                        cancel=cancel,
+                    )
+                except McpClientError as e:
+                    if attempt == 0 and e.application and self._relist_after_unknown_tool(tool, str(e), cancel):
+                        continue
+                    # The breaker protects against a flapping remote server and must not hide
+                    # local configuration or Keychain errors behind an "unreachable" message.
+                    if e.code in ("MCP_CLIENT_ERROR", "MCP_OUTCOME_UNCERTAIN"):
+                        self._bump_breaker(application=e.application)
+                        if not e.application:
+                            # Stopped answering -> next delegation re-lists and notes it unavailable.
+                            self._tools = None
+                    raise
+                if (
+                    attempt == 0
+                    and result.get("isError")
+                    and self._relist_after_unknown_tool(tool, render_call_result(result)["result"], cancel)
+                ):
+                    continue
+                break
             if result.get("isError"):
                 self._bump_breaker(application=True)
             else:
@@ -665,6 +728,21 @@ def get_connection(server: dict[str, Any]) -> McpServerConnection:
             conn = McpServerConnection(server)
             _connections[server["name"]] = conn
         return conn
+
+
+def drop_connections() -> None:
+    """Drop all cached server connections so the next delegation re-lists tools.
+
+    Settings OK calls this even when nothing changed, because config emits no
+    ``config:changed`` for an unchanged save. Pressing OK is the user's way to
+    pick up tools added on a server whose ``tools/list_changed`` never reaches
+    us, since we read notifications only inside POST replies and not the GET
+    stream; this also resets the server's pause (circuit breaker) and session,
+    since pressing OK is an explicit user retry. In-flight work finishes on the
+    old connection objects, and nothing reads their cache afterwards.
+    """
+    with _connections_lock:
+        _connections.clear()
 
 
 def render_call_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -842,7 +920,7 @@ def mcp_domain_tools(ctx: ToolContext | None) -> tuple[list[ToolBase], str]:
     # A server that is down is noted for the sub-agent; the remaining servers still run.
     for server in servers:
         try:
-            specs = get_connection(server).list_tools(refresh=True, cancel=cancel)
+            specs = get_connection(server).list_tools(cancel=cancel)
         except McpClientError as e:
             if e.code == "USER_STOPPED":
                 raise

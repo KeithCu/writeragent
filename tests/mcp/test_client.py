@@ -73,6 +73,11 @@ class FakeMcpServer:
         self.no_tools_capability = False
         self.error_body: tuple[int, str] | None = None
         self.read_sleep_event: threading.Event | None = None
+        self.list_changed_on_call = False
+        self.unknown_once: set[str] = set()
+        self.unknown_as_is_error = False
+        self.list_gate: threading.Event | None = None
+        self.list_started = threading.Event()
         self.custom_tools: list[dict[str, Any]] | None = None
         self.requests: list[tuple[dict[str, str], dict[str, Any]]] = []
         self.live_sessions: set[str] = set()
@@ -126,6 +131,10 @@ class FakeMcpServer:
                     fake.read_sleep_event.wait(5.0)
                     return
 
+                if fake.list_gate is not None and body.get("method") == "tools/list":
+                    fake.list_started.set()
+                    fake.list_gate.wait(5.0)
+
                 extra: dict[str, str] = {}
                 if body["method"] == "initialize" and fake.sessions:
                     new_sid = f"s{len(fake.live_sessions) + 1}"
@@ -143,7 +152,14 @@ class FakeMcpServer:
                     return self._send(200, json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": {"big": big}}).encode(), "application/json", extra)
 
                 reply = {"jsonrpc": "2.0", "id": body["id"], **fake.answer(body)}
-                if fake.sse or fake.bare_cr or fake.server_request_same_id or fake.hold_open_event is not None or fake.keepalives_count:
+                if (
+                    fake.sse
+                    or fake.bare_cr
+                    or fake.server_request_same_id
+                    or fake.hold_open_event is not None
+                    or fake.keepalives_count
+                    or (fake.list_changed_on_call and body.get("method") == "tools/call")
+                ):
                     sep = b"\r\r" if fake.bare_cr else b"\n\n"
                     chunks: list[bytes] = []
                     for _idx in range(fake.keepalives_count):
@@ -153,6 +169,9 @@ class FakeMcpServer:
                     if fake.server_request_same_id:
                         srv_req = {"jsonrpc": "2.0", "id": body["id"], "method": "ping", "params": {}}
                         chunks.append(b"data: " + json.dumps(srv_req).encode() + sep)
+                    if fake.list_changed_on_call and body.get("method") == "tools/call":
+                        notif = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
+                        chunks.append(b"data: " + json.dumps(notif).encode() + sep)
                     chunks.append(b"event: message" + (b"\r" if fake.bare_cr else b"\n") + b"data: " + json.dumps(reply).encode() + sep)
                     if fake.hold_open_event is not None:
                         self.send_response(200)
@@ -197,6 +216,8 @@ class FakeMcpServer:
             self.hang_event.set()
         if self.read_sleep_event is not None:
             self.read_sleep_event.set()
+        if self.list_gate is not None:
+            self.list_gate.set()
         self.httpd.shutdown()
         self.httpd.server_close()
         self._thread.join(timeout=2.0)
@@ -220,6 +241,11 @@ class FakeMcpServer:
             return {"result": {"tools": tools}}
         if method == "tools/call":
             name = body["params"]["name"]
+            if name in self.unknown_once:
+                self.unknown_once.discard(name)
+                if self.unknown_as_is_error:
+                    return {"result": {"isError": True, "content": [{"type": "text", "text": f"Unknown tool: {name}"}]}}
+                return {"error": {"code": -32602, "message": f"Unknown tool: {name}"}}
             if name == "nextcloud_list_files":
                 return {"result": {"content": [{"type": "text", "text": f"files in {body['params']['arguments'].get('path')}"}]}}
             if name == "weather_get_current_weather":
@@ -283,7 +309,7 @@ def test_handshake_then_list_tools(fake):
     assert "mcp-protocol-version" not in init_headers
     assert later_headers["mcp-protocol-version"] == mcp_client.PROTOCOL_VERSION
     conn.list_tools()
-    assert fake.methods().count("tools/list") == 1, "tool list is cached until refresh"
+    assert fake.methods().count("tools/list") == 1, "tool list is cached"
 
 
 def test_sse_replies_are_parsed(fake):
@@ -301,6 +327,20 @@ def test_session_id_is_sent_and_rebuilt_after_404(fake):
     assert render_call_result(conn.call_tool("nextcloud_list_files", {"path": "/"})) == {"result": "files in /"}
     assert fake.methods()[-4:] == ["tools/call", "initialize", "notifications/initialized", "tools/call"]
     assert fake.requests[-1][0]["mcp-session-id"] == "s1"
+
+
+def test_session_reinitialize_after_404_drops_cached_tools(fake):
+    fake.sessions = True
+    conn = McpServerConnection(_server(fake))
+    assert len(conn.list_tools()) == len(TOOLS)
+
+    fake.custom_tools = [TOOLS[0]]
+    fake.forget_sessions = True
+    assert render_call_result(conn.call_tool("nextcloud_list_files", {"path": "/"})) == {"result": "files in /"}
+
+    tools = conn.list_tools()
+    assert [t["name"] for t in tools] == [TOOLS[0]["name"]]
+    assert fake.methods().count("tools/list") == 2
 
 
 def test_wrong_token_is_an_error_not_a_retry(fake):
@@ -464,6 +504,7 @@ def test_domain_and_remote_tool_errors(fake):
                 "annotations": {"readOnlyHint": True},
             }
         ]
+        mcp_client.drop_connections()
         missing_tools, _ = mcp_domain_tools(ctx)
         assert missing_tools[0].execute(ctx)["code"] == "MCP_CLIENT_ERROR"
 
@@ -728,7 +769,7 @@ def test_read_timeout_after_send(fake):
 
     conn.connect_timeout = 0.2
     with pytest.raises(McpClientError, match="Cannot reach"):
-        conn.list_tools(refresh=True)
+        conn.list_tools()
 
 
 def test_breaker_opens_after_three_transport_failures_says_unreachable():
@@ -910,6 +951,7 @@ def test_name_collision_across_servers_skips_both(fake):
         assert info.value.code == "MCP_CLIENT_NO_TOOLS"
 
     fake.custom_tools = [TOOLS[0], TOOLS[1]]
+    mcp_client.drop_connections()
     second = FakeMcpServer()
     try:
         second.custom_tools = [TOOLS[0], TOOLS[3]]
@@ -1250,3 +1292,113 @@ def test_calc_mcp_delegation_skips_spreadsheet_context():
         hints = _sub_agent_hints(ctx, "mcp", "Calc", "")
     mock_calc_ctx.assert_not_called()
     assert "[SPREADSHEET CONTEXT]" not in hints
+
+
+def test_second_delegation_reuses_the_tool_list(fake):
+    ctx = _chat_ctx()
+    with _with_servers({"claw": _server(fake)}):
+        first_tools, _ = mcp_domain_tools(ctx)
+        second_tools, _ = mcp_domain_tools(ctx)
+    assert [t.name for t in first_tools] == [t.name for t in second_tools]
+    assert fake.methods().count("tools/list") == 1
+    assert fake.methods().count("initialize") == 1
+
+
+def test_changed_server_settings_list_again(fake):
+    ctx = _chat_ctx()
+    with _with_servers({"claw": _server(fake, timeout=30)}):
+        mcp_domain_tools(ctx)
+    assert fake.methods().count("tools/list") == 1
+
+    with _with_servers({"claw": _server(fake, timeout=60)}):
+        mcp_domain_tools(ctx)
+    assert fake.methods().count("tools/list") == 2
+
+    mcp_client.drop_connections()
+    with _with_servers({"claw": _server(fake, timeout=60)}):
+        mcp_domain_tools(ctx)
+    assert fake.methods().count("tools/list") == 3
+
+
+def test_list_changed_in_a_reply_drops_the_list(fake):
+    conn = McpServerConnection(_server(fake))
+    assert len(conn.list_tools()) == len(TOOLS)
+
+    fake.list_changed_on_call = True
+    result = conn.call_tool("nextcloud_list_files", {"path": "/Docs"})
+    assert render_call_result(result) == {"result": "files in /Docs"}
+
+    fake.custom_tools = [TOOLS[0]]
+    tools = conn.list_tools()
+    assert [t["name"] for t in tools] == [TOOLS[0]["name"]]
+    assert fake.methods().count("tools/list") == 2
+
+
+@pytest.mark.parametrize("as_is_error", [False, True])
+def test_unknown_tool_relists_once_then_retries_once(fake, as_is_error):
+    conn = McpServerConnection(_server(fake))
+    conn.list_tools()
+
+    fake.unknown_once = {"nextcloud_list_files"}
+    fake.unknown_as_is_error = as_is_error
+    result = conn.call_tool("nextcloud_list_files", {"path": "/Docs"})
+    assert render_call_result(result) == {"result": "files in /Docs"}
+    assert fake.methods()[-3:] == ["tools/call", "tools/list", "tools/call"]
+
+
+def test_unknown_tool_gone_from_the_new_list_is_not_retried(fake):
+    gone = {
+        "name": "gone",
+        "description": "Removed",
+        "inputSchema": {"type": "object", "properties": {}},
+    }
+    fake.custom_tools = [TOOLS[0], gone]
+    conn = McpServerConnection(_server(fake))
+    conn.list_tools()
+
+    fake.custom_tools = [TOOLS[0]]
+    with pytest.raises(McpClientError, match="Unknown tool: gone"):
+        conn.call_tool("gone", {})
+    assert fake.methods()[-2:] == ["tools/call", "tools/list"]
+
+    tools = conn.list_tools()
+    assert [t["name"] for t in tools] == [TOOLS[0]["name"]]
+    assert fake.methods().count("tools/list") == 2
+
+
+def test_two_turns_listing_at_once_fetch_once(fake):
+    fake.list_gate = threading.Event()
+    conn = McpServerConnection(_server(fake))
+    results: list[list[dict[str, Any]]] = []
+    errors: list[BaseException] = []
+
+    def worker() -> None:
+        try:
+            results.append(conn.list_tools())
+        except BaseException as exc:  # pragma: no cover - test failure diagnostic
+            errors.append(exc)
+
+    thread_a = threading.Thread(target=worker)
+    thread_b = threading.Thread(target=worker)
+    thread_a.start()
+    assert fake.list_started.wait(2.0)
+    thread_b.start()
+    fake.list_gate.set()
+    thread_a.join(timeout=2.0)
+    thread_b.join(timeout=2.0)
+
+    assert not errors
+    assert len(results) == 2
+    assert results[0] is results[1]
+    assert fake.methods().count("tools/list") == 1
+
+
+def test_failed_listing_keeps_no_entry(fake):
+    fake.error_body = (500, "boom")
+    conn = McpServerConnection(_server(fake))
+    with pytest.raises(McpClientError):
+        conn.list_tools()
+
+    fake.error_body = None
+    tools = conn.list_tools()
+    assert [t["name"] for t in tools] == [t["name"] for t in TOOLS]

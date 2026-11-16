@@ -29,7 +29,7 @@ from plugin.framework.module_base import ModuleBase
 class McpClientModule(ModuleBase):
     """Module manifest anchor for ``mcp_client.*`` settings.
 
-    Remote servers are listed lazily on each ``mcp`` domain delegation, so
-    startup makes no network requests and a down server cannot delay or break
-    LibreOffice.
+    Remote servers are listed lazily on the first ``mcp`` domain delegation and
+    cached in memory, so startup makes no network requests and a down server
+    cannot delay or break LibreOffice.
     """

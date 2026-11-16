@@ -16,6 +16,7 @@ from plugin.mcp.client_helpers import (
     annotation_read_only_hint,
     format_approval_arguments,
     make_tool_filter,
+    names_unknown_tool,
     normalize_server_trust,
     parse_boolish,
     safe_numeric,
@@ -192,3 +193,22 @@ def test_format_approval_arguments():
     big = format_approval_arguments({"big": "x" * 5000})
     assert len(big) <= 1200
     assert big.endswith("\n... [arguments truncated]")
+
+
+@pytest.mark.parametrize(
+    ("tool", "text", "expected"),
+    [
+        ("foo", "Unknown tool: foo", True),
+        ("foo", "MCP error -32602: Tool foo not found", True),
+        ("foo", "MCP server 'h' error: Unknown tool: foo", True),
+        ("foo", "Unknown tool: 'foo'", True),
+        ("a.b", "Unknown tool: a.b", True),
+        ("foo", "Unknown tool: foobar", False),
+        ("foo", "file not found", False),
+        ("foo", "Tool foo failed: file not found", False),
+        ("a.b", "Unknown tool: axb", False),
+        ("foo", "Tool foo disabled", False),
+    ],
+)
+def test_names_unknown_tool(tool, text, expected):
+    assert names_unknown_tool(tool, text) is expected
