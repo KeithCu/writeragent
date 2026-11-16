@@ -31,6 +31,7 @@ class MockSession:
         self.active_specialized_domain = None
         self.python_tool_domain = None
         self.session_id: str | None = None
+        self.refresh_calls: list[tuple[Any, Any, Any]] = []
 
     def set_system_context(self, base_prompt, doc_text=""):
         self.document_context = doc_text
@@ -39,7 +40,8 @@ class MockSession:
     def messages_for_request(self):
         return list(self.messages)
 
-    def refresh_document_context(self, model, ctx):
+    def refresh_document_context(self, model, ctx, selection=None):
+        self.refresh_calls.append((model, ctx, selection))
         self.set_system_context("base", "doc text")
 
     def add_user_message(self, text):
@@ -1416,3 +1418,56 @@ def test_production_loop_nudges_once_on_zero_tool_edit_reply(test_instance):
     )
     assert exit_loop_2 is True
     test_instance._tool_calling._spawn_llm_worker.assert_not_called()
+
+
+def test_do_send_pins_writer_selection(test_instance, mock_get_tools):
+    from plugin.chatbot.tool_loop_actions import current_turn
+    from plugin.framework.tool import SelectionPin
+
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    api_config = {
+        "endpoint": "https://openrouter.ai/api",
+        "model": "google/gemini-3.8-flash",
+        "api_key": "test-key",
+        "chat_max_tool_rounds": 1,
+    }
+    snap = MagicMock()
+    with (
+        patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
+        patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+        patch("plugin.doc.text_helpers.selection_cursor_snapshot", return_value=snap),
+    ):
+        test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
+
+    turn = current_turn(test_instance)
+    assert isinstance(turn.selection_pin, SelectionPin)
+    assert turn.selection_pin.range is snap
+    assert test_instance.session.refresh_calls[-1][2] is snap
+
+
+def test_do_send_calc_has_no_pin(test_instance, mock_get_tools):
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    mock_get_tools.get_schemas.return_value = []
+    test_instance._start_tool_calling_async = MagicMock()
+    api_config = {
+        "endpoint": "https://openrouter.ai/api",
+        "model": "google/gemini-3.8-flash",
+        "api_key": "test-key",
+        "chat_max_tool_rounds": 1,
+    }
+    with (
+        patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
+        patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+    ):
+        test_instance._do_send_chat_with_tools("hello", MagicMock(), "calc")
+
+    turn = current_turn(test_instance)
+    assert turn.selection_pin is None
+    assert test_instance.session.refresh_calls[-1][2] is None
+

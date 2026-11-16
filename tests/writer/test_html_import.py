@@ -1528,7 +1528,7 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
 
     from plugin.writer.html_import_styles import WriteReport
 
-    with patch("plugin.writer.html_import.selected_text_range", return_value=rng), \
+    with patch("plugin.writer.html_import.live_selection_range", return_value=rng), \
          patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
          patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
@@ -2120,7 +2120,7 @@ def test_insert_content_at_position_caret_routing(content, at_start, at_end, mat
     model.getCurrentController.return_value = MagicMock()
 
     with (
-        patch("plugin.writer.html_import.selected_text_range", return_value=rng),
+        patch("plugin.writer.html_import.live_selection_range", return_value=rng),
         patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False),
         patch("plugin.writer.html_import.raise_if_range_hosts_nested_table"),
         patch("plugin.writer.html_import.html_fragment_contains_mixed_math", return_value=math),
@@ -2222,3 +2222,26 @@ def test_insert_html_after_paragraph_cleans_empty_paras_around_table(after_host:
     else:
         assert text_obj.createTextCursorByRange.call_count == 2
         before_table.setString.assert_not_called()
+
+
+def test_insert_content_at_position_explicit_selection_skips_live_read():
+    from plugin.writer.html_import import insert_content_at_position
+    from plugin.writer.html_import_styles import WriteReport
+
+    model = MagicMock()
+    controller = MagicMock()
+    model.getCurrentController.return_value = controller
+    rng = MagicMock()
+    rng.supportsService.return_value = False
+    cursor = MagicMock()
+    rng.getText.return_value.createTextCursorByRange.return_value = cursor
+    rng.getText.return_value.compareRegionStarts.return_value = 1
+
+    with patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
+         patch("plugin.writer.html_import._lo_style_for_replaced_range", return_value=(False, None)), \
+         patch("plugin.writer.html_import._insert_mixed_or_plain_html", return_value=WriteReport()):
+        insert_content_at_position(model, MagicMock(), "new", "selection", selection=rng)
+
+    controller.getSelection.assert_not_called()
+    rng.setString.assert_called_once_with("")
+

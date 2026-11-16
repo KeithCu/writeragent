@@ -32,6 +32,7 @@ from plugin.doc.visual_helpers import safe_get_property
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
+from plugin.writer.target_resolver import update_selection_pin
 
 from .specialized_base import ToolWriterStructuralBase
 
@@ -75,6 +76,7 @@ class NavGotoPage(ToolWriterStructuralBase):
         ok = vc.jumpToPage(page)
         if not ok:
             return self._tool_error(f"Page {page} does not exist.")
+        update_selection_pin(ctx, vc)
         return {"status": "ok", "page": vc.getPage()}
 
 

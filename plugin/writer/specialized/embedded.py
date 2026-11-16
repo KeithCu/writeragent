@@ -287,8 +287,9 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         if isinstance(req, dict):
             return req
 
-        # Deselect before insert_at_target resolves the target: target="selection" must see
-        # the cursor after the OLE anchor that deselect leaves, not the pre-deselect view cursor.
+        # Deselect before insert_at_target resolves the target: this avoids a native crash on a
+        # second embed, and unpinned (MCP) contexts must see the post-deselect cursor after the
+        # OLE anchor rather than the pre-deselect view cursor (pinned sidebar turns read the pin).
         deselect_err = _deselect_inplace_embed(ctx.doc, self)
         if deselect_err is not None:
             return deselect_err

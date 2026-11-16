@@ -127,10 +127,11 @@ class ChatSession:
         else:
             first["content"] = base_prompt
 
-    def refresh_document_context(self, model: Any, ctx: Any) -> None:
+    def refresh_document_context(self, model: Any, ctx: Any, *, selection: Any | None = None) -> None:
         """Reload the Chat system prompt and document context from the live document.
 
         Excerpt is stored on document_context, not messages[0].
+        selection: the turn's pinned Writer range, so the markers show where the model's edits land.
 
         Why this lives on ChatSession, not panel_factory: the factory only wires
         XDL/controls. Mode switch, each send, and mid-loop refresh after a
@@ -145,7 +146,7 @@ class ChatSession:
         extra_instructions = str(get_config("additional_instructions") or "")
         base_prompt = get_chat_system_prompt_for_document(model, extra_instructions, ctx=ctx)
         doc_text = get_document_context_for_chat(
-            model, CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=ctx
+            model, CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=ctx, selection=selection
         )
         self.set_system_context(base_prompt, doc_text)
 

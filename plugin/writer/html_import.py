@@ -29,8 +29,8 @@ from plugin.doc.text_helpers import (
     clear_direct_numbering,
     go_right,
     iter_elements,
+    live_selection_range,
     normalize_linebreaks as _normalize,
-    selected_text_range,
 )
 from plugin.doc.visual_helpers import is_graphic_object
 from plugin.framework.errors import ToolExecutionError, best_effort, reraise_if_disposed, uno_read
@@ -765,6 +765,8 @@ def insert_content_at_position(
     ctx: Any,
     content: str,
     position: str,
+    *,
+    selection: Any | None = None,
 ) -> html_import_styles.WriteReport:
     """Insert formatted content at *position* (``'beginning'``, ``'end'``, or ``'selection'``).
 
@@ -772,7 +774,8 @@ def insert_content_at_position(
     content is inserted at the caret without splitting its paragraph, and block content
     is placed as new paragraphs after the caret's paragraph (or before it when at
     paragraph start), setting ``snapped_to_paragraph`` on the returned report if the
-    caret was mid-paragraph.
+    caret was mid-paragraph. Pass *selection* to act on an explicit text range
+    (such as a pinned Send-time selection) instead of reading the live view.
 
     Returns the WriteReport for this insert. ``style_skips`` gets the skip code only
     for ``'selection'`` when a ``data-lo-style`` attribute could not be applied due to a
@@ -801,21 +804,18 @@ def insert_content_at_position(
                 c.gotoEnd(False)
                 return c
 
-            controller = uno_read(lambda: model.getCurrentController(), None)
-
-            rng = selected_text_range(controller)
-
+            # Explicit selection (such as a pinned Send-time cursor) skips the live view read.
+            if selection is not None:
+                rng = selection
+            else:
+                controller = uno_read(lambda: model.getCurrentController(), None)
+                rng = live_selection_range(controller)
             if rng is not None and _selection_is_draw_shape(rng):
                 log.debug(
                     "insert_content_at_position: selection is Draw/Writer shape; "
-                    "falling back to view/document text cursor"
+                    "falling back to document end"
                 )
                 rng = None
-
-            if rng is None and controller is not None:
-                vc = uno_read(lambda: controller.getViewCursor(), None)
-                if vc is not None and not _selection_is_draw_shape(vc):
-                    rng = vc
 
             if rng is None:
                 cursor = _doc_end_cursor()

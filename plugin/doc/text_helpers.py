@@ -287,6 +287,39 @@ def selected_text_range(controller: Any) -> Any:
     return first_text_range
 
 
+def live_selection_range(controller: Any) -> Any | None:
+    """Text range the view is on: selected_text_range(controller), else the view cursor, else None.
+
+    Errors other than disposal yield None (uno_read); disposal raises DocumentDisposedError.
+    """
+    if controller is None:
+        return None
+    rng = uno_read(lambda: selected_text_range(controller), None)
+    if rng is None:
+        rng = uno_read(lambda: controller.getViewCursor(), None)
+    return rng
+
+
+def selection_cursor_snapshot(doc: Any) -> Any | None:
+    """Return a model cursor cloned from the live selection/caret, or None.
+
+    Uses a model cursor (``SwXTextCursor``) rather than the live view cursor or a
+    mark-backed ``SwXTextRange``: the view cursor moves when the user clicks
+    elsewhere, and a mark-backed range is deleted when surrounding text is
+    removed (``sw/source/core/doc/docbm.cxx`` ``isDeleteMark``) and stays before
+    text inserted at its collapsed position (``sw/source/core/txtnode/ndtxt.cxx``
+    ``SwTextNode::Update``). A model cursor keeps its place across caret moves,
+    follows text inserted before it, collapses rather than throwing on
+    surrounding deletion, and sits after text inserted at it. Frame/object
+    selections raise inside ``getText()`` and yield None here.
+    """
+    if doc is None:
+        return None
+    controller = uno_read(lambda: doc.getCurrentController(), None)
+    rng = live_selection_range(controller)
+    return uno_read(lambda: clone_text_range(rng), None) if rng is not None else None
+
+
 _TEXT_RANGES_SERVICE = "com.sun.star.text.TextRanges"
 
 
@@ -365,15 +398,16 @@ def starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
     return cmp_val != 1
 
 
-def get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
+def get_writer_selection_positions(model: Any, selection: Any | None = None) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
     try:
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-        controller = uno_call(model.getCurrentController, "Get current controller")
-        rng = selected_text_range(controller)
-        if not rng:
-            rng = uno_call(controller.getViewCursor, "Get view cursor") if controller else None
+        if selection is not None:
+            rng = selection
+        else:
+            controller = uno_call(model.getCurrentController, "Get current controller")
+            rng = live_selection_range(controller)
         if not rng or not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
             return None
         text = uno_call(rng.getText, "Get range text")
@@ -383,7 +417,7 @@ def get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
 
 
 @main_thread_only
-def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, int]:
+def get_selection_range(model: Any, doc_len: int | None = None, selection: Any | None = None) -> tuple[int, int]:
     """Return (start_offset, end_offset) character positions into the document.
     Cursor (no selection) = same start and end. Returns (0, 0) when there is no
     body-text range: no selection, an error other than a closed document, or the
@@ -392,7 +426,7 @@ def get_selection_range(model: Any, doc_len: int | None = None) -> tuple[int, in
     try:
         if model is None:
             raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
-        sel_positions = get_writer_selection_positions(model)
+        sel_positions = get_writer_selection_positions(model, selection=selection)
         if sel_positions is None:
             return (0, 0)
         _text, sel_start_pos, sel_end_pos = sel_positions

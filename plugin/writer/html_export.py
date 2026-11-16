@@ -281,13 +281,13 @@ def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
     )
 
 
-def _selection_cursor(model: Any) -> Any | None:
-    """The current selection as a cursor in its own text, or None.
+def _selection_cursor(model: Any, selection: Any | None = None) -> Any | None:
+    """The current selection (or explicit *selection* range) as a cursor in its own text, or None.
 
     Selection scope builds a cursor in the selection's own XText instead of body
     character offsets, so index/TOC selections do not export a later body paragraph.
     """
-    found = get_writer_selection_positions(model)
+    found = get_writer_selection_positions(model, selection=selection)
     if not found:
         return None
     text, start, end = found
@@ -577,6 +577,7 @@ def document_to_content(
     *,
     include_images: bool = False,
     walk_warnings: list[str] | None = None,
+    selection: Any | None = None,
 ) -> str:
     """Export a Writer document (or part of it) as HTML.
 
@@ -620,7 +621,7 @@ def document_to_content(
             # Copy the selection's own paragraphs. Character offsets from
             # get_selection_range and this walk disagree across an index section,
             # and measuring each paragraph from the document start hung on a long file.
-            source = _selection_cursor(model)
+            source = _selection_cursor(model, selection=selection)
             if source is None:
                 return _done("", "selection")
             start, end = 0, 0

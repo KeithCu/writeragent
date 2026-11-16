@@ -144,6 +144,47 @@ def test_insert_after_caret_still_moves_caret_uno(ctx, doc):
     assert para_cur.getString() == "Alpha one. Beta two. INS"
 
 
+@native_test
+@with_native_doc("writer")
+def test_selection_target_uses_send_time_selection_when_caret_moves_uno(ctx, doc):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    # Pinned context: caret moves to document start, get_content and edit still see Beta two.
+    _reset_three_paras(doc)
+    controller = _select_match(doc, "Beta two.")
+    tctx = native_writer_tool_context(doc, ctx)
+    tctx.selection_pin = SelectionPin(selection_cursor_snapshot(doc))
+    vc = controller.getViewCursor()
+    vc.gotoStart(False)
+
+    res_get = GetDocumentContent().execute(tctx, scope="selection")
+    assert res_get.get("status") == "ok", res_get
+    assert "Beta two." in res_get.get("content", ""), res_get
+
+    res = ApplyDocumentContent().execute(tctx, target="selection", content="REPLACED")
+    assert res.get("status") == "ok", res
+    body = doc.getText().getString().replace("\r\n", "\n").replace("\r", "\n")
+    assert "Alpha one. REPLACED" in body
+    assert "Beta two." not in body
+    assert controller.getViewCursor().isCollapsed()
+    assert doc.getText().compareRegionStarts(controller.getViewCursor().getStart(), doc.getText().getStart()) == 0
+
+    # Unpinned context (MCP): replacement lands at the live caret (document start).
+    _reset_three_paras(doc)
+    controller = _select_match(doc, "Beta two.")
+    unpinned_ctx = native_writer_tool_context(doc, ctx)
+    vc = controller.getViewCursor()
+    vc.gotoStart(False)
+
+    res = ApplyDocumentContent().execute(unpinned_ctx, target="selection", content="MCP_")
+    assert res.get("status") == "ok", res
+    body = doc.getText().getString().replace("\r\n", "\n").replace("\r", "\n")
+    assert body.startswith("MCP_Intro paragraph here.")
+    assert "Beta two." in body
+
+
 def _body_paras(doc):
     from plugin.framework.uno_context import enum_has_more
 

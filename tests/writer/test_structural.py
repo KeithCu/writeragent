@@ -299,3 +299,24 @@ def test_clone_heading_block_without_writer_tree_service_is_tool_error():
     result = CloneHeadingBlock().execute(ctx, paragraph_index=1)
     assert result["status"] == "error"
     assert result.get("code") == "SERVICE_UNAVAILABLE"
+
+
+def test_nav_goto_page_updates_selection_pin():
+    from plugin.framework.tool import SelectionPin
+
+    vc = MagicMock()
+    vc.jumpToPage.return_value = True
+    vc.getPage.return_value = 5
+    cloned = MagicMock()
+    vc.getText.return_value.createTextCursorByRange.return_value = cloned
+    doc = MagicMock()
+    doc.getCurrentController.return_value.getViewCursor.return_value = vc
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.selection_pin = SelectionPin(MagicMock())
+
+    res = NavGotoPage().execute(ctx, page=5)
+    assert res["status"] == "ok"
+    assert res["page"] == 5
+    assert ctx.selection_pin.range is cloned
+

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import selected_text_range
+from plugin.doc.text_helpers import clone_text_range, live_selection_range
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
@@ -25,6 +25,21 @@ def _span_cursor(rng: Any, fail: str) -> Any:
     except Exception as e:
         reraise_if_disposed(e)
         raise ValueError(fail % e)
+
+
+def request_selection_range(ctx: ToolContext) -> Any | None:
+    """Range a Writer tool acts on for target='selection': ctx.selection_pin.range when set, else live_selection_range(doc controller)."""
+    pin = ctx.selection_pin
+    if pin is not None and pin.range is not None:
+        return pin.range
+    controller = uno_read(lambda: ctx.doc.getCurrentController(), None)
+    return live_selection_range(controller)
+
+
+def update_selection_pin(ctx: ToolContext, text_range: Any) -> None:
+    """Move the turn's pinned Writer selection to *text_range* when a pin exists."""
+    if ctx.selection_pin is not None and text_range is not None:
+        ctx.selection_pin.range = clone_text_range(text_range)
 
 
 def resolve_target_cursor(
@@ -57,16 +72,11 @@ def resolve_target_cursor(
             cursor.gotoEnd(True)
         return cursor
     elif target == "selection":
-        # Resolve the explicit selection, else the view cursor. NEVER silently fall back to the end
-        # of the document (a gotoEnd fallback would append edits at the very end and still
-        # report ok). Only when BOTH are unavailable do we raise a clear error, so a headless MCP
-        # client that never set a selection is told to use set_selection / target='search'.
-        controller = uno_read(doc.getCurrentController, None)
-        rng = None
-        if controller is not None:
-            rng = uno_read(lambda: selected_text_range(controller), None)
-            if rng is None:
-                rng = uno_read(controller.getViewCursor, None)
+        # Resolve the pinned Send-time range (sidebar) or the live selection/caret (MCP);
+        # NEVER fall back to document end (a gotoEnd fallback would append edits at the very
+        # end and still report ok). Only when unavailable do we raise a clear error, so a
+        # headless MCP client that never set a selection is told to use set_selection / target='search'.
+        rng = request_selection_range(ctx)
         if rng is None:
             raise ValueError(
                 "Could not resolve the current selection. Select text first, or use "

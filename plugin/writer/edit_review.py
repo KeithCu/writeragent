@@ -52,7 +52,7 @@ import uuid
 from typing import Any, Callable, ClassVar, Generator
 
 from plugin.doc.compound_undo import UndoOutcome, UndoUnavailable, WriterCompoundUndo, commit_or_rollback
-from plugin.doc.text_helpers import FAILED, go_right, iter_elements, selected_text_range
+from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 # Module-qualified on purpose: plugin/testing_runner.py replaces config.get_config while native
 # suites run (review mode reads "off" unless a test sets it); a from-import would keep the original.
 from plugin.framework import config
@@ -828,22 +828,6 @@ _EDITED_CONTEXT_MAX_CHARS = 700
 def collapsed_anchor(text_range: Any) -> Any | None:
     """A collapsed model cursor at *text_range*'s start."""
     return uno_read(lambda: text_range.getText().createTextCursorByRange(text_range.getStart()), None)
-
-
-def selection_anchor(doc: Any) -> Any | None:
-    """Collapsed anchor at the selection range's start (or view cursor fallback)."""
-    def anchor() -> Any:
-        controller = doc.getCurrentController()
-        if controller is None:
-            return None
-
-        rng = selected_text_range(controller)
-        if rng is not None:
-            return rng.getText().createTextCursorByRange(rng.getStart())
-        vc = controller.getViewCursor()
-        return vc.getText().createTextCursorByRange(vc.getStart())
-
-    return uno_read(anchor, None)
 
 
 def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:

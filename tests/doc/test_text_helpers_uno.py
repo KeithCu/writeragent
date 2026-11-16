@@ -133,3 +133,65 @@ def test_get_string_without_tracked_deletions_draw_shapes_read_text_uno(ctx):
                 else:
                     assert got == "alpha\nbeta"
                     assert got == s.getString()
+
+
+@native_test
+def test_selection_cursor_snapshot_follows_edits_uno(ctx):
+    from plugin.doc.text_helpers import selection_cursor_snapshot
+
+    with TestingFactory.native_doc(ctx, "writer") as doc:
+        text = doc.getText()
+        cur = text.createTextCursor()
+        text.insertString(cur, "alpha beta gamma", False)
+
+        # Select "beta".
+        desc = doc.createSearchDescriptor()
+        desc.SearchString = "beta"
+        found = doc.findFirst(desc)
+        assert found is not None
+        controller = doc.getCurrentController()
+        controller.select(found)
+
+        pin = selection_cursor_snapshot(doc)
+        assert pin is not None
+        assert pin.getString() == "beta"
+
+        # 1. Follows edits inserted before it.
+        before = text.createTextCursor()
+        before.gotoStart(False)
+        text.insertString(before, "HEAD ", False)
+        assert pin.getString() == "beta"
+
+        # 2. Collapses on setString("").
+        pin.setString("")
+        assert pin.isCollapsed()
+
+        # 3. Sits after text inserted at it.
+        ins = text.createTextCursorByRange(pin.getStart())
+        text.insertString(ins, "NEW", False)
+        assert text.compareRegionStarts(pin.getStart(), ins.getEnd()) == 0
+
+        # 4. Survives deletion of its surroundings (collapses instead of throwing).
+        desc2 = doc.createSearchDescriptor()
+        desc2.SearchString = "gamma"
+        found2 = doc.findFirst(desc2)
+        controller.select(found2)
+        pin2 = selection_cursor_snapshot(doc)
+        assert pin2 is not None
+        surrounding = text.createTextCursor()
+        surrounding.gotoStart(False)
+        surrounding.gotoEnd(True)
+        surrounding.setString("")
+        assert pin2.getString() == ""
+        assert pin2.isCollapsed()
+
+        # 5. Caret (no selection) yields a collapsed snapshot.
+        text.insertString(text.createTextCursor(), "caret test", False)
+        vc = controller.getViewCursor()
+        vc.gotoStart(False)
+        sel = controller.getSelection()
+        assert sel.getCount() == 1
+        caret_pin = selection_cursor_snapshot(doc)
+        assert caret_pin is not None
+        assert caret_pin.isCollapsed()
+

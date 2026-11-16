@@ -40,10 +40,10 @@ from plugin.writer.edit_review import (
     record_preserve_replace,
     record_html_atomically,
     collapsed_anchor,
-    selection_anchor,
     attach_edited_context,
     next_agent_edit_undo_title,
 )
+from plugin.writer.target_resolver import request_selection_range
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.search import replace_text_in_shape
@@ -1395,14 +1395,15 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
         # collapsed position (not the selection range itself) survives the replace.
-        anchor = selection_anchor(ctx.doc)
+        rng = request_selection_range(ctx)
+        anchor = collapsed_anchor(rng) if rng is not None else None
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             report = record_html_atomically(
                 session, ctx.doc,
                 lambda: html_import.insert_content_at_position(
-                    ctx.doc, ctx.ctx, content, "selection"
+                    ctx.doc, ctx.ctx, content, "selection", selection=rng
                 ),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)

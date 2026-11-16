@@ -731,7 +731,7 @@ def test_suggested_call_omitted_for_selection_target():
     fam.hasByName.side_effect = lambda n: n in ("Heading 2", "Standard")
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
 
-    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
+    with patch("plugin.writer.apply_document_content.request_selection_range", return_value=None), \
          patch.object(html_import, "insert_content_at_position", return_value=html_import_styles.WriteReport(style_skips=["STYLE_IGNORED_PARTIAL_MATCH"], style_tokens=["Heading2"])):
         res = ApplyDocumentContent().execute(
             ctx, content='<p data-lo-style="Heading2">new</p>', target="selection"
@@ -1661,7 +1661,7 @@ def test_all_matches_disposed_undo_manager_reraises():
             "selection",
             {},
             [
-                ("plugin.writer.apply_document_content.selection_anchor", {"return_value": None}),
+                ("plugin.writer.apply_document_content.request_selection_range", {"return_value": None}),
                 ("plugin.writer.html_import.insert_content_at_position", {"return_value": html_import_styles.WriteReport()}),
             ],
             id="selection",
@@ -1728,7 +1728,7 @@ def test_apply_document_content_selection_failure_not_silent():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.apply_document_content.selection_anchor", return_value=MagicMock()), \
+    with patch("plugin.writer.apply_document_content.request_selection_range", return_value=MagicMock()), \
          patch.object(html_import, "insert_content_at_position",
                       side_effect=ToolExecutionError("Could not resolve the current selection")):
         # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP
@@ -1749,7 +1749,7 @@ def test_selection_snapped_insert_reports_snapped_to_paragraph():
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     ctx.services.get.return_value = MagicMock()
     with (
-        patch("plugin.writer.apply_document_content.selection_anchor", return_value=None),
+        patch("plugin.writer.apply_document_content.request_selection_range", return_value=None),
         patch.object(
             html_import,
             "insert_content_at_position",
@@ -1761,7 +1761,7 @@ def test_selection_snapped_insert_reports_snapped_to_paragraph():
     assert res_snapped["snapped_to_paragraph"] is True
 
     with (
-        patch("plugin.writer.apply_document_content.selection_anchor", return_value=None),
+        patch("plugin.writer.apply_document_content.request_selection_range", return_value=None),
         patch.object(
             html_import,
             "insert_content_at_position",
@@ -1771,6 +1771,33 @@ def test_selection_snapped_insert_reports_snapped_to_paragraph():
         res_plain = ApplyDocumentContent().execute(ctx, content="x", target="selection")
     assert res_plain["status"] == "ok"
     assert "snapped_to_paragraph" not in res_plain
+
+
+def test_edit_selection_passes_pinned_range_to_html_import():
+    from plugin.framework.tool import SelectionPin
+    from plugin.writer import html_import
+
+    ctx = _edit_ctx()
+    pinned_rng = MagicMock()
+    pinned_anchor = MagicMock()
+    pinned_rng.getText.return_value.createTextCursorByRange.return_value = pinned_anchor
+    ctx.selection_pin = SelectionPin(pinned_rng)
+
+    with patch.object(
+        html_import,
+        "insert_content_at_position",
+        return_value=html_import_styles.WriteReport(),
+    ) as mock_insert, patch(
+        "plugin.writer.apply_document_content.attach_edited_context",
+        side_effect=lambda res, _a: res,
+    ) as mock_attach:
+        res = ApplyDocumentContent().execute(ctx, content="new", target="selection")
+
+    assert res["status"] == "ok"
+    mock_insert.assert_called_once_with(ctx.doc, ctx.ctx, "new", "selection", selection=pinned_rng)
+    mock_attach.assert_called_once()
+    assert mock_attach.call_args[0][1] is pinned_anchor
+
 
 
 

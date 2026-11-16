@@ -542,13 +542,25 @@ class ToolCallingMixin:
             # so a mid-send combobox change marks this model, not the new one.
             started.text_model = str(api_config.get("model") or "") or None
             started.endpoint = client._endpoint()
-        turn_session = started.session if started is not None else None
-        if turn_session is None:
+        if started is None or started.session is None:
             # Clear replaced messages, or Stop aborted the turn, while this
             # send was still starting. The user row must not land on the wiped chat.
             return
+        turn_session = started.session
         try:
-            turn_session.refresh_document_context(model, self._panel.ctx)
+            # Capture the Writer selection on the UI thread at Send so a caret
+            # moved mid-turn does not redirect target='selection'; sync tools
+            # read it on the main thread, and disposal surfaces below.
+            pin = None
+            if doc_type_str == "writer":
+                from plugin.doc.text_helpers import selection_cursor_snapshot
+                from plugin.framework.tool import SelectionPin
+
+                pin = SelectionPin(selection_cursor_snapshot(model))
+            started.selection_pin = pin
+            turn_session.refresh_document_context(
+                model, self._panel.ctx, selection=pin.range if pin is not None else None
+            )
             doc_text = turn_session.document_context
             log.debug("_do_send: document context length=%d" % len(doc_text))
             agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": CHAT_DOCUMENT_CONTEXT_MAX_CHARS}, hypothesis_id="B")

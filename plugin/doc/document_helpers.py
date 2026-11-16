@@ -169,9 +169,12 @@ def get_document_context_for_chat(
     include_end: bool = True,
     include_selection: bool = True,
     ctx: Any | None = None,
+    *,
+    selection: Any | None = None,
 ) -> str:
     """Build a single context string for chat. Handles Writer, Calc and Draw.
-    ctx: component context (required for Calc and Draw documents)."""
+    ctx: component context (required for Calc and Draw documents).
+    selection: optional Writer text range to mark instead of reading the live view."""
     try:
         doc_type = _doc_type.get_document_type(model)
 
@@ -228,9 +231,9 @@ def get_document_context_for_chat(
 
             start_offset, end_offset = (0, 0)
             if include_selection:
-                sel_positions = _text_helpers.get_writer_selection_positions(model)
+                sel_positions = _text_helpers.get_writer_selection_positions(model, selection=selection)
                 if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
-                    start_offset, end_offset = _text_helpers.get_selection_range(model, doc_len=doc_len)
+                    start_offset, end_offset = _text_helpers.get_selection_range(model, doc_len=doc_len, selection=selection)
                     start_offset = max(0, min(start_offset, doc_len))
                     end_offset = max(0, min(end_offset, doc_len))
                     if start_offset > end_offset:
