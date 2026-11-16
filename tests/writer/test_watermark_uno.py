@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import zipfile
 from typing import Any
@@ -168,3 +169,97 @@ def test_picture_watermark_kept_by_get_removed_by_set_uno(ctx: Any, doc: Any) ->
     assert not any(
         s.getName().startswith("PowerPlusWaterMarkObject") for s in iter_draw_shapes(doc.getDrawPage())
     )
+
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_remove_watermark_clears_inactive_first_and_even_headers_uno(ctx: Any, doc: Any) -> None:
+    import uno
+
+    standard = doc.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+    standard.setPropertyValue("HeaderIsOn", True)
+    standard.setPropertyValue("HeaderIsShared", False)
+    standard.setPropertyValue("FirstIsShared", False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx)
+    res = PageSetWatermark().execute(tool_ctx, text="DRAFT")
+    assert res["status"] == "ok", res
+
+    desktop = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+    fd_src, src_docx = tempfile.mkstemp(suffix=".docx")
+    os.close(fd_src)
+    fd_mod, mod_docx = tempfile.mkstemp(suffix=".docx")
+    os.close(fd_mod)
+    fd_out, out_docx = tempfile.mkstemp(suffix=".docx")
+    os.close(fd_out)
+
+    reloaded = None
+    try:
+        doc.storeToURL(
+            uno.systemPathToFileUrl(src_docx),
+            (create_property_value("FilterName", "MS Word 2007 XML"),),
+        )
+
+        with zipfile.ZipFile(src_docx, "r") as zin, zipfile.ZipFile(mod_docx, "w") as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename == "word/document.xml":
+                    data = re.sub(rb"<w:titlePg[^>]*/>", b"", data)
+                elif item.filename == "word/settings.xml":
+                    data = re.sub(rb"<w:evenAndOddHeaders[^>]*/>", b"", data)
+                zout.writestr(item, data)
+
+        reloaded = desktop.loadComponentFromURL(
+            uno.systemPathToFileUrl(mod_docx),
+            "_blank",
+            0,
+            (create_property_value("Hidden", True),),
+        )
+        reloaded_style = reloaded.getStyleFamilies().getByName("PageStyles").getByName("Standard")
+        assert reloaded_style.getPropertyValue("FirstIsShared") is True
+        assert reloaded_style.getPropertyValue("HeaderIsShared") is True
+        initial_wm = [
+            s.getName()
+            for s in iter_draw_shapes(reloaded.getDrawPage())
+            if s.getName().startswith("PowerPlusWaterMarkObject")
+        ]
+        assert len(initial_wm) > 1, initial_wm
+
+        reloaded_ctx = TestingFactory.create_context(doc=reloaded, ctx=ctx)
+        rem = PageSetWatermark().execute(reloaded_ctx, text="")
+        assert rem["status"] == "ok", rem
+        assert rem["watermark"] is None
+
+        remaining_wm = [
+            s.getName()
+            for s in iter_draw_shapes(reloaded.getDrawPage())
+            if s.getName().startswith("PowerPlusWaterMarkObject")
+        ]
+        assert remaining_wm == [], remaining_wm
+
+        reloaded.storeToURL(
+            uno.systemPathToFileUrl(out_docx),
+            (create_property_value("FilterName", "MS Word 2007 XML"),),
+        )
+        with zipfile.ZipFile(out_docx, "r") as zf:
+            header_names = [n for n in zf.namelist() if n.startswith("word/header") and n.endswith(".xml")]
+            for name in header_names:
+                assert b'id="PowerPlusWaterMarkObject' not in zf.read(name), name
+
+        reloaded_style.setPropertyValue("FirstIsShared", False)
+        reloaded_style.setPropertyValue("HeaderIsShared", False)
+        unshared_wm = [
+            s.getName()
+            for s in iter_draw_shapes(reloaded.getDrawPage())
+            if s.getName().startswith("PowerPlusWaterMarkObject")
+        ]
+        assert unshared_wm == [], unshared_wm
+        got = PageGetWatermark().execute(reloaded_ctx)
+        assert got["status"] == "ok", got
+        assert got["watermark"] is None
+    finally:
+        if reloaded is not None:
+            reloaded.close(True)
+        for path in (src_docx, mod_docx, out_docx):
+            if os.path.exists(path):
+                os.unlink(path)
