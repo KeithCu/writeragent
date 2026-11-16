@@ -710,8 +710,8 @@ class ToolRegistry:
             except Exception:
                 log.exception("Failed to instantiate tool %s", obj.__name__)
                 continue
-            # Duplicate-name errors are deliberately not caught here so make proxy-stubs
-            # and plugin bootstrap fail instead of letting one class silently win.
+            # Duplicate-name errors are deliberately not caught here so ModuleLoader records
+            # the module failure and make proxy-stubs fails instead of letting one class silently win.
             self.register(tool_instance)
 
     # ── Lookup & Schema Generation ────────────────────────────────────
@@ -783,7 +783,7 @@ class ToolRegistry:
             required_core: set[str] = set()
             for t in tools:
                 if _is_specialized_domain_tool(t, active_domain):
-                    req = getattr(t, "required_core_tools", None)
+                    req = t.required_core_tools
                     if req:
                         required_core.update(req)
 

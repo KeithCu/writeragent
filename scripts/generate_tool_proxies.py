@@ -1188,6 +1188,12 @@ def main(argv: list[str] | None = None) -> None:
         with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
             _config_in_scratch_dir(tmp_dir)
             registry = get_tools()
+            from plugin.framework.module_base import ModuleLoader
+
+            if ModuleLoader.failed_modules:
+                failures = ", ".join(f"{name}: {exc}" for name, exc in ModuleLoader.failed_modules)
+                sys.stderr.write(f"generate_tool_proxies: module load failed: {failures}\n")
+                sys.exit(1)
             all_tools = registry.get_tools(
                 filter_doc_type=False,
                 exclude_tiers=frozenset({"specialized_control"}),

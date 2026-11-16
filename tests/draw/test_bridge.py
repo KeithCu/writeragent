@@ -1369,7 +1369,7 @@ def test_notes_text_and_set_notes_text_functions():
 def test_get_active_page_index_follows_calc_active_sheet():
     """On a Calc doc, DrawBridge resolves the active page from controller.ActiveSheet.getDrawPage(), not sheet 0.
 
-    This is the only unit guard for plugin/draw/bridge.py:82-94; draw tests patch get_active_page out.
+    This is the only unit guard for DrawBridge.get_active_page; draw tests patch get_active_page out.
     """
     doc = MagicMock()
     doc.supportsService.return_value = True

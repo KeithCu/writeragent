@@ -15,8 +15,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Calc chart tools (chart_list, chart_get_info, chart_upsert, chart_delete).
-Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
+"""Chart tools (chart_list, chart_get_info, chart_upsert, chart_delete) for Calc, Writer, Draw, and Impress.
+
+This module is the single owner of those four tool names for every app. Writer
+charts operate on the active Writer context but use the same UNO paths as Calc
+chart tools (embedded chart / sheet-style APIs), not a dedicated chart2
+Writer-only module.
+
 Recognized chart CLSIDs include classic OLE, SO3_SCH_CLASSID_60, LibreOffice OLE
 embed IDs, and the runtime Writer draw-page shape id (12d37028-0b55-463d-863a-211463e2c59f,
 from native test assertions rather than the factory CLSID).
@@ -37,7 +42,6 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import format_range_address, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
-from plugin.writer.specialized_base import ToolWriterChartBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.errors import (
     ToolExecutionError,
@@ -49,6 +53,7 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
+from plugin.writer.specialized_base import ToolWriterChartBase
 import uno
 
 _MAX_CHART_DATA_CELLS = 10_000

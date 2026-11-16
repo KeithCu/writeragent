@@ -660,6 +660,82 @@ def test_duplicate_tool_name_fails_generation():
         generate_module(tools)
 
 
+def test_main_exits_nonzero_when_module_load_fails_on_duplicate_name(monkeypatch, tmp_path, capsys):
+    """generate_tool_proxies.main must fail loudly when ModuleLoader swallows a duplicate tool."""
+    import importlib
+    import os
+    import types
+    from plugin.framework.module_base import ModuleBase, ModuleLoader
+    from plugin.framework.service import ServiceRegistry
+    from plugin.framework.tool import ToolBase, ToolRegistry
+    from scripts.generate_tool_proxies import main
+
+    class _ToolA(ToolBase):
+        name = "dup_tool"
+        description = "First tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    class _ToolB(ToolBase):
+        name = "dup_tool"
+        description = "Second tool."
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    class _ModA(ModuleBase):
+        def initialize(self, services):
+            services.tools.register(_ToolA())
+
+    class _ModB(ModuleBase):
+        def initialize(self, services):
+            services.tools.register(_ToolB())
+
+    pkg_a = types.ModuleType("plugin._dup_a")
+    pkg_a._ModA = _ModA  # type: ignore[attr-defined]
+    pkg_b = types.ModuleType("plugin._dup_b")
+    pkg_b._ModB = _ModB  # type: ignore[attr-defined]
+
+    real_import = importlib.import_module
+    real_isdir = os.path.isdir
+    monkeypatch.setattr(
+        importlib,
+        "import_module",
+        lambda name, *a, **kw: pkg_a if name == "plugin._dup_a" else pkg_b if name == "plugin._dup_b" else real_import(name, *a, **kw),
+    )
+    monkeypatch.setattr(
+        os.path,
+        "isdir",
+        lambda p: True if p.endswith(("_dup_a", "_dup_b")) else real_isdir(p),
+    )
+    monkeypatch.setattr(
+        ModuleLoader,
+        "load_manifest",
+        staticmethod(lambda: [{"name": "_dup_a", "deps": []}, {"name": "_dup_b", "deps": []}]),
+    )
+    monkeypatch.setattr(ModuleLoader, "failed_modules", [])
+    monkeypatch.setattr("plugin.main.bind", lambda: None)
+
+    def _fake_get_tools():
+        services = ServiceRegistry()
+        reg = ToolRegistry(services)
+        services.register("tools", reg)
+        ModuleLoader.load_modules(services)
+        return reg
+
+    monkeypatch.setattr("plugin.app.get_tools", _fake_get_tools)
+
+    out_path = tmp_path / "writeragent_api.py"
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--output", str(out_path)])
+    assert exc_info.value.code == 1
+    assert "duplicate tool name 'dup_tool'" in capsys.readouterr().err
+    assert not out_path.exists()
+
+
 def _exec_generated_proxy(tools: list[ToolBase], handler):
     code = generate_module(tools)
     compile(code, "<generated>", "exec")
