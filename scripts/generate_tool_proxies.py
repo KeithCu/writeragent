@@ -287,6 +287,10 @@ API_EXCLUDED_TOOLS = frozenset({
     # Re-entering the venv worker from a script deadlocks the pipe. The host
     # already rejects the call; the generated proxy must not advertise it.
     "python_run_script",
+    # Sidebar chat only (plugin/mcp/client.py). =PY() code can arrive inside a
+    # spreadsheet someone else wrote; it must not reach the user's email, files
+    # and other services through their external MCP servers.
+    "external_mcp",
 })
 
 

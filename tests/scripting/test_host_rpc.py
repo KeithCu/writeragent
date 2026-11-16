@@ -153,9 +153,10 @@ def test_resolve_allowed_tools_shapes_and_multi_domain_union():
     assert union == shapes | resolve_allowed_tools("footnotes")
 
 
-def test_execute_tool_blocks_recursive_venv_script():
-    with pytest.raises(RuntimeError, match="re-enter"):
-        execute_tool("python_run_script", {"code": "result = 1"})
+@pytest.mark.parametrize("tool_name", ["python_run_script", "external_mcp"])
+def test_execute_tool_blocks_tools_listed_in_blocked_from_venv(tool_name):
+    with pytest.raises(RuntimeError, match="cannot run from a venv script"):
+        execute_tool(tool_name, {"code": "result = 1"})
 
 
 def test_execute_tool_disabled_during_py_recalc():

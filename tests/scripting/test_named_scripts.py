@@ -190,7 +190,7 @@ def test_run_venv_python_script_still_blocked():
         execute_tool("python_run_script", {"code": "1"})
         raise AssertionError("expected RuntimeError")
     except RuntimeError as exc:
-        assert "re-enter" in str(exc)
+        assert "cannot run from a venv script" in str(exc)
 
 
 def test_sandbox_library_second_attr_does_not_refetch():
