@@ -120,6 +120,36 @@ def test_stale_reader_does_not_overwrite_newer_set(fake_keystore):
     assert keystore.get_secret(name) is None
 
 
+def test_libsecret_without_search_still_reads(monkeypatch):
+    from unittest.mock import MagicMock
+
+    class _FakeLib:
+        def __getattr__(self, item: str):
+            if item == "secret_password_searchv_sync":
+                raise AttributeError(item)
+            return MagicMock(return_value=0)
+
+    monkeypatch.setattr(keystore.ctypes, "CDLL", lambda *_args, **_kwargs: _FakeLib())
+    backend = keystore._LibSecret()
+    assert backend.get("missing") is None
+
+
+def test_locked_read_does_not_hide_a_key_saved_meanwhile(fake_keystore):
+    name = "api_key:https://api.test"
+    fake_keystore.store[name] = "sk-old"
+    fake_keystore.locked = True
+
+    def save_meanwhile(key: str) -> None:
+        fake_keystore.on_get = None
+        fake_keystore.locked = False
+        assert keystore.set_secret(key, "sk-new") is True
+        fake_keystore.locked = True
+
+    fake_keystore.on_get = save_meanwhile
+    assert keystore.get_secret(name) == "sk-new"
+    assert keystore.is_locked(name) is False
+
+
 @pytest.mark.skipif(os.environ.get("CI") != "true", reason="Live OS keystore test runs on CI runners only")
 def test_live_backend_roundtrip():
     try:

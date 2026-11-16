@@ -709,21 +709,35 @@ def api_key_locked_for_endpoint(endpoint: Any) -> bool:
     return keystore.is_ref(_api_key_slot_raw(normalized)) and keystore.is_locked(_api_key_secret_name(normalized))
 
 
+def api_key_needs_keystore_read(endpoint: Any) -> bool:
+    """True when *endpoint* has a ``keystore:`` ref not yet cached, so reading it would call the OS store and may open an unlock prompt."""
+    normalized = normalize_endpoint_url(endpoint or "")
+    return keystore.is_ref(_api_key_slot_raw(normalized)) and not keystore.is_cached(_api_key_secret_name(normalized))
+
+
+def secret_config_locked(key: str) -> bool:
+    """True when *key* holds a ``keystore:`` ref whose last read hit a locked store."""
+    return keystore.is_ref(get_config(key)) and keystore.is_locked(key)
+
+
 def get_secret_config(key: str) -> str:
     """Return the resolved secret string for a ``widget: password`` config key."""
     return _resolve_secret(key, get_config(key))
 
 
-def _normalized_api_key_slot_patch(slots: dict[str, Any]) -> dict[str, Any]:
+def _normalized_api_key_slot_patch(slots: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """Patch that moves plain keys into the keystore under normalized slots.
 
     Keys are read back by normalized endpoint, so a legacy slot such as
     ``https://openrouter.ai/api/v1`` (normalized ``.../api``) is merged into
     its normalized slot and dropped. A legacy slot that already became an
     orphan keyring item (``api_key:<legacy>``) is adopted into the normalized
-    slot when that one is empty, then the orphan item is deleted.
+    slot when that one is empty; the orphan item names are returned so the
+    caller can delete them only after the config write succeeds, leaving the
+    legacy ref readable if writing fails.
     """
     patch: dict[str, Any] = {}
+    orphans: list[str] = []
     for slot, val in slots.items():
         if not isinstance(val, str):
             continue
@@ -738,9 +752,9 @@ def _normalized_api_key_slot_patch(slots: dict[str, Any]) -> dict[str, Any]:
         if secret and not slots.get(norm) and norm not in patch:
             patch[norm] = secret
         if keystore.is_ref(val):
-            keystore.delete_secret(_api_key_secret_name(slot))
+            orphans.append(_api_key_secret_name(slot))
         patch[slot] = _DROP_SLOT
-    return patch
+    return patch, orphans
 
 
 def migrate_secrets_to_keystore() -> None:
@@ -749,9 +763,10 @@ def migrate_secrets_to_keystore() -> None:
         return
     with _config_write_lock:
         patch: dict[str, Any] = {}
+        orphans: list[str] = []
         slots = get_config("api_keys_by_endpoint")
         if isinstance(slots, dict):
-            slot_patch = _normalized_api_key_slot_patch({str(k): v for k, v in slots.items()})
+            slot_patch, orphans = _normalized_api_key_slot_patch({str(k): v for k, v in slots.items()})
             if slot_patch:
                 patch["api_keys_by_endpoint"] = slot_patch
         for key in _config_schema.SECRET_CONFIG_KEYS:
@@ -760,6 +775,8 @@ def migrate_secrets_to_keystore() -> None:
                 patch[key] = val
         if patch:
             save(patch)
+        for name in orphans:
+            keystore.delete_secret(name)
 
 
 def set_api_key_for_endpoint(endpoint: Any, key: Any, *, event_key: str | None = None) -> None:
@@ -787,8 +804,14 @@ def set_reasoning_effort_for_endpoint(endpoint: Any, effort: Any, *, event_key: 
 # --- Bundled API config ---
 
 
-def get_api_config() -> dict[str, Any]:
-    """Build API config dict for LlmClient. Pass to LlmClient(config, ctx)."""
+def get_api_config(*, with_api_key: bool = True) -> dict[str, Any]:
+    """Build API config dict for LlmClient. Pass to LlmClient(config, ctx).
+
+    ``with_api_key=False`` is for UI-thread callers. Reading a locked keyring
+    opens an unlock prompt and blocks until the user answers, and on the UI
+    thread LibreOffice stops repainting. The worker that sends the request
+    fills ``"api_key"``.
+    """
     from plugin.framework.client.model_fetcher import get_text_model
 
     endpoint = str(get_config("endpoint") or "").rstrip("/")
@@ -797,12 +820,10 @@ def get_api_config() -> dict[str, Any]:
 
     is_openwebui = is_openwebui_endpoint(endpoint, explicit_is_openwebui=get_config("is_openwebui"))
     is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=get_config("is_openrouter"))
-    api_key = get_api_key_for_endpoint(endpoint)
     effort = get_reasoning_effort_for_endpoint(endpoint)
 
     api_config: dict[str, Any] = {
         "endpoint": endpoint,
-        "api_key": api_key,
         "model": get_text_model(),
         "is_openwebui": is_openwebui,
         "is_openrouter": is_openrouter,
@@ -810,6 +831,8 @@ def get_api_config() -> dict[str, Any]:
         "request_timeout": get_config("request_timeout"),
         "chat_max_tool_rounds": get_config("chatbot.max_tool_rounds"),
     }
+    if with_api_key:
+        api_config["api_key"] = get_api_key_for_endpoint(endpoint)
     if effort:
         api_config["reasoning_effort"] = effort
 

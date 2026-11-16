@@ -34,8 +34,9 @@ value)`` so a stale read never overwrites a newer write or delete.
 
 Troubleshooting unreadable stores:
 - Linux (Secret Service / gnome-keyring / Plasma ksecretd): unlock the login
-  keyring or answer the unlock prompt; a cancelled prompt caches ``None`` for
-  the rest of the LibreOffice session.
+  keyring or answer the unlock prompt; a cancelled prompt is not cached—reads
+  within ``LOCKED_RETRY_S`` return ``None`` without prompting, and the next read
+  after that prompts again.
 - macOS (Keychain): click Allow / Always Allow on the Keychain access prompt
   (a LibreOffice update changes the code signature and may re-prompt).
 - Windows (Credential Manager): verify the ``WriterAgent/<name>`` generic
@@ -73,9 +74,12 @@ _writes_failed: bool = False
 _read_failures_logged: set[str] = set()
 # Names whose last read hit a locked keyring (or a cancelled unlock prompt),
 # with the monotonic time of that read. Not cached, so a later read can prompt
-# again, but reads within LOCKED_RETRY_S return None without prompting: one
-# Send reads the key several times (main thread, LLM worker, context window),
-# and a cancelled prompt must not come straight back for each of them.
+# again, but reads within LOCKED_RETRY_S return None without prompting:
+# Settings reads the same key several times while opening
+# (settings_dialog._get_core_field_specs, dialog_views._schedule_initial_models_fetch,
+# and the TTS voice context), and background callers such as the grammar checker
+# read on every request. A cancelled prompt must not come right back for each of
+# them; Send itself reads once on its LLM worker.
 _locked: dict[str, float] = {}
 LOCKED_RETRY_S = 5.0
 
@@ -195,15 +199,20 @@ class _LibSecret:
 
         # Non-prompting search (no SECRET_SEARCH_UNLOCK) used to tell a missing
         # item from a locked one after a lookup returns NULL.
-        self._searchv_sync = libsecret.secret_password_searchv_sync
-        self._searchv_sync.argtypes = [
-            ctypes.POINTER(_SecretSchema),
-            ctypes.c_void_p,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.POINTER(_GError)),
-        ]
-        self._searchv_sync.restype = ctypes.c_void_p
+        # secret_password_searchv_sync was added in libsecret 0.19.0
+        # (Secret-1.gir: password_searchv_sync version="0.19.0"). On older
+        # distributions the store still works; we just cannot tell a locked
+        # item from a missing one, so a cancelled prompt reads as no key.
+        self._searchv_sync = getattr(libsecret, "secret_password_searchv_sync", None)
+        if self._searchv_sync is not None:
+            self._searchv_sync.argtypes = [
+                ctypes.POINTER(_SecretSchema),
+                ctypes.c_void_p,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.POINTER(_GError)),
+            ]
+            self._searchv_sync.restype = ctypes.c_void_p
 
         libgobject = ctypes.CDLL("libgobject-2.0.so.0")
         self._g_object_unref = libgobject.g_object_unref
@@ -268,6 +277,8 @@ class _LibSecret:
 
     def _item_exists(self, table: Any) -> bool:
         """True when a matching item exists, locked or not, without prompting."""
+        if self._searchv_sync is None:
+            return False
         err = ctypes.POINTER(_GError)()
         found = self._searchv_sync(ctypes.byref(self._schema), table, 0, None, ctypes.byref(err))
         if err:
@@ -650,6 +661,10 @@ def get_secret(name: str) -> str | None:
     except KeystoreLocked as exc:
         # Not cached: a later read (Send, Settings) may prompt again and succeed.
         with _cache_lock:
+            # A save or delete that landed while this read waited on the
+            # unlock prompt wins; a name is never both cached and locked.
+            if name in _cache:
+                return _cache[name]
             if name not in _locked:
                 log.warning("Secret %r unavailable: %s", name, exc)
             _locked[name] = time.monotonic()
@@ -669,6 +684,12 @@ def is_locked(name: str) -> bool:
     """True when the last read of *name* found it in a locked keyring."""
     with _cache_lock:
         return name in _locked
+
+
+def is_cached(name: str) -> bool:
+    """True when *name* is in the in-memory cache (reads need no OS call)."""
+    with _cache_lock:
+        return name in _cache
 
 
 def set_secret(name: str, value: str) -> bool:
