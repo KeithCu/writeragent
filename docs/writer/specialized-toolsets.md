@@ -429,7 +429,7 @@ All section tools (`section_list`, `section_read`, `section_create`, `section_de
   - Refuses index sections (`DocumentIndex` is not `None`, including `_Head` child sections) and password-protected sections (non-empty `ProtectionKey`).
 
 - **`section_set_columns(name, column_count, spacing_mm?)`**
-  - Sets `column_count` (1–99, matching Writer's UI cap) and `spacing_mm` (finite `>= 0`, default `0`) on the section's `TextColumns` using the shared `apply_column_layout` helper from `page.py`.
+  - Sets `column_count` (1–99, matching Writer's UI cap) and `spacing_mm` (finite `>= 0`, default `0`) on the section's `TextColumns` using the shared `column_layout_error` and `apply_column_layout` helpers from `page.py`.
   - Refuses index sections and password-protected sections.
 
 - **`section_set_protection(name, protected)`**

@@ -956,3 +956,31 @@ def test_page_insert_break_anchor_matches_nbsp_and_curly_quotes(ctx, doc):
     assert para is not None
     assert para.getPropertyValue("BreakType") == PAGE_BEFORE
 
+
+@native_test
+@with_native_doc("writer")
+def test_page_set_columns_over_cap_leaves_style_uno(ctx, doc):
+    from plugin.writer.page import PageGetColumns, PageSetColumns
+
+    set_tool = PageSetColumns()
+    get_tool = PageGetColumns()
+    tool_ctx = _tool_ctx(doc, ctx)
+    style, s_name = _style(doc)
+
+    res1 = set_tool.execute(tool_ctx, style=s_name, column_count=2, spacing_mm=5)
+    assert res1["status"] == "ok", res1
+
+    res_err = set_tool.execute_safe(tool_ctx, style=s_name, column_count=100)
+    assert res_err["status"] == "error", res_err
+    assert res_err["code"] == "INVALID_PARAM", res_err
+
+    text_columns = style.getPropertyValue("TextColumns")
+    assert text_columns.getColumnCount() == 2
+
+    cols_res = get_tool.execute(tool_ctx, style=s_name)
+    assert cols_res["status"] == "ok", cols_res
+    cols = cols_res["columns"]
+    assert len(cols) == 2
+    assert cols[0]["right_margin_mm"] == 2.5
+    assert cols[1]["left_margin_mm"] == 2.5
+
