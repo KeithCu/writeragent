@@ -130,11 +130,13 @@ class _ReadyClip(NamedTuple):
     """One synthesized sentence waiting to play, in utterance order.
 
     path is None when this sentence is spoken with the OS voice.
+    rate is the playback rate the local player should apply for this file.
     """
 
     path: str | None
     text: str
     nbytes: int
+    rate: float = 1.0
 
 
 class _ReadyQueue:
@@ -526,10 +528,11 @@ def sentences_for_speech(text: str, ctx: Any) -> list[str]:
     return [stripped] if stripped else []
 
 
-# SoundPlayer opens WAV only. Endpoint speech prefers MP3, so that suffix
-# goes through WMPlayer.OCX (no C# compilation). The path stays in WA_AUDIO_PATH;
-# any error or failed start exits 1 and the caller falls back to SAPI.
-_WIN_MP3_PLAYER = (
+# SoundPlayer opens WAV only and has no playback rate. Endpoint speech prefers
+# MP3, and WAV with rate != 1.0 also uses WMPlayer.OCX (no C# compilation).
+# The path and rate stay in WA_AUDIO_PATH / WA_AUDIO_RATE; any error or failed
+# start exits 1 and the caller falls back to SAPI.
+_WIN_WMP_PLAYER = (
     "$ErrorActionPreference = 'Stop'; "
     "try { "
     "$wmp = New-Object -ComObject WMPlayer.OCX; "
@@ -540,7 +543,7 @@ _WIN_MP3_PLAYER = (
     "$waited = 0; "
     "while (-not $started -and $wmp.playState -ne 8) { "
     "if ($wmp.Error.errorCount -gt 0) { exit 1 } "
-    "if ($wmp.playState -eq 3) { $started = $true; break } "
+    "if ($wmp.playState -eq 3) { $wmp.settings.rate = [double]$env:WA_AUDIO_RATE; $started = $true; break } "
     "if ($waited -ge 5000) { exit 1 } "
     "Start-Sleep -Milliseconds 50; "
     "$waited += 50 "
@@ -558,19 +561,21 @@ _WIN_MP3_PLAYER = (
 _WIN_WAV_PLAYER = "(New-Object Media.SoundPlayer $env:WA_AUDIO_PATH).PlaySync()"
 
 
-def _windows_player_command(file_path: str) -> tuple[str, list[str], dict[str, str]]:
-    """PowerShell playback for one clip. MP3 uses WMPlayer.OCX; WAV uses SoundPlayer."""
-    script = _WIN_MP3_PLAYER if os.path.splitext(file_path)[1].lower() == ".mp3" else _WIN_WAV_PLAYER
+def _windows_player_command(file_path: str, rate: float = 1.0) -> tuple[str, list[str], dict[str, str]]:
+    """PowerShell playback for one clip. MP3 or non-unit rate uses WMPlayer.OCX; WAV at 1.0 uses SoundPlayer."""
+    use_wmp = os.path.splitext(file_path)[1].lower() == ".mp3" or rate != 1.0
+    script = _WIN_WMP_PLAYER if use_wmp else _WIN_WAV_PLAYER
     cmd = ["powershell", "-NoProfile", "-Command", script]
-    return ("powershell", cmd, {**os.environ, "WA_AUDIO_PATH": file_path})
+    return ("powershell", cmd, {**os.environ, "WA_AUDIO_PATH": file_path, "WA_AUDIO_RATE": f"{rate:g}"})
 
 
-def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[str, str] | None]]:
+def _get_player_candidates(file_path: str, rate: float = 1.0) -> list[tuple[str, list[str], dict[str, str] | None]]:
     """Determine candidate audio player commands ordered by file format compatibility."""
     if sys.platform == "darwin":
-        return [("afplay", ["afplay", file_path], None)]
+        rate_flags = ["-r", f"{rate:g}", "-q", "1"] if rate != 1.0 else []
+        return [("afplay", ["afplay", *rate_flags, file_path], None)]
     if sys.platform == "win32":
-        return [_windows_player_command(file_path)]
+        return [_windows_player_command(file_path, rate)]
 
     # Linux / Unix
     suffix = os.path.splitext(file_path)[1].lower()
@@ -582,11 +587,16 @@ def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[st
         order = ["ffplay", "mpv", "pw-play", "paplay", "aplay", "mpg123"]
 
     candidates: list[tuple[str, list[str], dict[str, str] | None]] = []
+    # pw-play, paplay, aplay, and mpg123 have no tempo control, so with only
+    # those installed the clip plays at 1.0x.
     flags = {
         "ffplay": ["-nodisp", "-autoexit", "-loglevel", "quiet"],
         "mpv": ["--no-video"],
         "mpg123": ["-q"],
     }
+    if rate != 1.0:
+        flags["ffplay"] = [*flags["ffplay"], "-af", f"atempo={rate:g}"]
+        flags["mpv"] = [*flags["mpv"], f"--speed={rate:g}"]
     for player in order:
         if not shutil.which(player):
             continue
@@ -595,12 +605,13 @@ def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[st
     return candidates
 
 
-def _play_audio_file(file_path: str, cancel: SendCancellation) -> bool:
+def _play_audio_file(file_path: str, cancel: SendCancellation, rate: float = 1.0) -> bool:
     """Play an audio file. True only when a player exits 0.
 
+    ``rate`` is applied as a pitch-preserving tempo where the player supports one.
     Callers fall back to OS speech when this returns False and the utterance was not cancelled. False distinguishes a player that exited non-zero from success.
     """
-    candidates = _get_player_candidates(file_path)
+    candidates = _get_player_candidates(file_path, rate)
     if not candidates:
         log.warning("No audio player found on system to play: %s", file_path)
         return False
@@ -1221,7 +1232,7 @@ def _play_ready_queue(
                 _release_temp(clip.path)
                 break
             try:
-                played = clip.path and _play_audio_file(clip.path, cancel=cancel)
+                played = clip.path and _play_audio_file(clip.path, cancel=cancel, rate=clip.rate)
                 if not played and not is_cancelled(cancel):
                     _speak_system(clip.text, speed=speed, cancel=cancel)
             finally:
@@ -1382,7 +1393,7 @@ def _speak_endpoint(
             log.exception("Could not write TTS audio to %s", tmp_path)
             _release_temp(tmp_path)
             return _bail(notify=True)
-        return _ReadyClip(tmp_path, chunk, len(clip.audio))
+        return _ReadyClip(tmp_path, chunk, len(clip.audio), clip.rate)
 
     def _produce(ready: _ReadyQueue) -> None:
         _prefetch(chunks, _synth, ready, cancel, speak_rest_on_error=False)
