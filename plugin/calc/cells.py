@@ -934,7 +934,7 @@ class DeleteStructure(_StructureTool):
     name: str | None = "delete_structure"
     description: str = (
         "Deletes rows or columns. Use for structural changes; prefer ranges for data operations. "
-        "Refused (nothing deleted) when formulas would turn into #REF! unless confirm=true."
+        "Refused (nothing deleted) when formulas or named ranges would turn into #REF! unless confirm=true."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -944,7 +944,10 @@ class DeleteStructure(_StructureTool):
             "count": {"type": "integer", "description": "Number to delete (default 1)."},
             "confirm": {
                 "type": "boolean",
-                "description": "Set true to delete even when formulas would turn into #REF!. Default false: such a delete is refused and nothing changes.",
+                "description": (
+                    "Set true to delete even when formulas or named ranges would turn into #REF!. "
+                    "Default false: such a delete is refused and nothing changes."
+                ),
             },
         },
         "required": ["structure_type", "start"],
