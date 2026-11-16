@@ -1647,3 +1647,113 @@ def test_ui_thread_skips_provider_memo_until_key_read(fake_keystore):
         with patch.object(main, "is_current", return_value=True):
             model_fetcher.has_native_vision("vendor/cold-vision-model", url)
             assert bg_lookup.call_count == 1
+
+
+def test_memo_text_models_or_fetch_warm_returns_ids_without_http():
+    import plugin.framework.client.model_fetcher as cfg
+
+    endpoint = "http://localhost:11434"
+    cfg._catalog_memos.clear()
+    try:
+        with patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=False), \
+             patch("plugin.framework.client.requests.sync_request") as mock_http, \
+             patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+            cfg._catalog_memos[cfg._catalog_memo_key(endpoint)] = cfg.CatalogMemo(ids=["llama3", "mistral"])
+            got = cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="test")
+        assert got == ["llama3", "mistral"]
+        mock_http.assert_not_called()
+        mock_bg.assert_not_called()
+    finally:
+        cfg._catalog_memos.clear()
+
+
+def test_memo_text_models_or_fetch_cold_one_job_posts_all_waiters():
+    import plugin.framework.client.model_fetcher as cfg
+
+    endpoint = "http://localhost:11434"
+    cfg._catalog_memos.clear()
+    cfg._text_fetch_waiters.clear()
+    jobs = []
+    posted = []
+    cb1_calls = []
+    cb2_calls = []
+    cb3_calls = []
+
+    try:
+        with patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=False), \
+             patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch("plugin.framework.client.model_fetcher.main.post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=["m"]):
+            assert cfg.memo_text_models_or_fetch(endpoint, cb1_calls.append, task_name="t1") is None
+            assert cfg.memo_text_models_or_fetch(endpoint, cb2_calls.append, task_name="t2") is None
+            assert len(jobs) == 1
+
+            jobs[0]()
+            assert len(posted) == 1
+            posted[0]()
+            assert cb1_calls == [["m"]]
+            assert cb2_calls == [["m"]]
+
+            assert cfg.memo_text_models_or_fetch(endpoint, cb3_calls.append, task_name="t3") is None
+            assert len(jobs) == 2
+    finally:
+        cfg._catalog_memos.clear()
+        # Reset in case an assertion fails before the job runs.
+        cfg._text_fetch_waiters.clear()
+
+
+def test_memo_text_models_or_fetch_failed_fetch_posts_nothing():
+    import plugin.framework.client.model_fetcher as cfg
+
+    endpoint = "http://localhost:11434"
+    cfg._catalog_memos.clear()
+    cfg._text_fetch_waiters.clear()
+    jobs = []
+    posted = []
+
+    try:
+        with patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.get_config", return_value=""), \
+             patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=False), \
+             patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=lambda fn, **_kw: jobs.append(fn)), \
+             patch("plugin.framework.client.model_fetcher.main.post", side_effect=lambda fn: posted.append(fn)), \
+             patch("plugin.framework.client.model_fetcher.fetch_available_models", return_value=None):
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t1") is None
+            assert len(jobs) == 1
+            jobs[0]()
+            assert posted == []
+
+            assert cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="t2") is None
+            assert len(jobs) == 2
+    finally:
+        cfg._catalog_memos.clear()
+        # Reset in case an assertion fails before the job runs.
+        cfg._text_fetch_waiters.clear()
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "needs_keystore", "has_key"),
+    [
+        ("https://openrouter.ai/api", True, True),
+        ("https://openrouter.ai/api", False, False),
+    ],
+)
+def test_memo_text_models_or_fetch_never_reads_locked_key_or_fetches_keyless(
+    endpoint: str,
+    needs_keystore: bool,
+    has_key: bool,
+):
+    import plugin.framework.client.model_fetcher as cfg
+
+    with patch("plugin.framework.client.model_fetcher.api_key_needs_keystore_read", return_value=needs_keystore), \
+         patch("plugin.framework.client.model_fetcher.has_api_key_for_endpoint", return_value=has_key), \
+         patch("plugin.framework.client.model_fetcher.get_api_key_for_endpoint") as mock_get_key, \
+         patch("plugin.framework.client.model_fetcher.run_in_background") as mock_bg:
+        got = cfg.memo_text_models_or_fetch(endpoint, lambda _ids: None, task_name="test")
+    assert got is None
+    mock_get_key.assert_not_called()
+    mock_bg.assert_not_called()
