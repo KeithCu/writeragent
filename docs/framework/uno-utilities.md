@@ -98,7 +98,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 
 | Symbol | Purpose |
 |--------|---------|
-| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Draw/Impress cuts a longer summary to a prefix of max_context and appends [... document truncated ...]. Selection markers. |
+| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). When the Writer draw page has objects, appends an `Objects (index, kind, name, anchor):` list after the text (draw-page index, kind: Chart / Formula / EmbeddedObject / Image / TextFrame / shape type, Name, and anchor, capped at 20), built with the shared `plugin.draw.tree.shape_summary_line`. Calc/Draw delegated. Draw/Impress lines show the shape Name and cut a longer summary to a prefix of `max_context` with `[... document truncated ...]` appended. Listed names are the keys for `chart_delete` / `shape_delete`. Selection markers. |
 | `resolve_locator` | `paragraph:` is resolved here. Every other locator (`heading:`, `chapter_number:`, `bookmark:`, `heading_text:`, `section:`, `page:`, ...) goes to `TreeService.resolve_writer_locator`. A missing bookmark, or a bookmark whose anchor does not land on a paragraph, raises `ToolExecutionError` (it does not become paragraph 0). |
 | `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, length, chat context, page helpers, paragraph ranges. |
 

@@ -141,7 +141,7 @@ def _add_standalone_field(board, field_name, schema, y, page, dialog_width, *, w
     elif widget == "password":
         attrs = _standalone_common_attrs(field_name, y)
         attrs[_dlg("page")] = str(page)
-        attrs[_dlg("echochar")] = "42"
+        attrs[_dlg("echochar")] = "*"
         ET.SubElement(board, _dlg("textfield"), attrs)
     elif widget in ("number", "slider"):
         attrs = _standalone_common_attrs(field_name, y, width=80)

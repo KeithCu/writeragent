@@ -19,10 +19,12 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+from plugin.calc.base import ToolCalcShapeBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
+from plugin.writer.specialized_base import ToolWriterShapeBase
 from . import layout
 from .base import ToolDrawShapeBase
 
@@ -33,10 +35,16 @@ log = logging.getLogger(__name__)
 
 
 class _AnyDocumentShapeTool(ToolDrawShapeBase):
-    """Writer and Calc as well as Draw and Impress (align, distribute, diagram included)."""
+    """Shared shape-tool base for Writer, Calc, Draw, and Impress (the only class for these names)."""
 
     uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+    # One class serves every app, so it carries each app's reader tools. get_tools drops the
+    # readers that do not support the open document (Calc readers never reach a Writer agent).
+    required_core_tools: ClassVar[frozenset[str] | None] = (
+        (ToolCalcShapeBase.required_core_tools or frozenset())
+        | (ToolWriterShapeBase.required_core_tools or frozenset())
+    )
 
 
 def _page_shape_names(page: Any) -> list[str]:
@@ -731,11 +739,20 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         from plugin.draw.tree import find_shape_on_page
 
         # Index is fragile for peer "fill field X"; Name from shape_get_tree stays stable
-        # when non-fields sit between boxes. Index wins when both are passed.
-        lookup_name = kwargs.get("name") if "index" not in kwargs else None
-        shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs.get("index"), name=lookup_name)
-        if find_err or shape is None:
-            return tool._tool_error(find_err or "Shape not found.")
+        # when non-fields sit between boxes. Index wins when both are passed, and then
+        # name is the new Name (a rename), not a lookup key.
+        if "index" in kwargs:
+            shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs["index"])
+            if find_err or shape is None:
+                return tool._tool_error(find_err or "Shape not found.")
+        else:
+            # _lookup_ref is the shared not-found path (also used by shape_delete): an unknown
+            # Name returns details.available (the page's shape Names, capped) plus similar, so
+            # the model can retry with a real Name instead of guessing.
+            shape_idx, shape, _parent, err_res = _lookup_ref(tool, page, kwargs.get("name") or "", by_name=True)
+            if err_res is not None:
+                return err_res
+            assert shape is not None
 
         # Without this check, renaming by index to an existing name would
         # create a duplicate on the page.

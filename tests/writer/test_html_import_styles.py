@@ -116,9 +116,9 @@ def test_resolve_heading_links_matches_document_headings() -> None:
     assert rewritten == '<p><a href="#Existing Document Heading|outline">Link</a></p>'
 
 
-def test_resolve_heading_links_case_mismatch_and_deduplication() -> None:
-    """Case mismatch fails to match and produces a deduplicated LINK_TARGET_NOT_FOUND diagnostic."""
-    content = '<p><a href="#overview">Link 1</a> and <a href="#overview">Link 2</a></p>'
+def test_resolve_heading_links_miss_and_deduplication() -> None:
+    """Missing link target fails to match and produces a deduplicated LINK_TARGET_NOT_FOUND diagnostic."""
+    content = '<p><a href="#missing">Link 1</a> and <a href="#missing">Link 2</a></p>'
     headings = ["Overview"]
     rewritten, diags = html_import_styles.resolve_heading_links(
         content,
@@ -128,7 +128,7 @@ def test_resolve_heading_links_case_mismatch_and_deduplication() -> None:
     assert rewritten == content
     assert len(diags) == 1
     assert diags[0]["code"] == html_import_styles.LINK_TARGET_NOT_FOUND
-    assert diags[0]["link_target"] == "#overview"
+    assert diags[0]["link_target"] == "#missing"
 
 
 def test_resolve_heading_links_entity_in_id_exempted() -> None:
@@ -781,3 +781,153 @@ def test_resolve_paragraph_style_token_fallback_and_disposal():
     fam.hasByName.side_effect = DisposedException("closed")
     with pytest.raises(DocumentDisposedError):
         resolve_paragraph_style_token(fam, "heading 1", element_names=[])
+
+
+def test_resolve_heading_links_case_insensitive_unique_match():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    out, diags = resolve_heading_links(
+        '<p><a href="#getting started">go</a></p>',
+        ["Getting Started"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == '<p><a href="#Getting Started|outline">go</a></p>'
+    assert diags == []
+
+
+def test_resolve_heading_links_export_anchor_id():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    out_accent, diags_accent = resolve_heading_links(
+        '<p><a href="#a__Caf___R_sum____More">go</a></p>',
+        ["Café: Résumé & More"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out_accent == '<p><a href="#Café: Résumé &amp; More|outline">go</a></p>'
+    assert diags_accent == []
+
+    out_num, diags_num = resolve_heading_links(
+        '<p><a href="#a_1__Getting_Started">go</a></p>',
+        ["Getting Started"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out_num == '<p><a href="#Getting Started|outline">go</a></p>'
+    assert diags_num == []
+
+    out_miss, diags_miss = resolve_heading_links(
+        '<p><a href="#a__2024_Review">go</a></p>',
+        ["Review"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out_miss == '<p><a href="#a__2024_Review">go</a></p>'
+    assert len(diags_miss) == 1
+    assert diags_miss[0]["code"] == "LINK_TARGET_NOT_FOUND"
+
+    out_cyr, diags_cyr = resolve_heading_links(
+        '<p><a href="#a__Обзор">go</a></p>',
+        ["Итоги"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out_cyr == '<p><a href="#a__Обзор">go</a></p>'
+    assert len(diags_cyr) == 1
+    assert diags_cyr[0]["code"] == "LINK_TARGET_NOT_FOUND"
+
+
+def test_resolve_heading_links_long_digit_export_id_does_not_hang():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    html = '<a href="#a_' + "1" * 40 + 'x">'
+    out, diags = resolve_heading_links(
+        html,
+        ["Intro"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == html
+    assert len(diags) == 1
+    assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+
+
+def test_resolve_heading_links_long_underscore_heading_does_not_hang():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    heading = "_" * 40
+    html = f'<a href="#a__{"_" * 40}x">'
+    out, diags = resolve_heading_links(
+        html,
+        [heading],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == html
+    assert len(diags) == 1
+    assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+
+
+def test_resolve_heading_links_ambiguous_case_match_warns():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    html = '<p><a href="#intro">go</a></p>'
+    out, diags = resolve_heading_links(
+        html,
+        ["Intro", "INTRO"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == html
+    assert len(diags) == 1
+    assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+    assert "matches several headings" in diags[0]["message"]
+    assert '"Intro"' in diags[0]["message"]
+    assert '"INTRO"' in diags[0]["message"]
+
+
+def test_resolve_heading_links_miss_lists_closest_heading():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    _out, diags = resolve_heading_links(
+        '<p><a href="#Getting Startd">go</a></p>',
+        ["Getting Started"],
+        is_bookmark=lambda _name: False,
+    )
+    assert len(diags) == 1
+    assert 'Closest headings: "Getting Started"' in diags[0]["message"]
+
+
+def test_resolve_heading_links_caps_closest_heading_suggestions():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    links = " ".join(
+        f'<a href="#Getting Startd {idx}">miss {idx}</a>'
+        for idx in range(12)
+    )
+    out, diags = resolve_heading_links(
+        f"<p>{links}</p>",
+        ["Getting Started"],
+        is_bookmark=lambda _name: False,
+    )
+    assert out == f"<p>{links}</p>"
+    assert len(diags) == 12
+    for idx in range(10):
+        assert 'Closest headings: "Getting Started"' in diags[idx]["message"]
+    for idx in range(10, 12):
+        assert "Closest headings:" not in diags[idx]["message"]
+
+
+def test_resolve_heading_links_compiles_each_heading_once_across_many_links():
+    from plugin.writer.html_import_styles import resolve_heading_links
+
+    headings = [f"Section {idx}" for idx in range(600)]
+    links = (
+        ['<a href="#a__Section_599">last</a>'] * 10
+        + ['<a href="#a__Section_0">first</a>'] * 10
+        + ['<a href="#a__No_Such_Section">miss</a>'] * 10
+    )
+    out, diags = resolve_heading_links(
+        "<p>" + " ".join(links) + "</p>",
+        headings,
+        is_bookmark=lambda _name: False,
+    )
+    assert out.count('href="#Section 599|outline"') == 10
+    assert out.count('href="#Section 0|outline"') == 10
+    assert out.count('href="#a__No_Such_Section"') == 10
+    assert len(diags) == 1
+    assert diags[0]["code"] == "LINK_TARGET_NOT_FOUND"
+    assert diags[0]["link_target"] == "#a__No_Such_Section"

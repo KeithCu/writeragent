@@ -115,6 +115,8 @@ class ToolCalcChartBase(ToolCalcSpecialBase):
 
 
 class ToolCalcShapeBase(ToolCalcSpecialBase):
+    """Delegate catalog row only; the tools are the ``plugin.draw.shapes`` classes, which take this class's ``required_core_tools``."""
+
     specialized_domain: ClassVar[str | None] = "shapes"
     specialized_domain_description: ClassVar[str | None] = (
         "Create and edit drawing shapes, connectors, groups, align/distribute layouts, and diagrams."

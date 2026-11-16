@@ -8,6 +8,8 @@ if _repo_root not in sys.path:
 
 # Layer A thread guard defaults on in non-release bundles; keep headless pytest stable.
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
+# Disable OS keystore in pytest so existing tests keep plain-text JSON behavior.
+os.environ["WRITERAGENT_KEYSTORE"] = "0"
 import types
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -953,3 +955,63 @@ def fresh_sandbox_sessions(monkeypatch):
     _close_all_duckdb()
     yield store
     _close_all_duckdb()
+
+
+class FakeKeystoreBackend:
+    """In-memory keystore backend for unit tests."""
+
+    label = "Fake Store"
+
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.get_calls = 0
+        self.set_calls = 0
+        self.delete_calls = 0
+        self.fail_get = False
+        self.fail_set = False
+        self.fail_delete = False
+        self.locked = False
+        self.on_get = None
+
+    def get(self, name: str) -> str | None:
+        self.get_calls += 1
+        if self.on_get is not None:
+            self.on_get(name)
+        if self.fail_get:
+            from plugin.framework import keystore
+
+            raise keystore.KeystoreError("read boom")
+        if self.locked and name in self.store:
+            from plugin.framework import keystore
+
+            raise keystore.KeystoreLocked("locked")
+        return self.store.get(name)
+
+    def set(self, name: str, value: str) -> None:
+        self.set_calls += 1
+        if self.fail_set:
+            from plugin.framework import keystore
+
+            raise keystore.KeystoreError("write boom")
+        self.store[name] = value
+
+    def delete(self, name: str) -> None:
+        self.delete_calls += 1
+        if self.fail_delete:
+            from plugin.framework import keystore
+
+            raise keystore.KeystoreError("delete boom")
+        self.store.pop(name, None)
+
+
+@pytest.fixture
+def fake_keystore():
+    """Install a fresh in-memory FakeKeystoreBackend and reset keystore state after."""
+    from plugin.framework import keystore
+
+    backend = FakeKeystoreBackend()
+    keystore.reset_for_tests(backend)
+    try:
+        yield backend
+    finally:
+        keystore.reset_for_tests()

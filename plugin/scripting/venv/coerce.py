@@ -316,7 +316,11 @@ def _coerce_column_types(
             if col in target_date_cols:
                 continue
             series = out[col]
-            if series.dtype == object or str(series.dtype) == "string":
+            # Text columns are object dtype on pandas 2 but the "str" StringDtype
+            # on pandas 3 ("string" when requested explicitly). Testing the dtype
+            # class covers all three; a dtype-name test misses "str", so date and
+            # number text would stay unparsed.
+            if series.dtype == object or isinstance(series.dtype, pd.StringDtype):
                 coerced = series.map(lambda value: _coerce_cell(value, parse=True))
                 non_null = 0
                 all_numeric = True

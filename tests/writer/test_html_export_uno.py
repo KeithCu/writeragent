@@ -656,6 +656,57 @@ def test_range_export_missing_follow_style_keeps_name_uno(ctx: Any, doc: Any) ->
 
 @native_test
 @with_native_doc("writer")
+def test_full_read_keeps_outline_link_targets_uno(ctx: Any, doc: Any) -> None:
+    """Full-document XHTML read restores stored |outline hrefs over #a_... anchors."""
+    from plugin.app import get_services
+    from plugin.framework.tool import ToolContext
+    from plugin.framework.uno_context import enum_has_more
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+    html = (
+        "<h1>Getting Started</h1>"
+        "<p>Intro text</p>"
+        '<p><a href="#Getting Started|outline">see here</a> '
+        '<a href="https://example.com/">ext</a> '
+        '<a href="#Intro &amp; More|outline"><b>bo</b>ld</a></p>'
+        "<h2>Intro &amp; More</h2>"
+        "<table>"
+        '<tr><td><a href="#Getting Started|outline">c1</a></td><td>c2</td></tr>'
+        '<tr><td>c3</td><td><a href="#Intro &amp; More|outline">c4</a></td></tr>'
+        "</table>"
+    )
+    apply_res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=html)
+    assert apply_res.get("status") == "ok", apply_res
+
+    enum = doc.getText().createEnumeration()
+    while enum_has_more(enum):
+        para = enum.nextElement()
+        if para.supportsService("com.sun.star.text.Paragraph") and para.getString() == "Intro text":
+            fn = doc.createInstance("com.sun.star.text.Footnote")
+            doc.getText().insertTextContent(para.getEnd(), fn, False)
+            fn.setString("Footnote text")
+            break
+
+    read_res = GetDocumentContent().execute(tool_ctx, scope="full", max_chars=20000)
+    assert read_res.get("status") == "ok", read_res
+    content = read_res.get("content") or ""
+    hrefs = _hrefs(content)
+    assert not any(h.startswith("#a_") for h in hrefs), hrefs
+    assert "#ftn0" in hrefs, hrefs
+    non_ftn = [h for h in hrefs if "ftn" not in h]
+    assert non_ftn == [
+        "#Getting Started|outline",
+        "https://example.com/",
+        "#Intro &amp; More|outline",
+        "#Getting Started|outline",
+        "#Intro &amp; More|outline",
+    ], non_ftn
+
+
+@native_test
+@with_native_doc("writer")
 def test_range_and_selection_reads_report_paragraph_font_like_full_read_uno(ctx: Any, doc: Any) -> None:
     """Id 306: range and selection reads report paragraph font/colour in data-lo-para like full."""
     import re

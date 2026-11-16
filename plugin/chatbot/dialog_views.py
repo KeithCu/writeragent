@@ -32,6 +32,7 @@ from plugin.framework.menu_icon_dpi import menu_icon_asset_url
 from plugin.framework.uno_context import get_extension_url
 from plugin.framework.i18n import N_, _
 from plugin.framework.config import (
+    api_key_slot_value,
     get_api_key_for_endpoint,
     get_config,
     get_current_endpoint,
@@ -60,7 +61,7 @@ from plugin.framework.model_lru import sanitize_model_combobox_value
 from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.config_schema import get_config_schema
-from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control, stored_select_value
+from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control, secret_location_label, stored_select_value
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import (
     endpoint_from_selector_text,
@@ -1019,6 +1020,13 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._syncing_api_key: bool = False
 
         self._clear_test_status()
+        self._show_key_storage(self._synced_endpoint)
+
+    def _show_key_storage(self, endpoint: str | None) -> None:
+        lbl = get_optional(self._dlg, "label_api_key")
+        if lbl is not None:
+            where = secret_location_label(api_key_slot_value(endpoint or ""))
+            set_control_text(lbl, _("API Key ({where}):").format(where=where))
 
     def _clear_test_status(self) -> None:
         # The Get API Key link is gone. A new endpoint still leaves the last
@@ -1202,6 +1210,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 self._syncing_api_key = False
             self._user_edited_key = False
         self._synced_endpoint = resolved
+        self._show_key_storage(resolved)
 
     def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "", key_ov: str | None = None) -> None:
         if self._closed or gen != self._debounce_gen: return

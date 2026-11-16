@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import os
 from abc import ABC
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from plugin.framework import module_graph
 from plugin.framework.constants import get_plugin_dir
@@ -100,6 +100,8 @@ class ModuleLoader:
     Handles discovery, topological sorting, and initialization of plugin modules.
     """
 
+    failed_modules: ClassVar[list[tuple[str, Exception]]] = []
+
     @staticmethod
     def load_manifest() -> list[dict[str, Any]]:
         """Loads the module manifest."""
@@ -120,6 +122,7 @@ class ModuleLoader:
         subscriptions that module already registered are released, then the
         module is omitted. The initialize failure is still logged.
         """
+        cls.failed_modules = []
         initialized_modules: list[ModuleBase] = []
         manifests = module_graph.topo_sort(cls.load_manifest())
 
@@ -167,10 +170,11 @@ class ModuleLoader:
                     mod.name = name
                     try:
                         mod.initialize(services_registry)
-                    except Exception:
+                    except Exception as exc:
                         # initialize can register services or subscriptions and then
                         # raise. Shut the module down (its hook releases that
                         # work) before omitting it, or main never sees it.
+                        cls.failed_modules.append((name, exc))
                         log.exception("Failed to load module %s", name)
                         try:
                             mod.shutdown()
@@ -178,7 +182,8 @@ class ModuleLoader:
                             log.exception("Module %s failed during shutdown after initialize failed", name)
                         continue
                     initialized_modules.append(mod)
-            except Exception:
+            except Exception as exc:
+                cls.failed_modules.append((name, exc))
                 log.exception("Failed to load module %s", name)
 
         return initialized_modules
