@@ -831,7 +831,8 @@ def build_tool_execute_fn(
         # they must receive the same HITL wiring as the outer web_research tool.
         needs_web_research_ui = name == "web_research" or delegate_domain == "web_research"
         needs_document_research_ui = delegate_domain == "document_research"
-        if needs_web_research_ui or needs_document_research_ui:
+        needs_mcp_ui = delegate_domain == "mcp"
+        if needs_web_research_ui or needs_document_research_ui or needs_mcp_ui:
             chat_append_cb = lambda text: put_for_turn(captured_turn, (StreamQueueKind.CHUNK, text))  # noqa: E731
 
         prompt_for_web = False
@@ -851,12 +852,9 @@ def build_tool_execute_fn(
                 )
                 return json.dumps(format_error_payload(err), default=str)
 
-        # external_mcp decides from server trust and readOnlyHint whether to ask,
-        # and refuses to run when it must ask but has no callback (plugin/mcp/client.py).
-        if name == "external_mcp":
-            chat_append_cb = lambda text: put_for_turn(captured_turn, (StreamQueueKind.CHUNK, text))  # noqa: E731
-
-        if prompt_for_web or name == "external_mcp":
+        # Remote MCP tools decide from server trust and readOnlyHint whether to ask,
+        # and refuse to run when they must ask but have no callback (plugin/mcp/client.py).
+        if prompt_for_web or needs_mcp_ui:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
                 event = threading.Event()
@@ -909,9 +907,9 @@ def build_tool_execute_fn(
         # chat argument must not set the eval-harness switch.
         call_args = {key: value for key, value in safe_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
         res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
-        # Remote MCP text is untrusted and can steer the model into exfiltrating
-        # data via search queries, so web research asks for approval for the rest of the turn.
-        if name == "external_mcp" and isinstance(captured_turn, TurnController):
+        # Remote MCP text from an mcp delegation is untrusted and can steer the model into
+        # exfiltrating data via search queries, so web research asks for approval for the rest of the turn.
+        if needs_mcp_ui and isinstance(captured_turn, TurnController):
             captured_turn.external_mcp_result_seen = True
         # execute_safe returns DOCUMENT_DISPOSED as a dict; returning that
         # JSON would queue TOOL_DONE and the loop would keep going on a

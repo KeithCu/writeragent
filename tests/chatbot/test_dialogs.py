@@ -43,6 +43,63 @@ def test_show_approval_dialog_reject_still_disposes():
     box.dispose.assert_called_once()
 
 
+def test_show_approval_dialog_is_not_reported_hung():
+    import time
+    import plugin.framework.logging as logging_mod
+    from plugin.chatbot.dialogs import show_approval_dialog
+
+    class Ctrl:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def getText(self) -> str:
+            return self.text
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+    ctrl = Ctrl()
+    shared = logging_mod._shared()
+    saved = shared["hung_shown"]
+    recorded: list[str] = []
+
+    def fake_execute(*_args, **_kwargs):
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = time.monotonic() - 40
+        logging_mod._watchdog_check(ctrl)
+        recorded.append(ctrl.text)
+        return 2
+
+    ctx = MagicMock()
+    frame = MagicMock()
+    box = MagicMock()
+    box.execute.side_effect = fake_execute
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value.createMessageBox.return_value = box
+
+    try:
+        shared["hung_shown"] = False
+        logging_mod.update_activity_state("tool_execute", 1, "agent_tool", status_control=ctrl)
+        with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            assert show_approval_dialog(ctx, "do it", parent_frame=frame) is True
+            assert recorded == [""]
+            with shared["activity_lock"]:
+                shared["activity"]["last_activity"] = time.monotonic() - 40
+            logging_mod._watchdog_check(ctrl)
+            assert ctrl.text.startswith("Hung:")
+
+        ctrl.text = ""
+        box.execute.side_effect = RuntimeError("dialog boom")
+        with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            assert show_approval_dialog(ctx, "do it", parent_frame=frame) is False
+            with shared["activity_lock"]:
+                shared["activity"]["last_activity"] = time.monotonic() - 40
+            logging_mod._watchdog_check(ctrl)
+            assert ctrl.text.startswith("Hung:")
+    finally:
+        shared["hung_shown"] = saved
+        logging_mod.update_activity_state("")
+
+
 def test_uno_impl_to_control_type():
     assert _uno_impl_to_control_type("stardiv.Toolkit.UnoButtonControl") == "Button"
     assert _uno_impl_to_control_type("stardiv.Toolkit.UnoFixedTextControl") == "FixedText"

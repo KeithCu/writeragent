@@ -564,6 +564,108 @@ def test_watchdog_clears_hung_status_when_activity_resumes():
         update_activity_state("")
 
 
+def test_watchdog_waiting_for_user_is_not_hung():
+    import time
+    import plugin.framework.logging as logging_mod
+
+    class Ctrl:
+        def __init__(self) -> None:
+            self.text = "Waiting for approval…"
+
+        def getText(self) -> str:
+            return self.text
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+    ctrl = Ctrl()
+    shared = logging_mod._shared()
+    saved = shared["hung_shown"]
+    try:
+        shared["hung_shown"] = False
+        update_activity_state("tool_execute", 1, "delegate_to_subagent", status_control=ctrl)
+        logging_mod.set_waiting_for_user(True)
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = time.monotonic() - 40
+        with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            logging_mod._watchdog_check(ctrl)
+            assert ctrl.text == "Waiting for approval…"
+            logging_mod.set_waiting_for_user(False)
+            with shared["activity_lock"]:
+                shared["activity"]["last_activity"] = time.monotonic() - 40
+            logging_mod._watchdog_check(ctrl)
+            assert ctrl.text.startswith("Hung:")
+    finally:
+        shared["hung_shown"] = saved
+        update_activity_state("")
+
+
+def test_hung_post_skipped_when_card_opens_first():
+    import time
+    import plugin.framework.logging as logging_mod
+
+    class Ctrl:
+        def __init__(self) -> None:
+            self.text = "Waiting for approval…"
+
+        def getText(self) -> str:
+            return self.text
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+    ctrl = Ctrl()
+    shared = logging_mod._shared()
+    saved = shared["hung_shown"]
+    captured: list[tuple[Any, tuple[Any, ...]]] = []
+    try:
+        shared["hung_shown"] = False
+        update_activity_state("tool_execute", 1, "delegate_to_subagent", status_control=ctrl)
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = time.monotonic() - 40
+        with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a: captured.append((fn, a))):
+            logging_mod._watchdog_check(ctrl)
+        assert len(captured) == 1
+        logging_mod.set_waiting_for_user(True)
+        fn, args = captured[0]
+        fn(*args)
+        assert ctrl.text == "Waiting for approval…"
+    finally:
+        shared["hung_shown"] = saved
+        update_activity_state("")
+
+
+def test_phase_change_ends_waiting_for_user():
+    import time
+    import plugin.framework.logging as logging_mod
+
+    class Ctrl:
+        def __init__(self) -> None:
+            self.text = "Working"
+
+        def getText(self) -> str:
+            return self.text
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+    ctrl = Ctrl()
+    shared = logging_mod._shared()
+    saved = shared["hung_shown"]
+    try:
+        shared["hung_shown"] = False
+        logging_mod.set_waiting_for_user(True)
+        update_activity_state("tool_loop", status_control=ctrl)
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = time.monotonic() - 40
+        with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+            logging_mod._watchdog_check(ctrl)
+        assert ctrl.text.startswith("Hung:")
+    finally:
+        shared["hung_shown"] = saved
+        update_activity_state("")
+
+
 class TestAgentLog:
 
     def setup_method(self):

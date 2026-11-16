@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 # Research routing (short); domain bullets use these strings as-is.
 DELEGATION_USER_FILE_DATA_HINT = "to use information that is not in the current document, and may be in (my / our) personal or business documents"
 DELEGATION_PUBLIC_WEB_HINT = "to research public topics"
+DELEGATION_MCP_HINT = "to use the user's own services through their MCP servers (files, email, calendar, notes and similar)"
 
 APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT = "Required after web_research or document_research delegates return."
 

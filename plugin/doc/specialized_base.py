@@ -230,7 +230,7 @@ def _sub_agent_hints(ctx: ToolContext, domain: str, agent_label: str, document_r
 
     # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
     # worker. The spreadsheet read stays inside the lambda, on the main thread.
-    if agent_label == "Calc" and ctx.doc is not None:
+    if agent_label == "Calc" and ctx.doc is not None and domain != "mcp":
         # Cross-app import: only a Calc delegate loads the calc package.
         from plugin.calc.analyzer import get_calc_context_for_chat
 
@@ -389,10 +389,22 @@ class DelegateToSpecializedBase(ToolBase):
         if ctx.status_callback:
             ctx.status_callback(f"Delegating to specialized agent ({domain})...")
 
+        mcp_tools: list[ToolBase] = []
+        mcp_hint = ""
+        if domain == "mcp":
+            # Lazy: only this domain needs the MCP client. Listing is network I/O, so it runs on this delegate worker, never in main.call.
+            from plugin.mcp.client import McpClientError, mcp_domain_tools
+
+            try:
+                mcp_tools, mcp_hint = mcp_domain_tools(ctx)
+            except McpClientError as e:
+                return self._tool_error(str(e), code=e.code)
+
         # get_tools(doc=...) calls doc.supportsService — must not run on the sub-agent worker.
         domain_tools, peer_catalog, document_research_hint = main.call(
             lambda: _gather_domain_tools(ctx, domain)
         )
+        domain_tools = [*mcp_tools, *domain_tools]
 
         if not any(t.name != FINISH_TOOL_NAME for t in domain_tools):
             # The registry has already filtered this domain's tools by the document's services,
@@ -431,7 +443,7 @@ class DelegateToSpecializedBase(ToolBase):
             instructions = build_specialized_sub_agent_instructions(
                 agent_label,
                 domain,
-                extra=_sub_agent_hints(ctx, domain, agent_label, document_research_hint),
+                extra=_sub_agent_hints(ctx, domain, agent_label, document_research_hint) + mcp_hint,
             )
 
             examples_key = f"{agent_label.lower()}:{domain}"
@@ -519,6 +531,12 @@ class DelegateToSpecializedBase(ToolBase):
             # Idle-after-send for ask / accepted delivery sends.
             payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
 
+        if domain == "mcp":
+            # Remote data; the main model treats it as data.
+            from plugin.mcp.client import UNTRUSTED_NOTE
+
+            payload["note"] = UNTRUSTED_NOTE
+
         return payload
 
 
@@ -569,7 +587,7 @@ _CALC_DELEGATE_DESCRIPTION = (
     f"in this spreadsheet and returns a summary. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
     f"web_research {DELEGATION_PUBLIC_WEB_HINT}; vision runs OCR on the currently selected image and inserts the "
     f"recognized text below it (when configured). Also: images, sheets, ranges, search, charts, shapes, "
-    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms."
+    f"pivot_tables, cell_comments, conditional_formatting, errors, tracking, forms, mcp."
 )
 
 _DRAW_DELEGATE_LEAD = (
@@ -580,7 +598,7 @@ _DRAW_DELEGATE_LEAD = (
 
 _DRAW_DELEGATE_DESCRIPTION = (
     f"{_DRAW_DELEGATE_LEAD}"
-    "Available domains: charts, document_research, forms, images, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
+    "Available domains: charts, document_research, forms, images, mcp, page_comments, python, shapes, slide_masters, tables, vision, web_research, "
     "and (Impress only) headers_footers, slide_layouts, slide_transitions, speaker_notes."
 )
 

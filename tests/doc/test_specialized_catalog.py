@@ -274,6 +274,40 @@ def test_catalog_entries_narrowed_by_uno_services() -> None:
     )
 
 
+def test_live_catalog_hides_domains_that_cannot_run() -> None:
+    from unittest.mock import patch
+
+    from plugin.doc.specialized_catalog import catalog_entries_from_base
+    from plugin.framework.doc_type import WRITER_DOCUMENT_SERVICE
+
+    with (
+        patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False),
+        patch("plugin.mcp.client.configured_servers", return_value=[]),
+    ):
+        bootstrap = {e["domain"] for e in catalog_entries_from_base(agent_label="Writer")}
+        assert {"vision", "mcp"} <= bootstrap
+
+        live_services = {
+            e["domain"]
+            for e in catalog_entries_from_base(agent_label="Writer", uno_services=frozenset({WRITER_DOCUMENT_SERVICE}))
+        }
+        assert "vision" not in live_services
+        assert "mcp" not in live_services
+
+        live_ctx = {e["domain"] for e in catalog_entries_from_base(agent_label="Writer", ctx=object())}
+        assert "vision" not in live_ctx
+        assert "mcp" not in live_ctx
+
+    with (
+        patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False),
+        patch("plugin.mcp.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]),
+    ):
+        with_server = {
+            e["domain"]
+            for e in catalog_entries_from_base(agent_label="Writer", uno_services=frozenset({WRITER_DOCUMENT_SERVICE}))
+        }
+        assert "mcp" in with_server
+        assert "vision" not in with_server
 def test_loop_hint_shapes_states_units_for_every_label() -> None:
     from plugin.doc.specialized_catalog import loop_hint
 

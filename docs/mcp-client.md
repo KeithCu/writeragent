@@ -2,21 +2,21 @@
 
 WriterAgent already runs an MCP **server** ([mcp-protocol.md](mcp-protocol.md)) so outside agents can drive LibreOffice. This feature is the other direction: the built-in sidebar chat can call tools on **other** MCP servers, for example a home server that exposes Nextcloud, email, calendar or notes.
 
-Code: [`plugin/mcp/client.py`](../plugin/mcp/client.py), [`plugin/mcp/client_helpers.py`](../plugin/mcp/client_helpers.py). Tests: [`tests/mcp/test_client.py`](../tests/mcp/test_client.py), [`tests/mcp/test_client_helpers.py`](../tests/mcp/test_client_helpers.py).
+Code: [`plugin/mcp/client.py`](../plugin/mcp/client.py), [`plugin/mcp/client_schema.py`](../plugin/mcp/client_schema.py), [`plugin/mcp/client_helpers.py`](../plugin/mcp/client_helpers.py). Tests: [`tests/mcp/test_client.py`](../tests/mcp/test_client.py), [`tests/mcp/test_client_schema.py`](../tests/mcp/test_client_schema.py), [`tests/mcp/test_client_helpers.py`](../tests/mcp/test_client_helpers.py).
 
 ## How the model sees it
 
-All remote tools sit behind one chat tool, `external_mcp`. A long tool list makes small local models choose badly, so the model sees one entry (and only when at least one server is configured) and asks for the catalog when it needs it:
+Remote tools are exposed through the `mcp` sub-agent domain (`delegate_to_subagent(domain="mcp", task=...)`). The domain is hidden from the chat prompt, tool enums, and descriptions when no server is configured.
 
-1. `external_mcp(action="list_tools")` returns every configured server with its tools (name, first paragraph of the description, argument names) and the untrusted-data `note`. A server that is down appears with an `error` and the others still list.
-2. `external_mcp(action="list_tools", tool="<name>")` returns that tool's description (capped at 2,000 characters), full input schema, and the untrusted-data `note`.
-3. `external_mcp(action="call_tool", server="<server>", tool="<name>", arguments={...})` runs it. `server` may be left out when only one server is configured.
+On each `mcp` delegation:
 
-Every `call_tool` asks first unless the server is trusted (`mcp_client.trusted` or `"trust": "full"`) **and** the tool's `annotations.readOnlyHint` is `true`. When asking, step 3 shows `[Run <server>: <tool>?]` and the indented JSON arguments (up to 1,200 characters, with invisible/control characters escaped) in the chat and swaps Send / Stop / Clear for **Accept / Change / Reject**, the same step web research uses (`chatbot.prompt_for_web_research`). Accept runs the call. Reject stops it and the turn. Change opens the arguments as JSON to edit; the edited object is sent and shown as `[Changed to: …]`, and text that is not a JSON object stops the call and passes the text back to the model. Listing tools never asks.
+1. WriterAgent re-lists every configured server (`tools/list` with `refresh=True`). A server that is down becomes a note in the sub-agent's instructions while the remaining servers still run; if no usable tools remain, the delegation returns `MCP_CLIENT_NO_TOOLS`.
+2. Each remote tool becomes a native function tool named `mcp__<server>__<tool>` (non-alphanumeric/underscore characters become `_`, clamped to 64 characters with an 8-hex hash suffix). Any names that collide across or within servers after normalization are all skipped.
+3. Each tool's `inputSchema` is normalized (`$defs`/`definitions` inlined, nullable unions and const unions collapsed, object shapes repaired) and converted to a native schema. Top-level parameter unions (`anyOf`/`oneOf`) of differently typed branches are merged into a type list when lossless, otherwise the first sendable branch is used; nested unions pass unchanged. Property names outside `[a-zA-Z0-9_.-]{1,64}` are renamed for the model and mapped back to the server's original names before dispatch. Tools whose schemas cannot be converted (recursive, remote, or dangling `$ref`s, oversized expansions over 5,000 nodes, unions with no sendable branch, `allOf`, typeless parameters, or itemless arrays) are skipped and logged.
 
-Each result repeats the arguments that were sent. If none were sent to a tool that takes some, a hint tells the model to nest them in `arguments`: models often put them next to `action` and `tool`, where the tool schema drops them, and then repeat the same empty call.
+Every remote call asks first unless the server is trusted (`mcp_client.trusted` or `"trust": "full"`) **and** the tool's `annotations.readOnlyHint` is `true` (read from the delegation's own listing). When asking, the call shows `[Run <server>: <tool>?]` and the indented JSON arguments (up to 1,200 characters, with invisible/control characters escaped) in the chat and swaps Send / Stop / Clear for **Accept / Change / Reject**, the same step web research uses (`chatbot.prompt_for_web_research`). While the approval card is open, the status line keeps "Waiting for approval…" and the hang watchdog does not count that wait. Accept runs the call. Reject stops it and the turn. Change opens the arguments as JSON to edit; the edited object is sent and shown as `[Changed to: …]`, and text that is not a JSON object stops the call and passes the text back to the model. Listing tools never asks.
 
-Result text is head/tail truncated at 20,000 characters (40% head, 60% tail) and carries a note telling the model to treat it as data, not instructions. `structuredContent` is forwarded unless a text block already duplicates its JSON, and protocol-reserved `_meta` keys are stripped. Unicode TAG characters are stripped from results; TAG and bidi controls from tool descriptions.
+Result text is head/tail truncated at 20,000 characters (40% head, 60% tail) and carries a note telling the model to treat it as data, not instructions. `structuredContent` is forwarded unless a text block already duplicates its JSON, and protocol-reserved `_meta` keys are stripped. Unicode TAG characters are stripped from results; TAG and bidi controls from tool descriptions and schemas. The delegation payload itself also carries the untrusted-data `note`.
 
 ## Configuration
 
@@ -26,7 +26,7 @@ Open **Settings → Integrations**. The **MCP servers for the sidebar chat** sec
 |-------|------------|---------|
 | Use this MCP server in chat | `mcp_client.enabled` | Off by default. |
 | Trust its read-only tools (no prompt) | `mcp_client.trusted` | Off by default. When on, tools marked `readOnlyHint: true` run without prompting; all other tools still ask. |
-| Name | `mcp_client.name` | Short label the model uses in `server`. Blank becomes `external`. |
+| Name | `mcp_client.name` | Prefixes this server's tool names (`mcp__<name>__<tool>`). Blank becomes `external`. |
 | Server URL | `mcp_client.url` | Streamable-HTTP MCP endpoint (`http` or `https`). Required. |
 | Keychain item (macOS) | `mcp_client.token_keychain` | macOS only: name (service) of a Keychain generic password holding the bearer token. Preferred. |
 | Token | `mcp_client.token` | Bearer token saved in plain text in `writeragent.json`. Used only when Keychain item is empty. |
@@ -74,16 +74,16 @@ Config is read on every call and connections are made lazily, so edits take effe
 
 ## Security model
 
-- **Sidebar chat only.** `external_mcp` uses `tier = "chat"`, which WriterAgent's own MCP server excludes from both `tools/list` and `tools/call`, and `filter_external_mcp` hides it from the chat tool list when no servers are configured.
-- **Not reachable from Python scripts.** It is in `_BLOCKED_FROM_VENV` (`plugin/scripting/host_rpc.py`) and left out of the generated `writeragent` proxy module.
-- **Approval.** Every `call_tool` asks unless the server is trusted and the tool has `readOnlyHint: true`. If approval is required but unavailable, the call is refused.
-- **Prompt injection & taint.** Email bodies, notes and files can contain text written to steer the model. Once `external_mcp` returns a result in a chat turn, `web_research` in that same turn always asks for user approval even when `chatbot.prompt_for_web_research` is off.
+- **Sidebar chat only.** `mcp_domain_tools` refuses callers other than `caller == "chat"` (`MCP_DOMAIN_CHAT_ONLY`), so WriterAgent's own MCP server and Python scripts cannot invoke it. Remote tools never enter `ToolRegistry`, and `filter_unavailable_delegate_domains` hides `mcp` from the chat tool enum and prompt when no servers are configured.
+- **Approval.** Every remote call asks unless the server is trusted and the tool has `readOnlyHint: true`. If approval is required but unavailable, the call is refused.
+- **Prompt injection & taint.** Email bodies, notes and files can contain text written to steer the model. Once an `mcp` delegation runs in a chat turn, `web_research` in that same turn always asks for user approval even when `chatbot.prompt_for_web_research` is off.
 - **Tokens are never logged.** Errors redact credential patterns (`Bearer`, `ghp_`, `sk-`, `token=`, etc.).
-- `is_mutation = False`: the tool never changes the open document, so it takes no document lock, does not trigger a document refresh, and works in read-only files.
+- `mcp` is in `READ_ONLY_DOMAINS` and `RemoteMcpTool` sets `is_mutation = False`: it never changes the open document, so it takes no document lock, does not trigger a document refresh, and works in read-only files.
 
 ## Limitations
 
 - Stdio servers (`command`), OAuth, resources, prompts, sampling, and server-initiated requests are not supported.
 - Literal `${VAR}` references in `url` or `headers` are not expanded from the environment and are refused.
-- A single-tool `list_tools` lookup returns the schema as text; configured servers are not passed to ACP agent backends (`plugin/acp/acp_backend.py`).
+- Recursive `$ref` schemas, top-level `allOf`/typeless parameters, unions with no sendable branch, and arrays without `items` are skipped; a lossy union (e.g. two object shapes) offers the model only its first branch; tools with open-ended `object` schemas (no declared `properties`) cannot accept arbitrary undeclared arguments; configured servers are not passed to ACP agent backends (`plugin/acp/acp_backend.py`).
+- WriterAgent's own MCP server may still list the `mcp` domain when servers are configured; calls there are refused.
 - The Change dialog is shared with web research, so its title still reads "Edit search query".

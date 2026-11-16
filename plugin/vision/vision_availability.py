@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Gate LLM vision/OCR tools on Settings venv configuration (fast, no package probe)."""
+"""Gate specialized domains (vision/OCR and mcp) on Settings configuration (fast, no package/network probe)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
 
-_VISION_DOMAIN = "vision"
 _VISION_TOOL_NAME = "image_extract_structure"
 
 
@@ -28,10 +27,19 @@ def specialized_domain_available(domain: str, ctx: Any = None) -> bool:
     reach a tool it had no way to learn about. One rule, consulted by both.
 
     Unknown domains are available: the default is to advertise, and only a domain with a known
-    prerequisite opts into being gated.
+    prerequisite opts into being gated (``vision`` requires a Settings venv; ``mcp`` requires at
+    least one configured external MCP server).
     """
     if domain == "vision":
         return vision_venv_configured(ctx)
+    if domain == "mcp":
+        # Lazy: LibrePy ships plugin/vision/ without plugin/mcp/.
+        try:
+            from plugin.mcp.client import configured_servers
+        except ImportError:
+            return False
+
+        return bool(configured_servers())
     return True
 
 
@@ -54,13 +62,8 @@ def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[A
     return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]
 
 
-def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
-    """Remove vision from delegate gateway domain enums when no Settings venv is configured."""
-    # Apply the same filter when ctx is None. Returning the schemas unchanged
-    # advertised vision tools that were not configured.
-    if vision_venv_configured(ctx):
-        return schemas
-
+def filter_unavailable_delegate_domains(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
+    """Remove unavailable domains (such as ``vision`` or ``mcp``) from delegate gateway domain enums."""
     out: list[dict[str, Any]] = []
     for schema in schemas:
         fn = schema.get("function") if isinstance(schema, dict) else None
@@ -73,9 +76,14 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
         if not isinstance(params, dict) or not isinstance(props, dict) or not isinstance(domain_prop, dict) or not isinstance(domain_prop.get("enum"), list):
             out.append(schema)
             continue
-        # Copy only the path being changed; deepcopy of the whole schema ran on
-        # every get_schemas call while the venv is unset.
-        new_domain = {**domain_prop, "enum": [d for d in domain_prop["enum"] if d != _VISION_DOMAIN]}
+        enum = domain_prop["enum"]
+        kept = [d for d in enum if specialized_domain_available(str(d), ctx)]
+        if len(kept) == len(enum):
+            out.append(schema)
+            continue
+        # Copy only the path being changed; deepcopy of the whole schema would run on
+        # every get_schemas call while a domain is unconfigured.
+        new_domain = {**domain_prop, "enum": kept}
         out.append({**schema, "function": {**fn, "parameters": {**params, "properties": {**props, "domain": new_domain}}}})
     return out
 

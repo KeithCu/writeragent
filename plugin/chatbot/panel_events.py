@@ -6,6 +6,7 @@ from typing import Any
 from plugin.chatbot.panel_resize import _set_pos_size_if_changed
 from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
+from plugin.framework.logging import set_waiting_for_user
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +102,8 @@ class PanelEventsController:
             log.warning("begin_inline_web_approval: superseding pending approval")
             self._finish_inline_web_approval(False)
         self._panel._approval_event = event
+        # Every inline approval card (MCP and web research) passes through begin/finish here.
+        set_waiting_for_user(True)
         self._panel._approval_query_for_engine = query
         controls: dict[str, tuple[str, bool]] = {}
         self._panel._approval_ui_backup = {
@@ -151,6 +154,7 @@ class PanelEventsController:
         if ev is None:
             return
         self._panel._approval_event = None
+        set_waiting_for_user(False)
         self._panel._approval_query_for_engine = None
         b = self._panel._approval_ui_backup
         self._panel._approval_ui_backup = None

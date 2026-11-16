@@ -11,7 +11,7 @@ config:
     default: false
     widget: checkbox
     label: Use this MCP server in chat
-    helper: Sidebar chat only (external_mcp tool); never exposed to WriterAgent's MCP server or to scripts.
+    helper: Sidebar chat only (mcp domain); never exposed to WriterAgent's MCP server or to scripts.
     inline: true
     width: 168
   trusted:
@@ -27,7 +27,7 @@ config:
     default: ""
     widget: text
     label: Name
-    helper: Short label the model uses for this server, e.g. home.
+    helper: Prefixes this server's tool names (e.g. home -> mcp__home__tool).
     inline: true
     width: 100
   url:
@@ -55,9 +55,9 @@ config:
     label: Token
     helper: Bearer token saved in plain text in writeragent.json. Used only when Keychain item is empty.
     label_x: 215
-    label_width: 85
-    x: 302
-    width: 128
+    label_width: 42
+    x: 260
+    width: 170
   servers:
     type: dict
     default: {}

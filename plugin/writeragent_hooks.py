@@ -82,7 +82,7 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
 
     from plugin.doc.peer_message import filter_peer_message_schemas
     from plugin.doc.specialized_base import narrow_delegate_domain_enums
-    from plugin.vision.vision_availability import filter_vision_delegate_schemas, filter_vision_specialized_tools
+    from plugin.vision.vision_availability import filter_unavailable_delegate_domains, filter_vision_specialized_tools
 
     def _filter_vision_tools(tool_list: list[Any], ctx: Any = None) -> list[Any]:
         if ctx is None:
@@ -92,10 +92,10 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
     def _narrow_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         return narrow_delegate_domain_enums(schemas, context.tools, context.uno_services)
 
-    def _filter_vision_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
+    def _filter_unavailable_domain_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         if context.protocol != "openai" or context.ctx is None:
             return schemas
-        return filter_vision_delegate_schemas(schemas, context.ctx)
+        return filter_unavailable_delegate_domains(schemas, context.ctx)
 
     def _filter_peer_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         peer_domain = context.active_domain if context.protocol == "openai" else None
@@ -104,4 +104,4 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
         )
 
     tools.tool_filters.append(_filter_vision_tools)
-    tools.schema_filters.extend([_narrow_schemas, _filter_vision_schemas, _filter_peer_schemas])
+    tools.schema_filters.extend([_narrow_schemas, _filter_unavailable_domain_schemas, _filter_peer_schemas])
