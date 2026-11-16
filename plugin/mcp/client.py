@@ -38,15 +38,15 @@ import json
 import logging
 import re
 import socket
+import ssl
 import subprocess
 import threading
 import time
-import urllib.parse
 from typing import Any, Callable
 
 from plugin.framework.client.errors import NetworkError
 from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target
-from plugin.framework.client.http_transport import LlmHttpTransport
+from plugin.framework.client.http_transport import ConnectFailed, LlmHttpTransport
 from plugin.framework.config import get_config
 from plugin.framework.config_schema import as_bool
 from plugin.framework.send_cancellation import (
@@ -120,8 +120,12 @@ class McpClientError(Exception):
         self.application: bool = application
 
 
+_last_warned_servers_key: str | None = None
+
+
 def configured_servers() -> list[dict[str, Any]]:
     """Enabled servers with a name and URL: the Settings form server first, then ``mcp_client.servers``."""
+    global _last_warned_servers_key
     servers: list[dict[str, Any]] = []
     url = str(get_config("mcp_client.url") or "").strip()
     if as_bool(get_config("mcp_client.enabled")) and url:
@@ -135,13 +139,16 @@ def configured_servers() -> list[dict[str, Any]]:
             }
         )
     raw = get_config("mcp_client.servers")
+    raw_key = json.dumps(raw, sort_keys=True, default=str) if raw is not None else None
+    emit_warn = log.warning if raw_key != _last_warned_servers_key else log.debug
     if raw is not None and not isinstance(raw, dict):
-        log.warning("mcp_client.servers must be a JSON object keyed by server name; ignoring %s", type(raw).__name__)
+        emit_warn("mcp_client.servers must be a JSON object keyed by server name; ignoring %s", type(raw).__name__)
+        _last_warned_servers_key = raw_key
         return servers
     for key, entry in (raw or {}).items():
         name = str(key).strip()
         if not isinstance(entry, dict):
-            log.warning("mcp_client.servers[%r]: skipping non-object entry", key)
+            emit_warn("mcp_client.servers[%r]: skipping non-object entry", key)
             continue
         if not name or any(s["name"] == name for s in servers):
             continue
@@ -150,11 +157,12 @@ def configured_servers() -> list[dict[str, Any]]:
         entry_url = str(entry.get("url") or "").strip()
         if not entry_url:
             if entry.get("command"):
-                log.warning("mcp_client.servers[%r]: stdio servers (command) are not supported yet; skipping", name)
+                emit_warn("mcp_client.servers[%r]: stdio servers (command) are not supported yet; skipping", name)
             else:
-                log.warning("mcp_client.servers[%r]: skipping entry without url", name)
+                emit_warn("mcp_client.servers[%r]: skipping entry without url", name)
             continue
         servers.append({**entry, "name": name})
+    _last_warned_servers_key = raw_key
     return servers
 
 
@@ -180,7 +188,7 @@ def resolve_token(server: dict[str, Any], cancel: SendCancellation | None = None
                 text=True,
             )
         except OSError as e:
-            raise McpClientError(f"Could not read Keychain item '{item}': {e}") from e
+            raise McpClientError(f"Could not read Keychain item '{item}': {e}", code="MCP_CLIENT_CONFIG") from e
         deadline = time.monotonic() + 30.0
         while True:
             if is_cancelled(cancel):
@@ -191,14 +199,14 @@ def resolve_token(server: dict[str, Any], cancel: SendCancellation | None = None
             if remaining <= 0:
                 proc.kill()
                 proc.communicate()
-                raise McpClientError(f"Could not read Keychain item '{item}': timed out after 30s")
+                raise McpClientError(f"Could not read Keychain item '{item}': timed out after 30s", code="MCP_CLIENT_CONFIG")
             try:
                 stdout, _stderr = proc.communicate(timeout=min(0.2, remaining))
                 break
             except subprocess.TimeoutExpired:
                 continue
         if proc.returncode != 0:
-            raise McpClientError(f"Keychain item '{item}' not found or access denied.")
+            raise McpClientError(f"Keychain item '{item}' not found or access denied.", code="MCP_CLIENT_CONFIG")
         return strip_bearer_prefix(stdout)
     return strip_bearer_prefix(str(server.get("token") or ""))
 
@@ -252,6 +260,7 @@ class McpServerConnection:
         self._token: str | None = None
         self._session_id: str | None = None
         self._initialized: bool = False
+        self._version_negotiated: bool = False
         self._protocol_version: str = PROTOCOL_VERSION
         self._advertises_tools: bool = True
         self._tools: list[dict[str, Any]] | None = None
@@ -289,7 +298,7 @@ class McpServerConnection:
         headers["Accept"] = "application/json, text/event-stream"
         if self._session_id:
             headers["Mcp-Session-Id"] = self._session_id
-        if self._initialized:
+        if self._version_negotiated:
             headers["MCP-Protocol-Version"] = self._protocol_version
         return headers
 
@@ -331,6 +340,9 @@ class McpServerConnection:
             return message
         return None
 
+    def _sse_too_big(self, method: str) -> McpClientError:
+        return McpClientError(f"MCP server '{self.name}' SSE event exceeds {MAX_BODY_BYTES} bytes for {method}.")
+
     def _read_sse(self, resp: http.client.HTTPResponse, method: str, request_id: int) -> dict[str, Any]:
         buf = bytearray()
         scanned = 0
@@ -346,24 +358,16 @@ class McpServerConnection:
                     break
                 event_bytes = bytes(buf[: match.start()])
                 if len(event_bytes) > MAX_BODY_BYTES:
-                    raise McpClientError(
-                        f"MCP server '{self.name}' SSE event exceeds {MAX_BODY_BYTES} bytes for {method}."
-                    )
+                    raise self._sse_too_big(method)
                 del buf[: match.end()]
                 search_from = 0
                 msg = self._parse_sse_event(event_bytes, request_id)
                 if msg is not None:
                     return msg
             if len(buf) > MAX_BODY_BYTES:
-                raise McpClientError(
-                    f"MCP server '{self.name}' SSE event exceeds {MAX_BODY_BYTES} bytes for {method}."
-                )
+                raise self._sse_too_big(method)
             scanned = len(buf)
         if buf:
-            if len(buf) > MAX_BODY_BYTES:
-                raise McpClientError(
-                    f"MCP server '{self.name}' SSE event exceeds {MAX_BODY_BYTES} bytes for {method}."
-                )
             msg = self._parse_sse_event(bytes(buf), request_id)
             if msg is not None:
                 return msg
@@ -444,7 +448,7 @@ class McpServerConnection:
             try:
                 try:
                     resp = transport.send("POST", path, body, current_headers, cancel=cancel)
-                except (NetworkError, ConnectionRefusedError, socket.gaierror) as e:
+                except (NetworkError, ConnectFailed, ssl.SSLCertVerificationError, ConnectionRefusedError, socket.gaierror) as e:
                     raise self._transport_error(e, method, False, cancel, current_url, current_headers, request_id) from e
                 except (OSError, ValueError, AttributeError, http.client.HTTPException) as e:
                     raise self._transport_error(e, method, True, cancel, current_url, current_headers, request_id) from e
@@ -452,15 +456,27 @@ class McpServerConnection:
                 try:
                     if resp.status in (301, 302, 303, 307, 308):
                         location = resp.getheader("Location") or ""
-                        redirect = apply_redirect("POST", body, current_headers, current_url, resp.status, location)
-                        if redirect is None or resp.status not in (307, 308) or redirect[5]:
-                            target = public_target(location) if location else "(missing Location)"
+                        target = public_target(location) if location else "(missing Location)"
+                        try:
+                            redirect = apply_redirect("POST", body, current_headers, current_url, resp.status, location)
+                        except NetworkError as e:
+                            raise McpClientError(
+                                f"MCP server '{self.name}' redirected ({resp.status}) to invalid URL {target}: {e}",
+                                code="MCP_CLIENT_CONFIG",
+                            ) from e
+                        if redirect is None:
                             raise McpClientError(
                                 f"MCP server '{self.name}' redirected ({resp.status}) to {target}; "
                                 f"put that URL directly in the server entry."
                             )
-                        current_headers = redirect[2]
-                        current_url = urllib.parse.urljoin(current_url, location.strip())
+                        _m, _b, new_headers, new_origin, new_path, cross_origin = redirect
+                        if resp.status not in (307, 308) or cross_origin:
+                            raise McpClientError(
+                                f"MCP server '{self.name}' redirected ({resp.status}) to {target}; "
+                                f"put that URL directly in the server entry."
+                            )
+                        current_headers = new_headers
+                        current_url = new_origin + new_path
                         continue
                     return self._read_reply(resp, method, request_id)
                 except McpClientError:
@@ -500,6 +516,7 @@ class McpServerConnection:
     def _initialize(self, cancel: SendCancellation | None = None) -> None:
         self._session_id = None
         self._initialized = False
+        self._version_negotiated = False
         from plugin.version import EXTENSION_VERSION
 
         result = self._rpc(
@@ -517,8 +534,9 @@ class McpServerConnection:
             self._protocol_version = proto.strip()
         caps = result.get("capabilities")
         self._advertises_tools = not isinstance(caps, dict) or caps.get("tools") is not None
-        self._initialized = True
+        self._version_negotiated = True
         self._post({"jsonrpc": "2.0", "method": "notifications/initialized"}, timeout=self.connect_timeout, cancel=cancel)
+        self._initialized = True
 
     def _request_locked(
         self,
@@ -537,23 +555,6 @@ class McpServerConnection:
                 raise
         self._initialize(cancel=cancel)
         return self._rpc(method, params, timeout=timeout, cancel=cancel)
-
-    def request(
-        self,
-        method: str,
-        params: dict[str, Any],
-        *,
-        cancel: SendCancellation | None = None,
-        timeout: float | None = None,
-    ) -> dict[str, Any]:
-        """Send *method* in a live session, starting one first if needed."""
-        if not acquire_unless_cancelled(self._lock, cancel):
-            raise McpClientError("Stopped by user.", code="USER_STOPPED")
-        try:
-            eff_timeout = self.connect_timeout if timeout is None else timeout
-            return self._request_locked(method, params, timeout=eff_timeout, cancel=cancel)
-        finally:
-            self._lock.release()
 
     def list_tools(self, *, refresh: bool = False, cancel: SendCancellation | None = None) -> list[dict[str, Any]]:
         if not acquire_unless_cancelled(self._lock, cancel):
@@ -633,7 +634,9 @@ class McpServerConnection:
                     cancel=cancel,
                 )
             except McpClientError as e:
-                if e.code != "USER_STOPPED":
+                # The breaker protects against a flapping remote server and must not hide
+                # local configuration or Keychain errors behind an "unreachable" message.
+                if e.code in ("MCP_CLIENT_ERROR", "MCP_OUTCOME_UNCERTAIN"):
                     self._bump_breaker(application=e.application)
                 raise
             if result.get("isError"):
@@ -650,7 +653,9 @@ class McpServerConnection:
         """True only when the cached tool schema carries ``readOnlyHint is True``; errors fail closed."""
         try:
             tools = self.list_tools(cancel=cancel)
-        except McpClientError:
+        except McpClientError as e:
+            if e.code == "USER_STOPPED":
+                raise
             return False
         for spec in tools:
             if spec.get("name") == tool:

@@ -18,7 +18,6 @@ import pytest
 
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp import client as mcp_client
-from plugin.mcp import client_helpers
 from plugin.mcp.client import ExternalMcpTool, McpClientError, McpServerConnection, render_call_result
 from plugin.mcp.client_helpers import format_approval_arguments
 
@@ -636,7 +635,6 @@ def test_non_object_body_is_a_clean_error(fake):
 def test_oversized_json_body_rejected(fake, monkeypatch):
     fake.oversized = True
     monkeypatch.setattr(mcp_client, "MAX_BODY_BYTES", 1024)
-    monkeypatch.setattr(client_helpers, "MAX_BODY_BYTES", 1024)
     with pytest.raises(McpClientError, match="exceeds 1024 bytes"):
         McpServerConnection(_server(fake)).list_tools()
 
@@ -645,7 +643,6 @@ def test_sse_event_over_cap_rejected(fake, monkeypatch):
     fake.oversized = True
     fake.sse = True
     monkeypatch.setattr(mcp_client, "MAX_BODY_BYTES", 1024)
-    monkeypatch.setattr(client_helpers, "MAX_BODY_BYTES", 1024)
     with pytest.raises(McpClientError, match="exceeds 1024 bytes"):
         McpServerConnection(_server(fake)).list_tools()
 
@@ -653,7 +650,6 @@ def test_sse_event_over_cap_rejected(fake, monkeypatch):
 def test_sse_keepalives_are_not_cumulative(fake, monkeypatch):
     fake.keepalives_count = 300
     monkeypatch.setattr(mcp_client, "MAX_BODY_BYTES", 1024)
-    monkeypatch.setattr(client_helpers, "MAX_BODY_BYTES", 1024)
     tools = McpServerConnection(_server(fake)).list_tools()
     assert len(tools) == len(TOOLS)
 
@@ -704,7 +700,14 @@ def test_stop_aborts_call_and_sends_notifications_cancelled(fake):
     assert info.value.code == "USER_STOPPED"
     assert fake.cancel_received_event.wait(2.0)
     assert fake.cancelled_request_ids == [3]
-    assert conn._failures == 0
+    fake.hang_event.set()
+    fake.hang_event = None
+    # Stop does not count toward the breaker: three new errors are still needed to open it.
+    for _idx in range(3):
+        assert conn.call_tool("broken", {})["isError"] is True
+    with pytest.raises(McpClientError) as paused:
+        conn.call_tool("broken", {})
+    assert paused.value.code == "MCP_SERVER_PAUSED"
 
 
 def test_negotiated_protocol_version_sent(fake):
@@ -766,6 +769,7 @@ def test_breaker_opened_by_tool_errors_says_rejected(fake):
 
 def test_breaker_half_opens_after_cooldown(fake, monkeypatch):
     now = [100.0]
+    # mcp_client.time is the stdlib module, so the transport connect deadline is also frozen here.
     monkeypatch.setattr(mcp_client.time, "monotonic", lambda: now[0])
     conn = McpServerConnection(_server(fake))
     for _idx in range(3):
@@ -777,7 +781,12 @@ def test_breaker_half_opens_after_cooldown(fake, monkeypatch):
     now[0] += 61.0
     ok = conn.call_tool("nextcloud_list_files", {"path": "/"})
     assert render_call_result(ok) == {"result": "files in /"}
-    assert conn._failures == 0
+    # A successful probe resets the breaker: three more errors are needed to reopen it.
+    for _idx in range(3):
+        assert conn.call_tool("broken", {})["isError"] is True
+    with pytest.raises(McpClientError) as reopened:
+        conn.call_tool("broken", {})
+    assert reopened.value.code == "MCP_SERVER_PAUSED"
 
 
 def test_include_exclude_hides_and_refuses(fake):
@@ -823,3 +832,40 @@ def test_url_scheme_and_env_refs_fail_closed(fake):
 def test_bearer_prefix_pasted_token(fake):
     McpServerConnection(_server(fake, token=f"Bearer {TOKEN}")).list_tools()
     assert fake.requests[0][0]["authorization"] == f"Bearer {TOKEN}"
+
+
+def test_tls_connect_failure_says_cannot_reach_not_outcome_uncertain(fake):
+    tls_url = fake.url.replace("http://", "https://", 1)
+    conn = McpServerConnection({"name": "tls", "url": tls_url, "token": TOKEN, "connect_timeout": 0.2})
+    with pytest.raises(McpClientError, match="Cannot reach") as info:
+        conn.call_tool("nextcloud_list_files", {"path": "/"})
+    assert info.value.code == "MCP_CLIENT_ERROR"
+
+
+def test_config_errors_do_not_trip_breaker(fake):
+    conn = McpServerConnection({"name": "env", "url": fake.url, "headers": {"Authorization": "Bearer ${TOKEN}"}})
+    for _idx in range(4):
+        with pytest.raises(McpClientError) as info:
+            conn.call_tool("x", {})
+        assert info.value.code == "MCP_CLIENT_CONFIG"
+
+
+def test_read_only_reraises_user_stopped(fake):
+    conn = McpServerConnection(_server(fake))
+    cancel = SendCancellation()
+    cancel.cancel()
+    with pytest.raises(McpClientError) as info:
+        conn.read_only("nextcloud_list_files", cancel=cancel)
+    assert info.value.code == "USER_STOPPED"
+
+
+def test_failed_notifications_initialized_leaves_uninitialized(fake):
+    fake.error_body = (500, "init notify failed")
+    conn = McpServerConnection(_server(fake))
+    with pytest.raises(McpClientError) as info:
+        conn.list_tools()
+    assert info.value.status == 500
+    assert conn._initialized is False
+    fake.error_body = None
+    assert len(conn.list_tools()) == len(TOOLS)
+    assert fake.methods().count("initialize") == 2

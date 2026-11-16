@@ -16,7 +16,7 @@ Every `call_tool` asks first unless the server is trusted (`mcp_client.trusted` 
 
 Each result repeats the arguments that were sent. If none were sent to a tool that takes some, a hint tells the model to nest them in `arguments`: models often put them next to `action` and `tool`, where the tool schema drops them, and then repeat the same empty call.
 
-Result text is head/tail truncated at 20,000 characters (40% head, 60% tail) and carries a note telling the model to treat it as data, not instructions. `structuredContent` is forwarded unless a text block already duplicates its JSON, and protocol-reserved `_meta` keys are stripped. Invisible Unicode TAG and bidi characters are stripped from results and tool descriptions.
+Result text is head/tail truncated at 20,000 characters (40% head, 60% tail) and carries a note telling the model to treat it as data, not instructions. `structuredContent` is forwarded unless a text block already duplicates its JSON, and protocol-reserved `_meta` keys are stripped. Unicode TAG characters are stripped from results; TAG and bidi controls from tool descriptions.
 
 ## Configuration
 

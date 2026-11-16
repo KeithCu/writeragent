@@ -31,6 +31,7 @@ import http.client
 import json
 import logging
 import socket
+import ssl
 import threading
 import time
 from typing import Any, Callable, Literal
@@ -69,6 +70,14 @@ from .request_controls import (
 from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
+
+
+class ConnectFailed(OSError):
+    """Marker for failures during TCP/TLS connect (before any request bytes are sent)."""
+
+
+class ConnectTimeoutError(TimeoutError, ConnectFailed):
+    """Connect deadline expired; still a TimeoutError/OSError for existing retry callers."""
 
 _MAX_REDIRECTS = 5
 
@@ -332,9 +341,13 @@ class LlmHttpTransport:
                 self._drop_stopped_connection(conn)
                 # TimeoutError is an OSError, so the shared retry budget can
                 # try again. It must not be the Settings read/stall budget.
-                raise TimeoutError("timed out")
+                raise ConnectTimeoutError("timed out")
             handle.join(min(0.05, remaining))
         error = outcome.get("error")
+        if isinstance(error, TimeoutError):
+            raise ConnectTimeoutError(str(error)) from error
+        if isinstance(error, OSError) and not isinstance(error, (ssl.SSLCertVerificationError, ConnectFailed)):
+            raise ConnectFailed(str(error)) from error
         if isinstance(error, Exception):
             raise error
 
