@@ -739,11 +739,20 @@ def _execute_upsert_shape(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> di
         from plugin.draw.tree import find_shape_on_page
 
         # Index is fragile for peer "fill field X"; Name from shape_get_tree stays stable
-        # when non-fields sit between boxes. Index wins when both are passed.
-        lookup_name = kwargs.get("name") if "index" not in kwargs else None
-        shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs.get("index"), name=lookup_name)
-        if find_err or shape is None:
-            return tool._tool_error(find_err or "Shape not found.")
+        # when non-fields sit between boxes. Index wins when both are passed, and then
+        # name is the new Name (a rename), not a lookup key.
+        if "index" in kwargs:
+            shape_idx, shape, _parent, find_err = find_shape_on_page(page, index=kwargs["index"])
+            if find_err or shape is None:
+                return tool._tool_error(find_err or "Shape not found.")
+        else:
+            # _lookup_ref is the shared not-found path (also used by shape_delete): an unknown
+            # Name returns details.available (the page's shape Names, capped) plus similar, so
+            # the model can retry with a real Name instead of guessing.
+            shape_idx, shape, _parent, err_res = _lookup_ref(tool, page, kwargs.get("name") or "", by_name=True)
+            if err_res is not None:
+                return err_res
+            assert shape is not None
 
         # Without this check, renaming by index to an existing name would
         # create a duplicate on the page.

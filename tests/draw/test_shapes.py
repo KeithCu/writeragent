@@ -765,6 +765,19 @@ def test_shape_upsert_rejects_taken_name(kwargs, expect_status):
         page_shapes[0].setPosition.assert_not_called()
 
 
+def test_shape_upsert_edit_unknown_name_lists_available():
+    ctx, _doc, page, page_shapes, _created = _make_name_test_env(["Title", "Titl"])
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = UpsertShape().execute(ctx, action="edit", name="Titel", text="x")
+    assert out["status"] == "error"
+    assert out["details"]["available"] == ["Title", "Titl"]
+    assert "Title" in out["details"]["similar"]
+    for shape in page_shapes:
+        shape.setPosition.assert_not_called()
+        shape.setString.assert_not_called()
+
+
 def test_shape_upsert_create_strips_explicit_name():
     ctx, _doc, page, _shapes, created = _make_name_test_env([], created_name="")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
