@@ -55,9 +55,9 @@ config:
     label: Token
     helper: Bearer token saved in plain text in writeragent.json. Used only when Keychain item is empty.
     label_x: 215
-    label_width: 85
-    x: 302
-    width: 128
+    label_width: 42
+    x: 260
+    width: 170
   servers:
     type: dict
     default: {}

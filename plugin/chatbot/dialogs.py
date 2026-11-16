@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
 from plugin.framework.errors import best_effort
+from plugin.framework.logging import set_waiting_for_user
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url, process_events_to_idle
 from plugin.framework.i18n import _
 
@@ -147,7 +148,12 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         log.debug("show_approval_dialog: tool_name=%s parent_frame=%s", tool_name, parent_frame is not None)
         # 4 = QUERYBOX, 3 = BUTTONS_YES_NO. Result 2 = Yes (Approve), 3 = No (Reject), 1 = OK
         # Dispose the approval box after execute(); dispose failure must not change Yes/No.
-        result = _execute_message_box(ctx, window, 4, 3, title, message)
+        # The agent-backend modal also parks the turn waiting on the user.
+        set_waiting_for_user(True)
+        try:
+            result = _execute_message_box(ctx, window, 4, 3, title, message)
+        finally:
+            set_waiting_for_user(False)
         return result in (1, 2)
     except Exception:
         log.exception("Approval dialog failed")

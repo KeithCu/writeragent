@@ -72,6 +72,17 @@ _PROP_KEY_BAD_CHARS = re.compile(r"[^a-zA-Z0-9_.-]")
 _UNION_KEYS = ("anyOf", "oneOf")
 _UNION_META_KEYS = ("title", "description", "default", "examples")
 
+# Keywords JSON Schema applies only to values of one type; branches whose extra keys are all
+# in their own type's set can be merged into one type-list node without changing what validates.
+_TYPE_KEYWORDS: dict[str, frozenset[str]] = {
+    "array": frozenset({"items", "minItems", "maxItems", "uniqueItems"}),
+    "object": frozenset({"properties", "required", "additionalProperties", "minProperties", "maxProperties"}),
+    "string": frozenset({"minLength", "maxLength", "pattern", "format"}),
+    "number": frozenset({"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}),
+    "integer": frozenset({"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}),
+    "boolean": frozenset(),
+}
+
 # RFC 6901: an array index is "0" or a number without leading zeros; "~" escapes only "~0" and "~1".
 _POINTER_INDEX = re.compile(r"0|[1-9][0-9]*")
 _BAD_POINTER_ESCAPE = re.compile(r"~(?![01])")
@@ -557,9 +568,6 @@ def resolve_name_collisions(candidates: list[ToolCandidate]) -> list[ToolCandida
     return [c for c in unique if c.registry_name not in ambiguous]
 
 
-_SCALAR_JSON_TYPES = frozenset({"string", "number", "integer", "boolean", "null"})
-
-
 def _check_arrays_have_items(node: Any, path: str) -> None:
     if isinstance(node, list):
         for i, item in enumerate(node):
@@ -581,12 +589,87 @@ def _check_arrays_have_items(node: Any, path: str) -> None:
             _check_arrays_have_items(value, f"{path}.{key}")
 
 
+def _merge_typed_branches(branches: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Merge differently-typed union branches into one type-list node when lossless."""
+    if not branches:
+        return None
+    types: list[str] = []
+    seen_types: set[str] = set()
+    merged_keywords: dict[str, Any] = {}
+    for branch in branches:
+        branch_type = branch.get("type")
+        if not isinstance(branch_type, str) or branch_type not in _TYPE_KEYWORDS or branch_type in seen_types:
+            return None
+        seen_types.add(branch_type)
+        types.append(branch_type)
+        allowed = _TYPE_KEYWORDS[branch_type]
+        for key, value in branch.items():
+            if key == "type" or key == "nullable" or key in _UNION_META_KEYS:
+                continue
+            if key not in allowed:
+                return None
+            if key in merged_keywords and merged_keywords[key] != value:
+                return None
+            merged_keywords[key] = value
+    return {**merged_keywords, "type": types[0] if len(types) == 1 else types}
+
+
+def _is_sendable(schema: dict[str, Any]) -> bool:
+    """Return True if *schema* can survive ``to_smol_inputs`` -> ``get_tool_json_schema`` without provider 400s."""
+    raw_type = schema.get("type")
+    if isinstance(raw_type, str):
+        types: list[Any] = [raw_type]
+    elif isinstance(raw_type, list):
+        types = raw_type
+    else:
+        return False
+    non_null = [t for t in types if t != "null"]
+    if not non_null or not all(isinstance(t, str) and t in _TYPE_KEYWORDS for t in non_null):
+        return False
+    if any(k in schema for k in ("anyOf", "oneOf", "allOf")):
+        return False
+    try:
+        _check_arrays_have_items(schema, "")
+    except ValueError:
+        return False
+    return True
+
+
+def _collapse_parameter_union(prop: dict[str, Any]) -> dict[str, Any]:
+    """Collapse a top-level ``anyOf``/``oneOf`` parameter into a sendable type-list or single branch.
+
+    The vendored ``get_tool_json_schema`` in ``plugin/contrib/smolagents/models.py`` flattens
+    top-level ``anyOf`` to ``type: [...]`` and drops every branch's ``items`` and ``properties``,
+    which causes Gemini 400s. WriterAgent's convention for multi-type parameters is a ``type``
+    list with ``items`` on the same node (see ``apply_document_content.py`` ``content``), matching
+    Hermes's principle that every branch survives (``tools/schema_sanitizer.py:_normalize_type_array``)
+    and Gemini's rule that ``items`` sits on the node declaring ``array``
+    (``agent/gemini_schema.py:_normalize_gemini_type_array``).
+
+    Nested unions pass through ``get_tool_json_schema`` untouched and are left alone so
+    nested discriminated unions (e.g. ``object | object``) keep all branches. A single branch is
+    used only when merging would loosen the schema (e.g. ``enum`` or same-typed branches).
+    """
+    for key in _UNION_KEYS:
+        variants = prop.get(key)
+        if not isinstance(variants, list):
+            continue
+        rest = {k: v for k, v in prop.items() if k != key}
+        branches = [item for item in variants if isinstance(item, dict) and not _is_null_branch(item)]
+        merged = _merge_typed_branches(branches)
+        candidates = ([merged] if merged is not None else []) + branches
+        collapsed = next(({**c, **rest} for c in candidates if _is_sendable({**c, **rest})), None)
+        if collapsed is None:
+            return prop
+        prop = collapsed
+    return prop
+
+
 def _validate_wire_schema(parameters: dict[str, Any], tool_name: str) -> None:
     """Reject parameter shapes that ``to_smol_inputs`` / ``get_tool_json_schema`` would mangle or providers 400.
 
-    ``to_smol_inputs`` defaults missing ``type`` to ``"any"`` and ``get_tool_json_schema`` maps
-    ``"any"`` to ``"string"``, while stripping ``anyOf`` down to ``t["type"]`` (dropping ``items``
-    and ``properties``).
+    Top-level ``anyOf``/``oneOf`` unions are collapsed by ``_collapse_parameter_union`` first; only
+    unsendable unions or ``allOf`` remain here to be rejected.
     """
     _check_arrays_have_items(parameters, tool_name or "<tool>")
     props = parameters.get("properties")
@@ -595,18 +678,11 @@ def _validate_wire_schema(parameters: dict[str, Any], tool_name: str) -> None:
     for prop_name, prop_schema in props.items():
         if not isinstance(prop_schema, dict):
             raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} has non-object schema")
-        if "oneOf" in prop_schema or "allOf" in prop_schema:
-            raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} uses unsupported top-level combinator")
-        if "anyOf" in prop_schema:
-            variants = prop_schema["anyOf"]
-            if not isinstance(variants, list) or not variants:
-                raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} has invalid anyOf")
-            for branch in variants:
-                if not isinstance(branch, dict) or branch.get("type") not in _SCALAR_JSON_TYPES:
-                    raise ValueError(
-                        f"MCP tool '{tool_name}': parameter {prop_name!r} has non-scalar anyOf branch"
-                    )
-        elif "type" not in prop_schema:
+        if any(k in prop_schema for k in ("anyOf", "oneOf", "allOf")):
+            raise ValueError(
+                f"MCP tool '{tool_name}': parameter {prop_name!r} has a union with no branch the model can be sent"
+            )
+        if "type" not in prop_schema:
             raise ValueError(f"MCP tool '{tool_name}': parameter {prop_name!r} has no 'type'")
 
 
@@ -619,6 +695,12 @@ def convert_mcp_schema(server_name: str, spec: dict[str, Any]) -> dict[str, Any]
         tool_name,
     )
     parameters = _sanitize_node(inline_local_refs(dispatch_schema), tool_name)
+    props = parameters.get("properties")
+    if isinstance(props, dict):
+        parameters["properties"] = {
+            name: _collapse_parameter_union(schema) if isinstance(schema, dict) else schema
+            for name, schema in props.items()
+        }
     _validate_wire_schema(parameters, tool_name)
     raw_desc = str(spec.get("description") or "").strip()
     description = strip_tool_metadata_text(raw_desc or f"MCP tool {tool_name} from {server_name}")

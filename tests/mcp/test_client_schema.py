@@ -413,16 +413,11 @@ def test_mcp_prefixed_tool_name_patterns():
 @pytest.mark.parametrize(
     "bad_prop",
     [
-        pytest.param({"anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]}, id="str_or_list"),
-        pytest.param(
-            {"anyOf": [{"type": "object", "properties": {"a": {"type": "string"}}}, {"type": "object", "properties": {"b": {"type": "integer"}}}]},
-            id="union_of_models",
-        ),
-        pytest.param({"oneOf": [{"type": "string"}, {"type": "integer"}]}, id="oneOf"),
         pytest.param({"allOf": [{"type": "object", "properties": {"a": {"type": "string"}}}]}, id="allOf"),
         pytest.param({"description": "anything"}, id="typeless"),
         pytest.param({"type": "array"}, id="array_without_items"),
         pytest.param({"type": "object", "properties": {"nested": {"type": "array"}}}, id="nested_array_without_items"),
+        pytest.param({"anyOf": [{"type": "array"}, {"description": "no type"}]}, id="no_sendable_branch"),
     ],
 )
 def test_convert_mcp_schema_rejects_unconvertible_shapes(bad_prop):
@@ -448,4 +443,33 @@ def test_convert_mcp_schema_accepts_scalar_anyof_and_array_with_items():
     }
     out = convert_mcp_schema("srv", spec)
     assert out["parameters"]["properties"]["tags"] == {"type": "array", "items": {"type": "string"}}
-    assert out["parameters"]["properties"]["val"] == {"anyOf": [{"type": "string"}, {"type": "integer"}]}
+    assert out["parameters"]["properties"]["val"] == {"type": ["string", "integer"]}
+
+
+@pytest.mark.parametrize(
+    ("prop", "expected"),
+    [
+        pytest.param(
+            {"anyOf": [{"type": "array"}, {"type": "string"}]},
+            {"type": "string"},
+            id="skip_itemless_array_branch",
+        ),
+        pytest.param(
+            {"type": "string", "anyOf": [{"minLength": 3}, {"pattern": "^x"}]},
+            {"type": "string", "minLength": 3},
+            id="outer_type_fills_typeless_branch",
+        ),
+        pytest.param(
+            {"anyOf": [{"type": "string", "enum": ["a", "b"]}, {"type": "integer"}]},
+            {"type": "string", "enum": ["a", "b"]},
+            id="enum_branch_not_loosened",
+        ),
+    ],
+)
+def test_convert_mcp_schema_union_fallbacks(prop, expected):
+    spec = {
+        "name": "fallback_tool",
+        "inputSchema": {"type": "object", "properties": {"arg": prop}},
+    }
+    out = convert_mcp_schema("srv", spec)
+    assert out["parameters"]["properties"]["arg"] == expected
