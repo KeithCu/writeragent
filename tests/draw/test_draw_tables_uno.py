@@ -210,3 +210,18 @@ def test_draw_table_insert_is_one_undo_step(ctx: Any, doc: Any) -> None:
     label = getattr(newest, "Title", newest)
     assert "WriterAgent: Insert table" in str(label), titles_after
     # SvxDrawPage::add records no undo action, so Ctrl+Z reverts the table edits but not the shape.
+
+
+@native_test
+@with_native_doc("draw")
+def test_draw_table_insert_names_shape(ctx: Any, doc: Any) -> None:
+    page = doc.getDrawPages().getByIndex(0)
+    res1 = json.loads(_exec_tool(doc, ctx, "table_insert", {"rows": 2, "columns": 2}))
+    res2 = json.loads(_exec_tool(doc, ctx, "table_insert", {"rows": 2, "columns": 2}))
+    assert res1.get("status") == "ok", res1
+    assert res2.get("status") == "ok", res2
+    name1 = res1.get("name", "")
+    name2 = res2.get("name", "")
+    assert name1 and name2 and name1 != name2, (res1, res2)
+    assert page.getByIndex(res1["index"]).Name == name1
+    assert page.getByIndex(res2["index"]).Name == name2

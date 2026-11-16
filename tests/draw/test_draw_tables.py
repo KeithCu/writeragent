@@ -413,3 +413,35 @@ def test_insert_table_oversized_data_rejected_before_mutation(rows, columns, dat
     ctx.doc.createInstance.assert_not_called()
 
 
+def test_insert_table_assigns_unused_shape_name():
+    existing = MagicMock()
+    existing.Name = "Shape1"
+    page_shapes = [existing]
+
+    page = MagicMock()
+    page.add.side_effect = lambda s: page_shapes.append(s)
+    page.getCount.side_effect = lambda: len(page_shapes)
+    page.getByIndex.side_effect = lambda i: page_shapes[i]
+
+    shape = MagicMock()
+    shape.Name = ""
+
+    doc = MagicMock()
+    doc.createInstance.return_value = shape
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)),
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = insert_draw_table(ctx, rows=2, columns=2)
+
+    assert out["status"] == "ok"
+    assert out["name"] == "Shape2"
+    assert shape.Name == "Shape2"
+
+

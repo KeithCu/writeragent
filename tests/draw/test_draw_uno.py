@@ -634,3 +634,35 @@ def test_insert_math_draw(ctx, doc):
     target_page = None
     _progress("insert_math_draw: body done")
 
+
+@native_test
+@with_native_doc("impress", reuse=False)
+def test_rename_slide_refuses_reserved_and_duplicate_names_uno(ctx, doc):
+    from plugin.draw.pages import AddSlide, ListPages, RenameSlide
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="impress", services=None, caller="test")
+    for _idx in range(2):
+        assert AddSlide().execute(tctx).get("status") == "ok"
+
+    assert RenameSlide().execute(tctx, page=1, name="Intro").get("status") == "ok"
+
+    reserved = RenameSlide().execute(tctx, page=1, name="Slide 9")
+    assert reserved.get("status") == "error", reserved
+    assert reserved.get("code") == "INVALID_PARAM", reserved
+
+    listed = ListPages().execute(tctx)
+    assert listed.get("status") == "ok", listed
+    assert listed["pages"][1]["name"] == "Intro"
+
+    dup_custom = RenameSlide().execute(tctx, page=0, name="Intro")
+    assert dup_custom.get("status") == "error", dup_custom
+    assert dup_custom.get("code") == "INVALID_PARAM", dup_custom
+
+    listed_after = ListPages().execute(tctx)
+    assert listed_after["pages"][0].get("default_name") is True
+
+    dup_default = RenameSlide().execute(tctx, page=0, name="page3")
+    assert dup_default.get("status") == "error", dup_default
+    assert dup_default.get("code") == "INVALID_PARAM", dup_default
+

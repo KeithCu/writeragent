@@ -512,18 +512,39 @@ class MoveSlide(_SlideMutationTool):
 
 class RenameSlide(_SlideMutationTool):
     name: str | None = "slide_rename"
-    description: str = "Sets the Name property of a slide (0-based page index)."
+    description: str = "Sets the Name of a slide (0-based page index). The name must not already be used by another slide; LibreOffice refuses names that start with its default slide label (e.g. 'Slide 3')."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index"}, "name": {"type": "string", "description": "New slide name"}}, "required": ["page", "name"]}
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs["page"]
-        name = kwargs["name"]
-        if not name:
+        wanted = str(kwargs["name"] or "")
+        if not wanted.strip():
             return self._tool_error("name is required.")
         bridge = DrawBridge(ctx.doc)
-        bridge.resolve_page(page_idx)
-        ok = bridge.rename_slide(page_idx, str(name))
-        if not ok:
+        page, _idx = bridge.resolve_page(page_idx)
+        pages = bridge.get_pages()
+        # Compare against LibreOffice's API names so another unnamed slide counts as its pageN.
+        for i in range(pages.getCount()):
+            if i != page_idx and str(pages.getByIndex(i).Name or "").strip() == wanted.strip():
+                return self._tool_error(
+                    "Slide %d is already named %r; slide names must be unique." % (i, wanted.strip()),
+                    code="INVALID_PARAM",
+                )
+        previous = str(page.Name or "")
+        if not bridge.rename_slide(page_idx, wanted):
             return self._tool_error("Slide does not support renaming.")
-        return {"status": "ok", "message": "Slide renamed", "page": page_idx, "name": str(name), "active_page_index": bridge.get_active_page_index()}
+        # sd/source/ui/unoidl/unopage.cxx:SdDrawPage::setName clears names beginning with the
+        # localized STR_PAGE + " " and drops the previous name. That label is not exposed over
+        # UNO, so read back page.Name to detect refusal; writing back previous is safe because
+        # a slide's own default pageN is cleared back to unnamed.
+        stored = str(page.Name or "")
+        if stored != wanted:
+            bridge.rename_slide(page_idx, previous)
+            kept = str(page.Name or "")
+            return self._tool_error(
+                "LibreOffice refused the name %r: names starting with its default slide label (such as 'Slide 3') are reserved. The slide keeps the name %r."
+                % (wanted, kept),
+                code="INVALID_PARAM",
+            )
+        return {"status": "ok", "message": "Slide renamed", "page": page_idx, "name": wanted, "active_page_index": bridge.get_active_page_index()}
