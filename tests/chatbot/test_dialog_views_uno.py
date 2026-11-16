@@ -206,3 +206,57 @@ def test_enable_before_show_stays_off_general(ctx):
     finally:
         dlg.setVisible(False)
         dlg.dispose()
+
+
+@native_test
+def test_acp_model_disabled_for_builtin_keeps_its_step(ctx):
+    """ACP Model is disabled for Built-in and stays on step 4 without leaking onto General."""
+    from plugin.chatbot.dialog_views import sync_acp_model_ui
+
+    smgr = ctx.getServiceManager()
+    model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
+    model.PositionX = 20
+    model.PositionY = 20
+    model.Width = 400
+    model.Height = 200
+    model.Title = "acp-model-step-guard"
+    model.Step = 1
+    _add_fixed(model, "label_api_key", 1, 42, "API Key:")
+    _add_combo(model, "agent_backend__backend_id", 4, 26)
+    _add_fixed(model, "label_agent_backend__model", 4, 44, "Model:")
+    edit = model.createInstance("com.sun.star.awt.UnoControlEditModel")
+    edit.Name = "agent_backend__model"
+    edit.PositionX = 110
+    edit.PositionY = 42
+    edit.Width = 144
+    edit.Height = 14
+    edit.Step = 4
+    model.insertByName("agent_backend__model", edit)
+    dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
+    dlg.setModel(model)
+    toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    dlg.createPeer(toolkit, None)
+    dlg.setVisible(True)
+    try:
+        backend_ctrl = dlg.getControl("agent_backend__backend_id")
+        acp_model = dlg.getControl("agent_backend__model")
+        acp_label = dlg.getControl("label_agent_backend__model")
+
+        backend_ctrl.setText("Built-in")
+        sync_acp_model_ui(dlg)
+        assert acp_model.isEnabled() is False
+        assert acp_label.isEnabled() is False
+        assert acp_model.isVisible() is False
+
+        model.Step = 4
+        assert acp_model.isVisible() is True
+        assert acp_model.isEnabled() is False
+        assert acp_label.isEnabled() is False
+
+        backend_ctrl.setText("Hermes")
+        sync_acp_model_ui(dlg)
+        assert acp_model.isEnabled() is True
+        assert acp_label.isEnabled() is True
+    finally:
+        dlg.setVisible(False)
+        dlg.dispose()

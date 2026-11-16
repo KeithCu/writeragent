@@ -15,7 +15,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args, _tool_stream_kind, _AGENT_TERMINATED, _is_terminated_banner
+from plugin.acp.acp_backend import (
+    ACPBackend,
+    _AGENT_TERMINATED,
+    _ModelChoices,
+    _TurnStopped,
+    _is_terminated_banner,
+    _match_choice,
+    _model_choices,
+    _model_selection,
+    _split_cli_args,
+    _tool_stream_kind,
+)
 from plugin.acp.acp_connection import ACPTimeoutError
 from plugin.acp.registry import ClaudeBackend, GrokBackend, HermesBackend, OpenCodeBackend, AntigravityBackend
 from plugin.framework.errors import ToolExecutionError
@@ -517,8 +528,8 @@ def _bare_backend(
     backend._answer_buf = []
     backend._agent_log_path = None
     backend._agent_log_offset = 0
-    backend._available_model_ids = frozenset()
-    backend._session_model_id = None
+    backend._model_choices = _ModelChoices()
+    backend._session_model = None
     backend._model_warn_key = None
     backend.display_name = display_name
     backend.binary_name = binary_name
@@ -2440,17 +2451,26 @@ def _antigravity_backend():
     )
 
 
-class TestAntigravityAgyModel:
-    def _run_send(self, backend, conn, *, agy_model: str, set_model_exc: Exception | None = None):
+class TestSessionModelSelection:
+    def _run_send(
+        self,
+        backend,
+        conn,
+        *,
+        model: str,
+        session_new: dict | None = None,
+        set_exc: Exception | None = None,
+    ):
         calls: list[tuple[str, dict]] = []
+        session_new_reply = _agy_session_new_result() if session_new is None else session_new
 
         def send_request(method, params=None, timeout=120):
             calls.append((method, params or {}))
             if method == "session/new":
-                return _agy_session_new_result()
-            if method == "session/set_model":
-                if set_model_exc is not None:
-                    raise set_model_exc
+                return session_new_reply
+            if method in ("session/set_model", "session/set_config_option"):
+                if set_exc is not None:
+                    raise set_exc
                 return {}
             if method == "session/prompt":
                 return {"stopReason": "end_turn"}
@@ -2467,8 +2487,8 @@ class TestAntigravityAgyModel:
         def config_get(key, default=None):
             if key == "mcp.mcp_enabled":
                 return "false"
-            if key == "agent_backend.agy_model":
-                return agy_model
+            if key == "agent_backend.model":
+                return model
             return default
 
         q = queue.Queue()
@@ -2479,7 +2499,7 @@ class TestAntigravityAgyModel:
     def test_set_model_after_session_new_when_configured(self):
         backend = _antigravity_backend()
         conn = _mock_conn()
-        calls, _events = self._run_send(backend, conn, agy_model="gemini-3.8-flash-medium")
+        calls, _events = self._run_send(backend, conn, model="gemini-3.8-flash-medium")
         methods = [m for m, _p in calls]
         assert methods.count("session/new") == 1
         assert methods.count("session/set_model") == 1
@@ -2494,64 +2514,178 @@ class TestAntigravityAgyModel:
         _calls, events = self._run_send(
             backend,
             conn,
-            agy_model="gemini-3.8-flash-medium",
-            set_model_exc=ToolExecutionError("ACP error: Unknown model ID: bad", details={"rpc_code": -32602}),
+            model="gemini-3.8-flash-medium",
+            set_exc=ToolExecutionError("ACP error: Unknown model ID: bad", details={"rpc_code": -32602}),
         )
         assert backend._session_id == "sess-agy"
         assert StreamQueueKind.STREAM_DONE in [e[0] for e in events]
         assert StreamQueueKind.ERROR not in [e[0] for e in events]
 
-    def test_empty_agy_model_skips_set_model(self):
+    def test_empty_model_skips_selection(self):
         backend = _antigravity_backend()
         conn = _mock_conn()
-        calls, _events = self._run_send(backend, conn, agy_model="")
+        calls, _events = self._run_send(backend, conn, model="")
         assert "session/set_model" not in [m for m, _p in calls]
+        assert "session/set_config_option" not in [m for m, _p in calls]
 
-    def test_unknown_agy_model_warns_and_skips_set_model(self):
+    def test_unknown_model_warns_and_skips(self):
         backend = _antigravity_backend()
         conn = _mock_conn()
-        calls, _events = self._run_send(backend, conn, agy_model="claude-sonnet-5-5-medium")
+        calls, _events = self._run_send(backend, conn, model="claude-sonnet-5-5-medium")
         assert "session/set_model" not in [m for m, _p in calls]
+        assert "session/set_config_option" not in [m for m, _p in calls]
 
     def test_current_model_matches_setting_skips_set_model(self):
         backend = _antigravity_backend()
         conn = _mock_conn()
-        calls, _events = self._run_send(backend, conn, agy_model="gemini-4-argon-medium")
+        calls, _events = self._run_send(backend, conn, model="gemini-4-argon-medium")
         assert "session/set_model" not in [m for m, _p in calls]
 
-    def test_hermes_ignores_agy_model(self):
-        backend = _bare_backend()
-        backend.backend_id = "hermes"
+    def test_hermes_advertised_model_gets_set_model(self):
+        backend = _bare_backend(HermesBackend, display_name="Hermes", binary_name="hermes")
         conn = _mock_conn()
-        calls: list[tuple[str, dict]] = []
+        session_new = {
+            "sessionId": "sess-h",
+            "models": {
+                "availableModels": [
+                    {"modelId": "openrouter:anthropic/claude-opus-5.5", "name": "Claude Opus 5.5"},
+                ],
+                "currentModelId": "xai-oauth:grok-4",
+            },
+        }
+        calls, _events = self._run_send(
+            backend,
+            conn,
+            model="openrouter:anthropic/claude-opus-5.5",
+            session_new=session_new,
+        )
+        set_calls = [p for m, p in calls if m == "session/set_model"]
+        assert set_calls == [{"sessionId": "sess-h", "modelId": "openrouter:anthropic/claude-opus-5.5"}]
 
-        def send_request(method, params=None, timeout=120):
-            calls.append((method, params or {}))
-            if method == "session/new":
-                return {"sessionId": "sess-h"}
-            if method == "session/prompt":
-                return {"stopReason": "end_turn"}
-            raise AssertionError(method)
-
-        conn.send_request.side_effect = send_request
-
-        def ensure_connection(cancel=None):
-            backend._conn = conn
-            backend._ready = True
-
-        backend._ensure_connection = ensure_connection
-
-        def config_get(key, default=None):
-            if key == "mcp.mcp_enabled":
-                return "false"
-            if key == "agent_backend.agy_model":
-                return "gemini-3.8-flash-medium"
-            return default
-
-        q = queue.Queue()
-        with patch("plugin.framework.config.get_config", side_effect=config_get):
-            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+    def test_config_option_only_backend_uses_set_config_option(self):
+        backend = _bare_backend(display_name="Vibe", binary_name="vibe")
+        backend.backend_id = "vibe"
+        conn = _mock_conn()
+        session_new = {
+            "sessionId": "sess-v",
+            "configOptions": [
+                {
+                    "id": "model",
+                    "category": "model",
+                    "currentValue": "mistral-medium-3.5",
+                    "options": [
+                        {"value": "mistral-medium-3.5", "name": "Mistral Medium"},
+                        {"value": "devstral-small", "name": "Devstral Small"},
+                    ],
+                },
+            ],
+        }
+        calls, _events = self._run_send(backend, conn, model="devstral-small", session_new=session_new)
         assert "session/set_model" not in [m for m, _p in calls]
+        set_cfg_calls = [p for m, p in calls if m == "session/set_config_option"]
+        assert set_cfg_calls == [{"sessionId": "sess-v", "configId": "model", "value": "devstral-small"}]
+
+    def test_agy_family_id_uses_set_config_option(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        session_new = {
+            "sessionId": "sess-agy",
+            "models": {
+                "availableModels": [
+                    {"modelId": "gemini-4-argon-medium", "name": "Gemini 4 Argon (Medium)"},
+                    {"modelId": "gemini-3.8-flash-medium", "name": "Gemini 3.8 Flash (Medium)"},
+                ],
+                "currentModelId": "gemini-4-argon-medium",
+            },
+            "configOptions": [
+                {
+                    "id": "model",
+                    "category": "model",
+                    "currentValue": "gemini-3.8-flash",
+                    "options": [
+                        {"value": "gemini-4-argon", "name": "Gemini 4 Argon"},
+                        {"value": "gemini-3.8-flash", "name": "Gemini 3.8 Flash"},
+                    ],
+                },
+            ],
+        }
+        calls, _events = self._run_send(backend, conn, model="gemini-4-argon", session_new=session_new)
+        assert "session/set_model" not in [m for m, _p in calls]
+        set_cfg_calls = [p for m, p in calls if m == "session/set_config_option"]
+        assert set_cfg_calls == [{"sessionId": "sess-agy", "configId": "model", "value": "gemini-4-argon"}]
+
+    def test_no_advertised_choices_skips_and_turn_completes(self):
+        backend = _bare_backend(HermesBackend, display_name="Hermes", binary_name="hermes")
+        conn = _mock_conn()
+        calls, events = self._run_send(
+            backend,
+            conn,
+            model="some-model",
+            session_new={"sessionId": "sess-empty"},
+        )
+        assert "session/set_model" not in [m for m, _p in calls]
+        assert "session/set_config_option" not in [m for m, _p in calls]
+        assert StreamQueueKind.STREAM_DONE in [e[0] for e in events]
+
+    def test_rejected_model_not_retried_in_same_session(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        exc = ToolExecutionError("ACP error: Unknown model ID", details={"rpc_code": -32602})
+        calls1, _ = self._run_send(backend, conn, model="gemini-3.8-flash-medium", set_exc=exc)
+        calls2, _ = self._run_send(backend, conn, model="gemini-3.8-flash-medium", set_exc=exc)
+        assert [m for m, _p in calls1].count("session/set_model") == 1
+        assert [m for m, _p in calls2].count("session/set_model") == 0
+
+    def test_changed_setting_applies_on_reused_session(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        calls1, _ = self._run_send(backend, conn, model="gemini-4-argon-medium")
+        calls2, _ = self._run_send(backend, conn, model="gemini-3.8-flash-medium")
+        assert [m for m, _p in calls1].count("session/new") == 1
+        assert [m for m, _p in calls1].count("session/set_model") == 0
+        assert [m for m, _p in calls2].count("session/new") == 0
+        set_calls = [p for m, p in calls2 if m == "session/set_model"]
+        assert set_calls == [{"sessionId": "sess-agy", "modelId": "gemini-3.8-flash-medium"}]
+
+    def test_model_selection_matches_case_insensitive_name_and_rejects_ambiguous(self):
+        choices = _model_choices({
+            "models": {
+                "availableModels": [
+                    {"modelId": "grok-4.6", "name": "Grok 4.6"},
+                    {"modelId": "dup-a", "name": "Shared Name"},
+                    {"modelId": "dup-b", "name": "Shared Name"},
+                    {"modelId": "GROK-4.6", "name": "Exact Id"},
+                ],
+                "currentModelId": "grok-4.7",
+            },
+            "configOptions": [
+                {
+                    "id": "model",
+                    "category": "model",
+                    "currentValue": "local",
+                    "options": [
+                        {
+                            "label": "Cloud",
+                            "options": [
+                                {"value": "devstral-small", "name": "Devstral Small"},
+                            ],
+                        },
+                        {"value": "local", "name": "Local"},
+                    ],
+                },
+            ],
+        })
+        assert _model_selection(choices, "grok 4.6") == ("session/set_model", {"modelId": "grok-4.6"}, "grok-4.6")
+        # Exact id beats case-insensitive match on another entry's id.
+        assert _match_choice("GROK-4.6", choices.model_ids) == "GROK-4.6"
+        # Two ids sharing a display name are ambiguous.
+        assert _match_choice("shared name", choices.model_ids) is None
+        # Grouped configOptions options are flattened one level.
+        assert _model_selection(choices, "devstral small") == (
+            "session/set_config_option",
+            {"configId": "model", "value": "devstral-small"},
+            "devstral-small",
+        )
 
 
 class TestAntigravityTerminatedBanner:

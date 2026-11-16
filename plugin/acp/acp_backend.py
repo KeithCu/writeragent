@@ -22,6 +22,7 @@ notification processing, and prompt formatting.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import glob
 import logging
 import os
@@ -394,6 +395,122 @@ def _agent_backend_settings() -> tuple[str, str]:
     return path, args_str
 
 
+@dataclass(frozen=True)
+class _ModelChoices:
+    """Model choices one session/new reply advertised. Empty when it advertised none."""
+
+    model_ids: tuple[tuple[str, str], ...] = ()
+    current_model_id: str | None = None
+    config_id: str | None = None
+    config_values: tuple[tuple[str, str], ...] = ()
+    current_config_value: str | None = None
+
+
+def _extract_choice_pairs(items: list[Any], *, flatten_groups: bool) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if flatten_groups and isinstance(item.get("options"), list):
+            for sub in item["options"]:
+                if isinstance(sub, dict):
+                    val = sub.get("value")
+                    if isinstance(val, str) and val:
+                        name = sub.get("name")
+                        pairs.append((val, name if isinstance(name, str) else ""))
+        else:
+            val = item.get("value")
+            if isinstance(val, str) and val:
+                name = item.get("name")
+                pairs.append((val, name if isinstance(name, str) else ""))
+    return tuple(pairs)
+
+
+def _model_choices(result: Any) -> _ModelChoices:
+    """Parse ``models`` and model ``configOptions`` from a ``session/new`` reply."""
+    if not isinstance(result, dict):
+        return _ModelChoices()
+
+    model_pairs: list[tuple[str, str]] = []
+    current_model_id: str | None = None
+    models = result.get("models")
+    if isinstance(models, dict):
+        available = models.get("availableModels")
+        if isinstance(available, list):
+            for item in available:
+                if not isinstance(item, dict):
+                    continue
+                mid = item.get("modelId")
+                if isinstance(mid, str) and mid:
+                    name = item.get("name")
+                    model_pairs.append((mid, name if isinstance(name, str) else ""))
+        current = models.get("currentModelId")
+        if isinstance(current, str):
+            current_model_id = current
+
+    config_id: str | None = None
+    config_values: tuple[tuple[str, str], ...] = ()
+    current_config_value: str | None = None
+    config_options = result.get("configOptions")
+    if isinstance(config_options, list):
+        model_opt: dict[str, Any] | None = None
+        for entry in config_options:
+            if isinstance(entry, dict) and entry.get("category") == "model":
+                model_opt = entry
+                break
+        if model_opt is None:
+            for entry in config_options:
+                if isinstance(entry, dict) and entry.get("id") == "model":
+                    model_opt = entry
+                    break
+        if model_opt is not None:
+            cid = model_opt.get("id")
+            if isinstance(cid, str) and cid:
+                config_id = cid
+            cur_val = model_opt.get("currentValue")
+            if isinstance(cur_val, str):
+                current_config_value = cur_val
+            opts = model_opt.get("options")
+            if isinstance(opts, list):
+                config_values = _extract_choice_pairs(opts, flatten_groups=True)
+
+    return _ModelChoices(
+        model_ids=tuple(model_pairs),
+        current_model_id=current_model_id,
+        config_id=config_id,
+        config_values=config_values,
+        current_config_value=current_config_value,
+    )
+
+
+def _match_choice(wanted: str, choices: tuple[tuple[str, str], ...]) -> str | None:
+    """Exact id first; else the single id whose id or name equals wanted ignoring case; ambiguous -> None."""
+    for cid, _name in choices:
+        if cid == wanted:
+            return cid
+    wanted_cf = wanted.casefold()
+    matches: list[str] = []
+    for cid, name in choices:
+        if cid.casefold() == wanted_cf or (name and name.casefold() == wanted_cf):
+            if cid not in matches:
+                matches.append(cid)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _model_selection(choices: _ModelChoices, wanted: str) -> tuple[str, dict[str, str], str] | None:
+    """Return ``(method, params without sessionId, chosen value)``; ``set_model`` first, else ``set_config_option``."""
+    model_id = _match_choice(wanted, choices.model_ids)
+    if model_id is not None:
+        return ("session/set_model", {"modelId": model_id}, model_id)
+    if choices.config_id:
+        config_val = _match_choice(wanted, choices.config_values)
+        if config_val is not None:
+            return ("session/set_config_option", {"configId": choices.config_id, "value": config_val}, config_val)
+    return None
+
+
 class ACPBackend(AgentBackend):
     """Base class for ACP-based agent backends. Subclasses in `plugin.acp.registry` set these attributes."""
 
@@ -429,8 +546,8 @@ class ACPBackend(AgentBackend):
         self._answer_buf: list[str] = []
         self._agent_log_path: str | None = None
         self._agent_log_offset: int = 0
-        self._available_model_ids: frozenset[str] = frozenset()
-        self._session_model_id: str | None = None
+        self._model_choices: _ModelChoices = _ModelChoices()
+        self._session_model: str | None = None
         self._model_warn_key: tuple[str, str] | None = None
         self._load_config()
 
@@ -703,7 +820,7 @@ class ACPBackend(AgentBackend):
                 raise RuntimeError(f"{self.display_name} ACP process is not running.")
 
         if reuse_session:
-            self._select_agy_model(conn)
+            self._select_session_model(conn)
             return
 
         # mcp_servers is required by the ACP schema. A disabled MCP server
@@ -720,9 +837,7 @@ class ACPBackend(AgentBackend):
             # session/new must return a non-empty sessionId before session/prompt.
             if not isinstance(session_id, str) or not session_id.strip():
                 raise RuntimeError(f"{self.display_name} ACP session/new returned no sessionId.")
-            available_ids, current_id = (
-                self._model_ids_from_session_new(result) if isinstance(result, dict) else (frozenset(), None)
-            )
+            choices = _model_choices(result)
             with self._state_lock:
                 if self._slot_lost_locked(conn):
                     return
@@ -730,11 +845,11 @@ class ACPBackend(AgentBackend):
                 self._session_url = url_key
                 self._session_mcp_url = effective_mcp
                 self._session_prompted = False
-                self._available_model_ids = available_ids
-                self._session_model_id = current_id
+                self._model_choices = choices
+                self._session_model = None
                 self._model_warn_key = None
             log.debug(f"ACP session created: {self._session_id}")
-            self._select_agy_model(conn)
+            self._select_session_model(conn)
         except _TurnStopped:
             # Stop won before session/new was sent. Not a session failure,
             # and the process is still the one the next message should use.
@@ -749,53 +864,65 @@ class ACPBackend(AgentBackend):
                 self._drop_connection()
             raise
 
-    def _model_ids_from_session_new(self, result: dict[str, Any]) -> tuple[frozenset[str], str | None]:
-        """Parse ``session/new`` ``models.availableModels`` ``modelId`` values (not configOptions ids)."""
-        models = result.get("models")
-        if not isinstance(models, dict):
-            return frozenset(), None
-        available = models.get("availableModels")
-        ids: set[str] = set()
-        if isinstance(available, list):
-            for item in available:
-                if isinstance(item, dict):
-                    model_id = item.get("modelId")
-                    if isinstance(model_id, str) and model_id:
-                        ids.add(model_id)
-        current = models.get("currentModelId")
-        current_id = current if isinstance(current, str) else None
-        return frozenset(ids), current_id
+    def _select_session_model(self, conn: ACPConnection) -> None:
+        """Apply ``agent_backend.model`` after ``session/new`` and before each prompt.
 
-    def _select_agy_model(self, conn: ACPConnection) -> None:
-        """Apply ``agent_backend.agy_model`` via ``session/set_model`` when configured."""
-        if self.backend_id != "antigravity":
-            return
+        Running on reused sessions too ensures a Settings change reaches the next message.
+        """
         from plugin.framework.config import get_config
 
-        model_id = str(get_config("agent_backend.agy_model") or "").strip()
-        if not model_id or model_id == self._session_model_id:
+        wanted = str(get_config("agent_backend.model") or "").strip()
+        if not wanted:
             return
-        if model_id not in self._available_model_ids:
-            warn_key = (self._session_id or "", model_id)
-            if self._model_warn_key != warn_key:
-                log.warning(
-                    "agent_backend.agy_model %r is not in session/new availableModels; keeping agy current model",
-                    model_id,
-                )
-                self._model_warn_key = warn_key
+        with self._state_lock:
+            if self._slot_lost_locked(conn):
+                return
+            session_id = self._session_id or ""
+            choices = self._model_choices
+            applied = self._session_model
+            if self._model_warn_key == (session_id, wanted):
+                return
+
+        pick = _model_selection(choices, wanted)
+        if pick is None:
+            log.warning(
+                "agent_backend.model %r is not offered by %s in this session; keeping its current model",
+                wanted,
+                self.display_name,
+            )
+            with self._state_lock:
+                if not self._slot_lost_locked(conn):
+                    self._model_warn_key = (session_id, wanted)
             return
+
+        method, params, chosen = pick
+        current = (
+            applied
+            if applied is not None
+            else (choices.current_model_id if method == "session/set_model" else choices.current_config_value)
+        )
+        if chosen == current:
+            return
+
         try:
             self._request(
                 conn,
-                "session/set_model",
-                {"sessionId": self._session_id, "modelId": model_id},
+                method,
+                {"sessionId": session_id, **params},
                 _SESSION_NEW_TIMEOUT_SEC,
             )
-            self._session_model_id = model_id
         except _TurnStopped:
             raise
         except Exception as exc:
-            log.warning("agy session/set_model failed: %s", exc, exc_info=True)
+            log.warning("%s %s failed: %s", self.display_name, method, exc, exc_info=True)
+            with self._state_lock:
+                if not self._slot_lost_locked(conn):
+                    self._model_warn_key = (session_id, wanted)
+            return
+
+        with self._state_lock:
+            if not self._slot_lost_locked(conn):
+                self._session_model = chosen
 
     def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, document_url: Optional[str] = None, *, include_system: bool = True) -> tuple[list[dict[str, Any]], bool]:
         """Build ACP prompt content blocks.
@@ -1006,8 +1133,8 @@ class ACPBackend(AgentBackend):
         self._session_url = None
         self._session_mcp_url = None
         self._session_prompted = False
-        self._available_model_ids = frozenset()
-        self._session_model_id = None
+        self._model_choices = _ModelChoices()
+        self._session_model = None
         self._model_warn_key = None
 
     def _cancel_pending_permissions(self) -> None:

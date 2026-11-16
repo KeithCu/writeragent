@@ -452,6 +452,12 @@ def _load(config_file_path: str | None = None, *, fail_on_unrepairable: bool = F
                 if flat_stt:
                     data["audio.stt_model"] = flat_stt
 
+        # Move the Antigravity-only key to the generic ACP model key.
+        if "agent_backend.agy_model" in data:
+            agy_model = data.pop("agent_backend.agy_model")
+            if not str(data.get("agent_backend.model") or "").strip():
+                data["agent_backend.model"] = agy_model
+
         for flat_key, full_key in _config_schema.FLAT_TO_MODULE_KEY.items():
             if flat_key in ("stt_model", "model"):
                 continue

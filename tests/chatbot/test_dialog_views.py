@@ -1840,6 +1840,49 @@ def test_stt_settings_listener_enables_one_model_control() -> None:
         assert enabled[endpoint_label] is False
 
 
+def test_acp_model_field_enabled_only_for_acp_backend() -> None:
+    """ACP Model is enabled only when Backend resolves to an ACP backend."""
+    from plugin.chatbot.dialog_views import sync_acp_model_ui
+
+    dlg = MagicMock()
+    backend_ctrl = MagicMock()
+    model_ctrl = MagicMock()
+    model_label = MagicMock()
+    controls = {
+        "agent_backend__backend_id": backend_ctrl,
+        "agent_backend__model": model_ctrl,
+        "label_agent_backend__model": model_label,
+    }
+
+    def get_optional_side_effect(d, name):
+        del d
+        return controls.get(name)
+
+    enabled: dict[object, bool] = {}
+
+    def set_enabled(ctrl, flag):
+        enabled[ctrl] = flag
+
+    with patch("plugin.chatbot.dialog_views.get_optional", side_effect=get_optional_side_effect), \
+         patch("plugin.chatbot.dialog_views.set_control_enabled", side_effect=set_enabled):
+        backend_ctrl.getText.return_value = "Built-in"
+        sync_acp_model_ui(dlg)
+        assert enabled[model_ctrl] is False
+        assert enabled[model_label] is False
+
+        backend_ctrl.getText.return_value = "Antigravity"
+        sync_acp_model_ui(dlg)
+        assert enabled[model_ctrl] is True
+        assert enabled[model_label] is True
+
+        backend_ctrl.getText.return_value = "Ant"
+        sync_acp_model_ui(dlg)
+        assert enabled[model_ctrl] is False
+        assert enabled[model_label] is False
+        model_ctrl.setVisible.assert_not_called()
+        model_label.setVisible.assert_not_called()
+
+
 def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
     """Typing the API key must not save it. A catalog already in memory is not fetched again.
 

@@ -59,7 +59,8 @@ from plugin.framework.client.provider_detection import get_provider_from_endpoin
 from plugin.framework.model_lru import sanitize_model_combobox_value
 from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
-from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
+from plugin.framework.config_schema import get_config_schema
+from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control, stored_select_value
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import (
     endpoint_from_selector_text,
@@ -367,6 +368,10 @@ class SettingsDialog:
         # Populate non-persisted client config snippet
         sync_mcp_config_snippet(self._dlg)
         self._setup_audio_listeners()
+        backend_ctrl = get_optional(self._dlg, "agent_backend__backend_id")
+        if backend_ctrl:
+            self._attach_combo(backend_ctrl, _SyncComboListener(self._dlg, sync_acp_model_ui))
+            sync_acp_model_ui(self._dlg)
 
     def _setup_audio_listeners(self) -> None:
         test_btn = get_optional(self._dlg, "audio__test_voice")
@@ -651,6 +656,24 @@ def sync_stt_ui(dlg: Any) -> None:
         _apply_stt_model_visibility(dlg, raw)
 
     best_effort(_sync, "Error syncing STT provider controls")
+
+
+def sync_acp_model_ui(dlg: Any) -> None:
+    def _sync() -> None:
+        backend_ctrl = get_optional(dlg, "agent_backend__backend_id")
+        schema = get_config_schema("agent_backend.backend_id") or {}
+        value = stored_select_value(str(backend_ctrl.getText() or ""), schema.get("options")) if backend_ctrl else ""
+        acp_ids = {o.get("value") for o in schema.get("options") or [] if isinstance(o, dict)} - {"builtin"}
+        # Disable rather than hide: setVisible on a later dialog step paints
+        # the control onto General (unocontrolcontainer.cxx:implUpdateVisibility).
+        # Unknown or partially typed backend text resolves to builtin, so it disables too.
+        enabled = value in acp_ids
+        for name in ("agent_backend__model", "label_agent_backend__model"):
+            ctrl = get_optional(dlg, name)
+            if ctrl is not None:
+                set_control_enabled(ctrl, enabled)
+
+    best_effort(_sync, "Error syncing ACP model controls")
 
 
 def sync_tts_ui(dlg: Any) -> None:
@@ -1372,6 +1395,7 @@ __all__ = [
     "open_system_url",
     "settings_box",
     "setup_module_tabs",
+    "sync_acp_model_ui",
     "sync_stt_ui",
     "sync_tts_ui",
 ]
