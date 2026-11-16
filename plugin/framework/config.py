@@ -651,6 +651,7 @@ def _merge_secret_entries(key: str, current: Any, new: dict[str, Any]) -> dict[s
     fields = _config_schema.SECRET_ENTRY_FIELDS.get(key, ())
     cur_map = current if isinstance(current, dict) else {}
     out: dict[str, Any] = {}
+    written_secret_names: set[str] = set()
     for name, entry in new.items():
         if not isinstance(entry, dict):
             out[name] = entry
@@ -661,9 +662,11 @@ def _merge_secret_entries(key: str, current: Any, new: dict[str, Any]) -> dict[s
         for field in fields:
             if field not in updated and field not in old_entry:
                 continue
-            stored = _secret_to_store(_entry_secret_name(key, str(name), field), old_entry.get(field), updated.get(field))
+            secret_name = _entry_secret_name(key, str(name), field)
+            stored = _secret_to_store(secret_name, old_entry.get(field), updated.get(field))
             if stored:
                 updated[field] = stored
+                written_secret_names.add(secret_name)
             else:
                 updated.pop(field, None)
         out[name] = updated
@@ -673,7 +676,9 @@ def _merge_secret_entries(key: str, current: Any, new: dict[str, Any]) -> dict[s
             continue
         for field in fields:
             if keystore.is_ref(old_entry.get(field)):
-                keystore.delete_secret(_entry_secret_name(key, str(old_name), field))
+                secret_name = _entry_secret_name(key, str(old_name), field)
+                if secret_name not in written_secret_names:
+                    keystore.delete_secret(secret_name)
     return out
 
 

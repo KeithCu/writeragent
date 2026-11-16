@@ -1800,3 +1800,12 @@ def test_server_token_strips_whitespace_from_entry_name(fake_keystore):
     servers = get_config("mcp_client.servers")
     assert fake_keystore.store.get("mcp_client.servers:home.token") == "tok-ws"
     assert resolve_entry_secret("mcp_client.servers", "home", "token", servers[" home"]["token"]) == "tok-ws"
+
+
+def test_renaming_whitespace_entry_to_stripped_name_keeps_secret(fake_keystore):
+    from plugin.framework.config import get_config, resolve_entry_secret
+
+    save({"mcp_client.servers": {" home": {"url": "http://localhost:8000/mcp", "token": "t"}}})
+    save({"mcp_client.servers": {"home": {"url": "http://localhost:8000/mcp", "token": "t"}}})
+    servers = get_config("mcp_client.servers")
+    assert resolve_entry_secret("mcp_client.servers", "home", "token", servers["home"]["token"]) == "t"
