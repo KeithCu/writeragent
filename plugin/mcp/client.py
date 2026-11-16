@@ -40,15 +40,15 @@ import itertools
 import json
 import logging
 import re
-import subprocess
 import threading
 import time
 from typing import Any, Callable, Sequence
 
+from plugin.framework import keystore
 from plugin.framework.client.errors import NetworkError
-from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target, redact_secrets, secrets_from_target
+from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target, redact_secrets
 from plugin.framework.client.http_transport import LlmHttpTransport
-from plugin.framework.config import get_config
+from plugin.framework.config import get_config, resolve_entry_secret
 from plugin.framework.logging import is_secret_key, redact_sensitive_payload_for_log
 from plugin.framework.send_cancellation import (
     SendCancellation,
@@ -77,6 +77,7 @@ from plugin.mcp.client_helpers import (
     make_tool_filter,
     names_unknown_tool,
     normalize_server_trust,
+    restore_masked,
     safe_numeric,
     sanitize_error,
     server_enabled,
@@ -132,14 +133,15 @@ class McpClientError(Exception):
 
 # configured_servers() runs on prompt and schema builds and on each delegation,
 # so remember the last warned config value to emit warnings once per distinct servers value.
+SERVERS_KEY = "mcp_client.servers"
 _last_warned_servers_key: str | None = None
 
 
 def configured_servers() -> list[dict[str, Any]]:
-    """Enabled servers with a name and URL from ``mcp_client.servers``."""
+    """Enabled servers with a URL from ``mcp_client.servers``."""
     global _last_warned_servers_key
     servers: list[dict[str, Any]] = []
-    raw = get_config("mcp_client.servers")
+    raw = get_config(SERVERS_KEY)
     raw_key = json.dumps(raw, sort_keys=True, default=str) if raw is not None else None
     emit_warn = log.warning if raw_key != _last_warned_servers_key else log.debug
     if raw is not None and not isinstance(raw, dict):
@@ -167,42 +169,19 @@ def configured_servers() -> list[dict[str, Any]]:
     return servers
 
 
-def resolve_token(server: dict[str, Any], cancel: SendCancellation | None = None) -> str:
-    """Bearer token for *server*: a macOS Keychain item named by ``token_keychain``, else ``token``, else none."""
-    item = str(server.get("token_keychain") or "").strip()
-    if item:
-        if is_cancelled(cancel):
-            raise McpClientError(f"Stopped while reading Keychain item '{item}'.", code="USER_STOPPED")
-        try:
-            proc = subprocess.Popen(
-                ["/usr/bin/security", "find-generic-password", "-s", item, "-w"],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-        except OSError as e:
-            raise McpClientError(f"Could not read Keychain item '{item}': {e}", code="MCP_CLIENT_CONFIG") from e
-        deadline = time.monotonic() + 30.0
-        while True:
-            if is_cancelled(cancel):
-                proc.kill()
-                proc.communicate()
-                raise McpClientError(f"Stopped while reading Keychain item '{item}'.", code="USER_STOPPED")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                proc.kill()
-                proc.communicate()
-                raise McpClientError(f"Could not read Keychain item '{item}': timed out after 30s", code="MCP_CLIENT_CONFIG")
-            try:
-                stdout, _stderr = proc.communicate(timeout=min(0.2, remaining))
-                break
-            except subprocess.TimeoutExpired:
-                continue
-        if proc.returncode != 0:
-            raise McpClientError(f"Keychain item '{item}' not found or access denied.", code="MCP_CLIENT_CONFIG")
-        return strip_bearer_prefix(stdout)
-    return strip_bearer_prefix(str(server.get("token") or ""))
+def resolve_token(server: dict[str, Any]) -> str:
+    """Bearer token for *server*, resolved from the OS keystore when stored as a ref."""
+    raw = server.get("token")
+    name = str(server.get("name") or "")
+    token = resolve_entry_secret(SERVERS_KEY, name, "token", raw)
+    if keystore.is_ref(raw) and not token:
+        backend = keystore.backend_label() or "the system keyring"
+        raise McpClientError(
+            f"MCP server '{name}': its token is saved in {backend} but could not be read "
+            f"(the keyring is locked or was reset). Unlock it and try again, or enter the token again in Settings > Integrations.",
+            code="MCP_CLIENT_CONFIG",
+        )
+    return strip_bearer_prefix(token)
 
 
 def _is_response(message: Any, request_id: int) -> bool:
@@ -252,6 +231,7 @@ class McpServerConnection:
         self._server: dict[str, Any] = server
         self._allowed: Callable[[str], bool] = make_tool_filter(self.name, server)
         self._token: str | None = None
+        self._secrets: list[str] = []
         self._session_id: str | None = None
         self._initialized: bool = False
         self._version_negotiated: bool = False
@@ -265,7 +245,7 @@ class McpServerConnection:
         self._all_application: bool = False
         warn_hidden_whitespace(self.name, server)
 
-    def _headers(self, cancel: SendCancellation | None = None) -> dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         try:
             self.url = validate_remote_url(self.name, self._server.get("url"))
         except ValueError as e:
@@ -275,7 +255,7 @@ class McpServerConnection:
             refs = ", ".join(f"${{{ref}}}" for ref in unresolved)
             raise McpClientError(
                 f"MCP server '{self.name}': {refs} in url/headers cannot be used because WriterAgent does not expand "
-                f"environment variables. Paste the value directly or use token_keychain.",
+                f"environment variables. Paste the value directly, or put the token in the server's Token field.",
                 code="MCP_CLIENT_CONFIG",
             )
         headers: dict[str, str] = {}
@@ -285,7 +265,7 @@ class McpServerConnection:
                 headers[str(k)] = str(v)
         if not any(k.lower() == "authorization" for k in headers):
             if self._token is None:
-                self._token = resolve_token(self._server, cancel=cancel)
+                self._token = resolve_token(self._server)
             if self._token:
                 headers["Authorization"] = f"Bearer {self._token}"
         headers["Content-Type"] = "application/json"
@@ -294,33 +274,13 @@ class McpServerConnection:
             headers["Mcp-Session-Id"] = self._session_id
         if self._version_negotiated:
             headers["MCP-Protocol-Version"] = self._protocol_version
+        secret_hdrs = [str(v) for k, v in raw_headers.items() if is_secret_key(str(k))] if isinstance(raw_headers, dict) else []
+        self._secrets = [s for s in ([self._token or ""] + secret_hdrs) if s]
         return headers
 
-    def _secret_values(self) -> list[str]:
-        """Collect configured token, secret header values, and URL credentials for error redaction."""
-        secrets: list[str] = []
-        if self._token:
-            secrets.append(self._token)
-        raw_token = str(self._server.get("token") or "").strip()
-        if raw_token:
-            stripped = strip_bearer_prefix(raw_token)
-            if stripped:
-                secrets.append(stripped)
-        raw_headers = self._server.get("headers")
-        if isinstance(raw_headers, dict):
-            for k, v in raw_headers.items():
-                if is_secret_key(str(k)) and isinstance(v, str) and v.strip():
-                    val = v.strip()
-                    secrets.append(val)
-                    parts = val.split(None, 1)
-                    if len(parts) == 2 and parts[1].strip():
-                        secrets.append(parts[1].strip())
-        secrets.extend(secrets_from_target(self.url))
-        return secrets
-
-    def redact(self, text: str) -> str:
+    def _scrub(self, text: str) -> str:
         """Scrub exact server credentials and common secret patterns from *text*."""
-        return sanitize_error(redact_secrets(text, self._secret_values()))
+        return sanitize_error(redact_secrets(text, self._secrets))
 
     def _transport_error(
         self,
@@ -338,7 +298,7 @@ class McpServerConnection:
             return McpClientError("Stopped by user.", code="USER_STOPPED")
         if sent and method == "tools/call":
             return McpClientError(OUTCOME_UNCERTAIN_MSG.format(s=self.name), code="MCP_OUTCOME_UNCERTAIN")
-        return McpClientError(f"Cannot reach MCP server '{self.name}': {self.redact(str(exc))}")
+        return McpClientError(f"Cannot reach MCP server '{self.name}': {self._scrub(str(exc))}")
 
     def _parse_sse_event(self, event_bytes: bytes, request_id: int) -> dict[str, Any] | None:
         text = event_bytes.decode("utf-8", errors="replace")
@@ -432,7 +392,7 @@ class McpServerConnection:
         if resp.status != 200:
             raw_err = resp.read(1200)
             err_text = " ".join(raw_err.decode("utf-8", errors="replace").split())
-            err_head = self.redact(err_text)[:HTTP_ERROR_BODY_CHARS]
+            err_head = self._scrub(err_text)[:HTTP_ERROR_BODY_CHARS]
             detail = f": {err_head}" if err_head else ""
             raise McpClientError(
                 f"MCP server '{self.name}' returned HTTP {resp.status} for {method}{detail}",
@@ -454,7 +414,7 @@ class McpServerConnection:
         method = str(payload.get("method") or "")
         raw_id = payload.get("id")
         request_id = raw_id if isinstance(raw_id, int) else None
-        headers = self._headers(cancel)
+        headers = self._headers()
         body = json.dumps(payload).encode("utf-8")
         current_url = self.url
         current_headers = dict(headers)
@@ -538,7 +498,7 @@ class McpServerConnection:
         if message.get("error"):
             err = message["error"]
             err_msg = err.get("message") if isinstance(err, dict) else err
-            raise McpClientError(f"MCP server '{self.name}' error: {self.redact(str(err_msg))}", application=True)
+            raise McpClientError(f"MCP server '{self.name}' error: {self._scrub(str(err_msg))}", application=True)
         result = message.get("result")
         return result if isinstance(result, dict) else {}
 
@@ -704,7 +664,7 @@ class McpServerConnection:
                     if attempt == 0 and e.application and self._relist_after_unknown_tool(tool, str(e), cancel):
                         continue
                     # The breaker protects against a flapping remote server and must not hide
-                    # local configuration or Keychain errors behind an "unreachable" message.
+                    # local configuration or keystore errors behind an "unreachable" message.
                     if e.code in ("MCP_CLIENT_ERROR", "MCP_OUTCOME_UNCERTAIN"):
                         self._bump_breaker(application=e.application)
                         if not e.application:
@@ -743,20 +703,32 @@ def get_connection(server: dict[str, Any]) -> McpServerConnection:
         return conn
 
 
-def drop_connections(keep: Sequence[dict[str, Any]] = ()) -> None:
+def probe_server(server: dict[str, Any], cancel: SendCancellation | None = None) -> McpServerConnection:
+    """Test-connect to *server* and list its tools without registering it in ``_connections``.
+
+    Shape adapted from Hermes ``_probe_single_server``: opens a temporary
+    connection, fetches its tool list, and returns it for optional adoption on OK.
+    """
+    conn = McpServerConnection(server)
+    conn.list_tools(cancel=cancel)
+    return conn
+
+
+def drop_connections(adopt: Sequence[McpServerConnection] = ()) -> None:
     """Drop cached server connections so the next delegation re-lists tools.
 
-    Settings OK passes ``keep`` for connections that a Settings probe just
-    listed and whose saved entry is unchanged, dropping all others. Passing
-    nothing clears every connection. In-flight work finishes on the old
-    connection objects, and nothing reads their cache afterwards.
+    A connection the Settings dialog just checked, with an unchanged entry, is
+    kept via *adopt* because the check was itself a fresh list. In-flight work
+    finishes on the old connection objects, and nothing reads their cache
+    afterwards.
     """
+    saved = {s["name"]: s for s in configured_servers()} if adopt else {}
     with _connections_lock:
-        if not keep:
-            _connections.clear()
-            return
-        for name in [n for n, conn in _connections.items() if conn._server not in keep]:
-            _connections.pop(name, None)
+        _connections.clear()
+        for conn in adopt:
+            if conn.name in saved:
+                conn._server = saved[conn.name]
+                _connections[conn.name] = conn
 
 
 def render_call_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -866,16 +838,16 @@ class RemoteMcpTool(ToolBase):
                 "This call needs the user's approval, which cannot be shown here, so it was not run.",
                 code="MCP_CLIENT_APPROVAL_UNAVAILABLE",
             )
-        shown = format_approval_arguments(redact_sensitive_payload_for_log(arguments))
-        editable = format_approval_arguments(arguments)
+        shown = redact_sensitive_payload_for_log(arguments)
+        card = format_approval_arguments(arguments)
         if ctx is not None and ctx.chat_append_callback:
             ctx.chat_append_callback(
-                f"\n[Run {escape_invisible(conn.name)}: {escape_invisible(tool)}?]\n{shown}\n"
+                f"\n[Run {escape_invisible(conn.name)}: {escape_invisible(tool)}?]\n{card}\n"
             )
-        proceed, edited = unpack_approval(callback(editable, self.name or tool, arguments))
+        proceed, edited = unpack_approval(callback(card, self.name or tool, arguments))
         if not proceed:
             return arguments, self._tool_error("The user rejected this call. It was not run.", code="MCP_CLIENT_CALL_REJECTED")
-        if edited is None or edited.strip() == editable.strip():
+        if edited is None or edited.strip() == card.strip():
             return arguments, None
         try:
             changed = json.loads(edited)
@@ -886,9 +858,9 @@ class RemoteMcpTool(ToolBase):
                 f"The user changed the arguments to something that is not a JSON object, so the call was not run. Their text: {edited[:500]}",
                 code="MCP_CLIENT_CALL_CHANGED",
             )
+        changed = restore_masked(changed, arguments, shown)
         if ctx is not None and ctx.chat_append_callback:
-            masked_changed = format_approval_arguments(redact_sensitive_payload_for_log(changed))
-            ctx.chat_append_callback(f"[Changed to: {masked_changed}]\n")
+            ctx.chat_append_callback(f"[Changed to: {format_approval_arguments(changed)}]\n")
         return changed, None
 
     def _call(
@@ -903,7 +875,7 @@ class RemoteMcpTool(ToolBase):
         rendered = render_call_result(result)
         if result.get("isError"):
             return self._tool_error(
-                f"Remote tool '{tool}' failed: {conn.redact(rendered['result'])}",
+                f"Remote tool '{tool}' failed: {conn._scrub(rendered['result'])}",
                 code="MCP_REMOTE_TOOL_ERROR",
                 note=UNTRUSTED_NOTE,
             )

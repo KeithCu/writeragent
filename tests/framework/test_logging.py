@@ -773,7 +773,7 @@ class TestOptionalFlushFileHandler:
             logging_mod._debug_slot()["handler"] = old_h
 
 
-def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
+def test_redact_api_keys_by_endpoint_and_secret_key_names() -> None:
     from plugin.framework.logging import LOG_REDACT_SECRET_PLACEHOLDER
 
     raw = {
@@ -788,6 +788,11 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
         "session_token": "st-secret",
         "apikey": "ak-secret",
         "ApiKey": "ak-secret2",
+        "github_token": "ghp-123",
+        "dbPassword": "pw-123",
+        "clientSecret": "cs-123",
+        "tokenizer": "tiktoken",
+        "secretary": "jane",
         "auth": "visible",
         "token_int": {"token": 99},
     }
@@ -804,7 +809,12 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
     assert out["session_token"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["apikey"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["ApiKey"] == LOG_REDACT_SECRET_PLACEHOLDER
-    assert out["auth"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["github_token"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["dbPassword"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["clientSecret"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["tokenizer"] == "tiktoken"
+    assert out["secretary"] == "jane"
+    assert out["auth"] == "visible"
     assert out["token_int"]["token"] == 99
     assert raw["api_keys_by_endpoint"]["https://api.example"] == "sk-live"
     assert raw["token"] == "abc"

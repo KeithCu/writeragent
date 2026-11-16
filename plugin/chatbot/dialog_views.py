@@ -203,13 +203,14 @@ class SettingsDialog:
     _ctx: Any
     _dlg: Any
     _endpoint_listener: Any
+    _mcp_servers: Any
     _attached: list[tuple[Any, str, Any]]
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg = None
         self._endpoint_listener = None
-        self._mcp_servers: Any = None
+        self._mcp_servers = None
         self._attached = []
 
     def _attach(self, ctrl: Any, kind: str, listener: Any) -> None:
@@ -262,11 +263,10 @@ class SettingsDialog:
                     apply_settings_result(self._ctx, result, field_specs)
                     # init_logging runs on save so log level changes apply without restart.
                     init_logging(self._ctx)
-                    # Save external MCP servers and keep connections a Settings probe just listed unchanged.
+                    # Save external MCP servers and adopt connections a Settings probe just listed unchanged.
                     from plugin.mcp.client import drop_connections
 
-                    keep = self._mcp_servers.save() if self._mcp_servers else []
-                    drop_connections(keep=keep)
+                    drop_connections(adopt=self._mcp_servers.save() if self._mcp_servers else ())
                     return result
                 except ConfigValidationError as ve:
                     msgbox(self._ctx, _("Invalid Setting"), str(ve))

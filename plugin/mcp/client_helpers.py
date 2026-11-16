@@ -51,6 +51,8 @@ import unicodedata
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from plugin.framework.logging import redact_sensitive_payload_for_log
+
 log = logging.getLogger("writeragent.mcp_client")
 
 MAX_BODY_BYTES = 10 * 1024 * 1024
@@ -344,8 +346,8 @@ def escape_invisible(text: str) -> str:
 
 
 def format_approval_arguments(args: dict[str, Any]) -> str:
-    """Format call arguments as bounded, indented JSON with invisible/control chars escaped."""
-    rendered = json.dumps(args, ensure_ascii=False, indent=2, default=str)
+    """Format call arguments as bounded, indented JSON with secrets masked and control chars escaped."""
+    rendered = json.dumps(redact_sensitive_payload_for_log(args), ensure_ascii=False, indent=2, default=str)
     window = 4 * _APPROVAL_ARGUMENTS_MAX_CHARS
     cut = len(rendered) > window
     rendered = escape_invisible(rendered[:window])
@@ -353,6 +355,20 @@ def format_approval_arguments(args: dict[str, Any]) -> str:
         keep = _APPROVAL_ARGUMENTS_MAX_CHARS - len(_APPROVAL_ARGUMENTS_TRUNCATION_MARKER)
         rendered = rendered[:keep].rstrip() + _APPROVAL_ARGUMENTS_TRUNCATION_MARKER
     return rendered
+
+
+def restore_masked(edited: Any, original: Any, shown: Any) -> Any:
+    """Restore real secret values where the user left the masked placeholder unchanged."""
+    if edited == shown:
+        return original
+    if isinstance(edited, dict) and isinstance(original, dict) and isinstance(shown, dict):
+        return {
+            k: restore_masked(v, original[k], shown[k]) if k in original and k in shown else v
+            for k, v in edited.items()
+        }
+    if isinstance(edited, list) and isinstance(original, list) and isinstance(shown, list) and len(edited) == len(original) == len(shown):
+        return [restore_masked(e, o, s) for e, o, s in zip(edited, original, shown)]
+    return edited
 
 
 def names_unknown_tool(tool: str, text: str) -> bool:

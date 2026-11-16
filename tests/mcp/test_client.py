@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
@@ -355,72 +354,6 @@ def test_unreachable_server_is_reported():
     conn = McpServerConnection({"name": "down", "url": "http://127.0.0.1:9/mcp", "token": TOKEN})
     with pytest.raises(McpClientError, match="Cannot reach MCP server 'down'"):
         conn.list_tools()
-
-
-def test_keychain_token(fake):
-    class FakePopen:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            self.args = args[0]
-            self.returncode = 0
-
-        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
-            return (TOKEN + "\n", "")
-
-        def kill(self) -> None:
-            pass
-
-    seen_args: list[Any] = []
-
-    def _popen(cmd: list[str], **kwargs: Any) -> FakePopen:
-        seen_args.append(cmd)
-        return FakePopen(cmd, **kwargs)
-
-    with patch.object(mcp_client.subprocess, "Popen", side_effect=_popen):
-        McpServerConnection(_server(fake, token=None, token_keychain="writeragent-mcp")).list_tools()
-    assert seen_args[0] == ["/usr/bin/security", "find-generic-password", "-s", "writeragent-mcp", "-w"]
-    assert fake.requests[0][0]["authorization"] == f"Bearer {TOKEN}"
-
-
-def test_keychain_denied_is_an_error():
-    class DeniedPopen:
-        returncode = 44
-
-        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
-            return ("", "denied")
-
-        def kill(self) -> None:
-            pass
-
-    with patch.object(mcp_client.subprocess, "Popen", return_value=DeniedPopen()):
-        with pytest.raises(McpClientError, match="not found or access denied"):
-            mcp_client.resolve_token({"token_keychain": "missing"})
-
-
-def test_keychain_stop_kills_child():
-    cancel = SendCancellation()
-    killed = threading.Event()
-
-    class HangingPopen:
-        returncode = 0
-
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def communicate(self, timeout: float | None = None) -> tuple[str, str]:
-            self.calls += 1
-            if killed.is_set():
-                return ("", "")
-            cancel.cancel()
-            raise subprocess.TimeoutExpired("security", timeout or 0.2)
-
-        def kill(self) -> None:
-            killed.set()
-
-    with patch.object(mcp_client.subprocess, "Popen", return_value=HangingPopen()):
-        with pytest.raises(McpClientError) as info:
-            mcp_client.resolve_token({"token_keychain": "item"}, cancel=cancel)
-    assert info.value.code == "USER_STOPPED"
-    assert killed.is_set()
 
 
 def test_configured_servers_skips_disabled_and_malformed():
@@ -1243,7 +1176,7 @@ def test_failed_listing_keeps_no_entry(fake):
     assert [t["name"] for t in tools] == [t["name"] for t in TOOLS]
 
 
-def test_approval_card_masks_secret_arguments(fake):
+def test_approval_card_masks_secrets_but_sends_real_values(fake):
     fake.custom_tools = [
         {
             "name": "echo",
@@ -1262,14 +1195,39 @@ def test_approval_card_masks_secret_arguments(fake):
 
     assert out["status"] == "ok"
     chat_card = seen[0]
-    callback_text, _tool_name, callback_args = seen[1]
+    callback_text, _tool_name, _callback_args = seen[1]
     assert "<redacted>" in chat_card
     assert "my-secret-password" not in chat_card
-    assert "my-secret-password" in callback_text
-    assert callback_args == {"password": "my-secret-password", "user": "alice"}
+    assert "<redacted>" in callback_text
+    assert "my-secret-password" not in callback_text
     call_req = [body for _hdrs, body in fake.requests if body.get("method") == "tools/call"][0]
     assert call_req["params"]["arguments"] == {"password": "my-secret-password", "user": "alice"}
     assert out["arguments"] == {"password": "<redacted>", "user": "alice"}
+
+
+def test_change_keeps_masked_values_real(fake):
+    fake.custom_tools = [
+        {
+            "name": "echo",
+            "description": "Echo args.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"password": {"type": "string"}, "user": {"type": "string"}},
+            },
+        }
+    ]
+    edited_json = json.dumps({"password": "<redacted>", "user": "bob"})
+    ctx, seen = _approval_ctx((True, edited_json))
+    with _with_servers({"claw": _server(fake, trust="untrusted")}):
+        tool = _remote_tool(ctx, "mcp__claw__echo")
+        out = tool.execute(ctx, password="old-secret-password", user="alice")
+
+    assert out["status"] == "ok"
+    call_req = [body for _hdrs, body in fake.requests if body.get("method") == "tools/call"][0]
+    assert call_req["params"]["arguments"] == {"password": "old-secret-password", "user": "bob"}
+    changed_line = [s for s in seen if isinstance(s, str) and s.startswith("[Changed to:")][0]
+    assert "<redacted>" in changed_line
+    assert "old-secret-password" not in changed_line
 
 
 def test_changed_to_line_is_masked(fake):
@@ -1295,8 +1253,8 @@ def test_changed_to_line_is_masked(fake):
     assert "new-secret-password" not in changed_line
 
 
-def test_error_body_echoing_the_bare_token_is_redacted(fake):
-    fake.error_body = (500, f"bad credential {TOKEN}")
+def test_error_text_scrubs_the_token(fake):
+    fake.error_body = (401, f"unauthorized for {TOKEN}")
     conn = McpServerConnection(_server(fake))
     with pytest.raises(McpClientError) as info:
         conn.list_tools()
@@ -1312,11 +1270,107 @@ def test_secret_header_values_are_redacted(fake):
     assert header_secret not in str(info.value)
 
 
-def test_drop_connections_keeps_only_listed_entries(fake):
-    entry_a = _server(fake, name="a")
-    entry_b = _server(fake, name="b")
-    conn_a = mcp_client.get_connection(entry_a)
-    conn_b = mcp_client.get_connection(entry_b)
-    mcp_client.drop_connections(keep=[entry_a])
-    assert mcp_client.get_connection(entry_a) is conn_a
-    assert mcp_client.get_connection(entry_b) is not conn_b
+def test_ref_token_resolves_from_keystore(fake, fake_keystore):
+    from plugin.framework import keystore
+
+    keystore.set_secret("mcp_client.servers:claw.token", TOKEN)
+    conn = McpServerConnection(_server(fake, name="claw", token="keystore:deadbeef"))
+    conn.list_tools()
+    assert fake.requests[0][0]["authorization"] == f"Bearer {TOKEN}"
+
+
+def test_plain_token_works_without_store(fake):
+    from plugin.framework import keystore
+
+    keystore.reset_for_tests(None)
+    try:
+        conn = McpServerConnection(_server(fake, name="claw", token=TOKEN))
+        conn.list_tools()
+        assert fake.requests[0][0]["authorization"] == f"Bearer {TOKEN}"
+    finally:
+        keystore.reset_for_tests(None)
+
+
+def test_unreadable_token_ref_names_server_and_keyring(fake, fake_keystore):
+    from plugin.framework import keystore
+
+    # Locked keyring case
+    fake_keystore.store["mcp_client.servers:claw.token"] = TOKEN
+    fake_keystore.locked = True
+    conn = McpServerConnection(_server(fake, name="claw", token="keystore:deadbeef"))
+    with pytest.raises(McpClientError) as locked_info:
+        conn.list_tools()
+    assert locked_info.value.code == "MCP_CLIENT_CONFIG"
+    assert "claw" in str(locked_info.value)
+    assert "keyring" in str(locked_info.value).lower()
+    assert fake.requests == []
+
+    # Fresh store where the item is missing
+    fake_keystore.locked = False
+    fake_keystore.store.clear()
+    keystore.reset_for_tests(fake_keystore)
+    conn2 = McpServerConnection(_server(fake, name="claw", token="keystore:deadbeef"))
+    with pytest.raises(McpClientError) as missing_info:
+        conn2.list_tools()
+    assert missing_info.value.code == "MCP_CLIENT_CONFIG"
+    assert "claw" in str(missing_info.value)
+    assert "keyring" in str(missing_info.value).lower()
+    assert fake.requests == []
+
+
+def test_probe_then_ok_reuses_the_listed_tools(fake):
+    entry = _server(fake, name="claw")
+    conn = mcp_client.probe_server(entry)
+    reqs_after_probe = len(fake.requests)
+    with _with_servers({"claw": entry}):
+        mcp_client.drop_connections(adopt=[conn])
+        got = mcp_client.get_connection(mcp_client.configured_servers()[0])
+        assert got is conn
+        got.list_tools()
+        assert len(fake.requests) == reqs_after_probe
+
+
+def test_ok_does_not_adopt_a_server_no_longer_configured(fake):
+    entry = _server(fake, name="claw")
+    conn = mcp_client.probe_server(entry)
+    with _with_servers({}):
+        mcp_client.drop_connections(adopt=[conn])
+        assert mcp_client.get_connection(entry) is not conn
+
+
+def test_mcp_domain_hidden_from_writeragent_mcp_server(fake):
+    from unittest.mock import MagicMock
+
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writeragent_hooks import register_writeragent_tool_filters
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(DelegateToSubagent())
+    register_writeragent_tool_filters(reg)
+
+    with _with_servers({"claw": _server(fake, name="claw")}):
+        for services in (
+            None,
+            frozenset({"com.sun.star.sheet.SpreadsheetDocument"}),
+            frozenset({"com.sun.star.drawing.DrawingDocument"}),
+        ):
+            kwargs: dict[str, Any] = (
+                {"filter_doc_type": False}
+                if services is None
+                else {"uno_services_supported": services}
+            )
+            mcp_schemas = reg.get_schemas("mcp", **kwargs)
+            schema = mcp_schemas[0]
+            domain_prop = schema["inputSchema"]["properties"]["domain"]
+            assert "mcp" not in domain_prop["enum"]
+            assert "mcp:" not in domain_prop.get("description", "")
+            assert "mcp" not in schema.get("description", "")
+
+        openai_schemas = reg.get_schemas("openai", filter_doc_type=False, ctx=object())
+        openai_enum = openai_schemas[0]["function"]["parameters"]["properties"]["domain"]["enum"]
+        assert "mcp" in openai_enum
+
+        catalog = get_specialized_domain_catalog(agent_label=None, for_discovery=True)
+        assert "mcp" not in [e["domain"] for e in catalog]

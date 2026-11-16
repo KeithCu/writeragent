@@ -24,26 +24,24 @@ Open **Settings → Integrations**. The **MCP servers for the sidebar chat** sec
 
 | Control | Meaning |
 |---------|---------|
-| Server / **Add** / **Remove** | Pick a server to edit, add a new enabled entry, or remove the selected entry. |
+| Server / **Add** / **Remove** | Pick a server to edit, open a blank form to add a new server, or remove the selected entry. |
 | Use this MCP server in chat | Per-entry `enabled` flag (`true` for newly added entries). |
 | Trust its read-only tools (no prompt) | Per-entry `trust` (`"full"` vs `"untrusted"`). Tools marked `readOnlyHint: true` run without prompting when trusted. |
 | Name | Key under `mcp_client.servers`; prefixes this server's tool names (`mcp__<name>__<tool>`). |
 | Server URL | Streamable-HTTP MCP endpoint (`http` or `https`). Required. |
-| Keychain item (macOS) | macOS only: name (service) of a Keychain generic password holding the bearer token. Preferred. |
-| Token | Bearer token saved in plain text in `writeragent.json`. Used only when Keychain item is empty. |
-| Status | Read-only probe result (`Checking…`, `Connected: N tools`, or `Failed: <error>`). |
+| Token | Bearer token. Settings OK stores it in the OS keystore (`keystore.py`) when available, otherwise in plain text in `writeragent.json`. |
+| Status | Read-only check result (`Checking…`, `Connected: N tools`, or `Failed: <error>`). |
 
-**Live probe:** Leaving **Server URL**, **Keychain item**, or **Token** after changing any of those three fields probes the server off the main thread via `get_connection(entry).list_tools(...)` and updates **Status**.
+**Live check:** Leaving **Server URL** or **Token** after changing either field checks the server off the main thread via `probe_server(entry)` (`McpServerConnection.list_tools`) and updates **Status**.
 
 ### Advanced per-server keys in `writeragent.json`
 
-All servers live in `mcp_client.servers` in `writeragent.json` (keyed by server name). Editing a server in Settings preserves advanced keys already present on that entry (such as `headers`, `timeout`, or `tools`):
+All servers live in `mcp_client.servers` in `writeragent.json` (keyed by server name), which can be edited directly via **Edit config JSON**. Editing a server in Settings preserves advanced keys already present on that entry (such as `headers`, `timeout`, or `tools`):
 
 ```json
 {
   "home": {
     "url": "http://localhost:8000/mcp",
-    "token_keychain": "writeragent-mcp",
     "trust": "full",
     "timeout": 300,
     "connect_timeout": 60,
@@ -54,15 +52,9 @@ All servers live in `mcp_client.servers` in `writeragent.json` (keyed by server 
 }
 ```
 
-Accepted keys per entry: `url` (required), `headers`, `enabled` (default `true`), `timeout` (tool-call socket idle budget in seconds, default `300`), `connect_timeout` (connect/initialize/list budget in seconds, default `60`), `tools.include`, `tools.exclude`, `trust` (`"full"` or `"untrusted"`, default `"untrusted"`), `token`, `token_keychain`.
+Accepted keys per entry: `url` (required), `headers`, `enabled` (default `true`), `timeout` (tool-call socket idle budget in seconds, default `300`), `connect_timeout` (connect/initialize/list budget in seconds, default `60`), `tools.include`, `tools.exclude`, `trust` (`"full"` or `"untrusted"`, default `"untrusted"`), `token`.
 
-To store a token in the Keychain:
-
-```bash
-security add-generic-password -a "$USER" -s writeragent-mcp -w
-```
-
-`-w` with no value prompts for the token so it does not land in shell history. The first time WriterAgent reads it, macOS asks whether LibreOffice may use the item. Choose **Always Allow**. If access is denied, the tool returns an error and does not call the server without auth. A pasted `Bearer ` prefix is stripped automatically.
+When an OS keystore is available, Settings OK stores each server's `token` in the keystore under `mcp_client.servers:<server>.token` and keeps only a `keystore:<hex>` reference in `writeragent.json` (see [secret-storage.md](framework/secret-storage.md)). A pasted `Bearer ` prefix is stripped automatically. If a `keystore:` reference cannot be read when connecting (the keyring is locked or was reset), the client raises `MCP_CLIENT_CONFIG` naming the server and keyring backend rather than calling the server without auth.
 
 ### Tool list cache
 
@@ -84,14 +76,14 @@ Config is read on every delegation and connections are made lazily, so edits tak
 - **Redirects & URLs:** Only `http://` and `https://` URLs with a host are accepted. Same-origin `307`/`308` redirects are followed up to 3 hops; all other redirects are refused. Literal `${VAR}` placeholders in `url` or `headers` fail closed.
 - **Body & SSE caps:** Finite JSON bodies and individual SSE events are capped at 10 MiB; SSE boundaries accept CR, LF, and CRLF. Replies match the first JSON-RPC response (`id` without `method`) without waiting for the stream to close.
 - **Errors & circuit breaker:** HTTP errors include the status and up to 300 characters of credential-redacted body text. Failures after sending a `tools/call` report an uncertain outcome. Three consecutive failures open a 60-second circuit breaker for that server (distinguishing unreachable servers from rejected calls).
-- **Stop:** Clicking Stop aborts in-flight HTTP waits and Keychain lookups immediately, sends one best-effort `notifications/cancelled` for in-flight requests, and does not trip the circuit breaker.
+- **Stop:** Clicking Stop aborts in-flight HTTP waits immediately, sends one best-effort `notifications/cancelled` for in-flight requests, and does not trip the circuit breaker.
 
 ## Security model
 
 - **Sidebar chat only.** `ToolMcpDomainBase` sets `tier = "chat"`, so WriterAgent's own MCP server never lists `mcp` in `delegate_to_subagent` or `tool_find`. `mcp_domain_tools` also refuses callers other than `caller == "chat"` (`MCP_DOMAIN_CHAT_ONLY`), so WriterAgent's own MCP server and Python scripts cannot invoke it. Remote tools never enter `ToolRegistry`, and `filter_unavailable_delegate_domains` hides `mcp` from the chat tool enum and prompt when no servers are configured.
 - **Approval.** Every remote call asks unless the server is trusted and the tool has `readOnlyHint: true`. If approval is required but unavailable, the call is refused.
 - **Prompt injection & taint.** Email bodies, notes and files can contain text written to steer the model. Once an `mcp` delegation runs in a chat turn, `web_research` in that same turn always asks for user approval even when `chatbot.prompt_for_web_research` is off.
-- **Tokens and secret arguments are masked.** Errors redact credential patterns (`Bearer`, `ghp_`, `sk-`, `token=`, etc.) as well as the server's exact configured token and secret-named header values (`is_secret_key`). Approval cards, `[Changed to: …]`, tool result `arguments` echoes, sub-agent thinking lines, and debug/agent logs mask secret-named argument values as `<redacted>`, while the Change dialog shows real values for editing and the server still receives the real values.
+- **Tokens and secret arguments are masked.** Errors redact credential patterns (`Bearer`, `ghp_`, `sk-`, `token=`, etc.) as well as the server's exact configured token and secret-named header values (`is_secret_key`). Approval cards, `[Changed to: …]`, tool result `arguments` echoes, sub-agent thinking lines, and debug/agent logs mask secret-named argument values as `<redacted>`. Leaving a `<redacted>` placeholder untouched in Change restores the real value before sending (typing `<redacted>` literally on purpose therefore sends the original value).
 - `mcp` is in `READ_ONLY_DOMAINS` and `RemoteMcpTool` sets `is_mutation = False`: it never changes the open document, so it takes no document lock, does not trigger a document refresh, and works in read-only files.
 
 ## Limitations

@@ -49,7 +49,7 @@ from plugin.doc.specialized_catalog import (
     READ_ONLY_DOMAINS,
     apply_inner_outcome,
     catalog_entries_from_base,
-    chat_only_domains,
+    chat_tier_domains,
     expects_edits,
     format_specialized_domains_description,
     loop_hint,
@@ -323,7 +323,7 @@ class DelegateToSpecializedBase(ToolBase):
         bound = {e["domain"] for e in catalog_entries_from_base(agent_label=agent_label, uno_services=uno_services)}
         return [d for d in self._domains if d in bound]
 
-    def description_for_services(self, uno_services: frozenset[str]) -> str | None:
+    def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
         """Optional narrowed tool description for *uno_services* (None keeps the class description)."""
         return None
 
@@ -561,7 +561,7 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
         params = patched["function"]["parameters"] if "function" in patched else patched["inputSchema"]
         domain_prop = params["properties"]["domain"]
         domain_prop["enum"] = tool.domains_for_services(uno_services)
-        desc = tool.description_for_services(uno_services)
+        desc = tool.description_for_services(uno_services, for_mcp="inputSchema" in patched)
         if desc is not None:
             if "function" in patched:
                 patched["function"]["description"] = desc
@@ -573,29 +573,6 @@ def narrow_delegate_domain_enums(schemas: list[dict[str, Any]], tools: list[Any]
                 uno_services=uno_services,
             )
         out.append(patched)
-    return out
-
-
-def hide_chat_only_domains(schemas: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop ``tier == 'chat'`` domains from MCP ``inputSchema.properties.domain.enum`` lists."""
-    hidden = chat_only_domains()
-    if not hidden:
-        return schemas
-    out: list[dict[str, Any]] = []
-    for schema in schemas:
-        params = schema.get("inputSchema") if isinstance(schema, dict) else None
-        props = params.get("properties") if isinstance(params, dict) else None
-        domain_prop = props.get("domain") if isinstance(props, dict) else None
-        enum = domain_prop.get("enum") if isinstance(domain_prop, dict) else None
-        if not isinstance(params, dict) or not isinstance(props, dict) or not isinstance(domain_prop, dict) or not isinstance(enum, list):
-            out.append(schema)
-            continue
-        kept = [d for d in enum if str(d) not in hidden]
-        if len(kept) == len(enum):
-            out.append(schema)
-            continue
-        new_domain = {**domain_prop, "enum": kept}
-        out.append({**schema, "inputSchema": {**params, "properties": {**props, "domain": new_domain}}})
     return out
 
 
@@ -716,14 +693,15 @@ class DelegateToSubagent(DelegateToSpecializedBase):
         bound = {e["domain"] for e in catalog_entries_from_base(agent_label=label, uno_services=uno_services)}
         return [d for d in self._domains if d in allowed and d in bound]
 
-    def description_for_services(self, uno_services: frozenset[str]) -> str | None:
+    def description_for_services(self, uno_services: frozenset[str], *, for_mcp: bool = False) -> str | None:
         """Return the app-specific description narrowed to *uno_services*."""
         label = self.agent_label_for(uno_services=uno_services)
         if label == "Calc":
             return _CALC_DELEGATE_DESCRIPTION
         if label == "Draw":
-            hidden = chat_only_domains()
-            return _format_draw_delegate_description(
-                [d for d in self.domains_for_services(uno_services) if d not in hidden]
-            )
+            domains = self.domains_for_services(uno_services)
+            if for_mcp:
+                hidden = chat_tier_domains()
+                domains = [d for d in domains if d not in hidden]
+            return _format_draw_delegate_description(domains)
         return _WRITER_DELEGATE_DESCRIPTION

@@ -150,7 +150,7 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     return [{"domain": dom, "description": seen[dom]} for dom in sorted(seen)]
 
 
-def chat_only_domains() -> frozenset[str]:
+def chat_tier_domains() -> frozenset[str]:
     """Return specialized domains whose base class is marked ``tier == 'chat'``."""
     found: set[str] = set()
     for label in ("Writer", "Calc", "Draw"):

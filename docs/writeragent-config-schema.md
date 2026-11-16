@@ -155,7 +155,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `tunnel_enabled` | `boolean` | `false` |  | Requires the selected provider binary on PATH (cloudflared, bore, ngrok, or tailscale). MCP has no auth — anyone with the public URL can call tools. See MCP Server Status for the public /mcp URL when ready. |
 | `tunnel_provider` | `string` | `"cloudflare"` |  | Cloudflare quick tunnel (default), Bore, Ngrok, or Tailscale Funnel (must already be logged in). Options: cloudflare (Cloudflare), bore (Bore), ngrok (Ngrok), tailscale (Tailscale) |
 | `tunnel_provider_token` | `string` | `""` |  | Ngrok authtoken; Cloudflare tunnel token; Bore server or 'server secret'. Empty = provider default / CLI config. Unused for Tailscale. |
-| `client_config_snippet` | `string` | `""` |  | Client config (copy into Claude / Hermes-Agent): |
 | `cors_allow_private_origins` | `boolean` | `true` |  | Internal |
 | `cors_allowed_origins` | `list` | `[]` |  | Internal |
 | `host` | `string` | `"localhost"` |  | Internal |
@@ -167,7 +166,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
-| `servers` | `dict` | `{}` |  | Internal. Accepted keys per entry: url, headers, enabled, timeout, connect_timeout, tools.include, tools.exclude, trust (full/untrusted), token, token_keychain. |
+| `servers` | `dict` | `{}` |  | Internal. Accepted keys per entry: url, headers, enabled, timeout, connect_timeout, tools.include, tools.exclude, trust (full/untrusted), token. |
 
 ## Python (`scripting`)
 

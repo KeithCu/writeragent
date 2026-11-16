@@ -260,9 +260,10 @@ def test_mcp_client_fields_are_on_the_integrations_tab(tmp_path: Path) -> None:
         for el in root.iter()
         if el.get(f"{{{_DLG_NS}}}id")
     }
-    for field in ("server", "add_server", "remove_server", "enabled", "trusted", "name", "url", "token_keychain", "token", "status"):
+    for field in ("server", "add_server", "remove_server", "enabled", "trusted", "name", "url", "token", "status"):
         assert f"mcp_client__{field}" in pages_by_id
         assert pages_by_id[f"mcp_client__{field}"] != pages_by_id["mcp__mcp_enabled"]
+    assert "mcp_client__token_keychain" not in pages_by_id
     assert "mcp_client__servers" not in pages_by_id
 
 

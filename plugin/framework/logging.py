@@ -118,8 +118,7 @@ _API_KEYS_BY_ENDPOINT = "api_keys_by_endpoint"
 LOG_REDACT_SECRET_PLACEHOLDER = "<redacted>"
 
 _SECRET_KEY_WORD_RE = re.compile(
-    r"(?:api|access|refresh|session|id|private|client|secret)[ _.\-]?(?:key|token|secret)"
-    r"|token|secret|passwd|password|passphrase|credentials?|authorization|auth|bearer|cookie",
+    r"api[_.\-]?key|token|secret|password|passwd|passphrase|private[_.\-]?key|authorization|bearer|credentials?|cookie",
     re.IGNORECASE,
 )
 
@@ -130,7 +129,9 @@ def _is_word_start(key: str, idx: int) -> bool:
     prev = key[idx - 1]
     if not prev.isalnum():
         return True
-    return prev.islower() and key[idx].isupper()
+    if prev.islower() and key[idx].isupper():
+        return True
+    return prev.isupper() and key[idx].isupper() and idx + 1 < len(key) and key[idx + 1].islower()
 
 
 def _is_word_end(key: str, end: int) -> bool:
@@ -358,7 +359,7 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
 
 
 def redact_sensitive_payload_for_log(obj: Any) -> Any:
-    """Deep copy of a request/response payload with audio/image base64 and long signature blobs replaced for safe debug logging."""
+    """Deep copy of a payload with secrets, audio/image base64, and long signatures masked (logs, approval cards, echoes)."""
     out = deepcopy(obj)
     _redact_sensitive_inplace(out)
     return out

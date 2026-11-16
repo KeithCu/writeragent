@@ -81,8 +81,13 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
     _tool_filters_registered_for.add(tools)
 
     from plugin.doc.peer_message import filter_peer_message_schemas
-    from plugin.doc.specialized_base import hide_chat_only_domains, narrow_delegate_domain_enums
-    from plugin.vision.vision_availability import filter_unavailable_delegate_domains, filter_vision_specialized_tools
+    from plugin.doc.specialized_base import narrow_delegate_domain_enums
+    from plugin.doc.specialized_catalog import chat_tier_domains
+    from plugin.vision.vision_availability import (
+        filter_delegate_domains,
+        filter_unavailable_delegate_domains,
+        filter_vision_specialized_tools,
+    )
 
     def _filter_vision_tools(tool_list: list[Any], ctx: Any = None) -> list[Any]:
         if ctx is None:
@@ -92,10 +97,11 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
     def _narrow_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         return narrow_delegate_domain_enums(schemas, context.tools, context.uno_services)
 
-    def _hide_chat_only_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
+    def _hide_chat_tier_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         if context.protocol != "mcp":
             return schemas
-        return hide_chat_only_domains(schemas)
+        hidden = chat_tier_domains()
+        return filter_delegate_domains(schemas, lambda d: d not in hidden)
 
     def _filter_unavailable_domain_schemas(schemas: list[dict[str, Any]], context: SchemaFilterContext) -> list[dict[str, Any]]:
         if context.protocol != "openai" or context.ctx is None:
@@ -111,7 +117,7 @@ def register_writeragent_tool_filters(tools: ToolRegistry) -> None:
     tools.tool_filters.append(_filter_vision_tools)
     tools.schema_filters.extend([
         _narrow_schemas,
-        _hide_chat_only_schemas,
+        _hide_chat_tier_schemas,
         _filter_unavailable_domain_schemas,
         _filter_peer_schemas,
     ])

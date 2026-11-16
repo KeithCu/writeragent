@@ -1173,7 +1173,7 @@ class LlmClient:
             if tool_calls is not None:
                 tool_calls = coalesce_split_tool_calls(tool_calls) or None
             if tool_calls is not None:
-                log.debug("streaming_loop: accumulated tool_calls model=%r tool_calls=%s", requested_model, json.dumps(tool_calls, ensure_ascii=False))
+                log.debug("streaming_loop: accumulated tool_calls model=%r tool_calls=%s", requested_model, json.dumps(redact_sensitive_payload_for_log(tool_calls), ensure_ascii=False))
             usage = cast("dict[str, Any]", message_snapshot.get("usage", {}))
             used_model = str(message_snapshot.get("model") or requested_model)
             reasoning_replay = extract_reasoning_replay_from_response(streaming_text="".join(thinking_parts), streaming_meta=thinking_meta)

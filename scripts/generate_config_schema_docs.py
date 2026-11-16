@@ -131,7 +131,7 @@ def _should_skip_yaml_field(field_name: str, schema: dict[str, Any]) -> bool:
     if field_name.startswith("_"):
         return True
     widget = str(schema.get("widget") or "").lower()
-    if widget in _SKIP_WIDGETS:
+    if widget in _SKIP_WIDGETS or schema.get("settings_persist") is False:
         return True
     if "type" not in schema and "default" not in schema:
         return True

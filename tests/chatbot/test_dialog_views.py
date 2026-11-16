@@ -2393,3 +2393,37 @@ def test_key_storage_label_follows_endpoint(fake_keystore):
         combo_ctrl.getText.return_value = "https://plain.test"
         EndpointCombinedListener(dlg, MagicMock(), combo_ctrl)
         assert _("plain text") in lbl_ctrl.setText.call_args.args[0]
+
+
+def test_settings_ok_adopts_connections_the_editor_checked():
+    from plugin.chatbot.dialog_views import SettingsDialog
+    from plugin.mcp import client as mcp_client
+
+    entry = {"name": "home", "url": "http://127.0.0.1:8000/mcp"}
+    conn = mcp_client.McpServerConnection(entry)
+    dlg = MagicMock()
+    dlg.execute.return_value = 1
+
+    view = SettingsDialog(MagicMock())
+    view._dlg = dlg
+    stub_editor = MagicMock()
+    stub_editor.save.return_value = [conn]
+
+    with (
+        patch.object(view, "_create_dialog"),
+        patch.object(view, "_setup_tabs"),
+        patch.object(view, "_populate_fields"),
+        patch.object(view, "_schedule_initial_models_fetch"),
+        patch.object(view, "_apply_sqlite_restrictions"),
+        patch.object(view, "_extract_results", return_value={"endpoint": "https://api.test"}),
+        patch("plugin.chatbot.dialog_views.get_optional", return_value=None),
+        patch("plugin.chatbot.dialog_views.init_logging"),
+        patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=[]),
+        patch("plugin.chatbot.settings_dialog.apply_settings_result"),
+        patch("plugin.mcp_client.settings_ui.McpServersEditor.attach", return_value=stub_editor),
+        patch("plugin.mcp.client.configured_servers", return_value=[entry]),
+    ):
+        view.show()
+
+    assert mcp_client._connections == {"home": conn}
+    mcp_client.drop_connections()

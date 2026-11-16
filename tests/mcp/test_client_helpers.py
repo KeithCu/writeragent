@@ -212,3 +212,35 @@ def test_format_approval_arguments():
 )
 def test_names_unknown_tool(tool, text, expected):
     assert names_unknown_tool(tool, text) is expected
+
+
+def test_format_approval_arguments_masks_secret_keys():
+    from plugin.mcp.client_helpers import format_approval_arguments
+
+    out = format_approval_arguments({"apiKey": "secret-val", "query": "hello"})
+    assert "<redacted>" in out
+    assert "secret-val" not in out
+    assert "hello" in out
+
+
+def test_restore_masked_puts_real_values_back_only_where_unchanged():
+    from plugin.framework.logging import redact_sensitive_payload_for_log
+    from plugin.mcp.client_helpers import restore_masked
+
+    original = {
+        "apiKey": "real-key",
+        "nested": {"password": "real-pw", "keep": "x"},
+        "items": [{"token": "t-1"}, {"token": "t-2"}],
+    }
+    shown = redact_sensitive_payload_for_log(original)
+    edited = {
+        "apiKey": "<redacted>",
+        "nested": {"password": "user-new-pw", "keep": "y"},
+        "items": [{"token": "<redacted>"}, {"token": "user-t-2"}],
+    }
+    restored = restore_masked(edited, original, shown)
+    assert restored == {
+        "apiKey": "real-key",
+        "nested": {"password": "user-new-pw", "keep": "y"},
+        "items": [{"token": "t-1"}, {"token": "user-t-2"}],
+    }

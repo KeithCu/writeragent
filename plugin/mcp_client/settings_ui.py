@@ -2,7 +2,13 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""In-place multi-server editor and live probe for Settings > Integrations (``mcp_client.servers``)."""
+"""In-place multi-server editor and live probe for Settings > Integrations (``mcp_client.servers``).
+
+All editor state is read and mutated only on the main thread (UI listeners,
+``save()``, ``close()``, and callbacks posted via ``main.post``). Background
+probe workers receive a snapshot of one server entry and never touch editor
+state directly; stale replies are discarded by generation counter and ``_closed``.
+"""
 
 from __future__ import annotations
 
@@ -18,14 +24,14 @@ from plugin.chatbot.dialogs import (
     set_combo_items,
     set_control_text,
 )
-from plugin.framework import config
-from plugin.framework.config import get_config
+from plugin.framework import config, keystore
+from plugin.framework.config import get_config, resolve_entry_secret
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.uno_listeners import BaseActionListener, BaseFocusListener, BaseItemListener
 from plugin.framework.worker_pool import run_in_background
-from plugin.mcp.client import McpClientError, get_connection
+from plugin.mcp.client import McpClientError, McpServerConnection, SERVERS_KEY, probe_server
 from plugin.mcp.client_helpers import TRUST_FULL, TRUST_UNTRUSTED, normalize_server_trust, sanitize_error, server_enabled
 
 log = logging.getLogger("writeragent.mcp_client.settings_ui")
@@ -38,7 +44,6 @@ _CONTROL_KEYS = (
     "trusted",
     "name",
     "url",
-    "token_keychain",
     "token",
     "status",
 )
@@ -52,7 +57,7 @@ class _ServerItemListener(BaseItemListener):
     def on_item_state_changed(self, rEvent: Any) -> None:
         idx = getattr(rEvent, "Selected", -1)
         if idx >= 0:
-            self._editor.select(str(self._combo.getItem(idx)))
+            self._editor.select(get_control_text(self._combo))
 
 
 class _AddServerListener(BaseActionListener):
@@ -82,18 +87,21 @@ class _ProbeFocusListener(BaseFocusListener):
 class McpServersEditor:
     """Settings > Integrations: edit ``mcp_client.servers`` in place and probe a server when its URL or token changes."""
 
-    def __init__(self, controls: dict[str, Any], servers: dict[str, dict[str, Any]]) -> None:
+    def __init__(self, controls: dict[str, Any], servers: dict[str, Any]) -> None:
         self._controls: dict[str, Any] = controls
-        self._servers: dict[str, dict[str, Any]] = copy.deepcopy(servers)
-        self._current: str | None = next(iter(self._servers), None)
+        self._servers: dict[str, Any] = copy.deepcopy(servers)
+        self._current: str | None = next(iter(self._dict_names()), None)
+        self._shown: dict[str, str] = {}
+        self._unreadable: set[str] = set()
+        self._snapshot: dict[str, tuple[str, str]] = {}
         self._status: dict[str, str] = {}
-        self._snapshot: dict[str, tuple[Any, Any, Any]] = {}
-        self._pending: dict[str, int] = {}
+        self._inflight: dict[str, tuple[int, SendCancellation]] = {}
+        self._probed: dict[str, tuple[dict[str, Any], McpServerConnection]] = {}
         self._gen: int = 0
-        self._added: set[str] = set()
-        self._probed_ok: list[dict[str, Any]] = []
         self._closed: bool = False
-        self._cancel: SendCancellation = SendCancellation()
+
+    def _dict_names(self) -> list[str]:
+        return [k for k, v in self._servers.items() if isinstance(v, dict)]
 
     @classmethod
     def attach(cls, dlg: Any, attach: Callable[[Any, str, Any], None]) -> McpServersEditor | None:
@@ -104,14 +112,14 @@ class McpServersEditor:
             if ctrl is None:
                 return None
             controls[key] = ctrl
-        raw = get_config("mcp_client.servers")
-        servers = {str(k): dict(v) for k, v in raw.items() if isinstance(v, dict)} if isinstance(raw, dict) else {}
+        raw = get_config(SERVERS_KEY)
+        servers = {str(k): v for k, v in raw.items()} if isinstance(raw, dict) else {}
         editor = cls(controls, servers)
-        editor.load(next(iter(servers), None))
+        editor._load(next(iter(editor._dict_names()), None))
         attach(controls["server"], "addItemListener", _ServerItemListener(editor, controls["server"]))
         attach(controls["add_server"], "addActionListener", _AddServerListener(editor))
         attach(controls["remove_server"], "addActionListener", _RemoveServerListener(editor))
-        for field_key in ("url", "token", "token_keychain"):
+        for field_key in ("url", "token"):
             attach(controls[field_key], "addFocusListener", _ProbeFocusListener(editor))
         return editor
 
@@ -123,25 +131,56 @@ class McpServersEditor:
             idx += 1
         return f"{base}-{idx}"
 
-    def load(self, name: str | None) -> None:
-        """Populate editor controls for *name* (or clear them when *name* is None)."""
-        self._current = name if name in self._servers else None
-        entry = self._servers.get(self._current, {}) if self._current is not None else {}
-        set_control_text(self._controls["name"], self._current or "")
-        set_control_text(self._controls["url"], str(entry.get("url") or ""))
-        set_control_text(self._controls["token_keychain"], str(entry.get("token_keychain") or ""))
-        set_control_text(self._controls["token"], str(entry.get("token") or ""))
-        set_checkbox_state(self._controls["enabled"], server_enabled(entry) if self._current is not None else True)
-        set_checkbox_state(self._controls["trusted"], normalize_server_trust(entry.get("trust")) == TRUST_FULL)
-        set_control_text(self._controls["status"], self._status.get(self._current or "", ""))
-        set_combo_items(self._controls["server"], list(self._servers), selected=self._current or "")
+    def _cancel_inflight(self, name: str) -> None:
+        entry = self._inflight.pop(name, None)
+        if entry is not None:
+            entry[1].cancel()
 
-    def commit(self) -> None:
+    def _load(self, name: str | None) -> None:
+        """Populate editor controls for *name* (or a blank form when *name* is None)."""
+        if name is not None and isinstance(self._servers.get(name), dict):
+            self._current = name
+            entry = self._servers[name]
+            raw_token = entry.get("token")
+            token_text = resolve_entry_secret(SERVERS_KEY, name, "token", raw_token)
+            unreadable = keystore.is_ref(raw_token) and not token_text
+            if unreadable:
+                self._unreadable.add(name)
+            else:
+                self._unreadable.discard(name)
+            self._shown[name] = token_text
+            url_text = str(entry.get("url") or "")
+            enabled = server_enabled(entry)
+            trusted = normalize_server_trust(entry.get("trust")) == TRUST_FULL
+            status_text = self._status.get(name, "")
+            if not status_text and unreadable:
+                status_text = _("The token is in the keyring but could not be read; unlock the keyring to see it.")
+        else:
+            self._current = None
+            url_text = ""
+            token_text = ""
+            enabled = True
+            trusted = False
+            status_text = ""
+
+        set_control_text(self._controls["name"], self._current or "")
+        set_control_text(self._controls["url"], url_text)
+        set_control_text(self._controls["token"], token_text)
+        set_checkbox_state(self._controls["enabled"], enabled)
+        set_checkbox_state(self._controls["trusted"], trusted)
+        set_control_text(self._controls["status"], status_text)
+        set_combo_items(self._controls["server"], self._dict_names(), selected=self._current or "")
+        if self._current is not None:
+            self._snapshot[self._current] = (
+                get_control_text(self._controls["url"]).strip(),
+                get_control_text(self._controls["token"]).strip(),
+            )
+
+    def _commit(self) -> None:
         """Write current field values back into ``self._servers``, creating or renaming as needed."""
         raw_name = get_control_text(self._controls["name"]).strip()
         url = get_control_text(self._controls["url"]).strip()
         token = get_control_text(self._controls["token"]).strip()
-        token_keychain = get_control_text(self._controls["token_keychain"]).strip()
         enabled = bool(get_checkbox_state(self._controls["enabled"]))
         trusted = bool(get_checkbox_state(self._controls["trusted"]))
 
@@ -150,22 +189,25 @@ class McpServersEditor:
                 return
             created = self._unique_name(raw_name or "server")
             self._servers[created] = {}
-            self._added.add(created)
             self._current = created
 
         old = self._current
         entry = dict(self._servers.get(old, {}))
-        entry["url"] = url
-        entry["enabled"] = enabled
-        entry["trust"] = TRUST_FULL if trusted else TRUST_UNTRUSTED
-        if token:
+        if url:
+            entry["url"] = url
+        else:
+            entry.pop("url", None)
+        if enabled != server_enabled(entry):
+            entry["enabled"] = enabled
+        current_trusted = normalize_server_trust(entry.get("trust")) == TRUST_FULL
+        if trusted != current_trusted:
+            entry["trust"] = TRUST_FULL if trusted else TRUST_UNTRUSTED
+        if not token and old in self._unreadable:
+            pass
+        elif token:
             entry["token"] = token
         else:
             entry.pop("token", None)
-        if token_keychain:
-            entry["token_keychain"] = token_keychain
-        else:
-            entry.pop("token_keychain", None)
 
         if raw_name and raw_name != old:
             if raw_name in self._servers:
@@ -174,36 +216,38 @@ class McpServersEditor:
                 self._status[old] = msg
                 set_control_text(self._controls["status"], msg)
                 return
+            if old in self._unreadable:
+                self._servers[old] = entry
+                msg = _("Unlock the keyring before renaming this server.")
+                self._status[old] = msg
+                set_control_text(self._controls["status"], msg)
+                return
             self._servers.pop(old, None)
             self._servers[raw_name] = entry
             if old in self._status:
                 self._status[raw_name] = self._status.pop(old)
-            if old in self._snapshot:
-                self._snapshot[raw_name] = self._snapshot.pop(old)
-            if old in self._added:
-                self._added.discard(old)
-                self._added.add(raw_name)
-            self._pending.pop(old, None)
+            if old in self._shown:
+                self._shown[raw_name] = self._shown.pop(old)
+            self._cancel_inflight(old)
+            self._probed.pop(old, None)
+            self._snapshot.pop(old, None)
             self._current = raw_name
-            set_combo_items(self._controls["server"], list(self._servers), selected=raw_name)
+            set_combo_items(self._controls["server"], self._dict_names(), selected=raw_name)
             return
 
         self._servers[old] = entry
 
     def select(self, name: str) -> None:
         """Switch the active server in the editor after committing current edits."""
-        if name == self._current or name not in self._servers:
+        if name == self._current or not isinstance(self._servers.get(name), dict):
             return
-        self.commit()
-        self.load(name)
+        self._commit()
+        self._load(name)
 
     def add(self) -> None:
-        """Create a new enabled server entry and select it."""
-        self.commit()
-        name = self._unique_name("server")
-        self._servers[name] = {"enabled": True}
-        self._added.add(name)
-        self.load(name)
+        """Commit current edits and show a blank form for a new server."""
+        self._commit()
+        self._load(None)
 
     def remove(self) -> None:
         """Delete the currently selected server entry and load the next available one."""
@@ -211,69 +255,92 @@ class McpServersEditor:
             return
         old = self._current
         self._servers.pop(old, None)
+        self._cancel_inflight(old)
+        self._probed.pop(old, None)
         self._status.pop(old, None)
         self._snapshot.pop(old, None)
-        self._pending.pop(old, None)
-        self._added.discard(old)
-        self.load(next(iter(self._servers), None))
+        self._shown.pop(old, None)
+        self._unreadable.discard(old)
+        self._load(next(iter(self._dict_names()), None))
 
     def probe_if_changed(self) -> None:
-        """Probe the current server off the main thread when its URL or token triple changed."""
+        """Probe the current server off the main thread when its URL or token changed."""
         if self._closed:
             return
-        self.commit()
+        self._commit()
         if self._current is None:
             return
         name = self._current
-        entry = {**self._servers[name], "name": name}
-        snap = (entry.get("url"), entry.get("token"), entry.get("token_keychain"))
-        if not entry.get("url") or snap == self._snapshot.get(name):
+        url_text = get_control_text(self._controls["url"]).strip()
+        token_text = get_control_text(self._controls["token"]).strip()
+        if not url_text:
+            self._status.pop(name, None)
+            set_control_text(self._controls["status"], "")
+            return
+        snap = (url_text, token_text)
+        if snap == self._snapshot.get(name):
             return
         self._snapshot[name] = snap
+        self._cancel_inflight(name)
         self._gen += 1
         gen = self._gen
-        self._pending[name] = gen
+        cancel = SendCancellation()
+        self._inflight[name] = (gen, cancel)
+        self._probed.pop(name, None)
         checking = _("Checking…")
         self._status[name] = checking
         set_control_text(self._controls["status"], checking)
-        run_in_background(self._probe, entry, name, gen, name="mcp-settings-probe", dedicated=True)
+        entry = {**self._servers[name], "name": name}
+        run_in_background(self._probe_worker, entry, name, gen, cancel, name="mcp-settings-probe", dedicated=True)
 
-    def _probe(self, entry: dict[str, Any], name: str, gen: int) -> None:
-        ok = False
+    def _probe_worker(self, entry: dict[str, Any], name: str, gen: int, cancel: SendCancellation) -> None:
+        conn: McpServerConnection | None = None
+        text = ""
         try:
-            count = len(get_connection(entry).list_tools(cancel=self._cancel))
-            text = _("Connected: {count} tools").format(count=count)
-            ok = True
+            conn = probe_server(entry, cancel)
+            text = _("Connected: {count} tools").format(count=len(conn.list_tools()))
         except McpClientError as e:
-            text = _("Failed: {error}").format(error=str(e))
+            text = _("Failed: {error}").format(error=e)
         except Exception as e:
             log.exception("MCP server probe failed for %s", name)
             text = _("Failed: {error}").format(error=sanitize_error(str(e)))
-        main.post(lambda: self._apply(name, gen, entry, text, ok))
+        finally:
+            main.post(lambda: self._apply_probe(name, gen, entry, conn, text))
 
-    def _apply(self, name: str, gen: int, entry: dict[str, Any], text: str, ok: bool) -> None:
-        if self._closed or self._pending.get(name) != gen:
+    def _apply_probe(
+        self,
+        name: str,
+        gen: int,
+        entry: dict[str, Any],
+        conn: McpServerConnection | None,
+        text: str,
+    ) -> None:
+        if self._closed:
             return
-        self._pending.pop(name, None)
+        inflight = self._inflight.get(name)
+        if inflight is None or inflight[0] != gen:
+            return
+        self._inflight.pop(name, None)
         self._status[name] = text
-        if ok:
-            self._probed_ok.append(entry)
+        if conn is not None:
+            self._probed[name] = (entry, conn)
         if self._current == name:
             set_control_text(self._controls["status"], text)
 
-    def save(self) -> list[dict[str, Any]]:
-        """Commit edits, persist ``mcp_client.servers`` if changed, and return unchanged probed entries."""
-        self.commit()
-        servers = {
-            k: v
-            for k, v in self._servers.items()
-            if not (k in self._added and not str(v.get("url") or "").strip())
-        }
-        if servers != get_config("mcp_client.servers"):
-            config.save({"mcp_client.servers": servers})
-        return [e for e in self._probed_ok if {**servers.get(e["name"], {}), "name": e["name"]} == e]
+    def save(self) -> list[McpServerConnection]:
+        """Commit edits, persist ``mcp_client.servers`` if changed, and return unchanged probed connections."""
+        self._commit()
+        if self._servers != get_config(SERVERS_KEY):
+            config.save({SERVERS_KEY: self._servers})
+        return [
+            conn
+            for name, (entry, conn) in self._probed.items()
+            if isinstance(self._servers.get(name), dict) and {**self._servers[name], "name": name} == entry
+        ]
 
     def close(self) -> None:
         """Mark the editor closed and cancel any in-flight probe requests."""
         self._closed = True
-        self._cancel.cancel()
+        for _gen, cancel in list(self._inflight.values()):
+            cancel.cancel()
+        self._inflight.clear()
