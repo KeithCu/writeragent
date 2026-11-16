@@ -312,7 +312,7 @@ The gateway parameter `python_tool_domain` on `delegate_to_subagent` stays comme
 | **Footnotes / endnotes**    | ✅ Implemented           | `footnotes.py`: Insert, List, Edit, Delete, SettingsGet/Update (`footnote_delete` reports a tracked deletion (`tracked: true`) instead of claiming the note is gone). | —                                                                                                      |
 | **Tables**                  | ✅ Implemented           | HTML path for cell *content*, plus `specialized/tables.py` UNO toolset via `domain=tables`: `table_list` (`cell_count`; if that is not `rows*cols` the table is not a rectangle), `table_get_cells` (Writer: `cells` name map; Draw: `matrix`; optional `cell=`), `table_set_cell` (host cells rewrite paragraphs and keep nested tables), `table_manage_structure` (insert/delete row or column; delete scans `getCellNames()`), `table_merge_cells` (Writer-only: rectangular block; names renumber; untracked), `table_split_cell` (Writer-only: 2-20 parts as rows or columns; names renumber; untracked), `table_insert` (optional `parent`+`cell` to nest), `table_delete` (by name; nested or top-level; with change tracking on — review mode — recorded as a tracked deletion the user accepts or rejects). `apply_content` deletes a table when an empty replacement removes its last text, and leaves the table when a cell clear leaves text in another cell; it refuses a host-cell wipe. HTML export copies nested `TextTable`s and merged-table named cells. | Per-cell formatting; surgical HTML rewrite of a host cell that keeps the inner table — see [§5.4](#54-future-work-writer-nested-tables) |
 | **Structural navigation**   | ✅ Implemented           | `structural.py` (`nav_goto_page`), `navigation.py` (`nav_get_heading`, `nav_get_surroundings`, `nav_list_heading_children`); delegate `domain=structural`. `section_list` lives in `sections` and is pulled into `structural` via `required_core_tools`. Core `get_tree` includes document stats (`stats` object); `get_document_stats` was removed. `page_get_objects` stays tier `core` (main chat) and is included via `required_core_tools`. Heading nodes may include `chapter_number` (Chapter Numbering paint label); `heading:1.2` is sibling-ordinal, `chapter_number:3.1` matches that label — see [chapter-numbering.md](chapter-numbering.md). | Technical docs: cross-refs, callouts, revision marks, change bars (not agent)                          |
-| **Sections**                | ✅ Partially implemented | `sections.py` (`section_list`, `section_read`, `section_create`, `section_delete`, `section_set_columns`, `section_set_protection`). See [§5.3 Sections specialized toolset](#53-sections-specialized-toolset). | `section_get_info`, `IsVisible`/`Condition`, passworded protection, `section_rename`, `SectionLeft/RightMargin`, `BackColor`/`BackGraphic*`, `FileLink`/`LinkRegion`, `DDECommand*`, per-section footnote/endnote scoping |
+| **Sections**                | ✅ Partially implemented | `sections.py` (`section_list`, `section_get_info`, `section_read`, `section_create`, `section_delete`, `section_rename`, `section_set_columns`, `section_set_margins`, `section_set_visibility`, `section_set_protection`, `section_set_password`). See [§5.3 Sections specialized toolset](#53-sections-specialized-toolset). | `BackColor`/`BackGraphic*`, `FileLink`/`LinkRegion`, `DDECommand*`, per-section footnote/endnote scoping |
 | **Forms**                   | ✅ Implemented           | `forms.py`: `form_create_control`, `form_create`, `form_generate`, `form_list_controls`, `form_edit_control`, `form_delete_control`. Batch creation and generation rollback via `commit_or_rollback` on error (`UNDO_UNAVAILABLE` on locked undo). Supports `button`, date controls (with default value), and list box; control type table is `CONTROL_TYPE_MAP` in `plugin/draw/tree.py`. Radio buttons report `name` from shape and `group_name` from model when they differ (`model.Name`). Draw/Impress `form_create` / `form_generate` stack by field `page` (active page if omitted); fields on one page share Y. Calc ignores `page`. A bad control is an entry; the rest of the page is still returned. | Database-bound controls (LO Base forms) not implemented. |
 | **Mail merge**              | ✅ Implemented           | `specialized/mail_merge.py` (`domain=mail_merge`): `mail_merge_list_sources`, `mail_merge_register_source` (`.odb` files), `mail_merge_insert_field`, `mail_merge_list_fields`, `mail_merge_run` (file / printer; email not implemented) | Labels; envelopes; live JDBC/ODBC server datasources (file registration only) |
 | **Bibliography**            | ✅ v1 via indexes overload | No `domain=bibliography`. See [bibliography-via-indexes.md](bibliography-via-indexes.md). `index_add_mark kind=bibliography`, `index_list_cites`, `index_create kind=bibliography`, `index_update_all`. | FieldMaster fat settings; Zotero v2; CSL appearance; Bib DB CRUD |
@@ -409,7 +409,7 @@ Deferred capabilities (file link, DDE, footnote scoping, background, rename) sho
 
 #### Implemented tools (Phase 1 — `sections` domain, `wa.section.*` in scripting)
 
-All section tools (`section_list`, `section_read`, `section_create`, `section_delete`, `section_set_columns`, `section_set_protection`) live in `sections.py` (`sections` domain); `ToolWriterStructuralBase` pulls `section_list` into the `structural` delegate toolset via `required_core_tools`. Scripts use `for s in wa.section`, `wa.section[name]` and `wa.section.read(name)`; the `structural` allowlist includes `section_list` (`_DOMAIN_EXTRA_TOOLS`).
+All section tools live in `sections.py` (`sections` domain); `ToolWriterStructuralBase` pulls `section_list` into the `structural` delegate toolset via `required_core_tools`. Scripts use `for s in wa.section`, `wa.section[name]` (now backed by `section_get_info` instead of filtering `section_list`) and `wa.section.read(name)`; the `structural` allowlist includes `section_list` (`_DOMAIN_EXTRA_TOOLS`).
 
 - **`section_list()`**
   - Lists all named sections with `name`, `is_visible`, `is_protected`, `is_index` (`DocumentIndex is not None`, including `_Head` children), `has_password` (non-empty `ProtectionKey`), and `column_count` so callers can tell which sections mutations will refuse.
@@ -436,9 +436,28 @@ All section tools (`section_list`, `section_read`, `section_create`, `section_de
   - Sets `IsProtected` on the section. Protection stops editing in the Writer UI only (UNO edits still go through).
   - Refuses index sections and password-protected sections.
 
+#### Implemented tools (Phase 2)
+
+- **`section_get_info(name)`**
+  - Reads summary fields plus `condition`, `is_shown` (`IsVisible or IsCurrentlyVisible` ANDed across the `getParentSection()` chain, matching `SwSection::CalcHiddenFlag`, because `IsCurrentlyVisible` is `!IsCondHidden` and starts `False` on fresh sections without a condition), `left_margin_mm`, `right_margin_mm`, `parent_section`, and `child_sections`. Works on index and password-protected sections too. Also backs `wa.section[name]` in scripting.
+
+- **`section_set_visibility(name, visible, condition?)`**
+  - Sets `IsVisible` and optionally `Condition` (omit `condition` to keep the existing condition; pass `""` to clear it).
+  - Reads `IsVisible` back after setting: Writer silently resets `IsVisible` to `True` when hiding would leave the document body, a table cell, or a frame empty (`lcl_CheckEmptyLayFrame`), in which case the mutation rolls back with `SET_SECTION_VISIBILITY_FAILED`.
+
+- **`section_set_password(name, password, current_password?)`**
+  - Sets or clears `ProtectionKey` using `SvPasswordHelper::GetHashPassword` (SHA-1 of UTF-16LE code units) when writing, and accepts `CompareHashPassword`'s four variants (20-byte SHA-1 of UTF-8 / UTF-16LE / UTF-16BE, 32-byte SHA-256 of UTF-8) when checking `current_password`. Setting a non-empty password also sets `IsProtected = True`.
+  - Note: passwords travel in tool-call arguments (chat history and `writeragent_debug.log`).
+
+- **`section_rename(name, new_name)`**
+  - Renames a section (`section.setName(new_name)`), pre-checking for empty `new_name` and duplicate names (`SwXTextSection::setName` throws an empty `RuntimeException` on duplicates).
+
+- **`section_set_margins(name, left_mm?, right_mm?)`**
+  - Sets `SectionLeftMargin` / `SectionRightMargin` (`-999.9` to `999.9` mm) in separate `setPropertyValue` calls because `SwXTextSection::Impl::SetPropertyValues_Impl` rebuilds `RES_LR_SPACE` from the old format attributes on each property and would drop the first if sent together. Values round to twips and results report read-back values.
+
 #### Later phases (not implemented; same granular rule)
 
-`section_get_info`, `section_set_visibility` (`IsVisible` / `Condition`), `section_set_password`, `section_rename`, `section_set_margins`, `section_set_link` / `section_clear_link`, `section_set_dde`, `section_set_footnote_scope`, and background graphic tools — each as its own tool, not bundled into `section_create` or a generic property setter.
+`section_set_link` / `section_clear_link`, `section_set_dde`, `section_set_footnote_scope`, and background graphic tools — each as its own tool, not bundled into `section_create` or a generic property setter.
 
 #### References
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -11,10 +12,17 @@ from plugin.writer.specialized import sections
 from plugin.writer.specialized.sections import (
     SectionCreate,
     SectionDelete,
+    SectionGetInfo,
     SectionList,
     SectionRead,
+    SectionRename,
     SectionSetColumns,
+    SectionSetMargins,
+    SectionSetPassword,
     SectionSetProtection,
+    SectionSetVisibility,
+    _hash_password,
+    _password_matches,
 )
 from plugin.writer.specialized_base import SpecializedWorkflowFinished
 from plugin.writer.structural import NavGotoPage
@@ -134,12 +142,113 @@ def test_section_tools_refuse_index_and_password_sections(
         SectionDelete().execute(ctx, name="S"),
         SectionSetColumns().execute(ctx, name="S", column_count=2),
         SectionSetProtection().execute(ctx, name="S", protected=True),
+        SectionSetVisibility().execute(ctx, name="S", visible=False),
+        SectionSetPassword().execute(ctx, name="S", password="x"),
+        SectionRename().execute(ctx, name="S", new_name="T"),
+        SectionSetMargins().execute(ctx, name="S", left_mm=5),
     ]
     for res in calls:
         assert res["status"] == "error"
         assert res["code"] == expected_code
 
     section.setPropertyValue.assert_not_called()
+    section.setPropertyValues.assert_not_called()
+
+
+class _ByteSequence:
+    """Stand-in for pyuno.ByteSequence in pytest where `uno` is mocked as MagicMock."""
+
+    def __init__(self, value: bytes) -> None:
+        self._value = value
+
+    def __len__(self) -> int:
+        return len(self._value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, bytes) and self._value == other
+
+
+def test_section_set_password_wrong_current_password_is_refused() -> None:
+    section = MagicMock()
+    right_key = _ByteSequence(hashlib.sha1("right".encode("utf-16-le"), usedforsecurity=False).digest())
+
+    def _get_prop(prop_name: str) -> object:
+        if prop_name == "DocumentIndex":
+            return None
+        if prop_name == "ProtectionKey":
+            return right_key
+        raise AssertionError(f"Unexpected property read: {prop_name}")
+
+    section.getPropertyValue.side_effect = _get_prop
+    doc = MagicMock()
+    supplier = doc.getTextSections.return_value
+    supplier.hasByName.return_value = True
+    supplier.getByName.return_value = section
+
+    res = SectionSetPassword().execute(_mock_ctx(doc=doc), name="S", password="new", current_password="wrong")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert res["details"]["parameter"] == "current_password"
+    section.setPropertyValue.assert_not_called()
+    section.setPropertyValues.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("algo", "encoding"),
+    [
+        ("sha1", "utf-8"),
+        ("sha1", "utf-16-le"),
+        ("sha1", "utf-16-be"),
+        ("sha256", "utf-8"),
+    ],
+)
+def test_password_matches_libreoffice_hash_variants(algo: str, encoding: str) -> None:
+    pw = "Gehe1m-ü"
+    key = _ByteSequence(getattr(hashlib, algo)(pw.encode(encoding, "surrogatepass")).digest())
+    assert _password_matches(key, pw) is True
+    assert _password_matches(key, "wrong") is False
+    assert _password_matches(_ByteSequence(b""), pw) is False
+    assert _password_matches(_ByteSequence(b"\x01" * 16), pw) is False
+    assert _hash_password("pw") == hashlib.sha1("pw".encode("utf-16-le"), usedforsecurity=False).digest()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {},
+        {"left_mm": 1000},
+        {"right_mm": -1000},
+        {"left_mm": float("inf")},
+        {"right_mm": float("nan")},
+    ],
+)
+def test_section_set_margins_rejects_bad_values_before_touching_doc(kwargs: dict[str, object]) -> None:
+    doc = MagicMock()
+    res = SectionSetMargins().execute(_mock_ctx(doc=doc), name="S", **kwargs)
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    doc.getTextSections.assert_not_called()
+
+
+def test_section_rename_rejects_empty_and_taken_names() -> None:
+    doc = MagicMock()
+    res_empty = SectionRename().execute(_mock_ctx(doc=doc), name="S", new_name="")
+    assert res_empty["status"] == "error"
+    assert res_empty["code"] == "INVALID_PARAM"
+    assert res_empty["details"]["parameter"] == "new_name"
+    doc.getTextSections.assert_not_called()
+
+    section = MagicMock()
+    section.getPropertyValue.side_effect = lambda p: None if p == "DocumentIndex" else b""
+    supplier = doc.getTextSections.return_value
+    supplier.hasByName.return_value = True
+    supplier.getByName.return_value = section
+
+    res_taken = SectionRename().execute(_mock_ctx(doc=doc), name="S", new_name="Other")
+    assert res_taken["status"] == "error"
+    assert res_taken["code"] == "INVALID_PARAM"
+    assert res_taken["details"]["parameter"] == "new_name"
+    section.setName.assert_not_called()
 
 
 class _Enum:
@@ -308,11 +417,16 @@ def test_registry_delegate_toolsets_for_sections_and_structural() -> None:
     registry = ToolRegistry(ServiceRegistry())
     for tool_cls in (
         SectionList,
+        SectionGetInfo,
         SectionRead,
         SectionCreate,
         SectionDelete,
+        SectionRename,
         SectionSetColumns,
+        SectionSetMargins,
         SectionSetProtection,
+        SectionSetPassword,
+        SectionSetVisibility,
         NavGotoPage,
         SpecializedWorkflowFinished,
     ):
@@ -329,11 +443,16 @@ def test_registry_delegate_toolsets_for_sections_and_structural() -> None:
     }
     assert {
         "section_list",
+        "section_get_info",
         "section_read",
         "section_create",
         "section_delete",
+        "section_rename",
         "section_set_columns",
+        "section_set_margins",
         "section_set_protection",
+        "section_set_password",
+        "section_set_visibility",
     } <= sections_names
 
     structural_names = {
@@ -347,3 +466,4 @@ def test_registry_delegate_toolsets_for_sections_and_structural() -> None:
     assert {"section_list", "nav_goto_page"} <= structural_names
     assert "section_read" not in structural_names
     assert "section_create" not in structural_names
+    assert "section_get_info" not in structural_names

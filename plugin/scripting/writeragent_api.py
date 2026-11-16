@@ -303,10 +303,15 @@ DOMAIN_TOOLS = {   'bookmarks': [   'bookmark_cleanup',
     'search': ['replace_cells', 'search_cells'],
     'sections': [   'section_create',
                     'section_delete',
+                    'section_get_info',
                     'section_list',
                     'section_read',
+                    'section_rename',
                     'section_set_columns',
-                    'section_set_protection'],
+                    'section_set_margins',
+                    'section_set_password',
+                    'section_set_protection',
+                    'section_set_visibility'],
     'shapes': [   'shape_align',
                   'shape_connect',
                   'shape_create_diagram',
@@ -489,10 +494,15 @@ TOOL_METHODS = {   'apply_content': ('writer', 'apply_content'),
     'search_cells': ('calc', 'search_cells'),
     'section_create': ('section', 'create'),
     'section_delete': ('section', '__delitem__'),
+    'section_get_info': ('section', '__getitem__'),
     'section_list': ('section', '__iter__'),
     'section_read': ('section', 'read'),
+    'section_rename': ('section', 'rename'),
     'section_set_columns': ('section', 'set_columns'),
+    'section_set_margins': ('section', 'set_margins'),
+    'section_set_password': ('section', 'set_password'),
     'section_set_protection': ('section', 'set_protection'),
+    'section_set_visibility': ('section', 'set_visibility'),
     'set_selection': ('writer', 'set_selection'),
     'set_style': ('calc', 'set_style'),
     'shape_align': ('shape', 'align'),
@@ -2177,6 +2187,15 @@ class _SectionProxy:
         """
         return _result(call_host_tool("section_read", name=name))
 
+    def rename(self, name: str, new_name: str) -> _Item:
+        """Rename a text section.
+
+        Args:
+            name (required): Current name of the section.
+            new_name (required): New non-empty unique name for the section.
+        """
+        return _result(call_host_tool("section_rename", name=name, new_name=new_name))
+
     def set_columns(self, name: str, column_count: int, *, spacing_mm: float | None = None) -> _Item:
         """Set the number of columns and column spacing (in mm) for a text section.
 
@@ -2187,6 +2206,26 @@ class _SectionProxy:
         """
         return _result(call_host_tool("section_set_columns", name=name, column_count=column_count, spacing_mm=spacing_mm))
 
+    def set_margins(self, name: str, *, left_mm: float | None = None, right_mm: float | None = None) -> _Item:
+        """Set a section's left and right indents in mm, measured from the page text area.
+
+        Args:
+            name (required): Name of the section.
+            left_mm (optional): -999.9 to 999.9; omit to keep the current value.
+            right_mm (optional): -999.9 to 999.9; omit to keep the current value.
+        """
+        return _result(call_host_tool("section_set_margins", name=name, left_mm=left_mm, right_mm=right_mm))
+
+    def set_password(self, name: str, password: str, *, current_password: str | None = None) -> _Item:
+        """Set or remove the password that guards a section's protection in Format > Sections; setting a password also protects the section.
+
+        Args:
+            name (required): Name of the section.
+            password (required): New password; an empty string removes the password.
+            current_password (optional): The section's current password, needed when it already has one.
+        """
+        return _result(call_host_tool("section_set_password", name=name, password=password, current_password=current_password))
+
     def set_protection(self, name: str, protected: bool) -> _Item:
         """Set whether a text section is protected from editing (protection stops editing in the Writer UI only).
 
@@ -2196,10 +2235,20 @@ class _SectionProxy:
         """
         return _result(call_host_tool("section_set_protection", name=name, protected=protected))
 
+    def set_visibility(self, name: str, visible: bool, *, condition: str | None = None) -> _Item:
+        """Show or hide a text section; with a condition, a hidden section hides only while the condition is true.
+
+        Args:
+            name (required): Name of the section.
+            visible (required): True to show the section, False to hide it (subject to condition).
+            condition (optional): Writer field expression such as Lang == "en" or Count > 3; an empty string clears it; omit to keep the current condition.
+        """
+        return _result(call_host_tool("section_set_visibility", name=name, visible=visible, condition=condition))
+
     def __iter__(self) -> Iterator[_Item]:
         """List all named sections in the document.
 
-        Collection form: ``for item in wa.section`` (also ``len(wa.section)``, ``name in wa.section``, and ``wa.section[name] (read from this list)``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
+        Collection form: ``for item in wa.section`` (also ``len(wa.section)``, ``name in wa.section``, and ``wa.section[name]``). Each call fetches a fresh snapshot in one host RPC and yields dict items whose keys also read as attributes. Tool errors raise RuntimeError with .code.
         """
         return iter(_list_items(call_host_tool("section_list")))
 
@@ -2212,14 +2261,15 @@ class _SectionProxy:
         return _find_item(call_host_tool("section_list"), name) is not None
 
     def __getitem__(self, name: str) -> _Item:
-        """Get a section item snapshot by name from section_list.
+        """Get a section's visibility, condition, protection, password flag, columns, left/right margins in mm, parent section, and child sections.
 
-        Collection form: ``wa.section[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one ``section_list`` RPC). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
+        Args:
+            name (required): Name of the section to delete.
+
+        Collection form: ``wa.section[name]``. Fetches a fresh dict snapshot whose keys also read as attributes (one host RPC (plus one list call on error to tell a missing name from other failures)). Missing names raise KeyError; other tool errors raise RuntimeError with .code.
         """
-        item = _find_item(call_host_tool("section_list"), _require_str_key(name))
-        if item is None:
-            raise KeyError(name)
-        return item
+        name = _require_str_key(name)
+        return _get_item(call_host_tool("section_get_info", name=name), name, lambda: call_host_tool("section_list"))
 
     def __delitem__(self, name: str) -> None:
         """Remove the section but keep its text; sections nested inside it stay.

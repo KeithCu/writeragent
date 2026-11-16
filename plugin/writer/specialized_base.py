@@ -112,7 +112,8 @@ class ToolWriterTextFramesBase(ToolWriterSpecialBase):
 class ToolWriterSectionBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "sections"
     specialized_domain_description: ClassVar[str | None] = (
-        "List, read, create, and delete text sections (named blocks of whole paragraphs) and set their columns or protection."
+        "List, read, create, rename, and delete text sections (named blocks of whole paragraphs) "
+        "and set their columns, margins, visibility, protection, or password."
     )
 
 
