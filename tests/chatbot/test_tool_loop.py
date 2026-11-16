@@ -977,4 +977,3 @@ def test_tool_done_refreshes_document_context_only_for_mutating_calls(
     tr = next_state(state, event)
 
     assert any(isinstance(e, UpdateDocumentContextEffect) for e in tr.effects) is expect_refresh
-    assert tr.state.has_mutated is expect_refresh

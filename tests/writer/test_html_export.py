@@ -849,3 +849,29 @@ def test_visible_portions_does_not_warn_when_enum_is_exhausted():
     assert chunks == ["a", "b"]
     assert truncated == []
 
+
+def test_put_outline_urls_rewrites_only_a_anchors_and_escapes_html():
+    from plugin.writer.html_export import _put_outline_urls
+
+    content = (
+        '<p><a href="#ftn0" id="body_ftn0">1</a> '
+        '<a href="#a_one">one</a> '
+        '<a href="https://x/">ext</a> '
+        '<a href="#a_two">two</a></p>'
+    )
+    urls = ["#A & B|outline", "https://x/", "#C%7Coutline"]
+    out = _put_outline_urls(content, urls)
+    assert out == (
+        '<p><a href="#ftn0" id="body_ftn0">1</a> '
+        '<a href="#A &amp; B|outline">one</a> '
+        '<a href="https://x/">ext</a> '
+        '<a href="#C%7Coutline">two</a></p>'
+    )
+
+
+def test_put_outline_urls_leaves_content_unchanged_on_count_mismatch():
+    from plugin.writer.html_export import _put_outline_urls
+
+    content = '<p><a href="#a_one">one</a> <a href="#a_two">two</a></p>'
+    assert _put_outline_urls(content, ["#OnlyOne|outline"]) == content
+

@@ -554,6 +554,22 @@ def test_header_row_and_index_col_out_of_range():
     assert len(empty_res.df) == 0
 
 
+def test_parse_strings_parses_text_date_and_number_columns():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    res = grid_to_dataframe([["when", "label"], ["2024-01-05", "a"], ["2024-02-01", "b"]], parse_strings=True)
+    df = res.df
+    assert pd.api.types.is_datetime64_any_dtype(df["when"])
+    assert df["when"].iloc[0] == pd.Timestamp("2024-01-05")
+    assert df["label"].tolist() == ["a", "b"]
+
+    df_in = pd.DataFrame({"when": ["2024-01-05", "2024-02-01"], "n": ["1", "2.5"]})
+    res_df = grid_to_dataframe(df_in, parse_strings=True)
+    assert pd.api.types.is_datetime64_any_dtype(res_df.df["when"])
+    assert res_df.df["n"].tolist() == [1.0, 2.5]
+
+
 @pytest.mark.verification
 @given(names=st.lists(st.text(max_size=DEAL_MAX_TOKEN), max_size=DEAL_MAX_SHAPE_DIM))
 def test_dedupe_column_names_uniqueness(names: list[str]) -> None:
