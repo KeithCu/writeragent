@@ -2246,3 +2246,38 @@ def test_insert_content_at_position_explicit_selection_skips_live_read():
     controller.getSelection.assert_not_called()
     rng.setString.assert_called_once_with("")
 
+
+@pytest.mark.parametrize("brk", ["\n", "\r\n"])
+def test_paragraph_break_helpers_handle_crlf(brk):
+    from plugin.writer.html_import import (
+        _delete_preceding_break,
+        _drop_leftover_paragraph,
+        _without_trailing_break,
+    )
+
+    cur = MagicMock()
+    cur.goLeft.return_value = True
+    cur.getString.return_value = brk
+    assert _delete_preceding_break(cur) is True
+    cur.setString.assert_called_once_with("")
+
+    leftover = MagicMock()
+    leftover.getString.side_effect = ["", brk, brk]
+    leftover.goLeft.return_value = False
+    leftover.goRight.return_value = True
+    _drop_leftover_paragraph(leftover, merge_forward_after_table=True)
+    leftover.setString.assert_called_once_with("")
+
+    rng = MagicMock()
+    text = MagicMock()
+    rng.getText.return_value = text
+    start = MagicMock()
+    end = MagicMock()
+    start.isStartOfParagraph.return_value = True
+    end.isStartOfParagraph.return_value = True
+    end.goLeft.return_value = True
+    end.getString.return_value = brk
+    text.createTextCursorByRange.side_effect = [start, end]
+    assert _without_trailing_break(rng) is start
+
+

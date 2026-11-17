@@ -193,39 +193,27 @@ class LlmHttpTransport:
 
         return self._persistent_conn
 
-    def _force_close_socket(self, sock: Any) -> None:
+    def _shutdown_socket(self, sock: Any) -> None:
         if not sock:
             return
         try:
             sock.shutdown(socket.SHUT_RDWR)
         except Exception:
             log.debug("persistent socket shutdown failed", exc_info=True)
-        # http.client.HTTPResponse opens sock.makefile("rb"), which increments
-        # sock._io_refs so conn.close() -> sock.close() only sets _closed=True
-        # without calling closesocket()/close(). On Windows, shutdown(SHUT_RDWR)
-        # alone does not wake a thread blocked in recv() until the peer responds
-        # or the socket timeout expires; closing the underlying socket handle
-        # aborts the blocked read immediately on all platforms.
-        if isinstance(sock, socket.socket):
-            try:
-                real_close = getattr(socket.socket, "_real_close", None)
-                if real_close is not None:
-                    real_close(sock)
-            except Exception:
-                log.debug("persistent socket force-close failed", exc_info=True)
 
     def close(self) -> None:
-        if not self._persistent_conn:
+        conn = self._persistent_conn
+        if not conn:
             return
-        try:
-            log.debug("Closing persistent connection to %s" % (self._conn_key,))
-            self._force_close_socket(getattr(self._persistent_conn, "sock", None))
-            if self._persistent_conn is not None:
-                self._persistent_conn.close()
-        except Exception:
-            log.debug("persistent connection close failed", exc_info=True)
+        conn_key = self._conn_key
         self._persistent_conn = None
         self._conn_key = None
+        try:
+            log.debug("Closing persistent connection to %s" % (conn_key,))
+            self._shutdown_socket(getattr(conn, "sock", None))
+            conn.close()
+        except Exception:
+            log.debug("persistent connection close failed", exc_info=True)
 
     def _drop_stopped_connection(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection) -> None:
         """Close a socket Stop won after connect and before the body is sent."""
@@ -233,7 +221,7 @@ class LlmHttpTransport:
             self.close()
             return
         try:
-            self._force_close_socket(getattr(conn, "sock", None))
+            self._shutdown_socket(getattr(conn, "sock", None))
             conn.close()
         except Exception:
             log.debug("stopped connection close failed", exc_info=True)
@@ -296,6 +284,8 @@ class LlmHttpTransport:
             conn.request(method, path, body=body, headers=headers)
             self._pacer.mark_sent()
             mark_host_sent(key)
+            if cancel is not None:
+                return self._run_abortable(conn, cancel, name="http-getresponse", fn=conn.getresponse)
             return conn.getresponse()
         except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError):
             # A keep-alive socket the peer already closed raises
@@ -313,51 +303,67 @@ class LlmHttpTransport:
             allow_stale_resend = False
             return self.send(method, path, body, headers, cancel=cancel, status_callback=status_callback, _allow_stale_resend=False)
 
-    def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, cancel: SendCancellation | None) -> None:
-        """Connect without waiting out the read budget, and without ignoring Stop.
+    def _run_abortable(
+        self,
+        conn: http.client.HTTPConnection | http.client.HTTPSConnection,
+        cancel: SendCancellation | None,
+        *,
+        name: str,
+        fn: Callable[[], Any],
+        timeout_sec: float | None = None,
+    ) -> Any:
+        """Run a blocking socket call on a dedicated worker so Stop aborts promptly.
 
-        ``http.client.connect`` blocks inside ``getaddrinfo`` before it assigns
-        ``sock``. The socket timeout does not bound ``getaddrinfo``, so
-        ``close()`` sees ``sock is None`` and Stop during DNS is a no-op until
-        the resolver finishes — often the whole 120s read budget. Run connect
-        on a dedicated worker (the caller joins it; a pool slot would
-        deadlock). Poll Stop and the connect deadline, then close whatever
-        socket has appeared. Do not wait for DNS to finish.
+        On Windows ``shutdown(SHUT_RDWR)`` does not wake a thread blocked in
+        ``select()``/``recv()``, and closing the raw fd from another thread
+        races with ``http.client``/``SocketIO`` reference counting on POSIX.
+        Polling ``cancel`` from the caller thread aborts within 50 ms on every
+        platform without touching the socket fd behind ``SocketIO``'s back.
         """
         outcome: dict[str, Any] = {}
+        done = threading.Event()
         cancelled = threading.Event()
-        conn.timeout = self._connect_timeout
 
-        def _do_connect() -> None:
+        def _worker() -> None:
             try:
-                conn.connect()
+                outcome["value"] = fn()
             except Exception as exc:
                 outcome["error"] = exc
             finally:
-                outcome["done"] = True
+                done.set()
                 if cancelled.is_set():
                     self._drop_stopped_connection(conn)
 
         # dedicated: the caller joins this worker. A pooled job joined from
         # a pool thread deadlocks the two-worker background pool.
-        handle = run_in_background(_do_connect, name="http-connect", dedicated=True)
-        deadline = time.monotonic() + float(self._connect_timeout)
-        while not outcome.get("done"):
+        handle = run_in_background(_worker, name=name, dedicated=True)
+        deadline = (time.monotonic() + float(timeout_sec)) if timeout_sec is not None else None
+        while not done.is_set():
             if is_cancelled(cancel):
                 cancelled.set()
                 self._drop_stopped_connection(conn)
                 raise stopped_error()
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                cancelled.set()
-                self._drop_stopped_connection(conn)
-                # TimeoutError is an OSError, so the shared retry budget can
-                # try again. It must not be the Settings read/stall budget.
-                raise TimeoutError("timed out")
-            handle.join(min(0.05, remaining))
+            wait_sec = 0.05
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    cancelled.set()
+                    self._drop_stopped_connection(conn)
+                    # TimeoutError is an OSError, so the shared retry budget can
+                    # try again. It must not be the Settings read/stall budget.
+                    raise TimeoutError("timed out")
+                wait_sec = min(wait_sec, remaining)
+            done.wait(wait_sec)
+        handle.join(timeout=0.05)
         error = outcome.get("error")
         if isinstance(error, Exception):
             raise error
+        return outcome.get("value")
+
+    def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, cancel: SendCancellation | None) -> None:
+        """Connect without waiting out the read budget, and without ignoring Stop."""
+        conn.timeout = self._connect_timeout
+        self._run_abortable(conn, cancel, name="http-connect", fn=conn.connect, timeout_sec=self._connect_timeout)
 
     def handle_http_status(
         self,
@@ -566,6 +572,8 @@ class LlmHttpTransport:
             budget.clear_pacing_gap_when_unspent(current_model)
             if max_bytes is not None:
                 raw = self._read_bounded_response(response, max_bytes=max_bytes, cancel=cancel)
+            elif cancel is not None and self._persistent_conn is not None:
+                raw = self._run_abortable(self._persistent_conn, cancel, name="http-read", fn=response.read)
             else:
                 raw = response.read()
             budget.body_in_hand = True
