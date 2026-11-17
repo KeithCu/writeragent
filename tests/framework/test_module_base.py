@@ -38,7 +38,7 @@ def test_topo_sort_with_provides_services():
 
 @patch('plugin.framework.module_base.ModuleLoader.load_manifest')
 def test_load_modules(mock_load_manifest, caplog):
-    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'test_module'}]
+    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'test_module', 'package': 'test_module'}]
     import types
     mock_module = types.ModuleType('plugin.test_module')
 
@@ -73,7 +73,7 @@ def test_load_modules(mock_load_manifest, caplog):
 
 @patch('plugin.framework.module_base.ModuleLoader.load_manifest')
 def test_load_modules_warns_when_two_subclasses(mock_load_manifest, caplog):
-    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'test_module'}]
+    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'test_module', 'package': 'test_module'}]
     import types
     mock_module = types.ModuleType('plugin.test_module')
 
@@ -116,7 +116,7 @@ def test_load_modules_shuts_down_when_initialize_fails(mock_load_manifest, caplo
 
     The failure stays in the log, and a later module still loads.
     """
-    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'partial'}, {'name': 'later'}]
+    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'partial', 'package': 'partial'}, {'name': 'later', 'package': 'later'}]
     from plugin.framework.event_bus import EventBus
 
     class ModuleBase:
@@ -173,7 +173,7 @@ def test_load_modules_shuts_down_when_initialize_fails(mock_load_manifest, caplo
 
 @patch('plugin.framework.module_base.ModuleLoader.load_manifest')
 def test_load_modules_logs_initialize_failure_when_shutdown_fails(mock_load_manifest, caplog):
-    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'partial'}, {'name': 'later'}]
+    mock_load_manifest.return_value = [{'name': 'core'}, {'name': 'partial', 'package': 'partial'}, {'name': 'later', 'package': 'later'}]
     started = []
 
     class ModuleBase:

@@ -128,10 +128,12 @@ class ModuleLoader:
 
         for manifest in manifests:
             name = manifest["name"]
+            # core (plugin/framework) is already loaded by bootstrap; main is the
+            # synthetic plugin.yaml manifest that has no package directory.
             if name in ("core", "main"):
                 continue
 
-            package = manifest.get("package") or name
+            package = manifest["package"]
             rel_path = package.replace(".", os.sep)
             module_dir = os.path.join(get_plugin_dir(), rel_path)
             import_path = "plugin." + package

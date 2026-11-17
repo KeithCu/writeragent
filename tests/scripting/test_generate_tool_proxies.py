@@ -714,7 +714,7 @@ def test_main_exits_nonzero_when_module_load_fails_on_duplicate_name(monkeypatch
     monkeypatch.setattr(
         ModuleLoader,
         "load_manifest",
-        staticmethod(lambda: [{"name": "_dup_a", "deps": []}, {"name": "_dup_b", "deps": []}]),
+        staticmethod(lambda: [{"name": "_dup_a", "package": "_dup_a", "deps": []}, {"name": "_dup_b", "package": "_dup_b", "deps": []}]),
     )
     monkeypatch.setattr(ModuleLoader, "failed_modules", [])
     monkeypatch.setattr("plugin.main.bind", lambda: None)
