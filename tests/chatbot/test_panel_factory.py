@@ -555,13 +555,22 @@ def test_cold_catalog_repaints_after_background_fetch_and_keeps_typed_text():
     el.m_panelRootWindow = MagicMock()
     el._update_backend_indicator = MagicMock()
     model_selector = MagicMock()
-    combo_state = {"text": "", "items": []}
+    model_selector.getModel.return_value = MagicMock()
+    combo_state = {"text": "", "items": [], "sel": (0, 0)}
 
     def get_text():
         return combo_state["text"]
 
     def set_text(val):
+        if val != combo_state["text"]:
+            combo_state["sel"] = (0, 0)
         combo_state["text"] = val
+
+    def get_selection():
+        return combo_state["sel"]
+
+    def set_selection(sel):
+        combo_state["sel"] = sel
 
     def remove_items(start, count):
         if count:
@@ -572,6 +581,8 @@ def test_cold_catalog_repaints_after_background_fetch_and_keeps_typed_text():
 
     model_selector.getText.side_effect = get_text
     model_selector.setText.side_effect = set_text
+    model_selector.getSelection.side_effect = get_selection
+    model_selector.setSelection.side_effect = set_selection
     model_selector.getItemCount.side_effect = lambda: len(combo_state["items"])
     model_selector.removeItems.side_effect = remove_items
     model_selector.addItems.side_effect = add_items
@@ -596,15 +607,24 @@ def test_cold_catalog_repaints_after_background_fetch_and_keeps_typed_text():
         assert "vendor/a" not in combo_state["items"]
         assert len(captured_callbacks) == 1
 
-        combo_state["text"] = "half-typ"
+        combo_state["text"] = "mid-typing/"
+        combo_state["sel"] = (4, 4)
+        model_selector.setText.reset_mock()
         mock_set_text_model.reset_mock()
         captured_callbacks[0](["vendor/a"])
 
         assert "vendor/a" in combo_state["items"]
-        assert combo_state["text"] == "half-typ"
-        assert "half-typ" not in combo_state["items"]
+        assert combo_state["text"] == "mid-typing/"
+        assert combo_state["sel"] == (4, 4)
+        assert "mid-typing/" not in combo_state["items"]
+        model_selector.setText.assert_not_called()
         mock_save.assert_not_called()
         mock_set_text_model.assert_not_called()
+
+        # Empty box shows the stored model.
+        combo_state["text"] = ""
+        captured_callbacks[0](["vendor/a"])
+        assert combo_state["text"] == "llama3"
 
         # Endpoint changed before callback -> no-op.
         combo_state["items"] = ["only-before"]

@@ -793,8 +793,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _paint_fetched_text_models(self, endpoint: str, ids: list[str]) -> None:
         """Repaint the sidebar text model combo after an off-thread catalog fetch.
 
-        Runs between commit points, so it keeps uncommitted typed text in the
-        field and writes nothing.
+        When the box holds typed text, only the list items are replaced, so
+        the text and caret stay exactly as they were. When the box is empty
+        or holds a placeholder, the stored model is shown.
         """
         if self._released or endpoint != get_current_endpoint():
             return
@@ -809,16 +810,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         try:
             with suppress_disposed("paint fetched sidebar models", logger=log):
                 typed = sanitize_model_combobox_value(str(sel.getText() or ""))
-                shown = populate_combobox_with_lru(
+                populate_combobox_with_lru(
                     sel,
                     get_text_model(),
                     "model_lru",
                     endpoint,
                     remote_models=ids,
                     skip_remote_fetch=True,
+                    keep_text=bool(typed),
                 )
-                if typed and typed != shown:
-                    set_control_text(sel, typed)
         finally:
             self._in_refresh_controls = prior
 

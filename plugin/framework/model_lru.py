@@ -67,16 +67,43 @@ def _one_char_short_of(short: str, long: str) -> bool:
     return True
 
 
-def drop_typed_partials(entries: list[str]) -> list[str]:
-    """Entries (newest first) minus any that a newer entry equals with one character inserted.
+# Typing one character at a time leaves at least three ids, each one character
+# from the next. Real models are often exactly two such ids (gpt-oss-20b /
+# gpt-oss-120b, Llama-2-7b / 70b, gpt-4 / gpt-4o), so a group of two is never
+# treated as typing.
+_MIN_TYPING_GROUP = 3
 
-    Junk entries come from text typed one character at a time into a model
-    combo; each intermediate keystroke is one character shorter than the next
-    newer entry, so checking against all newer entries collapses the chain.
+
+def _one_char_apart(a: str, b: str) -> bool:
+    """True when *a* and *b* differ by a single inserted or deleted character."""
+    return _one_char_short_of(a, b) or _one_char_short_of(b, a)
+
+
+def _near_group_size(entries: list[str], idx: int) -> int:
+    """Size of the connected component of *entries[idx]* under ``_one_char_apart``."""
+    visited = {idx}
+    stack = [idx]
+    while stack:
+        cur = stack.pop()
+        cur_val = entries[cur]
+        for nxt, nxt_val in enumerate(entries):
+            if nxt not in visited and _one_char_apart(cur_val, nxt_val):
+                visited.add(nxt)
+                stack.append(nxt)
+    return len(visited)
+
+
+def drop_typed_partials(entries: list[str]) -> list[str]:
+    """Entries (newest first) minus any typed partial in a group of three or more.
+
+    Drops an entry only when it is one inserted character short of a newer
+    entry and belongs to a connected group of at least ``_MIN_TYPING_GROUP``
+    ids linked by single-character insert/delete steps anywhere in *entries*.
+    Pairs of real model ids one character apart are preserved.
     """
     out: list[str] = []
     for idx, entry in enumerate(entries):
-        if any(_one_char_short_of(entry, newer) for newer in entries[:idx]):
+        if any(_one_char_short_of(entry, newer) for newer in entries[:idx]) and _near_group_size(entries, idx) >= _MIN_TYPING_GROUP:
             continue
         out.append(entry)
     return out
@@ -86,11 +113,14 @@ def next_model_lru_list(current: Any, val: Any) -> list[str] | None:
     """``next_lru_list`` for model-id lists, also dropping typed partials.
 
     Returns ``None`` when the stored list would not change. Runs the cleanup
-    even when *val* is already the head so an upgraded config is cleaned on
-    its first commit.
+    before trimming to ``LRU_MAX_ITEMS`` so leftovers never push out the
+    oldest real entry, and cleans even when *val* is already the head so an
+    upgraded config is cleaned on its first commit.
     """
     lru = [str(x) for x in current] if isinstance(current, list) else []
-    cleaned = drop_typed_partials(next_lru_list(lru, val) or lru)
+    val_str = "" if val is None else str(val).strip()
+    merged = list(dict.fromkeys(([val_str] if val_str else []) + lru))
+    cleaned = drop_typed_partials(merged)[:LRU_MAX_ITEMS]
     return None if cleaned == lru else cleaned
 
 

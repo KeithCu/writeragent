@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from plugin.framework.config import LRU_MAX_ITEMS
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
@@ -115,3 +117,55 @@ class TestModelLru:
         ) == ["claude-opus-5-5"]
         assert next_model_lru_list(["claude-opus-5-5", "gpt-4o"], "claude-opus-5-5") is None
         assert next_model_lru_list("not-a-list", "x") == ["x"]
+
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+            ["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
+            ["meta-llama/Llama-2-70b-chat-hf", "meta-llama/Llama-2-7b-chat-hf"],
+            ["Qwen/Qwen3-32B", "Qwen/Qwen3-3B"],
+            ["gpt-4o", "gpt-4"],
+            ["gpt-4o-mini", "gpt-4o", "gpt-4"],
+            ["openai/gpt-oss-120b", "x/y", "openai/gpt-oss-20b"],
+        ],
+    )
+    def test_drop_typed_partials_keeps_real_models_one_char_apart(self, entries):
+        assert drop_typed_partials(entries) == entries
+
+    def test_drop_typed_partials_collapses_real_typing_run(self):
+        assert drop_typed_partials(
+            ["gpt-4o", "gpt-4", "gpt-", "gpt", "gp", "g", "claude-opus-4"]
+        ) == ["gpt-4o", "claude-opus-4"]
+
+    def test_next_model_lru_list_keeps_20b_120b_switch(self):
+        lru = next_model_lru_list([], "openai/gpt-oss-20b")
+        assert lru == ["openai/gpt-oss-20b"]
+        lru = next_model_lru_list(lru, "openai/gpt-oss-120b")
+        assert lru == ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
+        lru = next_model_lru_list(lru, "openai/gpt-oss-20b")
+        assert lru == ["openai/gpt-oss-20b", "openai/gpt-oss-120b"]
+
+    def test_next_model_lru_list_cleans_before_trim(self):
+        cur = [
+            "claude-opus-5-5",
+            "claude-opus-5-",
+            "claude-opus-5",
+            "claude-opus-",
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+        ]
+        assert next_model_lru_list(cur, "new") == [
+            "new",
+            "claude-opus-5-5",
+            "r1",
+            "r2",
+            "r3",
+            "r4",
+            "r5",
+            "r6",
+        ]
