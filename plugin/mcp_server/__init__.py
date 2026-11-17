@@ -466,13 +466,10 @@ class McpModule(ModuleBase):
                     return
                 if text is not None:
                     ctrl.setText(text)
-                if label is None and visible is None:
-                    return
-                model = ctrl.getModel()
-                if label is not None:
-                    model.Label = label
                 if visible is not None:
-                    model.Visible = visible
+                    ctrl.setVisible(visible)
+                if label is not None:
+                    ctrl.getModel().Label = label
 
             set_ctl("Msg", label=msg)
             set_ctl("LocalUrlLabel", label=_("Local Endpoint:"))

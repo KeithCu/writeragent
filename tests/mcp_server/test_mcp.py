@@ -172,11 +172,17 @@ def test_mcp_action_server_status_dialog_controls():
     mock_services = MagicMock()
     mod._services = mock_services
 
+    class _TextModel:
+        __slots__ = ("Label",)
+
+        def __init__(self):
+            self.Label = ""
+
     mock_dlg = MagicMock()
     mock_controls = {}
     for name in ("Msg", "LocalUrlLabel", "UrlField", "TunnelLabel", "TunnelUrlField", "TunnelStatusMsg", "CopyBtn", "OKBtn"):
         ctrl = MagicMock()
-        ctrl.getModel.return_value = MagicMock()
+        ctrl.getModel.return_value = _TextModel()
         mock_controls[name] = ctrl
 
     mock_dlg.getControl.side_effect = lambda name: mock_controls.get(name)
@@ -185,14 +191,56 @@ def test_mcp_action_server_status_dialog_controls():
         patch("plugin.mcp_server.get_config", side_effect=fake_get),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=mock_dlg),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
         mod._action_server_status()
 
+    mock_msgbox.assert_not_called()
+    mock_dlg.execute.assert_called_once()
     # Local URL field has local url
     mock_controls["UrlField"].setText.assert_called_with("http://localhost:18765/mcp")
-    # Tunnel URL field has public url
+    # Tunnel URL field has public url and is made visible on the control (models have no Visible property)
     mock_controls["TunnelUrlField"].setText.assert_called_with("https://test.trycloudflare.com/mcp")
-    assert mock_controls["TunnelUrlField"].getModel().Visible is True
+    mock_controls["TunnelUrlField"].setVisible.assert_called_with(True)
+
+
+def test_mcp_action_server_status_hides_tunnel_controls_when_disabled():
+    from unittest.mock import MagicMock, patch
+    from plugin.mcp_server import McpModule
+
+    class _TextModel:
+        __slots__ = ("Label",)
+
+        def __init__(self):
+            self.Label = ""
+
+    mod = McpModule()
+    mock_server = MagicMock()
+    mock_server.get_status.return_value = {"running": True, "mcp_url": "http://localhost:18765/mcp", "routes": 5}
+    mod.server = mock_server
+    mod.tunnel = None
+    mod._services = MagicMock()
+
+    mock_dlg = MagicMock()
+    mock_controls = {}
+    for name in ("Msg", "LocalUrlLabel", "UrlField", "TunnelLabel", "TunnelUrlField", "TunnelStatusMsg", "CopyBtn", "OKBtn"):
+        ctrl = MagicMock()
+        ctrl.getModel.return_value = _TextModel()
+        mock_controls[name] = ctrl
+    mock_dlg.getControl.side_effect = lambda name: mock_controls.get(name)
+
+    with (
+        patch("plugin.mcp_server.get_config", return_value=False),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.chatbot.dialogs.load_writeragent_dialog", return_value=mock_dlg),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
+    ):
+        mod._action_server_status()
+
+    mock_msgbox.assert_not_called()
+    mock_dlg.execute.assert_called_once()
+    for name in ("TunnelLabel", "TunnelUrlField", "TunnelStatusMsg"):
+        mock_controls[name].setVisible.assert_called_with(False)
 
 
 def test_mcp_action_toggle_server_start_does_not_popup_modal_msgbox():
