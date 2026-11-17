@@ -153,3 +153,14 @@ def test_start_drops_malformed_backup(fake_keystore) -> None:
 
     assert Path(get_config_file_path()).read_bytes() == seed_bytes
     assert not Path(_config_backup_path()).exists()
+
+
+def test_stop_preserves_crlf_bytes(fake_keystore) -> None:
+    seed_bytes = _seed_user_config().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    Path(get_config_file_path()).write_bytes(seed_bytes)
+
+    session = start_mock_sidebar_session(delay_ms=0, offline=True)
+    stop_mock_sidebar_session(session)
+
+    assert Path(get_config_file_path()).read_bytes() == seed_bytes
+    assert not Path(_config_backup_path()).exists()

@@ -193,17 +193,33 @@ class LlmHttpTransport:
 
         return self._persistent_conn
 
+    def _force_close_socket(self, sock: Any) -> None:
+        if not sock:
+            return
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            log.debug("persistent socket shutdown failed", exc_info=True)
+        # http.client.HTTPResponse opens sock.makefile("rb"), which increments
+        # sock._io_refs so conn.close() -> sock.close() only sets _closed=True
+        # without calling closesocket()/close(). On Windows, shutdown(SHUT_RDWR)
+        # alone does not wake a thread blocked in recv() until the peer responds
+        # or the socket timeout expires; closing the underlying socket handle
+        # aborts the blocked read immediately on all platforms.
+        if isinstance(sock, socket.socket):
+            try:
+                real_close = getattr(socket.socket, "_real_close", None)
+                if real_close is not None:
+                    real_close(sock)
+            except Exception:
+                log.debug("persistent socket force-close failed", exc_info=True)
+
     def close(self) -> None:
         if not self._persistent_conn:
             return
         try:
             log.debug("Closing persistent connection to %s" % (self._conn_key,))
-            try:
-                sock = getattr(self._persistent_conn, "sock", None)
-                if sock:
-                    sock.shutdown(socket.SHUT_RDWR)
-            except Exception:
-                log.debug("persistent socket shutdown failed", exc_info=True)
+            self._force_close_socket(getattr(self._persistent_conn, "sock", None))
             if self._persistent_conn is not None:
                 self._persistent_conn.close()
         except Exception:
@@ -217,6 +233,7 @@ class LlmHttpTransport:
             self.close()
             return
         try:
+            self._force_close_socket(getattr(conn, "sock", None))
             conn.close()
         except Exception:
             log.debug("stopped connection close failed", exc_info=True)

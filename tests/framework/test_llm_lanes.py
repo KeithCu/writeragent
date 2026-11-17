@@ -272,6 +272,7 @@ def test_grammar_llm_request_gate_timeout_when_full() -> None:
 
 
 def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
+    import threading
     from plugin.framework.llm_lanes import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_CV
     import plugin.framework.llm_lanes as lc
 
@@ -279,21 +280,23 @@ def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
         assert lc._GRAMMAR_INFLIGHT_COUNT == 0
         lc._GRAMMAR_INFLIGHT_COUNT = 2
     recorded_timeouts: list[float] = []
-    orig_wait = _GRAMMAR_INFLIGHT_CV.wait
+    now = [100.0]
 
     def fake_wait(timeout: float | None = None) -> bool:
         assert timeout is not None
         recorded_timeouts.append(timeout)
         if len(recorded_timeouts) == 1:
-            time.sleep(0.06)
+            now[0] += 0.06
             return True
-        return orig_wait(timeout)
+        now[0] += timeout + 0.01
+        return False
 
     try:
-        with patch.object(_GRAMMAR_INFLIGHT_CV, "wait", side_effect=fake_wait):
-            with pytest.raises(TimeoutError, match=r"after 0\.15s"):
-                with grammar_llm_request_gate(2, timeout=0.15):
-                    pass
+        with patch.object(threading, "_time", side_effect=lambda: now[0]):
+            with patch.object(_GRAMMAR_INFLIGHT_CV, "wait", side_effect=fake_wait):
+                with pytest.raises(TimeoutError, match=r"after 0\.15s"):
+                    with grammar_llm_request_gate(2, timeout=0.15):
+                        pass
         assert len(recorded_timeouts) == 2
         assert recorded_timeouts[0] > 0.12
         assert recorded_timeouts[1] < 0.12
