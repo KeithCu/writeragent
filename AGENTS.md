@@ -2,7 +2,7 @@
 
 **Assume the reader knows nothing about this project.** This file lists global **invariants** and **easy mistakes**. Everything else lives in [`docs/repo-map.md`](docs/repo-map.md) and the linked docs—open those when changing behavior. (Hermes truncates context files at 20,000 characters; keep invariants here and catalogs in `docs/repo-map.md`.)
 
-**Translations:** WriterAgent extracts and translates strings itself (`make extract-strings`; `locales/*.pot` is generated at build). Mark new user-facing strings with the existing gettext wrappers. Agents and subprocesses **must not translate UI strings**, fill `msgstr` values, or edit `.po`/`.pot` catalogs.
+**Translations:** WriterAgent extracts and translates strings itself (`make extract-strings`; `locales/*.pot` is generated at build). Wrap new user-facing strings in `_()` (`from plugin.framework.i18n import _`), and never use `_` as a variable name (use `_idx`). Agents and subprocesses **must not translate UI strings**, fill `msgstr` values, or edit `.po`/`.pot` catalogs.
 
 **Docs:** After any nontrivial change, **update documentation**. Prefer the **topic doc** under `docs/`; touch `AGENTS.md` only when the change affects many areas or global rules.
 
@@ -79,4 +79,4 @@ Area-specific rules and “do not redo” lists live next to the code (read befo
 
 **Renames and moves:** Move files with `git mv`, then run [`scripts/rename_identifier.py`](scripts/rename_identifier.py) (`--dry-run` first; pass dotted paths like `plugin.mcp`, not bare words like `mcp`, or use `--import-from`/`--import-to`). Fix non-Python references (Makefile, docs, lint configs) using `rg`, and run `scripts/generate_manifest.py` if module folders moved.
 
-**Global Python naming:** Do not reuse **`logging`**, module **`log`**, or gettext **`_`** for unrelated variables. Never bind bare `_` as a throwaway (`for _ in …`, `a, _, _ = fn()`, `except Exception as _:`)—use a real name (`unused`, `idx`). Private helpers named `_foo` are fine.
+**Global Python naming:** Do not reuse **`logging`** or module **`log`** for unrelated variables.
