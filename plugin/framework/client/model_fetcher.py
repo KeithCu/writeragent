@@ -708,7 +708,11 @@ def fetch_available_stt_models(endpoint: str, api_key_override: str | None = Non
 
 
 def cached_text_models(endpoint: str, api_key_override: str | None = None) -> list[str] | None:
-    """Memoized ``/v1/models`` ids, or None. Does not HTTP."""
+    """Memoized ``/v1/models`` ids, or None. Does not HTTP.
+
+    Returns the full catalog (including non-text rows, which the speech rows
+    need); text combos must pass the result through ``drop_non_text_models``.
+    """
     built = _v1_models_request(endpoint, api_key_override)
     if built is None:
         return None

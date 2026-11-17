@@ -1843,7 +1843,8 @@ def test_memo_text_models_or_fetch_together_delivers_text_only():
     jobs = []
     posted = []
     received: list[list[str]] = []
-    mf.clear_settings_catalog_cache(tg)
+    mf._catalog_memos.clear()
+    mf._text_fetch_waiters.clear()
     try:
         with patch.object(mf, "has_api_key_for_endpoint", return_value=True), \
              patch.object(mf, "get_api_key_for_endpoint", return_value="k"), \
@@ -1867,4 +1868,5 @@ def test_memo_text_models_or_fetch_together_delivers_text_only():
             warm = mf.memo_text_models_or_fetch(tg, lambda unused: None, task_name="test-tg")
         assert warm == _TOGETHER_TEXT_IDS
     finally:
-        mf.clear_settings_catalog_cache(tg)
+        mf._catalog_memos.clear()
+        mf._text_fetch_waiters.clear()

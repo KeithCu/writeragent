@@ -130,7 +130,6 @@ def test_together_text_combo_lists_only_text_models():
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), ctrls["endpoint"])
 
     key = "dummy-not-a-key"
-    clear_settings_catalog_cache(TG, api_key_override=key)
     try:
         with patch("plugin.chatbot.dialog_views.get_optional", side_effect=lambda d, n: ctrls.get(n)):
             ctrls["endpoint"].setText(TG)
