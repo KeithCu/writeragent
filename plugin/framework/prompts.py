@@ -409,7 +409,7 @@ WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT
 
 
 TRANSLATION_RULES = """TRANSLATION: Translate text yourself — never decline or claim you lack a translation tool.
-Call get_content(scope=full|selection), translate, then apply_content(target='full_document'|'selection', content=translated)."""
+Call get_content(scope=full|selection), translate the text yourself (there is no translate tool), then call apply_content(target='full_document'|'selection', content=translated) once."""
 
 
 # Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
