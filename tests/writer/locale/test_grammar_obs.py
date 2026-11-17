@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -558,6 +560,63 @@ def test_writer_agent_routine_request_does_not_paint_status_bar() -> None:
     ):
         sink.request("Hello.", result="checking", routine=True)
     mock_post.assert_not_called()
+
+
+@contextmanager
+def _writer_agent_status_bar() -> Iterator[tuple[go.WriterAgentGrammarStatus, MagicMock, MagicMock]]:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = True
+    mock_indicator = MagicMock()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.return_value = mock_indicator
+    sink = go.WriterAgentGrammarStatus()
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.writer.locale.grammar_obs.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+    ):
+        yield sink, mock_bus, mock_indicator
+
+
+def test_writer_agent_failed_then_done_clears_status_bar_and_ends_indicator() -> None:
+    with _writer_agent_status_bar() as (sink, _mock_bus, mock_indicator):
+        sink.begin_status_cycle()
+        sink.failed("Grammar check", result="HTTP 400")
+        sink.end_status_cycle()
+        mock_indicator.start.assert_called_once()
+        mock_indicator.end.assert_not_called()
+
+        sink.begin_status_cycle()
+        sink.record_done_status("He don't like.", result="1 issue", routine=False)
+        sink.end_status_cycle()
+
+    mock_indicator.setText.assert_called_with("Grammar: Grammar check complete")
+    mock_indicator.setValue.assert_called_with(100)
+    mock_indicator.end.assert_called_once()
+
+
+def test_end_status_cycle_after_failure_does_not_emit_skipped_done() -> None:
+    with _writer_agent_status_bar() as (sink, mock_bus, mock_indicator):
+        sink.begin_status_cycle()
+        sink.failed("Grammar check", result="HTTP 400")
+        sink.end_status_cycle()
+
+    assert mock_bus.emit.call_count == 1
+    assert mock_bus.emit.call_args.kwargs["phase"] == "failed"
+    mock_indicator.end.assert_not_called()
+
+
+def test_writer_agent_record_done_then_failed_keeps_failure_on_status_bar_and_bus() -> None:
+    with _writer_agent_status_bar() as (sink, mock_bus, mock_indicator):
+        sink.begin_status_cycle()
+        sink.record_done_status("Chunk 1.", result="0 issues", routine=False)
+        sink.failed("Grammar check", result="HTTP 502")
+        sink.end_status_cycle()
+
+    assert mock_bus.emit.call_count == 1
+    assert mock_bus.emit.call_args.kwargs["phase"] == "failed"
+    mock_indicator.end.assert_not_called()
 
 
 def test_status_bar_grammar_status_swallows_post_errors() -> None:

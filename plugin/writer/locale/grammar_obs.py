@@ -130,11 +130,15 @@ class GrammarStatus:
     _lock: threading.Lock
     _status_inflight: int
     _pending_done: tuple[str, dict[str, Any]] | None
+    # Tracks whether any batch in the current cycle failed so end_status_cycle
+    # does not emit a synthetic skipped done that would erase the error.
+    _cycle_failed: bool
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._status_inflight = 0
         self._pending_done = None
+        self._cycle_failed = False
 
     def _deliver(
         self,
@@ -187,6 +191,9 @@ class GrammarStatus:
         )
 
     def failed(self, text: str, *, result: str = "") -> None:
+        with self._lock:
+            self._cycle_failed = True
+            self._pending_done = None
         self._deliver("failed", text, result=result)
 
     def relay_status_update(
@@ -214,6 +221,9 @@ class GrammarStatus:
     def begin_status_cycle(self) -> None:
         """Mark one batch in flight (sidebar/status-bar done is deferred)."""
         with self._lock:
+            if self._status_inflight == 0:
+                # Only reset at cycle start so a parallel batch does not wipe a sibling's failure.
+                self._cycle_failed = False
             self._status_inflight += 1
 
     def record_done_status(
@@ -240,8 +250,9 @@ class GrammarStatus:
             )
 
     def end_status_cycle(self) -> None:
-        """Drop in-flight count; emit one terminal done when all parallel batches finish."""
+        """Drop in-flight count; emit one terminal done when all parallel batches finish, unless the cycle failed (keep the failure visible)."""
         pending: tuple[str, dict[str, Any]] | None = None
+        cycle_failed = False
         with self._lock:
             had_cycle = self._status_inflight > 0
             if had_cycle:
@@ -249,11 +260,14 @@ class GrammarStatus:
             last = self._status_inflight == 0
             if last:
                 pending = self._pending_done
+                cycle_failed = self._cycle_failed
                 self._pending_done = None
+                self._cycle_failed = False
         if pending is not None:
             text, kw = pending
             self.done(text, **kw)
-        elif had_cycle and last:
+        elif had_cycle and last and not cycle_failed:
+            # Skip synthetic done after a failure because terminal phases paint over active errors.
             self.done("batch", result="skipped")
 
 
@@ -386,7 +400,6 @@ class StatusBarGrammarStatus(GrammarStatus):
 
 def _should_paint_writeragent_status_bar(
     phase: str,
-    routine: bool,
     status_bar: StatusBarGrammarStatus,
     *,
     bus_has_subscribers: bool,
@@ -394,9 +407,10 @@ def _should_paint_writeragent_status_bar(
     """Whether WriterAgent should mirror this grammar update on the LO status bar.
 
     Failures always paint. When nobody listens on ``grammar:status`` (e.g. Calc
-    sidebar drops the event), paint so progress is still visible. For routine
-    terminal phases, paint only when a bar indicator is already active so a
-    progress line can end cleanly instead of leaving a stale bar (issue #768).
+    sidebar drops the event), paint so progress is still visible. For any
+    terminal phase, paint when a bar indicator is already active so a prior
+    failure or progress line can end cleanly instead of leaving a stale bar
+    (issue #768).
 
     ``bus_has_subscribers`` can change before delivery; an extra or missed bar
     paint is benign.
@@ -405,7 +419,7 @@ def _should_paint_writeragent_status_bar(
         return True
     if not bus_has_subscribers:
         return True
-    if routine and phase in _TERMINAL_STATUS_PHASES and status_bar.is_active():
+    if phase in _TERMINAL_STATUS_PHASES and status_bar.is_active():
         return True
     return False
 
@@ -443,7 +457,6 @@ class WriterAgentGrammarStatus(GrammarStatus):
         )
         if _should_paint_writeragent_status_bar(
             phase,
-            routine,
             self._status_bar,
             bus_has_subscribers=get_event_bus().has_subscribers("grammar:status"),
         ):
