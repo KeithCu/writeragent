@@ -128,13 +128,15 @@ class ModuleLoader:
 
         for manifest in manifests:
             name = manifest["name"]
-            if name == "core":
+            if name in ("core", "main"):
                 continue
 
-            rel_path = name.replace(".", os.sep)
+            package = manifest.get("package") or name
+            rel_path = package.replace(".", os.sep)
             module_dir = os.path.join(get_plugin_dir(), rel_path)
-            import_path = "plugin." + name
+            import_path = "plugin." + package
             if not os.path.isdir(module_dir):
+                log.warning("Module %s directory %s not found; skipping", name, module_dir)
                 continue
 
             # Dynamic ModuleBase initialization

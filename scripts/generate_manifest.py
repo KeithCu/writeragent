@@ -165,6 +165,7 @@ def find_modules(modules_dir, filter_names=None, project_root=None):
         declared_name = manifest.get("name")
         module_name = declared_name or path_name
         manifest.setdefault("name", module_name)
+        manifest["package"] = path_name
         manifest["_yaml_path"] = yaml_path
         manifest["_match_keys"] = {module_name, path_name, first_segment}
         all_manifests.append(manifest)
@@ -287,6 +288,10 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
         # Clean dict — only keep runtime-relevant keys
         entry = {
             "name": m["name"],
+        }
+        if m.get("package"):
+            entry["package"] = m["package"]
+        entry.update({
             "title": m.get("title", ""),
             "requires": m.get("requires", []),
             "provides_services": m.get("provides_services", []),
@@ -302,7 +307,7 @@ def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
                 for k, v in m.get("actions", {}).items()
                 if isinstance(v, dict) and isinstance(v.get("title"), str)
             },
-        }
+        })
         if m.get("settings_tab") is False:
             entry["settings_tab"] = False
         if m.get("config_dialog"):

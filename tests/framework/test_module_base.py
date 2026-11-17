@@ -217,3 +217,65 @@ def test_get_menu_methods():
     mod = MyModule()
     assert (mod.get_menu_text('some_action') is None)
     assert (mod.get_menu_icon('some_action') is None)
+
+
+def test_manifest_packages_exist_with_module_yaml():
+    import os
+    from plugin.framework.constants import get_plugin_dir
+
+    plugin_dir = get_plugin_dir()
+    manifests = ModuleLoader.load_manifest()
+    assert any(m.get("name") == "mcp" and m.get("package") == "mcp_server" for m in manifests)
+
+    for m in manifests:
+        if m.get("name") == "main":
+            continue
+        package = m.get("package")
+        assert isinstance(package, str) and package, f"missing package for module {m.get('name')!r}"
+        pkg_dir = os.path.join(plugin_dir, package.replace(".", os.sep))
+        assert os.path.isdir(pkg_dir), f"package dir {pkg_dir!r} missing for module {m.get('name')!r}"
+        assert os.path.isfile(os.path.join(pkg_dir, "module.yaml")), f"module.yaml missing in {pkg_dir!r}"
+
+
+@patch("plugin.framework.module_base.ModuleLoader.load_manifest")
+def test_load_modules_resolves_mismatched_package_and_name(mock_load_manifest):
+    mock_load_manifest.return_value = [{"name": "logical_mod", "package": "actual_pkg"}]
+
+    class ModuleBase:
+        pass
+
+    class MismatchedModule(ModuleBase):
+        def initialize(self, registry):
+            pass
+
+    pkg = _module_package(MismatchedModule)
+    import os
+
+    checked_dirs: list[str] = []
+
+    def fake_isdir(path: str) -> bool:
+        checked_dirs.append(path)
+        return path.endswith(os.sep + "actual_pkg")
+
+    with patch("importlib.import_module", return_value=pkg) as mock_import, patch.object(os.path, "isdir", side_effect=fake_isdir):
+        modules = ModuleLoader.load_modules({})
+
+    mock_import.assert_called_once_with("plugin.actual_pkg")
+    assert any(p.endswith(os.sep + "actual_pkg") for p in checked_dirs)
+    assert len(modules) == 1
+    assert modules[0].name == "logical_mod"
+
+
+@patch("plugin.framework.module_base.ModuleLoader.load_manifest")
+def test_load_modules_warns_when_directory_missing(mock_load_manifest, caplog):
+    mock_load_manifest.return_value = [{"name": "main"}, {"name": "core"}, {"name": "ghost", "package": "no_such_dir"}]
+    import os
+
+    with patch.object(os.path, "isdir", return_value=False):
+        with caplog.at_level(logging.WARNING, logger="writeragent.module_base"):
+            modules = ModuleLoader.load_modules({})
+
+    assert modules == []
+    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "ghost" in warnings[0]
