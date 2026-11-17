@@ -231,7 +231,7 @@ When `active_domain` is set, the list is that domain's specialized tools, `workf
 **Call sites (default listing):**
 
 - Chat: [`plugin/chatbot/tool_loop.py`](../../plugin/chatbot/tool_loop.py) — `get_schemas("openai", …)` (no `exclude_tiers` → default exclusion of `specialized`, `specialized_control`, **and** `mcp`).
-- MCP: [`plugin/mcp/mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py) — `get_schemas("mcp", …, exclude_tiers=…)` excludes `specialized` (+ `specialized_control` in `delegate`/`direct_discovery`); **does not** exclude `tier="mcp"` helpers (`document_list_open`; `tool_find` is name-gated to `direct_discovery`). See [Sidebar chat core vs MCP core](../mcp-protocol.md#sidebar-chat-core-vs-mcp-core-writer).
+- MCP: [`plugin/mcp_server/mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py) — `get_schemas("mcp", …, exclude_tiers=…)` excludes `specialized` (+ `specialized_control` in `delegate`/`direct_discovery`); **does not** exclude `tier="mcp"` helpers (`document_list_open`; `tool_find` is name-gated to `direct_discovery`). See [Sidebar chat core vs MCP core](../mcp-protocol.md#sidebar-chat-core-vs-mcp-core-writer).
 
 **Execution:** `ToolRegistry.execute` is unchanged; any registered name can still be invoked if the caller passes it.
 

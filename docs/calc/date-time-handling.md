@@ -115,7 +115,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 
 | Area | Status | Primary code |
 | :--- | :--- | :--- |
-| A. MCP clock context (`initialize` + tool piggyback) | Done | [`plugin/mcp/mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), [`plugin/doc/document_research_tools.py`](../../plugin/doc/document_research_tools.py) |
+| A. MCP clock context (`initialize` + tool piggyback) | Done | [`plugin/mcp_server/mcp_protocol.py`](../../plugin/mcp_server/mcp_protocol.py), [`plugin/doc/document_research_tools.py`](../../plugin/doc/document_research_tools.py) |
 | B. Read enrichment + duration wire + `format_code` | Done | [`plugin/calc/inspector.py`](../../plugin/calc/inspector.py), [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py) |
 | Sidebar Calc selection enrichment | Done | [`plugin/calc/analyzer.py`](../../plugin/calc/analyzer.py) `get_calc_context_for_chat` |
 | C. ISO + PT duration write ingestion | Done | [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `write_range`, [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py) |
@@ -172,7 +172,7 @@ The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_ela
 
 ### 4.1 Connection-Time Clock Context
 
-[plugin/mcp/mcp_protocol.py](../../plugin/mcp/mcp_protocol.py) injects current local clock context into MCP system instructions via `format_mcp_clock_context` (see source for the current implementation).
+[plugin/mcp_server/mcp_protocol.py](../../plugin/mcp_server/mcp_protocol.py) injects current local clock context into MCP system instructions via `format_mcp_clock_context` (see source for the current implementation).
 
 Example string prepended to system instructions:
 `Current local date and time: Friday, 2026-08-07T11:04:25 (EDT).`

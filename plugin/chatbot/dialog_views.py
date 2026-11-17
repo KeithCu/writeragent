@@ -264,7 +264,7 @@ class SettingsDialog:
                     # init_logging runs on save so log level changes apply without restart.
                     init_logging(self._ctx)
                     # Save external MCP servers and adopt connections a Settings probe just listed unchanged.
-                    from plugin.mcp.client import drop_connections
+                    from plugin.mcp_client.client import drop_connections
 
                     drop_connections(adopt=self._mcp_servers.save() if self._mcp_servers else ())
                     return result
@@ -1395,7 +1395,7 @@ class DownloadAudioListener(_CtxDlgActionListener):
 
 # ── MCP UI Integration ───────────────────────────────────────────────
 
-from plugin.mcp.mcp_ui import (
+from plugin.mcp_server.mcp_ui import (
     CopyMcpConfigListener,
     McpPortTextListener,
     McpTunnelEnabledListener,

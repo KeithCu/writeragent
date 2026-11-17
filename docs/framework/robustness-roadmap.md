@@ -52,7 +52,7 @@ This is already a good base for practical reliability work. The next step is bet
 
 ### 1.3 Existing Network Resilience and Retry
 
-Network behavior in `plugin/framework/client/` and `plugin/mcp/` includes a mature, bounded retry and pacing system:
+Network behavior in `plugin/framework/client/` and `plugin/mcp_server/` includes a mature, bounded retry and pacing system:
 
 - **Pacing and Delay Math (`plugin/framework/client/request_controls.py`)**:
   - OpenClaw `packages/retry` delay math port: jittered exponential backoff (`backoff_delay_sec`) bounded by `RETRY_MIN_DELAY_SEC` (0.3s) and `RETRY_MAX_DELAY_SEC` (30.0s).
@@ -72,7 +72,7 @@ Network behavior in `plugin/framework/client/` and `plugin/mcp/` includes a matu
   - Credential redaction: API keys are redacted from error bodies and logs before recording.
   - Defensive handling for malformed SSE chunks and repeat-chunk suppression.
 
-- **MCP Tunnel Retries (`plugin/mcp/tunnel_state.py` & `tunnel.py`)**:
+- **MCP Tunnel Retries (`plugin/mcp_server/tunnel_state.py` & `tunnel.py`)**:
   - Pure state machine exponential backoff (`compute_backoff_delay`) under `@deal` contracts.
   - Discrete side effects (`ScheduleRetryTimerEffect`, `CancelRetryTimerEffect`) managing reconnection timers without blocking the event loop.
 
@@ -206,7 +206,7 @@ Retries are valuable when they are narrow, explicit, bounded, and abortable.
    - **Text duplication guard**: If any token has already reached the UI (`emitted_any is True`), retry is strictly blocked to prevent duplicating streamed text; raises `NetworkError(code="CONNECTION_LOST")`.
    - **Credential redaction**: Secrets/keys are scrubbed before logging error payloads.
 
-2. **MCP SSE Tunnel (`plugin/mcp/tunnel_state.py` & `tunnel.py`)**:
+2. **MCP SSE Tunnel (`plugin/mcp_server/tunnel_state.py` & `tunnel.py`)**:
    - Pure state machine exponential backoff (`compute_backoff_delay`, capped at `DEAL_MAX_BACKOFF`) under `@deal` contracts.
    - Emits `ScheduleRetryTimerEffect` and `CancelRetryTimerEffect` to schedule reconnection timers cleanly without blocking.
 

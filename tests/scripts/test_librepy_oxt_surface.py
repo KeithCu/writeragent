@@ -28,7 +28,9 @@ def test_archive_entries_match_required_and_exclude_forbidden():
     entries = set(iter_librepy_archive_entries(str(_REPO_ROOT)))
     missing = [path for path in _REQUIRED_RUNTIME + _REQUIRED_UI if path not in entries]
     leaked = [path for path in _FORBIDDEN_RUNTIME + _FORBIDDEN_UI if path in entries]
-    leaked.extend(path for path in entries if path.startswith(("plugin/embeddings/", "plugin/mcp/")))
+    leaked.extend(
+        path for path in entries if path.startswith(("plugin/embeddings/", "plugin/mcp_server/", "plugin/mcp_client/"))
+    )
     assert missing == []
     assert leaked == []
 
@@ -111,7 +113,8 @@ def test_verify_librepy_archive_valid(tmp_path: Path):
     [
         pytest.param(_FORBIDDEN_RUNTIME[0], id="forbidden_runtime"),
         pytest.param(_FORBIDDEN_UI[0], id="forbidden_ui"),
-        pytest.param("plugin/mcp/x.py", id="forbidden_mcp_tree"),
+        pytest.param("plugin/mcp_server/x.py", id="forbidden_mcp_server_tree"),
+        pytest.param("plugin/mcp_client/x.py", id="forbidden_mcp_client_tree"),
     ],
 )
 def test_verify_librepy_archive_rejects_forbidden_entries(tmp_path: Path, forbidden: str):

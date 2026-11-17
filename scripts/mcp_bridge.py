@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 
 MCP_URL = os.environ.get("WRITERAGENT_MCP_URL", "http://localhost:18765/mcp")
-# Keep default in sync with plugin/mcp/wire_types.py MCP_PROTOCOL_VERSION.
+# Keep default in sync with plugin/mcp_server/wire_types.py MCP_PROTOCOL_VERSION.
 PROTOCOL_VERSION = os.environ.get("WRITERAGENT_MCP_PROTOCOL", "2025-11-25")
 _HEALTH_URL = MCP_URL.rsplit("/mcp", 1)[0] + "/health"
 _POLL_SECONDS = 3.0

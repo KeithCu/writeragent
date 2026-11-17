@@ -95,8 +95,8 @@ class ListOpenDocuments(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         def _run() -> dict[str, Any]:
-            # Lazy: plugin.mcp.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
-            from plugin.mcp.mcp_protocol import format_mcp_clock_context
+            # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
+            from plugin.mcp_server.mcp_protocol import format_mcp_clock_context
 
             docs = get_open_documents(ctx.ctx, ctx.doc)
             # Piggyback clock for MCP hosts that ignore initialize.instructions (#374 Bug 1).
@@ -138,8 +138,8 @@ class GetGuidance(ToolBase):
         # Guidance must match the document being worked on (a Calc session must never read Writer
         # advice). Resolve the target document the same way every other tool does; with no document
         # open, serve the neutral index / the always-available generic topics.
-        # Lazy: plugin.mcp.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
-        from plugin.mcp.mcp_protocol import format_mcp_clock_context
+        # Lazy: plugin.mcp_server.mcp_protocol pulls in the MCP server stack (config, HTTP server, sessions; ~60 modules) that this tool module does not otherwise need.
+        from plugin.mcp_server.mcp_protocol import format_mcp_clock_context
 
         doc_type = doc_type_of(ctx.doc)
         raw = (kwargs.get("topic") or "").strip()

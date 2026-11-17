@@ -124,7 +124,7 @@ def _parked(server: WSGIDualStackServer, count: int, timeout: float = 1.0) -> bo
 
 
 def test_mcp_park_idle_connections_is_false() -> None:
-    from plugin.mcp.server import _ThreadedHTTPServer
+    from plugin.mcp_server.server import _ThreadedHTTPServer
 
     assert DualStackThreadPoolHTTPServer.park_idle_connections is False
     assert _ThreadedHTTPServer.park_idle_connections is False

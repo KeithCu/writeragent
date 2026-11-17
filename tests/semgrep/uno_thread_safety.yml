@@ -129,7 +129,7 @@ rules:
         - "**/plugin/scripting/venv/editor_main.py"
         - "**/plugin/scripting/venv/audio_record_main.py"
         - "**/plugin/chatbot/dialog_views.py"
-        - "**/plugin/mcp/tunnel.py"
+        - "**/plugin/mcp_server/tunnel.py"
 
   - id: background-worker-missing-decorator
     languages: [python]

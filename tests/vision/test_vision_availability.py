@@ -85,7 +85,7 @@ def test_filter_unavailable_delegate_domains(
     ctx = MagicMock() if use_ctx else None
     with (
         patch("plugin.vision.vision_availability.vision_venv_configured", return_value=vision_available),
-        patch("plugin.mcp.client.configured_servers", return_value=mcp_servers),
+        patch("plugin.mcp_client.client.configured_servers", return_value=mcp_servers),
     ):
         filtered = filter_unavailable_delegate_domains(schemas, ctx=ctx)
     assert filtered[0]["function"]["parameters"]["properties"]["domain"]["enum"] == expected_enum
@@ -113,9 +113,9 @@ def test_specialized_domain_available():
         assert specialized_domain_available("vision") is True
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
         assert specialized_domain_available("vision") is False
-    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "s", "url": "http://x"}]):
+    with patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "s", "url": "http://x"}]):
         assert specialized_domain_available("mcp") is True
-    with patch("plugin.mcp.client.configured_servers", return_value=[]):
+    with patch("plugin.mcp_client.client.configured_servers", return_value=[]):
         assert specialized_domain_available("mcp") is False
     assert specialized_domain_available("writing") is True
 

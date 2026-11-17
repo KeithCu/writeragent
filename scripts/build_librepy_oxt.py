@@ -127,7 +127,8 @@ _FORBIDDEN_RUNTIME = (
     "plugin/calc/prompt_function.py",
     "plugin/framework/client/llm_client.py",
     "plugin/embeddings/",
-    "plugin/mcp/",
+    "plugin/mcp_server/",
+    "plugin/mcp_client/",
     "XPromptFunction.rdb",
 )
 
@@ -261,7 +262,7 @@ def verify_librepy_archive(archive_path: str, *, with_tests: bool = False) -> No
                 if path in namelist:
                     raise BuildError("Archive contains forbidden entry: %s" % path)
             for name in namelist:
-                if name.startswith("plugin/embeddings/") or name.startswith("plugin/mcp/"):
+                if name.startswith(("plugin/embeddings/", "plugin/mcp_server/", "plugin/mcp_client/")):
                     raise BuildError("Archive contains forbidden tree entry: %s" % name)
 
         if "META-INF/manifest.xml" not in namelist:

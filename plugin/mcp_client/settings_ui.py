@@ -31,8 +31,8 @@ from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.uno_listeners import BaseActionListener, BaseFocusListener, BaseItemListener
 from plugin.framework.worker_pool import run_in_background
-from plugin.mcp.client import McpClientError, McpServerConnection, SERVERS_KEY, probe_server
-from plugin.mcp.client_helpers import TRUST_FULL, TRUST_UNTRUSTED, normalize_server_trust, sanitize_error, server_enabled
+from plugin.mcp_client.client import McpClientError, McpServerConnection, SERVERS_KEY, probe_server
+from plugin.mcp_client.client_helpers import TRUST_FULL, TRUST_UNTRUSTED, normalize_server_trust, sanitize_error, server_enabled
 
 log = logging.getLogger("writeragent.mcp_client.settings_ui")
 

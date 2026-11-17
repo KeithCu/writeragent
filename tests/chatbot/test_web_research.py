@@ -1220,7 +1220,7 @@ def test_web_research_is_off_main_chat_and_mcp_lists(doc_type: str) -> None:
     class prevents a future base change from putting it back on the main list.
     """
     from plugin.app import get_tools
-    from plugin.mcp.mcp_protocol import _exclude_tiers
+    from plugin.mcp_server.mcp_protocol import _exclude_tiers
 
     reg = get_tools()
     chat_names = {s["function"]["name"] for s in reg.get_schemas("openai", doc_type=doc_type)}

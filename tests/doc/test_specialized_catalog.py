@@ -282,7 +282,7 @@ def test_live_catalog_hides_domains_that_cannot_run() -> None:
 
     with (
         patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False),
-        patch("plugin.mcp.client.configured_servers", return_value=[]),
+        patch("plugin.mcp_client.client.configured_servers", return_value=[]),
     ):
         bootstrap = {e["domain"] for e in catalog_entries_from_base(agent_label="Writer")}
         assert {"vision", "mcp"} <= bootstrap
@@ -300,7 +300,7 @@ def test_live_catalog_hides_domains_that_cannot_run() -> None:
 
     with (
         patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False),
-        patch("plugin.mcp.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]),
+        patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]),
     ):
         with_server = {
             e["domain"]
@@ -315,7 +315,7 @@ def test_chat_tier_domain_skipped_for_mcp_and_discovery() -> None:
 
     from plugin.doc.specialized_catalog import catalog_entries_from_base, get_specialized_domain_catalog
 
-    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
+    with patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "claw", "url": "http://localhost"}]):
         discovery = {
             e["domain"]
             for e in get_specialized_domain_catalog(agent_label=None, ctx=object(), for_discovery=True)

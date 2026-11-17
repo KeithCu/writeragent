@@ -233,7 +233,7 @@ class TestErrorHandling:
             WorkerPoolError,
         )
         from plugin.draw.shapes import DrawError
-        from plugin.mcp.document_mutation_gate import BusyError
+        from plugin.mcp_server.document_mutation_gate import BusyError
 
         subclasses = [
             (ConfigError("cfg err"), "CONFIG_ERROR"),

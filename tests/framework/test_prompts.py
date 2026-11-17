@@ -540,7 +540,7 @@ def test_mcp_blurb_claims_requests_naming_an_mcp_server() -> None:
     """Guard against the Scrolly misroute where a public MCP server lost to web_research."""
     from plugin.framework.prompts import get_specialized_delegation_tool_hint
 
-    with patch("plugin.mcp.client.configured_servers", return_value=[{"name": "deepwiki", "url": "http://localhost"}]):
+    with patch("plugin.mcp_client.client.configured_servers", return_value=[{"name": "deepwiki", "url": "http://localhost"}]):
         hint = get_specialized_delegation_tool_hint("Writer", ctx=object())
 
     mcp_line = next(line for line in hint.splitlines() if "mcp:" in line)

@@ -394,7 +394,7 @@ class DelegateToSpecializedBase(ToolBase):
         mcp_hint = ""
         if domain == "mcp":
             # Lazy: only this domain needs the MCP client. Listing is network I/O, so it runs on this delegate worker, never in main.call.
-            from plugin.mcp.client import McpClientError, mcp_domain_tools
+            from plugin.mcp_client.client import McpClientError, mcp_domain_tools
 
             try:
                 mcp_tools, mcp_hint = mcp_domain_tools(ctx)
@@ -534,7 +534,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         if domain == "mcp":
             # Remote data; the main model treats it as data.
-            from plugin.mcp.client import UNTRUSTED_NOTE
+            from plugin.mcp_client.client import UNTRUSTED_NOTE
 
             payload["note"] = UNTRUSTED_NOTE
 

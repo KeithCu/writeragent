@@ -552,7 +552,7 @@ The following areas are intentionally excluded from the mock LLM sidebar test su
 - **Speech Recognition Accuracy:** Testing real microphone audio quality or ASR word-error rate (covered by external benchmarks).
 - **Non-Chat Sidebar Workflows:** Librarian full-corpus indexing, brainstorm mode, presentation slide deck generation.
 - **Calc Formula Add-Ins:** `=PYTHON()` formula execution (tested in `tests/calc/`). E23 covers `=PROMPT()` against the mock.
-- **External MCP Server Testing:** Live third-party MCP server communication (mocked in `tests/mcp/`).
+- **External MCP Server Testing:** Live third-party MCP server communication (mocked in `tests/mcp_server/`).
 ### Packet S — STT fake recorder tests
 
 - **Focus:** Fake recorder replacing the real recorder subprocess, STT edge cases, modes: silence, noisy, crash, missing, and late transcript handling.

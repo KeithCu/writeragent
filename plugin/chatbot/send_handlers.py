@@ -471,7 +471,7 @@ class SendHandlersMixin:
             try:
 
 
-                from plugin.mcp import is_mcp_server_running
+                from plugin.mcp_server import is_mcp_server_running
 
                 # Pass mcp_url only when is_mcp_server_running(); a dead server omits MCP from the prompt.
                 mcp_running = is_mcp_server_running()
@@ -697,7 +697,7 @@ class SendHandlersMixin:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""
         if not as_bool(get_config("mcp.mcp_enabled")):
             return None
-        from plugin.mcp.server import mcp_endpoint_url
+        from plugin.mcp_server.server import mcp_endpoint_url
 
         port = get_config("mcp.mcp_port")
         # MCP binds localhost only (mcp/module.yaml); host/ssl are not user settings.
