@@ -408,10 +408,8 @@ WRITER_CORE_DIRECTIVES = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT
 - You MUST call {DELEGATE_SUBAGENT_TOOL}(domain="document_research") once with their described file(s) and task in task; the sub-agent lists nearby files to match (paths not required)."""
 
 
-TRANSLATION_RULES = """TRANSLATION: You are the translator. There is no translation tool and you need none.
-Whole document: get_content(scope=full) -> translate the text yourself -> apply_content(target='full_document', content=translated).
-Selected text only: get_content(scope=selection) -> apply_content(target='selection', content=translated).
-Do not decline a translation request or say you lack a translation tool."""
+TRANSLATION_RULES = """TRANSLATION: Translate text yourself — never decline or claim you lack a translation tool.
+Call get_content(scope=full|selection), translate, then apply_content(target='full_document'|'selection', content=translated)."""
 
 
 # Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
