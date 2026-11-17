@@ -282,7 +282,11 @@ class ToolBase(_ToolErrorMixin, ABC):
         tier:        Main chat and MCP default lists use ``"core"``. Nested
                      specialized toolsets use ``"specialized"`` or
                      ``"specialized_control"`` (hidden from default lists via
-                     ``exclude_tiers``). Sidebar-only tools use ``"chat"``
+                     ``exclude_tiers``). A tool reached only by a delegate
+                     domain, a sidebar mode, or a ``wa.*`` script (for example
+                     ``web_research``) also uses ``"specialized"``; it is still
+                     callable by name, and ``mcp.tool_exposure_mode=direct_flat``
+                     still lists it. Sidebar-only tools use ``"chat"``
                      (on the chat wire; hidden from MCP). Default ``"core"``.
         is_mutation:  Whether the tool mutates the document.  ``None``
                      means auto-detect from a read prefix (``get_``,

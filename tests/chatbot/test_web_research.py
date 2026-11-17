@@ -1209,3 +1209,60 @@ def test_web_research_uses_ctx_approval_callback_as_given():
         res = WebResearchTool().execute(ctx, query="test query")
     assert res["status"] == "ok"
     assert captured["approval_callback"] is cb
+
+
+@pytest.mark.parametrize("doc_type", ["writer", "calc", "draw", "impress"])
+def test_web_research_is_off_main_chat_and_mcp_lists(doc_type: str) -> None:
+    """WebResearchTool must stay off main chat and default MCP lists.
+
+    Re-basing the class onto ToolBase in cbb0f07b6 silently reset the tier
+    it had inherited to ``core``; setting ``tier = "specialized"`` on the
+    class prevents a future base change from putting it back on the main list.
+    """
+    from plugin.app import get_tools
+    from plugin.mcp.mcp_protocol import _exclude_tiers
+
+    reg = get_tools()
+    chat_names = {s["function"]["name"] for s in reg.get_schemas("openai", doc_type=doc_type)}
+    assert "web_research" not in chat_names
+    assert "delegate_to_subagent" in chat_names
+
+    for mode in ("delegate", "direct_discovery"):
+        mcp_names = {
+            s["name"]
+            for s in reg.get_schemas("mcp", doc_type=doc_type, exclude_tiers=_exclude_tiers(mode, listing=True))
+        }
+        assert "web_research" not in mcp_names
+        assert "delegate_to_subagent" in mcp_names
+
+    tool = reg.get("web_research")
+    assert tool is not None
+    assert tool.tier in _exclude_tiers("delegate", listing=False)
+
+
+def test_web_research_still_runs_through_delegate_sidebar_and_wa_proxy() -> None:
+    from plugin.app import get_tools
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WEB_RESEARCH, require_sidebar_mode
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.doc.specialized_base import DelegateToSubagent
+    from plugin.framework.tool import tool_supports_document
+    from scripts.generate_tool_proxies import domain_tools
+
+    with patch.object(WebResearchTool, "execute", return_value={"status": "ok", "result": "R"}) as mock_exec:
+        res = DelegateToSubagent().execute(MagicMock(), domain="web_research", task="pizza")
+    assert res == {"status": "ok", "result": "R"}
+    mock_exec.assert_called_once()
+    assert mock_exec.call_args.kwargs == {"query": "pizza"}
+
+    reg = get_tools()
+    mode_tool_name = require_sidebar_mode(CHAT_MODE_WEB_RESEARCH).tool_name
+    assert mode_tool_name is not None
+    mode_tool = reg.get(mode_tool_name)
+    assert isinstance(mode_tool, WebResearchTool)
+    for dt in ("writer", "calc", "draw", "impress"):
+        assert tool_supports_document(mode_tool, doc_type=dt, uno_services_supported=None)
+
+    core_proxy_tools = domain_tools(
+        reg.get_tools(filter_doc_type=False, exclude_tiers=frozenset({"specialized_control"}))
+    )["core"]
+    assert "web_research" in core_proxy_tools
